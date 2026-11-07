@@ -237,7 +237,7 @@ describe('chatEventController', () => {
     const identity = { conversationId: 'conversation-1', turnId: 'turn-1', assistantMessageId: 'assistant-1', callId: 'replaced' };
     emitEvent('chat:tool_start', { ...identity, name: 'search', origin: 'mcp_bridge', serverLabel: 'remote' });
     emitEvent('chat:tool_end', { ...identity, name: 'local_alias', origin: 'builtin', status: 'ok' });
-    const tool = { callId: 'replaced', name: 'local_alias', origin: 'builtin', status: 'succeeded', hasDetails: false, resultAvailability: 'available' };
+    const tool = { invocationId: 'inv-replaced', callId: 'replaced', name: 'local_alias', origin: 'builtin', status: 'succeeded', hasDetails: false, resultAvailability: 'available' };
     view.publish([{ segmentId: 'tools', kind: 'tool_invocations', invocations: [tool] }]);
     expect(view.tools()).toEqual([tool]);
     emitEvent('chat:segment_done', { ...identity, hasMore: true, content: '' });
@@ -253,7 +253,7 @@ describe('chatEventController', () => {
     const identity = { conversationId: 'conversation-1', turnId: 'turn-1', assistantMessageId: 'assistant-1' };
 
     emitEvent('chat:tool_start', { ...identity, name: 'search', callId: 'call-1' });
-    const call = { callId: 'call-1', name: 'search', status: 'running', hasDetails: false, resultAvailability: 'pending' };
+    const call = { invocationId: 'inv-call-1', callId: 'call-1', name: 'search', status: 'running', hasDetails: false, resultAvailability: 'pending' };
     view.publish([{ segmentId: 'tools-1', kind: 'tool_invocations', invocations: [call] }]);
     expect(view.tools()[0].status).toBe('running');
     emitEvent('chat:tool_end', { ...identity, name: 'search', callId: 'call-1', status: 'error', summary: 'Indisponível', errorCode: 'invocation_ledger_unavailable' });
@@ -268,7 +268,7 @@ describe('chatEventController', () => {
     emitEvent('chat:segment_done', { ...identity, hasMore: true, content: 'Vou consultar outra fonte.' });
 
     view.publish([...firstSegments, { segmentId: 'text-2', kind: 'text', text: 'Vou consultar outra fonte.' },
-      { segmentId: 'tools-2', kind: 'tool_invocations', invocations: [{ ...call, callId: 'call-2', name: 'read', status: 'succeeded' }] }]);
+      { segmentId: 'tools-2', kind: 'tool_invocations', invocations: [{ ...call, invocationId: 'inv-call-2', callId: 'call-2', name: 'read', status: 'succeeded' }] }]);
     const segments = view.presentation.getMessage('response')!.turnSegments!;
     expect(segments.map(segment => segment.type)).toEqual(['text', 'tool_calls', 'text', 'tool_calls']);
     expect(segments.filter(segment => segment.type === 'text').map(segment => segment.content)).toEqual(['Vou pesquisar.', 'Vou consultar outra fonte.']);
@@ -292,7 +292,7 @@ describe('chatEventController', () => {
       origin: 'builtin',
     });
 
-    view.publish([{ segmentId: 'tools', kind: 'tool_invocations', invocations: [{ callId: 'call-cancel', name: 'run_command',
+    view.publish([{ segmentId: 'tools', kind: 'tool_invocations', invocations: [{ invocationId: 'inv-cancel', callId: 'call-cancel', name: 'run_command',
       status: 'cancelled', hasDetails: false, resultAvailability: 'unavailable' }] }]);
     expect(view.tools()[0].status).toBe('cancelled');
     expect(mockAnnounceForActiveChatConversation).toHaveBeenCalledWith(
@@ -339,7 +339,7 @@ describe('chatEventController', () => {
       origin: 'builtin',
     });
 
-    view.publish([{ segmentId: 'tools', kind: 'tool_invocations', invocations: [{ callId: 'call-cancel-only', name: 'run_command',
+    view.publish([{ segmentId: 'tools', kind: 'tool_invocations', invocations: [{ invocationId: 'inv-cancel-only', callId: 'call-cancel-only', name: 'run_command',
       status: 'cancelled', hasDetails: false, resultAvailability: 'unavailable' }] }]);
     expect(view.tools()[0].status).toBe('cancelled');
     expect(mockAnnounceForActiveChatConversation).toHaveBeenCalledTimes(1);

@@ -322,13 +322,13 @@ describe('ChatMessage', () => {
       id: 'live-reading-busy', conversationId, role: 'assistant',
       content: 'Texto chegando', isStreaming: true, internal: false,
     });
-    const props = agentic ? { activeToolCalls: [{ callId: 'call', name: 'tool', status: 'running' as const }] } : {};
-    const { container, rerender } = render(<ChatMessage message={message} {...props} />);
-    expect(container.querySelector('[aria-busy="true"]')).not.toBeNull();
-    rerender(<ChatMessage message={message} {...props} isReading />);
+    message.turnSegments = agentic ? [{ type: 'tool_calls', toolInvocations: [{ invocationId: 'inv-call', callId: 'call', name: 'tool', status: 'running', hasDetails: false, resultAvailability: 'pending' }] }] : undefined;
+    const { container, rerender } = render(<ChatMessage message={message} />);
+    expect(container.querySelector('.chat-message')).toHaveAttribute('aria-busy', String(!agentic));
+    rerender(<ChatMessage message={message} isReading />);
     expect(container.querySelector('[aria-busy="true"]')).toBeNull();
-    rerender(<ChatMessage message={message} {...props} />);
-    expect(container.querySelector('[aria-busy="true"]')).not.toBeNull();
+    rerender(<ChatMessage message={message} />);
+    expect(container.querySelector('.chat-message')).toHaveAttribute('aria-busy', String(!agentic));
   });
 
   it('renderiza modo de edicao', () => {
@@ -404,13 +404,12 @@ describe('ChatMessage', () => {
 
     const { rerender } = render(
       <ChatMessage
-        message={streamingMessage}
-        completedSegments={[
+        message={{ ...streamingMessage, turnSegments: [
           {
             type: 'tool_calls',
             toolInvocations: [toolInvocation('tool-1', 'search')],
           },
-        ]}
+        ] }}
       />
     );
     rerender(<ChatMessage message={completedToolOnlyMessage} />);
@@ -672,11 +671,9 @@ describe('ChatMessage', () => {
     expect(lastArgs.displayContent).not.toContain('vou pesquisar');
   });
 
-  it('substitui (não concatena) o aria-label pelo texto ao vivo mais recente durante o streaming, mesmo antes de virar TurnSegment', () => {
-    // Cenário real do streaming agêntico: a iteração em curso aparece em
-    // `content` (live) e só vira um TurnSegment concluído depois. O anúncio
-    // precisa refletir esse trecho mais recente, sem ficar preso no último
-    // segmento já fechado.
+  it('acompanha a conclusão canônica mais recente durante streaming sem concatenar textos anteriores', () => {
+    // O backend fornece os segmentos e a conclusão corrente. O nome acessível
+    // acompanha essa conclusão sem agregar texto de iterações anteriores.
     const first = messageFixture({
       id: 'turn-streaming',
       conversationId,
@@ -690,8 +687,7 @@ describe('ChatMessage', () => {
 
     const { rerender } = render(
       <ChatMessage
-        message={first}
-        completedSegments={[{ type: 'text', content: 'parte um' }]}
+        message={{ ...first, turnSegments: [{ type: 'text', content: 'parte um' }] }}
       />
     );
 
@@ -699,8 +695,8 @@ describe('ChatMessage', () => {
       displayContent: 'parte um',
     }));
 
-    // O novo trecho ("parte dois") chega como conteúdo ao vivo; os segmentos
-    // concluídos ainda terminam no texto anterior ("parte um") + tool_calls.
+    // O backend entrega a nova conclusão junto dos segmentos anteriores e do
+    // texto corrente; o nome acessível acompanha essa conclusão.
     const second = messageFixture({
       id: 'turn-streaming',
       conversationId,
@@ -714,11 +710,11 @@ describe('ChatMessage', () => {
 
     rerender(
       <ChatMessage
-        message={second}
-        completedSegments={[
+        message={{ ...second, turnSegments: [
           { type: 'text', content: 'parte um' },
           { type: 'tool_calls', toolInvocations: [toolInvocation('t', 'search')] },
-        ]}
+          { type: 'text', content: 'parte dois' },
+        ] }}
       />
     );
 

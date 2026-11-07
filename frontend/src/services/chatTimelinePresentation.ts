@@ -229,7 +229,7 @@ export class ChatTimelinePresentation implements ChatMessageSource {
     if (existing) return existing;
     const segments: TurnSegment[] = item.segments.filter(segment => segment.kind !== 'reasoning').map(segment => ({
       type: segment.kind === 'tool_invocations' ? 'tool_calls' : 'text', content: segment.text,
-      toolInvocations: segment.invocations as TurnSegment['toolInvocations'],
+      toolInvocations: segment.invocations,
     }));
     const message = {
       ...item.metadata, timestamp: Date.parse(item.metadata.createdAt), id: item.itemId, conversationId: item.conversationId, parentId: item.scopeParentId ?? undefined,

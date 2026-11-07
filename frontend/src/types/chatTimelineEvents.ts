@@ -3,7 +3,7 @@
 export const CHAT_TIMELINE_EVENT = 'chat:timeline';
 
 export interface TimelineToolSummary {
-  invocationId?: string;
+  invocationId: string;
   callId: string;
   name: string;
   origin?: string;

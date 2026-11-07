@@ -1,3 +1,4 @@
+import { invocationFixture } from '../../test/chatPresentationFixture';
 import { nodeFixture } from '../../test/chatPresentationFixture';
 import type { Message, MessageNode } from '../../lib/chatMessageTree';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -31,7 +32,7 @@ vi.mock('./MessageNode', () => ({
     return <div data-testid={node.message.id} tabIndex={-1}>
       {editing && <textarea ref={editor} aria-label="edição" defaultValue={node.message.content} />}
       <button onClick={event => { event.stopPropagation(); onContextMenu?.(event, node.message, retain); }}>Menu</button>
-      <ToolCallsSection tabNavigationEnabled activeToolCalls={[{ callId: node.message.id, name: 'echo', status: 'done', summary: node.message.content }]} />
+      <ToolCallsSection tabNavigationEnabled toolInvocations={[invocationFixture({ callId: node.message.id, name: 'echo', status: 'done', outputPreview: node.message.content })]} />
     </div>;
   },
 }));

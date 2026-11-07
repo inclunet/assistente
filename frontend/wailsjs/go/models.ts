@@ -678,7 +678,7 @@ export namespace apidto {
 	    }
 	}
 	export class TurnSegmentToolCall {
-	    invocationId?: string;
+	    invocationId: string;
 	    callId: string;
 	    name: string;
 	    origin?: string;

@@ -1,4 +1,4 @@
-import { messageFixture } from '../../test/chatPresentationFixture';
+import { invocationFixture, messageFixture } from '../../test/chatPresentationFixture';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { ChatMessage } from './ChatMessage';
@@ -7,8 +7,9 @@ import { ToolInvocationDialogsProvider } from './ToolInvocationDialogs';
 
 const currentUser = vi.hoisted(() => ({ id: 'user-a' }));
 const loadDetails = vi.hoisted(() => vi.fn());
+const translate = vi.hoisted(() => (key: string) => key);
 
-vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
+vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: translate }) }));
 vi.mock('./ChatSessionContext', () => ({
   useChatMessageLiveState: () => ({
     liveContent: null,
@@ -53,14 +54,70 @@ describe('ChatMessage tool dialog host', () => {
     currentUser.id = 'user-a';
     loadDetails.mockReset();
   });
-  it('traduz a falha local pelo código sem exibir a mensagem técnica', async () => {
-    const call = { callId: 'blocked', name: 'echo', status: 'error' as const,
-      errorCode: 'invocation_ledger_unavailable', summary: 'backend diagnostic' };
-    render(<ToolCallsSection tabNavigationEnabled activeToolCalls={[call]} />);
-    fireEvent.click(screen.getByRole('button', { name: 'chat.technicalDetails' }));
-    expect(await screen.findByText('chat.invocationLedgerUnavailable')).toBeInTheDocument();
-    expect(screen.queryByText('backend diagnostic')).not.toBeInTheDocument();
+  it('preserva o parcial e apresenta falha canônica sem inventar ferramenta sem ledger', () => {
+    render(<ChatMessage message={messageFixture({ ...baseMessage(),
+      content: 'parcial preservado', isStreaming: false,
+      timelineItem: { state: 'failed' },
+    })} />);
+    expect(screen.getByText('chat.timelineFailed')).toBeInTheDocument();
+    expect(screen.getByText('parcial preservado')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'chat.technicalDetails' })).not.toBeInTheDocument();
     expect(loadDetails).not.toHaveBeenCalled();
+  });
+
+  it.each([0, 1])('seleciona a invocação %i sem fundir call IDs reutilizados', async (index) => {
+    const calls = ['first-execution', 'second-execution'].map(invocationId => invocationFixture({
+      invocationId, callId: 'reused-provider-id', name: 'search', status: 'succeeded',
+      hasDetails: true, resultAvailability: 'available', outputPreview: invocationId,
+    }));
+    loadDetails.mockImplementation((_: string, ids: string[]) => Promise.resolve(new Map(ids.map(id => [id, {
+      invocationId: id, input: '{}', output: JSON.stringify({ content: `detalhes de ${id}` }), metadata: '{}',
+    }]))));
+    const frame = (invocations = calls) => messageFixture({ ...baseMessage(),
+      turnSegments: [{ type: 'tool_calls', toolInvocations: invocations }],
+    });
+    const { rerender } = render(<ChatMessage message={frame()} isReading />);
+    const buttons = screen.getAllByRole('button', { name: 'chat.technicalDetails' });
+    fireEvent.click(buttons[index]);
+    expect(await screen.findByText(`detalhes de ${calls[index].invocationId}`)).toBeInTheDocument();
+    expect(loadDetails).toHaveBeenCalledWith('user-a', [calls[index].invocationId]);
+    rerender(<ChatMessage message={frame([...calls].reverse())} isReading />);
+    expect(screen.getByRole('dialog')).toHaveTextContent(`detalhes de ${calls[index].invocationId}`);
+    fireEvent.click(screen.getByRole('button', { name: 'ui.modal.close' }));
+    await waitFor(() => expect(document.activeElement).toBe(buttons[index]));
+    expect(screen.getAllByRole('button', { name: 'chat.technicalDetails' })[1 - index]).toBe(buttons[index]);
+  });
+
+  it('mantém o detalhe selecionado quando outra execução reutiliza o call ID', () => {
+    const selected = invocationFixture({ invocationId: 'previous', callId: 'reused', outputPreview: 'prévia anterior' });
+    const replacement = invocationFixture({ invocationId: 'next', callId: 'reused', status: 'succeeded', outputPreview: 'outra execução' });
+    const { rerender } = render(<ToolCallsSection toolInvocations={[selected]} tabNavigationEnabled />);
+    fireEvent.click(screen.getByRole('button', { name: 'chat.technicalDetails' }));
+    rerender(<ToolCallsSection toolInvocations={[replacement]} tabNavigationEnabled />);
+    expect(screen.getByRole('dialog')).toHaveTextContent('prévia anterior');
+    expect(screen.getByRole('dialog')).toHaveTextContent('chat.toolStatusRunning');
+    expect(screen.getByRole('dialog')).not.toHaveTextContent('outra execução');
+    expect(loadDetails).not.toHaveBeenCalled();
+  });
+  it.each([false, true])('preserva a conclusão após retirada da janela, com detalhes=%s', async (hasDetails) => {
+    const initial = invocationFixture({ invocationId: 'previous', callId: 'reused', outputPreview: 'prévia parcial', hasDetails });
+    const completed = { ...initial, status: 'succeeded', outputPreview: 'prévia final' };
+    const replacement = invocationFixture({ invocationId: 'next', callId: 'reused', outputPreview: 'outra execução' });
+    loadDetails.mockResolvedValue(new Map([['previous', { invocationId: 'previous', output: 'resultado completo', metadata: '{}' }]]));
+    const { rerender } = render(<ToolCallsSection toolInvocations={[initial]} tabNavigationEnabled />);
+    fireEvent.click(screen.getByRole('button', { name: 'chat.technicalDetails' }));
+    expect(screen.getByRole('dialog')).toHaveTextContent('chat.toolStatusRunning');
+    rerender(<ToolCallsSection toolInvocations={[completed]} tabNavigationEnabled />);
+    const expectedOutput = hasDetails ? 'resultado completo' : 'prévia final';
+    await waitFor(() => expect(screen.getByRole('dialog')).toHaveTextContent(expectedOutput));
+    const dialog = screen.getByRole('dialog');
+    rerender(<ToolCallsSection toolInvocations={[replacement]} tabNavigationEnabled />);
+    expect(screen.getByRole('dialog')).toBe(dialog);
+    expect(dialog).toHaveTextContent('chat.toolStatusSucceeded');
+    expect(dialog).toHaveTextContent(expectedOutput);
+    expect(dialog).not.toHaveTextContent('prévia parcial');
+    expect(dialog).not.toHaveTextContent('outra execução');
+    expect(loadDetails).toHaveBeenCalledTimes(hasDetails ? 1 : 0);
   });
   it.each(['', 'saída original preservada'])(
     'mostra diagnóstico separado da saída MCP %j',
@@ -141,7 +198,6 @@ describe('ChatMessage tool dialog host', () => {
             ],
           })
         }
-        activeToolCalls={[]}
       />
     );
     expect(screen.getByRole('dialog')).toBeInTheDocument();

@@ -615,7 +615,7 @@ function itemRecoveryFixture() {
   original.items[0].recoveryReference = { ...recoveryReference };
   original.items[0].segments = [
     { segmentId: 'opaque', kind: 'text', text: 'conteúdo preservado 🦜' },
-    { segmentId: 'tool', kind: 'tool_invocations', invocations: [{ callId: 'call', name: 'tool', status: 'completed', hasDetails: true, resultAvailability: 'available' }] },
+    { segmentId: 'tool', kind: 'tool_invocations', invocations: [{ invocationId: 'inv-call', callId: 'call', name: 'tool', status: 'completed', hasDetails: true, resultAvailability: 'available' }] },
   ];
   f.port.open.mockResolvedValueOnce(original);
   f.port.reserveItem.mockImplementation(async (_window, identity) => new apidto.TimelineRecoveryItemReservation({ conversationId: 'chat', identity }));

@@ -20,31 +20,12 @@ import { openToolNavigationTarget } from '../../lib/toolTargetNavigation';
 import { announce } from '../../hooks/useAnnouncer';
 import { loadToolInvocationDetails } from '../../services/toolInvocationDetailsCache';
 import { useAuthStore } from '../../store/authStore';
-import { type ToolCallStatus } from '../../types/chat';
 import { Button } from '../ui/Button';
 import { isModalOpen, Modal } from '../ui/Modal';
 import { restoreDefaultFocus } from '../../hooks/useDefaultFocus';
 import './ToolCallsSection.css';
 import { useMessageInteraction } from './MessageInteractionContext';
 
-export type ToolInvocationDialogCall = ToolInvocationSummary | ToolCallStatus;
-export type InvocationForDetails = {
-  callId: string;
-  name: string;
-  status?: string;
-  invocationId?: string;
-  hasDetails?: boolean;
-  inputPreview?: string;
-  outputPreview?: string;
-  args?: string;
-  summary?: string;
-  errorCode?: string;
-  securityOutcome?: string;
-  durationMs?: number;
-  hasSearchResults?: boolean;
-  searchResultCount?: number;
-  [key: string]: unknown;
-};
 const SEARCH_RESULTS_PAGE_SIZE = 20;
 type ToolDisplayStatus = 'running' | 'succeeded' | 'failed' | 'cancelled' | 'unknown';
 
@@ -101,8 +82,8 @@ function detailResult(detail: toolinvocations.Detail): string {
 }
 
 interface ToolInvocationDialogsContextValue {
-  openDetails: (invocation: InvocationForDetails, origin?: HTMLElement) => void;
-  openSearchResults: (invocation: InvocationForDetails, origin?: HTMLElement) => void;
+  openDetails: (invocation: ToolInvocationSummary, origin?: HTMLElement) => void;
+  openSearchResults: (invocation: ToolInvocationSummary, origin?: HTMLElement) => void;
 }
 const ToolInvocationDialogsContext = createContext<ToolInvocationDialogsContextValue | null>(null);
 export function useToolInvocationDialogs() {
@@ -113,7 +94,7 @@ export function ToolInvocationDialogsProvider({
   currentCalls,
   children,
 }: {
-  currentCalls: ToolInvocationDialogCall[];
+  currentCalls: ToolInvocationSummary[];
   children: React.ReactNode;
 }) {
   const { t } = useTranslation();
@@ -125,11 +106,11 @@ export function ToolInvocationDialogsProvider({
     searchRetention.current?.();
   }, []);
   const userId = useAuthStore((state) => state.user?.userId ?? '');
-  const [selected, setSelected] = useState<InvocationForDetails | null>(null);
+  const [selected, setSelected] = useState<ToolInvocationSummary | null>(null);
   const [detail, setDetail] = useState<toolinvocations.Detail | null>(null);
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState(false);
-  const [searchSelected, setSearchSelected] = useState<InvocationForDetails | null>(null);
+  const [searchSelected, setSearchSelected] = useState<ToolInvocationSummary | null>(null);
   const [searchPresentation, setSearchPresentation] = useState<SearchResultPresentation | null>(
     null
   );
@@ -164,15 +145,11 @@ export function ToolInvocationDialogsProvider({
   const selectedCurrent = useMemo(() => {
     if (!selected) return null;
     return (
-      (currentCalls.find(
-        (call) =>
-          call.callId === selected.callId ||
-          (!!selected.invocationId &&
-            'invocationId' in call &&
-            call.invocationId === selected.invocationId)
-      ) as InvocationForDetails | undefined) ?? selected
+      currentCalls.find(call => call.invocationId === selected.invocationId) ?? selected
     );
   }, [currentCalls, selected]);
+  // Preserve o último resumo confirmado, inclusive quando a invocação sair da janela.
+  if (selectedCurrent !== selected) setSelected(selectedCurrent);
   useEffect(() => {
     const status = selectedCurrent ? displayToolStatus(selectedCurrent.status) : 'unknown';
     if (
@@ -220,7 +197,7 @@ export function ToolInvocationDialogsProvider({
     previousSelectedStatusRef.current = status;
   }, [selected, selectedCurrent?.status, t]);
   const openDetails = useCallback(
-    (invocation: InvocationForDetails, origin?: HTMLElement) => {
+    (invocation: ToolInvocationSummary, origin?: HTMLElement) => {
       detailRetention.current?.();
       detailRetention.current = retainInteraction();
       detailRequestRef.current += 1;
@@ -234,7 +211,7 @@ export function ToolInvocationDialogsProvider({
     [userId, retainInteraction]
   );
   const openSearchResults = useCallback(
-    async (invocation: InvocationForDetails, origin?: HTMLElement) => {
+    async (invocation: ToolInvocationSummary, origin?: HTMLElement) => {
       searchRetention.current?.();
       searchRetention.current = retainInteraction();
       const requestId = ++searchRequestRef.current;
@@ -348,7 +325,7 @@ export function ToolInvocationDialogsProvider({
                         detail
                           ? detailArguments(detail)
                           : sanitizeToolDetailArguments(
-                              selectedCurrent.inputPreview ?? selectedCurrent.args ?? ''
+                              selectedCurrent.inputPreview ?? ''
                             )
                       )}
                     </pre>
@@ -358,14 +335,10 @@ export function ToolInvocationDialogsProvider({
                     <pre className="tool-calls-section__result-content">
                       {detail
                         ? detailResult(detail)
-                        : selectedCurrent.errorCode === 'invocation_ledger_unavailable'
-                          ? t('chat.invocationLedgerUnavailable')
-                          : (displayToolStatus(selectedCurrent.status) === 'running'
+                        : (displayToolStatus(selectedCurrent.status) === 'running'
                             ? `${t('chat.partialOutput')}: `
                             : '') +
-                          (selectedCurrent.outputPreview ??
-                            selectedCurrent.summary ??
-                            t('chat.toolDetailsUnavailable'))}
+                          (selectedCurrent.outputPreview ?? t('chat.toolDetailsUnavailable'))}
                     </pre>
                   </section>
                   {detail?.errorMessage?.trim() && (
