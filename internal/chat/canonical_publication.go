@@ -169,6 +169,12 @@ func (c *projectionConversation) publishCanonicalWindowChanges(conversationID st
 	}
 	changed := make([]CanonicalItem, 0)
 	operations := make([]CanonicalOperation, 0)
+	// Sem base de diff, todos os itens serão upserts. Só nesse caso reservamos
+	// a página inteira; snapshots com poucas mudanças mantêm vetores pequenos.
+	if len(p.items) == 0 {
+		changed = make([]CanonicalItem, 0, len(items))
+		operations = make([]CanonicalOperation, 0, len(items)+len(removed))
+	}
 	for _, id := range removed {
 		operations = append(operations, CanonicalOperation{Kind: "item_remove", ItemID: id})
 		p.removeItem(id)

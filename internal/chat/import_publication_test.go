@@ -206,3 +206,46 @@ func TestImportWithoutOriginalQuestionKeepsRecoveryAndDiscardAuthorized(t *testi
 		t.Fatal("conversa excluída autorizou descarte")
 	}
 }
+
+func TestImportRemovesCompletedTurnAndClosingLastWindowEvictsBeforeTimer(t *testing.T) {
+	f, p, e, _ := automaticFixture(t)
+	sub, _, err := p.SubscribeTimeline(f.ctx, &fixtureTimelineSession{ctx: f.ctx, id: "import-retention"}, "history", database.MessageWindowQuery{ConversationID: f.conversation, Anchor: "end", Direction: "before", Limit: 20}, f.reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sub.Close()
+	repo := database.NewChatTurnRepository(f.db)
+	if err := e.CommitTerminal(database.TurnCompleted, "completed", func() (database.ChatTimelineVersion, error) {
+		return repo.FinishResponseWithVersion(f.ctx, f.conversation, f.question, e.executionID, database.TurnCompleted, "completed", "", nil)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	p.mu.Lock()
+	timer := e.conversation.timer
+	p.mu.Unlock()
+	if timer == nil {
+		t.Fatal("turno concluído não agendou retenção")
+	}
+	file := portability.ExportFile{Version: portability.ExportVersion, Resources: portability.ExportResources{Conversations: []portability.ConversationExport{{ID: f.conversation, Title: "Substituída", Messages: []portability.MessageExport{{ID: "replacement-question", Role: "user", Content: "outro histórico"}}}}}}
+	raw, err := json.Marshal(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := portability.ImportConversationsWithHooks(f.ctx, string(raw), nil, "", nil, portability.ConversationImportHooks{ImportTimeline: p.ApplyConversationImport})
+	if err != nil || result == nil || result.Imported != 1 {
+		t.Fatal(result, err)
+	}
+	p.mu.Lock()
+	c := p.conversations[e.key]
+	if c != e.conversation || c.timer != timer {
+		p.mu.Unlock()
+		t.Fatal("importação alterou timer ou descartou janela aberta")
+	}
+	p.mu.Unlock()
+	sub.Close()
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.conversations[e.key] != nil || e.conversation.timer != nil {
+		t.Fatal("projetor vazio aguardou o timer de retenção após fechar última janela")
+	}
+}
