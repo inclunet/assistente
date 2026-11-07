@@ -4,12 +4,22 @@ import (
 	"errors"
 	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
+	"gorm.io/gorm/logger"
+	"log"
+	"os"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestTimelineIdentitySelectionMasksBeforeScan(t *testing.T) {
-	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	// A prova usa IDs maiores que 8 MiB. O logger preserva diagnósticos de SQL
+	// sem interpolar esses parâmetros sintéticos no log, sobretudo sob -race.
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{Logger: logger.New(
+		log.New(os.Stdout, "", log.LstdFlags), logger.Config{
+			SlowThreshold: 200 * time.Millisecond, LogLevel: logger.Warn, ParameterizedQueries: true,
+		},
+	)})
 	if err != nil {
 		t.Fatal(err)
 	}

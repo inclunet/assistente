@@ -53,6 +53,16 @@ seguinte sem pendências técnicas. Não foram executados testes ACP ou NVDA.
 Este recorte não conclui os gates de desempenho, a pressão de bytes na WebView
 nem a retirada das APIs internas do backend. O AEP permanece In Progress.
 
+A primeira execução remota passou frontend, E2E, bindings, backend completo e
+as duas partições de corrida do chat. O grupo de pacotes gerais excedeu 23
+minutos, sem asserção falha ou corrida reportada. Seu log de aproximadamente
+50 MB incluía os parâmetros sintéticos maiores que 8 MiB da prova de limite
+de identidades. O logger exclusivo dessa fixture passou a registrar SQL
+parametrizado, mantendo avisos e erros sem imprimir o payload. A prova e
+seus limites não mudaram; o teste focado passou localmente. Quarta rodada do
+mesmo revisor independente sem pendências. A resolução do timeout depende
+da nova execução remota; não foi aumentado o prazo nem reduzida a suíte.
+
 ### Ferramentas canônicas e identidade dos detalhes (07/11/2026)
 
 O visual usa somente `turnSegments[].toolInvocations`, inclusive durante
