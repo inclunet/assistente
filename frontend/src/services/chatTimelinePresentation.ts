@@ -207,17 +207,16 @@ export class ChatTimelinePresentation implements ChatMessageSource {
     if (!surface || !window) return emptyNodes;
     const previous = this.nodeWindows.get(surface);
     const byId = new Map(previous?.map(node => [node.itemId, node]));
-    const nodes = window.orderedItemIds.map((id, index) => {
+    const nodes = window.orderedItemIds.map((id) => {
       const item = this.client.getItem(this.conversationId, surface, id);
       if (!item) throw new Error('Canonical window item unavailable');
       const parent = item.representativeMessageId;
       const message = this.message(item);
       const children = parent ? this.nodes(parent) : emptyNodes;
-      const originalIndex = window.metadata.startIndex + index;
       const existing = byId.get(id);
-      if (existing?.message === message && existing.children === children && existing.originalIndex === originalIndex) return existing;
+      if (existing?.message === message && existing.children === children) return existing;
       return { itemId: id, message, children,
-        childCount: item.metadata.childCount, level: scope === null ? 0 : 1, originalIndex } satisfies MessageNode;
+        childCount: item.metadata.childCount } satisfies MessageNode;
     });
     if (previous?.length === nodes.length && nodes.every((node, index) => node === previous[index])) return previous;
     this.nodeWindows.set(surface, nodes);

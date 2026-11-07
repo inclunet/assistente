@@ -1,3 +1,4 @@
+import { withFixtureProjection } from '../../test/chatWindowFixture';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { useEffect, type ReactNode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -127,11 +128,7 @@ vi.mock('../chat/ChatPanel', () => ({
 
 vi.mock('../chat/ChatSurfaceController', () => ({
   sendChatSurfaceMessage: hoisted.sendChatSurfaceMessageMock,
-  useChatConversationTimeline: () => ({
-    id: hoisted.conversationId,
-    title: 'Título da timeline',
-    threadedMessages: [],
-  }),
+  useChatConversationInfo: () => (withFixtureProjection({ id: hoisted.conversationId, title: 'Título da timeline' }, { nodes: [] })),
 }));
 
 vi.mock('../../store/workspaceChatModalStore', () => ({
@@ -169,17 +166,11 @@ vi.mock('../../store/authStore', () => ({
 
 vi.mock('../../store/chatStore', () => ({
   useChatStore: (selector?: (state: {
-    sessionsByConversationId: Record<string, never>;
-    timelinesByConversationId: Record<string, { id: string; title: string; threadedMessages: never[] }>;
+    conversationInfoById: Record<string, { id: string; title: string }>;
   }) => unknown) => {
     const state = {
-      sessionsByConversationId: {},
-      timelinesByConversationId: {
-        [hoisted.conversationId]: {
-          id: hoisted.conversationId,
-          title: 'Título da timeline',
-          threadedMessages: [],
-        },
+      conversationInfoById: {
+        [hoisted.conversationId]: withFixtureProjection({ id: hoisted.conversationId, title: 'Título da timeline' }, { nodes: [] }),
       },
     };
     return typeof selector === 'function' ? selector(state) : state;

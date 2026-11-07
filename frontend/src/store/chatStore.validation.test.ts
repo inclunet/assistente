@@ -1,3 +1,4 @@
+import { withFixtureProjection } from '../test/chatWindowFixture';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MediaCategory } from '../services/mediaService';
 
@@ -190,11 +191,16 @@ describe('chatStore validation', () => {
     const mod = await import('./chatStore');
     useChatStore = mod.useChatStore;
     useChatStore.setState({
-      sessionsByConversationId: {
-        [defaultConversationId]: {
+      conversationInfoById: {
+        [defaultConversationId]: withFixtureProjection(
+          { id: defaultConversationId, title: 'Conversa' },
+          { nodes: [] }
+        ),
+      },
+      surfaceSessionsByKey: {
+        ['conversation:' + defaultConversationId]: {
           sessionKey: `conversation:${defaultConversationId}`,
           conversationId: defaultConversationId,
-          conversation: { id: defaultConversationId, title: 'Conversa', threadedMessages: [] },
           isLoading: false,
           sendFailureMessage: null,
           sendFailureAnnounced: false,
@@ -230,7 +236,7 @@ describe('chatStore validation', () => {
     expect(mockGetConversationInfo).toHaveBeenCalledTimes(1);
     finish({ title: 'compartilhada' });
     await Promise.all([first, second]);
-    expect(useChatStore.getState().getConversationSession(defaultConversationId)?.conversation?.title).toBe('compartilhada');
+    expect(useChatStore.getState().conversationInfoById[defaultConversationId]?.title).toBe('compartilhada');
   });
 
   it.each(['delete', 'reset'])('recusa metadados tardios após %s e permite nova carga', async action => {
@@ -245,7 +251,7 @@ describe('chatStore validation', () => {
     await useChatStore.getState().loadConversationSession(defaultConversationId);
     finish({ title: 'antiga' });
     await rejected;
-    expect(useChatStore.getState().getConversationSession(defaultConversationId)?.conversation?.title).toBe('nova');
+    expect(useChatStore.getState().conversationInfoById[defaultConversationId]?.title).toBe('nova');
   });
 
   it('envio auditado reutiliza SendMessage e serializa somente a correlação', async () => {
@@ -302,7 +308,7 @@ describe('chatStore validation', () => {
     gate.resolve('[]');
     await rejected;
     expect(mockSendMessage).not.toHaveBeenCalled();
-    expect(useChatStore.getState().sessionsByConversationId[defaultConversationId].isLoading).toBe(false);
+    expect(useChatStore.getState().surfaceSessionsByKey['conversation:' + defaultConversationId].isLoading).toBe(false);
   });
 
   it('erro de transporte auditado não oferece retry como nova mensagem', async () => {
@@ -310,7 +316,7 @@ describe('chatStore validation', () => {
     await expect(useChatStore.getState().sendMessageToConversation(defaultConversationId, 'não duplicar', undefined, undefined, {
       command: { handoff: { ticket: 'ticket', handoffId: 'handoff' }, isCurrent: () => true },
     })).rejects.toThrow('resposta perdida');
-    const session = useChatStore.getState().sessionsByConversationId[defaultConversationId];
+    const session = useChatStore.getState().surfaceSessionsByKey['conversation:' + defaultConversationId];
     expect(session.sendFailureMessage).toBe('chat.sendErrorPrefix');
     expect(session.sendFailureAnnounced).toBe(false);
     expect(session.sendFailureRetryable).toBe(false);
@@ -328,9 +334,9 @@ describe('chatStore validation', () => {
     const current = useChatStore.getState().getMessagingPipelineRevision(defaultConversationId);
     expect(current).toBeGreaterThan(previous);
     useChatStore.getState().finishCommandCancellation(defaultConversationId, `conversation:${defaultConversationId}`, previous);
-    expect(useChatStore.getState().sessionsByConversationId[defaultConversationId].isLoading).toBe(true);
+    expect(useChatStore.getState().surfaceSessionsByKey['conversation:' + defaultConversationId].isLoading).toBe(true);
     useChatStore.getState().finishCommandCancellation(defaultConversationId, `conversation:${defaultConversationId}`, current);
-    expect(useChatStore.getState().sessionsByConversationId[defaultConversationId].isLoading).toBe(false);
+    expect(useChatStore.getState().surfaceSessionsByKey['conversation:' + defaultConversationId].isLoading).toBe(false);
   });
 
   it('revisão do rascunho detecta alteração ABA', () => {
@@ -353,7 +359,7 @@ describe('chatStore validation', () => {
     await useChatStore.getState().sendMessageToConversation(defaultConversationId, 'pergunta');
     const revision = useChatStore.getState().getMessagingPipelineRevision(defaultConversationId);
     useChatStore.getState().finishCommandCancellation(defaultConversationId, `conversation:${defaultConversationId}`, revision);
-    const session = useChatStore.getState().sessionsByConversationId[defaultConversationId];
+    const session = useChatStore.getState().surfaceSessionsByKey['conversation:' + defaultConversationId];
     expect(session.isLoading).toBe(false);
     // Conteúdo/turno/parcial são cobertos no runtime por
     // TestExecutionWriterToolFirstTerminalUsesExplicitExecutionMode e no renderer
@@ -501,7 +507,7 @@ describe('chatStore validation', () => {
     await useChatStore.getState().sendMessageToConversation(defaultConversationId, 'hello');
 
     expect(mockAnnounce).toHaveBeenCalledWith('Provedor LLM não disponível');
-    expect(useChatStore.getState().sessionsByConversationId[defaultConversationId]?.isLoading).toBe(false);
+    expect(useChatStore.getState().surfaceSessionsByKey['conversation:' + defaultConversationId]?.isLoading).toBe(false);
   });
 
   it('sendMessageToConversation envia usando o conversationId explícito', async () => {
@@ -544,14 +550,14 @@ describe('chatStore validation', () => {
   });
 
   it('propaga eventos sem origem para superfícies existentes da conversa', async () => {
-    const { createEmptyChatSession } = await import('../services/chatSessionRegistry');
+    const { createEmptyChatSurfaceSession } = await import('../services/chatSessionRegistry');
     useChatStore.setState({
-      timelinesByConversationId: {
-        [defaultConversationId]: { id: defaultConversationId, title: 'Conversa', threadedMessages: [] },
+      conversationInfoById: {
+        [defaultConversationId]: withFixtureProjection({ id: defaultConversationId, title: 'Conversa' }, { nodes: [] }),
       },
       surfaceSessionsByKey: {
-        [`tab-a:${defaultConversationId}`]: createEmptyChatSession(defaultConversationId, `tab-a:${defaultConversationId}`),
-        [`tab-b:${defaultConversationId}`]: createEmptyChatSession(defaultConversationId, `tab-b:${defaultConversationId}`),
+        [`tab-a:${defaultConversationId}`]: createEmptyChatSurfaceSession(defaultConversationId, `tab-a:${defaultConversationId}`),
+        [`tab-b:${defaultConversationId}`]: createEmptyChatSurfaceSession(defaultConversationId, `tab-b:${defaultConversationId}`),
       },
     });
 
@@ -567,33 +573,31 @@ describe('chatStore validation', () => {
   });
 
   it('remove timeline e superfícies órfãs ao deletar conversa', async () => {
-    const { createEmptyChatSession } = await import('../services/chatSessionRegistry');
+    const { createEmptyChatSurfaceSession } = await import('../services/chatSessionRegistry');
     const orphanConversationId = '01926b90-7a5a-7c4e-8d3f-000000000099';
     const orphanSessionKey = `tab-chat:${orphanConversationId}`;
     useChatStore.setState({
-      sessionsByConversationId: {},
-      timelinesByConversationId: {
-        [orphanConversationId]: { id: orphanConversationId, title: 'Órfã', threadedMessages: [] },
-        [defaultConversationId]: { id: defaultConversationId, title: 'Preservada', threadedMessages: [] },
+      conversationInfoById: {
+        [orphanConversationId]: withFixtureProjection({ id: orphanConversationId, title: 'Órfã' }, { nodes: [] }),
+        [defaultConversationId]: withFixtureProjection({ id: defaultConversationId, title: 'Preservada' }, { nodes: [] }),
       },
       surfaceSessionsByKey: {
-        [orphanSessionKey]: createEmptyChatSession(orphanConversationId, orphanSessionKey),
+        [orphanSessionKey]: createEmptyChatSurfaceSession(orphanConversationId, orphanSessionKey),
       },
     });
 
-    const metadataBeforeDeletion = useChatStore.getState().timelinesByConversationId[defaultConversationId];
+    const metadataBeforeDeletion = useChatStore.getState().conversationInfoById[defaultConversationId];
     useChatStore.getState().handleConversationDeleted(orphanConversationId);
 
-    expect(useChatStore.getState().timelinesByConversationId[orphanConversationId]).toBeUndefined();
+    expect(useChatStore.getState().conversationInfoById[orphanConversationId]).toBeUndefined();
     expect(useChatStore.getState().surfaceSessionsByKey[orphanSessionKey]).toBeUndefined();
-    expect(useChatStore.getState().timelinesByConversationId[defaultConversationId]).toBe(metadataBeforeDeletion);
+    expect(useChatStore.getState().conversationInfoById[defaultConversationId]).toBe(metadataBeforeDeletion);
   });
 
   it('envia sem recarregar quando timeline já está carregada sem sessão legada', async () => {
     useChatStore.setState({
-      sessionsByConversationId: {},
-      timelinesByConversationId: {
-        [defaultConversationId]: { id: defaultConversationId, title: 'Conversa', threadedMessages: [] },
+      conversationInfoById: {
+        [defaultConversationId]: withFixtureProjection({ id: defaultConversationId, title: 'Conversa' }, { nodes: [] }),
       },
       surfaceSessionsByKey: {},
     });
@@ -619,9 +623,8 @@ describe('chatStore validation', () => {
         ],
       },
     } as unknown as MessageNode;
-    useChatStore.setState({
-      sessionsByConversationId: {}, surfaceSessionsByKey: {},
-      timelinesByConversationId: { [defaultConversationId]: { id: defaultConversationId, title: 'Conversa', threadedMessages: [assistant] } },
+    useChatStore.setState({ surfaceSessionsByKey: {},
+      conversationInfoById: { [defaultConversationId]: withFixtureProjection({ id: defaultConversationId, title: 'Conversa' }, { nodes: [assistant] }) },
     });
     await useChatStore.getState().retryMessageToConversation(defaultConversationId, 'user-1', { allowAssistantPrefill });
     const identity = { conversationId: defaultConversationId, turnId: 'turn-1', assistantMessageId: assistantId };
@@ -631,15 +634,14 @@ describe('chatStore validation', () => {
     // Seleção de ferramentas e conteúdo é provada no runtime por
     // TestExecutionWriterToolFirstTerminalUsesExplicitExecutionMode.
     expect(mockSendMessage).not.toHaveBeenCalled();
-    expect(useChatStore.getState().sessionsByConversationId[defaultConversationId].isLoading).toBe(false);
+    expect(useChatStore.getState().surfaceSessionsByKey['conversation:' + defaultConversationId].isLoading).toBe(false);
     expect(mockRetryMessage).toHaveBeenCalledWith(defaultConversationId, 'user-1', expect.objectContaining({ allowAssistantPrefill }));
   });
 
   it('faz retry sem recarregar quando timeline já está carregada sem sessão legada', async () => {
     useChatStore.setState({
-      sessionsByConversationId: {},
-      timelinesByConversationId: {
-        [defaultConversationId]: { id: defaultConversationId, title: 'Conversa', threadedMessages: [] },
+      conversationInfoById: {
+        [defaultConversationId]: withFixtureProjection({ id: defaultConversationId, title: 'Conversa' }, { nodes: [] }),
       },
       surfaceSessionsByKey: {},
     });
@@ -669,19 +671,19 @@ describe('chatStore validation', () => {
     await second;
 
     expect(mockSendMessage).toHaveBeenCalledTimes(1);
-    expect(useChatStore.getState().sessionsByConversationId).toEqual({});
-    expect(useChatStore.getState().timelinesByConversationId).toEqual({});
+    expect(useChatStore.getState().surfaceSessionsByKey).toEqual({});
+    expect(useChatStore.getState().conversationInfoById).toEqual({});
     expect(useChatStore.getState().surfaceSessionsByKey).toEqual({});
   });
 
   it('propaga fim de loading para superfícies materializadas da conversa', async () => {
-    const { createEmptyChatSession } = await import('../services/chatSessionRegistry');
+    const { createEmptyChatSurfaceSession } = await import('../services/chatSessionRegistry');
     const surfaceSessionKey = `tab-chat:${defaultConversationId}`;
     useChatStore.setState({
       loadingConversationIds: new Set([defaultConversationId]),
       surfaceSessionsByKey: {
         [surfaceSessionKey]: {
-          ...createEmptyChatSession(defaultConversationId, surfaceSessionKey),
+          ...createEmptyChatSurfaceSession(defaultConversationId, surfaceSessionKey),
           isLoading: true,
         },
       },
@@ -694,15 +696,15 @@ describe('chatStore validation', () => {
   });
 
   it('mantém loading visual restrito à superfície de origem', async () => {
-    const { createEmptyChatSession } = await import('../services/chatSessionRegistry');
+    const { createEmptyChatSurfaceSession } = await import('../services/chatSessionRegistry');
     const send = deferred<void>();
     const originSessionKey = `tab-a:${defaultConversationId}`;
     const otherSessionKey = `tab-b:${defaultConversationId}`;
     mockSendMessage.mockImplementationOnce(() => send.promise);
     useChatStore.setState({
       surfaceSessionsByKey: {
-        [originSessionKey]: createEmptyChatSession(defaultConversationId, originSessionKey),
-        [otherSessionKey]: createEmptyChatSession(defaultConversationId, otherSessionKey),
+        [originSessionKey]: createEmptyChatSurfaceSession(defaultConversationId, originSessionKey),
+        [otherSessionKey]: createEmptyChatSurfaceSession(defaultConversationId, otherSessionKey),
       },
     });
 
@@ -733,7 +735,7 @@ describe('chatStore validation', () => {
   });
 
   it('mantém rascunho e anexos isolados por superfície', async () => {
-    const { createEmptyChatSession } = await import('../services/chatSessionRegistry');
+    const { createEmptyChatSurfaceSession } = await import('../services/chatSessionRegistry');
     const originSessionKey = `tab-a:${defaultConversationId}`;
     const otherSessionKey = `tab-b:${defaultConversationId}`;
     const mediaFile = {
@@ -741,17 +743,19 @@ describe('chatStore validation', () => {
     } as unknown as import('../services/mediaService').MediaFile;
     useChatStore.setState({
       surfaceSessionsByKey: {
-        [originSessionKey]: createEmptyChatSession(defaultConversationId, originSessionKey),
-        [otherSessionKey]: createEmptyChatSession(defaultConversationId, otherSessionKey),
+        [originSessionKey]: createEmptyChatSurfaceSession(defaultConversationId, originSessionKey),
+        [otherSessionKey]: createEmptyChatSurfaceSession(defaultConversationId, otherSessionKey),
       },
     });
-    const sessionsBefore = useChatStore.getState().sessionsByConversationId;
+    const sessionsBefore = useChatStore.getState().surfaceSessionsByKey;
+    const metadataBefore = useChatStore.getState().conversationInfoById;
 
     useChatStore.getState().setConversationDraftMessage(defaultConversationId, 'rascunho A', originSessionKey);
     useChatStore.getState().setConversationDraftMediaFiles(defaultConversationId, [mediaFile], originSessionKey);
 
     const state = useChatStore.getState();
-    expect(state.sessionsByConversationId).toBe(sessionsBefore);
+    expect(state.conversationInfoById).toBe(metadataBefore);
+    expect(state.surfaceSessionsByKey['conversation:' + defaultConversationId]).toBe(sessionsBefore['conversation:' + defaultConversationId]);
     expect(state.surfaceSessionsByKey[originSessionKey]?.draftMessage).toBe('rascunho A');
     expect(state.surfaceSessionsByKey[originSessionKey]?.draftMediaFiles).toEqual([mediaFile]);
     expect(state.surfaceSessionsByKey[otherSessionKey]?.draftMessage).toBe('');
@@ -759,16 +763,17 @@ describe('chatStore validation', () => {
   });
 
   it('mantém scroll e âncora visual isolados por superfície', async () => {
-    const { createEmptyChatSession } = await import('../services/chatSessionRegistry');
+    const { createEmptyChatSurfaceSession } = await import('../services/chatSessionRegistry');
     const originSessionKey = `tab-a:${defaultConversationId}`;
     const otherSessionKey = `tab-b:${defaultConversationId}`;
     useChatStore.setState({
       surfaceSessionsByKey: {
-        [originSessionKey]: createEmptyChatSession(defaultConversationId, originSessionKey),
-        [otherSessionKey]: createEmptyChatSession(defaultConversationId, otherSessionKey),
+        [originSessionKey]: createEmptyChatSurfaceSession(defaultConversationId, originSessionKey),
+        [otherSessionKey]: createEmptyChatSurfaceSession(defaultConversationId, otherSessionKey),
       },
     });
-    const sessionsBefore = useChatStore.getState().sessionsByConversationId;
+    const sessionsBefore = useChatStore.getState().surfaceSessionsByKey;
+    const metadataBefore = useChatStore.getState().conversationInfoById;
 
     useChatStore.getState().setConversationScrollState(
       defaultConversationId,
@@ -777,7 +782,8 @@ describe('chatStore validation', () => {
     );
 
     const state = useChatStore.getState();
-    expect(state.sessionsByConversationId).toBe(sessionsBefore);
+    expect(state.conversationInfoById).toBe(metadataBefore);
+    expect(state.surfaceSessionsByKey['conversation:' + defaultConversationId]).toBe(sessionsBefore['conversation:' + defaultConversationId]);
     expect(state.surfaceSessionsByKey[originSessionKey]?.scrollTop).toBe(320);
     expect(state.surfaceSessionsByKey[originSessionKey]?.scrollAnchorMessageId).toBe('message-7');
     expect(state.surfaceSessionsByKey[otherSessionKey]?.scrollTop).toBe(0);
@@ -785,12 +791,12 @@ describe('chatStore validation', () => {
   });
 
   it('não recria estado ao persistir scroll visual idêntico', async () => {
-    const { createEmptyChatSession } = await import('../services/chatSessionRegistry');
+    const { createEmptyChatSurfaceSession } = await import('../services/chatSessionRegistry');
     const originSessionKey = `tab-a:${defaultConversationId}`;
     useChatStore.setState({
       surfaceSessionsByKey: {
         [originSessionKey]: {
-          ...createEmptyChatSession(defaultConversationId, originSessionKey),
+          ...createEmptyChatSurfaceSession(defaultConversationId, originSessionKey),
           scrollTop: 320,
           scrollAnchorMessageId: 'message-7',
         },
@@ -810,11 +816,11 @@ describe('chatStore validation', () => {
   });
 
   it('não recria estado ao limpar rascunho já vazio', async () => {
-    const { createEmptyChatSession } = await import('../services/chatSessionRegistry');
+    const { createEmptyChatSurfaceSession } = await import('../services/chatSessionRegistry');
     const originSessionKey = `tab-a:${defaultConversationId}`;
     useChatStore.setState({
       surfaceSessionsByKey: {
-        [originSessionKey]: createEmptyChatSession(defaultConversationId, originSessionKey),
+        [originSessionKey]: createEmptyChatSurfaceSession(defaultConversationId, originSessionKey),
       },
     });
     const stateBefore = useChatStore.getState();
@@ -826,7 +832,7 @@ describe('chatStore validation', () => {
     expect(stateAfter.surfaceSessionsByKey).toBe(stateBefore.surfaceSessionsByKey);
   });
 
-  it('completa origem de superfície já materializada sem recriar compatibilidade', () => {
+  it('completa origem de superfície já materializada sem criar sessão padrão', () => {
     const originSessionKey = `tab-a:${defaultConversationId}`;
     const origin = {
       sessionKey: originSessionKey,
@@ -836,12 +842,14 @@ describe('chatStore validation', () => {
       surfaceType: 'embedded' as const,
     };
     useChatStore.getState().setConversationDraftMessage(defaultConversationId, 'rascunho A', originSessionKey);
-    const sessionsBefore = useChatStore.getState().sessionsByConversationId;
+    const sessionsBefore = useChatStore.getState().surfaceSessionsByKey;
+    const metadataBefore = useChatStore.getState().conversationInfoById;
 
     useChatStore.getState().ensureConversationSurfaceSession(defaultConversationId, originSessionKey, origin);
 
     const state = useChatStore.getState();
-    expect(state.sessionsByConversationId).toBe(sessionsBefore);
+    expect(state.conversationInfoById).toBe(metadataBefore);
+    expect(state.surfaceSessionsByKey['conversation:' + defaultConversationId]).toBe(sessionsBefore['conversation:' + defaultConversationId]);
     expect(state.surfaceSessionsByKey[originSessionKey]?.draftMessage).toBe('rascunho A');
     expect(state.surfaceSessionsByKey[originSessionKey]?.surfaceOrigin).toEqual(origin);
   });
@@ -851,12 +859,8 @@ describe('chatStore validation', () => {
 
   it('limpa mensagens usando timeline mesmo sem sessão legada', async () => {
     useChatStore.setState({
-      sessionsByConversationId: {},
-      timelinesByConversationId: {
-        [defaultConversationId]: {
-          id: defaultConversationId,
-          title: 'Conversa',
-          threadedMessages: [
+      conversationInfoById: {
+        [defaultConversationId]: withFixtureProjection({ id: defaultConversationId, title: 'Conversa' }, { nodes: [
             {
               message: {
                 id: 'message-1',
@@ -868,16 +872,15 @@ describe('chatStore validation', () => {
               children: [],
               childCount: 0,
             } as unknown as MessageNode,
-          ],
-        },
+          ] }),
       },
       surfaceSessionsByKey: {},
     });
 
     useChatStore.getState().handleConversationCleared(defaultConversationId);
 
-    expect(useChatStore.getState().timelinesByConversationId[defaultConversationId]?.threadedMessages).toEqual([]);
-    expect(useChatStore.getState().timelinesByConversationId[defaultConversationId]?.title).toBe('chat.conversationCleared');
+    expect(useChatStore.getState().conversationInfoById[defaultConversationId]).not.toHaveProperty('threadedMessages');
+    expect(useChatStore.getState().conversationInfoById[defaultConversationId]?.title).toBe('chat.conversationCleared');
     expect(mockAnnounce).toHaveBeenCalledWith('chat.announce.conversationMessagesRemoved');
   });
 
@@ -893,7 +896,7 @@ describe('chatStore validation', () => {
     await flushMicrotasks();
     expect(mockSendMessage).toHaveBeenCalledTimes(1);
     expect(mockSendMessage.mock.calls[0][1]).toBe('primeira');
-    expect(useChatStore.getState().sessionsByConversationId[defaultConversationId]?.queuedTurnCount).toBe(1);
+    expect(useChatStore.getState().surfaceSessionsByKey['conversation:' + defaultConversationId]?.queuedTurnCount).toBe(1);
 
     firstSend.resolve();
     await first;
@@ -903,7 +906,7 @@ describe('chatStore validation', () => {
 
     expect(mockSendMessage).toHaveBeenCalledTimes(2);
     expect(mockSendMessage.mock.calls[1][1]).toBe('segunda');
-    expect(useChatStore.getState().sessionsByConversationId[defaultConversationId]?.queuedTurnCount).toBe(0);
+    expect(useChatStore.getState().surfaceSessionsByKey['conversation:' + defaultConversationId]?.queuedTurnCount).toBe(0);
   });
 
   it.each(['envio', 'retry'] as const)(
@@ -945,7 +948,7 @@ describe('chatStore validation', () => {
     await flushMicrotasks();
     expect(mockSendMessage).toHaveBeenCalledTimes(1);
     expect(mockRetryMessage).not.toHaveBeenCalled();
-    expect(useChatStore.getState().sessionsByConversationId[defaultConversationId]?.queuedTurnCount).toBe(1);
+    expect(useChatStore.getState().surfaceSessionsByKey['conversation:' + defaultConversationId]?.queuedTurnCount).toBe(1);
 
     firstSend.resolve();
     await first;
@@ -954,7 +957,7 @@ describe('chatStore validation', () => {
     await retry;
 
     expect(mockRetryMessage).toHaveBeenCalledWith(defaultConversationId, 'message-1', expect.any(Object));
-    expect(useChatStore.getState().sessionsByConversationId[defaultConversationId]?.queuedTurnCount).toBe(0);
+    expect(useChatStore.getState().surfaceSessionsByKey['conversation:' + defaultConversationId]?.queuedTurnCount).toBe(0);
   });
 
   it('conta e cancela envio de comando enquanto aguarda admissão', async () => {
@@ -967,10 +970,10 @@ describe('chatStore validation', () => {
 
     const admission = useChatStore.getState().waitForMessagingAdmission(defaultConversationId);
     await flushMicrotasks();
-    expect(useChatStore.getState().sessionsByConversationId[defaultConversationId]?.queuedTurnCount).toBe(1);
+    expect(useChatStore.getState().surfaceSessionsByKey['conversation:' + defaultConversationId]?.queuedTurnCount).toBe(1);
     expect(useChatStore.getState().cancelNextQueuedTurn(defaultConversationId)).toBe(true);
     await expect(admission).rejects.toThrow('chat-messaging-stale');
-    expect(useChatStore.getState().sessionsByConversationId[defaultConversationId]?.queuedTurnCount).toBe(0);
+    expect(useChatStore.getState().surfaceSessionsByKey['conversation:' + defaultConversationId]?.queuedTurnCount).toBe(0);
     expect(mockSendMessage).toHaveBeenCalledTimes(1);
 
     firstSend.resolve();
@@ -982,14 +985,14 @@ describe('chatStore validation', () => {
     const firstAdmission = useChatStore.getState().registerMessagingAdmission(defaultConversationId);
     expect(firstAdmission.activate()).toBe(true);
     const secondAdmission = useChatStore.getState().registerMessagingAdmission(defaultConversationId);
-    expect(useChatStore.getState().sessionsByConversationId[defaultConversationId]?.queuedTurnCount).toBe(1);
+    expect(useChatStore.getState().surfaceSessionsByKey['conversation:' + defaultConversationId]?.queuedTurnCount).toBe(1);
 
     firstAdmission.complete();
-    expect(useChatStore.getState().sessionsByConversationId[defaultConversationId]?.queuedTurnCount).toBe(1);
+    expect(useChatStore.getState().surfaceSessionsByKey['conversation:' + defaultConversationId]?.queuedTurnCount).toBe(1);
     expect(useChatStore.getState().cancelNextQueuedTurn(defaultConversationId)).toBe(true);
     await expect(secondAdmission.cancelled).rejects.toBeDefined();
     expect(secondAdmission.activate()).toBe(false);
-    expect(useChatStore.getState().sessionsByConversationId[defaultConversationId]?.queuedTurnCount).toBe(0);
+    expect(useChatStore.getState().surfaceSessionsByKey['conversation:' + defaultConversationId]?.queuedTurnCount).toBe(0);
   });
 
   it('limpeza de admissão antiga não subtrai a contagem de uma nova entrada', async () => {
@@ -1008,7 +1011,7 @@ describe('chatStore validation', () => {
     useChatStore.getState().cancelConversationTurn(defaultConversationId);
     const second = useChatStore.getState().sendMessageToConversation(defaultConversationId, 'segunda');
     const third = useChatStore.getState().sendMessageToConversation(defaultConversationId, 'terceira');
-    expect(useChatStore.getState().sessionsByConversationId[defaultConversationId]?.queuedTurnCount).toBe(2);
+    expect(useChatStore.getState().surfaceSessionsByKey['conversation:' + defaultConversationId]?.queuedTurnCount).toBe(2);
 
     firstSend.resolve();
     emitEvent('chat:done', { conversationId: defaultConversationId });
@@ -1016,17 +1019,17 @@ describe('chatStore validation', () => {
     await expect(oldAdmission).rejects.toThrow('chat-messaging-stale');
     await flushMicrotasks();
     expect(mockSendMessage).toHaveBeenCalledTimes(2);
-    expect(useChatStore.getState().sessionsByConversationId[defaultConversationId]?.queuedTurnCount).toBe(1);
+    expect(useChatStore.getState().surfaceSessionsByKey['conversation:' + defaultConversationId]?.queuedTurnCount).toBe(1);
 
     secondSend.resolve();
     emitEvent('chat:done', { conversationId: defaultConversationId });
     await second;
     await flushMicrotasks();
-    expect(useChatStore.getState().sessionsByConversationId[defaultConversationId]?.queuedTurnCount).toBe(1);
+    expect(useChatStore.getState().surfaceSessionsByKey['conversation:' + defaultConversationId]?.queuedTurnCount).toBe(1);
     thirdSend.resolve();
     emitEvent('chat:done', { conversationId: defaultConversationId });
     await third;
-    expect(useChatStore.getState().sessionsByConversationId[defaultConversationId]?.queuedTurnCount).toBe(0);
+    expect(useChatStore.getState().surfaceSessionsByKey['conversation:' + defaultConversationId]?.queuedTurnCount).toBe(0);
   });
 
   it('resposta tardia do cancelamento não limpa o controller do próximo envio', async () => {
@@ -1042,7 +1045,7 @@ describe('chatStore validation', () => {
     cancellation.resolve();
     await cancel;
 
-    expect(useChatStore.getState().sessionsByConversationId[defaultConversationId]?.isLoading).toBe(true);
+    expect(useChatStore.getState().surfaceSessionsByKey['conversation:' + defaultConversationId]?.isLoading).toBe(true);
     emitEvent('chat:stream', {
       conversationId: defaultConversationId,
       messageId: 'second-assistant',
@@ -1071,11 +1074,17 @@ describe('chatStore validation', () => {
     const firstSend = deferred<void>();
     const otherConversationId = '01926b90-7a5a-7c4e-8d3f-000000000007';
     useChatStore.setState({
-      sessionsByConversationId: {
-        ...useChatStore.getState().sessionsByConversationId,
-        [otherConversationId]: {
-          ...useChatStore.getState().sessionsByConversationId[defaultConversationId],
-          conversation: { id: otherConversationId, title: 'Outra', threadedMessages: [] },
+      conversationInfoById: {
+        ...useChatStore.getState().conversationInfoById,
+        [otherConversationId]: withFixtureProjection(
+          { id: otherConversationId, title: 'Outra' },
+          { nodes: [] }
+        ),
+      },
+      surfaceSessionsByKey: {
+        ...useChatStore.getState().surfaceSessionsByKey,
+        ['conversation:' + otherConversationId]: {
+          ...useChatStore.getState().surfaceSessionsByKey['conversation:' + defaultConversationId],
         },
       },
     });
@@ -1135,20 +1144,19 @@ describe('chatStore validation', () => {
 
   it('libera a fila após erro no stream e conclui o próximo envio sem criar mensagens locais', async () => {
     useChatStore.setState({
-      sessionsByConversationId: {
-        "01926b90-7a5a-7c4e-8d3f-000000000001": {
-          ...useChatStore.getState().sessionsByConversationId["01926b90-7a5a-7c4e-8d3f-000000000001"],
-          conversation: { id: "01926b90-7a5a-7c4e-8d3f-000000000001", title: 'Conversa', threadedMessages: [] },
+      conversationInfoById: {
+        '01926b90-7a5a-7c4e-8d3f-000000000001': withFixtureProjection(
+          { id: '01926b90-7a5a-7c4e-8d3f-000000000001', title: 'Conversa' },
+          { nodes: [] }
+        ),
+      },
+      surfaceSessionsByKey: {
+        ['conversation:' + '01926b90-7a5a-7c4e-8d3f-000000000001']: {
+          ...useChatStore.getState().surfaceSessionsByKey[
+            'conversation:' + '01926b90-7a5a-7c4e-8d3f-000000000001'
+          ],
         },
       },
-      timelinesByConversationId: {
-        "01926b90-7a5a-7c4e-8d3f-000000000001": {
-          id: "01926b90-7a5a-7c4e-8d3f-000000000001",
-          title: 'Conversa',
-          threadedMessages: [],
-        },
-      },
-      surfaceSessionsByKey: {},
     });
 
     mockSendMessage
@@ -1172,11 +1180,12 @@ describe('chatStore validation', () => {
 
     expect(mockSendMessage).toHaveBeenCalledTimes(2);
     expect(mockSendMessage.mock.calls.map(call => call[1])).toEqual(['falha 1', 'ok 2']);
-    const session = useChatStore.getState().sessionsByConversationId[defaultConversationId];
+    const session = useChatStore.getState().surfaceSessionsByKey['conversation:' + defaultConversationId];
     expect(session.isLoading).toBe(false);
     expect(session.queuedTurnCount).toBe(0);
     expect(session.sendFailureMessage).toBeNull();
-    expect(session.conversation?.threadedMessages).toEqual([]);
+    expect(session).not.toHaveProperty('conversation');
+    expect(useChatStore.getState().conversationInfoById[defaultConversationId]).not.toHaveProperty('threadedMessages');
   });
 
 });

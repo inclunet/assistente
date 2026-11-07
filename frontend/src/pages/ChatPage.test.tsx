@@ -1,3 +1,4 @@
+import { withFixtureProjection } from '../test/chatWindowFixture';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -20,17 +21,10 @@ let capturedCommandSurfaceGetter: (() => unknown) | undefined;
 let capturedCommandSurfaceSubscribe: ((invalidate: () => void) => () => void) | undefined;
 const ensureWorkspaceTabHasConversationMock = vi.fn().mockResolvedValue('01926b90-7a5a-7c4e-8d3f-000000000001');
 const conversationId = '01926b90-7a5a-7c4e-8d3f-000000000001';
-const activeConversation = { id: conversationId, title: 'Conversa', threadedMessages: [] };
-type ChatSessionMock = {
-  conversation: typeof activeConversation;
-  sessionKey: string;
-  isLoading: boolean;
-  isThinking: boolean;
-  streamingMessageId: string | null;
-  queuedTurnCount: number;
-};
+const activeConversation = withFixtureProjection({ id: conversationId, title: 'Conversa' }, { nodes: [] });
 type ChatStoreListenerState = {
-  sessionsByConversationId: Record<string, ChatSessionMock>;
+  conversationInfoById: Record<string, typeof activeConversation>;
+  surfaceSessionsByKey: Record<string, ReturnType<typeof createEmptyChatSurfaceSession>>;
 };
 const chatStoreListeners: Array<(state: ChatStoreListenerState) => void> = [];
 const workspaceStoreState = {
@@ -78,24 +72,14 @@ const chatStoreState = {
   ensureConversationSurfaceSession: vi.fn(),
   removeConversationSurfaceSession: vi.fn(),
   clearConversationSendFailure: vi.fn(),
-  sessionsByConversationId: {
-    [conversationId]: {
-      conversation: activeConversation,
-      sessionKey: `page:tab:chat-tab:${conversationId}`,
-      isLoading: false,
-      isThinking: false,
-      streamingMessageId: null,
-      queuedTurnCount: 0,
-    },
-  } as Record<string, ChatSessionMock>,
-  timelinesByConversationId: {},
-  surfaceSessionsByKey: {} as Record<string, ReturnType<typeof createEmptyChatSurfaceSession>>,
   loadMessageChildren: vi.fn(),
   loadConversationSession: vi.fn(),
   updateConversationMessage: updateMessageMock,
   toggleConversationReasoningExpanded: vi.fn(),
   isConversationReasoningExpanded: () => false,
   startConversationEditing: vi.fn(),
+  conversationInfoById: { [conversationId]: activeConversation },
+  surfaceSessionsByKey: {} as ChatStoreListenerState['surfaceSessionsByKey'],
 };
 
 vi.mock('../store/chatStore', () => ({
@@ -303,12 +287,9 @@ describe('ChatPage', () => {
       activeTabId: 'chat-tab',
       tabs: [{ id: 'chat-tab', type: 'chat' as const, conversationId, title: 'Conversa', position: 0 }],
     };
-    chatStoreState.sessionsByConversationId[conversationId] = {
-      conversation: activeConversation,
-      sessionKey: `page:tab:chat-tab:${conversationId}`,
+    chatStoreState.surfaceSessionsByKey['conversation:' + conversationId] = {
+      ...createEmptyChatSurfaceSession(conversationId),
       isLoading: false,
-      isThinking: false,
-      streamingMessageId: null,
       queuedTurnCount: 0,
     };
     workspaceStoreState.getActiveTab = () => ({
@@ -358,20 +339,26 @@ describe('ChatPage', () => {
 
     const invalidate = vi.fn();
     const unsubscribe = capturedCommandSurfaceSubscribe?.(invalidate);
-    const original = chatStoreState.sessionsByConversationId[conversationId];
+    const original = chatStoreState.surfaceSessionsByKey['conversation:' + conversationId];
     const replacement = { ...original, sessionKey: `${original.sessionKey}:replacement` };
-    chatStoreState.sessionsByConversationId[conversationId] = replacement;
+    chatStoreState.surfaceSessionsByKey['conversation:' + conversationId] = replacement;
     chatStoreListeners.forEach((listener) => listener(chatStoreState));
-    chatStoreState.sessionsByConversationId[conversationId] = original;
+    chatStoreState.surfaceSessionsByKey['conversation:' + conversationId] = original;
     chatStoreListeners.forEach((listener) => listener(chatStoreState));
     expect(invalidate).toHaveBeenCalledTimes(2);
 
-    chatStoreState.sessionsByConversationId['conversation-other'] = {
+    chatStoreState.surfaceSessionsByKey['conversation:' + 'conversation-other'] = {
       ...original,
-      conversation: { ...activeConversation, id: 'conversation-other' },
+      conversationId: 'conversation-other',
     };
     chatStoreListeners.forEach((listener) => listener(chatStoreState));
     expect(invalidate).toHaveBeenCalledTimes(2);
+    const metadata = chatStoreState.conversationInfoById[conversationId];
+    chatStoreState.conversationInfoById[conversationId] = { ...metadata };
+    chatStoreListeners.forEach((listener) => listener(chatStoreState));
+    chatStoreState.conversationInfoById[conversationId] = metadata;
+    chatStoreListeners.forEach((listener) => listener(chatStoreState));
+    expect(invalidate).toHaveBeenCalledTimes(4);
     unsubscribe?.();
   });
 

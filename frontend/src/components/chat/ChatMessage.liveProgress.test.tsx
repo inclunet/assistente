@@ -1,3 +1,4 @@
+import { withFixtureProjection } from '../../test/chatWindowFixture';
 import { messageFixture, segmentFixture } from '../../test/chatPresentationFixture';
 import { act, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -90,13 +91,8 @@ const seedStore = ({
   );
 
   useChatStore.setState({
-    sessionsByConversationId: {},
-    timelinesByConversationId: {
-      [targetConversationId]: {
-        id: targetConversationId,
-        title: 'Conversa de teste',
-        threadedMessages: [],
-      },
+    conversationInfoById: {
+      [targetConversationId]: withFixtureProjection({ id: targetConversationId, title: 'Conversa de teste' }, { nodes: [] }),
     },
     surfaceSessionsByKey: {
       [surface.sessionKey]: {
@@ -135,8 +131,7 @@ function SessionMessage({ message }: { message: Message }) {
 describe('progresso live de ChatMessage', () => {
   beforeEach(() => {
     useChatStore.setState({
-      sessionsByConversationId: {},
-      timelinesByConversationId: {},
+      conversationInfoById: {},
       surfaceSessionsByKey: {},
     });
   });
@@ -398,8 +393,7 @@ describe('progresso live de ChatMessage', () => {
     const secondSession = createEmptyChatSurfaceSession(secondConversationId, secondSurface.sessionKey);
 
     useChatStore.setState({
-      sessionsByConversationId: {},
-      timelinesByConversationId: {},
+      conversationInfoById: {},
       surfaceSessionsByKey: {
         [firstSurface.sessionKey]: {
           ...firstSession,

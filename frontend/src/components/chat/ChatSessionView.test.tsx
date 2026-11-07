@@ -25,20 +25,8 @@ const conversationId = '01926b90-7a5a-7c4e-8d3f-000000000001';
 const voiceMessage = messageFixture({
   id: '01926b90-7a5a-7c4e-8d3f-00000000000b', conversationId, role: 'assistant', content: 'Olá',
 });
-type MockThreadedMessage = {
-  id?: string;
-  message?: { id: string; role?: string; isStreaming?: boolean; turnId?: string; content?: string };
-  children?: MockThreadedMessage[];
-  level?: number;
-  childCount?: number;
-  originalIndex?: number;
-};
 
-const activeConversation: { id: string; title: string; threadedMessages: MockThreadedMessage[] } = {
-  id: conversationId,
-  title: 'Conversa',
-  threadedMessages: [],
-};
+const activeConversation = withFixtureProjection({ id: conversationId, title: 'Conversa' }, { nodes: [] });
 
 const modalState = vi.hoisted(() => ({ open: false }));
 const contextMenuState = vi.hoisted(() => ({ visible: true, realHook: false }));
@@ -101,14 +89,6 @@ const chatStoreState = {
   retryMessageToConversation: vi.fn(),
   ensureConversationSurfaceSession: vi.fn(),
   removeConversationSurfaceSession: vi.fn(),
-  sessionsByConversationId: {
-    [conversationId]: {
-      conversation: activeConversation,
-      isLoading: false,
-    },
-  },
-  timelinesByConversationId: {},
-  surfaceSessionsByKey: {} as Record<string, ReturnType<typeof createEmptyChatSurfaceSession>>,
   loadMessageChildren: vi.fn(),
   loadConversationSession: vi.fn(),
   updateConversationMessage: updateMessageMock,
@@ -126,6 +106,11 @@ const chatStoreState = {
   clearConversationSendFailure: vi.fn(),
   setConversationEditingMessageId: vi.fn(),
   toggleConversationThreadExpanded: vi.fn(),
+  conversationInfoById: { [conversationId]: activeConversation } as Record<
+    string,
+    typeof activeConversation
+  >,
+  surfaceSessionsByKey: {} as Record<string, ReturnType<typeof createEmptyChatSurfaceSession>>,
 };
 
 vi.mock('./useChatTimelinePresentation', () => ({
@@ -145,7 +130,7 @@ vi.mock('./useChatTimelinePresentation', () => ({
         : chatStoreState.loadNewerMessagesForConversation(_conversationId, sessionKey),
       retain: async () => {}, refresh: async () => {}, recoveredItems: [],
     },
-    nodes: fixtureProjection(chatStoreState.surfaceSessionsByKey[sessionKey]).nodes ?? activeConversation.threadedMessages,
+    nodes: fixtureProjection(chatStoreState.surfaceSessionsByKey[sessionKey]).nodes ?? fixtureProjection(activeConversation).nodes!,
     revision: 0,
   }),
 }));
@@ -459,21 +444,20 @@ describe('ChatSessionView', () => {
     deleteMessageMock.mockReset();
     prepareChatMessageCommandMock.mockReset().mockResolvedValue(undefined);
     commitChatMessageCommandMock.mockReset().mockResolvedValue(undefined);
-    chatStoreState.sessionsByConversationId[conversationId].isLoading = false;
-    chatStoreState.sessionsByConversationId[conversationId].conversation = activeConversation;
-    (chatStoreState.sessionsByConversationId[conversationId] as typeof chatStoreState.sessionsByConversationId[typeof conversationId] & { sendFailureMessage?: string | null; sendFailureRetryable?: boolean }).sendFailureMessage = null;
-    (chatStoreState.sessionsByConversationId[conversationId] as typeof chatStoreState.sessionsByConversationId[typeof conversationId] & { sendFailureAnnounced?: boolean }).sendFailureAnnounced = false;
-    (chatStoreState.sessionsByConversationId[conversationId] as typeof chatStoreState.sessionsByConversationId[typeof conversationId] & { sendFailureRetryable?: boolean; sendFailureRetryContent?: string | null; sendFailureRetryMediaFiles?: unknown[] }).sendFailureRetryable = false;
-    (chatStoreState.sessionsByConversationId[conversationId] as typeof chatStoreState.sessionsByConversationId[typeof conversationId] & { sendFailureRetryContent?: string | null }).sendFailureRetryContent = null;
-    (chatStoreState.sessionsByConversationId[conversationId] as typeof chatStoreState.sessionsByConversationId[typeof conversationId] & { sendFailureRetryMediaFiles?: unknown[] }).sendFailureRetryMediaFiles = [];
-    (activeConversation.threadedMessages as unknown[]) = [];
+    chatStoreState.surfaceSessionsByKey = { ['conversation:' + conversationId]: createEmptyChatSurfaceSession(conversationId) };
+    chatStoreState.conversationInfoById[conversationId] = activeConversation;
+    (chatStoreState.surfaceSessionsByKey['conversation:' + conversationId] as ReturnType<typeof createEmptyChatSurfaceSession> & { sendFailureMessage?: string | null; sendFailureRetryable?: boolean }).sendFailureMessage = null;
+    (chatStoreState.surfaceSessionsByKey['conversation:' + conversationId] as ReturnType<typeof createEmptyChatSurfaceSession> & { sendFailureAnnounced?: boolean }).sendFailureAnnounced = false;
+    (chatStoreState.surfaceSessionsByKey['conversation:' + conversationId] as ReturnType<typeof createEmptyChatSurfaceSession> & { sendFailureRetryable?: boolean; sendFailureRetryContent?: string | null; sendFailureRetryMediaFiles?: unknown[] }).sendFailureRetryable = false;
+    (chatStoreState.surfaceSessionsByKey['conversation:' + conversationId] as ReturnType<typeof createEmptyChatSurfaceSession> & { sendFailureRetryContent?: string | null }).sendFailureRetryContent = null;
+    (chatStoreState.surfaceSessionsByKey['conversation:' + conversationId] as ReturnType<typeof createEmptyChatSurfaceSession> & { sendFailureRetryMediaFiles?: unknown[] }).sendFailureRetryMediaFiles = [];
+    withFixtureProjection(activeConversation, { nodes: [] });
     messageListRenderMock.mockClear();
     (announce as ReturnType<typeof vi.fn>).mockReset();
     announceRequestMock.mockClear();
     chatStoreState.cancelStreaming.mockReset();
     chatStoreState.clearConversationSendFailure.mockReset();
     chatStoreState.clearConversationDraft.mockClear();
-    chatStoreState.surfaceSessionsByKey = {};
     handleErrorMock.mockReset();
     modalState.open = false;
     contextMenuState.visible = true;
@@ -570,7 +554,7 @@ describe('ChatSessionView', () => {
   });
 
   it('ArrowUp mantém o foco no input de conversa vazia', async () => {
-    activeConversation.threadedMessages = [];
+    withFixtureProjection(activeConversation, { nodes: [] });
     renderWithPanel(
       <ChatSessionView variant="page" surface={surface()} onSend={vi.fn()} showShortcutsHelp={false} />,
     );
@@ -585,11 +569,7 @@ describe('ChatSessionView', () => {
   });
 
   it('ArrowUp entra na lista com mensagens e, após limpar, permanece no mesmo input', async () => {
-    activeConversation.threadedMessages = [{
-      message: { id: 'message-before-clear', role: 'assistant', content: 'Conteúdo' },
-      children: [],
-      level: 0,
-    }];
+    withFixtureProjection(activeConversation, { nodes: [nodeFixture({ message: { id: 'message-before-clear', role: 'assistant', content: 'Conteúdo' } })] });
     const view = renderWithPanel(
       <ChatSessionView variant="page" surface={surface()} onSend={vi.fn()} showShortcutsHelp={false} />,
     );
@@ -601,7 +581,7 @@ describe('ChatSessionView', () => {
     expect(handledEvent.defaultPrevented).toBe(true);
     expect(view.container.querySelector('[data-message-id="message-before-clear"]')).toHaveFocus();
 
-    activeConversation.threadedMessages = [];
+    withFixtureProjection(activeConversation, { nodes: [] });
     view.rerender(
       <WorkspacePanelProvider value={{ tab: panelTab, isActive: true }}>
         <ChatSessionView variant="page" surface={surface()} onSend={vi.fn()} showShortcutsHelp={false} />
@@ -1125,7 +1105,7 @@ describe('ChatSessionView', () => {
   it('embedded: mantém envio habilitado mesmo com isLoading global ativo', async () => {
     const user = userEvent.setup();
     const onSend = vi.fn().mockResolvedValue(undefined);
-    chatStoreState.sessionsByConversationId[conversationId].isLoading = true;
+    chatStoreState.surfaceSessionsByKey['conversation:' + conversationId].isLoading = true;
     renderWithPanel(
       <ChatSessionView
         variant="embedded"
@@ -1204,11 +1184,9 @@ describe('ChatSessionView', () => {
 
   it('cancela exclusão preparada quando a superfície muda antes do commit', async () => {
     const nextId = '01926b90-7a5a-7c4e-8d3f-000000000002';
-    const sessions = chatStoreState.sessionsByConversationId as Record<string, typeof chatStoreState.sessionsByConversationId[typeof conversationId]>;
-    sessions[nextId] = {
-      ...sessions[conversationId],
-      conversation: { id: nextId, title: 'Outra conversa', threadedMessages: [] },
-    };
+    const sessions = chatStoreState.surfaceSessionsByKey as Record<string, ReturnType<typeof createEmptyChatSurfaceSession>>;
+    sessions['conversation:' + nextId] = createEmptyChatSurfaceSession(nextId);
+    chatStoreState.conversationInfoById[nextId] = withFixtureProjection({ id: nextId, title: 'Outra conversa' }, { nodes: [] });
     let finishPrepare!: () => void;
     prepareChatMessageCommandMock.mockImplementationOnce(() => new Promise<void>((resolve) => { finishPrepare = resolve; }));
     const view = (id: string) => (
@@ -1228,7 +1206,8 @@ describe('ChatSessionView', () => {
     expect(commitChatMessageCommandMock).not.toHaveBeenCalled();
     expect(chatStoreState.loadConversationSession).not.toHaveBeenCalledWith(conversationId, { refreshSurfaceWindows: true });
     expect(chatStoreState.loadConversationSession).not.toHaveBeenCalledWith(nextId, { refreshSurfaceWindows: true });
-    delete sessions[nextId];
+    delete sessions['conversation:' + nextId];
+    delete chatStoreState.conversationInfoById[nextId];
   });
 
   it('não mostra continuar resposta para mensagem com ID sintético', async () => {
@@ -1239,9 +1218,9 @@ describe('ChatSessionView', () => {
       turnId: conversationId,
       content: 'resposta parcial',
     };
-    activeConversation.threadedMessages = [{ message: syntheticMessage, children: [], level: 0, childCount: 0 }];
-    chatStoreState.sessionsByConversationId[conversationId].conversation = activeConversation;
-    (chatStoreState.sessionsByConversationId[conversationId] as typeof chatStoreState.sessionsByConversationId[typeof conversationId] & { lastInterruptedMessageId: string }).lastInterruptedMessageId = syntheticMessage.id;
+    withFixtureProjection(activeConversation, { nodes: [nodeFixture({ message: syntheticMessage })] });
+    chatStoreState.conversationInfoById[conversationId] = activeConversation;
+    (chatStoreState.surfaceSessionsByKey['conversation:' + conversationId] as ReturnType<typeof createEmptyChatSurfaceSession> & { lastInterruptedMessageId: string }).lastInterruptedMessageId = syntheticMessage.id;
 
     renderWithPanel(<ChatSessionView variant="embedded" surface={surface({ surfaceType: 'embedded' })} onSend={vi.fn()} showShortcutsHelp={false} />);
 
@@ -1256,7 +1235,7 @@ describe('ChatSessionView', () => {
     const originalScrollIntoView = HTMLElement.prototype.scrollIntoView;
     HTMLElement.prototype.scrollIntoView = scrollIntoView;
     const sessionKey = 'test-session';
-    (activeConversation.threadedMessages as unknown[]) = [{ id: 'anchor-message' }];
+    (fixtureProjection(activeConversation).nodes! as unknown[]) = [{ id: 'anchor-message' }];
     (chatStoreState.surfaceSessionsByKey as Record<string, ReturnType<typeof createEmptyChatSurfaceSession>>)[sessionKey] = {
       ...createEmptyChatSurfaceSession(conversationId, sessionKey),
       scrollTop: 320,
@@ -1304,7 +1283,7 @@ describe('ChatSessionView', () => {
     });
 
     messageList.scrollTop = 111;
-    (activeConversation.threadedMessages as unknown[]) = [{ id: 'new-message' }];
+    (fixtureProjection(activeConversation).nodes! as unknown[]) = [{ id: 'new-message' }];
     rerender(
       <WorkspacePanelProvider value={{ tab: panelTab, isActive: true }}>
         <ChatSessionView
@@ -1326,8 +1305,8 @@ describe('ChatSessionView', () => {
       { ...createEmptyChatSurfaceSession(conversationId, sessionKey) },
       {
         nodes: [
-          nodeFixture({ message: { id: 'm1', role: 'user' }, children: [], level: 0, childCount: 0 }),
-          nodeFixture({ message: { id: 'm2', role: 'assistant' }, children: [], level: 0, childCount: 0 }),
+          nodeFixture({ message: { id: 'm1', role: 'user' }, children: [],  childCount: 0 }),
+          nodeFixture({ message: { id: 'm2', role: 'assistant' }, children: [],  childCount: 0 }),
         ],
         metadata: windowFixture({
           totalCount: 10,
@@ -1429,7 +1408,7 @@ describe('ChatSessionView', () => {
     chatStoreState.surfaceSessionsByKey[sessionKey] = withFixtureProjection(
       { ...createEmptyChatSurfaceSession(conversationId, sessionKey) },
       {
-        nodes: [nodeFixture({ message: { id: 'only', role: 'user' }, children: [], level: 0, childCount: 0 })],
+        nodes: [nodeFixture({ message: { id: 'only', role: 'user' }, children: [],  childCount: 0 })],
         metadata: windowFixture({ totalCount: 1, startIndex: 0, endIndex: 0, hasBefore: false, hasAfter: false }),
       },
     );

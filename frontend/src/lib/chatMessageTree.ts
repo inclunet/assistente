@@ -11,12 +11,9 @@ export interface TurnSegment {
 
 export interface MessageNode {
   itemId: string;
-  level: number;
   childCount: number;
   message: Message;
   children?: MessageNode[];
-  originalIndex?: number;
-  isExpanded?: boolean;
 };
 
 /** Dados de apresentação derivados exclusivamente dos itens canônicos. */

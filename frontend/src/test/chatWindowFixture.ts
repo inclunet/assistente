@@ -7,11 +7,12 @@ export function windowFixture(overrides: Partial<TimelineWindowMetadata> = {}): 
     retainedItemIds: [], retentionBlocked: false, beforeCursor: '', afterCursor: '', ...overrides };
 }
 
-type FixtureOwner = { sessionKey?: string; conversation?: { id: string } | null };
+type FixtureOwner = { id?: string; sessionKey?: string; conversation?: { id: string } | null };
 type FixtureProjection = { nodes?: MessageNode[]; metadata?: TimelineWindowMetadata };
 const projections = new Map<string, FixtureProjection>();
 const ownerKey = (owner: FixtureOwner) => {
   if (owner.sessionKey) return owner.sessionKey;
+  if (owner.id) return `conversation:${owner.id}`;
   if (owner.conversation?.id) return `conversation:${owner.conversation.id}`;
   return undefined;
 };

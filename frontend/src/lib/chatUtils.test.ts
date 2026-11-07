@@ -31,12 +31,10 @@ describe('chatUtils', () => {
       nodeFixture({
         message: message1,
         childCount: 1,
-        level: 0,
         children: [
           nodeFixture({
             message: message2,
             childCount: 0,
-            level: 1,
             children: [],
           }),
         ],

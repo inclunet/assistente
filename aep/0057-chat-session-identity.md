@@ -2,6 +2,16 @@
 
 ## Status: Done — identidade e isolamento consolidados nos PRs #110–#113; fan-out e preservação do compositor no PR3
 
+### Consolidação pelo AEP-0116 (07/11/2026)
+
+A timeline compartilhada é mantida pelo cliente/apresentação canônicos do
+AEP-0116. O registry operacional conserva somente `ConversationInfo` e
+`ChatSurfaceSession`, sem árvore de mensagens ou cópia de sessão por conversa.
+A sessão padrão e as demais superfícies usam o mesmo mapa por `sessionKey`.
+Isso preserva a separação deste AEP: mensagens compartilhadas, estado visual
+isolado e fila de execução por conversa. Renomear não recria as sessões, e uma
+superfície nova não herda edição/expansão de outra durante sua montagem.
+
 ## Relação com a AEP-0056
 
 Esta AEP é uma AEP filha da `AEP-0056: Workspace com Abas Autocontidas`.

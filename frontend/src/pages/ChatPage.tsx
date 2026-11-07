@@ -4,9 +4,9 @@ import { ensureWorkspaceTabHasConversation } from '../lib/workspaceConversation'
 import { ChatPanel, type ChatPanelSendContext } from '../components/chat/ChatPanel';
 import { useWorkspacePanel } from '../components/workspace/WorkspacePanelContext';
 import { useWorkspaceStore } from '../store/workspaceStore';
-import { useChatStore, type ChatConversationSession } from '../store/chatStore';
+import { useChatStore, type ChatSurfaceSession, type ConversationInfo } from '../store/chatStore';
 import { useWorkspaceCommandSurface } from '../components/workspace/useWorkspaceCommandSurface';
-import { createChatSurfaceIdentity, normalizeChatSurfaceOrigin } from '../services/chatSessionRegistry';
+import { createChatSurfaceIdentity, normalizeChatSurfaceOrigin, getConversationInfo, getDefaultChatSessionKey } from '../services/chatSessionRegistry';
 import { sendChatSurfaceMessage } from '../components/chat/ChatSurfaceController';
 import { ChatMessagingStaleError } from '../lib/commandChatMessaging';
 import { buildChatSurfaceParams } from '../lib/chatSurface';
@@ -39,8 +39,9 @@ export default function ChatPage() {
       currentTab.conversationId !== conversationId
     ) return null;
 
-    const session = useChatStore.getState().sessionsByConversationId[conversationId];
-    if (!session || session.conversation?.id !== conversationId) return null;
+    const state = useChatStore.getState();
+    const session = state.surfaceSessionsByKey[getDefaultChatSessionKey(conversationId)];
+    if (!session || getConversationInfo(state, conversationId)?.id !== conversationId) return null;
 
     const executionStatus: ChatCommandExecutionStatus = session.isLoading
       ? 'running'
@@ -56,17 +57,20 @@ export default function ChatPage() {
   }, [tab.id, conversationId]);
   const subscribeToCommandChatSurface = useCallback((invalidate: () => void) => {
     type SessionFacts = {
-      readonly session: ChatConversationSession | undefined;
+      readonly session: ChatSurfaceSession | undefined;
+      readonly conversation: ConversationInfo | null;
       readonly loaded: boolean;
       readonly sessionKey: string;
       readonly isLoading: boolean;
       readonly queuedTurnCount: number;
     };
     const readFacts = (state: ReturnType<typeof useChatStore.getState>): SessionFacts => {
-      const session = state.sessionsByConversationId[conversationId ?? ''];
-      const loaded = !!session && session.conversation?.id === conversationId;
+      const session = conversationId ? state.surfaceSessionsByKey[getDefaultChatSessionKey(conversationId)] : undefined;
+      const conversation = conversationId ? getConversationInfo(state, conversationId) : null;
+      const loaded = !!session && conversation?.id === conversationId;
       return {
         session,
+        conversation,
         loaded,
         sessionKey: session?.sessionKey ?? '',
         isLoading: session?.isLoading ?? false,
@@ -75,6 +79,7 @@ export default function ChatPage() {
     };
     const sameFacts = (left: SessionFacts, right: SessionFacts) => (
       left.session === right.session
+      && left.conversation === right.conversation
       && left.loaded === right.loaded
       && left.sessionKey === right.sessionKey
       && left.isLoading === right.isLoading
@@ -92,7 +97,7 @@ export default function ChatPage() {
   useWorkspaceCommandSurface('chat', commandSurfaceGetter, subscribeToCommandChatSurface);
 
   // NOTE: loadConversation já é feita pelo useWorkspaceChatBridge (WorkspaceLayout).
-  // Não duplicar aqui — evita 2x GetConversationInfo + GetMessages a cada troca de aba.
+  // Não duplicar aqui — evita 2x GetConversationInfo a cada troca de aba.
 
   const onSend = useCallback(
     async (content: string, mediaFiles: Parameters<typeof sendChatSurfaceMessage>[2], context: ChatPanelSendContext) => {

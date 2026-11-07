@@ -17,20 +17,6 @@ type TestMessageNode = import('../../lib/chatMessageTree').MessageNode;
 const testMessageNode = (id: string): TestMessageNode => nodeFixture({ message: { id } });
 
 const chatStoreState = {
-  sessionsByConversationId: {
-    [currentConversationId]: withFixtureProjection(
-      {
-        conversation: { id: currentConversationId, title: 'Conversa', threadedMessages: [] as TestMessageNode[] },
-        isLoading: false,
-        queuedTurnCount: 0,
-        draftMessage: '',
-        draftMediaFiles: [],
-      },
-      { nodes: undefined as TestMessageNode[] | undefined },
-    ),
-  },
-  timelinesByConversationId: {},
-  surfaceSessionsByKey: {},
   ensureConversationSurfaceSession: ensureConversationSurfaceSessionMock,
   removeConversationSurfaceSession: removeConversationSurfaceSessionMock,
   retryMessageToConversation: retryMessageToConversationMock,
@@ -47,6 +33,13 @@ const chatStoreState = {
   toggleConversationThreadExpanded: vi.fn(),
   toggleConversationReasoningExpanded: vi.fn(),
   isConversationReasoningExpanded: vi.fn(() => false),
+  conversationInfoById: {
+    [currentConversationId]: withFixtureProjection(
+      { id: currentConversationId, title: 'Conversa' },
+      { nodes: [] as TestMessageNode[] }
+    ),
+  },
+  surfaceSessionsByKey: {} as Record<string, ReturnType<typeof createEmptyChatSurfaceSession>>,
 };
 
 vi.mock('../../store/chatStore', () => ({
@@ -59,7 +52,7 @@ vi.mock('../../store/chatStore', () => ({
 }));
 
 import { ChatSessionProvider, useChatSession } from './ChatSessionContext';
-import type { ChatSurfaceIdentity } from '../../services/chatSessionRegistry';
+import { createEmptyChatSurfaceSession, type ChatSurfaceIdentity } from '../../services/chatSessionRegistry';
 
 const embeddedSurfaceId = 'embedded:workspace-chat-modal:tab-chat';
 const embeddedSessionKey = `${embeddedSurfaceId}:${currentConversationId}`;
@@ -120,13 +113,7 @@ describe('ChatSessionProvider', () => {
     retryMessageToConversationMock.mockClear();
     setConversationDraftMessageMock.mockClear();
     setConversationDraftMediaFilesMock.mockClear();
-    chatStoreState.sessionsByConversationId[currentConversationId] = withFixtureProjection(
-      {
-        ...chatStoreState.sessionsByConversationId[currentConversationId],
-        conversation: { id: currentConversationId, title: 'Conversa', threadedMessages: [] as TestMessageNode[] },
-      },
-      { nodes: undefined },
-    );
+    chatStoreState.conversationInfoById[currentConversationId] = withFixtureProjection({ id: currentConversationId, title: 'Conversa' }, { nodes: [] });
     chatStoreState.surfaceSessionsByKey = {};
   });
 
@@ -182,17 +169,8 @@ describe('ChatSessionProvider', () => {
   });
 
   it('usa janela visível padrão antes da superfície ser materializada', () => {
-    chatStoreState.sessionsByConversationId[currentConversationId] = withFixtureProjection(
-      {
-        ...chatStoreState.sessionsByConversationId[currentConversationId],
-        conversation: {
-          id: currentConversationId,
-          title: 'Conversa',
-          threadedMessages: [testMessageNode('full-1'), testMessageNode('full-2')],
-        },
-      },
-      { nodes: [testMessageNode('window-1')] },
-    );
+    withFixtureProjection(chatStoreState.conversationInfoById[currentConversationId], { nodes: [testMessageNode('full-1'), testMessageNode('full-2')] });
+    withFixtureProjection({ sessionKey: embeddedSessionKey }, { nodes: [testMessageNode('window-1')] });
 
     render(
       <ChatSessionProvider surface={embeddedSurface()}>
@@ -217,18 +195,12 @@ describe('ChatSessionProvider', () => {
 
     chatStoreState.surfaceSessionsByKey = {
       [embeddedSessionKey]: {
-        sessionKey: embeddedSessionKey,
-        conversationId: currentConversationId,
+        ...createEmptyChatSurfaceSession(currentConversationId, embeddedSessionKey),
         isLoading: false,
-        streamingMessageId: null,
         sendFailureMessage: null,
         sendFailureRetryable: false,
         sendFailureRetryContent: null,
         sendFailureRetryMediaFiles: [],
-        streamingReasoning: null,
-        isThinking: false,
-        activeToolCalls: [],
-        completedSegments: [],
         draftMessage: '',
         draftMediaFiles: [],
         expandedThreads: new Set(),
@@ -313,18 +285,12 @@ describe('ChatSessionProvider', () => {
     const user = userEvent.setup();
     chatStoreState.surfaceSessionsByKey = {
       [embeddedSessionKey]: {
-        sessionKey: embeddedSessionKey,
-        conversationId: currentConversationId,
+        ...createEmptyChatSurfaceSession(currentConversationId, embeddedSessionKey),
         isLoading: false,
-        streamingMessageId: null,
         sendFailureMessage: null,
         sendFailureRetryable: false,
         sendFailureRetryContent: null,
         sendFailureRetryMediaFiles: [],
-        streamingReasoning: null,
-        isThinking: false,
-        activeToolCalls: [],
-        completedSegments: [],
         draftMessage: '',
         draftMediaFiles: [],
         expandedThreads: new Set(),
@@ -353,18 +319,12 @@ describe('ChatSessionProvider', () => {
     const user = userEvent.setup();
     chatStoreState.surfaceSessionsByKey = {
       [`editor-a:${currentConversationId}`]: {
-        sessionKey: `editor-a:${currentConversationId}`,
-        conversationId: currentConversationId,
+        ...createEmptyChatSurfaceSession(currentConversationId, `editor-a:${currentConversationId}`),
         isLoading: false,
-        streamingMessageId: null,
         sendFailureMessage: null,
         sendFailureRetryable: false,
         sendFailureRetryContent: null,
         sendFailureRetryMediaFiles: [],
-        streamingReasoning: null,
-        isThinking: false,
-        activeToolCalls: [],
-        completedSegments: [],
         draftMessage: 'rascunho editor A',
         draftMediaFiles: [],
         expandedThreads: new Set(),
@@ -373,18 +333,12 @@ describe('ChatSessionProvider', () => {
         skipFocusRestore: false,
       },
       [`editor-b:${currentConversationId}`]: {
-        sessionKey: `editor-b:${currentConversationId}`,
-        conversationId: currentConversationId,
+        ...createEmptyChatSurfaceSession(currentConversationId, `editor-b:${currentConversationId}`),
         isLoading: false,
-        streamingMessageId: null,
         sendFailureMessage: null,
         sendFailureRetryable: false,
         sendFailureRetryContent: null,
         sendFailureRetryMediaFiles: [],
-        streamingReasoning: null,
-        isThinking: false,
-        activeToolCalls: [],
-        completedSegments: [],
         draftMessage: 'rascunho editor B',
         draftMediaFiles: [],
         expandedThreads: new Set(),

@@ -11,8 +11,10 @@ import {
   type Message,
   type MessageNode,
 } from '../lib/chatMessageTree';
-import type { ActiveConversation, ChatSurfaceOrigin } from './chatSessionRegistry';
+import type { ConversationInfo, ChatSurfaceOrigin } from './chatSessionRegistry';
 import { canonicalTestFixture, canonicalTestItem } from './chatTimelineTestFixture';
+// Sentinela exclusiva do teste: o controller operacional não pode escrever histórico.
+type ActiveConversation = ConversationInfo & { threadedMessages: MessageNode[] };
 import type { TimelineItem, TimelineSegment } from '../types/chatTimelineEvents';
 
 async function canonicalView(conversationId = 'conversation-1') {
@@ -142,7 +144,7 @@ const createNode = (message: Message): MessageNode => (
   nodeFixture({
     message,
     children: [],
-    level: 0,
+
     childCount: 0,
   }) as MessageNode
 );
