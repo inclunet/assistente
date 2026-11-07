@@ -49,11 +49,6 @@ func responseTextSegment(kind string, message Message, start int, text string) R
 func responseToolSegment(calls []TurnSegmentToolCall) ResponseSegment {
 	// O primeiro membro identifica o grupo. Crescer o grupo preserva a identidade.
 	id := calls[0].InvocationID
-	if id == "" {
-		// Somente compatibilidade com fixtures/leitores legados, fora da projeção
-		// persistida estrita, que exige a identidade do ledger.
-		id = fmt.Sprintf("legacy:%d:%s", calls[0].Iteration, calls[0].ID)
-	}
 	return ResponseSegment{SegmentID: "tools:" + base64.RawURLEncoding.EncodeToString([]byte(id)), Kind: "tool_invocations", Invocations: calls}
 }
 

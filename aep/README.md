@@ -1,3 +1,8 @@
+AEP-0116 (07/11/2026): leitura limitada unifica seleção, orçamento e payload;
+contagem de filhos projeta apenas identidade/escopo. Critérios funcionais,
+payload e alocações atendidos; tempo da abertura ainda pendente. **In Progress**.
+As notas anteriores abaixo preservam o histórico dos recortes.
+
 AEP-0116: retirada da reconstrução visual legada implementada e validada localmente. Controlador e
 store ficam operacionais; editor consulta conclusão canônica. Transferência de
 intermediárias é atômica; continuação exige conteúdo salvo; exclusão invalida

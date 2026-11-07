@@ -96,21 +96,14 @@ func (r *DBTimelineReader) ReadCanonicalWindow(ctx context.Context, query databa
 			return err
 		}
 
-		rows, err = repo.ReadMessageWindowWithContext(ctx, query, func(items []database.MessageWindowItem) error {
-			var messageIDs []string
-			for _, item := range items {
-				if item.Kind == database.MessageWindowItemKindTurn {
-					result.TurnIDs = append(result.TurnIDs, item.TurnID)
-				} else {
-					messageIDs = append(messageIDs, item.MessageID)
-				}
-			}
-			_, err := publicationSelectionReadSize(tx, query.ConversationID, messageIDs, result.TurnIDs)
-			return err
-		})
-
+		rows, err = repo.ReadMessageWindowWithContext(ctx, query)
 		if err != nil {
 			return err
+		}
+		for _, item := range rows.Items {
+			if item.Kind == database.MessageWindowItemKindTurn {
+				result.TurnIDs = append(result.TurnIDs, item.TurnID)
+			}
 		}
 
 		responseIDs := result.TurnIDs
@@ -219,7 +212,8 @@ func (r *DBTimelineReader) readTurn(ctx context.Context, conversationID, turnID 
 		}
 		result.Version = version
 		if publication {
-			if err := checkPublicationReadBudget(tx, conversationID, turnID); err != nil {
+			messages, err = database.ReadBoundedTimelineSources(tx, conversationID, nil, []string{turnID})
+			if err != nil {
 				return err
 			}
 		}
@@ -243,8 +237,10 @@ func (r *DBTimelineReader) readTurn(ctx context.Context, conversationID, turnID 
 		// A consulta é restrita ao turno/escopo, não recarrega a conversa inteira.
 		// Recuperação e publicação projetam texto/metadados, nunca blobs.
 		// Contexto do modelo e playback resolvem mídia em seus próprios leitores.
-		responseDB := tx.Where("chat_messages.role <> ?", "user").Session(&gorm.Session{})
-		messages, err = database.NewMessageRepository(responseDB).GetMessagesByTurnIDWithContext(ctx, conversationID, question.ParentID, turnID, 0)
+		if !publication {
+			responseDB := tx.Where("chat_messages.role <> ?", "user").Session(&gorm.Session{})
+			messages, err = database.NewMessageRepository(responseDB).GetMessagesByTurnIDWithContext(ctx, conversationID, question.ParentID, turnID, 0)
+		}
 		if err != nil {
 			return err
 		}

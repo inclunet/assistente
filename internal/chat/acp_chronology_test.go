@@ -8,16 +8,16 @@ import (
 func TestACPTextPositionsValidaLimitesEUTF8(t *testing.T) {
 	messages := []Message{{UUIDModel: database.UUIDModel{ID: "assistant"}, Role: "assistant", Content: "ação"}}
 	for _, offset := range []int{-1, 2, 4, 99} {
-		calls := []TurnSegmentToolCall{{ID: "tool", Origin: "acp_agent", AssistantMessageID: "assistant", ACPTextOffset: &offset}}
+		calls := []TurnSegmentToolCall{{InvocationID: "ledger-tool", ID: "tool", Origin: "acp_agent", AssistantMessageID: "assistant", ACPTextOffset: &offset}}
 		if positioned, remaining := positionedInvocations(messages, calls); len(positioned) != 0 || len(remaining) != 1 {
 			t.Fatalf("offset inválido aceito: %d", offset)
 		}
 	}
 	zero, end := 0, len(messages[0].Content)
 	calls := []TurnSegmentToolCall{
-		{ID: "A", Origin: "acp_agent", AssistantMessageID: "assistant", ACPTextOffset: &zero},
-		{ID: "B", Origin: "acp_agent", AssistantMessageID: "assistant", ACPTextOffset: &zero},
-		{ID: "C", Origin: "acp_agent", AssistantMessageID: "assistant", ACPTextOffset: &end},
+		{InvocationID: "ledger-A", ID: "A", Origin: "acp_agent", AssistantMessageID: "assistant", ACPTextOffset: &zero},
+		{InvocationID: "ledger-B", ID: "B", Origin: "acp_agent", AssistantMessageID: "assistant", ACPTextOffset: &zero},
+		{InvocationID: "ledger-C", ID: "C", Origin: "acp_agent", AssistantMessageID: "assistant", ACPTextOffset: &end},
 	}
 	positioned, remaining := positionedInvocations(messages, calls)
 	segments := positionSourceInvocations(messageSegments(messages[0]), positioned["assistant"])

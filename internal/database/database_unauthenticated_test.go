@@ -154,7 +154,7 @@ func TestDatabaseFunctionsRejectUnauthenticatedContext(t *testing.T) {
 		}
 	})
 	t.Run("ReadMessageWindowWithContext", func(t *testing.T) {
-		if _, err := NewMessageRepository(db).ReadMessageWindowWithContext(bg, MessageWindowQuery{ConversationID: "x"}, nil); !errors.Is(err, ErrUserScopeRequired) {
+		if _, err := NewMessageRepository(db).ReadMessageWindowWithContext(bg, MessageWindowQuery{ConversationID: "x"}); !errors.Is(err, ErrUserScopeRequired) {
 			t.Fatalf("want ErrUserScopeRequired, got %v", err)
 		}
 	})

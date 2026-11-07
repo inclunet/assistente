@@ -285,7 +285,7 @@ func TestGetMessageWindow_EndBeforeReturnsAbsoluteMetadata(t *testing.T) {
 		Anchor:         "end",
 		Direction:      "before",
 		Limit:          2,
-	}, nil)
+	})
 	if err != nil {
 		t.Fatalf("GetMessageWindow: %v", err)
 	}
@@ -379,7 +379,7 @@ func TestGetMessageWindow_RejectsInvalidCursorShape(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			_, err := NewMessageRepository(db).ReadMessageWindowWithContext(testCtx(), tc.query, nil)
+			_, err := NewMessageRepository(db).ReadMessageWindowWithContext(testCtx(), tc.query)
 			if err == nil || !strings.Contains(err.Error(), tc.want) {
 				t.Fatalf("expected error containing %q, got %v", tc.want, err)
 			}
@@ -396,7 +396,7 @@ func TestGetMessageWindow_BeforeAnchorUsesAbsoluteIndex(t *testing.T) {
 		AnchorMessageID: ids[4],
 		Direction:       "before",
 		Limit:           3,
-	}, nil)
+	})
 	if err != nil {
 		t.Fatalf("GetMessageWindow before anchor: %v", err)
 	}
@@ -424,7 +424,7 @@ func TestGetMessageWindow_BeforeAnchorNearStartDoesNotIncludeAnchor(t *testing.T
 		AnchorMessageID: ids[0],
 		Direction:       "before",
 		Limit:           3,
-	}, nil)
+	})
 	if err != nil {
 		t.Fatalf("GetMessageWindow before first anchor: %v", err)
 	}
@@ -451,7 +451,7 @@ func TestGetMessageWindow_AroundRebalancesAtEnd(t *testing.T) {
 		AnchorMessageID: ids[4],
 		Direction:       "around",
 		Limit:           4,
-	}, nil)
+	})
 	if err != nil {
 		t.Fatalf("GetMessageWindow around anchor: %v", err)
 	}
@@ -525,7 +525,7 @@ func TestGetMessageWindow_CountsTurnAsTimelineItem(t *testing.T) {
 		Anchor:         "start",
 		Direction:      "after",
 		Limit:          10,
-	}, nil)
+	})
 	if err != nil {
 		t.Fatalf("GetMessageWindow: %v", err)
 	}
@@ -578,7 +578,7 @@ func TestGetMessageWindow_UserRemainsStandaloneAndAssistantFormsTurn(t *testing.
 		Anchor:         "start",
 		Direction:      "after",
 		Limit:          10,
-	}, nil)
+	})
 	if err != nil {
 		t.Fatalf("GetMessageWindow: %v", err)
 	}
@@ -615,7 +615,7 @@ func TestGetMessageWindow_AnchorInsideTurnPagesByWholeItem(t *testing.T) {
 		AnchorMessageID: assistant.ID,
 		Direction:       "after",
 		Limit:           1,
-	}, nil)
+	})
 	if err != nil {
 		t.Fatalf("GetMessageWindow: %v", err)
 	}
@@ -649,7 +649,7 @@ func TestGetMessageWindow_BeforeAnchorInsideTurnPagesBeforeWholeItem(t *testing.
 		AnchorMessageID: assistant.ID,
 		Direction:       "before",
 		Limit:           2,
-	}, nil)
+	})
 	if err != nil {
 		t.Fatalf("GetMessageWindow: %v", err)
 	}
@@ -686,7 +686,7 @@ func TestGetMessageWindow_AroundAnchorInsideToolCentersWholeTurn(t *testing.T) {
 		AnchorMessageID: conclusion.ID,
 		Direction:       "around",
 		Limit:           3,
-	}, nil)
+	})
 	if err != nil {
 		t.Fatalf("GetMessageWindow: %v", err)
 	}
@@ -712,7 +712,7 @@ func TestGetMessageWindow_ThreadScopeCountsChildren(t *testing.T) {
 		Anchor:         "start",
 		Direction:      "after",
 		Limit:          10,
-	}, nil)
+	})
 	if err != nil {
 		t.Fatalf("GetMessageWindow thread: %v", err)
 	}

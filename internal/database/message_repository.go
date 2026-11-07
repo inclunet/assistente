@@ -1504,6 +1504,16 @@ func (r *MessageRepository) timelineItemCTEForScope(parentPredicate, turnParentP
 	return r.timelineItemCTEWithSources(parentPredicate, turnParentPredicate, messageSource, "chat_turns t JOIN chat_messages q ON q.id=t.user_message_id", turnPredicate)
 }
 
+// Classificação compartilhada por páginas e contagens. A contagem não precisa
+// materializar âncoras, cursores ou representantes para reconhecer a identidade.
+const timelineItemKindSQL = "CASE WHEN q.id IS NOT NULL THEN 'turn' ELSE 'message' END"
+const timelineItemIDSQL = "CASE WHEN q.id IS NOT NULL THEN q.id ELSE m.id END"
+const timelineQuestionJoinSQL = `
+ LEFT JOIN chat_messages q ON m.role <> 'user' AND TRIM(COALESCE(m.turn_id, ''), char(9,10,11,12,13,32,133,160,5760,8192,8193,8194,8195,8196,8197,8198,8199,8200,8201,8202,8232,8233,8239,8287,12288)) <> ''
+  AND q.id = m.turn_id AND q.role = 'user'
+  AND q.conversation_id = m.conversation_id AND q.parent_id IS m.parent_id
+`
+
 func (r *MessageRepository) timelineItemCTEWithSources(parentPredicate, turnParentPredicate, messageSource, turnSource, turnPredicate string) string {
 	// A identidade determina a âncora, o slot e o escopo: respostas vêm da
 	// mesma pergunta (PK), mensagens independentes da própria PK. Agrupar
@@ -1512,16 +1522,14 @@ func (r *MessageRepository) timelineItemCTEWithSources(parentPredicate, turnPare
 	return fmt.Sprintf(`
 WITH scoped AS (
  SELECT m.id,
-  CASE WHEN q.id IS NOT NULL THEN 'turn' ELSE 'message' END AS item_kind,
-  CASE WHEN q.id IS NOT NULL THEN q.id ELSE m.id END AS item_id,
+  `+timelineItemKindSQL+` AS item_kind,
+  `+timelineItemIDSQL+` AS item_id,
   CASE WHEN q.id IS NOT NULL THEN q.created_at ELSE m.created_at END AS created_at,
   CASE WHEN q.id IS NOT NULL THEN q.id ELSE m.id END AS anchor_id,
   CASE WHEN q.id IS NOT NULL THEN 1 ELSE 0 END AS slot,
   CASE WHEN m.role <> 'user' AND COALESCE(m.turn_id, '') <> '' AND q.id IS NULL THEN 1 ELSE 0 END AS invalid_turn_reference, m.parent_id
  FROM %s
- LEFT JOIN chat_messages q ON m.role <> 'user' AND TRIM(COALESCE(m.turn_id, ''), char(9,10,11,12,13,32,133,160,5760,8192,8193,8194,8195,8196,8197,8198,8199,8200,8201,8202,8232,8233,8239,8287,12288)) <> ''
-  AND q.id = m.turn_id AND q.role = 'user'
-  AND q.conversation_id = m.conversation_id AND q.parent_id IS m.parent_id
+`+timelineQuestionJoinSQL+`
  WHERE m.conversation_id = ? AND %s AND %s
 %s
 ), timeline_items AS (
@@ -1644,12 +1652,8 @@ func reverseTimelineItems(items []MessageWindowItem) {
 	}
 }
 
-func (r *MessageRepository) fetchMessagesForTimelineItems(conversationID string, parentID *string, items []MessageWindowItem) ([]ChatMessage, error) {
-	if len(items) == 0 {
-		return []ChatMessage{}, nil
-	}
-	turnIDs := make([]string, 0)
-	messageIDs := make([]string, 0)
+func (r *MessageRepository) fetchMessagesForTimelineItems(conversationID string, items []MessageWindowItem) ([]ChatMessage, error) {
+	var messageIDs, turnIDs []string
 	var invalidIDs map[string]bool
 	for _, item := range items {
 		if item.Kind == MessageWindowItemKindTurn {
@@ -1664,36 +1668,22 @@ func (r *MessageRepository) fetchMessagesForTimelineItems(conversationID string,
 			}
 		}
 	}
-	query := r.messageScopeQuery(conversationID, parentID)
-
-	parentPredicate := "parent_id IS NULL"
-	args := []interface{}{EncodeTimelineIDSet(messageIDs), conversationID}
-	if parentID != nil {
-		parentPredicate = "parent_id = ?"
-		args = append(args, *parentID)
-	}
-	args = append(args, EncodeTimelineIDSet(turnIDs))
-	// Seleção pontual antes de carregar payloads; UNION elimina sobreposição.
-	// CROSS JOIN preserva as buscas por identidade também em janelas mistas.
-	query = query.Table("(SELECT id FROM chat_messages WHERE id IN (SELECT CAST(unhex(value) AS TEXT) FROM json_each(?)) UNION SELECT id FROM chat_messages WHERE conversation_id=? AND "+parentPredicate+" AND role <> 'user' AND turn_id IN (SELECT CAST(unhex(value) AS TEXT) FROM json_each(?))) selected_payload CROSS JOIN chat_messages ON chat_messages.id=selected_payload.id", args...)
-	messages, err := scanTimelineMessages(query.Order("chat_messages.created_at ASC, chat_messages.id ASC"), len(items))
+	sources, err := ReadBoundedTimelineSources(r.db, conversationID, messageIDs, turnIDs)
 	if err != nil {
 		return nil, err
 	}
-	// Somente a cópia retornada perde o vínculo inválido para não ser reagrupada
-	// pelos adaptadores. A referência original no banco continua intacta.
-	for i := range messages {
-		if invalidIDs[messages[i].ID] {
-			messages[i].TurnID = nil
+	// Itens já foram selecionados neste escopo. Só a cópia perde vínculos inválidos.
+	for i := range sources {
+		if invalidIDs[sources[i].ID] {
+			sources[i].TurnID = nil
 		}
 	}
-	return messages, nil
+	return sources, nil
 }
 
-// ReadMessageWindowWithContext seleciona a página uma única vez. O guard opcional
-// recebe identidades/metadados antes do conteúdo. O chamador deve fornecer um
-// repositório transacional para manter seleção, guard e leitura no mesmo snapshot.
-func (r *MessageRepository) ReadMessageWindowWithContext(ctx context.Context, query MessageWindowQuery, guard func([]MessageWindowItem) error) (*MessageWindowResult, error) {
+// ReadMessageWindowWithContext seleciona a página e lê suas fontes com orçamento
+// obrigatório antes do payload. O repositório transacional mantém o snapshot.
+func (r *MessageRepository) ReadMessageWindowWithContext(ctx context.Context, query MessageWindowQuery) (*MessageWindowResult, error) {
 	selection, err := r.selectMessageWindow(ctx, query)
 	if err != nil {
 		return nil, err
@@ -1701,12 +1691,7 @@ func (r *MessageRepository) ReadMessageWindowWithContext(ctx context.Context, qu
 	if normalizeMessageWindowLimit(query.Limit) == 0 {
 		return selection, nil
 	}
-	if guard != nil {
-		if err := guard(selection.Items); err != nil {
-			return nil, err
-		}
-	}
-	selection.Messages, err = r.fetchMessagesForTimelineItems(query.ConversationID, query.ParentID, selection.Items)
+	selection.Messages, err = NewMessageRepository(r.db.WithContext(ctx)).fetchMessagesForTimelineItems(query.ConversationID, selection.Items)
 	if err != nil {
 		return nil, err
 	}
