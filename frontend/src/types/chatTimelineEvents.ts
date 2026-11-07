@@ -23,6 +23,7 @@ export interface TimelineToolSummary {
 }
 
 export interface TimelineSegment {
+  conclusion?: boolean;
   segmentId: string;
   kind: string;
   text?: string;
@@ -33,12 +34,8 @@ export interface TimelineItem {
   executionId?: string;
   recoveryReference?: TimelineRecoveryReference;
   itemId: string;
-  conversationId: string;
   scopeParentId: string | null;
-  kind: string;
   turnId: string | null;
-  replyToItemId: string;
-  messageIds: string[];
   representativeMessageId: string | null;
   revision: string;
   state: string;
@@ -50,11 +47,9 @@ export interface TimelineItem {
     createdAt: string;
     source: string;
     childCount: number;
-    conclusionSegmentIds: string[];
     cacheReadTokens: number;
     cacheWriteTokens: number;
     cacheMissTokens: number;
-    origin: string;
     role: string;
     pinned: boolean;
     model: string;
@@ -124,9 +119,10 @@ export interface ChatTimelineEvent {
 }
 
 /** Campos omitidos no wire têm estes defaults na única borda de entrada. */
-export type TimelineWireItem = Omit<TimelineItem, 'metadata' | 'scopeParentId' | 'turnId' | 'representativeMessageId'> & {
+export type TimelineWireItem = Omit<TimelineItem, 'metadata' | 'scopeParentId' | 'turnId' | 'representativeMessageId' | 'state' | 'durability'> & {
+  state?: string; durability?: string;
   scopeParentId?: string | null; turnId?: string | null; representativeMessageId?: string | null;
-  metadata: Pick<TimelineItem['metadata'], 'createdAt' | 'conclusionSegmentIds' | 'origin' | 'role'> & Partial<TimelineItem['metadata']>;
+  metadata: Pick<TimelineItem['metadata'], 'createdAt' | 'role'> & Partial<TimelineItem['metadata']>;
 };
 export type ChatTimelineWireEvent = Omit<ChatTimelineEvent, 'updates'> & { updates: Array<Omit<TimelineUpdate, 'operations' | 'windowPatches'> & {
   windowPatches: Array<Omit<TimelineWindowPatch, 'items'> & { items?: TimelineWireItem[] }>;

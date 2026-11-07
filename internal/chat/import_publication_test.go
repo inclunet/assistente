@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -52,14 +53,22 @@ func TestImportCoordinatesReplacementAndPartialRollbackBeforeRestore(t *testing.
 			c.mu.Lock()
 			defer c.mu.Unlock()
 			item, ok := c.publication.items["message:"+f.question]
-			if !ok || canonicalText(item) != "pergunta importada" {
+			if !ok || canonicalText(*item) != "pergunta importada" {
 				t.Fatal("restore precedeu publicação", item)
 			}
 			// A pergunta importada conserva seu slot de resposta canônico, mesmo
 			// sem fontes. Nenhum texto, ferramenta ou ID físico anterior sobrevive.
 			response, exists := c.publication.items["turn:"+f.question]
-			if !exists || len(response.Segments) != 0 || len(response.MessageIDs) != 0 || response.RepresentativeMessageID != nil || response.State != "historical_unknown" || response.Metadata.Origin != "imported" {
+			if !exists || len(response.Segments) != 0 || response.RepresentativeMessageID != nil || response.State != "" {
 				t.Fatalf("slot importado reteve conteúdo ou estado antigo: %+v", response)
+			}
+			wire, err := json.Marshal(response)
+			if err != nil || strings.Contains(string(wire), f.answer) {
+				t.Fatal("slot importado reteve identidade física anterior", string(wire), err)
+			}
+			turns, err := database.NewChatTurnRepository(f.db).GetMany(f.ctx, f.conversation, []string{f.question})
+			if err != nil || turns[f.question] == nil || turns[f.question].Origin != "imported" || turns[f.question].State != "historical_unknown" {
+				t.Fatal("importação perdeu proveniência ou estado persistido", turns, err)
 			}
 		},
 	})

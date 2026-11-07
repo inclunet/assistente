@@ -5,12 +5,12 @@ import { ChatTimelinePresentation } from './chatTimelinePresentation';
 import type { TimelineSnapshot } from './timelineConversationState';
 
 function item(id: string, scope: string | null = null): TimelineItem {
-  return { itemId: id, conversationId: 'conversation', scopeParentId: scope, kind: 'message', turnId: null,
-    replyToItemId: '', messageIds: [id], representativeMessageId: id, revision: '1', state: 'completed', durability: 'persisted',
-    segments: [{ segmentId: 'text', kind: 'text', text: id }],
+  return { itemId: id, scopeParentId: scope, turnId: null,
+    representativeMessageId: id, revision: '1', state: 'completed', durability: 'persisted',
+    segments: [{ segmentId: 'text', kind: 'text', conclusion: true, text: id }],
     metadata: { createdAt: '2026-01-01T00:00:00Z', source: '', childCount: 0,
-      conclusionSegmentIds: ['text'], cacheReadTokens: 0, cacheWriteTokens: 0, cacheMissTokens: 0,
-      origin: 'chat', role: 'user', pinned: false, model: '', promptTokens: 0, completionTokens: 0, totalTokens: 0 } };
+      cacheReadTokens: 0, cacheWriteTokens: 0, cacheMissTokens: 0,
+      role: 'user', pinned: false, model: '', promptTokens: 0, completionTokens: 0, totalTokens: 0 } };
 }
 
 function fixture() {
@@ -57,7 +57,7 @@ describe('canonical presentation', () => {
 
   it('uses the visual identity even when a response has no persisted action target', async () => {
     const f = fixture();
-    f.setItems([{ ...item('turn:question'), kind: 'response', state: 'preparing', representativeMessageId: null,
+    f.setItems([{ ...item('turn:question'), state: 'preparing', representativeMessageId: null,
       metadata: { ...item('turn:question').metadata, role: 'assistant' } }]);
     await f.presentation.open();
     const message = f.presentation.nodes()[0].message;
@@ -100,7 +100,7 @@ it('closes descendant capabilities even after their parent item leaves the page'
 it('assembles the whole conclusion using only the references supplied by the backend', async () => {
  const f = fixture(); const response = item('answer');
  response.segments = [{ segmentId: 'intermediate', kind: 'text', text: 'not conclusion' }, { segmentId: 'first', kind: 'text', text: 'hello ' }, { segmentId: 'last', kind: 'text', text: 'world' }];
- response.metadata.conclusionSegmentIds = ['first', 'last'];
+ response.segments[1].conclusion = response.segments[2].conclusion = true;
  f.setItems([response]); await f.presentation.open();
  expect(f.presentation.getMessage('answer')?.content).toBe('hello world');
  await f.presentation.close();
@@ -169,7 +169,6 @@ it('keeps navigation loading local to the requesting presentation', async () => 
 it.each(['preparing', 'completed'])('renders an empty conclusion received as a JSON array (%s)', async state => {
  const f = fixture(); const response = item('answer');
  response.state = state; response.segments = state === 'preparing' ? [] : [{ segmentId: 'tool', kind: 'tool_invocations', invocations: [] }];
- response.metadata.conclusionSegmentIds = [];
  f.setItems([JSON.parse(JSON.stringify(response))]); await f.presentation.open();
  expect(f.presentation.getMessage('answer')?.content).toBe('');
  await f.presentation.close();
@@ -177,7 +176,7 @@ it.each(['preparing', 'completed'])('renders an empty conclusion received as a J
 
 it('exposes the exact published copy capability without reserving recovery bytes', async () => {
   const f = fixture();
-  const value = { ...item('turn:question'), kind: 'response', turnId: 'question', state: 'failed', durability: 'volatile', representativeMessageId: null,
+  const value = { ...item('turn:question'), turnId: 'question', state: 'failed', durability: 'volatile', representativeMessageId: null,
     recoveryReference: { projectionId: 'projection', incarnation: 'incarnation', turnId: 'question', executionId: 'execution' } };
   f.setItems([value]);
   await f.presentation.open();

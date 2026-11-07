@@ -31,7 +31,7 @@ func TestCanonicalPresentationKeepsMediaOutOfWindow(t *testing.T) {
 	}
 	item := canonicalItem(snapshot.Responses[f.question])
 	metadata := item.Metadata
-	if metadata.ChildCount != 1 || metadata.CacheReadTokens != 42 || metadata.Source != "test-source" || metadata.CreatedAt == "" || len(metadata.ConclusionSegmentIDs) == 0 {
+	if metadata.ChildCount != 1 || metadata.CacheReadTokens != 42 || metadata.Source != "test-source" || metadata.CreatedAt == "" || len(item.Segments) == 0 || !item.Segments[len(item.Segments)-1].Conclusion {
 		t.Fatalf("incomplete presentation: %+v", metadata)
 	}
 	wire, err := json.Marshal(item)
@@ -67,7 +67,7 @@ func TestCanonicalPresentationMetadataUpdatesArePublished(t *testing.T) {
 	}
 }
 
-func TestCanonicalPresentationSerializesEmptyConclusionAsArray(t *testing.T) {
+func TestCanonicalPresentationSerializesEmptyConclusionWithoutReferences(t *testing.T) {
 	for _, item := range []*TimelineItem{
 		{Kind: "response", State: "preparing"},
 		{Kind: "response", State: "completed", Segments: []ResponseSegment{{SegmentID: "tool", Kind: "tool_invocations"}}},
@@ -76,15 +76,17 @@ func TestCanonicalPresentationSerializesEmptyConclusionAsArray(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if !strings.Contains(string(wire), `"conclusionSegmentIds":[]`) {
-			t.Fatal("nullable conclusion on wire", string(wire))
+		if strings.Contains(string(wire), `"conclusionSegmentIds"`) || strings.Contains(string(wire), `"conclusion":true`) {
+			t.Fatal("empty conclusion has references or marked segments", string(wire))
 		}
 		var decoded CanonicalItem
 		if err := json.Unmarshal(wire, &decoded); err != nil {
 			t.Fatal(err)
 		}
-		if decoded.Metadata.ConclusionSegmentIDs == nil {
-			t.Fatal("empty conclusion lost in JSON")
+		for _, segment := range decoded.Segments {
+			if segment.Conclusion {
+				t.Fatal("empty conclusion lost in JSON")
+			}
 		}
 	}
 }

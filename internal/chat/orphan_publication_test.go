@@ -115,7 +115,7 @@ func TestOrphanMaintenanceCoordinatesBoundedChildrenAndRollback(t *testing.T) {
 			sub.conversation.mu.Lock()
 			item := sub.conversation.publication.items["turn:"+f.question]
 			sub.conversation.mu.Unlock()
-			if canonicalText(item) != "resposta antiga" {
+			if canonicalText(*item) != "resposta antiga" {
 				t.Fatal("limpeza removeu mensagem", item)
 			}
 			for _, segment := range item.Segments {

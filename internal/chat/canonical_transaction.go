@@ -22,7 +22,7 @@ func (s *canonicalPublicationStage) append(operations []CanonicalOperation, patc
 	if s.overflow {
 		return
 	}
-	s.bytes += canonicalJSONSize(CanonicalBatch{Operations: operations, WindowPatches: patches})
+	s.bytes += canonicalJSONSize(&CanonicalBatch{Operations: operations, WindowPatches: patches})
 	if s.bytes > canonicalReplayBytes {
 		s.discard()
 		return
@@ -45,9 +45,9 @@ func (s *canonicalPublicationStage) materialize(item CanonicalItem) {
 				continue
 			}
 			if size == 0 {
-				size = canonicalJSONSize(item)
+				size = canonicalJSONSize(&item)
 			}
-			s.bytes += size - canonicalJSONSize(previous)
+			s.bytes += size - canonicalJSONSize(&previous)
 			if s.bytes > canonicalReplayBytes {
 				s.discard()
 				return

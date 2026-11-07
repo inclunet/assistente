@@ -3,7 +3,7 @@ import { createStore } from 'zustand/vanilla';
 import { useStore } from 'zustand';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { apidto } from '@wailsjs/go/models';
-import { canonicalTestItem } from './chatTimelineTestFixture';
+import { canonicalTestItem, wireFixtureItem } from './chatTimelineTestFixture';
 
 const mocks = vi.hoisted(() => ({
   navigate: vi.fn(),
@@ -37,13 +37,13 @@ describe('chatTimelineWails', () => {
     mocks.open.mockImplementation(async (request: apidto.OpenTimelineRequest) => new apidto.SubscribedTimelineSnapshot({
       conversationId: request.conversationId, scopeParentId: null, epoch: 'epoch', windowId: request.conversationId,
       windowRevision: '1', sequence: '1', mode: 'followTail',
-      items: [canonicalTestItem('item', 'conteúdo recebido', { conversationId: request.conversationId })], orderedItemIds: ['item'], retainedItemIds: [],
+      items: [canonicalTestItem('item', 'conteúdo recebido')], orderedItemIds: ['item'], retainedItemIds: [],
       totalCount: 1, startIndex: 0, endIndex: 1, hasBefore: false, hasAfter: false, retentionBlocked: false,
     }));
     mocks.navigate.mockImplementation(async (windowId: string) => new apidto.SubscribedTimelineSnapshot({
       conversationId: windowId, scopeParentId: null, epoch: 'epoch', windowId,
       windowRevision: '2', sequence: '2', mode: 'followTail',
-      items: [canonicalTestItem('item', 'conteúdo recebido', { conversationId: windowId })], orderedItemIds: ['item'], retainedItemIds: [],
+      items: [canonicalTestItem('item', 'conteúdo recebido')], orderedItemIds: ['item'], retainedItemIds: [],
       totalCount: 1, startIndex: 0, endIndex: 1, hasBefore: false, hasAfter: false, retentionBlocked: false,
     }));
     const { useChatTimelinePresentation } = await import('../components/chat/useChatTimelinePresentation');
@@ -78,13 +78,13 @@ describe('chatTimelineWails', () => {
     mocks.open.mockImplementation(async (request: apidto.OpenTimelineRequest) => new apidto.SubscribedTimelineSnapshot({
       conversationId: request.conversationId, scopeParentId: null, epoch: 'epoch', windowId: request.conversationId,
       windowRevision: '1', sequence: '1', mode: 'followTail',
-      items: [canonicalTestItem('item', 'conteúdo recebido', { conversationId: request.conversationId })], orderedItemIds: ['item'], retainedItemIds: [],
+      items: [canonicalTestItem('item', 'conteúdo recebido')], orderedItemIds: ['item'], retainedItemIds: [],
       totalCount: 1, startIndex: 0, endIndex: 1, hasBefore: false, hasAfter: false, retentionBlocked: false,
     }));
     mocks.navigate.mockImplementation(async (windowId: string) => new apidto.SubscribedTimelineSnapshot({
       conversationId: windowId, scopeParentId: null, epoch: 'epoch', windowId,
       windowRevision: '2', sequence: '2', mode: 'followTail',
-      items: [canonicalTestItem('item', 'conteúdo recebido', { conversationId: windowId })], orderedItemIds: ['item'], retainedItemIds: [],
+      items: [canonicalTestItem('item', 'conteúdo recebido')], orderedItemIds: ['item'], retainedItemIds: [],
       totalCount: 1, startIndex: 0, endIndex: 1, hasBefore: false, hasAfter: false, retentionBlocked: false,
     }));
     let cleared = false;
@@ -149,10 +149,9 @@ describe('chatTimelineWails', () => {
     mocks.eventsOn.mockReturnValue(mocks.unsubscribe);
     const reference = { projectionId: 'p', incarnation: 'i', turnId: 'turn', executionId: 'execution' };
     const item = new apidto.CanonicalItem({ recoveryReference: reference, executionId: 'execution', itemId: 'item',
-      conversationId: 'chat', scopeParentId: null, turnId: 'turn', kind: 'response', replyToItemId: 'question',
-      representativeMessageId: null, messageIds: [], revision: '1', state: 'interrupted',
+      scopeParentId: null, turnId: 'turn', representativeMessageId: null, revision: '1', state: 'interrupted',
       durability: 'volatile', segments: [{ segmentId: 'text', kind: 'text', text: 'preservar' }],
-      metadata: { origin: 'runtime', role: 'assistant', model: '', pinned: false, promptTokens: 0, completionTokens: 0, totalTokens: 0 } });
+      metadata: { createdAt: '2026-01-01T00:00:00Z', role: 'assistant', model: '', pinned: false, promptTokens: 0, completionTokens: 0, totalTokens: 0 } });
     const base = { conversationId: 'chat', scopeParentId: null, epoch: 'epoch', windowId: 'window',
       windowRevision: '1', sequence: '1', mode: 'historical', items: [item], orderedItemIds: ['item'],
       retainedItemIds: [], totalCount: 1, startIndex: 0, endIndex: 1, hasBefore: false, hasAfter: false,
@@ -183,7 +182,7 @@ describe('chatTimelineWails', () => {
     }));
     expect(value.scopeParentId).toBeNull();
     expect(value.items[0]).toMatchObject({ itemId: 'item', scopeParentId: null, turnId: null,
-      representativeMessageId: null, segments: [], messageIds: [] });
+      representativeMessageId: null, segments: [], });
     expect(value.orderedItemIds).toEqual([]);
     expect(mocks.eventsOn).not.toHaveBeenCalled();
   });
@@ -278,10 +277,8 @@ it('conecta leitor aos DTOs Wails e invalida reserva na troca de sessão', async
 it('normaliza defaults igualmente em snapshot, operações, patches e recuperação', async () => {
   const { normalizeTimelineItem, normalizeTimelineSnapshot, normalizeTimelineEvent } = await import('./chatTimelineWails');
   const { sameRecoveryItem } = await import('./timelineRecoveryItem');
-  const original = canonicalTestItem('turn:q');
-  const wire = { ...original, representativeMessageId: null, metadata: {
-    createdAt: original.metadata.createdAt, origin: 'chat', role: 'assistant', conclusionSegmentIds: [],
-  } };
+  const wire = { itemId: 'turn:q', revision: '1', representativeMessageId: null, segments: [],
+    metadata: { createdAt: '2026-01-01T00:00:00Z', role: 'assistant' } };
   const recovered = normalizeTimelineItem(wire);
   const snapshot = normalizeTimelineSnapshot(new apidto.SubscribedTimelineSnapshot({ items: [wire] }));
   const event = normalizeTimelineEvent({ surfaceId: 's', windowId: 'w', conversationId: 'conversation', epoch: 'e', snapshotRevision: '1', syncRequired: false,
@@ -292,7 +289,9 @@ it('normaliza defaults igualmente em snapshot, operações, patches e recuperaç
   for (const value of [snapshot.items[0], event.updates[0].operations[0].item!, event.updates[0].windowPatches[0].items![0]]) {
     expect(sameRecoveryItem(value, recovered)).toBe(true);
     expect(value.representativeMessageId).toBeNull();
-    expect(value.metadata.conclusionSegmentIds).toEqual([]);
+    expect(value.state).toBe('');
+    expect(value.durability).toBe('persisted');
+    expect(value.segments.filter(segment => segment.conclusion)).toEqual([]);
     expect(value.metadata).toMatchObject({ model: '', pinned: false, totalTokens: 0, childCount: 0 });
   }
   const populated = normalizeTimelineItem({ ...wire, metadata: { ...wire.metadata, pinned: true, childCount: 2, model: 'model', cacheReadTokens: 7, promptTokens: 8, completionTokens: 9, totalTokens: 17 } });
@@ -303,8 +302,9 @@ it('normaliza defaults igualmente em snapshot, operações, patches e recuperaç
 it('aceita recuperação no teto wire mesmo quando os defaults locais excedem esse teto', async () => {
   const { normalizeTimelineItem } = await import('./timelineWire');
   const { sameRecoveryItem } = await import('./timelineRecoveryItem');
-  const { metadata, ...identity } = canonicalTestItem('turn:limit', '');
-  const wire = { ...identity, metadata: { createdAt: metadata.createdAt, role: metadata.role, origin: metadata.origin, conclusionSegmentIds: ['text'] } };
+  const { metadata, ...identity } = wireFixtureItem(canonicalTestItem('turn:limit', ''));
+  const wire = { ...identity, scopeParentId: undefined, durability: undefined,
+    metadata: { createdAt: metadata.createdAt, role: metadata.role } };
   const limit = 512 * 1024;
   const remaining = limit - new TextEncoder().encode(JSON.stringify(wire)).length;
   wire.segments[0].text = 'x'.repeat(remaining);

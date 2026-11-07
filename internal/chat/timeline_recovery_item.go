@@ -66,7 +66,7 @@ func (s *TimelineSubscription) ReserveRecoveryItem(ctx context.Context, request 
 	}
 	item, ok := c.publication.items[request.ItemID]
 	if !ok || item.RecoveryReference == nil || *item.RecoveryReference != request.Reference ||
-		item.ConversationID != s.key.conversationID || item.TurnID == nil || *item.TurnID != request.Reference.TurnID {
+		item.TurnID == nil || *item.TurnID != request.Reference.TurnID {
 		return nil, ErrRecoveryUnavailable
 	}
 	if request.Epoch != c.epoch || request.Epoch != c.publication.epoch || item.Revision != request.Revision {
@@ -167,7 +167,7 @@ func (s *TimelineSubscription) ValidatePublishedCopy(ctx context.Context, reques
 	}
 	item, ok := c.publication.items[request.ItemID]
 	if !ok || !w.itemIDs[request.ItemID] || item.RecoveryReference == nil || *item.RecoveryReference != request.Reference ||
-		item.ConversationID != s.key.conversationID || item.TurnID == nil || *item.TurnID != request.Reference.TurnID || item.RepresentativeMessageID != nil {
+		item.TurnID == nil || *item.TurnID != request.Reference.TurnID || item.RepresentativeMessageID != nil {
 		return ErrRecoveryUnavailable
 	}
 	if request.Epoch != c.epoch || request.Epoch != c.publication.epoch || item.Revision != request.Revision {

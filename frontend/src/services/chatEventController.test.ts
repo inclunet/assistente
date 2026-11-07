@@ -525,7 +525,7 @@ describe('chatEventController', () => {
 
     expect(rafSpy).not.toHaveBeenCalled();
     expect(updateMessage).not.toHaveBeenCalled();
-    view.publish([{ segmentId: 'text', kind: 'text', text: 'Olá 世界 👩🏽‍💻' }]);
+    view.publish([{ segmentId: 'text', kind: 'text', conclusion: true, text: 'Olá 世界 👩🏽‍💻' }]);
     vi.advanceTimersByTime(16);
     expect(updateMessage).not.toHaveBeenCalled();
     expect(view.presentation.getMessage('response')?.content).toBe('Olá 世界 👩🏽‍💻');
@@ -554,7 +554,7 @@ describe('chatEventController', () => {
       hadToolCalls: false,
     });
 
-    view.publish([{ segmentId: 'text', kind: 'text', text: 'terminal' }], { state: 'completed' });
+    view.publish([{ segmentId: 'text', kind: 'text', conclusion: true, text: 'terminal' }], { state: 'completed' });
     expect(view.presentation.getMessage('response')?.content).toBe('terminal');
     expect(view.presentation.getMessage('response')?.isStreaming).toBe(false);
     expect(cancelSpy).not.toHaveBeenCalled();
@@ -609,9 +609,9 @@ describe('chatEventController', () => {
     });
     vi.advanceTimersByTime(16);
 
-    first.publish([{ segmentId: 'text', kind: 'text', text: 'um' }]);
+    first.publish([{ segmentId: 'text', kind: 'text', conclusion: true, text: 'um' }]);
     expect(second.presentation.getMessage('response')?.content).toBe('');
-    second.publish([{ segmentId: 'text', kind: 'text', text: 'dois' }]);
+    second.publish([{ segmentId: 'text', kind: 'text', conclusion: true, text: 'dois' }]);
     expect(updateMessage).not.toHaveBeenCalled();
     expect(first.presentation.getMessage('response')?.content).toBe('um');
     expect(second.presentation.getMessage('response')?.content).toBe('dois');
@@ -631,7 +631,7 @@ describe('chatEventController', () => {
       reset: true,
       sequence: 0,
     });
-    view.publish([{ segmentId: 'text', kind: 'text', text: 'tentativa parcial' }]);
+    view.publish([{ segmentId: 'text', kind: 'text', conclusion: true, text: 'tentativa parcial' }]);
     expect(view.presentation.getMessage('response')?.content).toBe('tentativa parcial');
     emitEvent('chat:stream', {
       conversationId: 'conversation-1',
@@ -641,8 +641,8 @@ describe('chatEventController', () => {
       reset: true,
       sequence: 0,
     });
-    view.publish([{ segmentId: 'recovered', kind: 'text', text: 'resposta recuperada' }], {
-      metadata: { ...canonicalTestItem('response').metadata, conclusionSegmentIds: ['recovered'] },
+    view.publish([{ segmentId: 'recovered', kind: 'text', conclusion: true, text: 'resposta recuperada' }], {
+      metadata: { ...canonicalTestItem('response').metadata },
     });
     vi.advanceTimersByTime(16);
 
@@ -668,7 +668,7 @@ describe('chatEventController', () => {
   });
 
   it('processa messages_ready, stream e done sem alterar a ordem visual publicada pelo backend', async () => {
-    const question = canonicalTestItem('user-1', 'pergunta', { conversationId: 'conversation-1', kind: 'message' });
+    const question = canonicalTestItem('user-1', 'pergunta', { conversationId: 'conversation-1', turnId: null });
     question.metadata.role = 'user';
     const response = canonicalTestItem('assistant-1', '', { conversationId: 'conversation-1', state: 'streaming' });
     const fixture = canonicalTestFixture([question, response]);
@@ -699,7 +699,7 @@ describe('chatEventController', () => {
       hadToolCalls: false,
     });
 
-    fixture.publish('visual', { ...response, state: 'completed', segments: [{ segmentId: 'text', kind: 'text', text: 'parcial' }] });
+    fixture.publish('visual', { ...response, state: 'completed', segments: [{ segmentId: 'text', kind: 'text', conclusion: true, text: 'parcial' }] });
     const messages = presentation.nodes();
     expect(messages.map(node => node.itemId)).toEqual(['user-1', 'assistant-1']);
     expect(messages[0].message.content).toBe('pergunta');
@@ -792,7 +792,7 @@ describe('chatEventController', () => {
       assistantMessageId: 'assistant-db-1',
     });
 
-    view.publish([{ segmentId: 'text', kind: 'text', text: 'parcial' }], {
+    view.publish([{ segmentId: 'text', kind: 'text', conclusion: true, text: 'parcial' }], {
       state: 'failed', representativeMessageId: 'assistant-db-1',
       metadata: { ...canonicalTestItem('response').metadata, terminalReason: 'error' },
     });
@@ -830,7 +830,7 @@ describe('chatEventController', () => {
       assistantMessageId: 'assistant-limit',
     });
 
-    view.publish([{ segmentId: 'text', kind: 'text', text: 'resposta parcial' }], {
+    view.publish([{ segmentId: 'text', kind: 'text', conclusion: true, text: 'resposta parcial' }], {
       state: 'interrupted', metadata: { ...canonicalTestItem('response').metadata, terminalReason: 'output_limit' },
     });
     expect(view.presentation.getMessage('response')?.content).toBe('resposta parcial');
@@ -1612,9 +1612,9 @@ describe('chatEventController', () => {
     emitEvent('chat:tool_start', { ...identity, name: 'echo', callId: 'blocked' });
     emitEvent('chat:tool_end', { ...identity, callId: 'blocked', status: 'error', errorKind: 'unavailable',
       errorCode: 'invocation_ledger_unavailable', summary: 'diagnostic' });
-    const segments: TimelineSegment[] = partial ? [{ segmentId: 'text', kind: 'text', text: 'parcial recebido' }] : [];
+    const segments: TimelineSegment[] = partial ? [{ segmentId: 'text', kind: 'text', conclusion: true, text: 'parcial recebido' }] : [];
     view.publish(segments, { state: 'failed', durability,
-      metadata: { ...canonicalTestItem('response').metadata, conclusionSegmentIds: partial ? ['text'] : [], terminalReason: 'persistence_error' } });
+      metadata: { ...canonicalTestItem('response').metadata, terminalReason: 'persistence_error' } });
     const canonical = view.presentation.getMessage('response');
     emitEvent('chat:done', { ...identity, reason: 'error', errorMessage: 'persistence_error' });
     expect(view.presentation.getMessage('response')).toBe(canonical);
@@ -1937,7 +1937,7 @@ describe('chatEventController', () => {
   it('traduz streaming_interrupted em chat:done sem sobrescrever a conclusão canônica com turnPatch', async () => {
     const view = await canonicalView();
     const { adapter } = createAdapter(['conversation-1']);
-    view.publish([{ segmentId: 'text', kind: 'text', text: 'resposta parcial' }], { state: 'interrupted' });
+    view.publish([{ segmentId: 'text', kind: 'text', conclusion: true, text: 'resposta parcial' }], { state: 'interrupted' });
     startChatEventController({ conversationId: 'conversation-1', adapter });
     emitEvent('chat:messages_ready', {
       conversationId: 'conversation-1',
@@ -2039,7 +2039,7 @@ describe('chatEventController', () => {
   it('preserva bytes do parcial canônico e anuncia erro terminal de chat:stream separadamente', async () => {
     const view = await canonicalView();
     const { adapter } = createAdapter(['conversation-1']);
-    view.publish([{ segmentId: 'text', kind: 'text', text: 'resposta parcial  \n' }]);
+    view.publish([{ segmentId: 'text', kind: 'text', conclusion: true, text: 'resposta parcial  \n' }]);
     startChatEventController({ conversationId: 'conversation-1', adapter });
     emitEvent('chat:stream', {
       conversationId: 'conversation-1',
@@ -2066,7 +2066,7 @@ describe('chatEventController', () => {
   it('preserva parcial canônico e anuncia erro terminal de chat:done separadamente', async () => {
     const view = await canonicalView();
     const { adapter } = createAdapter(['conversation-1']);
-    view.publish([{ segmentId: 'text', kind: 'text', text: 'resposta parcial' }]);
+    view.publish([{ segmentId: 'text', kind: 'text', conclusion: true, text: 'resposta parcial' }]);
     startChatEventController({ conversationId: 'conversation-1', adapter });
     emitEvent('chat:stream', {
       conversationId: 'conversation-1',
@@ -2111,7 +2111,7 @@ describe('chatEventController', () => {
       content: '',
     });
 
-    view.publish([], { metadata: { ...canonicalTestItem('response').metadata, conclusionSegmentIds: [], thinking: false } });
+    view.publish([], { metadata: { ...canonicalTestItem('response').metadata, thinking: false } });
     expect(view.presentation.getMessage('response')?.timelineItem?.metadata.thinking).toBe(false);
     expect(view.presentation.getMessage('response')?.reasoning).toBe('');
     await view.presentation.close();

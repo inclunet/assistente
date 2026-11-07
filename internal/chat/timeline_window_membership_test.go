@@ -523,7 +523,7 @@ func TestWindowMembershipReconcilesExternalContentBeforeAdvancingVersion(t *test
 			}
 		}
 	}
-	if !changed || canonicalText(sub.conversation.publication.items["message:first"]) != "mudança externa" {
+	if !changed || canonicalText(*sub.conversation.publication.items["message:first"]) != "mudança externa" {
 		t.Fatal("cache obsoleto aceito como versão atual")
 	}
 }

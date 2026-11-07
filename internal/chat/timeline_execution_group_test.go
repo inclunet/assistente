@@ -66,7 +66,7 @@ func TestTimelineExecutionSelectionMatchesWindowAndTerminal(t *testing.T) {
 				t.Fatal("janela e terminal selecionaram respostas diferentes")
 			}
 			response := terminal.Response
-			if !reflect.DeepEqual(response.MessageIDs, []string{answer}) || len(response.Segments) != 1 || response.Segments[0].Text != content {
+			if (len(response.messages) != 1 || response.messages[0].ID != answer) || len(response.Segments) != 1 || response.Segments[0].Text != content {
 				t.Fatalf("conteúdo antigo reapareceu: %+v", response)
 			}
 			var original database.ChatMessage

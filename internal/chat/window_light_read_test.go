@@ -45,9 +45,6 @@ func TestCanonicalWindowDoesNotMaterializeMediaOrParentPayload(t *testing.T) {
 			var payloadSQL []string
 			parents := 0
 			if err := f.db.Callback().Query().After("gorm:query").Register("window_light_columns", func(tx *gorm.DB) {
-				if strings.Contains(tx.Statement.SQL.String(), "selected_payload") {
-					payloadSQL = append(payloadSQL, tx.Statement.SQL.String())
-				}
 				if m, ok := tx.Statement.Dest.(*database.MessageScope); ok && thread {
 					parents++
 					if m.ConversationID != f.conversation || m.HasParent || strings.Join(tx.Statement.Selects, ",") != "chat_messages.conversation_id, chat_messages.parent_id IS NOT NULL AS has_parent" {
@@ -57,11 +54,21 @@ func TestCanonicalWindowDoesNotMaterializeMediaOrParentPayload(t *testing.T) {
 			}); err != nil {
 				t.Fatal(err)
 			}
+			if err := f.db.Callback().Row().After("gorm:row").Register("window_light_payload", func(tx *gorm.DB) {
+				if strings.Contains(tx.Statement.SQL.String(), "selected_payload") {
+					payloadSQL = append(payloadSQL, tx.Statement.SQL.String())
+				}
+			}); err != nil {
+				t.Fatal(err)
+			}
 			after, err := f.reader.ReadCanonicalWindow(f.ctx, query)
 			if err != nil {
 				t.Fatal(err)
 			}
 			if err := f.db.Callback().Query().Remove("window_light_columns"); err != nil {
+				t.Fatal(err)
+			}
+			if err := f.db.Callback().Row().Remove("window_light_payload"); err != nil {
 				t.Fatal(err)
 			}
 			if len(payloadSQL) == 0 || (thread && parents == 0) {

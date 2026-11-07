@@ -10,8 +10,7 @@ function fixture(items: TimelineItem[]) {
   return { ...f, view: f.presentation() };
 }
 const item = (id: string, content = id, scope: string | null = null) => canonicalTestItem(id, content, {
-  scopeParentId: scope, representativeMessageId: id, messageIds: [id],
-});
+  scopeParentId: scope, representativeMessageId: id, });
 
 describe('regressões da árvore migradas para a apresentação canônica', () => {
   it('encontra mensagens em threads sem reconstruir a árvore por IDs físicos', async () => {
@@ -28,7 +27,7 @@ describe('regressões da árvore migradas para a apresentação canônica', () =
     await f.view.open(); await f.view.openThread('root');
     const before = f.view.nodes();
     const untouched = before[0].children?.[1];
-    f.publish('surface:thread:root', { ...child, segments: [{ segmentId: 'text', kind: 'text', text: 'new' }] });
+    f.publish('surface:thread:root', { ...child, segments: [{ segmentId: 'text', kind: 'text', conclusion: true, text: 'new' }] });
     const after = f.view.nodes();
     expect(after[0].children?.[0].message.content).toBe('new');
     expect(after[0].children?.[0].message).not.toBe(before[0].children?.[0].message);
@@ -42,7 +41,7 @@ describe('regressões da árvore migradas para a apresentação canônica', () =
     const f = fixture([original, item('child', 'child', 'root')]);
     await f.view.open(); await f.view.openThread('root');
     const child = f.view.nodes()[0].children?.[0];
-    f.publish('surface', { ...original, state: 'streaming', segments: [{ segmentId: 'text', kind: 'text', text: 'delta' }] });
+    f.publish('surface', { ...original, state: 'streaming', segments: [{ segmentId: 'text', kind: 'text', conclusion: true, text: 'delta' }] });
     expect(f.view.getMessage('root')?.content).toBe('delta');
     f.publish('surface', item('root', 'edited'));
     const message = f.view.getMessage('root')!;
@@ -57,7 +56,7 @@ describe('regressões da árvore migradas para a apresentação canônica', () =
     const original = item('response', 'Parcial');
     const f = fixture([original]); await f.view.open();
     f.publish('surface', { ...original, executionId: 'retry', state: 'preparing', segments: [],
-      metadata: { ...original.metadata, conclusionSegmentIds: [] } });
+      metadata: { ...original.metadata, } });
     expect(f.view.nodes()[0].itemId).toBe('response');
     expect(f.view.getMessage('response')?.turnSegments).toEqual([]);
     expect(f.view.getMessage('response')?.content).toBe('');
@@ -87,10 +86,10 @@ describe('regressões da árvore migradas para a apresentação canônica', () =
 
   it('atribui alvo persistido sem substituir a identidade visual durante streaming', async () => {
     const pending = item('turn:question', 'partial');
-    const f = fixture([{ ...pending, state: 'streaming', representativeMessageId: null, messageIds: [] }]);
+    const f = fixture([{ ...pending, state: 'streaming', representativeMessageId: null, }]);
     await f.view.open();
     const before = f.view.nodes()[0];
-    f.publish('surface', { ...pending, representativeMessageId: 'backend', messageIds: ['backend'] });
+    f.publish('surface', { ...pending, representativeMessageId: 'backend', });
     expect(f.view.nodes()[0].itemId).toBe(before.itemId);
     expect(f.view.nodes()[0].message.id).toBe('turn:question');
     expect(f.view.nodes()[0].message.timelineItem?.representativeMessageId).toBe('backend');

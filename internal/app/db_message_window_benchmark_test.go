@@ -173,3 +173,32 @@ func seedMessageWindowBenchmark(tb testing.TB, messageCount, resultBytes int) st
 	}
 	return conversation.ID
 }
+
+// Mede separadamente o custo de descobrir e contar threads, sem alterar a
+// fixture histórica usada nos gates do AEP-0116.
+func BenchmarkCanonicalTimelineThreadMetadata(b *testing.B) {
+	for _, withChildren := range []bool{false, true} {
+		b.Run(fmt.Sprintf("children_%v", withChildren), func(b *testing.B) {
+			setupMessageWindowAppTestDB(b)
+			conversationID := seedMessageWindowBenchmark(b, 100, 1024)
+			var messages []database.ChatMessage
+			if err := database.DB().Where("conversation_id=?", conversationID).Find(&messages).Error; err != nil {
+				b.Fatal(err)
+			}
+			if withChildren {
+				parent := messages[0].ID
+				if _, err := database.CreateMessageWithContext(messageWindowTestCtx(), database.MessageOptions{
+					ConversationID: conversationID, ParentID: &parent, Role: "user", Content: "filha"}); err != nil {
+					b.Fatal(err)
+				}
+			}
+			b.ReportAllocs()
+			b.ResetTimer()
+			for range b.N {
+				if err := database.ReadMessagePresentation(messageWindowTestCtx(), database.DB(), messages); err != nil {
+					b.Fatal(err)
+				}
+			}
+		})
+	}
+}

@@ -64,7 +64,7 @@ func (r *ChatTurnRepository) getMany(ctx context.Context, conversationID string,
 	result := make(map[string]*ChatTurn, len(turnIDs))
 	const batchSize = 400
 	for start := 0; start < len(turnIDs); start += batchSize {
-		var turns []ChatTurn
+		turns := make([]ChatTurn, 0, min(batchSize, len(turnIDs)-start))
 		query := r.db.WithContext(ctx).Table("chat_turns").Select("chat_turns.*")
 		if presentation {
 			query = query.Select("chat_turns.*, COALESCE(current_attempt.terminal_reason, '') AS terminal_reason").Joins("LEFT JOIN chat_turn_attempts current_attempt ON current_attempt.execution_id = chat_turns.current_execution_id AND current_attempt.turn_id = chat_turns.user_message_id")

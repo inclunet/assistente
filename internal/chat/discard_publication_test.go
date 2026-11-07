@@ -98,7 +98,7 @@ func TestDiscardRetainedReconcilesPublishedVolatileItem(t *testing.T) {
 			c.mu.Unlock()
 			switch mode {
 			case "persisted":
-				if !exists || canonicalText(item) != "persistido" || item.Durability != "persisted" || !ok || len(batches) == 0 {
+				if !exists || canonicalText(*item) != "persistido" || item.Durability != "" || !ok || len(batches) == 0 {
 					t.Fatal("descarte não corrigiu item/replay", item, ok)
 				}
 				if replay, ok, err := sub.Replay(f.ctx, epoch, snapshot.WindowRevision, before, f.reader); err != nil || !ok || len(replay) == 0 {
@@ -115,7 +115,7 @@ func TestDiscardRetainedReconcilesPublishedVolatileItem(t *testing.T) {
 					t.Fatal("ausência comprovada não publicou remoção")
 				}
 			case "old-attempt":
-				if !exists || canonicalText(item) != "execução atual" || after != before || newEpoch != epoch {
+				if !exists || canonicalText(*item) != "execução atual" || after != before || newEpoch != epoch {
 					t.Fatal("descarte antigo alterou execução atual")
 				}
 			case "blocked":

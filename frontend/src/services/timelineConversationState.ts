@@ -176,7 +176,7 @@ export class TimelineConversationState {
           new Set(snapshot.items.map(item => item.itemId)).size !== snapshot.items.length ||
           snapshot.items.length !== snapshot.orderedItemIds.length) throw new Error('snapshot');
       for (const item of snapshot.items) {
-        validItem(item, snapshot, sequence);
+        validItem(item, sequence);
         if (!snapshot.orderedItemIds.includes(item.itemId) || item.scopeParentId !== snapshot.scopeParentId) throw new Error('scope');
         const previous = this.records.get(item.itemId)?.entry;
         if (!previous || revision(previous.revision) < revision(item.revision)) {

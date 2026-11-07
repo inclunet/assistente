@@ -95,7 +95,7 @@ func TestMaintenanceRetentionCoordinatesParentsAndChildrenAtomically(t *testing.
 			for _, segment := range item.Segments {
 				calls += len(segment.Invocations)
 			}
-			if calls != map[bool]int{false: 0, true: 1}[rollback] || canonicalText(item) != "resposta antiga" {
+			if calls != map[bool]int{false: 0, true: 1}[rollback] || canonicalText(*item) != "resposta antiga" {
 				t.Fatal("projeção não reconciliada", item)
 			}
 			after, err := first.Refresh(f.ctx, "1", nil)

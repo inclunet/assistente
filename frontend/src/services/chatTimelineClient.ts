@@ -322,7 +322,7 @@ export class ChatTimelineClient {
     this.assertActive();
     if (slot.closed || slot.recoveryItems?.get(key) !== held || !held.transferred) throw new Error('Timeline recovery item unavailable');
     const identity = recoveryItemIdentity(held.identity.epoch, item);
-    if (item.conversationId !== conversationId || !identity || recoveryItemKey(identity) !== key) throw new Error('Timeline recovery item mismatch');
+    if (!identity || recoveryItemKey(identity) !== key) throw new Error('Timeline recovery item mismatch');
     return item;
   }
 

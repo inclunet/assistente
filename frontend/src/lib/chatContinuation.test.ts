@@ -23,7 +23,7 @@ describe('elegibilidade de continuação da fonte canônica', () => {
   it.each<Partial<TimelineItem>>([
     { state: 'preparing' }, { state: 'streaming' }, { state: 'completed' }, { state: 'historical_unknown' },
     { durability: 'volatile' },
-    { kind: 'message' }, { scopeParentId: persisted }, { turnId: null }, { representativeMessageId: null },
+    { metadata: { ...canonicalTestItem('question').metadata, role: 'user' } }, { scopeParentId: persisted }, { turnId: null }, { representativeMessageId: null },
     { turnId: 'local-turn' }, { representativeMessageId: 'local-message' },
   ])('recusa alvo inelegível: %j', async overrides => {
     const item = canonicalTestItem('response', 'resposta parcial', {

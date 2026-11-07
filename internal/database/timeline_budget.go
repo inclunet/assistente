@@ -27,32 +27,42 @@ func CheckTimelineIdentityBudget(sets ...[]string) error {
 	return nil
 }
 
-// A subconsulta contém a seleção paginada única. A soma e o mascaramento
-// acontecem no SQLite, antes de qualquer identidade excessiva chegar ao Go.
-func (r *MessageRepository) scanTimelineItems(query string, args []interface{}, order string) ([]MessageWindowItem, error) {
+var timelineIdentitySelect = func() string {
 	columns := []string{"kind", "id", "message_id", "turn_id", "created_at", "anchor_id"}
 	sizes, masks := make([]string, 0, len(columns)), make([]string, 0, len(columns))
 	for _, column := range columns {
 		sizes = append(sizes, "COALESCE(LENGTH(CAST("+column+" AS BLOB)),0)")
-		masks = append(masks, "CASE WHEN identity_bytes <= "+strconv.Itoa(MaxTimelineSourceBytes)+" THEN "+column+" ELSE '' END AS "+column)
+		masks = append(masks, "CASE WHEN identity_bytes <= "+strconv.Itoa(MaxTimelineSourceBytes)+" THEN COALESCE("+column+", '') ELSE '' END AS "+column)
 	}
-	sql := "SELECT " + strings.Join(masks, ",") + ", invalid_turn_reference, window_total, identity_bytes FROM (SELECT selected.*, SUM(1024 + " + strings.Join(sizes, "+") + ") OVER () AS identity_bytes FROM (" + query + ") selected) bounded"
+	return "SELECT " + strings.Join(masks, ",") + ", invalid_turn_reference, window_total, identity_bytes FROM (SELECT selected.*, SUM(1024 + " + strings.Join(sizes, "+") + ") OVER () AS identity_bytes FROM ("
+}()
+
+// A subconsulta contém a seleção paginada única. A soma e o mascaramento
+// acontecem no SQLite, antes de qualquer identidade excessiva chegar ao Go.
+func (r *MessageRepository) scanTimelineItems(query string, args []interface{}, order string) ([]MessageWindowItem, error) {
+	sql := timelineIdentitySelect + query + ") selected) bounded"
 	if order != "" {
 		sql += " ORDER BY " + order
 	}
-	var rows []struct {
-		MessageWindowItem
-		IdentityBytes int64
-	}
-	if err := r.db.Raw(sql, args...).Scan(&rows).Error; err != nil {
+	rows, err := r.db.Raw(sql, args...).Rows()
+	if err != nil {
 		return nil, err
 	}
-	items := make([]MessageWindowItem, 0, len(rows))
-	for _, row := range rows {
-		if row.IdentityBytes > MaxTimelineSourceBytes {
+	defer func() { _ = rows.Close() }()
+	items := make([]MessageWindowItem, 0)
+	for rows.Next() {
+		var item MessageWindowItem
+		var identityBytes int64
+		if err := rows.Scan(&item.Kind, &item.ID, &item.MessageID, &item.TurnID, &item.AnchorCreatedAt, &item.AnchorID, &item.InvalidTurnReference, &item.WindowTotal, &identityBytes); err != nil {
+			return nil, err
+		}
+		if identityBytes > MaxTimelineSourceBytes {
 			return nil, ErrTimelineSourceLimit
 		}
-		items = append(items, row.MessageWindowItem)
+		if len(items) == 0 && item.WindowTotal > 0 {
+			items = make([]MessageWindowItem, 0, min(item.WindowTotal, MaxMessageWindowRows))
+		}
+		items = append(items, item)
 	}
-	return items, nil
+	return items, rows.Err()
 }

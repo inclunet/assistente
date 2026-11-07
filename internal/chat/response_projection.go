@@ -22,8 +22,6 @@ type TimelineItem struct {
 	ConversationID    string
 	ScopeParentID     *string
 	Kind              string
-	ReplyToItemID     string
-	MessageIDs        []string
 	Position          TimelinePosition
 	Durability        string
 	ItemID            string
@@ -63,7 +61,7 @@ func responseToolSegment(calls []TurnSegmentToolCall) ResponseSegment {
 // Fontes e turno devem vir da mesma leitura transacional, filtrada pela seleção
 // de execução do banco. Continue pode incluir bases explícitas; retry não as herda.
 func ProjectPersistedResponse(conversationID, turnID string, parentID *string, messages []Message, calls []TurnSegmentToolCall, turn *database.ChatTurn) (*TimelineItem, error) {
-	result := &TimelineItem{ItemID: ports.ResponseItemID(turnID), TurnID: turnID, State: database.TurnHistoricalUnknown, Origin: "legacy", ConversationID: conversationID, ScopeParentID: parentID, Kind: "response", ReplyToItemID: ports.MessageItemID(turnID), Durability: "persisted"}
+	result := &TimelineItem{ItemID: ports.ResponseItemID(turnID), TurnID: turnID, State: database.TurnHistoricalUnknown, Origin: "legacy", ConversationID: conversationID, ScopeParentID: parentID, Kind: "response", Durability: "persisted"}
 	for _, message := range messages {
 		if message.ConversationID != conversationID || message.TurnID == nil || *message.TurnID != turnID || !sameScope(message.ParentID, parentID) || message.Role == "user" {
 			return nil, fmt.Errorf("mensagem fora do escopo da resposta %s", turnID)
@@ -100,9 +98,6 @@ func ProjectPersistedResponse(conversationID, turnID string, parentID *string, m
 				return nil, fmt.Errorf("representante persistido fora da resposta %s", turnID)
 			}
 		}
-	}
-	for _, message := range ordered {
-		result.MessageIDs = append(result.MessageIDs, message.ID)
 	}
 	result.messages, result.invocations = ordered, calls
 	result.Segments = projectResponseSegments(ordered, calls, result.Representative)

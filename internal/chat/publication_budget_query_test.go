@@ -1,6 +1,7 @@
 package chat
 
 import (
+	"errors"
 	"reflect"
 	"slices"
 	"strings"
@@ -25,8 +26,8 @@ func TestPublicationSourceSelectsOnlyRequestedMessagesAndValidTurnSources(t *tes
 		}
 	}
 	// A resposta aparece nas duas seleções; UNION deve contá-la uma única vez.
-	messages := publicationIDSet([]string{f.question, f.answer})
-	turns := publicationIDSet([]string{f.question, "missing-question"})
+	messages := database.EncodeTimelineIDSet([]string{f.question, f.answer})
+	turns := database.EncodeTimelineIDSet([]string{f.question, "missing-question"})
 	var ids []string
 	if err := f.db.Raw("SELECT chat_messages.id FROM "+publicationMessageSourceSQL+" ORDER BY chat_messages.id", messages, turns).Scan(&ids).Error; err != nil {
 		t.Fatal(err)
@@ -41,7 +42,7 @@ func TestPublicationSourceSelectsOnlyRequestedMessagesAndValidTurnSources(t *tes
 func TestPublicationBudgetPlanStartsFromSelectedTurnMessages(t *testing.T) {
 	f := newSnapshotFixture(t)
 	var rows []struct{ Detail string }
-	turns := publicationIDSet([]string{f.question})
+	turns := database.EncodeTimelineIDSet([]string{f.question})
 	if err := f.db.Raw("EXPLAIN QUERY PLAN "+publicationReadBudgetSQL, turns, f.conversation, f.conversation, turns, turns, turns, f.conversation).Scan(&rows).Error; err != nil {
 		t.Fatal(err)
 	}
@@ -57,5 +58,35 @@ func TestPublicationBudgetPlanStartsFromSelectedTurnMessages(t *testing.T) {
 	}
 	if !found {
 		t.Fatal("plano não usa busca indexada pelas identidades de turno")
+	}
+}
+
+func TestPublicationBudgetCombinesMessagesAndToolsBeforeLoading(t *testing.T) {
+	f := newSnapshotFixture(t)
+	large := strings.Repeat("x", canonicalSourceBytes/2)
+	for _, test := range []struct {
+		name, content, preview string
+		exceeds                bool
+	}{
+		{"mensagem", large, "curto", false},
+		{"ferramenta", "curto", large, false},
+		{"soma", large, large, true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if err := f.db.Model(&database.ChatMessage{}).Where("id=?", f.answer).Update("content", test.content).Error; err != nil {
+				t.Fatal(err)
+			}
+			if err := f.db.Model(&database.ToolInvocation{}).Where("id=?", f.invocation).Update("output_preview", test.preview).Error; err != nil {
+				t.Fatal(err)
+			}
+			_, err := publicationSelectionReadSize(f.db.WithContext(f.ctx), f.conversation, nil, []string{f.question})
+			if test.exceeds {
+				if !errors.Is(err, ErrTimelineSourceLimit) {
+					t.Fatal("soma acima do teto foi admitida", err)
+				}
+			} else if err != nil {
+				t.Fatal(err)
+			}
+		})
 	}
 }

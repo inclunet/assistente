@@ -828,7 +828,7 @@ export function buildWailsMockScript(): string {
     if (!timelineRows.has(conversationId)) timelineRows.set(conversationId, []);
     return timelineRows.get(conversationId);
   }
-    function canonicalItem(node, conversationId) {
+  function canonicalItem(node) {
     const m = node.message || node;
     const id = m.id;
     const segments = m.canonicalSegments || (m.turnSegments?.length
@@ -839,16 +839,15 @@ export function buildWailsMockScript(): string {
     if (m.reasoning && !segments.some(part => part.kind === 'reasoning')) {
       segments.unshift({ segmentId: id + ':reasoning', kind: 'reasoning', text: m.reasoning });
     }
-    const conclusion = segments.filter(part => part.kind === 'text').slice(-1);
-    return { itemId: id, conversationId, scopeParentId: m.parentId || null,
-      kind: m.role === 'assistant' ? 'response' : 'message', turnId: m.turnId || null,
-      replyToItemId: '', messageIds: [id], representativeMessageId: id,
+    const conclusion = segments.filter(part => part.kind === 'text' && part.text?.trim()).at(-1);
+    return { itemId: id, scopeParentId: m.parentId || null,
+      turnId: m.turnId || null,
+      representativeMessageId: id,
       revision: String(m.canonicalRevision || 1), state: m.isStreaming ? 'streaming' : 'completed',
-      durability: 'persisted', segments,
+      durability: 'persisted', segments: segments.map(part => ({ ...part, conclusion: part === conclusion || undefined })),
       metadata: { thinking: !!m.thinking, terminalReason: m.terminalReason, createdAt: m.createdAt || now,
         source: m.source || '', childCount: node.childCount || node.children?.length || 0,
-        conclusionSegmentIds: conclusion.map(part => part.segmentId),
-        cacheReadTokens: 0, cacheWriteTokens: 0, cacheMissTokens: 0, origin: 'chat',
+        cacheReadTokens: 0, cacheWriteTokens: 0, cacheMissTokens: 0,
         role: m.role, pinned: !!m.pinned, model: m.model || '', promptTokens: 0,
         completionTokens: 0, totalTokens: 0 } };
   }
@@ -856,7 +855,7 @@ export function buildWailsMockScript(): string {
     const root = fixtureRows(window.conversationId);
     const rows = window.scopeParentId
       ? (timelineThreadRows.get(window.scopeParentId) || root.find(row => row.message?.id === window.scopeParentId)?.children || []) : root;
-    const items = rows.map(row => ({ ...canonicalItem(row, window.conversationId), scopeParentId: window.scopeParentId }));
+    const items = rows.map(row => ({ ...canonicalItem(row), scopeParentId: window.scopeParentId }));
     return { ...window, epoch: 'e2e-epoch', windowRevision: String(window.revision),
       sequence: String(sequenceFor(window.conversationId)), items, orderedItemIds: items.map(item => item.itemId),
       retainedItemIds: window.retainedItemIds || [], retentionBlocked: false,
@@ -931,7 +930,7 @@ export function buildWailsMockScript(): string {
       const m = row.message;
       m.canonicalRevision = (m.canonicalRevision || 1) + 1;
       if (data.turnId) m.turnId = data.turnId;
-      m.canonicalSegments ||= canonicalItem(row, data.conversationId).segments;
+      m.canonicalSegments ||= canonicalItem(row).segments;
       const segments = m.canonicalSegments;
       if (event === 'chat:stream' && typeof data.delta === 'string') {
         let tail = segments.at(-1);

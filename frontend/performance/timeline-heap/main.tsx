@@ -26,13 +26,13 @@ function snapshot(windowId: string, mode: string): TimelineSnapshot {
   const items: TimelineItem[] = Array.from({ length: Math.min(count, 240) }, (_, index) => {
     const id = `${window.conversationId}:${index}`;
     return {
-      itemId: `message:${id}`, conversationId: window.conversationId, scopeParentId: null,
-      kind: 'message', turnId: null, replyToItemId: '', messageIds: [id], representativeMessageId: id,
+      itemId: `message:${id}`, scopeParentId: null,
+      turnId: null, representativeMessageId: id,
       revision: '1', state: 'completed', durability: 'persisted',
-      segments: [{ segmentId: `text:${id}`, kind: 'text', text: `${id} ${textBytes ? 'x'.repeat(textBytes) : 'conteúdo da conversa '.repeat(200)}` }],
+      segments: [{ segmentId: `text:${id}`, kind: 'text', conclusion: true, text: `${id} ${textBytes ? 'x'.repeat(textBytes) : 'conteúdo da conversa '.repeat(200)}` }],
       metadata: { role: 'assistant', createdAt: '2026-01-01T00:00:00Z', source: '', childCount: 0,
-        conclusionSegmentIds: [`text:${id}`], cacheReadTokens: 0, cacheWriteTokens: 0, cacheMissTokens: 0,
-        origin: 'chat', pinned: false, model: '', promptTokens: 0, completionTokens: 0, totalTokens: 0 },
+        cacheReadTokens: 0, cacheWriteTokens: 0, cacheMissTokens: 0,
+        pinned: false, model: '', promptTokens: 0, completionTokens: 0, totalTokens: 0 },
     };
   });
   return { conversationId: window.conversationId, scopeParentId: null, windowId,

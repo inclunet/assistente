@@ -231,8 +231,8 @@ export class ChatTimelinePresentation implements ChatMessageSource {
       toolInvocations: segment.invocations,
     }));
     const message = {
-      ...item.metadata, timestamp: Date.parse(item.metadata.createdAt), id: item.itemId, conversationId: item.conversationId, parentId: item.scopeParentId ?? undefined,
-      turnId: item.turnId ?? undefined, content: item.metadata.conclusionSegmentIds.map(id => item.segments.find(segment => segment.segmentId === id)?.text ?? '').join(''),
+      ...item.metadata, timestamp: Date.parse(item.metadata.createdAt), id: item.itemId, conversationId: this.conversationId, parentId: item.scopeParentId ?? undefined,
+      turnId: item.turnId ?? undefined, content: item.segments.filter(segment => segment.conclusion).map(segment => segment.text ?? '').join(''),
       reasoning: item.segments.filter(segment => segment.kind === 'reasoning').map(segment => segment.text ?? '').join('\n'),
       isStreaming: item.state === 'preparing' || item.state === 'streaming', internal: false,
       turnSegments: segments,

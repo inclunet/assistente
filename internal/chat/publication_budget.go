@@ -1,11 +1,11 @@
 package chat
 
 import (
-	"encoding/hex"
 	"encoding/json"
 	"reflect"
 	"slices"
 	"strings"
+	"sync"
 	"unicode/utf8"
 
 	"assistente/internal/database"
@@ -34,6 +34,14 @@ const publicationMessageSourceSQL = `(SELECT id FROM chat_messages WHERE id IN (
 var publicationReadBudgetSQL = "SELECT (SELECT COALESCE(SUM(1024 + " + publicationSQLBytes("chat_messages", "id", "conversation_id", "role", "parent_id", "created_at") + "),0) FROM (SELECT CAST(unhex(value) AS TEXT) AS scope_id FROM json_each(?)) selected_scope CROSS JOIN chat_messages ON chat_messages.id=selected_scope.scope_id WHERE conversation_id=?) + COALESCE(SUM(1024 + " + publicationMessageSizeSQL + "), 0) + (SELECT COALESCE(SUM(1024 + " + publicationTurnSizeSQL + "), 0) FROM chat_turns WHERE conversation_id=? AND user_message_id IN (SELECT CAST(unhex(value) AS TEXT) FROM json_each(?))) FROM " + publicationMessageSourceSQL + " WHERE chat_messages.conversation_id=? AND " + database.CurrentChatMessageSQL("chat_messages")
 var publicationCallBudgetSQL = "COALESCE(SUM(1024 + " + publicationCallSizeSQL + " + " + publicationCatalogSizeSQL + "), 0)"
 
+// Um único resultado escalar precede a materialização. CASE conserva a recusa
+// antecipada: ferramentas só são somadas se mensagens/turnos cabem no teto.
+var publicationCombinedBudgetSQL = func() string {
+	selection := database.ChatInvocationSelection{}
+	calls := "SELECT " + publicationCallBudgetSQL + " FROM tool_invocations LEFT JOIN tool_catalog ON tool_catalog.id=tool_invocations.tool_catalog_id " + selection.Join("tool_invocations") + " WHERE " + selection.Predicate("tool_invocations") + " AND tool_invocations.user_id=? AND tool_invocations.origin_type='chat' AND tool_invocations.turn_id IN (SELECT CAST(unhex(value) AS TEXT) FROM json_each(?))"
+	return "WITH message_budget(size) AS MATERIALIZED (" + publicationReadBudgetSQL + ") SELECT CASE WHEN size > ? THEN size ELSE size + (" + calls + ") END FROM message_budget"
+}()
+
 // Executado depois da autorização, na mesma transação da materialização.
 // LENGTH(BLOB) mede bytes sem transportar payloads para o processo Go. O custo
 // fixo por linha também limita coleções enormes de registros quase vazios.
@@ -49,41 +57,29 @@ func publicationSelectionReadSize(tx *gorm.DB, conversationID string, messageIDs
 	}
 	// Perguntas e respostas da mesma página frequentemente repetem o conjunto.
 	// Serializar uma vez quando os IDs coincidem, preservando a seleção exata.
-	turnsJSON := publicationIDSet(turnIDs)
+	turnsJSON := database.EncodeTimelineIDSet(turnIDs)
 	messagesJSON, metadataJSON := turnsJSON, turnsJSON
 	if !slices.Equal(messageIDs, turnIDs) {
-		messagesJSON = publicationIDSet(messageIDs)
-		metadataJSON = publicationIDSet(uniquePublicationIDs(append(append([]string(nil), messageIDs...), turnIDs...)))
+		messagesJSON = database.EncodeTimelineIDSet(messageIDs)
+		metadataJSON = database.EncodeTimelineIDSet(uniquePublicationIDs(append(append([]string(nil), messageIDs...), turnIDs...)))
 	}
-	err := tx.Raw(publicationReadBudgetSQL, turnsJSON, conversationID, conversationID, metadataJSON, messagesJSON, turnsJSON, conversationID).Scan(&size).Error
-	if err != nil {
+	query := publicationReadBudgetSQL
+	args := []interface{}{turnsJSON, conversationID, conversationID, metadataJSON, messagesJSON, turnsJSON, conversationID}
+	if len(turnIDs) != 0 {
+		userID, err := database.RequireUserID(tx.Statement.Context)
+		if err != nil {
+			return 0, err
+		}
+		query = publicationCombinedBudgetSQL
+		args = append(args, canonicalSourceBytes, userID, turnsJSON)
+	}
+	if err := tx.Raw(query, args...).Row().Scan(&size); err != nil {
 		return 0, err
 	}
 	if size > canonicalSourceBytes {
 		return 0, ErrTimelineSourceLimit
 	}
-	if len(turnIDs) == 0 {
-		return size, nil
-	}
-	var callsSize int64
-	userID, err := database.RequireUserID(tx.Statement.Context)
-	if err != nil {
-		return 0, err
-	}
-	selection := database.ChatInvocationSelection{}
-	err = tx.Model(&database.ToolInvocation{}).Select(publicationCallBudgetSQL).
-		Joins("LEFT JOIN tool_catalog ON tool_catalog.id = tool_invocations.tool_catalog_id").
-		Joins(selection.Join("tool_invocations")).Where(selection.Predicate("tool_invocations")).
-		// O leitor aceita vínculos legados sem conversation_id. Contamos todos
-		// os registros do usuário/turno, incluindo os que o leitor filtrará depois.
-		Where("tool_invocations.user_id = ? AND tool_invocations.origin_type = 'chat' AND tool_invocations.turn_id IN (SELECT CAST(unhex(value) AS TEXT) FROM json_each(?))", userID, turnsJSON).Scan(&callsSize).Error
-	if err != nil {
-		return 0, err
-	}
-	if callsSize > canonicalSourceBytes-size {
-		return 0, ErrTimelineSourceLimit
-	}
-	return size + callsSize, nil
+	return size, nil
 }
 
 // Identificadores são constantes locais, nunca parâmetros vindos da UI.
@@ -108,6 +104,22 @@ type projectionBudget struct {
 	exactStrings bool
 }
 
+// Só descreve os tipos internos visitados pelo orçamento; não guarda dados
+// de conversa. Evita reconstruir StructField/Index a cada campo de cada item.
+var projectionFieldSizes sync.Map // reflect.Type -> []int imutável
+
+func projectionFieldNameSizes(kind reflect.Type) []int {
+	if cached, ok := projectionFieldSizes.Load(kind); ok {
+		return cached.([]int)
+	}
+	names := make([]int, kind.NumField())
+	for i := range names {
+		names[i] = len(kind.Field(i).Name)
+	}
+	actual, _ := projectionFieldSizes.LoadOrStore(kind, names)
+	return actual.([]int)
+}
+
 func (b *projectionBudget) visit(v reflect.Value) bool {
 	b.remaining -= 32
 	if b.remaining < 0 {
@@ -123,8 +135,9 @@ func (b *projectionBudget) visit(v reflect.Value) bool {
 			return b.visit(v.Elem())
 		}
 	case reflect.Struct:
+		names := projectionFieldNameSizes(v.Type())
 		for i := 0; i < v.NumField(); i++ {
-			b.remaining -= len(v.Type().Field(i).Name)
+			b.remaining -= names[i]
 			if !b.visit(v.Field(i)) {
 				return false
 			}
@@ -265,24 +278,3 @@ var invalidUTF8JSONBytes = func() int {
 	encoded, _ := json.Marshal(string([]byte{0xff}))
 	return len(encoded) - 2
 }()
-
-// JSON contém somente hex ASCII; unhex + CAST TEXT restaura os bytes originais
-// (inclusive NUL/UTF-8 inválido) no lado direito de IN, preservando os índices.
-func publicationIDSet(ids []string) string {
-	size := 2
-	for _, id := range ids {
-		size += 3 + 2*len(id)
-	}
-	encoded := make([]byte, 0, size)
-	encoded = append(encoded, '[')
-	for i, id := range ids {
-		if i > 0 {
-			encoded = append(encoded, ',')
-		}
-		encoded = append(encoded, '"')
-		encoded = hex.AppendEncode(encoded, []byte(id))
-		encoded = append(encoded, '"')
-	}
-	encoded = append(encoded, ']')
-	return string(encoded)
-}

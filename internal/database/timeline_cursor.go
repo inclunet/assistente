@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"strings"
 )
 
 var ErrTimelineCursorInvalid = errors.New("cursor de timeline inválido")
@@ -14,16 +15,14 @@ var ErrTimelineCursorStale = errors.New("âncora de timeline mudou; sincronizaç
 type timelineCursor struct {
 	Version        int     `json:"v"`
 	ConversationID string  `json:"c"`
-	ParentID       *string `json:"p"`
+	ParentID       *string `json:"p,omitempty"`
 	CreatedAt      string  `json:"t"`
-	AnchorID       string  `json:"a"`
-	Slot           int     `json:"s"`
 	ItemID         string  `json:"i"`
 }
 
 func EncodeTimelineCursor(conversationID string, parentID *string, item MessageWindowItem) string {
 	key := timelineKeyArgs(item)
-	value := timelineCursor{1, conversationID, parentID, item.AnchorCreatedAt, item.AnchorID, key[2].(int), key[3].(string)}
+	value := timelineCursor{2, conversationID, parentID, item.AnchorCreatedAt, key[3].(string)}
 	data, _ := json.Marshal(value) // apenas strings, ponteiro de string e inteiros
 	return base64.RawURLEncoding.EncodeToString(data)
 }
@@ -37,7 +36,11 @@ func decodeTimelineCursor(query MessageWindowQuery) (*timelineCursor, error) {
 		return nil, ErrTimelineCursorInvalid
 	}
 	var cursor timelineCursor
-	if json.Unmarshal(data, &cursor) != nil || cursor.Version != 1 || cursor.ConversationID != query.ConversationID || !sameCursorScope(cursor.ParentID, query.ParentID) || cursor.CreatedAt == "" || cursor.AnchorID == "" || cursor.ItemID == "" || cursor.Slot < 0 || cursor.Slot > 1 {
+	if json.Unmarshal(data, &cursor) != nil || cursor.Version != 2 || cursor.ConversationID != query.ConversationID || !sameCursorScope(cursor.ParentID, query.ParentID) || cursor.CreatedAt == "" {
+		return nil, ErrTimelineCursorInvalid
+	}
+	kind, id, found := strings.Cut(cursor.ItemID, ":")
+	if !found || id == "" || (kind != "message" && kind != "turn") {
 		return nil, ErrTimelineCursorInvalid
 	}
 	return &cursor, nil
@@ -49,5 +52,7 @@ func sameCursorScope(a, b *string) bool {
 
 func (cursor *timelineCursor) matches(item MessageWindowItem) bool {
 	key := timelineKeyArgs(item)
-	return cursor.CreatedAt == item.AnchorCreatedAt && cursor.AnchorID == item.AnchorID && cursor.Slot == key[2].(int) && cursor.ItemID == key[3].(string)
+	// ItemID já determina âncora e slot; conferir novamente a data impede
+	// reutilizar uma fronteira cuja âncora persistida mudou.
+	return cursor.CreatedAt == item.AnchorCreatedAt && cursor.ItemID == key[3].(string)
 }

@@ -80,7 +80,7 @@ func TestCanonicalItemOmitsPhysicalPayloadAndUsesNullableRepresentative(t *testi
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(data), `"representativeMessageId":null`) || !strings.Contains(string(data), `"messageIds":[]`) || !strings.Contains(string(data), `"segments":[]`) {
+	if !strings.Contains(string(data), `"representativeMessageId":null`) || strings.Contains(string(data), `"messageIds"`) || !strings.Contains(string(data), `"segments":[]`) {
 		t.Fatalf("nullable/arrays: %s", data)
 	}
 }

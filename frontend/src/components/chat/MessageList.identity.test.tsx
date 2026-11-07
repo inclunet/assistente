@@ -28,15 +28,14 @@ afterEach(async () => {
 async function responseView(hasTarget = true) {
   const response = canonicalTestItem('turn:user', 'parcial', {
     state: 'streaming', turnId: 'user', representativeMessageId: hasTarget ? 'assistant' : null,
-    messageIds: hasTarget ? ['assistant'] : [],
-  });
+    });
   const fixture = canonicalTestFixture([response]);
   clients.push(fixture.client);
   const presentation = fixture.presentation();
   await presentation.open();
   return { presentation, complete() {
     fixture.publish('surface', { ...response, state: 'completed', representativeMessageId: 'assistant',
-      messageIds: ['assistant'], segments: [{ segmentId: 'text', kind: 'text', text: 'final' }] });
+      segments: [{ segmentId: 'text', kind: 'text', conclusion: true, text: 'final' }] });
   } };
 }
 

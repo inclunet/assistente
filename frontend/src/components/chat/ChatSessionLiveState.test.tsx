@@ -31,7 +31,7 @@ describe('estado live granular da apresentação canônica', () => {
     const renderOne = vi.fn(); const renderTwo = vi.fn();
     render(<><LiveProbe presentation={first} id={one.itemId} onRender={renderOne} />
       <LiveProbe presentation={second} id={two.itemId} onRender={renderTwo} /></>);
-    const next = { ...one, segments: [{ segmentId: 'text', kind: 'text' as const, text: 'delta acumulado 👩🏽‍💻' }] };
+    const next = { ...one, segments: [{ segmentId: 'text', kind: 'text' as const, conclusion: true, text: 'delta acumulado 👩🏽‍💻' }] };
     let delivered!: ReturnType<typeof fixture.publish>;
     act(() => { delivered = fixture.publish('first', next); });
     expect(screen.getByText('delta acumulado 👩🏽‍💻')).toBeInTheDocument();
@@ -48,7 +48,7 @@ describe('estado live granular da apresentação canônica', () => {
     fixture.setItems([one, two]);
     const presentation = fixture.presentation(); await presentation.open();
     const before = presentation.nodes();
-    fixture.publish('surface', { ...one, segments: [{ segmentId: 'text', kind: 'text', text: 'novo frame' }] });
+    fixture.publish('surface', { ...one, segments: [{ segmentId: 'text', kind: 'text', conclusion: true, text: 'novo frame' }] });
     const current = presentation.nodes();
     expect(current[0].itemId).toBe(before[0].itemId);
     expect(current[0].message.content).toBe('novo frame');
@@ -83,14 +83,14 @@ describe('estado live granular da apresentação canônica', () => {
   });
 
   it('confirma a resposta visível sem exigir árvore nem sessão padrão no Zustand', async () => {
-    const user = canonicalTestItem('question', 'pergunta', { kind: 'message' });
+    const user = canonicalTestItem('question', 'pergunta', { turnId: null });
     const assistant = canonicalTestItem('response', '', { state: 'streaming', durability: 'live' });
     fixture.setItems([user, assistant]);
     const presentation = fixture.presentation(); await presentation.open();
     const previous = presentation.nodes();
     const before = useChatStore.getState();
     fixture.publish('surface', { ...assistant, state: 'completed', durability: 'persisted',
-      segments: [{ segmentId: 'text', kind: 'text', text: 'resposta terminal' }] });
+      segments: [{ segmentId: 'text', kind: 'text', conclusion: true, text: 'resposta terminal' }] });
     const current = presentation.nodes();
     expect(current.map(node => node.itemId)).toEqual(['question', 'response']);
     expect(current[0]).toBe(previous[0]);
