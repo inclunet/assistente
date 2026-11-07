@@ -31,17 +31,6 @@ export interface ChatSurfaceIdentity {
   tabId?: string;
 }
 
-export interface MessageWindowState {
-  scope: 'conversation' | 'thread';
-  conversationId: string;
-  threadParentId?: string;
-  totalCount: number;
-  startIndex: number;
-  endIndex: number;
-  hasBefore: boolean;
-  hasAfter: boolean;
-}
-
 export interface ChatSurfaceDescriptor {
   identity: ChatSurfaceIdentity;
   isActive: boolean;
@@ -121,11 +110,6 @@ export interface ChatSurfaceSession {
   surfaceOrigin?: ChatSurfaceOrigin;
   queuedTurnCount?: number;
   isLoading: boolean;
-  hasOlderMessages: boolean;
-  isLoadingOlderMessages: boolean;
-  isLoadingMessageWindow: boolean;
-  visibleThreadedMessages?: MessageNode[];
-  messageWindow?: MessageWindowState;
   sendFailureMessage: string | null;
   sendFailureAnnounced: boolean;
   sendFailureRetryable: boolean;
@@ -161,9 +145,6 @@ export const createEmptyChatSurfaceSession = (
   conversationId,
   queuedTurnCount: 0,
   isLoading: false,
-  hasOlderMessages: false,
-  isLoadingOlderMessages: false,
-  isLoadingMessageWindow: false,
   sendFailureMessage: null,
   sendFailureAnnounced: false,
   sendFailureRetryable: false,

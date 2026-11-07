@@ -26,6 +26,11 @@ seus callbacks antigos deixam de alterar a projeção em memória.
 
 ## Consistência do histórico
 
+Durante a navegação pelo histórico, o indicador informa “Carregando...” tanto
+para mensagens anteriores quanto posteriores. O leitor de tela anuncia o
+intervalo carregado quando há mensagens na janela; uma janela vazia não anuncia
+um intervalo inválido.
+
 Menus e detalhes de ferramentas mantêm sua mensagem disponível enquanto estão
 abertos, mesmo quando novas respostas ou o carregamento do histórico mudam sua
 posição. Ao fechar, o foco retorna ao controle que abriu a interação. Durante a

@@ -6,7 +6,7 @@ import { MessageOutlined } from '@ant-design/icons';
 import { MessageNode as MessageNodeComponent } from './MessageNode';
 import { MessageNode, Message } from '../../store/chatStore';
 import type { EditorSendTargetOption, ChatSendToEditorPayload } from '../../lib/editorSendMenu';
-import { type MessageWindowState } from '../../services/chatSessionRegistry';
+import type { TimelineWindowMetadata } from '../../types/chatTimelineEvents';
 import { useAnnouncer } from '../../hooks/useAnnouncer';
 import type { VoiceAccessibilityOrigin } from '../../services/voiceAccessibility/types';
 import './MessageList.css';
@@ -26,15 +26,12 @@ export interface MessageListProps {
   loadingText?: string; // Optional custom loading text
   // Estrutura hierárquica de mensagens (threads)
   threadedMessages: MessageNode[];
-  messageWindow?: MessageWindowState;
+  messageWindow?: TimelineWindowMetadata;
   // Callback para carregar filhos de uma mensagem
   onLoadChildren?: (messageId: string) => Promise<MessageNode[]>;
   // Callback quando chega ao fim da lista principal
   onReachEnd?: () => void;
   onReachStart?: () => void | Promise<void>;
-  hasOlderMessages?: boolean;
-  hasNewerMessages?: boolean;
-  isLoadingOlderMessages?: boolean;
   isLoadingMessageWindow?: boolean;
   onLoadOlder?: (trigger: MessageWindowLoadTrigger) => Promise<void> | void;
   onLoadNewer?: (trigger: MessageWindowLoadTrigger) => Promise<void> | void;
@@ -75,9 +72,6 @@ export const MessageList = React.memo(forwardRef<HTMLDivElement, MessageListProp
     onLoadChildren,
     onReachEnd,
     onReachStart,
-    hasOlderMessages = false,
-    hasNewerMessages = false,
-    isLoadingOlderMessages = false,
     isLoadingMessageWindow = false,
     onLoadOlder,
     onLoadNewer,
@@ -147,6 +141,8 @@ export const MessageList = React.memo(forwardRef<HTMLDivElement, MessageListProp
     }
   }, [announceRequest, effectiveLoadingText, isLoading, origin]);
 
+  const hasOlderMessages = messageWindow?.hasBefore ?? false;
+  const hasNewerMessages = messageWindow?.hasAfter ?? false;
   const displayMessages = threadedMessages;
   const canLoadNewerFromDisplayEnd = displayMessages.length > 0;
   const messagePositions = displayMessages.map((_, index) => (messageWindow?.startIndex ?? 0) + index + 1);
@@ -251,7 +247,7 @@ export const MessageList = React.memo(forwardRef<HTMLDivElement, MessageListProp
     const listRect = list.getBoundingClientRect();
     const nextMargin = listRect.top - containerRect.top + container.scrollTop;
     setScrollMargin((prev) => (Math.abs(prev - nextMargin) > 1 ? nextMargin : prev));
-  }, [shouldVirtualize, hasOlderMessages, isLoadingOlderMessages, displayMessages.length]);
+  }, [shouldVirtualize, hasOlderMessages, isLoadingMessageWindow, displayMessages.length]);
 
   useEffect(() => {
     if (!import.meta.env.DEV) return;
@@ -531,10 +527,10 @@ export const MessageList = React.memo(forwardRef<HTMLDivElement, MessageListProp
               type="button"
               className="message-list__load-older-button"
               onClick={() => handleLoadOlder('navigation')}
-              disabled={isLoadingMessageWindow || isLoadingOlderMessages}
-              aria-busy={isLoadingOlderMessages}
+              disabled={isLoadingMessageWindow}
+              aria-busy={isLoadingMessageWindow}
             >
-              {isLoadingOlderMessages ? t('chat.loadingOlderMessages') : t('chat.loadOlderMessages')}
+              {isLoadingMessageWindow ? t('common.loading') : t('chat.loadOlderMessages')}
             </button>
           </div>
         )}

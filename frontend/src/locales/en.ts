@@ -308,7 +308,6 @@ const en = {
       largeMessageDeferred: 'Large content will render when it enters the visible area.',
       loadOlderMessages: 'Load earlier messages',
       loadNewerMessages: 'Load newer messages',
-      loadingOlderMessages: 'Loading earlier messages...',
       modelThinking: 'The model is thinking',
       modelReasoning: 'Model reasoning',
       reasoning: 'Reasoning',

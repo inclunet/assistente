@@ -1,3 +1,4 @@
+import { fixtureProjection, withFixtureProjection, windowFixture } from '../../test/chatWindowFixture';
 import type { MessageNode } from '../../lib/chatMessageTree';
 import { messageFixture, nodeFixture } from '../../test/chatPresentationFixture';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -104,8 +105,6 @@ const chatStoreState = {
     [conversationId]: {
       conversation: activeConversation,
       isLoading: false,
-      hasOlderMessages: false,
-      isLoadingOlderMessages: false,
     },
   },
   timelinesByConversationId: {},
@@ -139,14 +138,14 @@ vi.mock('./useChatTimelinePresentation', () => ({
       },
       getMessageByRepresentative: (id: string) => chatStoreState.getConversationMessages().find(value => value.id === id),
       subscribe: () => () => {}, getRevision: () => 0, threadWindow: () => undefined,
-      get window() { const value = chatStoreState.surfaceSessionsByKey[sessionKey]?.messageWindow; return value ? { metadata: value } : undefined; },
+      get window() { const value = fixtureProjection(chatStoreState.surfaceSessionsByKey[sessionKey]).metadata; return value ? { metadata: value } : undefined; },
       navigate: (direction: string) => direction === 'start' || direction === 'end'
         ? chatStoreState.loadBoundaryMessagesForConversation(_conversationId, sessionKey, direction)
         : direction === 'older' ? chatStoreState.loadOlderMessagesForConversation(_conversationId, sessionKey)
         : chatStoreState.loadNewerMessagesForConversation(_conversationId, sessionKey),
       retain: async () => {}, refresh: async () => {}, recoveredItems: [],
     },
-    nodes: chatStoreState.surfaceSessionsByKey[sessionKey]?.visibleThreadedMessages ?? activeConversation.threadedMessages,
+    nodes: fixtureProjection(chatStoreState.surfaceSessionsByKey[sessionKey]).nodes ?? activeConversation.threadedMessages,
     revision: 0,
   }),
 }));
@@ -462,8 +461,6 @@ describe('ChatSessionView', () => {
     commitChatMessageCommandMock.mockReset().mockResolvedValue(undefined);
     chatStoreState.sessionsByConversationId[conversationId].isLoading = false;
     chatStoreState.sessionsByConversationId[conversationId].conversation = activeConversation;
-    chatStoreState.sessionsByConversationId[conversationId].hasOlderMessages = false;
-    chatStoreState.sessionsByConversationId[conversationId].isLoadingOlderMessages = false;
     (chatStoreState.sessionsByConversationId[conversationId] as typeof chatStoreState.sessionsByConversationId[typeof conversationId] & { sendFailureMessage?: string | null; sendFailureRetryable?: boolean }).sendFailureMessage = null;
     (chatStoreState.sessionsByConversationId[conversationId] as typeof chatStoreState.sessionsByConversationId[typeof conversationId] & { sendFailureAnnounced?: boolean }).sendFailureAnnounced = false;
     (chatStoreState.sessionsByConversationId[conversationId] as typeof chatStoreState.sessionsByConversationId[typeof conversationId] & { sendFailureRetryable?: boolean; sendFailureRetryContent?: string | null; sendFailureRetryMediaFiles?: unknown[] }).sendFailureRetryable = false;
@@ -1325,42 +1322,46 @@ describe('ChatSessionView', () => {
   it('navegação por Ctrl+Home/Ctrl+End carrega boundaries, anuncia janela e restaura foco', async () => {
     messageListMode.real = true;
     const sessionKey = 'boundary-session';
-    let surfaceSession = {
-      ...createEmptyChatSurfaceSession(conversationId, sessionKey),
-      visibleThreadedMessages: [
-        nodeFixture({ message: { id: 'm1', role: 'user' }, children: [], level: 0, childCount: 0 }),
-        nodeFixture({ message: { id: 'm2', role: 'assistant' }, children: [], level: 0, childCount: 0 }),
-      ],
-      messageWindow: {
-        scope: 'conversation' as const,
-        conversationId,
-        totalCount: 10,
-        startIndex: 4,
-        endIndex: 5,
-        hasBefore: true,
-        hasAfter: true,
+    let surfaceSession = withFixtureProjection(
+      { ...createEmptyChatSurfaceSession(conversationId, sessionKey) },
+      {
+        nodes: [
+          nodeFixture({ message: { id: 'm1', role: 'user' }, children: [], level: 0, childCount: 0 }),
+          nodeFixture({ message: { id: 'm2', role: 'assistant' }, children: [], level: 0, childCount: 0 }),
+        ],
+        metadata: windowFixture({
+          totalCount: 10,
+          startIndex: 4,
+          endIndex: 5,
+          hasBefore: true,
+          hasAfter: true,
+        }),
       },
-    };
+    );
     chatStoreState.surfaceSessionsByKey[sessionKey] = surfaceSession;
     chatStoreState.loadBoundaryMessagesForConversation.mockImplementation(async (_conversationId, _sessionKey, anchor) => {
-      surfaceSession = {
-        ...surfaceSession,
-        messageWindow: anchor === 'start'
-        ? {
-          ...surfaceSession.messageWindow,
-          startIndex: 0,
-          endIndex: 1,
-          hasBefore: false,
-          hasAfter: true,
-        }
-        : {
-          ...surfaceSession.messageWindow,
-          startIndex: 8,
-          endIndex: 9,
-          hasBefore: true,
-          hasAfter: false,
+      surfaceSession = withFixtureProjection(
+        { ...surfaceSession },
+        {
+          metadata: windowFixture(
+            anchor === 'start'
+              ? {
+                  ...fixtureProjection(surfaceSession).metadata,
+                  startIndex: 0,
+                  endIndex: 1,
+                  hasBefore: false,
+                  hasAfter: true,
+                }
+              : {
+                  ...fixtureProjection(surfaceSession).metadata,
+                  startIndex: 8,
+                  endIndex: 9,
+                  hasBefore: true,
+                  hasAfter: false,
+                },
+          ),
         },
-      };
+      );
       chatStoreState.surfaceSessionsByKey[sessionKey] = surfaceSession;
     });
 
@@ -1425,11 +1426,13 @@ describe('ChatSessionView', () => {
   it('encaminha saltos explícitos mesmo na borda para permitir a troca de modo canônico', async () => {
     messageListMode.real = true;
     const sessionKey = 'boundary-complete';
-    chatStoreState.surfaceSessionsByKey[sessionKey] = {
-      ...createEmptyChatSurfaceSession(conversationId, sessionKey),
-      visibleThreadedMessages: [nodeFixture({ message: { id: 'only', role: 'user' }, children: [], level: 0, childCount: 0 })],
-      messageWindow: { scope: 'conversation', conversationId, totalCount: 1, startIndex: 0, endIndex: 0, hasBefore: false, hasAfter: false },
-    };
+    chatStoreState.surfaceSessionsByKey[sessionKey] = withFixtureProjection(
+      { ...createEmptyChatSurfaceSession(conversationId, sessionKey) },
+      {
+        nodes: [nodeFixture({ message: { id: 'only', role: 'user' }, children: [], level: 0, childCount: 0 })],
+        metadata: windowFixture({ totalCount: 1, startIndex: 0, endIndex: 0, hasBefore: false, hasAfter: false }),
+      },
+    );
     renderWithPanel(<ChatSessionView surface={surface({ sessionKey, surfaceId: 'boundary-complete' })} onSend={vi.fn().mockResolvedValue(undefined)} showShortcutsHelp={false} />);
     const list = screen.getByRole('list');
     fireEvent.keyDown(list, { key: 'Home', ctrlKey: true });
@@ -1443,26 +1446,33 @@ describe('ChatSessionView', () => {
 
   it('anuncia janela mesmo quando o carregamento demora a resolver', async () => {
     const sessionKey = 'slow-session';
-    let surfaceSession = {
-      ...createEmptyChatSurfaceSession(conversationId, sessionKey),
-      messageWindow: {
-        scope: 'conversation' as const,
-        conversationId,
-        totalCount: 10,
-        startIndex: 4,
-        endIndex: 5,
-        hasBefore: true,
-        hasAfter: true,
+    let surfaceSession = withFixtureProjection(
+      { ...createEmptyChatSurfaceSession(conversationId, sessionKey) },
+      {
+        metadata: windowFixture({
+          totalCount: 10,
+          startIndex: 4,
+          endIndex: 5,
+          hasBefore: true,
+          hasAfter: true,
+        }),
       },
-    };
+    );
     (chatStoreState.surfaceSessionsByKey as Record<string, typeof surfaceSession>)[sessionKey] = surfaceSession;
     let resolveLoad: (() => void) | undefined;
     chatStoreState.loadNewerMessagesForConversation.mockImplementation(() => new Promise<void>((resolve) => {
       resolveLoad = () => {
-        surfaceSession = {
-          ...surfaceSession,
-          messageWindow: { ...surfaceSession.messageWindow, startIndex: 8, endIndex: 9, hasAfter: false },
-        };
+        surfaceSession = withFixtureProjection(
+          { ...surfaceSession },
+          {
+            metadata: windowFixture({
+              ...fixtureProjection(surfaceSession).metadata,
+              startIndex: 8,
+              endIndex: 9,
+              hasAfter: false,
+            }),
+          },
+        );
         (chatStoreState.surfaceSessionsByKey as Record<string, typeof surfaceSession>)[sessionKey] = surfaceSession;
         resolve();
       };
@@ -1516,18 +1526,18 @@ describe('ChatSessionView', () => {
 
   it('desarma o pendente quando o carregamento nunca termina', async () => {
     const sessionKey = 'hung-session';
-    let surfaceSession = {
-      ...createEmptyChatSurfaceSession(conversationId, sessionKey),
-      messageWindow: {
-        scope: 'conversation' as const,
-        conversationId,
-        totalCount: 10,
-        startIndex: 4,
-        endIndex: 5,
-        hasBefore: true,
-        hasAfter: true,
+    let surfaceSession = withFixtureProjection(
+      { ...createEmptyChatSurfaceSession(conversationId, sessionKey) },
+      {
+        metadata: windowFixture({
+          totalCount: 10,
+          startIndex: 4,
+          endIndex: 5,
+          hasBefore: true,
+          hasAfter: true,
+        }),
       },
-    };
+    );
     (chatStoreState.surfaceSessionsByKey as Record<string, typeof surfaceSession>)[sessionKey] = surfaceSession;
     chatStoreState.loadNewerMessagesForConversation.mockImplementation(() => new Promise<void>(() => {}));
 
@@ -1546,10 +1556,17 @@ describe('ChatSessionView', () => {
       // Muito depois, o streaming mexe na janela. O pendente já expirou pelo
       // teto do carregamento e não empresta esse avanço para um aviso.
       await vi.advanceTimersByTimeAsync(90_000);
-      surfaceSession = {
-        ...surfaceSession,
-        messageWindow: { ...surfaceSession.messageWindow, startIndex: 8, endIndex: 9, hasAfter: false },
-      };
+      surfaceSession = withFixtureProjection(
+        { ...surfaceSession },
+        {
+          metadata: windowFixture({
+            ...fixtureProjection(surfaceSession).metadata,
+            startIndex: 8,
+            endIndex: 9,
+            hasAfter: false,
+          }),
+        },
+      );
       (chatStoreState.surfaceSessionsByKey as Record<string, typeof surfaceSession>)[sessionKey] = surfaceSession;
       rerender(
         <WorkspacePanelProvider value={{ tab: panelTab, isActive: true }}>
@@ -1571,18 +1588,18 @@ describe('ChatSessionView', () => {
 
   it('não deixa um carregamento antigo encurtar o prazo do que veio depois', async () => {
     const sessionKey = 'overlap-session';
-    let surfaceSession = {
-      ...createEmptyChatSurfaceSession(conversationId, sessionKey),
-      messageWindow: {
-        scope: 'conversation' as const,
-        conversationId,
-        totalCount: 10,
-        startIndex: 4,
-        endIndex: 5,
-        hasBefore: true,
-        hasAfter: true,
+    let surfaceSession = withFixtureProjection(
+      { ...createEmptyChatSurfaceSession(conversationId, sessionKey) },
+      {
+        metadata: windowFixture({
+          totalCount: 10,
+          startIndex: 4,
+          endIndex: 5,
+          hasBefore: true,
+          hasAfter: true,
+        }),
       },
-    };
+    );
     (chatStoreState.surfaceSessionsByKey as Record<string, typeof surfaceSession>)[sessionKey] = surfaceSession;
     const resolvers: Array<() => void> = [];
     chatStoreState.loadNewerMessagesForConversation.mockImplementation(
@@ -1609,10 +1626,17 @@ describe('ChatSessionView', () => {
       // continua valendo pelo teto do carregamento.
       await vi.advanceTimersByTimeAsync(10_000);
       resolvers[1]?.();
-      surfaceSession = {
-        ...surfaceSession,
-        messageWindow: { ...surfaceSession.messageWindow, startIndex: 8, endIndex: 9, hasAfter: false },
-      };
+      surfaceSession = withFixtureProjection(
+        { ...surfaceSession },
+        {
+          metadata: windowFixture({
+            ...fixtureProjection(surfaceSession).metadata,
+            startIndex: 8,
+            endIndex: 9,
+            hasAfter: false,
+          }),
+        },
+      );
       (chatStoreState.surfaceSessionsByKey as Record<string, typeof surfaceSession>)[sessionKey] = surfaceSession;
       await vi.advanceTimersByTimeAsync(0);
       rerender(
@@ -1635,24 +1659,31 @@ describe('ChatSessionView', () => {
 
   it('anuncia como progresso a janela carregada por scroll', async () => {
     const sessionKey = 'scroll-session';
-    let surfaceSession = {
-      ...createEmptyChatSurfaceSession(conversationId, sessionKey),
-      messageWindow: {
-        scope: 'conversation' as const,
-        conversationId,
-        totalCount: 10,
-        startIndex: 4,
-        endIndex: 5,
-        hasBefore: true,
-        hasAfter: true,
+    let surfaceSession = withFixtureProjection(
+      { ...createEmptyChatSurfaceSession(conversationId, sessionKey) },
+      {
+        metadata: windowFixture({
+          totalCount: 10,
+          startIndex: 4,
+          endIndex: 5,
+          hasBefore: true,
+          hasAfter: true,
+        }),
       },
-    };
+    );
     (chatStoreState.surfaceSessionsByKey as Record<string, typeof surfaceSession>)[sessionKey] = surfaceSession;
     chatStoreState.loadNewerMessagesForConversation.mockImplementation(async () => {
-      surfaceSession = {
-        ...surfaceSession,
-        messageWindow: { ...surfaceSession.messageWindow, startIndex: 8, endIndex: 9, hasAfter: false },
-      };
+      surfaceSession = withFixtureProjection(
+        { ...surfaceSession },
+        {
+          metadata: windowFixture({
+            ...fixtureProjection(surfaceSession).metadata,
+            startIndex: 8,
+            endIndex: 9,
+            hasAfter: false,
+          }),
+        },
+      );
       (chatStoreState.surfaceSessionsByKey as Record<string, typeof surfaceSession>)[sessionKey] = surfaceSession;
     });
 
@@ -1694,18 +1725,18 @@ describe('ChatSessionView', () => {
     vi.useFakeTimers();
     try {
       const sessionKey = 'stale-session';
-      let surfaceSession = {
-        ...createEmptyChatSurfaceSession(conversationId, sessionKey),
-        messageWindow: {
-          scope: 'conversation' as const,
-          conversationId,
-          totalCount: 10,
-          startIndex: 4,
-          endIndex: 5,
-          hasBefore: true,
-          hasAfter: true,
+      let surfaceSession = withFixtureProjection(
+        { ...createEmptyChatSurfaceSession(conversationId, sessionKey) },
+        {
+          metadata: windowFixture({
+            totalCount: 10,
+            startIndex: 4,
+            endIndex: 5,
+            hasBefore: true,
+            hasAfter: true,
+          }),
         },
-      };
+      );
       (chatStoreState.surfaceSessionsByKey as Record<string, typeof surfaceSession>)[sessionKey] = surfaceSession;
       chatStoreState.loadNewerMessagesForConversation.mockImplementation(async () => {});
 
@@ -1722,10 +1753,17 @@ describe('ChatSessionView', () => {
 
       // A janela só alcança o fim muito depois, por outro motivo (streaming).
       await vi.advanceTimersByTimeAsync(30_000);
-      surfaceSession = {
-        ...surfaceSession,
-        messageWindow: { ...surfaceSession.messageWindow, startIndex: 8, endIndex: 9, hasAfter: false },
-      };
+      surfaceSession = withFixtureProjection(
+        { ...surfaceSession },
+        {
+          metadata: windowFixture({
+            ...fixtureProjection(surfaceSession).metadata,
+            startIndex: 8,
+            endIndex: 9,
+            hasAfter: false,
+          }),
+        },
+      );
       (chatStoreState.surfaceSessionsByKey as Record<string, typeof surfaceSession>)[sessionKey] = surfaceSession;
       rerender(
         <WorkspacePanelProvider value={{ tab: panelTab, isActive: true }}>
@@ -1742,4 +1780,35 @@ describe('ChatSessionView', () => {
       vi.useRealTimers();
     }
   });
+  it.each([
+    { key: 'Home', startIndex: 0, endIndex: -1, hasBefore: false, hasAfter: true },
+    { key: 'End', startIndex: 10, endIndex: 9, hasBefore: true, hasAfter: false },
+  ])('não anuncia intervalo vazio após Ctrl+$key com mensagens fora da janela', async boundary => {
+    const sessionKey = 'empty-window-session';
+    let session = withFixtureProjection(createEmptyChatSurfaceSession(conversationId, sessionKey), {
+      nodes: [nodeFixture({ message: { id: 'visible', role: 'user' } })],
+      metadata: windowFixture({ totalCount: 10, startIndex: 4, endIndex: 4, hasBefore: true, hasAfter: true }),
+    });
+    chatStoreState.surfaceSessionsByKey[sessionKey] = session;
+    chatStoreState.loadBoundaryMessagesForConversation.mockImplementation(async () => {
+      session = withFixtureProjection({ ...session }, {
+        nodes: [], metadata: windowFixture({ totalCount: 10, startIndex: boundary.startIndex,
+          endIndex: boundary.endIndex, hasBefore: boundary.hasBefore, hasAfter: boundary.hasAfter }),
+      });
+      chatStoreState.surfaceSessionsByKey[sessionKey] = session;
+    });
+    const view = () => <ChatSessionView surface={surface({ sessionKey, surfaceId: 'empty-window' })}
+      onSend={vi.fn().mockResolvedValue(undefined)} showShortcutsHelp={false} />;
+    const { rerender } = renderWithPanel(view());
+    expect(screen.getByText('visible')).toBeInTheDocument();
+    announceRequestMock.mockClear();
+    fireEvent.keyDown(screen.getByRole('list'), { key: boundary.key, ctrlKey: true });
+    await waitFor(() => expect(chatStoreState.loadBoundaryMessagesForConversation).toHaveBeenCalled());
+    rerender(<WorkspacePanelProvider value={{ tab: panelTab, isActive: true }}>{view()}</WorkspacePanelProvider>);
+    expect(screen.queryByText('visible')).not.toBeInTheDocument();
+    expect(announceRequestMock).not.toHaveBeenCalledWith(expect.objectContaining({
+      message: expect.stringContaining('chat.announce.messageWindowLoaded'),
+    }));
+  });
+
 });

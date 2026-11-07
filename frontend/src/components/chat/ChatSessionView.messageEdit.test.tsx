@@ -1,3 +1,4 @@
+import { withFixtureProjection } from '../../test/chatWindowFixture';
 import { messageFixture, nodeFixture } from '../../test/chatPresentationFixture';
 import { fixtureMessages } from './canonicalPresentationFixture';
 import { publishFixtureMessage } from './canonicalPresentationFixture';
@@ -128,10 +129,10 @@ describe('salvar edição: MessageNode, fonte draft, store e executor reais', ()
       { type: 'text', content: 'Resposta anterior' },
     ];
     useChatStore.setState({ surfaceSessionsByKey: {
-      [surface.sessionKey]: {
-        ...createEmptyChatSession(id, surface.sessionKey),
-        visibleThreadedMessages: useChatStore.getState().timelinesByConversationId[id].threadedMessages,
-      },
+      [surface.sessionKey]: withFixtureProjection(
+        { ...createEmptyChatSession(id, surface.sessionKey) },
+        { nodes: useChatStore.getState().timelinesByConversationId[id].threadedMessages },
+      ),
     } });
     mount();
     await waitFor(() => expect(node()).toHaveTextContent('Resposta anterior'));

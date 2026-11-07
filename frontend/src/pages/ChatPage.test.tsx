@@ -28,8 +28,6 @@ type ChatSessionMock = {
   isThinking: boolean;
   streamingMessageId: string | null;
   queuedTurnCount: number;
-  hasOlderMessages: boolean;
-  isLoadingOlderMessages: boolean;
 };
 type ChatStoreListenerState = {
   sessionsByConversationId: Record<string, ChatSessionMock>;
@@ -88,8 +86,6 @@ const chatStoreState = {
       isThinking: false,
       streamingMessageId: null,
       queuedTurnCount: 0,
-      hasOlderMessages: false,
-      isLoadingOlderMessages: false,
     },
   } as Record<string, ChatSessionMock>,
   timelinesByConversationId: {},
@@ -314,8 +310,6 @@ describe('ChatPage', () => {
       isThinking: false,
       streamingMessageId: null,
       queuedTurnCount: 0,
-      hasOlderMessages: false,
-      isLoadingOlderMessages: false,
     };
     workspaceStoreState.getActiveTab = () => ({
       id: 'chat-tab',

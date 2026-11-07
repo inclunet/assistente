@@ -1,3 +1,4 @@
+import { fixtureProjection, withFixtureProjection } from '../../test/chatWindowFixture';
 import { messageFixture } from '../../test/chatPresentationFixture';
 import { useMemo } from 'react';
 import { useChatStore } from '../../store/chatStore';
@@ -21,7 +22,7 @@ export function useChatTimelinePresentation(conversationId: string | null, sessi
       const state = useChatStore.getState();
       const timeline = getConversationTimeline(state, conversationId);
       const session = state.surfaceSessionsByKey[sessionKey] ?? state.sessionsByConversationId[conversationId];
-      const values = session?.visibleThreadedMessages ?? timeline?.threadedMessages ?? state.sessionsByConversationId[conversationId]?.conversation?.threadedMessages ?? [];
+      const values = fixtureProjection(session).nodes ?? timeline?.threadedMessages ?? state.sessionsByConversationId[conversationId]?.conversation?.threadedMessages ?? [];
       const decorate = (nodes: MessageNode[]) => {
         for (const node of nodes) {
           node.message.timelineItem = canonicalOverrides.get(node.message.id) ?? { itemId: node.itemId, representativeMessageId: node.message.id, scopeParentId: node.message.parentId ?? null,
@@ -55,7 +56,7 @@ export function useChatTimelinePresentation(conversationId: string | null, sessi
         const state = useChatStore.getState();
         const session = state.surfaceSessionsByKey[sessionKey] ?? state.sessionsByConversationId[conversationId];
         if (!getConversationTimeline(state, conversationId) && !state.sessionsByConversationId[conversationId]?.conversation) return undefined;
-        return { metadata: session?.messageWindow ?? { totalCount: roots().length, startIndex: 0, endIndex: roots().length, hasBefore: false, hasAfter: false } };
+        return { metadata: fixtureProjection(session).metadata ?? { totalCount: roots().length, startIndex: 0, endIndex: roots().length, hasBefore: false, hasAfter: false } };
       },
       nodes: (parent?: string) => parent ? findNode(parent, roots())?.children ?? [] : roots(),
       threadWindow: () => undefined,
@@ -85,8 +86,8 @@ export function publishFixtureMessage(conversationId: string, id: string, conten
     // A fixture publica explicitamente em cada fonte visual injetada. O store
     // do produto não faz mais essa composição ou espelhamento de mensagens.
     surfaceSessionsByKey: Object.fromEntries(Object.entries(state.surfaceSessionsByKey).map(([key, session]) => [key,
-      session.conversationId === conversationId && session.visibleThreadedMessages
-        ? { ...session, visibleThreadedMessages: change(session.visibleThreadedMessages) } : session,
+      session.conversationId === conversationId && fixtureProjection(session).nodes
+        ? withFixtureProjection({ ...session }, { nodes: change(fixtureProjection(session).nodes!) }) : session,
     ])),
   }));
 }

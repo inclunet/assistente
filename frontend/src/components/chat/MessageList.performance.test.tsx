@@ -1,3 +1,4 @@
+import { windowFixture } from '../../test/chatWindowFixture';
 import type { MessageNode } from '../../lib/chatMessageTree';
 import { messageFixture, nodeFixture } from '../../test/chatPresentationFixture';
 import React from 'react';
@@ -141,7 +142,7 @@ describe('MessageList performance', () => {
     expect(nextStart).toHaveBeenCalledTimes(1);
     expect(nextEnd).toHaveBeenCalledTimes(1);
 
-    rerender(<MessageList threadedMessages={nodes} hasOlderMessages hasNewerMessages onLoadOlder={onLoadOlder} onLoadNewer={onLoadNewer} />);
+    rerender(<MessageList threadedMessages={nodes} messageWindow={windowFixture({ hasBefore: true, hasAfter: true })} onLoadOlder={onLoadOlder} onLoadNewer={onLoadNewer} />);
     props = renderMessageNode.mock.lastCall![0];
     act(() => { props.onReachStart(); props.onReachEnd(); });
     expect(onLoadOlder).toHaveBeenCalledWith('navigation');
@@ -149,7 +150,7 @@ describe('MessageList performance', () => {
 
     onLoadOlder.mockClear();
     onLoadNewer.mockClear();
-    rerender(<MessageList threadedMessages={nodes} hasOlderMessages hasNewerMessages isLoadingMessageWindow onLoadOlder={onLoadOlder} onLoadNewer={onLoadNewer} />);
+    rerender(<MessageList threadedMessages={nodes} messageWindow={windowFixture({ hasBefore: true, hasAfter: true })} isLoadingMessageWindow onLoadOlder={onLoadOlder} onLoadNewer={onLoadNewer} />);
     props = renderMessageNode.mock.lastCall![0];
     act(() => { props.onReachStart(); props.onReachEnd(); });
     expect(onLoadOlder).not.toHaveBeenCalled();
