@@ -63,6 +63,16 @@ revisou o diff completo, apontou perda de contexto e leitura de metadados antes
 da cota (corrigidas), solicitou a prova de contagem (adicionada) e encerrou a
 última rodada sem pendências técnicas. CI e review remotos pertencem ao PR.
 
+Na revisão complementar, o orçamento do ledger passou a selecionar turnos pela
+conversa da pergunta: referências estrangeiras não consomem a cota, enquanto
+ferramentas legadas sem `conversation_id` continuam contadas. A prova de plano
+mantém a busca pela PK dos IDs solicitados. Treze testes focados passaram.
+O helper `messageScopeQuery`, cujo último consumidor foi removido, também saiu
+após o lint do CI acusar código morto. A revisão independente confirmou ambos
+os ajustes sem pendências. O lint integral de código não usado passou; o lint
+local completo ainda aponta cinco diagnósticos preexistentes em `tool_defs.go`
+e `task_pagination_test.go`, fora do diff, não reproduzidos no job Linux.
+
 ### Contrato compacto e custo da abertura (07/11/2026)
 
 A simplificação aprovada retira campos redundantes do wire, marca a conclusão

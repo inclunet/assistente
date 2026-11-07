@@ -128,6 +128,27 @@ func TestBoundedSourcesKeepLedgerBudgetWithoutMessageRows(t *testing.T) {
 	}
 }
 
+func TestBoundedSourceLedgerBudgetUsesTurnConversationAndKeepsLegacyCalls(t *testing.T) {
+	f := newSnapshotFixture(t)
+	other, err := database.CreateConversationWithContext(f.ctx, "other", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := f.db.Model(&database.ToolInvocation{}).Where("id=?", f.invocation).Update("output_preview", strings.Repeat("x", canonicalSourceBytes+1)).Error; err != nil {
+		t.Fatal(err)
+	}
+	tx := f.db.WithContext(f.ctx)
+	if sources, err := database.ReadBoundedTimelineSources(tx, other.ID, nil, []string{f.question}); err != nil || len(sources) != 0 {
+		t.Fatal("turno estrangeiro consumiu orçamento", len(sources), err)
+	}
+	if err := f.db.Model(&database.ToolInvocation{}).Where("id=?", f.invocation).Update("conversation_id", nil).Error; err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.ReadBoundedTimelineSources(tx, f.conversation, nil, []string{f.question}); !errors.Is(err, ErrTimelineSourceLimit) {
+		t.Fatal("ledger legado do turno local escapou da cota", err)
+	}
+}
+
 func TestSelectionSourceBudgetCoversAllBatchesAndScopesBeforeMetadata(t *testing.T) {
 	f := newSnapshotFixture(t)
 	rows := make([]database.ChatMessage, 401)

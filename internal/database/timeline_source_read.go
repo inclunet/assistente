@@ -50,7 +50,10 @@ var timelineSourceReadCTE = func() string {
  FROM tool_invocations LEFT JOIN tool_catalog ON tool_catalog.id=tool_invocations.tool_catalog_id
  ` + selection.Join("tool_invocations") + ` WHERE ` + selection.Predicate("tool_invocations") + `
  AND tool_invocations.user_id=? AND tool_invocations.origin_type='chat'
- AND tool_invocations.turn_id IN (SELECT CAST(unhex(value) AS TEXT) FROM json_each(?))
+ AND tool_invocations.turn_id IN (
+ SELECT chat_messages.id FROM (SELECT CAST(unhex(value) AS TEXT) AS id FROM json_each(?)) requested_turn
+ CROSS JOIN chat_messages ON chat_messages.id=requested_turn.id
+ WHERE conversation_id=(SELECT id FROM authorized_conversation))
  ) END FROM message_budget
  ) `
 }()

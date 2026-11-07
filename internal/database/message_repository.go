@@ -1469,14 +1469,6 @@ func normalizeMessageWindowCursor(query MessageWindowQuery) (anchor string, dire
 	return anchor, direction, nil
 }
 
-func (r *MessageRepository) messageScopeQuery(conversationID string, parentID *string) *gorm.DB {
-	query := r.db.Model(&ChatMessage{}).Where("conversation_id = ?", conversationID).Where(CurrentChatMessageSQL("chat_messages"))
-	if parentID != nil {
-		return query.Where("parent_id = ?", *parentID)
-	}
-	return query.Where("parent_id IS NULL")
-}
-
 // A classificação é comum à contagem, busca de âncora e paginação. A pergunta
 // é sempre item independente; só uma referência válida no mesmo escopo forma
 // resposta. AnchorCreatedAt/AnchorID vêm da pergunta, nunca da resposta.
