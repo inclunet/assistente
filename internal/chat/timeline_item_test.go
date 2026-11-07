@@ -14,7 +14,7 @@ func TestTimelineItemsShareWindowAndTerminalProjection(t *testing.T) {
 		t.Fatalf("ordem dos itens: %+v", window.Items)
 	}
 	response := window.Items[1]
-	if response != window.Responses[f.question] || response.Kind != "response" || response.Durability != "persisted" || response.ReplyToItemID != window.Items[0].ItemID {
+	if response != window.Responses[f.question] || response.Kind != "response" || response.Durability != "persisted" || response.TurnID != window.Items[0].Representative.ID {
 		t.Fatalf("resposta não compartilhada: %+v", response)
 	}
 	turn, err := f.reader.ReadPublicationTurn(f.ctx, f.conversation, f.question)
@@ -24,7 +24,7 @@ func TestTimelineItemsShareWindowAndTerminalProjection(t *testing.T) {
 	if !reflect.DeepEqual(response, turn.Response) {
 		t.Fatalf("janela e turno divergiram:\n%+v\n%+v", response, turn.Response)
 	}
-	if !reflect.DeepEqual(response.MessageIDs, []string{f.answer}) || response.Position.AnchorID != f.question {
+	if (len(response.messages) != 1 || response.messages[0].ID != f.answer) || response.Position.AnchorID != f.question {
 		t.Fatalf("referências incompletas: %+v", response)
 	}
 	if window.Items[1].ItemID != response.ItemID || window.Items[1].Representative.ID != response.Representative.ID {

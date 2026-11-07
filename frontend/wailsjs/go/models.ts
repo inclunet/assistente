@@ -638,14 +638,12 @@ export namespace apidto {
 	export class CanonicalMetadata {
 	    thinking?: boolean;
 	    terminalReason?: string;
-	    conclusionSegmentIds: string[];
 	    createdAt: string;
 	    source?: string;
 	    childCount?: number;
 	    cacheReadTokens?: number;
 	    cacheWriteTokens?: number;
 	    cacheMissTokens?: number;
-	    origin: string;
 	    role: string;
 	    pinned?: boolean;
 	    model?: string;
@@ -661,14 +659,12 @@ export namespace apidto {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.thinking = source["thinking"];
 	        this.terminalReason = source["terminalReason"];
-	        this.conclusionSegmentIds = source["conclusionSegmentIds"];
 	        this.createdAt = source["createdAt"];
 	        this.source = source["source"];
 	        this.childCount = source["childCount"];
 	        this.cacheReadTokens = source["cacheReadTokens"];
 	        this.cacheWriteTokens = source["cacheWriteTokens"];
 	        this.cacheMissTokens = source["cacheMissTokens"];
-	        this.origin = source["origin"];
 	        this.role = source["role"];
 	        this.pinned = source["pinned"];
 	        this.model = source["model"];
@@ -722,6 +718,7 @@ export namespace apidto {
 	    }
 	}
 	export class CanonicalSegment {
+	    conclusion?: boolean;
 	    segmentId: string;
 	    kind: string;
 	    text?: string;
@@ -733,6 +730,7 @@ export namespace apidto {
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.conclusion = source["conclusion"];
 	        this.segmentId = source["segmentId"];
 	        this.kind = source["kind"];
 	        this.text = source["text"];
@@ -779,16 +777,12 @@ export namespace apidto {
 	    executionId?: string;
 	    recoveryReference?: TimelineRecoveryReference;
 	    itemId: string;
-	    conversationId: string;
 	    scopeParentId?: string;
-	    kind: string;
 	    turnId?: string;
-	    replyToItemId: string;
-	    messageIds: string[];
 	    representativeMessageId?: string;
 	    revision: string;
-	    state: string;
-	    durability: string;
+	    state?: string;
+	    durability?: string;
 	    segments: CanonicalSegment[];
 	    metadata: CanonicalMetadata;
 	
@@ -801,12 +795,8 @@ export namespace apidto {
 	        this.executionId = source["executionId"];
 	        this.recoveryReference = this.convertValues(source["recoveryReference"], TimelineRecoveryReference);
 	        this.itemId = source["itemId"];
-	        this.conversationId = source["conversationId"];
 	        this.scopeParentId = source["scopeParentId"];
-	        this.kind = source["kind"];
 	        this.turnId = source["turnId"];
-	        this.replyToItemId = source["replyToItemId"];
-	        this.messageIds = source["messageIds"];
 	        this.representativeMessageId = source["representativeMessageId"];
 	        this.revision = source["revision"];
 	        this.state = source["state"];

@@ -189,6 +189,15 @@ func (r *DBTimelineReader) ReadRecoveryTurn(ctx context.Context, conversationID,
 	return r.readTurn(ctx, conversationID, turnID, turnReadRecovery)
 }
 
+// Somente identidade, escopo e data textual da âncora; nunca payload da pergunta.
+type timelineQuestion struct {
+	ID              string
+	ConversationID  string
+	Role            string
+	ParentID        *string
+	AnchorCreatedAt string
+}
+
 type turnReadMode uint8
 
 const (
@@ -214,8 +223,8 @@ func (r *DBTimelineReader) readTurn(ctx context.Context, conversationID, turnID 
 				return err
 			}
 		}
-		question := &database.ChatMessage{}
-		err = tx.Select("id", "conversation_id", "role", "parent_id").Where("id = ? AND conversation_id = ?", turnID, conversationID).First(question).Error
+		question := &timelineQuestion{}
+		err = tx.Table("chat_messages").Select("id", "conversation_id", "role", "parent_id", "CAST(created_at AS TEXT) AS anchor_created_at").Where("id = ? AND conversation_id = ?", turnID, conversationID).First(question).Error
 		if err != nil {
 			if mode == turnReadRecovery && errors.Is(err, gorm.ErrRecordNotFound) {
 				return nil
@@ -229,10 +238,7 @@ func (r *DBTimelineReader) readTurn(ctx context.Context, conversationID, turnID 
 			return database.ErrChatTurnInvalid
 		}
 		parentID = question.ParentID
-		anchor = database.MessageWindowItem{Kind: database.MessageWindowItemKindTurn, ID: turnID, TurnID: turnID, AnchorID: turnID}
-		if err := tx.Raw("SELECT CAST(created_at AS TEXT) FROM chat_messages WHERE id = ?", question.ID).Scan(&anchor.AnchorCreatedAt).Error; err != nil {
-			return err
-		}
+		anchor = database.MessageWindowItem{Kind: database.MessageWindowItemKindTurn, ID: turnID, TurnID: turnID, AnchorID: turnID, AnchorCreatedAt: question.AnchorCreatedAt}
 		// Mesma completude do item da janela: nunca cortar silenciosamente em 1.000.
 		// A consulta é restrita ao turno/escopo, não recarrega a conversa inteira.
 		// Recuperação e publicação projetam texto/metadados, nunca blobs.
@@ -271,9 +277,16 @@ func (r *DBTimelineReader) readTurn(ctx context.Context, conversationID, turnID 
 
 func projectSnapshotResponses(conversationID string, parentID *string, messages []Message, facts timelineFacts) (map[string]*TimelineItem, error) {
 	grouped := make(map[string][]Message)
-	for _, message := range messages {
+	for i := range messages {
+		message := &messages[i]
 		if message.Role != "user" && message.TurnID != nil && strings.TrimSpace(*message.TurnID) != "" {
-			grouped[*message.TurnID] = append(grouped[*message.TurnID], message)
+			if group, ok := grouped[*message.TurnID]; ok {
+				grouped[*message.TurnID] = append(group, *message)
+			} else {
+				// A leitura já possui as mensagens. Um grupo unitário compartilha
+				// essa base imutável; capacidade um faz append copiar grupos maiores.
+				grouped[*message.TurnID] = messages[i : i+1 : i+1]
+			}
 		}
 	}
 	responses := make(map[string]*TimelineItem, len(grouped))

@@ -25,8 +25,8 @@ func TestPublicationSourceSelectsOnlyRequestedMessagesAndValidTurnSources(t *tes
 		}
 	}
 	// A resposta aparece nas duas seleções; UNION deve contá-la uma única vez.
-	messages := publicationIDSet([]string{f.question, f.answer})
-	turns := publicationIDSet([]string{f.question, "missing-question"})
+	messages := database.EncodeTimelineIDSet([]string{f.question, f.answer})
+	turns := database.EncodeTimelineIDSet([]string{f.question, "missing-question"})
 	var ids []string
 	if err := f.db.Raw("SELECT chat_messages.id FROM "+publicationMessageSourceSQL+" ORDER BY chat_messages.id", messages, turns).Scan(&ids).Error; err != nil {
 		t.Fatal(err)
@@ -41,7 +41,7 @@ func TestPublicationSourceSelectsOnlyRequestedMessagesAndValidTurnSources(t *tes
 func TestPublicationBudgetPlanStartsFromSelectedTurnMessages(t *testing.T) {
 	f := newSnapshotFixture(t)
 	var rows []struct{ Detail string }
-	turns := publicationIDSet([]string{f.question})
+	turns := database.EncodeTimelineIDSet([]string{f.question})
 	if err := f.db.Raw("EXPLAIN QUERY PLAN "+publicationReadBudgetSQL, turns, f.conversation, f.conversation, turns, turns, turns, f.conversation).Scan(&rows).Error; err != nil {
 		t.Fatal(err)
 	}

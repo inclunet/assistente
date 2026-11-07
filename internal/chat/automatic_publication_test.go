@@ -83,7 +83,7 @@ func publicationItem(t *testing.T, e *ExecutionProjection) (CanonicalItem, uint6
 	if err := c.publicationErrorLocked(); err != nil {
 		t.Fatal(err)
 	}
-	return c.publication.items["turn:"+e.turnID], c.publication.sequence
+	return *c.publication.items["turn:"+e.turnID], c.publication.sequence
 }
 
 func canonicalText(item CanonicalItem) string {
@@ -145,7 +145,7 @@ func TestAutomaticPublicationTerminalAbsorbsScheduledFlush(t *testing.T) {
 		t.Fatal(err)
 	}
 	item, sequence := publicationItem(t, e)
-	if canonicalText(item) != "final" || item.State != database.TurnCompleted || item.Durability != "persisted" || item.RepresentativeMessageID == nil || *item.RepresentativeMessageID != id {
+	if canonicalText(item) != "final" || item.State != database.TurnCompleted || item.Durability != "" || item.RepresentativeMessageID == nil || *item.RepresentativeMessageID != id {
 		t.Fatalf("terminal não publicado antes de retornar: %+v", item)
 	}
 	p.flushScheduledPublication(e.key, c, generation) // callback que já estava na fila
@@ -178,14 +178,14 @@ func TestAutomaticPublicationEmptyStreamKeepsPersistedProviderError(t *testing.T
 		t.Fatal(err)
 	}
 	item, _ := publicationItem(t, e)
-	if item.Durability != "persisted" || item.State != database.TurnFailed || canonicalText(item) != reason {
+	if item.Durability != "" || item.State != database.TurnFailed || canonicalText(item) != reason {
 		t.Fatal("flush substituiu motivo persistido por stream vazio", item)
 	}
 	recovered, err := p.ReadRecovery(f.ctx, f.conversation, f.question, f.reader)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if recovered.Item.Durability != item.Durability || canonicalText(canonicalItem(recovered.Item)) != reason {
+	if canonicalItem(recovered.Item).Durability != item.Durability || canonicalText(canonicalItem(recovered.Item)) != reason {
 		t.Fatal("recovery divergiu do journal")
 	}
 }
@@ -347,7 +347,7 @@ func TestAutomaticPublicationRecoveryFlushesOtherFinishedTurns(t *testing.T) {
 			c.mu.Lock()
 			defer c.mu.Unlock()
 			current := c.turns[e.turnID]
-			if canonicalText(c.publication.items["turn:other"]) != "aguardando" || other.publicationBase != nil || (current != nil && current.publicationBase != nil) {
+			if canonicalText(*c.publication.items["turn:other"]) != "aguardando" || other.publicationBase != nil || (current != nil && current.publicationBase != nil) {
 				t.Fatal("recuperação deixou publicação/base terminal pendente")
 			}
 		})
@@ -435,9 +435,9 @@ func TestAutomaticPublicationReadBudgetAndMediaExclusion(t *testing.T) {
 	}
 	questionRead := false
 	if err := f.db.Callback().Query().After("gorm:query").Register("publication_question_columns", func(tx *gorm.DB) {
-		if message, ok := tx.Statement.Dest.(*database.ChatMessage); ok && message.ID == f.question {
+		if message, ok := tx.Statement.Dest.(*timelineQuestion); ok && message.ID == f.question {
 			questionRead = true
-			if len(tx.Statement.Selects) != 4 || message.Media != "" || message.Audio != "" {
+			if strings.Join(tx.Statement.Selects, ",") != "id,conversation_id,role,parent_id,CAST(created_at AS TEXT) AS anchor_created_at" || message.AnchorCreatedAt == "" {
 				t.Error("pergunta carregou payload em vez de metadados")
 			}
 		}

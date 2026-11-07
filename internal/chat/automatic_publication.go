@@ -95,7 +95,6 @@ func (c *projectionConversation) setPublicationBaseLocked(t *liveTurn, source *T
 	}
 	base := *source
 	base.ScopeParentID = copyPublicationValue(source.ScopeParentID)
-	base.MessageIDs = append([]string(nil), source.MessageIDs...)
 	base.invocations = copyPublicationCalls(source.invocations)
 	base.Segments = append([]ResponseSegment(nil), source.Segments...)
 	for i := range base.Segments {

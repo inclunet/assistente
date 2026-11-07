@@ -2,6 +2,7 @@ package chat
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"reflect"
@@ -15,14 +16,13 @@ func recoveryItemFixture(t *testing.T) (*TimelineSubscription, *fixtureTimelineS
 	t.Helper()
 	sub, session, execution, buffers, snapshot := reserveFixture(t)
 	ref := buffers.Reference
-	item := CanonicalItem{ItemID: "turn:" + ref.TurnID, ConversationID: sub.key.conversationID, TurnID: &ref.TurnID,
-		RecoveryReference: &ref, Revision: "7", State: "interrupted", Durability: "volatile", Kind: "response",
-		ReplyToItemID: "question", MessageIDs: []string{"message"},
+	item := CanonicalItem{ItemID: "turn:" + ref.TurnID, TurnID: &ref.TurnID,
+		RecoveryReference: &ref, Revision: "7", State: "interrupted", Durability: "volatile",
 		Segments: []CanonicalSegment{{SegmentID: "opaque-text", Kind: "text", Text: "conteúdo 🦜"},
 			{SegmentID: "tool", Kind: "tool_calls", Invocations: []TurnSegmentToolCall{{ID: "call", Name: "tool", Status: "completed", HasDetails: true}}}},
 		Metadata: CanonicalMetadata{Role: "assistant", Model: "model", Pinned: true}}
 	c := sub.conversation
-	c.publication = canonicalPublication{epoch: c.epoch, items: map[string]CanonicalItem{}, itemSizes: map[string]int{}}
+	c.publication = canonicalPublication{epoch: c.epoch, items: map[string]*CanonicalItem{}, itemSizes: map[string]int{}}
 	c.publication.cacheItem(item)
 	request := apidto.TimelineRecoveryItemRequest{Reference: ref, ItemID: item.ItemID, Epoch: c.epoch, Revision: item.Revision}
 	return sub, session, execution, request, snapshot, item
@@ -283,5 +283,28 @@ func TestPublishedCopyValidatesExactTerminalWindowWithoutReservation(t *testing.
 				t.Fatal("copy allocated recovery reservation")
 			}
 		})
+	}
+}
+
+func TestRecoveryItemKeepsExact512KiBBoundaryWithConservativeDiffCache(t *testing.T) {
+	sub, session, _, request, snapshot, item := recoveryItemFixture(t)
+	item.Segments[0].Text = "x"
+	encoded, err := json.Marshal(item)
+	if err != nil {
+		t.Fatal(err)
+	}
+	item.Segments[0].Text = strings.Repeat("x", recoveryItemBytes-len(encoded)+2)
+	sub.conversation.publication.cacheItem(item)
+	if _, err := sub.ReserveRecoveryItem(session.ctx, request, pageReader(snapshot)); !errors.Is(err, ErrRecoveryReservationLimit) {
+		t.Fatal("recuperação aceitou um byte acima do teto", err)
+	}
+	item.Segments[0].Text = item.Segments[0].Text[1:]
+	sub.conversation.publication.cacheItem(item)
+	if _, err := sub.ReserveRecoveryItem(session.ctx, request, pageReader(snapshot)); err != nil {
+		t.Fatal("recuperação recusou teto exato", err)
+	}
+	held := sub.conversation.windows[sub.windowID].recoveryItems[request.Reference]
+	if len(held.encoded) != recoveryItemBytes {
+		t.Fatal("fixture não atingiu teto exato", len(held.encoded))
 	}
 }

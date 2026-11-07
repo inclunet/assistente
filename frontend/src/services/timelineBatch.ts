@@ -40,12 +40,12 @@ export function revision(value: string): bigint {
   return parsed;
 }
 
-export function validItem(item: TimelineItem, window: Pick<TimelineBatchWindow, 'conversationId'>, sequence: bigint): void {
+export function validItem(item: TimelineItem, sequence: bigint): void {
   const reference = item.recoveryReference;
   if (reference && item.executionId !== undefined && reference.executionId !== item.executionId) throw new Error('execution identity');
   if (reference && (!reference.projectionId || !reference.incarnation || !reference.executionId ||
       !reference.turnId || reference.turnId !== item.turnId)) throw new Error('recovery reference');
-  if (!item.itemId || item.conversationId !== window.conversationId ||
+  if (!item.itemId ||
       revision(item.revision) > sequence ||
       new Set(item.segments.map(segment => segment.segmentId)).size !== item.segments.length ||
       item.segments.some(segment => !segment.segmentId)) throw new Error('item');
@@ -112,7 +112,7 @@ export function prepareTimelineBatch(
   try {
     // Hidratação completa pode ser mais antiga que o cache de outra janela.
     const hydrate = (item: TimelineItem) => {
-      validItem(item, window, sequence);
+      validItem(item, sequence);
       const existing = current(item.itemId);
       if (!existing || revision(existing.revision) < revision(item.revision)) {
         writes.set(item.itemId, { revision: item.revision, item: structuredClone(item) });
@@ -145,7 +145,7 @@ export function prepareTimelineBatch(
           case 'item_upsert':
             if (!operation.item || operation.item.itemId !== id ||
                 operation.item.revision !== update.sequence) throw new Error('upsert');
-            validItem(operation.item, window, sequence);
+            validItem(operation.item, sequence);
             // Operação fora da janela só atualiza item já conhecido.
             if (existing || orderedIds.includes(id)) {
               item = structuredClone(operation.item);

@@ -124,7 +124,7 @@ func TestStoragePublicationSelectionQueryPlanUsesSelectedIdentities(t *testing.T
 	}
 	var budgets []capturedQuery
 	var payload, children capturedQuery
-	if err := f.db.Callback().Query().After("gorm:query").Register("selection_payload_plan", func(tx *gorm.DB) {
+	if err := f.db.Callback().Row().After("gorm:row").Register("selection_payload_plan", func(tx *gorm.DB) {
 		if strings.Contains(tx.Statement.SQL.String(), "selected_payload") {
 			payload = capturedQuery{tx.Statement.SQL.String(), append([]interface{}(nil), tx.Statement.Vars...)}
 		}
@@ -427,7 +427,7 @@ func TestStoragePublicationRecoveryRetainsNewIdentityAfterReadFailure(t *testing
 	c := e.conversation
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if canonicalText(c.publication.items[created]) != "nova" || len(c.pendingStorageIDs) != 0 {
+	if canonicalText(*c.publication.items[created]) != "nova" || len(c.pendingStorageIDs) != 0 {
 		t.Fatal("identidade confirmada perdida na recuperação")
 	}
 }
@@ -538,7 +538,7 @@ func TestStoragePublicationSelectionDoesNotRemoveOtherPage(t *testing.T) {
 	if _, ok := c.publication.items["turn:"+f.question]; !ok {
 		t.Fatal("item fora da seleção tratado como exclusão")
 	}
-	if canonicalText(c.publication.items["message:"+f.question]) != "editada" {
+	if canonicalText(*c.publication.items["message:"+f.question]) != "editada" {
 		t.Fatal("edição não publicada")
 	}
 }

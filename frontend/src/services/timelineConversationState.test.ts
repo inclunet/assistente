@@ -3,13 +3,13 @@ import type { ChatTimelineEvent, TimelineItem, TimelineUpdate } from '../types/c
 import { TimelineCacheBudget } from './timelineCacheBudget';
 import { TimelineConversationState, type TimelineSnapshot } from './timelineConversationState';
 
-function item(id = 'answer', sequence = '10', conversationId = 'chat'): TimelineItem {
+function item(id = 'answer', sequence = '10'): TimelineItem {
   return {
-    itemId: id, conversationId, scopeParentId: null, kind: 'assistant', turnId: 'turn',
-    replyToItemId: 'question', messageIds: ['message'], representativeMessageId: 'message',
+    itemId: id, scopeParentId: null, turnId: 'turn',
+    representativeMessageId: 'message',
     revision: sequence, state: 'completed', durability: 'persisted',
     segments: [{ segmentId: 'text', kind: 'text', text: 'Olá' }],
-    metadata: { createdAt: '2026-01-01T00:00:00Z', source: '', childCount: 0, conclusionSegmentIds: [], cacheReadTokens: 0, cacheWriteTokens: 0, cacheMissTokens: 0, origin: 'chat', role: 'assistant', pinned: false, model: '',
+    metadata: { createdAt: '2026-01-01T00:00:00Z', source: '', childCount: 0, cacheReadTokens: 0, cacheWriteTokens: 0, cacheMissTokens: 0, role: 'assistant', pinned: false, model: '',
       promptTokens: 0, completionTokens: 0, totalTokens: 0 },
   };
 }
@@ -326,7 +326,7 @@ describe('TimelineConversationState', () => {
     const first = new TimelineConversationState('chat', budget);
     const second = new TimelineConversationState('other', budget);
     open(first);
-    open(second, 'b', snapshot('b', [item('other-item', '10', 'other')], { conversationId: 'other' }));
+    open(second, 'b', snapshot('b', [item('other-item', '10')], { conversationId: 'other' }));
     expect(budget.usage.items).toBe(0);
     first.close('a');
     expect(budget.usage.items).toBe(1);
@@ -406,7 +406,7 @@ describe('TimelineConversationState', () => {
     expect(state.acceptSnapshot(pending, snapshot('b'))).toEqual({ kind: 'recover', reason: 'gap' });
     expect(budget.usage.items).toBe(0);
     const other = new TimelineConversationState('other', budget);
-    open(other, 'c', snapshot('c', [item('second', '10', 'other')], { conversationId: 'other' }));
+    open(other, 'c', snapshot('c', [item('second', '10')], { conversationId: 'other' }));
     other.close('c');
     expect(state.getItem('b', 'answer')).toBeDefined();
   });

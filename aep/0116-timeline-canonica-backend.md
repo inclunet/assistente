@@ -1,8 +1,72 @@
 # AEP-0116 — Timeline canônica de chat do backend à apresentação
 
-## Status: In Progress — contrato canônico e critérios funcionais entregues; caminhos legados retirados; auditoria consolidada; pressão de bytes validada; orçamentos históricos de desempenho pendentes
+## Status: In Progress — critérios funcionais, payload e alocações atendidos; tempo da abertura ainda pendente
 
 Data: 2026-10-30
+
+### Contrato compacto e custo da abertura (07/11/2026)
+
+A simplificação aprovada retira campos redundantes do wire, marca a conclusão
+nos próprios segmentos e mantém os defaults na borda única do frontend.
+A seção DTO wire v1 abaixo contém o contrato vigente; descrições de recortes
+anteriores conservam seu contexto histórico. Bindings foram regenerados pelo
+Wails em perfil isolado, sem edição manual.
+
+O primeiro snapshot estabelece sequência/revisões e a base limitada de diff,
+sem montar operações/journal anteriores ao primeiro consumidor. Publicações
+posteriores continuam pelo mesmo codificador. O cache compartilha objetos
+imutáveis internamente; snapshots e recuperação continuam independentes.
+Por decisão explícita do mantenedor em 07/11/2026, somente a base auxiliar de
+comparação usa agora o contador conservador já existente: pode expulsar itens
+antes, nunca ultrapassar os mesmos 512 itens/8 MiB. `itemBytes` representa esse
+orçamento, não uma medição exata do JSON. Falha do estimador não admite o item.
+Itens com referência de recuperação conservam tamanho wire exato, assim como
+journal, estágio e reservas. Esta decisão substitui a afirmação histórica de
+medição sem estimativa para o cache; não altera os limites de desempenho.
+
+A leitura usa scan direto para identidades/mensagens/contagens, preservando
+NULLs legados, escopo, seleção de execução e limites anteriores ao payload.
+Conjuntos de IDs reutilizam a codificação hex/JSON que preserva bytes opacos.
+
+Medição isolada, Go 1.27.1, Windows/amd64, mesmo Intel Ultra 7 155H e
+GOMAXPROCS padrão 22. Benchmark de produção `BenchmarkCanonicalTimelineWindow`,
+fixtures de resultados de ferramentas de 1.024 bytes, `-benchtime=20x -count=5`:
+
+- 100 mensagens: 9.283 ms; 785.538 B/op; 9.194 allocs/op; 36.477 bytes wire.
+  Tempos das cinco amostras (ms): 7.883 / 9.133 / 9.283 / 9.974 / 9.428.
+- 500 mensagens: 19.422 ms; 1.701.548 B/op; 20.562 allocs/op; 85.960 bytes wire.
+  Tempos das cinco amostras (ms): 19.422 / 18.430 / 18.940 / 27.491 / 34.992.
+- 1000 mensagens: 40.895 ms; 1.734.280 B/op; 20.567 allocs/op; 85.961 bytes wire.
+  Tempos das cinco amostras (ms): 42.583 / 39.491 / 41.310 / 40.895 / 38.215.
+
+São medianas independentes por métrica. Payload atende à margem histórica de
++10% nas três fixtures (limites 36.533/87.077/87.078 bytes). B/op agora também
+atende a +20% nas três (limites 833.809/1.955.831/1.954.073 B/op). Tempo ainda
+não atende. Não há alteração de baseline ou tolerância: o AEP não está concluído.
+Uma repetição anterior deste mesmo binário também passou em bytes/alocações e
+falhou em tempo; a oscilação não justifica declarar atendimento ao orçamento.
+O perfil de CPU concentra aproximadamente 81% em `ReadCanonicalWindow`, com
+seleção, orçamento SQL e materialização como próximos pontos de investigação.
+
+Uma consulta extra de ausência de filhos foi avaliada e descartada: no benchmark
+separado de metadados (`100x`, cinco amostras), reduziu a mediana sem filhos de
+0,516 para 0,114 ms, mas elevou com filhos de 0,656 para 0,817 ms. A produção
+mantém uma única contagem canônica, sem esse caminho especial. O benchmark
+permanece para comparação, sem modificar a fixture histórica de abertura.
+
+Validação local: 6.139 testes frontend em 497 arquivos; 493 testes seguros de
+chat; 390 testes seguros de banco e regressões focadas de cursor/scan/contagem;
+10 testes de janela do app e cinco de DTO. TypeScript, ESLint, build/vet e lint
+incremental passaram. Stylelint mantém advertências anteriores, sem erros.
+ACP foi excluído da execução local por instrução do mantenedor; NVDA não foi
+executado. A revisão independente `review_canonical_cleanup` não encontrou
+pendências técnicas; o desempenho de tempo permanece explicitamente aberto.
+
+As provas de regressão preservam as asserções existentes. A captura de SQL
+passou de callback Query para Row onde a leitura usa Rows; exigências de
+índices e ausência de blobs permanecem. Novas provas cobrem bootstrap seguido
+de replay, mudança da marca de conclusão, cursor de versão antiga, omissão de
+defaults em todos os transportes e paridade do scan com GORM para valores/nulos.
 
 ### Auditoria consolidada dos critérios funcionais (07/11/2026)
 
@@ -45,8 +109,7 @@ checklists nem manter código produtivo para fixtures antigas:
   cobrem deduplicação, proveniência, rollback, isolamento e segundo boot;
   `window_light_read_test.go`/`turn_light_read_test.go` cobrem leitura leve.
 
-A auditoria não transforma o AEP em Done: os orçamentos históricos de tempo,
-alocações e payload continuam não atendidos. O trabalho restante é medir e
+A auditoria não transforma o AEP em Done: o orçamento histórico de tempo continua não atendido. O trabalho restante é medir e
 reduzir esses custos, com a mesma fixture e sem mover a baseline ou relaxar
 limites silenciosamente. A questão de custo global de CI permanece na issue
 #1008, separada deste contrato de produto.
@@ -700,7 +763,7 @@ cada pergunta e permitia ao planejador escolher uma fonte interna mais ampla.
 é verificada antes de materializar conteúdo, na mesma transação autorizada.
 
 O perfil de alocações também identificou cópias descartadas do JSON durante a
-contagem dos bytes de cache/journal/reserva. `canonicalJSONSize` usa o mesmo
+contagem dos bytes de cache/journal/reserva. Naquele recorte, `canonicalJSONSize` passou a usar o mesmo
 encoder com um writer contador e desconta somente o newline do Encoder. Não
 usa estimativa, não altera escape nem aumenta as cotas. Em versões do Go que
 usam buffer interno no Encoder, esse buffer pode continuar existindo; a mudança
@@ -4228,13 +4291,25 @@ IDs e cursores são strings opacas; inteiros incrementais são strings decimais
 para não perder precisão no JavaScript. Todos os retornos são autorizados pelo
 usuário/sessão do transporte, nunca pelo owner fornecido no payload.
 
-- `TimelineItem`: `itemId`, `conversationId`, `scopeParentId` (null na raiz),
-  `kind` (message/response), `turnId` (null em item sem turno), `replyToItemId`,
-  `messageIds`, `representativeMessageId`, `revision`, `state`,
-  `durability`, `segments`, `metadata` (origem, pin, uso, modelo e anexos leves).
+- `TimelineItem`: `itemId`, `scopeParentId` (omitido na raiz), `turnId`
+  (omitido sem turno), `representativeMessageId`, `revision`, `state`,
+  `durability`, `segments`, `metadata` (data, papel, fonte, pin, uso e modelo).
+  A conversa vem do envelope autorizado. Não repetir `conversationId`, `kind`,
+  `replyToItemId` ou `messageIds` no item: identidade e vínculo de turno já são
+  determinados pelo backend, e a UI não reconstrói agrupamento nem ordenação.
+  `state` ausente significa ausência de estado de execução conhecido;
+  `durability` ausente significa `persisted`. Valores não padrão são explícitos.
+  Defaults são normalizados uma única vez na borda frontend, igualmente para
+  snapshot, evento e recuperação. `metadata.origin` não integra o wire; a
+  proveniência permanece no armazenamento e na projeção interna.
 - `TimelineSegment`: `segmentId`, `kind` (text/reasoning/tool_invocations),
   `text` ou `invocations` (resumos do ledger); ordem é a posição no array.
+  `conclusion: true` identifica os segmentos de texto da conclusão escolhida
+  pelo backend, sem lista paralela de IDs. Ausência significa false; mudança
+  dessa marca exige substituição do segmento, mesmo quando o texto só cresce.
   Proibido transportar argumentos/resultados integrais de tools nesta projeção.
+  Esta simplificação foi aprovada pelo mantenedor em 07/11/2026, mantendo os
+  limites históricos de tempo, alocações e payload.
 - `TimelineWindow`: `conversationId`, `scopeParentId`, `epoch`, `sequence`,
   `items`, `orderedItemIds`, `totalCount`, `startIndex`, `endIndex`, `hasBefore`,
   `hasAfter`, `beforeCursor`, `afterCursor`. Índices são de itens navegáveis.
@@ -4283,8 +4358,10 @@ banco e comparação binária de IDs, não `localeCompare`. Import com vínculo
 inexistente não inventa pergunta: rejeitar vínculo inválido no novo formato;
 legado é classificado e preservado como item independente com diagnóstico.
 
-A posição interna e os cursores de janela codificam essa chave e escopo; não são
-autorização. O item wire não repete posição; sua ordem vem da janela. Paginar
+A posição interna conserva a chave completa. Cursores opacos v2 codificam
+conversa, escopo, identidade e data; a identidade determina âncora e slot,
+validados novamente na mesma leitura do banco. Não são autorização. Cursores
+v1 são rejeitados; reinício/atualização exige snapshot da nova época. O item wire não repete posição; sua ordem vem da janela. Paginar
 por cursor validado no mesmo owner/conversa; âncora excluída retorna sincronização
 necessária, nunca outra conversa nem janela vazia falsamente definitiva.
 

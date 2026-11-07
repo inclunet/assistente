@@ -25,7 +25,7 @@ type canonicalPublication struct {
 	itemBytes int
 	epoch     string
 	sequence  uint64
-	items     map[string]CanonicalItem
+	items     map[string]*CanonicalItem
 	batches   []CanonicalBatch
 	sizes     []int
 	bytes     int
@@ -37,7 +37,15 @@ const canonicalReplayBatches = 256
 const canonicalReplayBytes = 2 * 1024 * 1024
 
 func canonicalItem(item *TimelineItem) CanonicalItem {
-	view := CanonicalItem{ItemID: item.ItemID, ConversationID: item.ConversationID, ScopeParentID: item.ScopeParentID, Kind: item.Kind, ReplyToItemID: item.ReplyToItemID, MessageIDs: append([]string{}, item.MessageIDs...), State: item.State, Durability: item.Durability, Segments: make([]CanonicalSegment, 0, len(item.Segments)), Metadata: CanonicalMetadata{Origin: item.Origin, ConclusionSegmentIDs: []string{}}}
+	view := CanonicalItem{ItemID: item.ItemID, ScopeParentID: item.ScopeParentID, State: item.State, Durability: item.Durability, Segments: make([]CanonicalSegment, 0, len(item.Segments))}
+	// Ausência significa histórico sem execução conhecida e conteúdo persistido.
+	// A projeção interna conserva os valores completos; o DTO tem um único default.
+	if view.State == "historical_unknown" {
+		view.State = ""
+	}
+	if view.Durability == "persisted" {
+		view.Durability = ""
+	}
 	view.Metadata.Thinking = item.Thinking
 	view.Metadata.TerminalReason = item.TerminalReason
 	view.ExecutionID = item.ExecutionID
@@ -88,10 +96,7 @@ func canonicalItem(item *TimelineItem) CanonicalItem {
 		}
 	}
 	for _, s := range item.Segments {
-		if s.Kind == "text" && s.SourceMessageID == conclusionSource {
-			view.Metadata.ConclusionSegmentIDs = append(view.Metadata.ConclusionSegmentIDs, s.SegmentID)
-		}
-		view.Segments = append(view.Segments, CanonicalSegment{SegmentID: s.SegmentID, Kind: s.Kind, Text: s.Text, Invocations: append([]TurnSegmentToolCall(nil), s.Invocations...)})
+		view.Segments = append(view.Segments, CanonicalSegment{SegmentID: s.SegmentID, Kind: s.Kind, Text: s.Text, Conclusion: s.Kind == "text" && s.SourceMessageID == conclusionSource, Invocations: append([]TurnSegmentToolCall(nil), s.Invocations...)})
 	}
 	if item.ScopeParentID != nil {
 		parent := *item.ScopeParentID
@@ -142,7 +147,7 @@ func canonicalDiff(previous *CanonicalItem, next CanonicalItem) []CanonicalOpera
 			continue
 		}
 		op := CanonicalOperation{Kind: "segment_replace", ItemID: next.ItemID, SegmentID: segment.SegmentID, Segment: &segment}
-		if reflect.DeepEqual(before.Invocations, segment.Invocations) && strings.HasPrefix(segment.Text, before.Text) {
+		if before.Conclusion == segment.Conclusion && reflect.DeepEqual(before.Invocations, segment.Invocations) && strings.HasPrefix(segment.Text, before.Text) {
 			op.Kind = "segment_append"
 			op.Text = strings.TrimPrefix(segment.Text, before.Text)
 			op.Segment = nil
@@ -158,6 +163,28 @@ func (c *projectionConversation) publishCanonical(conversationID string, items [
 	c.publishCanonicalChanges(conversationID, items, nil)
 }
 
+// O primeiro snapshot é o ponto inicial de todos os consumidores. Nenhum
+// replay pode pedir o lote anterior a ele: basta formar a mesma base de diff,
+// com as mesmas revisões e cotas, sem construir um journal que ninguém lerá.
+func (c *projectionConversation) initializeCanonicalSnapshot(items []*TimelineItem) bool {
+	if c.publicationStage != nil || len(c.windows) != 0 || c.publication.sequence != 0 || len(c.publication.items) != 0 {
+		return false
+	}
+	c.publication = canonicalPublication{epoch: c.epoch,
+		items:     make(map[string]*CanonicalItem, min(len(items), canonicalItemCacheCount)),
+		itemSizes: make(map[string]int, min(len(items), canonicalItemCacheCount)),
+		itemOrder: make([]string, 0, min(len(items), canonicalItemCacheCount))}
+	if len(items) != 0 {
+		c.publication.sequence = 1
+	}
+	for _, item := range items {
+		view := canonicalItem(item)
+		view.Revision = "1"
+		c.publication.cacheItem(view)
+	}
+	return true
+}
+
 func (c *projectionConversation) publishCanonicalChanges(conversationID string, items []*TimelineItem, removed []string) {
 	c.publishCanonicalWindowChanges(conversationID, items, removed, nil)
 }
@@ -165,7 +192,7 @@ func (c *projectionConversation) publishCanonicalChanges(conversationID string, 
 func (c *projectionConversation) publishCanonicalWindowChanges(conversationID string, items []*TimelineItem, removed []string, patches []CanonicalWindowPatch) {
 	p := &c.publication
 	if p.epoch != c.epoch {
-		*p = canonicalPublication{epoch: c.epoch, items: make(map[string]CanonicalItem), itemSizes: make(map[string]int)}
+		*p = canonicalPublication{epoch: c.epoch, items: make(map[string]*CanonicalItem), itemSizes: make(map[string]int)}
 	}
 	changed := make([]CanonicalItem, 0)
 	operations := make([]CanonicalOperation, 0)
@@ -183,14 +210,14 @@ func (c *projectionConversation) publishCanonicalWindowChanges(conversationID st
 		next := canonicalItem(item)
 		var previous *CanonicalItem
 		if old, ok := p.items[next.ItemID]; ok {
-			previous = &old
+			previous = old
 		}
 		if c.publicationStage != nil {
 			measured := next
 			// Reserva os 20 dígitos possíveis da sequência uint64, inclusive antes
 			// da primeira operação deste estágio atribuir sua revisão definitiva.
 			measured.Revision = "18446744073709551615"
-			c.publicationStage.itemSizes[next.ItemID] = canonicalJSONSize(measured)
+			c.publicationStage.itemSizes[next.ItemID] = canonicalJSONSize(&measured)
 		}
 		delta := canonicalDiff(previous, next)
 		if c.publicationStage != nil {
@@ -242,7 +269,7 @@ func (c *projectionConversation) publishCanonicalWindowChanges(conversationID st
 }
 
 func (p *canonicalPublication) recordBatch(batch CanonicalBatch) {
-	size := canonicalJSONSize(batch)
+	size := canonicalJSONSize(&batch)
 	if size > canonicalReplayBytes {
 		p.batches = nil
 		p.sizes = nil
@@ -270,7 +297,7 @@ func (p *canonicalPublication) removeItem(id string) {
 // Este cache é apenas a base de diff, não o conteúdo vivo nem a retenção da UI.
 // Evicção perde a base: a próxima publicação obrigatoriamente usa upsert.
 func (p *canonicalPublication) cacheItem(item CanonicalItem) {
-	size := canonicalJSONSize(item)
+	size := canonicalCacheSize(&item)
 	if old, ok := p.itemSizes[item.ItemID]; ok {
 		p.itemBytes -= old
 	}
@@ -283,7 +310,7 @@ func (p *canonicalPublication) cacheItem(item CanonicalItem) {
 	if _, ok := p.items[item.ItemID]; !ok {
 		p.itemOrder = append(p.itemOrder, item.ItemID)
 	}
-	p.items[item.ItemID] = item
+	p.items[item.ItemID] = &item
 	p.itemSizes[item.ItemID] = size
 	p.itemBytes += size
 	for len(p.items) > canonicalItemCacheCount || p.itemBytes > canonicalItemCacheBytes {
@@ -326,6 +353,20 @@ func (p canonicalPublication) fork() canonicalPublication {
 	p.batches = slices.Clone(p.batches)
 	p.sizes = slices.Clone(p.sizes)
 	return p
+}
+
+// A base de diff pode ser expulsa antes do teto. Reutiliza a estimativa
+// conservadora de projeção, sem serializar conteúdo apenas para descartá-lo.
+// Reservas de recuperação dependem do tamanho wire exato e conservam essa conta.
+func canonicalCacheSize(item *CanonicalItem) int {
+	if item.RecoveryReference != nil {
+		return canonicalJSONSize(item)
+	}
+	budget := projectionBudget{remaining: canonicalItemCacheBytes, exactStrings: true}
+	if !budget.visit(reflect.ValueOf(item).Elem()) {
+		return canonicalItemCacheBytes + 1
+	}
+	return canonicalItemCacheBytes - budget.remaining
 }
 
 // As cotas precisam do tamanho exato do encoder, não de uma cópia dos bytes.

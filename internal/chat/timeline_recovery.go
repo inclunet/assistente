@@ -393,7 +393,9 @@ func (p *LiveProjection) readWindowLocked(ctx context.Context, query database.Me
 
 	c.flushPublicationLocked(query.ConversationID)
 
-	c.publishCanonical(query.ConversationID, snapshot.Items)
+	if !c.initializeCanonicalSnapshot(snapshot.Items) {
+		c.publishCanonical(query.ConversationID, snapshot.Items)
+	}
 
 	return snapshot, nil
 }

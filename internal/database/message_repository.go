@@ -1505,6 +1505,9 @@ func (r *MessageRepository) timelineItemCTEForScope(parentPredicate, turnParentP
 }
 
 func (r *MessageRepository) timelineItemCTEWithSources(parentPredicate, turnParentPredicate, messageSource, turnSource, turnPredicate string) string {
+	// A identidade determina a âncora, o slot e o escopo: respostas vêm da
+	// mesma pergunta (PK), mensagens independentes da própria PK. Agrupar
+	// novamente essas colunas só amplia a chave temporária do SQLite.
 	extra := ` UNION ALL SELECT NULL,'turn',t.user_message_id,CAST(q.created_at AS TEXT),q.id,1,0,q.parent_id FROM ` + turnSource + ` WHERE t.conversation_id=? AND q.conversation_id=t.conversation_id AND q.role='user' AND ` + turnParentPredicate + turnPredicate
 	return fmt.Sprintf(`
 WITH scoped AS (
@@ -1528,7 +1531,7 @@ WITH scoped AS (
   CASE WHEN item_kind = 'turn' THEN 'turn:' ELSE 'message:' END || item_id AS item_key,
   MAX(invalid_turn_reference) AS invalid_turn_reference, parent_id
  FROM scoped
- GROUP BY item_kind, item_id, created_at, anchor_id, slot, parent_id
+ GROUP BY item_kind, item_id
 )`, messageSource, parentPredicate, CurrentChatMessageSQL("m"), extra)
 }
 
@@ -1664,17 +1667,17 @@ func (r *MessageRepository) fetchMessagesForTimelineItems(conversationID string,
 	query := r.messageScopeQuery(conversationID, parentID)
 
 	parentPredicate := "parent_id IS NULL"
-	args := []interface{}{messageIDs, conversationID}
+	args := []interface{}{EncodeTimelineIDSet(messageIDs), conversationID}
 	if parentID != nil {
 		parentPredicate = "parent_id = ?"
 		args = append(args, *parentID)
 	}
-	args = append(args, turnIDs)
+	args = append(args, EncodeTimelineIDSet(turnIDs))
 	// Seleção pontual antes de carregar payloads; UNION elimina sobreposição.
 	// CROSS JOIN preserva as buscas por identidade também em janelas mistas.
-	query = query.Table("(SELECT id FROM chat_messages WHERE id IN ? UNION SELECT id FROM chat_messages WHERE conversation_id=? AND "+parentPredicate+" AND role <> 'user' AND turn_id IN ?) selected_payload CROSS JOIN chat_messages ON chat_messages.id=selected_payload.id", args...)
-	var messages []ChatMessage
-	if err := query.Order("chat_messages.created_at ASC, chat_messages.id ASC").Find(&messages).Error; err != nil {
+	query = query.Table("(SELECT id FROM chat_messages WHERE id IN (SELECT CAST(unhex(value) AS TEXT) FROM json_each(?)) UNION SELECT id FROM chat_messages WHERE conversation_id=? AND "+parentPredicate+" AND role <> 'user' AND turn_id IN (SELECT CAST(unhex(value) AS TEXT) FROM json_each(?))) selected_payload CROSS JOIN chat_messages ON chat_messages.id=selected_payload.id", args...)
+	messages, err := scanTimelineMessages(query.Order("chat_messages.created_at ASC, chat_messages.id ASC"), len(items))
+	if err != nil {
 		return nil, err
 	}
 	// Somente a cópia retornada perde o vínculo inválido para não ser reagrupada

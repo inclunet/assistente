@@ -119,8 +119,7 @@ describe('chatSessionLoader', () => {
     const presentation = fixture.presentation('surface', 'conversation-1');
     await presentation.open();
     const response = canonicalTestItem('response', 'conclusão', {
-      conversationId: 'conversation-1', messageIds: ['expanded-before', 'raw-window'],
-      segments: [{ segmentId: 'intermediate', kind: 'text', text: 'intermediário' },
+      conversationId: 'conversation-1', segments: [{ segmentId: 'intermediate', kind: 'text', text: 'intermediário' },
         { segmentId: 'text', kind: 'text', text: 'conclusão' }],
     });
     vi.mocked(fixture.port.navigate).mockResolvedValueOnce(page(['response'], {

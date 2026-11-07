@@ -132,7 +132,12 @@ func TestPresentationConclusionIncludesEveryTextCutOfTheLastSource(t *testing.T)
 		{SegmentID: "tool", Kind: "tool_invocations"},
 		{SourceMessageID: "answer", SegmentID: "last", Kind: "text", Text: "world"},
 	}}
-	got := canonicalItem(item).Metadata.ConclusionSegmentIDs
+	var got []string
+	for _, segment := range canonicalItem(item).Segments {
+		if segment.Conclusion {
+			got = append(got, segment.SegmentID)
+		}
+	}
 	if !reflect.DeepEqual(got, []string{"first", "last"}) {
 		t.Fatal("incomplete conclusion", got)
 	}
@@ -319,7 +324,7 @@ func TestSnapshotRetainsAllResponseBoundariesUntilWindowCommit(t *testing.T) {
 			defer sub.Close()
 			expected := map[string][]CanonicalSegment{}
 			for _, item := range opened.Items {
-				if item.Kind == "response" {
+				if item.TurnID != nil {
 					expected[item.ItemID] = item.Segments
 				}
 			}

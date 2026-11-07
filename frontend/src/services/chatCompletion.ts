@@ -14,10 +14,8 @@ export interface ChatCompletion {
 }
 
 export function canonicalConclusion(item: TimelineItem): string {
-  const byId = new Map(item.segments.map(segment => [segment.segmentId, segment]));
-  return item.metadata.conclusionSegmentIds.map(id => {
-    const segment = byId.get(id);
-    if (!segment || segment.kind !== 'text') throw new Error('Canonical conclusion unavailable');
+  return item.segments.filter(segment => segment.conclusion).map(segment => {
+    if (segment.kind !== 'text') throw new Error('Canonical conclusion unavailable');
     return segment.text ?? '';
   }).join('');
 }

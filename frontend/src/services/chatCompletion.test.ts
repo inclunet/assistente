@@ -25,7 +25,7 @@ describe('leitura exata da conclusão canônica', () => {
     const item = canonicalTestItem('response');
     item.segments = [{ segmentId: 'intermediate', kind: 'text', text: 'não aplicar' },
       { segmentId: 'a', kind: 'text', text: 'parte ' }, { segmentId: 'b', kind: 'text', text: 'final' }];
-    item.metadata.conclusionSegmentIds = ['a', 'b'];
+    item.segments[1].conclusion = item.segments[2].conclusion = true;
     fixture.setItems([item]);
     expect(await readChatCompletion(done)).toBe('parte final');
   });

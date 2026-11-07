@@ -37,7 +37,7 @@ func projectWindowItems(conversationID string, parentID *string, rows []database
 		} else if message := byID[row.MessageID]; message != nil {
 			item = &TimelineItem{
 				ItemID: ports.MessageItemID(message.ID), ConversationID: conversationID,
-				ScopeParentID: parentID, Kind: "message", MessageIDs: []string{message.ID},
+				ScopeParentID: parentID, Kind: "message",
 				Representative: message, Durability: "persisted", messageCount: 1,
 			}
 			if message.Reasoning != "" {

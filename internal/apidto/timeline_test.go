@@ -29,9 +29,14 @@ func TestTimelineWireSnapshotPreservesIdentityAndPrecision(t *testing.T) {
 		t.Fatalf("escopo raiz deve ser null explícito: %s", raw)
 	}
 	item := wire["items"].([]any)[0].(map[string]any)
-	for _, key := range []string{"scopeParentId", "turnId", "representativeMessageId"} {
+	for _, key := range []string{"representativeMessageId"} {
 		if value, ok := item[key]; !ok || value != nil {
 			t.Fatalf("%s deve ser null explícito: %s", key, raw)
+		}
+	}
+	for _, key := range []string{"conversationId", "scopeParentId", "messageIds", "replyToItemId", "kind", "turnId", "state", "durability"} {
+		if _, exists := item[key]; exists {
+			t.Fatalf("campo redundante %s: %s", key, raw)
 		}
 	}
 	if item["revision"] != sequence {
@@ -98,8 +103,8 @@ func TestTimelineToolSummaryOmitsInternalProvenance(t *testing.T) {
 
 func TestCanonicalMetadataOmitsDefaultsWithoutLosingValues(t *testing.T) {
 	for _, metadata := range []CanonicalMetadata{
-		{CreatedAt: "2026-01-01T00:00:00Z", Role: "assistant", Origin: "chat", ConclusionSegmentIDs: []string{}},
-		{CreatedAt: "2026-01-01T00:00:00Z", Role: "assistant", Origin: "chat", ConclusionSegmentIDs: []string{"text"}, Source: "channel", ChildCount: 2, Pinned: true, Model: "model", PromptTokens: 3, CompletionTokens: 4, TotalTokens: 7, CacheReadTokens: 5, CacheWriteTokens: 6, CacheMissTokens: 7},
+		{CreatedAt: "2026-01-01T00:00:00Z", Role: "assistant"},
+		{CreatedAt: "2026-01-01T00:00:00Z", Role: "assistant", Source: "channel", ChildCount: 2, Pinned: true, Model: "model", PromptTokens: 3, CompletionTokens: 4, TotalTokens: 7, CacheReadTokens: 5, CacheWriteTokens: 6, CacheMissTokens: 7},
 	} {
 		original := CanonicalItem{ItemID: "turn:q", Metadata: metadata}
 		raw, err := json.Marshal(original)

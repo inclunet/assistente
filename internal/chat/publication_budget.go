@@ -1,11 +1,11 @@
 package chat
 
 import (
-	"encoding/hex"
 	"encoding/json"
 	"reflect"
 	"slices"
 	"strings"
+	"sync"
 	"unicode/utf8"
 
 	"assistente/internal/database"
@@ -49,13 +49,13 @@ func publicationSelectionReadSize(tx *gorm.DB, conversationID string, messageIDs
 	}
 	// Perguntas e respostas da mesma página frequentemente repetem o conjunto.
 	// Serializar uma vez quando os IDs coincidem, preservando a seleção exata.
-	turnsJSON := publicationIDSet(turnIDs)
+	turnsJSON := database.EncodeTimelineIDSet(turnIDs)
 	messagesJSON, metadataJSON := turnsJSON, turnsJSON
 	if !slices.Equal(messageIDs, turnIDs) {
-		messagesJSON = publicationIDSet(messageIDs)
-		metadataJSON = publicationIDSet(uniquePublicationIDs(append(append([]string(nil), messageIDs...), turnIDs...)))
+		messagesJSON = database.EncodeTimelineIDSet(messageIDs)
+		metadataJSON = database.EncodeTimelineIDSet(uniquePublicationIDs(append(append([]string(nil), messageIDs...), turnIDs...)))
 	}
-	err := tx.Raw(publicationReadBudgetSQL, turnsJSON, conversationID, conversationID, metadataJSON, messagesJSON, turnsJSON, conversationID).Scan(&size).Error
+	err := tx.Raw(publicationReadBudgetSQL, turnsJSON, conversationID, conversationID, metadataJSON, messagesJSON, turnsJSON, conversationID).Row().Scan(&size)
 	if err != nil {
 		return 0, err
 	}
@@ -76,7 +76,7 @@ func publicationSelectionReadSize(tx *gorm.DB, conversationID string, messageIDs
 		Joins(selection.Join("tool_invocations")).Where(selection.Predicate("tool_invocations")).
 		// O leitor aceita vínculos legados sem conversation_id. Contamos todos
 		// os registros do usuário/turno, incluindo os que o leitor filtrará depois.
-		Where("tool_invocations.user_id = ? AND tool_invocations.origin_type = 'chat' AND tool_invocations.turn_id IN (SELECT CAST(unhex(value) AS TEXT) FROM json_each(?))", userID, turnsJSON).Scan(&callsSize).Error
+		Where("tool_invocations.user_id = ? AND tool_invocations.origin_type = 'chat' AND tool_invocations.turn_id IN (SELECT CAST(unhex(value) AS TEXT) FROM json_each(?))", userID, turnsJSON).Row().Scan(&callsSize)
 	if err != nil {
 		return 0, err
 	}
@@ -108,6 +108,22 @@ type projectionBudget struct {
 	exactStrings bool
 }
 
+// Só descreve os tipos internos visitados pelo orçamento; não guarda dados
+// de conversa. Evita reconstruir StructField/Index a cada campo de cada item.
+var projectionFieldSizes sync.Map // reflect.Type -> []int imutável
+
+func projectionFieldNameSizes(kind reflect.Type) []int {
+	if cached, ok := projectionFieldSizes.Load(kind); ok {
+		return cached.([]int)
+	}
+	names := make([]int, kind.NumField())
+	for i := range names {
+		names[i] = len(kind.Field(i).Name)
+	}
+	actual, _ := projectionFieldSizes.LoadOrStore(kind, names)
+	return actual.([]int)
+}
+
 func (b *projectionBudget) visit(v reflect.Value) bool {
 	b.remaining -= 32
 	if b.remaining < 0 {
@@ -123,8 +139,9 @@ func (b *projectionBudget) visit(v reflect.Value) bool {
 			return b.visit(v.Elem())
 		}
 	case reflect.Struct:
+		names := projectionFieldNameSizes(v.Type())
 		for i := 0; i < v.NumField(); i++ {
-			b.remaining -= len(v.Type().Field(i).Name)
+			b.remaining -= names[i]
 			if !b.visit(v.Field(i)) {
 				return false
 			}
@@ -265,24 +282,3 @@ var invalidUTF8JSONBytes = func() int {
 	encoded, _ := json.Marshal(string([]byte{0xff}))
 	return len(encoded) - 2
 }()
-
-// JSON contém somente hex ASCII; unhex + CAST TEXT restaura os bytes originais
-// (inclusive NUL/UTF-8 inválido) no lado direito de IN, preservando os índices.
-func publicationIDSet(ids []string) string {
-	size := 2
-	for _, id := range ids {
-		size += 3 + 2*len(id)
-	}
-	encoded := make([]byte, 0, size)
-	encoded = append(encoded, '[')
-	for i, id := range ids {
-		if i > 0 {
-			encoded = append(encoded, ',')
-		}
-		encoded = append(encoded, '"')
-		encoded = hex.AppendEncode(encoded, []byte(id))
-		encoded = append(encoded, '"')
-	}
-	encoded = append(encoded, ']')
-	return string(encoded)
-}
