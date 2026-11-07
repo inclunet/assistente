@@ -976,7 +976,7 @@ function ChatSessionViewContent({
       : null;
     const pendingAnnouncement = pendingWindowAnnouncementRef.current;
     if (!pendingAnnouncement) return;
-    if (!windowState || windowState.totalCount <= 0) {
+    if (!windowState || windowState.totalCount <= 0 || windowState.endIndex < windowState.startIndex) {
       pendingWindowAnnouncementRef.current = null;
       return;
     }

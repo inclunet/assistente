@@ -70,7 +70,7 @@ it('usa a janela do backend para posição, fronteiras e carregamento isolado po
   await waitFor(() => expect(finish).toBeTypeOf('function'));
   expect(observed.get('first')!.isLoadingMessageWindow).toBe(true);
   expect(observed.get('second')!.isLoadingMessageWindow).toBe(false);
-  expect(screen.getByRole('button', { name: 'chat.loadingOlderMessages' })).toBeDisabled();
+  expect(screen.getByRole('button', { name: 'common.loading' })).toBeDisabled();
   await act(async () => { finish(); await navigation; });
   expect(observed.get('first')!.isLoadingMessageWindow).toBe(false);
   expect(screen.getAllByRole('button', { name: 'chat.loadOlderMessages' })).toHaveLength(1);

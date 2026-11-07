@@ -530,7 +530,7 @@ export const MessageList = React.memo(forwardRef<HTMLDivElement, MessageListProp
               disabled={isLoadingMessageWindow}
               aria-busy={isLoadingMessageWindow}
             >
-              {isLoadingMessageWindow ? t('chat.loadingOlderMessages') : t('chat.loadOlderMessages')}
+              {isLoadingMessageWindow ? t('common.loading') : t('chat.loadOlderMessages')}
             </button>
           </div>
         )}

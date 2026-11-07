@@ -307,7 +307,6 @@ const es = {
       largeMessageDeferred: 'El contenido grande se renderizará al entrar en el área visible.',
       loadOlderMessages: 'Cargar mensajes anteriores',
       loadNewerMessages: 'Cargar mensajes posteriores',
-      loadingOlderMessages: 'Cargando mensajes anteriores...',
       modelThinking: 'El modelo está pensando',
       modelReasoning: 'Razonamiento del modelo',
       reasoning: 'Razonamiento',

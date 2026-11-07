@@ -405,6 +405,16 @@ describe('MessageList', () => {
     expect(onLoadOlder).toHaveBeenCalledWith('navigation');
   });
 
+  it('usa carregamento genérico para a navegação compartilhada e restaura o botão ao terminar', () => {
+    const props = { threadedMessages: [createNode()], messageWindow: windowFixture({ hasBefore: true, hasAfter: true }), onLoadOlder: vi.fn() };
+    const { rerender } = render(<MessageList {...props} isLoadingMessageWindow />);
+    const loading = screen.getByRole('button', { name: 'common.loading' });
+    expect(loading).toBeDisabled();
+    expect(loading).toHaveAttribute('aria-busy', 'true');
+    rerender(<MessageList {...props} />);
+    expect(screen.getByRole('button', { name: 'chat.loadOlderMessages' })).toBeEnabled();
+  });
+
   // Regressão de produto com foco real, sem fabricar focusout para o body.
   it('preserva o mesmo nó focado durante atualização de streaming e prepend', () => {
     const first = createNode('user-1');

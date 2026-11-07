@@ -31,13 +31,18 @@ foco, comandos, edição e anúncios foram preservadas e adaptadas ao contrato.
 Continuam pendentes a auditoria dos demais espelhamentos operacionais, provas
 consolidadas de concorrência, pressão de 8 MiB na WebView e gates históricos de
 tempo/alocações/payload. Este recorte não altera transporte, persistência,
-bindings, comandos ou fluxos visíveis.
+bindings ou comandos. A revisão remota também identificou dois ajustes de
+feedback: o carregamento compartilhado usa o texto genérico já traduzido e
+janelas vazias não anunciam intervalos inválidos. Foram preservados os anúncios
+de páginas não vazias, adicionadas regressões e atualizada a documentação de chat.
 
 Validação local: TypeScript, ESLint, Stylelint, build/vet/lint incremental Go
 (zero issues), 35 testes seguros da borda app e 6.131 testes frontend em 497
 arquivos aprovados. Após o ajuste final da fixture, os 52 testes afetados
 passaram novamente. Revisor independente `review_canonical_cleanup`: duas
-rodadas sem pendências; evidência de CI/revisão remota registrada no PR.
+rodadas iniciais sem pendências. Após os dois ajustes da revisão remota,
+TypeScript/lint e 50 testes locais seguros passaram; terceira rodada independente
+sem pendências. As duas regressões de janela vazia dependem do CI.
 Os testes locais excluem os arquivos que mencionam ACP; os cenários de paginação em `ChatSessionView.test.tsx`
 ficam para o CI porque esse arquivo contém mocks ACP. A prova canônica nova não
 depende desses mocks.

@@ -1780,4 +1780,35 @@ describe('ChatSessionView', () => {
       vi.useRealTimers();
     }
   });
+  it.each([
+    { key: 'Home', startIndex: 0, endIndex: -1, hasBefore: false, hasAfter: true },
+    { key: 'End', startIndex: 10, endIndex: 9, hasBefore: true, hasAfter: false },
+  ])('não anuncia intervalo vazio após Ctrl+$key com mensagens fora da janela', async boundary => {
+    const sessionKey = 'empty-window-session';
+    let session = withFixtureProjection(createEmptyChatSurfaceSession(conversationId, sessionKey), {
+      nodes: [nodeFixture({ message: { id: 'visible', role: 'user' } })],
+      metadata: windowFixture({ totalCount: 10, startIndex: 4, endIndex: 4, hasBefore: true, hasAfter: true }),
+    });
+    chatStoreState.surfaceSessionsByKey[sessionKey] = session;
+    chatStoreState.loadBoundaryMessagesForConversation.mockImplementation(async () => {
+      session = withFixtureProjection({ ...session }, {
+        nodes: [], metadata: windowFixture({ totalCount: 10, startIndex: boundary.startIndex,
+          endIndex: boundary.endIndex, hasBefore: boundary.hasBefore, hasAfter: boundary.hasAfter }),
+      });
+      chatStoreState.surfaceSessionsByKey[sessionKey] = session;
+    });
+    const view = () => <ChatSessionView surface={surface({ sessionKey, surfaceId: 'empty-window' })}
+      onSend={vi.fn().mockResolvedValue(undefined)} showShortcutsHelp={false} />;
+    const { rerender } = renderWithPanel(view());
+    expect(screen.getByText('visible')).toBeInTheDocument();
+    announceRequestMock.mockClear();
+    fireEvent.keyDown(screen.getByRole('list'), { key: boundary.key, ctrlKey: true });
+    await waitFor(() => expect(chatStoreState.loadBoundaryMessagesForConversation).toHaveBeenCalled());
+    rerender(<WorkspacePanelProvider value={{ tab: panelTab, isActive: true }}>{view()}</WorkspacePanelProvider>);
+    expect(screen.queryByText('visible')).not.toBeInTheDocument();
+    expect(announceRequestMock).not.toHaveBeenCalledWith(expect.objectContaining({
+      message: expect.stringContaining('chat.announce.messageWindowLoaded'),
+    }));
+  });
+
 });
