@@ -15,7 +15,7 @@ import { useAuthStore } from '../../store/authStore';
 import { useChatStore } from '../../store/chatStore';
 import { useWorkspaceStore } from '../../store/workspaceStore';
 import { useWorkspaceChatModalStore } from '../../store/workspaceChatModalStore';
-import { createChatSurfaceIdentity, createChatSurfaceOrigin, createEmptyChatSession, createEmptyChatSurfaceSession, patchChatConversation } from '../../services/chatSessionRegistry';
+import { createChatSurfaceIdentity, createChatSurfaceOrigin, createEmptyChatSurfaceSession, patchChatConversation } from '../../services/chatSessionRegistry';
 import { CHAT_NAVIGATION_COMMAND_EVENT, captureChatNavigationTarget, requestChatNavigationCommand, type ChatNavigationRequest, type ChatNavigationCommandID } from '../../lib/commandChatNavigation';
 import { getChatEventControllerExecutionId, stopAllChatEventControllers } from '../../services/chatEventController';
 
@@ -47,24 +47,24 @@ function dispatch(event: Event) {
   finally { lease?.dispose(); }
 }
 function node(id = mid, internal = false): ChatMessageNode {
-  return nodeFixture({ message: messageFixture({ id, conversationId: cid, role: 'assistant', content: '**Mensagem** [link](https://example.org)', reasoning: 'Raciocínio', internal, isStreaming: false }), children: [], childCount: 0, level: internal ? 1 : 0 });
+  return nodeFixture({ message: messageFixture({ id, conversationId: cid, role: 'assistant', content: '**Mensagem** [link](https://example.org)', reasoning: 'Raciocínio', internal, isStreaming: false }), children: [], childCount: 0 });
 }
 function seed(nodes: ChatMessageNode[]) {
-  const conversation = { id: cid, title: 'Chat', threadedMessages: nodes };
-  useChatStore.setState({ timelinesByConversationId: { [cid]: conversation }, sessionsByConversationId: { [cid]: { ...createEmptyChatSession(cid), conversation } }, surfaceSessionsByKey: {} });
+  const conversation = withFixtureProjection({ id: cid, title: 'Chat' }, { nodes: nodes });
+  useChatStore.setState({
+    conversationInfoById: { [cid]: conversation },
+    surfaceSessionsByKey: { ['conversation:' + cid]: { ...createEmptyChatSurfaceSession(cid) } },
+  });
 }
 function replaceTree(nodes: ChatMessageNode[]) {
-  useChatStore.setState({ timelinesByConversationId: { [cid]: { id: cid, title: 'Chat', threadedMessages: nodes } } });
+  useChatStore.setState({ conversationInfoById: { [cid]: withFixtureProjection({ id: cid, title: 'Chat' }, { nodes: nodes }) } });
 }
 function attachChildrenToConversationInStore(messageId: string, children: ChatMessageNode[]) {
-  useChatStore.setState(state => patchChatConversation(state, cid, conversation => ({
-    ...conversation,
-    threadedMessages: conversation.threadedMessages.map(node => node.message.id === messageId ? { ...node, children } : node),
-  })));
+  useChatStore.setState(state => patchChatConversation(state, cid, conversation => (withFixtureProjection({ ...conversation }, { nodes: fixtureProjection(conversation).nodes!.map(node => node.message.id === messageId ? { ...node, children } : node) }))));
 }
 function Tree(props: Omit<MessageNodeProps, 'node'>) {
   const nodes = useChatStore(state => fixtureProjection(state.surfaceSessionsByKey[surface.sessionKey]).nodes
-    ?? state.timelinesByConversationId[cid].threadedMessages);
+    ?? fixtureProjection(state.conversationInfoById[cid]).nodes!);
   return <>{nodes.map(item => <MessageNode key={item.message.id} node={item} commandPathname="/chat" {...props} />)}</>;
 }
 function mount(props: Omit<MessageNodeProps, 'node'> = {}) {
@@ -273,23 +273,22 @@ describe('MessageNode navigation — registry, Provider, store e leitura reais',
   it('Enter abre leitura na projeção única durante streaming e após finalizar', () => {
     const streamingNode = node();
     streamingNode.message.isStreaming = true;
-    const conversation = { id: cid, title: 'Chat', threadedMessages: [streamingNode] };
+    const conversation = withFixtureProjection({ id: cid, title: 'Chat' }, { nodes: [streamingNode] });
     const surfaceSession = withFixtureProjection(
       { ...createEmptyChatSurfaceSession(cid, surface.sessionKey) },
       { nodes: [streamingNode] },
     );
     useChatStore.setState({
-      timelinesByConversationId: { [cid]: conversation },
-      sessionsByConversationId: { [cid]: { ...createEmptyChatSession(cid), conversation } },
-      surfaceSessionsByKey: { [surface.sessionKey]: surfaceSession },
+      conversationInfoById: { [cid]: conversation },
+      surfaceSessionsByKey: {
+        ['conversation:' + cid]: { ...createEmptyChatSurfaceSession(cid) },
+        [surface.sessionKey]: surfaceSession,
+      },
     });
 
     // A fixture injeta a projeção para testar comandos e ownership;
     // a atualização por lote canônico é coberta na apresentação real.
-    act(() => useChatStore.setState(state => patchChatConversation(state, cid, current => ({
-      ...current,
-      threadedMessages: current.threadedMessages.map(node => ({ ...node, message: { ...node.message, content: 'trecho recebido' } })),
-    }))));
+    act(() => useChatStore.setState(state => patchChatConversation(state, cid, current => (withFixtureProjection({ ...current }, { nodes: fixtureProjection(current).nodes!.map(node => ({ ...node, message: { ...node.message, content: 'trecho recebido' } })) })))));
     const projected = fixtureProjection(useChatStore.getState().surfaceSessionsByKey[surface.sessionKey]).nodes![0];
     const canonical = fixtureMessages(cid)[0];
     projected.message = canonical;
@@ -308,7 +307,7 @@ describe('MessageNode navigation — registry, Provider, store e leitura reais',
     act(() => useChatStore.setState(state => patchChatConversation(
       state,
       cid,
-      current => ({ ...current, threadedMessages: current.threadedMessages.map(node => ({ ...node, message: { ...node.message, isStreaming: false } })) }),
+      current => (withFixtureProjection({ ...current }, { nodes: fixtureProjection(current).nodes!.map(node => ({ ...node, message: { ...node.message, isStreaming: false } })) })),
     )));
     const finalProjection = fixtureProjection(useChatStore.getState().surfaceSessionsByKey[surface.sessionKey]).nodes![0];
     finalProjection.message = fixtureMessages(cid)[0];
@@ -397,7 +396,7 @@ describe('MessageNode navigation — registry, Provider, store e leitura reais',
     setFixtureSourceUnavailable(cid, true);
     view.unmount();
     act(() => useChatStore.setState(state => ({
-      timelinesByConversationId: { [cid]: { id: cid, title: 'Chat', threadedMessages: [] } },
+      conversationInfoById: { [cid]: withFixtureProjection({ id: cid, title: 'Chat' }, { nodes: [] }) },
       surfaceSessionsByKey: { ...state.surfaceSessionsByKey, [surface.sessionKey]: liveSurface },
     })));
     mount(); root().focus();
@@ -455,14 +454,16 @@ describe('MessageNode navigation — registry, Provider, store e leitura reais',
   it('recusa clone arbitrário renderizado fora da projeção registrada mesmo com ID e streaming iguais', () => {
     const canonicalNode = node(); canonicalNode.message.isStreaming = true;
     const arbitraryNode = node(); arbitraryNode.message.isStreaming = true;
-    const conversation = { id: cid, title: 'Chat', threadedMessages: [canonicalNode] };
+    const conversation = withFixtureProjection({ id: cid, title: 'Chat' }, { nodes: [canonicalNode] });
     useChatStore.setState({
-      timelinesByConversationId: { [cid]: conversation },
-      sessionsByConversationId: { [cid]: { ...createEmptyChatSession(cid), conversation } },
-      surfaceSessionsByKey: { [surface.sessionKey]: withFixtureProjection(
-        { ...createEmptyChatSurfaceSession(cid, surface.sessionKey) },
-        { nodes: [canonicalNode] },
-      ) },
+      conversationInfoById: { [cid]: conversation },
+      surfaceSessionsByKey: {
+        ['conversation:' + cid]: { ...createEmptyChatSurfaceSession(cid) },
+        [surface.sessionKey]: withFixtureProjection(
+          { ...createEmptyChatSurfaceSession(cid, surface.sessionKey) },
+          { nodes: [canonicalNode] }
+        ),
+      },
     });
     render(<MemoryRouter initialEntries={['/chat']}><WorkspacePanelProvider value={{ tab, isActive: true }}>
       <ChatSessionProvider surface={surface}>
@@ -475,18 +476,20 @@ describe('MessageNode navigation — registry, Provider, store e leitura reais',
   });
   it('recusa a leitura se a mensagem foi removida da timeline canônica', () => {
     const original = node();
-    const conversation = { id: cid, title: 'Chat', threadedMessages: [original] };
+    const conversation = withFixtureProjection({ id: cid, title: 'Chat' }, { nodes: [original] });
     useChatStore.setState({
-      timelinesByConversationId: { [cid]: conversation },
-      sessionsByConversationId: { [cid]: { ...createEmptyChatSession(cid), conversation } },
-      surfaceSessionsByKey: { [surface.sessionKey]: withFixtureProjection(
-        { ...createEmptyChatSurfaceSession(cid, surface.sessionKey) },
-        { nodes: [original] },
-      ) },
+      conversationInfoById: { [cid]: conversation },
+      surfaceSessionsByKey: {
+        ['conversation:' + cid]: { ...createEmptyChatSurfaceSession(cid) },
+        [surface.sessionKey]: withFixtureProjection(
+          { ...createEmptyChatSurfaceSession(cid, surface.sessionKey) },
+          { nodes: [original] }
+        ),
+      },
     });
     mount(); root().focus();
     act(() => useChatStore.setState({
-      timelinesByConversationId: { [cid]: { id: cid, title: 'Chat', threadedMessages: [] } },
+      conversationInfoById: { [cid]: withFixtureProjection({ id: cid, title: 'Chat' }, { nodes: [] }) },
     }));
     fireEvent.keyDown(root(), { key: 'Enter' });
     expect(root()).not.toHaveAttribute('aria-modal');
@@ -503,7 +506,7 @@ describe('MessageNode navigation — registry, Provider, store e leitura reais',
     const message = node(); message.message.reasoning = ''; message.message.isStreaming = true; seed([message]); mount();
     act(() => useChatStore.setState(state => ({ surfaceSessionsByKey: { ...state.surfaceSessionsByKey,
       [surface.sessionKey]: { ...state.surfaceSessionsByKey[surface.sessionKey], streamingMessageId: mid, streamingReasoning: 'Raciocínio em progresso' } } })));
-    act(() => useChatStore.setState(state => patchChatConversation(state, cid, conversation => ({ ...conversation, threadedMessages: conversation.threadedMessages.map(node => ({ ...node, message: messageFixture({ ...node.message, reasoning: 'Raciocínio em progresso' }) })) }))));
+    act(() => useChatStore.setState(state => patchChatConversation(state, cid, conversation => (withFixtureProjection({ ...conversation }, { nodes: fixtureProjection(conversation).nodes!.map(node => ({ ...node, message: messageFixture({ ...node.message, reasoning: 'Raciocínio em progresso' }) })) })))));
     const button = root().querySelector<HTMLButtonElement>('.reasoning-section__header')!;
     expect(button).not.toBeNull(); fireEvent.click(button);
     expect(useChatStore.getState().isConversationReasoningExpanded(cid, mid, surface.sessionKey)).toBe(true);

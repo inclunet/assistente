@@ -265,6 +265,11 @@ scroll e janela do histórico. Duas superfícies que apontam para a mesma
 conversa compartilham a timeline persistida, mas uma superfície que está lendo
 mensagens antigas não é reposicionada quando chega uma mensagem nova em outra.
 
+Renomear uma conversa atualiza seu título sem mudar a página do histórico,
+o rascunho ou a mensagem em leitura. Ao abrir outro painel da mesma conversa,
+a edição e as expansões de mensagens continuam pertencendo ao painel onde
+foram iniciadas.
+
 Ao enviar, o texto e os anexos são limpos imediatamente para que o compositor
 fique pronto para outra ação. Se o envio for rejeitado — por exemplo, por
 exceder o limite de 512 KiB ou o tamanho permitido de mídia — o rascunho é

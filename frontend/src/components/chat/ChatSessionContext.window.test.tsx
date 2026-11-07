@@ -1,10 +1,10 @@
 import { act, cleanup, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { canonicalTestFixture, canonicalTestItem } from '../../services/chatTimelineTestFixture';
-import { createChatSurfaceIdentity } from '../../services/chatSessionRegistry';
+import { createChatSurfaceIdentity, createEmptyChatSurfaceSession } from '../../services/chatSessionRegistry';
 import { useChatStore } from '../../store/chatStore';
 import { useAuthStore } from '../../store/authStore';
-import { ChatSessionProvider, useChatSession, type ChatSessionContextValue } from './ChatSessionContext';
+import { ChatSessionProvider, useChatSession, useChatNodeSessionState, type ChatSessionContextValue } from './ChatSessionContext';
 import { MessageList } from './MessageList';
 
 let fixture: ReturnType<typeof canonicalTestFixture>;
@@ -16,8 +16,10 @@ vi.mock('./MessageNode', () => ({ MessageNode: ({ ariaPosition, ariaSetSize }: {
 }) => <div role="listitem" aria-posinset={ariaPosition} aria-setsize={ariaSetSize} /> }));
 
 const observed = new Map<string, ChatSessionContextValue>();
+const observedNodes: ReturnType<typeof useChatNodeSessionState>[] = [];
 function Probe({ name }: { name: string }) {
   const state = useChatSession();
+  observedNodes.push(useChatNodeSessionState('reply'));
   observed.set(name, state);
   return <section aria-label={name}>
     <MessageList threadedMessages={state.threadedMessages} messageWindow={state.messageWindow}
@@ -27,8 +29,9 @@ function Probe({ name }: { name: string }) {
 
 beforeEach(() => {
   observed.clear();
+  observedNodes.length = 0;
   fixture = canonicalTestFixture([canonicalTestItem('reply')]);
-  useChatStore.setState({ sessionsByConversationId: {}, timelinesByConversationId: {}, surfaceSessionsByKey: {} });
+  useChatStore.setState({ conversationInfoById: {}, surfaceSessionsByKey: {} });
   useAuthStore.setState({ isAuthenticated: true, user: { userId: 'user', sessionId: 'session', role: 'admin' } });
   const open = fixture.port.open;
   fixture.port.open = vi.fn(async (...args: Parameters<typeof open>) => {
@@ -37,6 +40,33 @@ beforeEach(() => {
     fixture.windows.set(window.windowId, window);
     return window;
   });
+});
+
+it('não herda edição/expansão da sessão padrão e renomeia sem reconstruir a janela', async () => {
+  const defaultSession = { ...createEmptyChatSurfaceSession('conversation'),
+    editingMessageId: 'reply', expandedThreads: new Set(['reply']), expandedReasonings: new Set(['reply']), draftMessage: 'rascunho privado' };
+  useChatStore.setState({ conversationInfoById: { conversation: { id: 'conversation', title: 'Antes' } },
+    surfaceSessionsByKey: { [defaultSession.sessionKey]: defaultSession } });
+  render(<ChatSessionProvider surface={createChatSurfaceIdentity({ surfaceId: 'isolated', conversationId: 'conversation' })}>
+    <Probe name="isolated" />
+  </ChatSessionProvider>);
+  await waitFor(() => expect(observed.get('isolated')?.threadedMessages).toHaveLength(1));
+  expect(observedNodes.length).toBeGreaterThan(0);
+  for (const state of observedNodes) {
+    expect(state.editingMessageId).toBeNull();
+    expect(state.isExpanded).toBe(false);
+    expect(state.reasoningExpanded).toBe(false);
+  }
+  const before = observed.get('isolated')!;
+  expect(before.draftMessage).toBe('');
+  const surfaces = useChatStore.getState().surfaceSessionsByKey;
+  act(() => useChatStore.getState().handleConversationRenamed('conversation', 'Depois'));
+  expect(observed.get('isolated')!.conversation?.title).toBe('Depois');
+  expect(observed.get('isolated')!.threadedMessages).toBe(before.threadedMessages);
+  expect(observed.get('isolated')!.messageWindow).toBe(before.messageWindow);
+  expect(useChatStore.getState().surfaceSessionsByKey).toBe(surfaces);
+  expect(useChatStore.getState()).not.toHaveProperty('sessionsByConversationId');
+  expect(useChatStore.getState().conversationInfoById.conversation).not.toHaveProperty('threadedMessages');
 });
 afterEach(async () => {
   await act(async () => cleanup());

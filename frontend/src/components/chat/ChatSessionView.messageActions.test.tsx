@@ -1,3 +1,4 @@
+import { fixtureProjection, withFixtureProjection } from '../../test/chatWindowFixture';
 import { messageFixture, nodeFixture } from '../../test/chatPresentationFixture';
 import { publishFixtureMessage } from './canonicalPresentationFixture';
 import { setFixtureCanonicalItem } from './canonicalPresentationFixture';
@@ -12,7 +13,7 @@ import { sendChatSurfaceMessage } from './ChatSurfaceController';
 import { useChatStore } from '../../store/chatStore';
 import { useAuthStore } from '../../store/authStore';
 import { useWorkspaceStore } from '../../store/workspaceStore';
-import { createChatSurfaceIdentity, createEmptyChatSession } from '../../services/chatSessionRegistry';
+import { createChatSurfaceIdentity, createEmptyChatSurfaceSession } from '../../services/chatSessionRegistry';
 import { CHAT_MESSAGING_EVENT, captureChatMessagingTarget, executeChatMessaging, type ChatMessagingRequest } from '../../lib/commandChatMessaging';
 import { ttsService } from '../../services/tts';
 import { messageAudioService } from '../../services/messageAudio';
@@ -88,10 +89,14 @@ beforeEach(() => {
   setFixtureCanonicalItem(firstID);
   vi.spyOn(HTMLElement.prototype, 'scrollIntoView').mockImplementation(() => {});
   Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: vi.fn(async () => {}) } });
-  const conversation = { id, title: 'chat', threadedMessages: [firstID, secondID].map((messageID, index) => nodeFixture({
-    message: messageFixture({ id: messageID, conversationId: id, role: 'user', content: index ? 'segunda' : '**primeira**' }), children: [], hasChildren: false, childCount: 0, level: 0,
-  })) };
-  useChatStore.setState({ timelinesByConversationId: { [id]: conversation }, sessionsByConversationId: { [id]: { ...createEmptyChatSession(id), conversation } }, surfaceSessionsByKey: {}, loadingConversationIds: new Set() });
+  const conversation = withFixtureProjection({ id, title: 'chat' }, { nodes: [firstID, secondID].map((messageID, index) => nodeFixture({
+    message: messageFixture({ id: messageID, conversationId: id, role: 'user', content: index ? 'segunda' : '**primeira**' }), children: [], hasChildren: false, childCount: 0,
+  })) });
+  useChatStore.setState({
+    loadingConversationIds: new Set(),
+    conversationInfoById: { [id]: conversation },
+    surfaceSessionsByKey: { ['conversation:' + id]: { ...createEmptyChatSurfaceSession(id) } },
+  });
   listener = event => {
     const request = (event as CustomEvent<ChatMessagingRequest>).detail;
     const target = request.target ?? captureChatMessagingTarget(() => '/', request.commandId, request.instanceId);
@@ -135,7 +140,7 @@ describe('ChatSessionView message actions — superfície/lista/registry reais',
   });
 
   it('recusa edição de user em thread sem impedir sua leitura', () => {
-    const message = useChatStore.getState().timelinesByConversationId[id].threadedMessages[0].message;
+    const message = fixtureProjection(useChatStore.getState().conversationInfoById[id]).nodes![0].message;
     message.parentId = secondID;
     mount();
     expect(capture('chat.message.edit.open')).toBeUndefined();
@@ -165,7 +170,7 @@ describe('ChatSessionView message actions — superfície/lista/registry reais',
     expect(screen.getByRole('combobox')).toHaveFocus(); expect(begin).not.toHaveBeenCalled();
   });
   it('foco messages funciona com região vazia', () => {
-    useChatStore.setState(state => ({ timelinesByConversationId: { [id]: { ...state.timelinesByConversationId[id], threadedMessages: [] } } }));
+    useChatStore.setState(state => ({ conversationInfoById: { [id]: withFixtureProjection({ ...state.conversationInfoById[id] }, { nodes: [] }) } }));
     mount();
     const target = captureChatNavigationTarget(() => '/', 'chat.focus.messages');
     act(() => { expect(target!.open('chat.focus.messages')).toBe(true); });
@@ -198,9 +203,8 @@ describe('ChatSessionView message actions — superfície/lista/registry reais',
     expect(node()).not.toHaveAttribute('aria-modal'); expect(begin).not.toHaveBeenCalled();
   });
   it('menu real alterna raciocínio somente do nó capturado', async () => {
-    useChatStore.setState(state => ({ timelinesByConversationId: { [id]: { ...state.timelinesByConversationId[id],
-      threadedMessages: state.timelinesByConversationId[id].threadedMessages.map(item => nodeFixture({ ...item,
-        message: messageFixture({ ...item.message, role: 'assistant', reasoning: 'raciocínio ' + item.message.id }) })) } } }));
+    useChatStore.setState(state => ({ conversationInfoById: { [id]: withFixtureProjection({ ...state.conversationInfoById[id] }, { nodes: fixtureProjection(state.conversationInfoById[id]).nodes!.map(item => nodeFixture({ ...item,
+        message: messageFixture({ ...item.message, role: 'assistant', reasoning: 'raciocínio ' + item.message.id }) })) }) } }));
     mount(); act(() => node().focus()); fireEvent.keyUp(node(), { key: 'ContextMenu' });
     await userEvent.click(await screen.findByRole('menuitem', { name: /Ver raciocínio do modelo/ }));
     expect(useChatStore.getState().isConversationReasoningExpanded(id, firstID, surface.sessionKey)).toBe(true);
@@ -209,12 +213,11 @@ describe('ChatSessionView message actions — superfície/lista/registry reais',
   });
   it('comandos expand/collapse aplicam o estado à thread real sem escolher outro nó', () => {
     const childID = '01926b90-7a5a-7c4e-8d3f-000000000013';
-    useChatStore.setState(state => ({ timelinesByConversationId: { [id]: { ...state.timelinesByConversationId[id],
-      threadedMessages: state.timelinesByConversationId[id].threadedMessages.map((item, index) => index ? item : nodeFixture({ ...item,
+    useChatStore.setState(state => ({ conversationInfoById: { [id]: withFixtureProjection({ ...state.conversationInfoById[id] }, { nodes: fixtureProjection(state.conversationInfoById[id]).nodes!.map((item, index) => index ? item : nodeFixture({ ...item,
         hasChildren: true, childCount: 1, children: [nodeFixture({
           message: messageFixture({ id: childID, conversationId: id, parentId: firstID, role: 'user', content: 'filha' }),
-          children: [], childCount: 0, hasChildren: false, level: 1,
-        })] })) } } }));
+          children: [], childCount: 0, hasChildren: false,
+        })] })) }) } }));
     mount(); act(() => node().focus());
     const expand = captureChatNavigationTarget(() => '/', 'chat.message.thread.expand');
     act(() => { expect(expand!.open('chat.message.thread.expand')).toBe(true); });
@@ -306,7 +309,7 @@ describe('ChatSessionView message actions — superfície/lista/registry reais',
   it('troca conteúdo durante Take recusa mesmo ID', async () => {
     mount(); const target = capture('chat.message.copy');
     take.mockImplementationOnce(async () => {
-      useChatStore.setState(state => ({ timelinesByConversationId: { ...state.timelinesByConversationId, [id]: { ...state.timelinesByConversationId[id], threadedMessages: [] } } }));
+      useChatStore.setState(state => ({ conversationInfoById: { ...state.conversationInfoById, [id]: withFixtureProjection({ ...state.conversationInfoById[id] }, { nodes: [] }) } }));
       return { ticket: 'ticket', invocationId: 'invocation', commandId: 'chat.message.copy', handoffId: 'handoff' };
     });
     await act(async () => { await executeChatMessaging(port(), target!); });

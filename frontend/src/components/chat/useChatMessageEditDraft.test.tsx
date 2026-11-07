@@ -1,3 +1,4 @@
+import { fixtureProjection, withFixtureProjection } from '../../test/chatWindowFixture';
 import type { Message } from '../../lib/chatMessageTree';
 import { messageFixture, nodeFixture } from '../../test/chatPresentationFixture';
 import { fixtureMessages } from './canonicalPresentationFixture';
@@ -7,7 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useAuthStore } from '../../store/authStore';
 import { useWorkspaceStore } from '../../store/workspaceStore';
 import { useChatStore } from '../../store/chatStore';
-import { createEmptyChatSession } from '../../services/chatSessionRegistry';
+import { createEmptyChatSurfaceSession } from '../../services/chatSessionRegistry';
 import { registerOpenModal, unregisterOpenModal } from '../../lib/modalRegistry';
 import { captureChatMessageEditDraft, useChatMessageEditDraft } from './useChatMessageEditDraft';
 
@@ -36,11 +37,15 @@ function Harness({ pathname = '/' }: { pathname?: string }) {
   </div>;
 }
 function replaceStoredMessage(next: Message) {
-  const conversation = { id: conversationId, title: 'Conversa', threadedMessages: [nodeFixture({ message: next, children: [], level: 0, childCount: 0 })] };
+  const conversation = withFixtureProjection({ id: conversationId, title: 'Conversa' }, { nodes: [nodeFixture({ message: next, children: [],  childCount: 0 })] });
   // MessageNode's constructor materializes DTOs; retain its exact stored identity.
-  const stored = conversation.threadedMessages[0].message;
-  useChatStore.setState({ timelinesByConversationId: { [conversationId]: conversation },
-    sessionsByConversationId: { [conversationId]: { ...createEmptyChatSession(conversationId), conversation } } });
+  const stored = fixtureProjection(conversation).nodes![0].message;
+  useChatStore.setState({
+    conversationInfoById: { [conversationId]: conversation },
+    surfaceSessionsByKey: {
+      ['conversation:' + conversationId]: { ...createEmptyChatSurfaceSession(conversationId) },
+    },
+  });
   return stored;
 }
 function capture() {

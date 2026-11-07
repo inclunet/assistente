@@ -21,7 +21,7 @@ vi.mock('./MessageNode', () => ({
 
 const nodes = (count: number, prefix = 'item') => Array.from({ length: count }, (_, i) => nodeFixture({
   message: { id: `${prefix}-${i}`, conversationId: 'conversation', role: 'user', content: `texto ${i}`,
-    timestamp: i, createdAt: '2026-01-01T00:00:00Z' }, children: [], childCount: 0, level: 0,
+    timestamp: i, createdAt: '2026-01-01T00:00:00Z' }, children: [], childCount: 0,
 }));
 
 let restoreDimensions: () => void;

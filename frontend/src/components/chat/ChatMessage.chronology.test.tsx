@@ -1,3 +1,4 @@
+import { withFixtureProjection } from '../../test/chatWindowFixture';
 import { messageFixture, segmentFixture } from '../../test/chatPresentationFixture';
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -101,13 +102,8 @@ const seedStore = ({
   );
 
   useChatStore.setState({
-    sessionsByConversationId: {},
-    timelinesByConversationId: {
-      [targetConversationId]: {
-        id: targetConversationId,
-        title: 'Conversa cronológica',
-        threadedMessages: [],
-      },
+    conversationInfoById: {
+      [targetConversationId]: withFixtureProjection({ id: targetConversationId, title: 'Conversa cronológica' }, { nodes: [] }),
     },
     surfaceSessionsByKey: {
       [surface.sessionKey]: {
@@ -164,8 +160,7 @@ const assertChronologicalOrder = (content: HTMLElement) => {
 describe('cronologia de ChatMessage', () => {
   beforeEach(() => {
     useChatStore.setState({
-      sessionsByConversationId: {},
-      timelinesByConversationId: {},
+      conversationInfoById: {},
       surfaceSessionsByKey: {},
     });
   });

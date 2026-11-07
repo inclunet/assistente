@@ -35,7 +35,7 @@ const createNode = (id = 'message-1') => nodeFixture({
     internal: false,
   }),
   childCount: 0,
-  level: 0,
+
   children: [],
 });
 

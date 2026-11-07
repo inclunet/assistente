@@ -1,8 +1,57 @@
 # AEP-0116 — Timeline canônica de chat do backend à apresentação
 
-## Status: In Progress — histórico canônico integrado do backend à UI e CLI; anexos normalizados e colunas legadas removidas; identidade visual, janela e ferramentas canônicas na UI; mutadores e estados legados removidos; renders e retenção V8 verificados; gates de desempenho e auditoria de encerramento pendentes
+## Status: In Progress — histórico canônico integrado do backend à UI e CLI; anexos normalizados e colunas legadas removidas; identidade visual, janela e ferramentas canônicas na UI; metadados e sessões sem espelhamentos; mutadores e estados legados removidos; renders e retenção V8 verificados; gates de desempenho e auditoria de encerramento pendentes
 
 Data: 2026-10-30
+
+### Metadados e sessões sem espelhamento (07/11/2026)
+
+O Zustand mantém somente `conversationInfoById` para título/canal/contato e
+`surfaceSessionsByKey` para estado operacional e visual. A sessão padrão usa
+esse mesmo mapa, por sua chave explícita. Foram removidos
+`sessionsByConversationId`, a árvore vazia em metadados, `ConversationTimeline`,
+`createEmptyChatSession`, `getDefaultChatConversationSession` e
+`getConversationSession`, sem consumidores produtivos. `getChatSession` monta
+uma leitura transitória para o adapter operacional; não armazena outra cópia.
+Os patches visuais não escrevem metadados, e renomear não recompõe sessões.
+
+Mensagens e janelas pertencem exclusivamente à apresentação canônica. O
+provider não herda edição ou expansão da sessão padrão antes de materializar
+sua própria superfície. A superfície de comandos preserva referências de
+metadados e sessão, além dos escalares, para detectar substituições e ABA.
+Rascunhos, fila, cancelamento e anúncios permanecem no contrato operacional.
+
+`MessageNode` perdeu `level`, `originalIndex` e `isExpanded`, sem consumidores
+produtivos. A posição acessível vem da janela; os componentes controlam a
+expansão e a profundidade visual. Mover apenas os índices absolutos da janela
+não recria os nós. A CLI (`cmd/asst/history.go`) percorre itens/segmentos e
+cursores canônicos; a UI percorre `orderedItemIds`. As ordenações restantes em
+`MessageList` tratam índices de virtualização/retenção, não ordem conversacional.
+
+As fixtures de comandos/edição mantêm seus dados de apresentação fora do
+store. A sentinela de mensagens dos testes do controller operacional é um tipo
+exclusivo do teste: continua provando que ele não escreve histórico. Foram
+preservadas as regressões de conflito e identidade; a invalidação de comandos
+agora cobre também ABA dos metadados. As provas com provider/cliente reais
+cobrem isolamento desde o primeiro render e renomeação sem trocar janela/nós.
+`ChatSessionLiveState.test.tsx` cobre mudança de posição sem recriar nós;
+`chatSessionLoader.test.ts` verifica posições no contrato de janela, não em
+campos derivados eliminados.
+
+Validação local: 6.139 testes frontend em 497 arquivos passaram; 31 arquivos
+que mencionam ACP foram excluídos antes da execução. TypeScript, ESLint,
+Stylelint, build/vet Go e golangci-lint incremental passaram. Nove testes
+selecionados de janela no app passaram. O binário de 14 testes selecionados
+de chat compilou, mas terminou com código -1 sem saída; a consulta aos logs
+recentes de Application/Defender não trouxe diagnóstico. Não foi repetido
+nem houve alteração de código/testes para contornar a condição. Esses testes
+não são declarados aprovados localmente; sua validação permanece no CI.
+Não há mudança de backend neste recorte. Revisor independente
+`review_canonical_cleanup`: três rodadas; dois mocks com nome antigo corrigidos; revisão
+seguinte sem pendências técnicas. Não foram executados testes ACP ou NVDA.
+
+Este recorte não conclui os gates de desempenho, a pressão de bytes na WebView
+nem a retirada das APIs internas do backend. O AEP permanece In Progress.
 
 ### Ferramentas canônicas e identidade dos detalhes (07/11/2026)
 
@@ -3881,7 +3930,7 @@ final sem pendências, incluindo captura dinâmica de conteúdo não confirmado.
 
 - [x] Migrar para itens e janelas por IDs, preservando isolamento das superfícies. Evidências: consumidor canônico e retirada do compositor descritos acima.
 - [x] Retirar chave alternativa e mutadores de reconstrução semântica mantidos apenas por testes. Evidências: `MessageNode.itemId` obrigatório, chaves diretas e regressões canônicas descritas acima.
-- [ ] Concluir auditoria dos espelhamentos substituídos e confirmar ausência de ordenador híbrido ativo em todos os consumidores.
+- [x] Concluir auditoria dos espelhamentos substituídos e confirmar ausência de ordenador híbrido ativo em todos os consumidores. Evidências: metadados/sessões únicos, apresentação por `orderedItemIds`, CLI por janela canônica e regressões descritas acima.
 - [x] Unificar ferramentas no resumo do ledger e retirar formato transitório da UI; provar identidade dos detalhes com call IDs reutilizados, conforme evidências acima.
 - [x] Unificar corte da janela e eliminar flags derivadas duplicadas. Evidências: metadados canônicos diretos, único carregamento, retirada dos campos do store e prova `ChatSessionContext.window.test.tsx`, descritos acima.
 - [x] Preservar identidade DOM/foco/leitura, inclusive no limiar de virtualização. Evidências: `ChatMessage.test.tsx`, `MessageList.focusRetention.test.tsx` e `ChatSessionLiveState.test.tsx`.

@@ -62,7 +62,7 @@ describe('chatSessionLoader', () => {
     });
     expect(presentation.window?.metadata.hasBefore).toBe(true);
     expect(presentation.nodes().map((item) => item.message.id)).toEqual(['visible-1', 'visible-2']);
-    expect(presentation.nodes()[0].originalIndex).toBe(1);
+    expect(presentation.window?.metadata.startIndex).toBe(1);
     expect(presentation.window?.metadata.totalCount).toBe(3);
   });
 
@@ -112,7 +112,7 @@ describe('chatSessionLoader', () => {
       { cursor: 'after', anchor: '', anchorItemId: '', direction: 'after', limit: 80 });
     expect(presentation.window?.metadata.hasBefore).toBe(true);
     expect(presentation.window?.metadata.hasAfter).toBe(false);
-    expect(presentation.nodes()[0].originalIndex).toBe(2);
+    expect(presentation.window?.metadata.startIndex).toBe(2);
   });
 
   it('não expande fontes do turno em índices locais: usa o item consolidado pelo backend', async () => {
@@ -135,7 +135,7 @@ describe('chatSessionLoader', () => {
     await presentation.navigate('newer');
 
     expect(presentation.nodes()).toHaveLength(1);
-    expect(presentation.nodes()[0].originalIndex).toBe(4);
+    expect(presentation.window?.metadata.startIndex).toBe(4);
     expect(presentation.nodes()[0].message.turnSegments?.map(segment => segment.content)).toEqual(['intermediário', 'conclusão']);
     expect(presentation.window?.metadata).toMatchObject({ totalCount: 10, startIndex: 4, endIndex: 4 });
   });
@@ -168,6 +168,6 @@ describe('chatSessionLoader', () => {
     expect(fixture.port.open).toHaveBeenLastCalledWith('conversation-1', 'surface:thread:message-1', 'message-1',
       { cursor: '', anchor: 'end', anchorItemId: '', direction: 'before', limit: 80 });
     expect(children.map((item) => item.message.id)).toEqual(['child-1', 'child-2']);
-    expect(children.map((item) => item.originalIndex)).toEqual([0, 1]);
+    expect(presentation.threadWindow('message-1')?.metadata).toMatchObject({ startIndex: 0, endIndex: 1 });
   });
 });

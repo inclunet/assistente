@@ -16,7 +16,7 @@ function LiveProbe({ presentation, id, onRender }: {
 describe('estado live granular da apresentação canônica', () => {
   let fixture: ReturnType<typeof canonicalTestFixture>;
   beforeEach(() => {
-    useChatStore.setState({ sessionsByConversationId: {}, timelinesByConversationId: {}, surfaceSessionsByKey: {} });
+    useChatStore.setState({ conversationInfoById: {}, surfaceSessionsByKey: {} });
     fixture = canonicalTestFixture();
   });
   afterEach(async () => { cleanup(); await fixture.client.dispose(); });
@@ -68,6 +68,20 @@ describe('estado live granular da apresentação canônica', () => {
     expect(useChatStore.getState()).toBe(before);
   });
 
+  it('preserva os nós quando apenas a posição absoluta da janela muda', async () => {
+    fixture.setItems([canonicalTestItem('one'), canonicalTestItem('two')]);
+    const presentation = fixture.presentation(); await presentation.open();
+    const nodes = presentation.nodes();
+    fixture.emit({ conversationId: 'conversation', surfaceId: 'surface', windowId: 'surface', epoch: 'epoch',
+      snapshotRevision: '1', syncRequired: false, updates: [{ conversationId: 'conversation', epoch: 'epoch', sequence: '2',
+        operations: [], windowPatches: [{ windowId: 'surface', previousRevision: '1', revision: '2',
+          metadata: { ...presentation.window!.metadata, startIndex: 20, endIndex: 21, totalCount: 30 } }] }] });
+    expect(presentation.window!.metadata).toMatchObject({ startIndex: 20, endIndex: 21, totalCount: 30 });
+    expect(presentation.nodes()).toBe(nodes);
+    expect(nodes[0]).not.toHaveProperty('originalIndex');
+    expect(nodes[0]).not.toHaveProperty('level');
+  });
+
   it('confirma a resposta visível sem exigir árvore nem sessão padrão no Zustand', async () => {
     const user = canonicalTestItem('question', 'pergunta', { kind: 'message' });
     const assistant = canonicalTestItem('response', '', { state: 'streaming', durability: 'live' });
@@ -83,7 +97,7 @@ describe('estado live granular da apresentação canônica', () => {
     expect(current[1].message.content).toBe('resposta terminal');
     expect(current[1].message.isStreaming).toBe(false);
     expect(useChatStore.getState()).toBe(before);
-    expect(before.sessionsByConversationId).toEqual({});
-    expect(before.timelinesByConversationId).toEqual({});
+    expect(before.surfaceSessionsByKey).toEqual({});
+    expect(before.conversationInfoById).toEqual({});
   });
 });
