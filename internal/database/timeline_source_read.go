@@ -147,7 +147,7 @@ func ReadBoundedTimelineSources(tx *gorm.DB, conversationID string, messageIDs, 
 
 // ApplyTimelineSources associa somente as fontes dos itens já selecionados.
 // Todas as fontes vêm da leitura global limitada, na mesma transação.
-func (r *MessageWindowResult) ApplyTimelineSources(conversationID string, parentID *string, sources []ChatMessage) {
+func (r *MessageWindowResult) ApplyTimelineSources(conversationID string, parentID *string, sources []*ChatMessage) {
 	messages := make(map[string]bool, len(r.Items))
 	turns := make(map[string]bool, len(r.Items))
 	for _, item := range r.Items {
@@ -167,8 +167,11 @@ func (r *MessageWindowResult) ApplyTimelineSources(conversationID string, parent
 			continue
 		}
 		if invalid {
-			message.TurnID = nil
+			copy := *message
+			copy.TurnID = nil
+			r.Messages = append(r.Messages, copy)
+		} else {
+			r.Messages = append(r.Messages, *message)
 		}
-		r.Messages = append(r.Messages, message)
 	}
 }

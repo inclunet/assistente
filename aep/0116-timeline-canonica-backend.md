@@ -40,7 +40,8 @@ com filhos. Essas medições não substituem o orçamento da abertura completa.
 O status permanece **In Progress**, com tempo de abertura pendente e sem
 alterar baseline ou tolerância.
 
-Na medição final da abertura completa, mesmo ambiente e parâmetros `20x`,
+Na medição da abertura completa anterior à revisão de escopo do ledger,
+mesmo ambiente e parâmetros `20x`,
 cinco amostras, as medianas independentes foram:
 
 - 100 mensagens: 9,455 ms; 736.822 B/op; 9.083 allocs/op; 36.477 bytes wire.
@@ -72,6 +73,15 @@ após o lint do CI acusar código morto. A revisão independente confirmou ambos
 os ajustes sem pendências. O lint integral de código não usado passou; o lint
 local completo ainda aponta cinco diagnósticos preexistentes em `tool_defs.go`
 e `task_pagination_test.go`, fora do diff, não reproduzidos no job Linux.
+
+A revisão do Copilot no PR #1038 apontou associação quadrática entre escopos
+e fontes. A seleção agora particiona as fontes uma única vez, preserva a ordem
+e compartilha referências imutáveis até formar a saída de cada escopo. Um único
+registro por escopo reúne pai, referências e fontes, substituindo mapas
+paralelos. O teste compara seleção com referências invertidas e fontes
+intercaladas às janelas de raiz e threads, preservando DTOs e ordem.
+Após a correção, 74 testes focados, vet e lint incremental passaram; a revisão
+independente confirmou a partição e o isolamento das cópias sem pendências.
 
 ### Contrato compacto e custo da abertura (07/11/2026)
 

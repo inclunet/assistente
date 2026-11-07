@@ -25,6 +25,19 @@ type TimelineLifecycleReader interface {
 	ReadTurnLifecycles(context.Context, string, []string) (*TimelineSelectionSnapshot, error)
 }
 
+type timelineSelectionScope struct {
+	parentID *string
+	refs     []string
+	sources  []*database.ChatMessage
+}
+
+func timelineSelectionScopeKey(parentID *string) string {
+	if parentID == nil {
+		return "root"
+	}
+	return "thread:" + *parentID
+}
+
 // ReadTurnLifecycles prova execução/ausência sem materializar mensagens ou ledger.
 // Turns contém somente UserMessageID, ActiveExecutionID e CurrentExecutionID;
 // não substitui registros completos da projeção. A versão acompanha a mesma
@@ -105,8 +118,7 @@ func (r *DBTimelineReader) ReadSelection(ctx context.Context, conversationID str
 			return err
 		}
 
-		groups := make(map[string][]string)
-		parents := make(map[string]*string)
+		groups := make(map[string]*timelineSelectionScope)
 		for start := 0; start < len(anchors); start += 400 {
 			batch := anchors[start:min(start+400, len(anchors))]
 			var messages []database.ChatMessage
@@ -114,12 +126,19 @@ func (r *DBTimelineReader) ReadSelection(ctx context.Context, conversationID str
 				return err
 			}
 			for _, message := range messages {
-				key := "root"
-				if message.ParentID != nil {
-					key = "thread:" + *message.ParentID
+				key := timelineSelectionScopeKey(message.ParentID)
+				group := groups[key]
+				if group == nil {
+					group = &timelineSelectionScope{parentID: message.ParentID}
+					groups[key] = group
 				}
-				parents[key] = message.ParentID
-				groups[key] = append(groups[key], byAnchor[message.ID]...)
+				group.refs = append(group.refs, byAnchor[message.ID]...)
+			}
+		}
+		// Particiona uma vez, sem copiar os corpos das mensagens ou perder a ordem.
+		for i := range sources {
+			if group := groups[timelineSelectionScopeKey(sources[i].ParentID)]; group != nil {
+				group.sources = append(group.sources, &sources[i])
 			}
 		}
 		keys := make([]string, 0, len(groups))
@@ -128,12 +147,13 @@ func (r *DBTimelineReader) ReadSelection(ctx context.Context, conversationID str
 		}
 		sort.Strings(keys)
 		for _, key := range keys {
-			parent := parents[key]
-			rows, err := database.NewMessageRepository(tx).SelectTimelineItemsByIDWithContext(ctx, conversationID, parent, groups[key])
+			group := groups[key]
+			parent := group.parentID
+			rows, err := database.NewMessageRepository(tx).SelectTimelineItemsByIDWithContext(ctx, conversationID, parent, group.refs)
 			if err != nil {
 				return err
 			}
-			rows.ApplyTimelineSources(conversationID, parent, sources)
+			rows.ApplyTimelineSources(conversationID, parent, group.sources)
 			ids := make([]string, 0)
 			for _, row := range rows.Items {
 				if row.Kind == database.MessageWindowItemKindTurn {

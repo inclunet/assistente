@@ -180,3 +180,44 @@ func TestSelectionSourceBudgetCoversAllBatchesAndScopesBeforeMetadata(t *testing
 		t.Fatal("cota dividida por lote/escopo", err, metadataReads)
 	}
 }
+
+func TestSelectionPartitionsInterleavedSourcesWithoutChangingScopeOrOrder(t *testing.T) {
+	f := newSnapshotFixture(t)
+	parents := []*string{nil, &f.question, &f.answer}
+	for i := 0; i < 3; i++ {
+		for _, parent := range parents[1:] {
+			if _, err := database.CreateMessageWithContext(f.ctx, database.MessageOptions{ConversationID: f.conversation, ParentID: parent, Role: "user", Content: "filha " + *parent}); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	windows := make(map[string][]*TimelineItem)
+	var refs, keys []string
+	for _, parent := range parents {
+		window, err := f.reader.ReadCanonicalWindow(f.ctx, database.MessageWindowQuery{ConversationID: f.conversation, ParentID: parent, Anchor: "start", Direction: "after", Limit: 100})
+		if err != nil {
+			t.Fatal(err)
+		}
+		key := timelineSelectionScopeKey(parent)
+		keys = append(keys, key)
+		windows[key] = window.Items
+		for _, item := range window.Items {
+			refs = append(refs, item.ItemID)
+		}
+	}
+	slices.Reverse(refs)
+	selected, err := f.reader.ReadSelection(f.ctx, f.conversation, refs)
+	if err != nil || len(selected.Items) != len(refs) {
+		t.Fatal("seleção perdeu fontes", selected, err)
+	}
+	slices.Sort(keys)
+	index := 0
+	for _, key := range keys {
+		for _, want := range windows[key] {
+			if !reflect.DeepEqual(canonicalItem(selected.Items[index]), canonicalItem(want)) {
+				t.Fatalf("escopo/ordem/conteúdo divergiu em %s: %s != %s", key, selected.Items[index].ItemID, want.ItemID)
+			}
+			index++
+		}
+	}
+}
