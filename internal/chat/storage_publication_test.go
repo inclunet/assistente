@@ -90,9 +90,7 @@ func TestStoragePublicationBudgetQueriesAreBatched(t *testing.T) {
 	for _, mixed := range []bool{false, true} {
 		count = 0
 		selected := append([]string(nil), ids...)
-		expected := 1
 		if mixed {
-			expected = 2
 			for _, m := range messages {
 				selected = append(selected, "turn:"+m.ID)
 			}
@@ -101,7 +99,7 @@ func TestStoragePublicationBudgetQueriesAreBatched(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if len(snapshot.Items) != 80 || count != expected {
+		if len(snapshot.Items) != 80 || count != 1 {
 			t.Fatalf("pré-leitura deixou de usar lote: misto=%v itens=%d consultas=%d", mixed, len(snapshot.Items), count)
 		}
 	}
@@ -207,35 +205,29 @@ func TestStoragePublicationSelectionQueryPlanUsesSelectedIdentities(t *testing.T
 	if !turnLookup {
 		t.Fatalf("contagem não consultou turnos por identidade: %+v", plan)
 	}
-	if len(budgets) != 2 {
-		t.Fatal("preflight não capturado", len(budgets))
+	if len(budgets) != 1 {
+		t.Fatal("preflight deve usar um único agregado", len(budgets))
 	}
-	for i, budget := range budgets {
-		plan = nil
-		if err := f.db.Raw("EXPLAIN QUERY PLAN "+budget.sql, budget.args...).Scan(&plan).Error; err != nil {
-			t.Fatal(err)
+	budget := budgets[0]
+	plan = nil
+	if err := f.db.Raw("EXPLAIN QUERY PLAN "+budget.sql, budget.args...).Scan(&plan).Error; err != nil {
+		t.Fatal(err)
+	}
+	messageLookup, turnLookup = false, false
+	ledgerLookup := false
+	for _, row := range plan {
+		if strings.HasPrefix(row.Detail, "SEARCH chat_messages ") && !strings.Contains(row.Detail, "(id=?)") {
+			t.Fatalf("preflight percorre mensagens fora da seleção: %+v", plan)
 		}
-		if i == 0 {
-			messageLookup, turnLookup = false, false
-			for _, row := range plan {
-				if strings.HasPrefix(row.Detail, "SEARCH chat_messages ") && !strings.Contains(row.Detail, "(id=?)") {
-					t.Fatalf("preflight percorre mensagens fora da seleção: %+v", plan)
-				}
-				messageLookup = messageLookup || (strings.HasPrefix(row.Detail, "SEARCH chat_messages ") && strings.Contains(row.Detail, "(id=?)"))
-				turnLookup = turnLookup || (strings.HasPrefix(row.Detail, "SEARCH m ") && strings.Contains(row.Detail, "turn_id=?"))
-			}
-			if !messageLookup || !turnLookup {
-				t.Fatalf("preflight varre histórico: %+v", plan)
-			}
-		} else {
-			ledgerLookup := false
-			for _, row := range plan {
-				ledgerLookup = ledgerLookup || (strings.HasPrefix(row.Detail, "SEARCH tool_invocations ") && strings.Contains(row.Detail, "turn_id=?"))
-			}
-			if !ledgerLookup {
-				t.Fatalf("preflight percorre ledger fora da seleção: %+v", plan)
-			}
-		}
+		messageLookup = messageLookup || (strings.HasPrefix(row.Detail, "SEARCH chat_messages ") && strings.Contains(row.Detail, "(id=?)"))
+		turnLookup = turnLookup || (strings.HasPrefix(row.Detail, "SEARCH m ") && strings.Contains(row.Detail, "turn_id=?"))
+		ledgerLookup = ledgerLookup || (strings.HasPrefix(row.Detail, "SEARCH tool_invocations ") && strings.Contains(row.Detail, "turn_id=?"))
+	}
+	if !messageLookup || !turnLookup {
+		t.Fatalf("preflight varre histórico: %+v", plan)
+	}
+	if !ledgerLookup {
+		t.Fatalf("preflight percorre ledger fora da seleção: %+v", plan)
 	}
 }
 

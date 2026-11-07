@@ -27,23 +27,28 @@ medição sem estimativa para o cache; não altera os limites de desempenho.
 A leitura usa scan direto para identidades/mensagens/contagens, preservando
 NULLs legados, escopo, seleção de execução e limites anteriores ao payload.
 Conjuntos de IDs reutilizam a codificação hex/JSON que preserva bytes opacos.
+Os orçamentos de mensagens/turnos e ferramentas são agregados em uma consulta;
+o CASE conserva a recusa antecipada quando as mensagens já excedem o teto.
+A prova de plano exige as mesmas buscas indexadas para mensagens, turnos e ledger.
+A comparação antes/depois não sustenta ganho conclusivo de CPU: a redução de
+consultas é a simplificação entregue, sem declarar atendimento ao gate de tempo.
 
 Medição isolada, Go 1.27.1, Windows/amd64, mesmo Intel Ultra 7 155H e
 GOMAXPROCS padrão 22. Benchmark de produção `BenchmarkCanonicalTimelineWindow`,
 fixtures de resultados de ferramentas de 1.024 bytes, `-benchtime=20x -count=5`:
 
-- 100 mensagens: 9.283 ms; 785.538 B/op; 9.194 allocs/op; 36.477 bytes wire.
-  Tempos das cinco amostras (ms): 7.883 / 9.133 / 9.283 / 9.974 / 9.428.
-- 500 mensagens: 19.422 ms; 1.701.548 B/op; 20.562 allocs/op; 85.960 bytes wire.
-  Tempos das cinco amostras (ms): 19.422 / 18.430 / 18.940 / 27.491 / 34.992.
-- 1000 mensagens: 40.895 ms; 1.734.280 B/op; 20.567 allocs/op; 85.961 bytes wire.
-  Tempos das cinco amostras (ms): 42.583 / 39.491 / 41.310 / 40.895 / 38.215.
+- 100 mensagens: 8.378 ms; 774.754 B/op; 9.106 allocs/op; 36.477 bytes wire.
+  Tempos das cinco amostras (ms): 8.378 / 7.972 / 8.080 / 8.697 / 8.694.
+- 500 mensagens: 19.544 ms; 1.694.415 B/op; 20.476 allocs/op; 85.960 bytes wire.
+  Tempos das cinco amostras (ms): 19.544 / 19.289 / 18.702 / 23.947 / 34.111.
+- 1000 mensagens: 43.061 ms; 1.678.047 B/op; 20.476 allocs/op; 85.961 bytes wire.
+  Tempos das cinco amostras (ms): 37.242 / 40.096 / 45.254 / 43.061 / 44.354.
 
 São medianas independentes por métrica. Payload atende à margem histórica de
 +10% nas três fixtures (limites 36.533/87.077/87.078 bytes). B/op agora também
 atende a +20% nas três (limites 833.809/1.955.831/1.954.073 B/op). Tempo ainda
 não atende. Não há alteração de baseline ou tolerância: o AEP não está concluído.
-Uma repetição anterior deste mesmo binário também passou em bytes/alocações e
+Uma medição anterior, antes da unificação das consultas, passou em bytes/alocações e
 falhou em tempo; a oscilação não justifica declarar atendimento ao orçamento.
 O perfil de CPU concentra aproximadamente 81% em `ReadCanonicalWindow`, com
 seleção, orçamento SQL e materialização como próximos pontos de investigação.
@@ -54,9 +59,11 @@ separado de metadados (`100x`, cinco amostras), reduziu a mediana sem filhos de
 mantém uma única contagem canônica, sem esse caminho especial. O benchmark
 permanece para comparação, sem modificar a fixture histórica de abertura.
 
-Validação local: 6.139 testes frontend em 497 arquivos; 493 testes seguros de
+Validação local: 6.139 testes frontend em 497 arquivos; 494 testes seguros de
 chat; 390 testes seguros de banco e regressões focadas de cursor/scan/contagem;
-10 testes de janela do app e cinco de DTO. TypeScript, ESLint, build/vet e lint
+10 testes de janela do app, cinco de DTO e 13 E2Es de operações de mensagem.
+O produtor compartilhado E2E também emite conclusão por segmento.
+TypeScript, ESLint, build/vet e lint
 incremental passaram. Stylelint mantém advertências anteriores, sem erros.
 ACP foi excluído da execução local por instrução do mantenedor; NVDA não foi
 executado. A revisão independente `review_canonical_cleanup` não encontrou

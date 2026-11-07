@@ -1,6 +1,7 @@
 package chat
 
 import (
+	"errors"
 	"reflect"
 	"slices"
 	"strings"
@@ -57,5 +58,35 @@ func TestPublicationBudgetPlanStartsFromSelectedTurnMessages(t *testing.T) {
 	}
 	if !found {
 		t.Fatal("plano não usa busca indexada pelas identidades de turno")
+	}
+}
+
+func TestPublicationBudgetCombinesMessagesAndToolsBeforeLoading(t *testing.T) {
+	f := newSnapshotFixture(t)
+	large := strings.Repeat("x", canonicalSourceBytes/2)
+	for _, test := range []struct {
+		name, content, preview string
+		exceeds                bool
+	}{
+		{"mensagem", large, "curto", false},
+		{"ferramenta", "curto", large, false},
+		{"soma", large, large, true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if err := f.db.Model(&database.ChatMessage{}).Where("id=?", f.answer).Update("content", test.content).Error; err != nil {
+				t.Fatal(err)
+			}
+			if err := f.db.Model(&database.ToolInvocation{}).Where("id=?", f.invocation).Update("output_preview", test.preview).Error; err != nil {
+				t.Fatal(err)
+			}
+			_, err := publicationSelectionReadSize(f.db.WithContext(f.ctx), f.conversation, nil, []string{f.question})
+			if test.exceeds {
+				if !errors.Is(err, ErrTimelineSourceLimit) {
+					t.Fatal("soma acima do teto foi admitida", err)
+				}
+			} else if err != nil {
+				t.Fatal(err)
+			}
+		})
 	}
 }
