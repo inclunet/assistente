@@ -205,16 +205,6 @@ const toSurfaceSession = (
   };
 };
 
-export const getTimelineNodeKey = (node: MessageNode): string => {
-  if (node.itemId) return node.itemId;
-  // Keep this rule in sync with backend messageTimelineItemKey.
-  const turnId = String(node.message.turnId ?? '').trim();
-  if (turnId !== '' && node.message.role !== 'user') {
-    return `turn:${turnId}`;
-  }
-  return `message:${String(node.message.id)}`;
-};
-
 export function getChatSession(
   state: ChatSessionRegistryState,
   conversationId: string,

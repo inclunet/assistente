@@ -8,6 +8,6 @@ export function messageFixture(source: FixtureMessage = {}): Message {
     timelineItem: source.timelineItem as TimelineItem | undefined };
 }
 export function nodeFixture(source: Omit<Partial<MessageNode>, 'message'> & { message: FixtureMessage; hasChildren?: boolean }): MessageNode {
-  return { level: 0, childCount: 0, children: [], ...source, message: messageFixture(source.message) };
+  return { itemId: `message:${source.message.id ?? "message"}`, level: 0, childCount: 0, children: [], ...source, message: messageFixture(source.message) };
 }
 export function segmentFixture(source: TurnSegment): TurnSegment { return source; }

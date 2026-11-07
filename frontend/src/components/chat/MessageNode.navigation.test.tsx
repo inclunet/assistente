@@ -16,7 +16,6 @@ import { useWorkspaceStore } from '../../store/workspaceStore';
 import { useWorkspaceChatModalStore } from '../../store/workspaceChatModalStore';
 import { createChatSurfaceIdentity, createChatSurfaceOrigin, createEmptyChatSession, createEmptyChatSurfaceSession, patchChatConversation } from '../../services/chatSessionRegistry';
 import { CHAT_NAVIGATION_COMMAND_EVENT, captureChatNavigationTarget, requestChatNavigationCommand, type ChatNavigationRequest, type ChatNavigationCommandID } from '../../lib/commandChatNavigation';
-import { attachChildrenToMessage, updateMessageContentInTree, finalizeStreamingNode } from '../../lib/chatMessageTree';
 import { getChatEventControllerExecutionId, stopAllChatEventControllers } from '../../services/chatEventController';
 
 const { mockSendMessage } = vi.hoisted(() => ({ mockSendMessage: vi.fn().mockResolvedValue(undefined) }));
@@ -59,7 +58,7 @@ function replaceTree(nodes: ChatMessageNode[]) {
 function attachChildrenToConversationInStore(messageId: string, children: ChatMessageNode[]) {
   useChatStore.setState(state => patchChatConversation(state, cid, conversation => ({
     ...conversation,
-    threadedMessages: attachChildrenToMessage(conversation.threadedMessages, messageId, children),
+    threadedMessages: conversation.threadedMessages.map(node => node.message.id === messageId ? { ...node, children } : node),
   })));
 }
 function Tree(props: Omit<MessageNodeProps, 'node'>) {
@@ -281,11 +280,11 @@ describe('MessageNode navigation — registry, Provider, store e leitura reais',
       surfaceSessionsByKey: { [surface.sessionKey]: surfaceSession },
     });
 
-    // This is the same immutable update path used for streamed content. The
-    // canonical timeline and visible surface are projected independently.
+    // A fixture injeta a projeção para testar comandos e ownership;
+    // a atualização por lote canônico é coberta na apresentação real.
     act(() => useChatStore.setState(state => patchChatConversation(state, cid, current => ({
       ...current,
-      threadedMessages: updateMessageContentInTree(current.threadedMessages, mid, 'trecho recebido'),
+      threadedMessages: current.threadedMessages.map(node => ({ ...node, message: { ...node.message, content: 'trecho recebido' } })),
     }))));
     const projected = useChatStore.getState().surfaceSessionsByKey[surface.sessionKey].visibleThreadedMessages![0];
     const canonical = fixtureMessages(cid)[0];
@@ -305,7 +304,7 @@ describe('MessageNode navigation — registry, Provider, store e leitura reais',
     act(() => useChatStore.setState(state => patchChatConversation(
       state,
       cid,
-      current => finalizeStreamingNode(current, mid),
+      current => ({ ...current, threadedMessages: current.threadedMessages.map(node => ({ ...node, message: { ...node.message, isStreaming: false } })) }),
     )));
     const finalProjection = useChatStore.getState().surfaceSessionsByKey[surface.sessionKey].visibleThreadedMessages![0];
     finalProjection.message = fixtureMessages(cid)[0];

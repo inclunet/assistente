@@ -188,7 +188,6 @@ describe('cronologia de ChatMessage', () => {
 
     const completed = messageFor(message.id, { content: 'Parcial novo' });
     completed.turnSegments = canonicalSegments([...prefix, { type: 'text', content: ' novo' }]);
-    completed._resumableContent = 'Parcial novo';
     act(() => {
       seedStore({ targetConversationId: conversationId, messageId: message.id });
     });
@@ -216,7 +215,6 @@ describe('cronologia de ChatMessage', () => {
       }] },
       { type: 'text', content: warning, diagnostic: true },
     ]);
-    message._resumableContent = finalContent;
     const surface = seedStore({ targetConversationId: conversationId, messageId: message.id });
     renderMessage(surface, message);
     const expanded = messageContent();
@@ -239,7 +237,6 @@ describe('cronologia de ChatMessage', () => {
   ])('mantém conclusão recebida visível sem duplicar fragmentos ($scalar, sucesso: $success)', ({ texts, scalar, represented, success }) => {
     const warning = 'Erro: não foi possível salvar';
     const message = messageFor('assistant-received-conclusion', { content: success ? scalar : `${scalar}\n\n${warning}` });
-    message._resumableContent = scalar;
     message.turnSegments = canonicalSegments(texts.flatMap((text, index): TurnSegment[] => [
       { type: 'text', content: text },
       { type: 'tool_calls', toolInvocations: [invocation(`call-${index}`, 'buscar-fonte')] },
@@ -258,7 +255,6 @@ describe('cronologia de ChatMessage', () => {
 
   it('mantém base divergente separada na conclusão recebida sem duplicar scalar', () => {
     const message = messageFor('assistant-divergent-base', { content: 'Editado novo' });
-    message._resumableContent = 'Editado novo';
     message.turnSegments = canonicalSegments([
       { type: 'text', content: 'Original' },
       { type: 'text', content: 'Editado novo' },
@@ -283,7 +279,7 @@ describe('cronologia de ChatMessage', () => {
       ],
     });
     const canonicalSegments = message.turnSegments;
-    expect(message._turnSegments).toBeUndefined();
+    expect(message).not.toHaveProperty('_turnSegments');
     const surface = seedStore({ targetConversationId: conversationId, messageId: message.id });
     renderMessage(surface, message);
     const expanded = messageContent();

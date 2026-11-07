@@ -1,4 +1,4 @@
-import { nodeFixture } from '../../test/chatPresentationFixture';
+import { canonicalTestFixture, canonicalTestItem } from '../../services/chatTimelineTestFixture';
 import type { MessageNode } from '../../lib/chatMessageTree';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, render } from '@testing-library/react';
@@ -19,44 +19,64 @@ vi.mock('./MessageNode', () => ({
   ),
 }));
 
-afterEach(cleanup);
-
-const response = (turnId: string | undefined, streaming: boolean) => nodeFixture({
-  message: { id: 'assistant', conversationId: 'conversation', role: 'assistant',
-    content: streaming ? 'parcial' : 'final', turnId, isStreaming: streaming,
-    timestamp: 100, createdAt: '2026-01-01T00:00:00Z' },
-  children: [], childCount: 0, level: 0,
+const clients: ReturnType<typeof canonicalTestFixture>['client'][] = [];
+afterEach(async () => {
+  cleanup();
+  await Promise.all(clients.splice(0).map(client => client.dispose()));
 });
 
+async function responseView(hasTarget = true) {
+  const response = canonicalTestItem('turn:user', 'parcial', {
+    state: 'streaming', turnId: 'user', representativeMessageId: hasTarget ? 'assistant' : null,
+    messageIds: hasTarget ? ['assistant'] : [],
+  });
+  const fixture = canonicalTestFixture([response]);
+  clients.push(fixture.client);
+  const presentation = fixture.presentation();
+  await presentation.open();
+  return { presentation, complete() {
+    fixture.publish('surface', { ...response, state: 'completed', representativeMessageId: 'assistant',
+      messageIds: ['assistant'], segments: [{ segmentId: 'text', kind: 'text', text: 'final' }] });
+  } };
+}
+
 describe('AEP-0116 — identidade visual na conclusão', () => {
-  it.fails('mantém foco ao receber o turno tardiamente', () => {
-    const view = render(<MessageList threadedMessages={[response(undefined, true)]} />);
-    const element = view.getByTestId('assistant');
+  it('mantém o elemento e foco quando o backend atribui o alvo persistido', async () => {
+    const f = await responseView(false);
+    const view = render(<MessageList threadedMessages={f.presentation.nodes()} />);
+    const element = view.getByTestId('turn:user');
     act(() => element.focus());
     expect(document.activeElement).toBe(element);
-    view.rerender(<MessageList threadedMessages={[response('user', false)]} />);
-    expect(view.getByTestId('assistant')).toBe(element);
+    act(() => f.complete());
+    view.rerender(<MessageList threadedMessages={f.presentation.nodes()} />);
+    expect(view.getByTestId('turn:user')).toBe(element);
+    expect(element).toHaveTextContent('final');
+    expect(document.activeElement).toBe(element);
+    expect(f.presentation.getMessage('turn:user')?.timelineItem?.representativeMessageId).toBe('assistant');
+  });
+
+  it('preserva o mesmo elemento e foco quando o alvo existe desde o início', async () => {
+    const f = await responseView();
+    const view = render(<MessageList threadedMessages={f.presentation.nodes()} />);
+    const element = view.getByTestId('turn:user');
+    act(() => element.focus());
+    act(() => f.complete());
+    view.rerender(<MessageList threadedMessages={f.presentation.nodes()} />);
+    expect(view.getByTestId('turn:user')).toBe(element);
     expect(document.activeElement).toBe(element);
   });
 
-  it('preserva o mesmo elemento e foco quando o turno existe desde o início', () => {
-    const view = render(<MessageList threadedMessages={[response('user', true)]} />);
-    const element = view.getByTestId('assistant');
-    act(() => element.focus());
-    view.rerender(<MessageList threadedMessages={[response('user', false)]} />);
-    expect(view.getByTestId('assistant')).toBe(element);
-    expect(document.activeElement).toBe(element);
-  });
-
-  it('não desloca foco que já saiu intencionalmente para o compositor', () => {
-    const surface = (streaming: boolean) => <>
+  it('não desloca foco que já saiu intencionalmente para o compositor', async () => {
+    const f = await responseView();
+    const surface = () => <>
       <input aria-label="Compositor" />
-      <MessageList threadedMessages={[response('user', streaming)]} />
+      <MessageList threadedMessages={f.presentation.nodes()} />
     </>;
-    const view = render(surface(true));
+    const view = render(surface());
     const input = view.getByRole('textbox');
     act(() => input.focus());
-    view.rerender(surface(false));
+    act(() => f.complete());
+    view.rerender(surface());
     expect(document.activeElement).toBe(input);
   });
 });

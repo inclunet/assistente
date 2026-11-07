@@ -1,8 +1,55 @@
 # AEP-0116 — Timeline canônica de chat do backend à apresentação
 
-## Status: In Progress — histórico canônico integrado do backend à UI e CLI; anexos normalizados e colunas legadas removidas; renders e retenção V8 verificados; gates de tempo/alocações/payload e auditoria de encerramento pendentes
+## Status: In Progress — histórico canônico integrado do backend à UI e CLI; anexos normalizados e colunas legadas removidas; identidade visual obrigatória e mutadores legados removidos; renders e retenção V8 verificados; gates de desempenho e auditoria de encerramento pendentes
 
 Data: 2026-10-30
+
+### Identidade visual obrigatória e retirada dos mutadores legados (06/11/2026)
+
+`MessageNode.itemId` passa a ser obrigatório. `MessageList` e `MessageNode`
+usam diretamente o ID canônico nas chaves React, virtualização e retenção de
+interações. Foi removido `getTimelineNodeKey`, que reconstruía uma chave a
+partir de papel, ID físico e turno quando a identidade visual estava ausente.
+O produtor `ChatTimelinePresentation.nodes` verifica seu resultado com
+`satisfies MessageNode`; não há gerador de IDs ou fallback novo no produto.
+
+A busca de consumidores confirmou que todos os mutadores de `chatMessageTree.ts`
+eram usados apenas por testes, ou nem isso. Foram retirados a finalização com
+substituição de ID, busca/flatten, anexação de filhos, mutações de conteúdo,
+segmentos, edição, pin, raciocínio e estado de streaming, além dos campos
+`_turnSegments` e `_resumableContent`. O arquivo conserva somente os tipos de
+apresentação. Não foi transferido um compositor legado para outro módulo.
+
+As oito regressões de `chatMessageTree.test.ts` passam pelo cliente e pela
+apresentação canônicos reais: escopos de thread, referências estáveis de irmãos,
+edição, reset por retry, conclusão e atribuição tardia do alvo persistido. A
+semântica obsoleta de trocar ID sintético foi substituída pela prova de que o
+`itemId` visual permanece estável quando o backend atribui o alvo de ações.
+`MessageList.identity.test.tsx` recebe lotes canônicos reais e verifica o mesmo
+nó DOM e foco no término, com alvo persistido inicial ou tardio, e a preservação
+do foco já deslocado para o compositor. O antigo `it.fails` virou prova positiva.
+As sondas do controller continuam exigindo ausência de mutação visual, sem
+implementar uma segunda árvore somente para sustentar esses spies.
+
+Este recorte não muda o transporte, backend, DTOs gerados, comandos ou fluxos
+visíveis. A montagem dos itens é exclusiva do contrato canônico; as fixtures de
+componentes que isolam comandos/ownership continuam sendo injeções de dados de
+teste. Ainda faltam auditar flags/espelhamentos de janela, consultas concorrentes,
+pressão de 8 MiB e os gates históricos de tempo, alocações e payload.
+
+Validação local: TypeScript, ESLint e Stylelint sem erros (avisos CSS
+preexistentes), 174 testes focados e 6.130 testes em 496 arquivos na seleção
+ampliada. Após o último enxugamento das sondas, os 79 testes do controller e da
+identidade passaram novamente. Build/vet/lint incremental Go (zero issues) e 35 testes selecionados de
+timeline/janela da borda app aprovados. A seleção frontend ampliada excluiu os
+31 arquivos de teste que mencionam ACP. Uma execução frontend inicialmente
+sem esse filtro foi interrompida; não foi executada a suíte Go de ACP.
+Revisor independente `review_canonical_cleanup`: três rodadas iniciais sobre o
+diff completo sem pendências. A revisão remota pediu explicitar a ausência de
+chamadas a `patchConversation` também nos cenários que verificam árvore vazia;
+os asserts foram acrescentados e os 79 testes focados passaram novamente.
+Quarta rodada local dessa correção sem pendências; resultado final de CI
+registrado na entrega do PR.
 
 ### Provas de retenção na WebView e custo da publicação (06/11/2026)
 
@@ -73,11 +120,9 @@ adicionais dos nós estáveis por loading e atualização isolada de um nó em
 100/500/1.000 itens. Esses testes isolam o renderer dos nós; a prova de retenção
 acima exercita os componentes reais.
 
-A auditoria restante também é de código: ainda há mutadores antigos de árvore
-em `chatMessageTree.ts` consumidos por fixtures/testes, além da chave alternativa
-em `getTimelineNodeKey` e de uma prova `it.fails` da identidade tardia legada.
-Sua retirada deve migrar as regressões de produto para o contrato canônico,
-sem conservar implementação produtiva apenas para sustentar testes antigos.
+A auditoria deste recorte identificou mutadores antigos consumidos por testes,
+a chave alternativa e uma prova `it.fails` da identidade tardia. A retirada e
+a migração dessas regressões foram concluídas no recorte descrito acima.
 
 Validação local: build/vet/lint incremental Go, 486 testes seguros do domínio de
 chat (487 após a regressão de importação/fechamento), 35 da borda app;
@@ -3736,7 +3781,8 @@ final sem pendências, incluindo captura dinâmica de conteúdo não confirmado.
 ### Fase 3 — Consumidor frontend e remoções
 
 - [x] Migrar para itens e janelas por IDs, preservando isolamento das superfícies. Evidências: consumidor canônico e retirada do compositor descritos acima.
-- [ ] Remover ordenador híbrido, chave alternativa, reconstrução semântica e espelhamentos substituídos.
+- [x] Retirar chave alternativa e mutadores de reconstrução semântica mantidos apenas por testes. Evidências: `MessageNode.itemId` obrigatório, chaves diretas e regressões canônicas descritas acima.
+- [ ] Concluir auditoria dos espelhamentos substituídos e confirmar ausência de ordenador híbrido ativo em todos os consumidores.
 - [ ] Unificar corte da janela e eliminar flags derivadas duplicadas.
 - [x] Preservar identidade DOM/foco/leitura, inclusive no limiar de virtualização. Evidências: `ChatMessage.test.tsx`, `MessageList.focusRetention.test.tsx` e `ChatSessionLiveState.test.tsx`.
 - [x] Validar descarte de cache: medição V8 e contagem de instâncias/itens em 105 ciclos de abertura/fechamento/logout, descritas acima.
