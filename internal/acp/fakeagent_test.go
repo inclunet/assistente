@@ -675,7 +675,15 @@ func (a *fakeAgent) runTurn(msg rpcMessage) {
 	_ = json.Unmarshal(msg.Params, &params)
 
 	a.beginTurn(params.SessionId)
-	defer a.endTurn(params.SessionId)
+	stopReason := ""
+	defer func() {
+		// A resposta libera o próximo prompt no cliente. O observador precisa
+		// encerrar este turno antes de publicar essa fronteira no fio.
+		a.endTurn(params.SessionId)
+		if stopReason != "" {
+			a.reply(*msg.ID, map[string]any{"stopReason": stopReason})
+		}
+	}()
 
 	// Dois turnos ao mesmo tempo na mesma sessão é justamente o que o cliente
 	// deve impedir; o agente falso denuncia pelo fio quando acontece.
@@ -699,7 +707,7 @@ func (a *fakeAgent) runTurn(msg rpcMessage) {
 			})
 			time.Sleep(10 * time.Millisecond)
 		}
-		a.reply(*msg.ID, map[string]any{"stopReason": "end_turn"})
+		stopReason = "end_turn"
 		return
 
 	case scriptStuck:
@@ -744,7 +752,7 @@ func (a *fakeAgent) runTurn(msg rpcMessage) {
 		}
 		// Um agente real ainda emite alguma coisa enquanto se recolhe.
 		a.chunkOf(params.SessionId, "agent_message_chunk", "depois-do-cancelamento")
-		a.reply(*msg.ID, map[string]any{"stopReason": "cancelled"})
+		stopReason = "cancelled"
 		return
 
 	case scriptIDSujo:
@@ -760,7 +768,7 @@ func (a *fakeAgent) runTurn(msg rpcMessage) {
 		} else {
 			a.chunkOf(params.SessionId, "agent_message_chunk", "resposta:"+string(resp.Result))
 		}
-		a.reply(*msg.ID, map[string]any{"stopReason": "end_turn"})
+		stopReason = "end_turn"
 		return
 
 	case scriptPermission:
@@ -825,7 +833,7 @@ func (a *fakeAgent) runTurn(msg rpcMessage) {
 		time.Sleep(40 * time.Millisecond)
 	}
 
-	a.reply(*msg.ID, map[string]any{"stopReason": "end_turn"})
+	stopReason = "end_turn"
 }
 
 func (a *fakeAgent) chunk(kind, text string) {

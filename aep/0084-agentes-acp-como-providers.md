@@ -2,6 +2,15 @@
 
 **Status:** In Progress — cobertura ACP v1 em ampliação; o escopo original continua entregue.
 
+**Fixture de serialização (07/11/2026):** o agente falso encerra o marcador do
+turno antes de publicar sua resposta terminal. A ordem anterior permitia um
+falso positivo no teste de D10 quando o cliente iniciava o próximo prompt antes
+do `defer` da fixture. A regressão observa essa fronteira deterministicamente,
+preserva o cancelamento do próximo turno e mantém um controle de sobreposição
+real. A asserção de integração permanece intacta. Testes ACP não são executados
+localmente por restrição do mantenedor; execução e detector de corrida ficam
+no CI. O status e o escopo pendente deste AEP não mudam.
+
 **Nota de escopo (16/10/2026):** o escopo original foi entregue. Por solicitação
 do mantenedor, as lacunas da auditoria ACP v1 estão autorizadas para
 implementação, exceto a apresentação de planos, reservada para discussão.

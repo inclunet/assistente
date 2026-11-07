@@ -1,3 +1,7 @@
+AEP-0084 (07/11/2026): fixture de serialização encerra o turno antes da resposta
+terminal, com regressão determinística e controle de sobreposição real. Status
+permanece In Progress; testes ACP são executados apenas no CI remoto.
+
 AEP-0116: retirada da reconstrução visual legada implementada e validada localmente. Controlador e
 store ficam operacionais; editor consulta conclusão canônica. Transferência de
 intermediárias é atômica; continuação exige conteúdo salvo; exclusão invalida
