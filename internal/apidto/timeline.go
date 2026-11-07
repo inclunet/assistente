@@ -105,7 +105,7 @@ type CanonicalOperation struct {
 type TurnSegmentToolCall struct {
 	ExecutionID        string `json:"-"`
 	ExecutionDepth     int    `json:"-"`
-	InvocationID       string `json:"invocationId,omitempty"`
+	InvocationID       string `json:"invocationId"`
 	ID                 string `json:"callId"`
 	Name               string `json:"name"`
 	Origin             string `json:"origin,omitempty"`

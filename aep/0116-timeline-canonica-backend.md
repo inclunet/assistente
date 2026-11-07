@@ -1,8 +1,54 @@
 # AEP-0116 — Timeline canônica de chat do backend à apresentação
 
-## Status: In Progress — histórico canônico integrado do backend à UI e CLI; anexos normalizados e colunas legadas removidas; identidade visual e janela canônicas na UI; mutadores e estados legados removidos; renders e retenção V8 verificados; gates de desempenho e auditoria de encerramento pendentes
+## Status: In Progress — histórico canônico integrado do backend à UI e CLI; anexos normalizados e colunas legadas removidas; identidade visual, janela e ferramentas canônicas na UI; mutadores e estados legados removidos; renders e retenção V8 verificados; gates de desempenho e auditoria de encerramento pendentes
 
 Data: 2026-10-30
+
+### Ferramentas canônicas e identidade dos detalhes (07/11/2026)
+
+O visual usa somente `turnSegments[].toolInvocations`, inclusive durante
+streaming. Foram removidos `StreamingToolCall`, `TurnSegment.toolCalls`,
+`diagnostic`, as props `activeToolCalls`/`completedSegments` e o DTO permissivo dos diálogos.
+O resumo tem um único tipo no frontend, compartilhado por transporte e visual;
+`invocationId` é obrigatório no DTO Go, espelho de eventos e bindings regenerados,
+retirando o cast entre esses contratos. Invocações canônicas já eram validadas
+pelo backend com ID do ledger; não há mudança de conteúdo para dados válidos.
+O controller operacional continua tendo seu estado de anúncios; ele não é
+uma segunda fonte para renderizar ferramentas.
+
+`invocationId` do ledger identifica cada linha e o detalhe selecionado.
+`callId` do provedor pode ser reutilizado entre execuções; a UI não deduplica
+nem substitui uma invocação por outra com esse mesmo valor. O diálogo aberto
+acompanha patches da mesma invocação. Se ela sair da janela, conserva o
+resumo selecionado até fechar, sob a retenção e o isolamento de usuário já
+existentes. Não há geração de IDs ou classificação de execução no frontend.
+
+As fixtures de streaming passaram a fornecer resumos canônicos. A regressão
+de `aria-busy` agora materializa ferramentas: antes enviava uma prop ignorada
+e exercitava o caminho de texto simples nas duas variantes. A prova exige
+leitura sem `aria-busy` em ambas e preserva o comportamento existente fora da
+leitura (busy somente para texto simples), sem alterar produção para satisfazer
+uma premissa inválida. `ChatMessage.toolDialogs.test.tsx` cobre dois IDs de
+ledger com o mesmo call ID, seleção de ambos, reordenação com o mesmo botão
+DOM/foco e preservação do detalhe quando outra execução aparece.
+
+A falha anterior à admissão no ledger segue a decisão confirmada em 05/11:
+encerra com `persistence_error`, preservando o parcial e sem fabricar uma
+ferramenta visual. Saiu a tradução específica do diálogo sem registro; os avisos
+canônicos e as provas de erro de persistência continuam presentes.
+
+Ainda faltam a auditoria dos mapas operacionais/metadados, APIs internas sem
+consumidores, pressão de 8 MiB na WebView e gates históricos de desempenho.
+O recorte não conclui o AEP. Validação final: build/vet Go, golangci-lint
+incremental (zero issues), 35 testes seguros de app e 13 de chat aprovados;
+TypeScript/ESLint/Stylelint sem erros e bindings regenerados com Wails 2.15.0.
+75 regressões focadas passaram. A primeira execução ampliada teve três falhas
+no arquivo de paleta não alterado; reexecução focal passou 171/171, e a suíte
+ampliada final, sem compilação concorrente e com quatro workers, passou
+6.135/6.135 em 497 arquivos, sem alterar timeouts ou CI. Arquivos que mencionam
+ACP foram excluídos previamente da execução local; os casos desses arquivos
+ficam no CI. Revisor independente `review_canonical_cleanup`: três rodadas,
+ajustes de comentários/contrato resolvidos, rodada final sem pendências.
 
 ### Janela canônica única na apresentação (07/11/2026)
 
@@ -3826,6 +3872,7 @@ final sem pendências, incluindo captura dinâmica de conteúdo não confirmado.
 - [x] Migrar para itens e janelas por IDs, preservando isolamento das superfícies. Evidências: consumidor canônico e retirada do compositor descritos acima.
 - [x] Retirar chave alternativa e mutadores de reconstrução semântica mantidos apenas por testes. Evidências: `MessageNode.itemId` obrigatório, chaves diretas e regressões canônicas descritas acima.
 - [ ] Concluir auditoria dos espelhamentos substituídos e confirmar ausência de ordenador híbrido ativo em todos os consumidores.
+- [x] Unificar ferramentas no resumo do ledger e retirar formato transitório da UI; provar identidade dos detalhes com call IDs reutilizados, conforme evidências acima.
 - [x] Unificar corte da janela e eliminar flags derivadas duplicadas. Evidências: metadados canônicos diretos, único carregamento, retirada dos campos do store e prova `ChatSessionContext.window.test.tsx`, descritos acima.
 - [x] Preservar identidade DOM/foco/leitura, inclusive no limiar de virtualização. Evidências: `ChatMessage.test.tsx`, `MessageList.focusRetention.test.tsx` e `ChatSessionLiveState.test.tsx`.
 - [x] Validar descarte de cache: medição V8 e contagem de instâncias/itens em 105 ciclos de abertura/fechamento/logout, descritas acima.

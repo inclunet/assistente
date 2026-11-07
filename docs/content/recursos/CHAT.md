@@ -31,6 +31,12 @@ para mensagens anteriores quanto posteriores. O leitor de tela anuncia o
 intervalo carregado quando há mensagens na janela; uma janela vazia não anuncia
 um intervalo inválido.
 
+Cada ferramenta mantém seus próprios detalhes, mesmo quando duas execuções
+reutilizam o identificador de chamada do provedor. Um diálogo aberto acompanha
+as atualizações da ferramenta selecionada e não muda para outra execução quando
+a lista é atualizada. Ao fechar, o foco retorna ao controle que abriu o diálogo
+quando esse controle continua disponível.
+
 Menus e detalhes de ferramentas mantêm sua mensagem disponível enquanto estão
 abertos, mesmo quando novas respostas ou o carregamento do histórico mudam sua
 posição. Ao fechar, o foco retorna ao controle que abriu a interação. Durante a

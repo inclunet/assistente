@@ -1,5 +1,3 @@
-import type { ToolOrigin } from '../types/chat';
-
 export type ToolTarget =
   | { kind: 'file'; path: string; label: string }
   | { kind: 'url'; url: string; label: string };
@@ -70,7 +68,7 @@ function urlTarget(value: string): ToolTarget | undefined {
  * uma descrição genérica pelo provedor: não inferimos intenção de schemas ou
  * nomes arbitrários de terceiros (AEP-0107 D3).
  */
-export function presentTool(name: string, origin?: ToolOrigin, serverLabel?: string, rawArgs?: string): ToolPresentation {
+export function presentTool(name: string, origin?: string, serverLabel?: string, rawArgs?: string): ToolPresentation {
   if (origin === 'mcp_bridge' || origin === 'mcp_native') {
     return serverLabel?.trim()
       ? { labelKey: 'chat.toolMcpProvider', labelValues: { provider: serverLabel.trim() } }
