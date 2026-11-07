@@ -7,7 +7,9 @@ turno antes de publicar sua resposta terminal. A ordem anterior permitia um
 falso positivo no teste de D10 quando o cliente iniciava o próximo prompt antes
 do `defer` da fixture. A regressão observa essa fronteira deterministicamente,
 preserva o cancelamento do próximo turno e mantém um controle de sobreposição
-real. A asserção de integração permanece intacta. Testes ACP não são executados
+real. O canal capturado por turno é a única marca de atividade: sua limpeza
+só remove o canal que ainda possui, mesmo em sobreposição real, substituindo
+o mapa booleano redundante. A asserção de integração permanece intacta. Testes ACP não são executados
 localmente por restrição do mantenedor; execução e detector de corrida ficam
 no CI. O status e o escopo pendente deste AEP não mudam.
 

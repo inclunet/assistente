@@ -126,10 +126,7 @@ type fakeAgent struct {
 	// global acordaria o turno da conversa errada e esconderia justamente o
 	// erro de roteamento que os testes de duas conversas procuram.
 	cancelled map[string]chan struct{}
-	// inTurn é por sessão: dois turnos ao mesmo tempo em sessões diferentes é
-	// uso normal do agente, o que não pode acontecer é na mesma sessão.
-	inTurn  map[string]bool
-	overlap bool
+	overlap   bool
 
 	// closes conta os session/close atendidos e model guarda o modelo corrente
 	// de cada sessão. Os dois viram resposta no fio: o agente roda em outro
@@ -144,7 +141,6 @@ func runFakeAgent(script string) {
 		out:                  bufio.NewWriter(os.Stdout),
 		nextID:               9000,
 		pending:              make(map[string]chan rpcMessage),
-		inTurn:               make(map[string]bool),
 		cancelled:            make(map[string]chan struct{}),
 		model:                make(map[string]string),
 		optionFirstReply:     make(chan struct{}),
@@ -636,21 +632,23 @@ func (a *fakeAgent) firstID() string {
 	return a.first
 }
 
-func (a *fakeAgent) beginTurn(sid string) {
+func (a *fakeAgent) beginTurn(sid string) chan struct{} {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	if a.inTurn[sid] {
+	if a.cancelled[sid] != nil {
 		a.overlap = true
 	}
-	a.inTurn[sid] = true
-	a.cancelled[sid] = make(chan struct{}, 1)
+	cancel := make(chan struct{}, 1)
+	a.cancelled[sid] = cancel
+	return cancel
 }
 
-func (a *fakeAgent) endTurn(sid string) {
+func (a *fakeAgent) endTurn(sid string, owned chan struct{}) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	delete(a.inTurn, sid)
-	delete(a.cancelled, sid)
+	if a.cancelled[sid] == owned {
+		delete(a.cancelled, sid)
+	}
 }
 
 func (a *fakeAgent) cancelChan(sid string) chan struct{} {
@@ -674,12 +672,12 @@ func (a *fakeAgent) runTurn(msg rpcMessage) {
 	}
 	_ = json.Unmarshal(msg.Params, &params)
 
-	a.beginTurn(params.SessionId)
+	cancel := a.beginTurn(params.SessionId)
 	stopReason := ""
 	defer func() {
 		// A resposta libera o próximo prompt no cliente. O observador precisa
 		// encerrar este turno antes de publicar essa fronteira no fio.
-		a.endTurn(params.SessionId)
+		a.endTurn(params.SessionId, cancel)
 		if stopReason != "" {
 			a.reply(*msg.ID, map[string]any{"stopReason": stopReason})
 		}
@@ -747,7 +745,7 @@ func (a *fakeAgent) runTurn(msg rpcMessage) {
 	case scriptCancel:
 		a.chunkOf(params.SessionId, "agent_message_chunk", "trabalhando")
 		select {
-		case <-a.cancelChan(params.SessionId):
+		case <-cancel:
 		case <-time.After(20 * time.Second):
 		}
 		// Um agente real ainda emite alguma coisa enquanto se recolhe.

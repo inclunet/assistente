@@ -15,7 +15,7 @@ func (write fakeBoundaryWriter) Write(data []byte) (int, error) { return write(d
 func TestFakeAgentEncerraTurnoAntesDaRespostaTerminal(t *testing.T) {
 	for _, script := range []string{scriptTurn, scriptEcho, scriptDuasConversas, scriptCancel} {
 		t.Run(script, func(t *testing.T) {
-			agent := &fakeAgent{script: script, inTurn: make(map[string]bool), cancelled: make(map[string]chan struct{})}
+			agent := &fakeAgent{script: script, cancelled: make(map[string]chan struct{})}
 			terminalReplies := 0
 			var nextCancel chan struct{}
 			agent.out = bufio.NewWriter(fakeBoundaryWriter(func(data []byte) (int, error) {
@@ -68,10 +68,18 @@ func TestFakeAgentEncerraTurnoAntesDaRespostaTerminal(t *testing.T) {
 }
 
 func TestFakeAgentContinuaDetectandoSobreposicaoReal(t *testing.T) {
-	agent := &fakeAgent{inTurn: make(map[string]bool), cancelled: make(map[string]chan struct{})}
-	agent.beginTurn(fakeSessionID)
-	agent.beginTurn(fakeSessionID)
+	agent := &fakeAgent{cancelled: make(map[string]chan struct{})}
+	first := agent.beginTurn(fakeSessionID)
+	second := agent.beginTurn(fakeSessionID)
 	if !agent.sawOverlap() {
 		t.Fatal("dois turnos ativos na mesma sessão não foram detectados")
+	}
+	agent.endTurn(fakeSessionID, first)
+	if agent.cancelChan(fakeSessionID) != second {
+		t.Fatal("o primeiro turno apagou o canal do segundo")
+	}
+	agent.endTurn(fakeSessionID, second)
+	if agent.cancelChan(fakeSessionID) != nil {
+		t.Fatal("o último turno não liberou a sessão")
 	}
 }
