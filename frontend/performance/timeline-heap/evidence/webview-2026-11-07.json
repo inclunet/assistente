@@ -1,0 +1,567 @@
+{
+  "runtime": "157.0.4341.42",
+  "capturedAt": "2026-11-07T06:12:20.154Z",
+  "samples": [
+    {
+      "scenario": "item-count",
+      "messages": 100,
+      "cycle": 0,
+      "stage": "warm",
+      "usedSize": 7894952,
+      "totalSize": 8966144,
+      "embedderHeapUsedSize": 672168,
+      "backingStorageSize": 1672150,
+      "instances": {
+        "client": 1,
+        "presentation": 0,
+        "conversation": 3
+      },
+      "cachedItems": 240,
+      "cacheBytes": 1219540
+    },
+    {
+      "scenario": "item-count",
+      "messages": 100,
+      "cycle": 5,
+      "stage": "closed",
+      "usedSize": 7994632,
+      "totalSize": 8966144,
+      "embedderHeapUsedSize": 715056,
+      "backingStorageSize": 1672283,
+      "instances": {
+        "client": 1,
+        "presentation": 0,
+        "conversation": 3
+      },
+      "cachedItems": 240,
+      "cacheBytes": 1220520
+    },
+    {
+      "scenario": "item-count",
+      "messages": 100,
+      "cycle": 10,
+      "stage": "closed",
+      "usedSize": 7996224,
+      "totalSize": 8704000,
+      "embedderHeapUsedSize": 723880,
+      "backingStorageSize": 1672283,
+      "instances": {
+        "client": 1,
+        "presentation": 0,
+        "conversation": 3
+      },
+      "cachedItems": 240,
+      "cacheBytes": 1220520
+    },
+    {
+      "scenario": "item-count",
+      "messages": 100,
+      "cycle": 15,
+      "stage": "closed",
+      "usedSize": 8017620,
+      "totalSize": 8966144,
+      "embedderHeapUsedSize": 731648,
+      "backingStorageSize": 1672283,
+      "instances": {
+        "client": 1,
+        "presentation": 0,
+        "conversation": 3
+      },
+      "cachedItems": 240,
+      "cacheBytes": 1220520
+    },
+    {
+      "scenario": "item-count",
+      "messages": 100,
+      "cycle": 20,
+      "stage": "closed",
+      "usedSize": 8018096,
+      "totalSize": 8966144,
+      "embedderHeapUsedSize": 738008,
+      "backingStorageSize": 1672283,
+      "instances": {
+        "client": 1,
+        "presentation": 0,
+        "conversation": 3
+      },
+      "cachedItems": 240,
+      "cacheBytes": 1220520
+    },
+    {
+      "scenario": "item-count",
+      "messages": 100,
+      "cycle": 25,
+      "stage": "closed",
+      "usedSize": 8021432,
+      "totalSize": 10014720,
+      "embedderHeapUsedSize": 786312,
+      "backingStorageSize": 1672283,
+      "instances": {
+        "client": 1,
+        "presentation": 0,
+        "conversation": 3
+      },
+      "cachedItems": 240,
+      "cacheBytes": 1220520
+    },
+    {
+      "scenario": "item-count",
+      "messages": 100,
+      "cycle": 30,
+      "stage": "closed",
+      "usedSize": 8030424,
+      "totalSize": 8966144,
+      "embedderHeapUsedSize": 755288,
+      "backingStorageSize": 1672283,
+      "instances": {
+        "client": 1,
+        "presentation": 0,
+        "conversation": 3
+      },
+      "cachedItems": 240,
+      "cacheBytes": 1220520
+    },
+    {
+      "scenario": "item-count",
+      "messages": 100,
+      "cycle": 30,
+      "stage": "logout",
+      "usedSize": 7074044,
+      "totalSize": 7917568,
+      "embedderHeapUsedSize": 755288,
+      "backingStorageSize": 1668834,
+      "instances": {
+        "client": 0,
+        "presentation": 0,
+        "conversation": 0
+      },
+      "cachedItems": 0,
+      "cacheBytes": 0
+    },
+    {
+      "scenario": "item-count",
+      "messages": 500,
+      "cycle": 0,
+      "stage": "warm",
+      "usedSize": 8189796,
+      "totalSize": 8966144,
+      "embedderHeapUsedSize": 763840,
+      "backingStorageSize": 1671515,
+      "instances": {
+        "client": 1,
+        "presentation": 0,
+        "conversation": 1
+      },
+      "cachedItems": 240,
+      "cacheBytes": 1221420
+    },
+    {
+      "scenario": "item-count",
+      "messages": 500,
+      "cycle": 5,
+      "stage": "closed",
+      "usedSize": 8174884,
+      "totalSize": 8966144,
+      "embedderHeapUsedSize": 772752,
+      "backingStorageSize": 1671515,
+      "instances": {
+        "client": 1,
+        "presentation": 0,
+        "conversation": 1
+      },
+      "cachedItems": 240,
+      "cacheBytes": 1221420
+    },
+    {
+      "scenario": "item-count",
+      "messages": 500,
+      "cycle": 10,
+      "stage": "closed",
+      "usedSize": 8178816,
+      "totalSize": 9228288,
+      "embedderHeapUsedSize": 781912,
+      "backingStorageSize": 1671621,
+      "instances": {
+        "client": 1,
+        "presentation": 0,
+        "conversation": 1
+      },
+      "cachedItems": 240,
+      "cacheBytes": 1223100
+    },
+    {
+      "scenario": "item-count",
+      "messages": 500,
+      "cycle": 15,
+      "stage": "closed",
+      "usedSize": 8207396,
+      "totalSize": 9228288,
+      "embedderHeapUsedSize": 791096,
+      "backingStorageSize": 1671621,
+      "instances": {
+        "client": 1,
+        "presentation": 0,
+        "conversation": 1
+      },
+      "cachedItems": 240,
+      "cacheBytes": 1223100
+    },
+    {
+      "scenario": "item-count",
+      "messages": 500,
+      "cycle": 20,
+      "stage": "closed",
+      "usedSize": 8175380,
+      "totalSize": 8966144,
+      "embedderHeapUsedSize": 800032,
+      "backingStorageSize": 1671621,
+      "instances": {
+        "client": 1,
+        "presentation": 0,
+        "conversation": 1
+      },
+      "cachedItems": 240,
+      "cacheBytes": 1223100
+    },
+    {
+      "scenario": "item-count",
+      "messages": 500,
+      "cycle": 25,
+      "stage": "closed",
+      "usedSize": 8183792,
+      "totalSize": 8966144,
+      "embedderHeapUsedSize": 809344,
+      "backingStorageSize": 1671621,
+      "instances": {
+        "client": 1,
+        "presentation": 0,
+        "conversation": 1
+      },
+      "cachedItems": 240,
+      "cacheBytes": 1223100
+    },
+    {
+      "scenario": "item-count",
+      "messages": 500,
+      "cycle": 30,
+      "stage": "closed",
+      "usedSize": 8169580,
+      "totalSize": 8966144,
+      "embedderHeapUsedSize": 818808,
+      "backingStorageSize": 1671621,
+      "instances": {
+        "client": 1,
+        "presentation": 0,
+        "conversation": 1
+      },
+      "cachedItems": 240,
+      "cacheBytes": 1223100
+    },
+    {
+      "scenario": "item-count",
+      "messages": 500,
+      "cycle": 30,
+      "stage": "logout",
+      "usedSize": 7853428,
+      "totalSize": 8704000,
+      "embedderHeapUsedSize": 818808,
+      "backingStorageSize": 1671611,
+      "instances": {
+        "client": 0,
+        "presentation": 0,
+        "conversation": 0
+      },
+      "cachedItems": 0,
+      "cacheBytes": 0
+    },
+    {
+      "scenario": "item-count",
+      "messages": 1000,
+      "cycle": 0,
+      "stage": "warm",
+      "usedSize": 8196668,
+      "totalSize": 8966144,
+      "embedderHeapUsedSize": 828272,
+      "backingStorageSize": 1671621,
+      "instances": {
+        "client": 1,
+        "presentation": 0,
+        "conversation": 1
+      },
+      "cachedItems": 240,
+      "cacheBytes": 1223100
+    },
+    {
+      "scenario": "item-count",
+      "messages": 1000,
+      "cycle": 5,
+      "stage": "closed",
+      "usedSize": 8185952,
+      "totalSize": 8704000,
+      "embedderHeapUsedSize": 837776,
+      "backingStorageSize": 1671621,
+      "instances": {
+        "client": 1,
+        "presentation": 0,
+        "conversation": 1
+      },
+      "cachedItems": 240,
+      "cacheBytes": 1223100
+    },
+    {
+      "scenario": "item-count",
+      "messages": 1000,
+      "cycle": 10,
+      "stage": "closed",
+      "usedSize": 8183112,
+      "totalSize": 8966144,
+      "embedderHeapUsedSize": 846344,
+      "backingStorageSize": 1671621,
+      "instances": {
+        "client": 1,
+        "presentation": 0,
+        "conversation": 1
+      },
+      "cachedItems": 240,
+      "cacheBytes": 1223100
+    },
+    {
+      "scenario": "item-count",
+      "messages": 1000,
+      "cycle": 15,
+      "stage": "closed",
+      "usedSize": 8174552,
+      "totalSize": 8966144,
+      "embedderHeapUsedSize": 852184,
+      "backingStorageSize": 1671621,
+      "instances": {
+        "client": 1,
+        "presentation": 0,
+        "conversation": 1
+      },
+      "cachedItems": 240,
+      "cacheBytes": 1223100
+    },
+    {
+      "scenario": "item-count",
+      "messages": 1000,
+      "cycle": 20,
+      "stage": "closed",
+      "usedSize": 8186224,
+      "totalSize": 8966144,
+      "embedderHeapUsedSize": 858216,
+      "backingStorageSize": 1671621,
+      "instances": {
+        "client": 1,
+        "presentation": 0,
+        "conversation": 1
+      },
+      "cachedItems": 240,
+      "cacheBytes": 1223100
+    },
+    {
+      "scenario": "item-count",
+      "messages": 1000,
+      "cycle": 25,
+      "stage": "closed",
+      "usedSize": 8181412,
+      "totalSize": 8966144,
+      "embedderHeapUsedSize": 864056,
+      "backingStorageSize": 1671621,
+      "instances": {
+        "client": 1,
+        "presentation": 0,
+        "conversation": 1
+      },
+      "cachedItems": 240,
+      "cacheBytes": 1223100
+    },
+    {
+      "scenario": "item-count",
+      "messages": 1000,
+      "cycle": 30,
+      "stage": "closed",
+      "usedSize": 8177904,
+      "totalSize": 8966144,
+      "embedderHeapUsedSize": 864768,
+      "backingStorageSize": 1671621,
+      "instances": {
+        "client": 1,
+        "presentation": 0,
+        "conversation": 1
+      },
+      "cachedItems": 240,
+      "cacheBytes": 1223100
+    },
+    {
+      "scenario": "item-count",
+      "messages": 1000,
+      "cycle": 30,
+      "stage": "logout",
+      "usedSize": 7872928,
+      "totalSize": 8704000,
+      "embedderHeapUsedSize": 864768,
+      "backingStorageSize": 1671611,
+      "instances": {
+        "client": 0,
+        "presentation": 0,
+        "conversation": 0
+      },
+      "cachedItems": 0,
+      "cacheBytes": 0
+    },
+    {
+      "scenario": "byte-pressure",
+      "messages": 64,
+      "cycle": 2,
+      "stage": "pressure",
+      "usedSize": 15170028,
+      "totalSize": 16830464,
+      "embedderHeapUsedSize": 861352,
+      "backingStorageSize": 1666899,
+      "instances": {
+        "client": 1,
+        "presentation": 0,
+        "conversation": 2
+      },
+      "cachedItems": 101,
+      "cacheBytes": 8343853
+    },
+    {
+      "scenario": "byte-pressure",
+      "messages": 64,
+      "cycle": 0,
+      "stage": "warm",
+      "usedSize": 15198668,
+      "totalSize": 16306176,
+      "embedderHeapUsedSize": 854312,
+      "backingStorageSize": 1666899,
+      "instances": {
+        "client": 1,
+        "presentation": 0,
+        "conversation": 2
+      },
+      "cachedItems": 101,
+      "cacheBytes": 8343853
+    },
+    {
+      "scenario": "byte-pressure",
+      "messages": 64,
+      "cycle": 5,
+      "stage": "closed",
+      "usedSize": 15224512,
+      "totalSize": 16568320,
+      "embedderHeapUsedSize": 854440,
+      "backingStorageSize": 1666899,
+      "instances": {
+        "client": 1,
+        "presentation": 0,
+        "conversation": 2
+      },
+      "cachedItems": 101,
+      "cacheBytes": 8343853
+    },
+    {
+      "scenario": "byte-pressure",
+      "messages": 64,
+      "cycle": 10,
+      "stage": "closed",
+      "usedSize": 15225220,
+      "totalSize": 16568320,
+      "embedderHeapUsedSize": 853672,
+      "backingStorageSize": 1666899,
+      "instances": {
+        "client": 1,
+        "presentation": 0,
+        "conversation": 2
+      },
+      "cachedItems": 101,
+      "cacheBytes": 8343853
+    },
+    {
+      "scenario": "byte-pressure",
+      "messages": 64,
+      "cycle": 15,
+      "stage": "closed",
+      "usedSize": 15218472,
+      "totalSize": 16568320,
+      "embedderHeapUsedSize": 861032,
+      "backingStorageSize": 1666899,
+      "instances": {
+        "client": 1,
+        "presentation": 0,
+        "conversation": 2
+      },
+      "cachedItems": 101,
+      "cacheBytes": 8343853
+    },
+    {
+      "scenario": "byte-pressure",
+      "messages": 64,
+      "cycle": 20,
+      "stage": "closed",
+      "usedSize": 15215080,
+      "totalSize": 16568320,
+      "embedderHeapUsedSize": 862336,
+      "backingStorageSize": 1666899,
+      "instances": {
+        "client": 1,
+        "presentation": 0,
+        "conversation": 2
+      },
+      "cachedItems": 101,
+      "cacheBytes": 8343853
+    },
+    {
+      "scenario": "byte-pressure",
+      "messages": 64,
+      "cycle": 25,
+      "stage": "closed",
+      "usedSize": 15221264,
+      "totalSize": 16568320,
+      "embedderHeapUsedSize": 858328,
+      "backingStorageSize": 1666899,
+      "instances": {
+        "client": 1,
+        "presentation": 0,
+        "conversation": 2
+      },
+      "cachedItems": 101,
+      "cacheBytes": 8343853
+    },
+    {
+      "scenario": "byte-pressure",
+      "messages": 64,
+      "cycle": 30,
+      "stage": "closed",
+      "usedSize": 15223444,
+      "totalSize": 16568320,
+      "embedderHeapUsedSize": 859080,
+      "backingStorageSize": 1666899,
+      "instances": {
+        "client": 1,
+        "presentation": 0,
+        "conversation": 2
+      },
+      "cachedItems": 101,
+      "cacheBytes": 8343853
+    },
+    {
+      "scenario": "byte-pressure",
+      "messages": 64,
+      "cycle": 30,
+      "stage": "logout",
+      "usedSize": 11939200,
+      "totalSize": 13160448,
+      "embedderHeapUsedSize": 858856,
+      "backingStorageSize": 1666555,
+      "instances": {
+        "client": 0,
+        "presentation": 0,
+        "conversation": 0
+      },
+      "cachedItems": 0,
+      "cacheBytes": 0
+    }
+  ]
+}

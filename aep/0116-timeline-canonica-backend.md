@@ -1,8 +1,92 @@
 # AEP-0116 — Timeline canônica de chat do backend à apresentação
 
-## Status: In Progress — histórico canônico integrado do backend à UI e CLI; anexos normalizados e colunas legadas removidas; identidade visual, janela e ferramentas canônicas na UI; metadados e sessões sem espelhamentos; leitor canônico único no backend; mutadores e estados legados removidos; renders e retenção V8 verificados; gates de desempenho e auditoria de encerramento pendentes
+## Status: In Progress — contrato canônico e critérios funcionais entregues; caminhos legados retirados; auditoria consolidada; pressão de bytes validada; orçamentos históricos de desempenho pendentes
 
 Data: 2026-10-30
+
+### Auditoria consolidada dos critérios funcionais (07/11/2026)
+
+Os recortes de janela, ferramentas, metadados/sessões e leitor único encerram
+os caminhos de compatibilidade previstos nesta migração. Não há criação de
+mensagem otimista, troca de chave física/visual ou compositor híbrido no frontend.
+O adapter operacional de envio/fila/anúncio continua necessário e não armazena
+ou ordena o histórico. APIs de contexto do LLM e de exportação não são leitores
+alternativos da apresentação e permanecem com seus consumidores.
+
+A auditoria reúne provas já existentes, sem criar testes duplicados para marcar
+checklists nem manter código produtivo para fixtures antigas:
+
+- Identidade antes do streaming e ordem: `preparing_window_test.go`,
+  `timeline_order_test.go`, `canonical_publication_test.go` e
+  `TestFollowTailReceivesNewQuestionAndResponseInCanonicalOrder`.
+- Concorrência entre consulta e eventos: `TestTimelineSnapshotReadsOneCommitAcrossWindowAndTurn`,
+  `TestLiveProjectionIsolationAndConcurrentSnapshot`,
+  `TestTurnRecoverySnapshotDeltaBarrier`,
+  `TestTimelineNavigationRejectsConcurrentStaleRequests` e
+  `TestCanonicalReplayReconstructsSnapshotAndDoesNotShareMemory`. As provas
+  usam barreiras controladas e verificam snapshots, deltas e isolamento; a
+  execução com detector de corrida pertence ao CI Linux.
+- Terminal, tentativas e releitura: `timeline_execution_group_test.go`,
+  `timeline_recovery_test.go`, `automatic_publication_test.go` e
+  `internal/agent/execution_writer_test.go`. Ferramentas nativas usam
+  `service_native_mcp_test.go`; ACP usa `TestACPCronologiaNoTerminalEReabertura`
+  e `agent_activity_ledger_test.go`, executados somente no CI nesta entrega.
+- Falhas explícitas e conteúdo parcial: `TestLiveProjectionTerminalPreservesUncommittedContent`,
+  `TestTimelineSnapshotDoesNotHideLedgerReadFailure` e os cenários de admissão,
+  resultado e persistência parcial de `execution_writer_test.go`. Não se
+  executa ferramenta cuja admissão no ledger falhou.
+- UI, foco e isolamento: `MessageList.focusRetention.test.tsx`,
+  `MessageList.performance.test.tsx`, `ChatSessionLiveState.test.tsx`,
+  `ChatSessionContext.window.test.tsx` e `chatTimelineClient.test.ts` verificam
+  nó estável, paginação, duas superfícies, troca de sessão e recuperação. As
+  fixtures de apresentação ficam fora do store operacional.
+- Anexos e armazenamento: `message_attachments_test.go`,
+  `message_media_attachments_test.go` e `migration_chat_media_attachments_test.go`
+  cobrem deduplicação, proveniência, rollback, isolamento e segundo boot;
+  `window_light_read_test.go`/`turn_light_read_test.go` cobrem leitura leve.
+
+A auditoria não transforma o AEP em Done: os orçamentos históricos de tempo,
+alocações e payload continuam não atendidos. O trabalho restante é medir e
+reduzir esses custos, com a mesma fixture e sem mover a baseline ou relaxar
+limites silenciosamente. A questão de custo global de CI permanece na issue
+#1008, separada deste contrato de produto.
+
+### Pressão de bytes na WebView e limite restante (07/11/2026)
+
+O harness versionado em `frontend/performance/timeline-heap/` acrescenta carga
+por bytes às provas por quantidade. Depois de duas janelas de 64 mensagens
+com 80 KiB por texto, oferece mais de 10 MiB com somente 128 identidades. A
+amostra nesse ponto retém 101 itens e 8.343.853 bytes, abaixo de 8 MiB; o teto
+de 240 itens não poderia causar essa evicção. Não é inferência a partir de uma
+fixture teórica: a inspeção observa o orçamento do cliente real na WebView.
+
+Após cinco ciclos de aquecimento, os trinta ciclos medidos mantiveram 101 itens,
+zero apresentações desmontadas retidas e os mesmos bytes de cache. Nas seis
+amostras medidas, o heap V8 variou de 15.215.080 a 15.225.220 bytes. Logout zerou
+clientes, conversas, apresentações, itens e bytes de cache; o heap do runtime e
+módulos permaneceu em 11.939.200 bytes. Não se exige heap zero do processo.
+
+A execução completa percorreu 140 ciclos (100/500/1.000 mensagens e pressão),
+com WebView2 157.0.4341.42, perfil exclusivo e janela oculta. A evidência está
+em `frontend/performance/timeline-heap/evidence/webview-2026-11-07.json`; o README
+contém reprodução e limitações. O runtime difere da medição anterior, portanto
+não se atribui a diferença absoluta entre execuções ao produto. Nenhum acesso
+a banco/provedor do usuário, ACP ou NVDA. O procedimento altera somente uma
+cópia local do Wails para instrumentar o host de medição.
+
+Validação local: TypeScript geral e do harness, ESLint, Stylelint, Vite,
+build/vet Go e a execução real dos 140 ciclos passaram. O recorte altera
+somente harness/documentação/evidência; o código de produto e suas regressões
+são os mesmos validados no recorte anterior (388 testes seguros de banco,
+87 de chat e 6.139 frontend). Não se repetiu essa suíte sem mudança produtiva.
+Revisão independente por `review_canonical_cleanup`: uma rodada, sem pendências
+na prova de pressão ou na rastreabilidade dos critérios funcionais.
+
+Após este quinto recorte da sequência autorizada, o único critério de aceitação
+aberto é desempenho: tempo/B-op e payload frente à baseline da fase 1. A leitura
+canônica e suas provas funcionais estão entregues, mas esses limites continuam
+não atendidos. O AEP e o índice permanecem In Progress; nenhum orçamento foi
+relaxado e a issue #1008 de custo geral de testes/CI permanece para depois.
 
 ### Leitura canônica única e contagem sem cópia de payload (07/11/2026)
 
@@ -3468,9 +3552,9 @@ não resolvidas bloqueiam os recortes correspondentes, não são fallbacks impl�
 
 ### Fase 2 — Projeção canônica no backend
 
-- [ ] Produzir item estável antes de streaming; projetar segmentos incrementalmente.
-- [ ] Unificar janela e terminal e implementar precedência/recuperação acordadas.
-- [ ] Cobrir sucesso, tools locais/nativas/ACP, erro, retry, continuação e cancelamento.
+- [x] Produzir item estável antes de streaming; projetar segmentos incrementalmente. Evidências na auditoria consolidada e nos recortes acima.
+- [x] Unificar janela e terminal e implementar precedência/recuperação acordadas. Evidências na auditoria consolidada e nos recortes acima.
+- [x] Cobrir sucesso, tools locais/nativas/ACP, erro, retry, continuação e cancelamento. Evidências na auditoria consolidada e nos recortes acima.
 
 Saída: contrato backend testado e adaptadores temporários identificados.
 
@@ -3987,9 +4071,8 @@ final sem pendências, incluindo captura dinâmica de conteúdo não confirmado.
 - [x] Unificar corte da janela e eliminar flags derivadas duplicadas. Evidências: metadados canônicos diretos, único carregamento, retirada dos campos do store e prova `ChatSessionContext.window.test.tsx`, descritos acima.
 - [x] Preservar identidade DOM/foco/leitura, inclusive no limiar de virtualização. Evidências: `ChatMessage.test.tsx`, `MessageList.focusRetention.test.tsx` e `ChatSessionLiveState.test.tsx`.
 - [x] Validar descarte de cache: medição V8 e contagem de instâncias/itens em 105 ciclos de abertura/fechamento/logout, descritas acima.
-- [ ] Consolidar evidências de consultas concorrentes com eventos na auditoria final.
-- [ ] Exercitar pressão acima de 8 MiB com menos de 240 itens na WebView; os
-  ciclos acima cobrem limite por quantidade e descarte, não esse teto de bytes.
+- [x] Consolidar evidências de consultas concorrentes com eventos na auditoria final. Evidências na auditoria consolidada e nos recortes acima.
+- [x] Exercitar pressão acima de 8 MiB com menos de 240 itens na WebView. Evidência: 140 ciclos, cenário de 128 itens oferecidos/101 retidos e descarte após logout, descritos abaixo.
 
 Saída: uma única aplicação do contrato, sem caminho antigo ativo em paralelo.
 
@@ -4004,10 +4087,10 @@ correção inicial de identidade e foco das fases 2–3.
 
 ### Fase 5 — Encerramento e evidências
 
-- [ ] Remover adaptadores e APIs comprovadamente sem consumidores.
-- [ ] Preservar regressões de produto ao substituir testes de mecanismos removidos.
+- [x] Remover adaptadores e APIs comprovadamente sem consumidores. Evidências na auditoria consolidada e nos recortes acima.
+- [x] Preservar regressões de produto ao substituir testes de mecanismos removidos. Evidências na auditoria consolidada e nos recortes acima.
 - [ ] Medir consultas, payload, retenção de memória e renders antes/depois. Retenção V8 e renders verificados em 06/11; orçamentos históricos de tempo/alocações/payload continuam abertos.
-- [ ] Atualizar documentação de usuário, AEPs afetados e índice com evidências.
+- [x] Atualizar documentação de usuário, AEPs afetados e índice com evidências. Evidências na auditoria consolidada e nos recortes acima.
 
 Não apagar ou enfraquecer testes para obter aprovação. Reescrever cobertura de
 mecanismos extintos somente mantendo os comportamentos e falhas relevantes.
@@ -4024,16 +4107,16 @@ mecanismos extintos somente mantendo os comportamentos e falhas relevantes.
 
 ## Critérios de aceitação
 
-- [ ] Resposta nunca precede sua pergunta; ordem total é igual em janela, eventos e reload.
-- [ ] Conclusão não remonta o item em leitura nem desloca foco intencional.
-- [ ] Snapshot antigo, duplicação, lacunas e terminais de outra tentativa têm comportamento testado.
-- [ ] Exclusão, troca de usuário/sessão e duas superfícies preservam isolamento.
-- [ ] Histórico após reload equivale à projeção persistida dos eventos, inclusive tools e continuação.
-- [ ] Erro de persistência/projeção é explícito e não apaga silenciosamente conteúdo recebido.
-- [ ] Frontend não infere identidade, ordem, representante ou composição conversacional.
-- [ ] Anexos não duplicam áudio recebido nem entram integralmente na janela sem necessidade.
+- [x] Resposta nunca precede sua pergunta; ordem total é igual em janela, eventos e reload. Evidências na auditoria consolidada acima.
+- [x] Conclusão não remonta o item em leitura nem desloca foco intencional. Evidências na auditoria consolidada acima.
+- [x] Snapshot antigo, duplicação, lacunas e terminais de outra tentativa têm comportamento testado. Evidências na auditoria consolidada acima.
+- [x] Exclusão, troca de usuário/sessão e duas superfícies preservam isolamento. Evidências na auditoria consolidada acima.
+- [x] Histórico após reload equivale à projeção persistida dos eventos, inclusive tools e continuação. Evidências na auditoria consolidada acima.
+- [x] Erro de persistência/projeção é explícito e não apaga silenciosamente conteúdo recebido. Evidências na auditoria consolidada acima.
+- [x] Frontend não infere identidade, ordem, representante ou composição conversacional. Evidências na auditoria consolidada acima.
+- [x] Anexos não duplicam áudio recebido nem entram integralmente na janela sem necessidade. Evidências na auditoria consolidada acima.
 - [ ] Metas de desempenho da fase 1 passam em fixtures reprodutíveis e comparáveis.
-- [ ] Não restam adaptadores sem prazo de remoção nem duas fontes autoritativas.
+- [x] Não restam adaptadores sem prazo de remoção nem duas fontes autoritativas. Evidências na auditoria consolidada acima.
 
 NVDA não é requisito desta investigação/PR documental, por orientação do
 mantenedor. Os critérios de teclado, foco, semântica acessível e leitura

@@ -19,6 +19,7 @@ import '../../src/theme.css';
 const root = createRoot(document.getElementById('root')!);
 let serial = 0;
 let count = 100;
+let textBytes = 0;
 const windows = new Map<string, { conversationId: string; revision: number }>();
 function snapshot(windowId: string, mode: string): TimelineSnapshot {
   const window = windows.get(windowId)!;
@@ -28,7 +29,7 @@ function snapshot(windowId: string, mode: string): TimelineSnapshot {
       itemId: `message:${id}`, conversationId: window.conversationId, scopeParentId: null,
       kind: 'message', turnId: null, replyToItemId: '', messageIds: [id], representativeMessageId: id,
       revision: '1', state: 'completed', durability: 'persisted',
-      segments: [{ segmentId: `text:${id}`, kind: 'text', text: `${id} ${'conteúdo da conversa '.repeat(200)}` }],
+      segments: [{ segmentId: `text:${id}`, kind: 'text', text: `${id} ${textBytes ? 'x'.repeat(textBytes) : 'conteúdo da conversa '.repeat(200)}` }],
       metadata: { role: 'assistant', createdAt: '2026-01-01T00:00:00Z', source: '', childCount: 0,
         conclusionSegmentIds: [`text:${id}`], cacheReadTokens: 0, cacheWriteTokens: 0, cacheMissTokens: 0,
         origin: 'chat', pinned: false, model: '', promptTokens: 0, completionTokens: 0, totalTokens: 0 },
@@ -77,8 +78,9 @@ const api = {
     presentation: ChatTimelinePresentation.prototype,
     conversation: TimelineConversationState.prototype,
   },
-  async cycle(messages: number) {
+  async cycle(messages: number, payloadBytes = 0) {
     count = messages;
+    textBytes = payloadBytes;
     const surface = createChatSurfaceIdentity({ conversationId: `conversation:${++serial}`, surfaceId: `surface:${serial}` });
     flushSync(() => root.render(<BrowserRouter><div style={{ height: 700, display: 'flex' }}>
       <ChatSessionProvider surface={surface}><TimelineView /></ChatSessionProvider>

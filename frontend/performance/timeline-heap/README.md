@@ -27,9 +27,18 @@ cada cinco ciclos e após logout. A mesma sessão conserva sua LRU entre ciclos;
 logout muda a sessão no store de autenticação, exercitando o descarte real do
 cliente. A fixture verifica também a liberação das sessões visuais do store.
 Antes de desmontar, exige os 100/240 itens esperados na apresentação e um nó
-renderizado. Esta carga fica abaixo de 8 MiB e não testa pressão no teto de bytes.
+renderizado. Esta carga fica abaixo de 8 MiB e testa o limite por quantidade.
 Os casos de 500 e 1.000 têm os mesmos 240 itens materializados: exercitam
 históricos maiores com janela limitada, não cargas de 500/1.000 itens na UI.
+
+Um quarto cenário usa 64 mensagens com 80 KiB de texto cada. Após duas janelas
+de conversas distintas, mais de 10 MiB foram oferecidos com apenas 128 itens;
+uma amostra nesse ponto prova evicção por bytes antes do limite de 240 itens.
+Completa cinco ciclos de aquecimento e trinta medidos. As amostras exigem
+retenção de pelo menos uma janela inteira e menos de 128 itens, com até 8 MiB
+no orçamento do cache. A contagem de bytes é observada no cliente real; não é
+usada como substituta da medição de heap V8. Todos os cenários exigem zero
+bytes, itens e instâncias da timeline após logout.
 
 `HeapProfiler.collectGarbage` precede `Runtime.getHeapUsage`. O JSON em
 `build/bin/agent-build/results/timeline-webview-heap.json` registra a versão do
@@ -53,3 +62,11 @@ Os [cinco pares do benchmark Go](evidence/window-2026-11-06.json) comparam a
 main `8f32811d4` com a reserva de vetores apenas para a primeira publicação.
 São resultados desta máquina, não novos limites de aprovação. Novas execuções
 gravam em `build/bin`; não sobrescrevem as evidências versionadas.
+
+Execução ampliada de 07/11/2026: [140 ciclos e pressão de bytes](evidence/webview-2026-11-07.json),
+WebView2 157.0.4341.42. Sob pressão, o cache reteve 101 itens e 8.343.853 bytes.
+Nas seis amostras após aquecimento, o heap V8 variou de 15.215.080 a 15.225.220
+bytes; após logout, 11.939.200 bytes, com zero instâncias da timeline. O heap
+remanescente inclui runtime e módulos carregados; não é interpretado como cache
+de conversa. A versão do runtime difere da execução anterior: não se atribui a
+diferença absoluta de heap entre as duas execuções a uma mudança do produto.
