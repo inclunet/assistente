@@ -1,8 +1,84 @@
 # AEP-0116 — Timeline canônica de chat do backend à apresentação
 
-## Status: In Progress — histórico canônico integrado do backend à UI e CLI; APIs e adaptadores visuais antigos retirados; abertura otimizada e leituras visuais sem blobs; anexos normalizados e colunas legadas removidas; gates finais de desempenho/memória e auditoria de encerramento pendentes
+## Status: In Progress — histórico canônico integrado do backend à UI e CLI; anexos normalizados e colunas legadas removidas; renders e retenção V8 verificados; gates de tempo/alocações/payload e auditoria de encerramento pendentes
 
 Data: 2026-10-30
+
+### Provas de retenção na WebView e custo da publicação (06/11/2026)
+
+`frontend/performance/timeline-heap/run.ps1` compila um host opt-in de medição
+Wails/WebView2, isolado do perfil e banco do aplicativo. Usa o provider, hook de
+lifecycle, adaptador Wails, cliente canônico e componentes reais. Somente as
+respostas RPC de abrir, navegar e fechar são determinísticas. A instrumentação
+CDP existe exclusivamente numa cópia do Wails sob `build/bin`, compilada com
+`-modfile`; não altera módulo instalado, registro, configuração ou bundle do app.
+
+Cada cenário de 100/500/1.000 mensagens faz cinco ciclos de aquecimento e trinta
+aberturas/fechamentos de conversas distintas na mesma sessão. A janela tem até
+240 itens, aproximadamente 4 KiB de texto por item; portanto 500 e 1.000 não
+significam materialização integral. A coleta usa GC explícito e mede o heap
+JavaScript/V8 real. `Runtime.queryObjects` conta clientes, apresentações,
+conversas e seus itens cacheados; referências da inspeção são liberadas. Não é
+uma medição da memória nativa total da WebView nem do heap Go/SQL/IPC. O runner
+verifica renderização, fechamento das janelas, remoção das sessões visuais e
+limite da LRU, inclusive seu descarte no logout. Não executa ACP ou NVDA.
+
+Execução em WebView2 156.0.4314.58, Windows, 06/11/2026. Heap V8 usado após GC,
+em bytes (aquecimento → ciclo 30 fechado → logout):
+
+- 100 mensagens: 7.909.952 → 8.120.020 → 7.127.772.
+- 500 mensagens: 8.203.340 → 8.204.792 → 7.893.212.
+- 1.000 mensagens: 8.204.636 → 8.200.444 → 7.883.152.
+
+Nas 21 amostras com sessão aberta, a LRU ficou em 240 itens e não restaram
+apresentações fechadas. Uma sessão conservou três estados de conversa no caso
+de 100 itens/página e um nos casos de 240, conforme a LRU global. Nos três
+logouts, `queryObjects` encontrou zero clientes, apresentações, estados de
+conversa e itens. O heap total remanescente não deve ser confundido com conteúdo
+retido por essas instâncias. Os resultados brutos ficam no JSON indicado pelo
+README do harness, junto à versão do runtime. A prova cobre os 105 ciclos,
+não todas as formas possíveis de crescimento de memória do aplicativo.
+
+No backend, o perfil da abertura identificou alocações por expansão repetida
+dos vetores de DTOs/operações da publicação inicial. A reserva passa a usar o
+tamanho conhecido da página, somente depois da primeira alteração. Leituras
+estáveis continuam sem alocar esses vetores; não há novo cache, fallback ou
+mudança no journal, revisões e payload. Uma alternativa para a contagem SQL foi
+medida e descartada por não apresentar ganho consistente.
+
+Comparação local contra `8f32811d4`, em cinco pares alternados de processos,
+20 operações por cenário, Go 1.27.1/Windows, Intel Core Ultra 7 155H,
+GOMAXPROCS padrão 22, sem outras suítes deste trabalho concorrendo:
+
+- 100 mensagens: mediana 15,989 → 14,795 ms; 1.867.074 → 1.767.984 B/op;
+  15.327 → 15.312 alocações; payload inalterado em 64.845 bytes.
+- 500 mensagens: 33,723 → 33,580 ms; 4.147.974 → 3.796.048 B/op;
+  34.993 → 34.974 alocações; payload inalterado em 153.878 bytes.
+- 1.000 mensagens: 40,740 → 44,834 ms; 3.939.712 → 3.781.807 B/op;
+  34.997 → 34.973 alocações; payload inalterado em 153.879 bytes.
+
+Há redução de alocações, mas não se afirma ganho geral de latência. Os gates
+históricos de +20% em tempo/B/op e +10% de payload continuam **abertos**; esta
+comparação com a main atual não substitui a baseline histórica nem relaxa limites.
+Os seis testes de `MessageList.performance.test.tsx` passaram: zero renders
+adicionais dos nós estáveis por loading e atualização isolada de um nó em
+100/500/1.000 itens. Esses testes isolam o renderer dos nós; a prova de retenção
+acima exercita os componentes reais.
+
+A auditoria restante também é de código: ainda há mutadores antigos de árvore
+em `chatMessageTree.ts` consumidos por fixtures/testes, além da chave alternativa
+em `getTimelineNodeKey` e de uma prova `it.fails` da identidade tardia legada.
+Sua retirada deve migrar as regressões de produto para o contrato canônico,
+sem conservar implementação produtiva apenas para sustentar testes antigos.
+
+Validação local: build/vet/lint incremental Go, 486 testes seguros do domínio de
+chat, 35 da borda app; TypeScript, ESLint e Stylelint. Vitest completo: 7.032
+passaram e dois testes de foco de `Topbar.palette.integration.test.tsx` falharam;
+a repetição isolada desse arquivo e dos gates de render passou nos
+128 testes. Nenhum teste foi removido ou enfraquecido. ACP permanece fora da
+execução local, conforme orientação do mantenedor.
+Revisor local independente `review_opening_performance`: três rodadas; corrigida
+a limpeza do host quando o fechamento CDP falha, revisão final sem pendências.
 
 ### Unificação dos anexos e corte físico do armazenamento legado (06/11/2026)
 
@@ -3645,7 +3721,8 @@ final sem pendências, incluindo captura dinâmica de conteúdo não confirmado.
 - [ ] Remover ordenador híbrido, chave alternativa, reconstrução semântica e espelhamentos substituídos.
 - [ ] Unificar corte da janela e eliminar flags derivadas duplicadas.
 - [x] Preservar identidade DOM/foco/leitura, inclusive no limiar de virtualização. Evidências: `ChatMessage.test.tsx`, `MessageList.focusRetention.test.tsx` e `ChatSessionLiveState.test.tsx`.
-- [ ] Validar descarte de cache e consultas concorrentes com eventos.
+- [x] Validar descarte de cache: medição V8 e contagem de instâncias/itens em 105 ciclos de abertura/fechamento/logout, descritas acima.
+- [ ] Consolidar evidências de consultas concorrentes com eventos na auditoria final.
 
 Saída: uma única aplicação do contrato, sem caminho antigo ativo em paralelo.
 
@@ -3662,7 +3739,7 @@ correção inicial de identidade e foco das fases 2–3.
 
 - [ ] Remover adaptadores e APIs comprovadamente sem consumidores.
 - [ ] Preservar regressões de produto ao substituir testes de mecanismos removidos.
-- [ ] Medir consultas, payload, retenção de memória e renders antes/depois.
+- [ ] Medir consultas, payload, retenção de memória e renders antes/depois. Retenção V8 e renders verificados em 06/11; orçamentos históricos de tempo/alocações/payload continuam abertos.
 - [ ] Atualizar documentação de usuário, AEPs afetados e índice com evidências.
 
 Não apagar ou enfraquecer testes para obter aprovação. Reescrever cobertura de
@@ -3928,9 +4005,12 @@ referências; logout limpa todo o cache. Itens ativos/volatile não são expulso
 silenciosamente: limite excedido bloqueia novas retenções opcionais e pede
 resolução explícita quando não houver conteúdo dispensável.
 
-Backend conserva projetor enquanto houver execução ou assinante, com descarte
-após 60 s sem ambos; conteúdo volatile exige persistência ou descarte explícito,
-não timeout. Reinício/evicção produz nova época e snapshot. Não armazenar JSON
+Backend conserva projetor enquanto houver execução ou assinante. Turnos
+concluídos não voláteis podem ser retidos por até 60 s após o término; o projetor
+já vazio, sem turnos, tentativas retidas ou janelas, é descartado imediatamente.
+Esta precisão foi confirmada pelo mantenedor em 06/11/2026 e não introduz cache
+adicional. Conteúdo volatile exige persistência ou descarte explícito, não
+timeout. Reinício/evicção produz nova época e snapshot. Não armazenar JSON
 integral de tools no cache visual. Medir retained heap e contagem de itens em
 abertura/fechamento repetidos na fase 3.
 

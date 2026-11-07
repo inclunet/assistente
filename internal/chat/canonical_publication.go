@@ -169,6 +169,9 @@ func (c *projectionConversation) publishCanonicalWindowChanges(conversationID st
 	}
 	changed := make([]CanonicalItem, 0)
 	operations := make([]CanonicalOperation, 0)
+	if len(removed) > 0 {
+		operations = make([]CanonicalOperation, 0, len(items)+len(removed))
+	}
 	for _, id := range removed {
 		operations = append(operations, CanonicalOperation{Kind: "item_remove", ItemID: id})
 		p.removeItem(id)
@@ -202,6 +205,14 @@ func (c *projectionConversation) publishCanonicalWindowChanges(conversationID st
 		}
 		if len(delta) == 0 {
 			continue
+		}
+		// Reserva apenas quando há mudança; uma leitura estável não aloca esses
+		// contêineres. Na primeira página evita copiar DTOs completos a cada expansão.
+		if len(changed) == 0 {
+			changed = make([]CanonicalItem, 0, len(items))
+		}
+		if len(operations) == 0 {
+			operations = make([]CanonicalOperation, 0, len(items)+len(removed))
 		}
 		changed = append(changed, next)
 		operations = append(operations, delta...)

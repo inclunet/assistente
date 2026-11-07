@@ -1,0 +1,7 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "paths": { "@/*": ["../../src/*"], "@wailsjs/*": ["../../wailsjs/*"] }
+  },
+  "include": ["main.tsx", "../../src"]
+}
