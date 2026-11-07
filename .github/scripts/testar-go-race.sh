@@ -5,8 +5,9 @@ export LC_ALL=C
 
 app=assistente/internal/app
 chat=assistente/internal/chat
+wailsapi=assistente/internal/wailsapi
 flags=(-race -short -count=1 -timeout=20m)
-groups=(pacote-chat-0 pacote-chat-1 comandos-configuracao comandos-dispositivos
+groups=(pacote-wailsapi pacote-chat-0 pacote-chat-1 comandos-configuracao comandos-dispositivos
   comandos-contexto-deck-paginas comandos-contexto-deck-mermaid comandos-contexto-deck-camadas comandos-contexto-deck-base
   comandos-contexto-paleta comandos-contexto-workspace comandos-contexto-base comandos-execucao
   comandos-jobs comandos-interface comandos-seguranca comandos-outros app-chat app-demais)
@@ -18,9 +19,9 @@ fi
 
 if [[ $# == 1 && $1 == pacotes-gerais ]]; then
   inventory=$(go list -race ./...)
-  mapfile -t packages < <(printf '%s\n' "$inventory" | awk -v app="$app" -v chat="$chat" 'NF && $0 != app && $0 != chat')
-  if [[ $(printf '%s\n' "$inventory" | grep -Fxc "$app") != 1 || $(printf '%s\n' "$inventory" | grep -Fxc "$chat") != 1 || ${#packages[@]} == 0 ]]; then
-    echo 'Inventário de pacotes vazio ou sem App/Chat únicos' >&2
+  mapfile -t packages < <(printf '%s\n' "$inventory" | awk -v app="$app" -v chat="$chat" -v wailsapi="$wailsapi" 'NF && $0 != app && $0 != chat && $0 != wailsapi')
+  if [[ $(printf '%s\n' "$inventory" | grep -Fxc "$app") != 1 || $(printf '%s\n' "$inventory" | grep -Fxc "$chat") != 1 || $(printf '%s\n' "$inventory" | grep -Fxc "$wailsapi") != 1 || ${#packages[@]} == 0 ]]; then
+    echo 'Inventário de pacotes vazio ou sem App/Chat/WailsAPI únicos' >&2
     exit 1
   fi
   exec go test "${flags[@]}" -json "${packages[@]}"
@@ -29,6 +30,12 @@ fi
 if [[ $# != 1 || " ${groups[*]} " != *" $1 "* ]]; then
   echo 'Informe um grupo válido (consulte --groups)' >&2
   exit 1
+fi
+
+# O pacote inteiro tem runner próprio; novos testes entram automaticamente.
+# Evita que o tempo acumulado dos outros pacotes o corte no fim do job.
+if [[ $1 == pacote-wailsapi ]]; then
+  exec go test "${flags[@]}" -json ./internal/wailsapi
 fi
 
 package=./internal/app

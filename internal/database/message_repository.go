@@ -16,8 +16,7 @@ import (
 
 // MessageRepository encapsula a persistencia de mensagens de chat com um *gorm.DB injetado.
 type MessageRepository struct {
-	includeTimelineTurns bool
-	db                   *gorm.DB
+	db *gorm.DB
 }
 
 // NewMessageRepository cria um MessageRepository com o *gorm.DB injetado.
@@ -1364,16 +1363,6 @@ func (r *MessageRepository) GetRootMessagesBeforeWithContext(ctx context.Context
 	return messages, nil
 }
 
-// WithTimelineTurns inclui turnos admitidos antes da criação da mensagem final.
-// O contrato legado de MessageWindow não consegue representar esses itens;
-// somente a nova leitura de TimelineItem usa esta mesma consulta ampliada.
-// A materialização canônica exclui blobs de áudio/mídia, ausentes do seu DTO.
-func (r *MessageRepository) WithTimelineTurns() *MessageRepository {
-	clone := *r
-	clone.includeTimelineTurns = true
-	return &clone
-}
-
 type MessageWindowQuery struct {
 	Cursor          string
 	AnchorItemID    string
@@ -1516,10 +1505,7 @@ func (r *MessageRepository) timelineItemCTEForScope(parentPredicate, turnParentP
 }
 
 func (r *MessageRepository) timelineItemCTEWithSources(parentPredicate, turnParentPredicate, messageSource, turnSource, turnPredicate string) string {
-	extra := ""
-	if r.includeTimelineTurns {
-		extra = ` UNION ALL SELECT NULL,'turn',t.user_message_id,CAST(q.created_at AS TEXT),q.id,1,0,q.parent_id FROM ` + turnSource + ` WHERE t.conversation_id=? AND q.conversation_id=t.conversation_id AND q.role='user' AND ` + turnParentPredicate + turnPredicate
-	}
+	extra := ` UNION ALL SELECT NULL,'turn',t.user_message_id,CAST(q.created_at AS TEXT),q.id,1,0,q.parent_id FROM ` + turnSource + ` WHERE t.conversation_id=? AND q.conversation_id=t.conversation_id AND q.role='user' AND ` + turnParentPredicate + turnPredicate
 	return fmt.Sprintf(`
 WITH scoped AS (
  SELECT m.id,
@@ -1565,9 +1551,7 @@ func (r *MessageRepository) timelineItemArgs(conversationID string, parentID *st
 	if parentID != nil {
 		args = append(args, *parentID)
 	}
-	if r.includeTimelineTurns {
-		args = append(args, args...)
-	}
+	args = append(args, args...)
 	return args
 }
 
@@ -1587,9 +1571,6 @@ WHERE s.id = ?
 LIMIT 1`
 	args := append(r.timelineItemArgs(query.ConversationID, query.ParentID), query.AnchorMessageID)
 	if query.AnchorItemID != "" {
-		if !r.includeTimelineTurns {
-			return nil, fmt.Errorf("anchorItemId exige janela canônica")
-		}
 		// A identidade já é conhecida. Reutiliza a seleção pontual para não
 		// classificar toda a conversa em cada prova de fronteira histórica.
 		var err error
@@ -1706,17 +1687,6 @@ func (r *MessageRepository) fetchMessagesForTimelineItems(conversationID string,
 	return messages, nil
 }
 
-// GetMessageWindowWithContext retorna uma fatia ordenada de itens de timeline
-// para o usuário do contexto, acompanhada de metadados absolutos para
-// renderização acessível e navegação incremental.
-func GetMessageWindowWithContext(ctx context.Context, query MessageWindowQuery) (*MessageWindowResult, error) {
-	return NewMessageRepository(db).GetMessageWindowWithContext(ctx, query)
-}
-
-func (r *MessageRepository) GetMessageWindowWithContext(ctx context.Context, query MessageWindowQuery) (*MessageWindowResult, error) {
-	return r.ReadMessageWindowWithContext(ctx, query, nil)
-}
-
 // ReadMessageWindowWithContext seleciona a página uma única vez. O guard opcional
 // recebe identidades/metadados antes do conteúdo. O chamador deve fornecer um
 // repositório transacional para manter seleção, guard e leitura no mesmo snapshot.
@@ -1745,7 +1715,7 @@ func (r *MessageRepository) ReadMessageWindowWithContext(ctx context.Context, qu
 // autorização, cursores e cota de identidades. Não consulta mensagens completas
 // nem ledger. O chamador usa transação para compartilhar a versão do snapshot.
 func (r *MessageRepository) SelectTimelineWindowWithContext(ctx context.Context, query MessageWindowQuery) (*MessageWindowResult, error) {
-	return r.WithTimelineTurns().selectMessageWindow(ctx, query)
+	return r.selectMessageWindow(ctx, query)
 }
 
 func (r *MessageRepository) selectMessageWindow(ctx context.Context, query MessageWindowQuery) (*MessageWindowResult, error) {
@@ -1769,9 +1739,6 @@ func (r *MessageRepository) selectMessageWindow(ctx context.Context, query Messa
 	}
 	var cursor *timelineCursor
 	if query.Cursor != "" {
-		if !r.includeTimelineTurns {
-			return nil, ErrTimelineCursorInvalid
-		}
 		var err error
 		cursor, err = decodeTimelineCursor(query)
 		if err != nil {

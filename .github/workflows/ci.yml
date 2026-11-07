@@ -179,6 +179,7 @@ jobs:
       matrix:
         group:
           - pacotes-gerais
+          - pacote-wailsapi
           - pacote-chat-0
           - pacote-chat-1
           - comandos-configuracao

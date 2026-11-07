@@ -5,7 +5,7 @@ import "context"
 // SelectHistoricalTimelineWithContext mantém os limites aceitos da janela.
 // Não repete Anchor=end nem troca uma âncora removida por outra página.
 func (r *MessageRepository) SelectHistoricalTimelineWithContext(ctx context.Context, query MessageWindowQuery, first, last string) (*MessageWindowResult, error) {
-	repo := NewMessageRepository(r.db.WithContext(ctx)).WithTimelineTurns()
+	repo := NewMessageRepository(r.db.WithContext(ctx))
 	result, err := repo.selectMessageWindow(ctx, MessageWindowQuery{ConversationID: query.ConversationID, ParentID: query.ParentID})
 	if err != nil {
 		return nil, err

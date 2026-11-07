@@ -3,7 +3,12 @@
 set -euo pipefail
 script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 repo_dir=$(cd -- "$script_dir/../.." && pwd)
-test_dir=$(mktemp -d)
+test_root="$repo_dir/build/bin/ci/race-script-test"
+mkdir -p -- "$test_root"
+test_root=$(cd -- "$test_root" && pwd -P)
+test_dir=$(mktemp -d "$test_root/run.XXXXXX")
+test_dir=$(cd -- "$test_dir" && pwd -P)
+[[ $test_dir == "$test_root/"* ]] || exit 1
 trap 'rm -rf -- "$test_dir"' EXIT
 export RACE_MOCK_DIR="$test_dir"
 export PATH="$test_dir:$PATH"
@@ -28,7 +33,7 @@ fi
 MOCK
 chmod +x "$test_dir/go"
 
-printf '%s\n' assistente/internal/app assistente/internal/app/child assistente/internal/chat assistente/internal/chat/child assistente/internal/auth > "$test_dir/packages"
+printf '%s\n' assistente/internal/app assistente/internal/app/child assistente/internal/chat assistente/internal/chat/child assistente/internal/wailsapi assistente/internal/wailsapi/child assistente/internal/auth > "$test_dir/packages"
 
 add_fixture() {
   local group=$1
@@ -87,7 +92,7 @@ assert_flags() {
 }
 
 expected_groups=(
-  pacotes-gerais pacote-chat-0 pacote-chat-1 comandos-configuracao comandos-dispositivos
+  pacotes-gerais pacote-wailsapi pacote-chat-0 pacote-chat-1 comandos-configuracao comandos-dispositivos
   comandos-contexto-deck-paginas comandos-contexto-deck-mermaid comandos-contexto-deck-camadas comandos-contexto-deck-base
   comandos-contexto-paleta comandos-contexto-workspace comandos-contexto-base
   comandos-execucao comandos-jobs comandos-interface comandos-seguranca comandos-outros app-chat app-demais
@@ -111,7 +116,7 @@ diff -u "$test_dir/script-ci-groups" "$test_dir/ci-groups"
 
 assert_unique 'fixture de nomes' "$test_dir/expected"
 mapfile -t fixture_names < "$test_dir/expected"
-for group in "${expected_groups[@]:3}"; do
+for group in "${expected_groups[@]:4}"; do
   run "$group"
   assert_flags 'test -race -short -count=1 -timeout=20m'
   [[ ${#got[@]} == 8 && ${got[0]} == test && ${got[5]} == -run && ${got[7]} == ./internal/app ]] ||
@@ -141,8 +146,13 @@ done
 
 run pacotes-gerais
 assert_flags 'test -race -short -count=1 -timeout=20m'
-[[ ${#got[@]} == 9 && ${got[0]} == test && ${got[5]} == -json && ${got[6]} == assistente/internal/app/child && ${got[7]} == assistente/internal/chat/child && ${got[8]} == assistente/internal/auth ]] ||
-  fail "pacotes-gerais repetiu App/Chat ou mudou a lista: ${got[*]}"
+[[ ${#got[@]} == 10 && ${got[0]} == test && ${got[5]} == -json && ${got[6]} == assistente/internal/app/child && ${got[7]} == assistente/internal/chat/child && ${got[8]} == assistente/internal/wailsapi/child && ${got[9]} == assistente/internal/auth ]] ||
+  fail "pacotes-gerais repetiu App/Chat/WailsAPI ou mudou a lista: ${got[*]}"
+
+run pacote-wailsapi
+assert_flags 'test -race -short -count=1 -timeout=20m'
+[[ ${#got[@]} == 7 && ${got[5]} == -json && ${got[6]} == ./internal/wailsapi ]] ||
+  fail "pacote-wailsapi não executou o pacote inteiro exatamente uma vez: ${got[*]}"
 
 # A união disjunta dos grupos precisa cobrir tudo que Go descobriu, incluindo
 # nomes futuros. Não replica o algoritmo de hash para calcular o esperado.
@@ -178,6 +188,7 @@ MOCK_FAIL=discovery reject comandos-configuracao
 MOCK_FAIL=execution reject comandos-configuracao
 MOCK_FAIL=packages reject pacotes-gerais
 MOCK_FAIL=execution reject pacotes-gerais
+MOCK_FAIL=execution reject pacote-wailsapi
 MOCK_FAIL=execution reject pacote-chat-0
 MOCK_FAIL=discovery reject pacote-chat-0
 : > "$test_dir/chat-names"
@@ -188,8 +199,10 @@ printf '%s\n' TestOnly > "$test_dir/names"
 reject comandos-configuracao
 : > "$test_dir/packages"
 reject pacotes-gerais
-printf '%s\n' assistente/internal/app assistente/internal/auth > "$test_dir/packages"
+printf '%s\n' assistente/internal/app assistente/internal/wailsapi assistente/internal/auth > "$test_dir/packages"
 reject pacotes-gerais
-printf '%s\n' assistente/internal/chat assistente/internal/auth > "$test_dir/packages"
+printf '%s\n' assistente/internal/chat assistente/internal/wailsapi assistente/internal/auth > "$test_dir/packages"
+reject pacotes-gerais
+printf '%s\n' assistente/internal/app assistente/internal/chat assistente/internal/auth > "$test_dir/packages"
 reject pacotes-gerais
 echo 'PASS: destino exato dos grupos, fallback residual, flags, matriz CI, pacotes e falhas'

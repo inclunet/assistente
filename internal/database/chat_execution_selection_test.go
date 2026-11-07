@@ -101,7 +101,7 @@ func TestExecutionSelectionRetryAndContinuationBeforeLimits(t *testing.T) {
 	if !reflect.DeepEqual(selectedMessageIDs(window.Messages), []string{"question", "b-mid", "c-final"}) {
 		t.Fatalf("contexto divergiu: %v", selectedMessageIDs(window.Messages))
 	}
-	page, err := repo.GetMessageWindowWithContext(ctx, MessageWindowQuery{ConversationID: "conv", Anchor: "end", Direction: "before", Limit: 2})
+	page, err := repo.ReadMessageWindowWithContext(ctx, MessageWindowQuery{ConversationID: "conv", Anchor: "end", Direction: "before", Limit: 2}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -324,7 +324,7 @@ func TestWindowIdentityBudgetPrecedesPayloadGuard(t *testing.T) {
 		t.Fatal(err)
 	}
 	guardCalls := 0
-	_, err := database.NewMessageRepository(f.db).WithTimelineTurns().ReadMessageWindowWithContext(f.ctx, database.MessageWindowQuery{ConversationID: f.conversation, Limit: 100}, func(_ []database.MessageWindowItem) error { guardCalls++; return nil })
+	_, err := database.NewMessageRepository(f.db).ReadMessageWindowWithContext(f.ctx, database.MessageWindowQuery{ConversationID: f.conversation, Limit: 100}, func(_ []database.MessageWindowItem) error { guardCalls++; return nil })
 	if !errors.Is(err, ErrTimelineSourceLimit) || guardCalls != 0 {
 		t.Fatal("identidades transferidas antes da cota", err, guardCalls)
 	}

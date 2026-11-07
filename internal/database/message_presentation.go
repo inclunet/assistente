@@ -32,7 +32,7 @@ func countCanonicalChildren(ctx context.Context, tx *gorm.DB, conversationID str
 	if err != nil {
 		return nil, err
 	}
-	repo := NewMessageRepository(tx).WithTimelineTurns()
+	repo := NewMessageRepository(tx)
 	// CROSS JOIN fixes the loop order: select child questions by parent first,
 	// then probe the turn primary key. No conversation-wide turn scan is needed,
 	// even before SQLite has collected planner statistics.
