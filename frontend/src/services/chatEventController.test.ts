@@ -449,6 +449,7 @@ describe('chatEventController', () => {
 
     // O transporte operacional não cria outra árvore visual em nenhuma sessão.
     expect(sessions['conversation-1'].conversation?.threadedMessages).toEqual([]);
+    expect(adapter.patchConversation).not.toHaveBeenCalled();
     expect(sessions['conversation-2'].conversation?.threadedMessages).toEqual([]);
     expect(mockPlayChatReceiveSoundIfActive).toHaveBeenCalledWith('conversation-1', undefined);
     expect(mockPlayChatReceiveSoundIfActive).not.toHaveBeenCalledWith('conversation-2', expect.anything());
@@ -501,6 +502,7 @@ describe('chatEventController', () => {
     vi.advanceTimersByTime(16);
 
     expect(sessions['conversation-1'].conversation?.threadedMessages).toEqual([]);
+    expect(adapter.patchConversation).not.toHaveBeenCalled();
     expect(updateMessage).not.toHaveBeenCalled();
     expect(mockAnnounceForActiveChatConversation).toHaveBeenCalledTimes(1);
   });
@@ -663,6 +665,7 @@ describe('chatEventController', () => {
     });
 
     expect(sessions['conversation-1'].conversation?.threadedMessages).toEqual([]);
+    expect(adapter.patchConversation).not.toHaveBeenCalled();
   });
 
   it('processa messages_ready, stream e done sem alterar a ordem visual publicada pelo backend', async () => {
@@ -706,6 +709,7 @@ describe('chatEventController', () => {
     expect(sessions['conversation-1'].isLoading).toBe(false);
     expect(mockAnnounceChatBackgroundResponseDone).toHaveBeenCalledWith('conversation-1', 'Conversa conversation-1', undefined);
     expect(sessions['conversation-1'].conversation?.threadedMessages).toEqual([]);
+    expect(adapter.patchConversation).not.toHaveBeenCalled();
     await presentation.close();
   });
 
@@ -860,6 +864,7 @@ describe('chatEventController', () => {
 
     expect(mockAnnounceWithOrigin).toHaveBeenCalledWith(expect.objectContaining({ message: 'chat.outputLimitReached', eventType: 'system' }));
     expect(sessions['conversation-1'].conversation?.threadedMessages).toEqual([]);
+    expect(adapter.patchConversation).not.toHaveBeenCalled();
     expect(mockPlayChatErrorSoundIfActive).not.toHaveBeenCalled();
   });
 
@@ -978,6 +983,7 @@ describe('chatEventController', () => {
     });
 
     expect(sessions['conversation-1'].conversation?.threadedMessages).toEqual([]);
+    expect(adapter.patchConversation).not.toHaveBeenCalled();
     expect(mockAnnounceWithOrigin).toHaveBeenCalledWith(expect.objectContaining({ message: 'chat.errors.internalError', eventType: 'error' }));
     expect(sessions['conversation-1'].isLoading).toBe(false);
     expect(mockPlayChatErrorSoundIfActive).toHaveBeenCalledWith('conversation-1', undefined);
@@ -1002,6 +1008,7 @@ describe('chatEventController', () => {
     });
 
     expect(sessions['conversation-1'].conversation?.threadedMessages).toEqual([]);
+    expect(adapter.patchConversation).not.toHaveBeenCalled();
     expect(sessions['conversation-1']).toMatchObject({ sendFailureMessage: 'boom sem id terminal', sendFailureRetryable: false, sendFailureAnnounced: true });
     expect(mockAnnounceWithOrigin).toHaveBeenCalledWith(expect.objectContaining({ message: 'boom sem id terminal', eventType: 'error' }));
   });
@@ -1025,6 +1032,7 @@ describe('chatEventController', () => {
     });
 
     expect(sessions['conversation-1'].conversation?.threadedMessages).toEqual([]);
+    expect(adapter.patchConversation).not.toHaveBeenCalled();
     expect(sessions['conversation-1']).toMatchObject({ sendFailureMessage: 'done sem id terminal', sendFailureRetryable: false, sendFailureAnnounced: true });
     expect(mockAnnounceWithOrigin).toHaveBeenCalledWith(expect.objectContaining({ message: 'done sem id terminal', eventType: 'error' }));
   });
@@ -1390,6 +1398,7 @@ describe('chatEventController', () => {
 
     expect(mockAnnounceWithOrigin).toHaveBeenCalledWith(expect.objectContaining({ message: 'chat.errors.internalError', eventType: 'error' }));
     expect(sessions['conversation-1'].conversation?.threadedMessages).toEqual([]);
+    expect(adapter.patchConversation).not.toHaveBeenCalled();
     expect(sessions['conversation-1'].isLoading).toBe(false);
   });
 
@@ -1506,6 +1515,7 @@ describe('chatEventController', () => {
     vi.runOnlyPendingTimers();
 
     expect(sessions['conversation-1'].conversation?.threadedMessages).toEqual([]);
+    expect(adapter.patchConversation).not.toHaveBeenCalled();
   });
 
   it('entrada externa anuncia origem e usa a sessão por conversationId', () => {
@@ -1525,6 +1535,7 @@ describe('chatEventController', () => {
 
     expect(sessions['conversation-1'].isLoading).toBe(true);
     expect(sessions['conversation-1'].conversation?.threadedMessages).toEqual([]);
+    expect(adapter.patchConversation).not.toHaveBeenCalled();
     expect(mockAnnounce).toHaveBeenCalledWith('Maria via telegram: olá externo');
   });
 

@@ -44,8 +44,12 @@ identidade passaram novamente. Build/vet/lint incremental Go (zero issues) e 35 
 timeline/janela da borda app aprovados. A seleção frontend ampliada excluiu os
 31 arquivos de teste que mencionam ACP. Uma execução frontend inicialmente
 sem esse filtro foi interrompida; não foi executada a suíte Go de ACP.
-Revisor independente `review_canonical_cleanup`: três rodadas, última sobre o
-diff completo sem pendências. CI e review remota registrados na entrega do PR.
+Revisor independente `review_canonical_cleanup`: três rodadas iniciais sobre o
+diff completo sem pendências. A revisão remota pediu explicitar a ausência de
+chamadas a `patchConversation` também nos cenários que verificam árvore vazia;
+os asserts foram acrescentados e os 79 testes focados passaram novamente.
+Quarta rodada local dessa correção sem pendências; resultado final de CI
+registrado na entrega do PR.
 
 ### Provas de retenção na WebView e custo da publicação (06/11/2026)
 
