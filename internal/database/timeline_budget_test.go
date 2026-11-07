@@ -32,7 +32,7 @@ func TestTimelineIdentitySelectionMasksBeforeScan(t *testing.T) {
 			t.Error(err)
 		}
 	})
-	repo := NewMessageRepository(db).WithTimelineTurns()
+	repo := NewMessageRepository(db)
 	// A consulta seleciona dois itens, incluindo um ID com NUL; LENGTH(TEXT)
 	// contaria só seu prefixo e deixaria a identidade excessiva passar.
 	query := `SELECT 'message' kind, ? id, '' message_id, '' turn_id, '2026' created_at, 'anchor' anchor_id, 0 invalid_turn_reference, 0 slot, 'message:a' item_key, 12 window_total UNION ALL SELECT 'message', 'small', '', '', '2025', 'anchor', 0, 0, 'message:b', 12`

@@ -92,8 +92,6 @@ func (r *DBTimelineReader) ReadCanonicalWindow(ctx context.Context, query databa
 		result.Version = version
 		repo := database.NewMessageRepository(tx)
 
-		repo = repo.WithTimelineTurns()
-
 		if err := validateTimelineParent(ctx, repo, query); err != nil {
 			return err
 		}

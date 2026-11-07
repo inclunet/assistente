@@ -30,11 +30,6 @@ func CheckTimelineIdentityBudget(sets ...[]string) error {
 // A subconsulta contém a seleção paginada única. A soma e o mascaramento
 // acontecem no SQLite, antes de qualquer identidade excessiva chegar ao Go.
 func (r *MessageRepository) scanTimelineItems(query string, args []interface{}, order string) ([]MessageWindowItem, error) {
-	if !r.includeTimelineTurns {
-		var rows []MessageWindowItem
-		err := r.db.Raw(query, args...).Scan(&rows).Error
-		return rows, err
-	}
 	columns := []string{"kind", "id", "message_id", "turn_id", "created_at", "anchor_id"}
 	sizes, masks := make([]string, 0, len(columns)), make([]string, 0, len(columns))
 	for _, column := range columns {
