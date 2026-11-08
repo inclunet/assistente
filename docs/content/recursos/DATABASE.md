@@ -194,6 +194,10 @@ CLI ou executáveis de teste e não substituem o relatório do app.
 
 ## Manutenção e retenção
 
+A espera maior por bloqueios durante a compactação fica restrita à manutenção.
+Ao terminar, inclusive em erro, a conexão retorna à política anterior; as demais
+operações não herdam essa espera adicional.
+
 Quando um limite de idade para ferramentas do chat está configurado, a limpeza
 preserva as mensagens e os registros recentes. Um registro recente que dependa
 de outro vencido é preservado e desvinculado; se a transação falhar, a exclusão

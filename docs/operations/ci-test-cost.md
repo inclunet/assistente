@@ -480,3 +480,20 @@ Auditoria permanece a primeira escrita e vínculo/auditoria continuam atômicos.
 O teste concorrente original foi preservado; não houve aumento de timeout,
 retry no teste nem redução de concorrência. Isso corrige comportamento produtivo,
 não apenas a estabilidade do CI.
+
+
+## Política da conexão após compactação
+
+A investigação das falhas temporais de jobs encontrou um defeito separado:
+`Compact` configurava `busy_timeout=5000` e devolvia essa conexão ao pool sem
+restaurá-la. Operações comuns podiam herdar cinco segundos em vez dos 100 ms
+do DSN produtivo, antes de voltar à política central de retry. Não foi provado
+que esse vazamento causou as duas falhas do run `42522084440`.
+
+A regressão usa um pool de uma conexão e um timeout original não padrão (37 ms):
+antes, os quatro casos — completo, incremental, abaixo do limiar e erro de
+VACUUM em arquivo somente leitura — devolveram 5000 ms. A manutenção agora
+preserva/restaura o estado da própria conexão. O cleanup não herda cancelamento
+da operação; falha ao restaurar descarta a conexão e é reportada, preservando
+também eventual erro de compactação. Os dados e resultados da operação continuam
+verificados; não há mudança em prazos de teste nem na espera da compactação.

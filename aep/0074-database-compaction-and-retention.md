@@ -2,6 +2,15 @@
 
 **Status:** In Progress
 
+**Isolamento da política de conexão na compactação (08/11/2026): In Progress.**
+A espera nativa maior de checkpoint/VACUUM permanece restrita à conexão durante
+a manutenção: seu valor anterior é restaurado antes do retorno ao pool, também
+em erro. O cleanup não usa o cancelamento da operação; se a restauração falhar,
+a conexão é descartada e o erro é reportado. Regressão com SQLite real cobre
+compactação completa, incremental, limiar e falha em banco somente leitura,
+preservando dados. Evidência em `docs/operations/ci-test-cost.md` (#1008).
+Não promove aceites das extensões nem atribui a correção às falhas de jobs no CI.
+
 **Driver SQLite para a abertura do chat (08/11/2026): Accepted.**
 O mantenedor autorizou revisar a escolha de `github.com/glebarez/sqlite` para
 qualificar `modernc.org/sqlite` com `gorm.io/driver/sqlite` oficial e Go 1.26,
