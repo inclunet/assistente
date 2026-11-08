@@ -19,13 +19,18 @@ var schema struct {
 	err   error
 }
 
-// Open instala um banco privado no singleton de database e o restaura no cleanup.
+// Open cria um banco em diretório privado novo, retorna seu caminho absoluto,
+// instala-o no singleton de database e restaura o singleton no cleanup.
 // Como os demais usuários desse singleton, os testes consumidores não podem
 // rodar em paralelo. Somente bytes do banco vazio são compartilhados: nunca
 // conexão, transação, usuário ou dados de cenário. A imagem nasce novamente
 // em cada processo de testes, pelo bootstrap real da revisão compilada.
-func Open(t testing.TB, path string) {
+func Open(t testing.TB) string {
 	t.Helper()
+	path, err := filepath.Abs(filepath.Join(t.TempDir(), "fixture.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
 	schema.once.Do(func() {
 		schema.image, schema.err = buildImage(filepath.Join(t.TempDir(), "schema.db"))
 	})
@@ -54,6 +59,7 @@ func Open(t testing.TB, path string) {
 			t.Errorf("fechar banco privado: %v", err)
 		}
 	})
+	return path
 }
 
 func buildImage(path string) ([]byte, error) {

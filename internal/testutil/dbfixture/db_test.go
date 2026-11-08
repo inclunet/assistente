@@ -80,8 +80,10 @@ func TestClonePreservesCanonicalSchemaAndConnectionPolicy(t *testing.T) {
 	}()
 	expected := inspect(t, canonical)
 	t.Run("clone", func(t *testing.T) {
-		path := filepath.Join(t.TempDir(), "clone.db")
-		Open(t, path)
+		path := Open(t)
+		if !filepath.IsAbs(path) {
+			t.Fatalf("caminho privado não é absoluto: %q", path)
+		}
 		if got := inspect(t, database.DB()); !reflect.DeepEqual(got, expected) {
 			t.Fatal("schema/política divergiu do bootstrap real")
 		}
@@ -102,8 +104,7 @@ func TestClonePreservesCanonicalSchemaAndConnectionPolicy(t *testing.T) {
 }
 
 func TestClonesIsolateRowsSchemaAndCloseOwnedConnections(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "outer.db")
-	Open(t, path)
+	path := Open(t)
 	outer := database.DB()
 	if err := outer.Exec("CREATE TABLE private_marker (id INTEGER PRIMARY KEY)").Error; err != nil {
 		t.Fatal(err)
@@ -114,10 +115,13 @@ func TestClonesIsolateRowsSchemaAndCloseOwnedConnections(t *testing.T) {
 	if err := outer.Create(&database.User{UUIDModel: database.UUIDModel{ID: "private-user"}, Username: "private-user"}).Error; err != nil {
 		t.Fatal(err)
 	}
-	var closed *sql.DB
 	for _, name := range []string{"first", "second"} {
+		var closed *sql.DB
 		t.Run(name, func(t *testing.T) {
-			Open(t, filepath.Join(t.TempDir(), "copy.db"))
+			copyPath := Open(t)
+			if filepath.Dir(copyPath) == filepath.Dir(path) {
+				t.Fatal("cópia reutilizou o diretório do banco anterior")
+			}
 			copyDB := database.DB()
 			var err error
 			closed, err = copyDB.DB()
@@ -138,8 +142,10 @@ func TestClonesIsolateRowsSchemaAndCloseOwnedConnections(t *testing.T) {
 				t.Fatal(err)
 			}
 		})
-		if err := closed.Ping(); err == nil {
-			t.Fatal("cleanup deixou a conexão da cópia aberta")
+		if closed != nil {
+			if err := closed.Ping(); err == nil {
+				t.Fatal("cleanup deixou a conexão da cópia aberta")
+			}
 		}
 		if database.DB() != outer {
 			t.Fatal("cleanup não restaurou o singleton externo")
@@ -162,7 +168,7 @@ func TestClonesIsolateRowsSchemaAndCloseOwnedConnections(t *testing.T) {
 }
 
 func TestImageFailureRestoresPreviousDatabase(t *testing.T) {
-	Open(t, filepath.Join(t.TempDir(), "previous.db"))
+	Open(t)
 	previous := database.DB()
 	if _, err := buildImage("relative.db"); err == nil {
 		t.Fatal("aceitou caminho inválido")

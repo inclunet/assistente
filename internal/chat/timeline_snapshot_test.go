@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -29,8 +28,7 @@ type snapshotFixture struct {
 
 func newSnapshotFixture(t testing.TB) snapshotFixture {
 	t.Helper()
-	path := filepath.Join(t.TempDir(), "snapshot.db")
-	dbfixture.Open(t, path)
+	path := dbfixture.Open(t)
 	db := database.DB()
 	// Fixtures exercitam payloads sintéticos de vários MiB. Scan do GORM registra
 	// SQL já expandido, mesmo com ParameterizedQueries. Lentidão é esperada aqui;

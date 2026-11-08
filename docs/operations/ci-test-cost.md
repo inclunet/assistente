@@ -165,6 +165,8 @@ O teste estava repetindo o bootstrap do banco durante a preparação dos cenári
 `internal/testutil/dbfixture` prepara uma imagem vazia pelo `InitPath` real uma
 vez por processo e fecha suas conexões antes de ler o arquivo consolidado.
 Cada fixture recebe uma cópia física privada dessa imagem e conexões novas.
+O helper cria seu próprio diretório temporário e devolve o caminho absoluto;
+não aceita destinos externos que possam conter outro banco ou WAL remanescente.
 Os bytes não são expostos nem modificados; não se compartilham usuários,
 conversas, transações ou conexões. A imagem não é versionada, salva em cache de
 CI nem reaproveitada entre processos/revisões. Não há lista manual de models,

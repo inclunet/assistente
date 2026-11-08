@@ -18,7 +18,7 @@ func setupTurnRuntime(t *testing.T) (*Service, context.Context, string, string, 
 	cache := t.TempDir()
 	t.Setenv("LOCALAPPDATA", cache)
 	t.Setenv("XDG_CACHE_HOME", cache)
-	dbfixture.Open(t, filepath.Join(t.TempDir(), "runtime.db"))
+	dbfixture.Open(t)
 	if err := database.DB().Create(&database.User{UUIDModel: database.UUIDModel{ID: "runtime-user"}, Username: "runtime-user"}).Error; err != nil {
 		t.Fatal(err)
 	}
