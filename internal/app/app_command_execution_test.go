@@ -17,14 +17,14 @@ import (
 	"assistente/internal/commandledger"
 	"assistente/internal/credentials"
 	"assistente/internal/database"
-	"github.com/glebarez/sqlite"
+	"assistente/internal/sqlite"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 )
 
 func TestCommandExecutionAppUsesInstanceKeyAndRejectsLogout(t *testing.T) {
 	ctx := context.Background()
-	db, err := gorm.Open(sqlite.Open(filepath.Join(t.TempDir(), "commands.db")), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open(database.SQLiteDSN(filepath.Join(t.TempDir(), "commands.db"))), &gorm.Config{})
 	if err != nil {
 		t.Fatal(err)
 	}

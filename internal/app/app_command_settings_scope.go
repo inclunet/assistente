@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"log/slog"
-	"reflect"
 	"strings"
 
 	"assistente/internal/auth"
@@ -310,7 +309,7 @@ func (a *App) MutateCommandSettings(req CommandSettingsMutationRequest) (result 
 	}
 	baseHook := inputs.OnMutationTx
 	inputs.OnMutationTx = func(hookCtx context.Context, tx *gorm.DB, diff commandconfig.MutationDiff) error {
-		if !commandSettingsDiffMatchesSnapshot(diff, snapshot) {
+		if !diff.MatchesSnapshot(snapshot) {
 			return commandconfig.ErrStale
 		}
 		if err := baseHook(hookCtx, tx, diff); err != nil {
@@ -355,19 +354,6 @@ func (a *App) MutateCommandSettings(req CommandSettingsMutationRequest) (result 
 	}
 	result = CommandSettingsMutation{Committed: applied.Committed, Published: applied.Rebuilt, ID: commandSettingsResourceID(intent, applied.Diff)}
 	return result, nil
-}
-
-func commandSettingsDiffMatchesSnapshot(diff commandconfig.MutationDiff, snapshot commandconfig.Snapshot) bool {
-	return diff.Scope.UserID == snapshot.Scope.UserID && sameCommandWorkspace(diff.Scope.WorkspaceID, snapshot.Scope.WorkspaceID) &&
-		commandSettingsSlicesEqual(diff.BeforeLayers, snapshot.Layers) &&
-		commandSettingsSlicesEqual(diff.BeforeBindings, snapshot.Bindings) &&
-		commandSettingsSlicesEqual(diff.BeforeActivationRules, snapshot.ActivationRules) &&
-		commandSettingsSlicesEqual(diff.BeforeAutomationGrants, snapshot.AutomationGrants) &&
-		commandSettingsSlicesEqual(diff.BeforeActivationClaims, snapshot.ActivationClaims)
-}
-
-func commandSettingsSlicesEqual[T any](left, right []T) bool {
-	return reflect.DeepEqual(append([]T{}, left...), append([]T{}, right...))
 }
 
 func (a *App) commandSettingsScope(p *commandProductRuntime, name string) (commandconfig.Scope, error) {

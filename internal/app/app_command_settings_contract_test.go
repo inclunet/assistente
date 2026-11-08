@@ -34,7 +34,7 @@ func settingsContractApply(t *testing.T, a *App, decisions <-chan map[string]any
 	}
 	out := settingsSecurityFinish(t, done)
 	if out.err != nil || !out.result.Committed || !out.result.Published {
-		t.Fatalf("%s: %+v", req.Operation, out)
+		t.Fatalf("%s: resultado=%+v erro=%v", req.Operation, out.result, out.err)
 	}
 	return out.result
 }

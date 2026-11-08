@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"assistente/internal/commandinstance"
-	"github.com/glebarez/sqlite"
+	"assistente/internal/sqlite"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 )

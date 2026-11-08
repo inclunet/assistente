@@ -13,7 +13,7 @@ import (
 	"assistente/internal/commandbootstrap"
 	"assistente/internal/credentials"
 	"assistente/internal/database"
-	"github.com/glebarez/sqlite"
+	"assistente/internal/sqlite"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 )

@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/glebarez/sqlite"
+	"assistente/internal/sqlite"
 	"gorm.io/gorm"
 )
 
@@ -37,7 +37,7 @@ func TestConversationContentSnapshotStableScopedAndEmptyRevisionRejected(t *test
 }
 
 func TestConversationContentCompareWaitsForWriterAndRejectsNewMessage(t *testing.T) {
-	conn, err := gorm.Open(sqlite.Open(sqliteDSN(filepath.Join(t.TempDir(), "snapshot.sqlite"))), &gorm.Config{})
+	conn, err := gorm.Open(sqlite.Open(SQLiteDSN(filepath.Join(t.TempDir(), "snapshot.sqlite"))), &gorm.Config{})
 	if err != nil {
 		t.Fatal(err)
 	}

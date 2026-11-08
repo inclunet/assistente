@@ -13,7 +13,7 @@ import (
 func TestMessageUpdatesSurviveWriterContention(t *testing.T) {
 	for _, kind := range []string{"content", "text", "partial", "final", "cache"} {
 		t.Run(kind, func(t *testing.T) {
-			gdb, cleanup := openSQLitePolicyTestDB(t, sqliteDSN(filepath.Join(t.TempDir(), "messages.db"))+"&_pragma=journal_mode(WAL)")
+			gdb, cleanup := openSQLitePolicyTestDB(t, SQLiteDSN(filepath.Join(t.TempDir(), "messages.db"))+"&_pragma=journal_mode(WAL)")
 			defer cleanup()
 			if err := gdb.AutoMigrate(&Conversation{}, &ChatMessage{}); err != nil {
 				t.Fatal(err)
@@ -119,7 +119,7 @@ func TestMessageUpdatesSurviveWriterContention(t *testing.T) {
 func TestMessageUpdateRetryStopsOnCancellationAndPermanentError(t *testing.T) {
 	for _, cancelOnBusy := range []bool{false, true} {
 		t.Run(map[bool]string{false: "permanent", true: "cancelled"}[cancelOnBusy], func(t *testing.T) {
-			gdb, cleanup := openSQLitePolicyTestDB(t, sqliteDSN(filepath.Join(t.TempDir(), "failure.db")))
+			gdb, cleanup := openSQLitePolicyTestDB(t, SQLiteDSN(filepath.Join(t.TempDir(), "failure.db")))
 			defer cleanup()
 			ctx, cancel := context.WithCancel(WithUserID(context.Background(), "user-1"))
 			defer cancel()

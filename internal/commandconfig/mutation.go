@@ -224,7 +224,7 @@ func (s *Store) PrepareMutation(ctx context.Context, scope Scope, intent Mutatio
 			})
 		}
 		if intent.Operation != LayerDelete {
-			if reflect.DeepEqual(l, after.Layers[li]) {
+			if equalRow(l, after.Layers[li]) {
 				return nil, ErrInvalid
 			}
 			l.UpdatedAt = now
@@ -328,7 +328,7 @@ func (s *Store) PrepareMutation(ctx context.Context, scope Scope, intent Mutatio
 		return 0
 	})
 	projectActivationEffects(before, &after, intent.Operation, now)
-	if reflect.DeepEqual(before.Layers, after.Layers) && reflect.DeepEqual(before.Bindings, after.Bindings) && sameAggregateSnapshot(before, after) {
+	if equalRows(before.Layers, after.Layers) && reflect.DeepEqual(before.Bindings, after.Bindings) && sameAggregateSnapshot(before, after) {
 		return nil, ErrInvalid
 	}
 	if err := validateSnapshot(after); err != nil {
@@ -355,7 +355,7 @@ func (s *Store) applyMutationTx(ctx context.Context, tx *gorm.DB, p *PreparedMut
 	if err != nil {
 		return Generation{}, err
 	}
-	if !reflect.DeepEqual(current, p.before.Generations) {
+	if !equalRows(current, p.before.Generations) {
 		return Generation{}, ErrStale
 	}
 	var layers []Layer
@@ -414,7 +414,7 @@ func (s *Store) applyMutationTx(ctx context.Context, tx *gorm.DB, p *PreparedMut
 			e = tx.Create(&l).Error
 		} else {
 			for _, old := range p.before.Layers {
-				if old.ID == l.ID && !reflect.DeepEqual(old, l) {
+				if old.ID == l.ID && !equalRow(old, l) {
 					// O timestamp faz parte do preview confirmado. Updates com
 					// struct o substituiria automaticamente pelo relógio do ORM.
 					e = tx.Model(&Layer{}).Where("id = ? AND user_id = ?", l.ID, l.UserID).Updates(map[string]any{
@@ -493,9 +493,6 @@ func ruleScopeWhere(tx *gorm.DB, rule commandactivation.Rule) *gorm.DB {
 		return query.Where("workspace_id IS NULL")
 	}
 	return query.Where("workspace_id = ?", *rule.WorkspaceID)
-}
-func equalRows[T any](a, b []T) bool {
-	return reflect.DeepEqual(append([]T{}, a...), append([]T{}, b...))
 }
 func hasBinding(rows []Binding, id string) bool {
 	for _, r := range rows {

@@ -174,7 +174,7 @@ func newDefaultPreparedMutation(s *Store, before, after Snapshot, operation Oper
 	if s == nil || before.stamp == nil || before.stamp.store != s || operation == "" {
 		return nil, ErrInvalid
 	}
-	if reflect.DeepEqual(before.Layers, after.Layers) && reflect.DeepEqual(before.Bindings, after.Bindings) {
+	if equalRows(before.Layers, after.Layers) && reflect.DeepEqual(before.Bindings, after.Bindings) {
 		return nil, ErrInvalid
 	}
 	id, err := uuid.NewV7()

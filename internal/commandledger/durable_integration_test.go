@@ -1,9 +1,9 @@
 package commandledger
 
 import (
+	"assistente/internal/sqlite"
 	"context"
 	"errors"
-	"github.com/glebarez/sqlite"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 	"testing"

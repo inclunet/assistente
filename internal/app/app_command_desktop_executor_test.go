@@ -17,8 +17,8 @@ import (
 	"assistente/internal/commandledger"
 	"assistente/internal/credentials"
 	"assistente/internal/database"
+	"assistente/internal/sqlite"
 	"assistente/internal/workspace"
-	"github.com/glebarez/sqlite"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 )
@@ -164,7 +164,7 @@ func desktopFactoryRegistry() (*commandcatalog.Registry, error) {
 	definition := commandcatalog.Definition{
 		ID: "fixture.desktop", Effect: commandcatalog.Read, Decision: commandcatalog.NoDecision,
 		AllowedSources: []commandcatalog.Source{commandcatalog.Palette}, Context: commandcatalog.ContextPolicy{None: true},
-		Presentation: &commandcatalog.Presentation{Version: "test-v1", Locales: locales},
+		Presentation:    &commandcatalog.Presentation{Version: "test-v1", Locales: locales},
 		ArgumentsSchema: &commandcatalog.Schema{Type: commandcatalog.SchemaObject}, ResultSchema: &commandcatalog.Schema{Type: commandcatalog.SchemaObject},
 		Risk: commandcatalog.RiskLow, Persistence: commandcatalog.PersistencePolicy{Arguments: commandcatalog.PersistenceRedacted, Result: commandcatalog.PersistenceSummary, Audit: commandcatalog.PersistenceRedacted},
 		Scopes: []commandcatalog.Scope{commandcatalog.ScopeSession}, Availability: commandcatalog.Availability{Status: commandcatalog.Available},

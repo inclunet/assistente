@@ -9,8 +9,8 @@ import (
 	"assistente/internal/core/ports"
 	"assistente/internal/database"
 	"assistente/internal/llm"
+	"assistente/internal/sqlite"
 	"assistente/internal/toolinvocations"
-	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
 )
 

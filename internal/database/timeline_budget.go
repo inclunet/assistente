@@ -27,24 +27,31 @@ func CheckTimelineIdentityBudget(sets ...[]string) error {
 	return nil
 }
 
-var timelineIdentitySelect = func() string {
+var timelineIdentityBudgetSelect = func() string {
 	columns := []string{"kind", "id", "message_id", "turn_id", "created_at", "anchor_id"}
-	sizes, masks := make([]string, 0, len(columns)), make([]string, 0, len(columns))
+	sizes, projections := make([]string, 0, len(columns)), make([]string, 0, len(columns))
 	for _, column := range columns {
 		sizes = append(sizes, "COALESCE(LENGTH(CAST("+column+" AS BLOB)),0)")
-		masks = append(masks, "CASE WHEN identity_bytes <= "+strconv.Itoa(MaxTimelineSourceBytes)+" THEN COALESCE("+column+", '') ELSE '' END AS "+column)
+		if column != "turn_id" && column != "anchor_id" {
+			projections = append(projections, "COALESCE("+column+", '') AS "+column)
+		}
 	}
-	return "SELECT " + strings.Join(masks, ",") + ", invalid_turn_reference, window_total, identity_bytes FROM (SELECT selected.*, SUM(1024 + " + strings.Join(sizes, "+") + ") OVER () AS identity_bytes FROM ("
+	limit := strconv.Itoa(MaxTimelineSourceBytes)
+	return `), identity_budget AS (
+ SELECT SUM(1024 + ` + strings.Join(sizes, "+") + `) AS identity_bytes FROM selected
+) SELECT ` + strings.Join(projections, ",") + `,
+ COALESCE(invalid_turn_reference,0) AS invalid_turn_reference,
+ COALESCE(window_total,0) AS window_total, identity_bytes
+ FROM identity_budget LEFT JOIN selected ON identity_bytes <= ` + limit + `
+ WHERE identity_bytes > ` + limit + ` OR selected.id IS NOT NULL`
 }()
 
-// A subconsulta contém a seleção paginada única. A soma e o mascaramento
-// acontecem no SQLite, antes de qualquer identidade excessiva chegar ao Go.
+// A página é selecionada uma vez. Acima da cota, o JOIN devolve somente o
+// orçamento, sem deixar identidades excessivas atravessarem o resultado SQL.
 func (r *MessageRepository) scanTimelineItems(query string, args []interface{}, order string) ([]MessageWindowItem, error) {
-	sql := timelineIdentitySelect + query + ") selected) bounded"
-	if order != "" {
-		sql += " ORDER BY " + order
-	}
+	sql := timelineIdentitySQL(query, order)
 	rows, err := r.db.Raw(sql, args...).Rows()
+
 	if err != nil {
 		return nil, err
 	}
@@ -53,11 +60,17 @@ func (r *MessageRepository) scanTimelineItems(query string, args []interface{}, 
 	for rows.Next() {
 		var item MessageWindowItem
 		var identityBytes int64
-		if err := rows.Scan(&item.Kind, &item.ID, &item.MessageID, &item.TurnID, &item.AnchorCreatedAt, &item.AnchorID, &item.InvalidTurnReference, &item.WindowTotal, &identityBytes); err != nil {
+		if err := rows.Scan(&item.Kind, &item.ID, &item.MessageID, &item.AnchorCreatedAt, &item.InvalidTurnReference, &item.WindowTotal, &identityBytes); err != nil {
 			return nil, err
 		}
 		if identityBytes > MaxTimelineSourceBytes {
 			return nil, ErrTimelineSourceLimit
+		}
+		// A classificação canônica ancora mensagem na própria PK e resposta na
+		// PK da pergunta; ambas já são ID. Não transporta novamente essas strings.
+		item.AnchorID = item.ID
+		if item.Kind == MessageWindowItemKindTurn {
+			item.TurnID = item.ID
 		}
 		if len(items) == 0 && item.WindowTotal > 0 {
 			items = make([]MessageWindowItem, 0, min(item.WindowTotal, MaxMessageWindowRows))
@@ -65,4 +78,12 @@ func (r *MessageRepository) scanTimelineItems(query string, args []interface{}, 
 		items = append(items, item)
 	}
 	return items, rows.Err()
+}
+
+func timelineIdentitySQL(query, order string) string {
+	sql := "WITH selected AS MATERIALIZED (" + query + timelineIdentityBudgetSelect
+	if order != "" {
+		sql += " ORDER BY " + order
+	}
+	return sql
 }

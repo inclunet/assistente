@@ -10,7 +10,7 @@ import (
 	"assistente/internal/database"
 	tasklistsvc "assistente/internal/tasklist"
 
-	"github.com/glebarez/sqlite"
+	"assistente/internal/sqlite"
 	"gorm.io/gorm"
 )
 

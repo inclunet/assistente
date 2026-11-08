@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/glebarez/sqlite"
+	"assistente/internal/sqlite"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 )
@@ -57,7 +57,7 @@ func TestReserveIsIdempotentAndDoesNotRenew(t *testing.T) {
 		t.Fatalf("primeira reserva: %+v, %v", first, err)
 	}
 	retry, err := s.Reserve(context.Background(), req)
-	if err != nil || retry.Created || retry.Record.ExpiresAt != req.ExpiresAt {
+	if err != nil || retry.Created || !retry.Record.ExpiresAt.Equal(req.ExpiresAt) {
 		t.Fatalf("reentrega: %+v, %v", retry, err)
 	}
 	var ledgers, audits int64

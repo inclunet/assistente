@@ -19,11 +19,10 @@ func selectedMessageExecutionSQL(alias string) string {
 	omit := fmt.Sprintf(" AND %s.id IS NOT c.omitted_response_id", alias)
 	legacyOmit := fmt.Sprintf(" AND %s.id<>a.base_response_message_id", alias)
 	return fmt.Sprintf(`EXISTS (%s
- SELECT 1 FROM execution_chain c WHERE c.execution_id=%s.chat_execution_id%s
- UNION ALL
- SELECT 1 FROM execution_chain c JOIN chat_turn_attempts a ON a.execution_id=c.execution_id
- WHERE %s.chat_execution_id IS NULL AND a.mode='continue'
- AND a.base_execution_id IS NULL AND a.base_response_message_id IS NOT NULL%s
+ SELECT 1 FROM execution_chain c LEFT JOIN chat_turn_attempts a ON a.execution_id=c.execution_id
+ WHERE (c.execution_id=%s.chat_execution_id%s)
+ OR (%s.chat_execution_id IS NULL AND a.mode='continue'
+ AND a.base_execution_id IS NULL AND a.base_response_message_id IS NOT NULL%s)
 )`, chain, alias, omit, alias, legacyOmit)
 }
 
@@ -69,11 +68,10 @@ func (s ChatInvocationSelection) chain(alias string) string {
 
 func (s ChatInvocationSelection) Predicate(alias string) string {
 	selected := fmt.Sprintf(`EXISTS (%s
- SELECT 1 FROM execution_chain c WHERE c.execution_id=%s.chat_execution_id
- UNION ALL
- SELECT 1 FROM execution_chain c JOIN chat_turn_attempts a ON a.execution_id=c.execution_id
- WHERE %s.chat_execution_id IS NULL AND a.mode='continue'
- AND a.base_execution_id IS NULL AND a.base_response_message_id IS NOT NULL
+ SELECT 1 FROM execution_chain c LEFT JOIN chat_turn_attempts a ON a.execution_id=c.execution_id
+ WHERE c.execution_id=%s.chat_execution_id
+ OR (%s.chat_execution_id IS NULL AND a.mode='continue'
+ AND a.base_execution_id IS NULL AND a.base_response_message_id IS NOT NULL)
  )`, s.chain(alias), alias, alias)
 	if s.Historical {
 		return fmt.Sprintf("((requested_chat_execution.execution_id IS NULL AND %s.chat_execution_id IS NULL) OR %s)", alias, selected)
@@ -84,11 +82,11 @@ func (s ChatInvocationSelection) Predicate(alias string) string {
 // Depth ordena bases antes da execução selecionada, sem comparar timestamps.
 func (s ChatInvocationSelection) Depth(alias string) string {
 	query := fmt.Sprintf(`COALESCE((%s
- SELECT c.depth FROM execution_chain c WHERE c.execution_id=%s.chat_execution_id
- UNION ALL
- SELECT c.depth+1 FROM execution_chain c JOIN chat_turn_attempts a ON a.execution_id=c.execution_id
- WHERE %s.chat_execution_id IS NULL AND a.mode='continue'
- AND a.base_execution_id IS NULL AND a.base_response_message_id IS NOT NULL LIMIT 1),0)`, s.chain(alias), alias, alias)
+ SELECT c.depth+CASE WHEN %s.chat_execution_id IS NULL THEN 1 ELSE 0 END
+ FROM execution_chain c LEFT JOIN chat_turn_attempts a ON a.execution_id=c.execution_id
+ WHERE c.execution_id=%s.chat_execution_id
+ OR (%s.chat_execution_id IS NULL AND a.mode='continue'
+ AND a.base_execution_id IS NULL AND a.base_response_message_id IS NOT NULL) LIMIT 1),0)`, s.chain(alias), alias, alias, alias)
 	if !s.Historical {
 		return "CASE WHEN selected_chat_turn.current_execution_id IS NULL THEN 0 ELSE " + query + " END"
 	}

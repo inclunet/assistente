@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"assistente/internal/commandsecurity"
-	"github.com/glebarez/sqlite"
+	"assistente/internal/sqlite"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 )

@@ -401,13 +401,13 @@ func sameLayerRows(before, after []Layer) bool {
 		if _, exists := left[row.ID]; exists {
 			return false
 		}
-		left[row.ID] = row
+		left[row.ID] = comparisonRow(row)
 	}
 	for _, row := range after {
 		if _, exists := right[row.ID]; exists {
 			return false
 		}
-		right[row.ID] = row
+		right[row.ID] = comparisonRow(row)
 	}
 	return reflect.DeepEqual(left, right)
 }

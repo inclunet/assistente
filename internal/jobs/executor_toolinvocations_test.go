@@ -11,7 +11,7 @@ import (
 	"assistente/internal/toolinvocations"
 	"assistente/internal/tools"
 
-	"github.com/glebarez/sqlite"
+	"assistente/internal/sqlite"
 	"gorm.io/gorm"
 )
 

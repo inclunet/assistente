@@ -2,6 +2,20 @@
 
 Status: In Progress — evidências e aceites pendentes conforme os registros abaixo
 
+**Comparação de datas persistidas (08/11/2026): implementada; status global In Progress.**
+A qualificação do driver no AEP-0116 revelou um falso `ErrStale` no round-trip
+de configuração: `time.UTC` e um fuso fixo de offset zero representam o mesmo
+instante, mas têm estruturas internas diferentes. A comparação das linhas
+persistidas normaliza datas somente em cópias usadas para comparar; instantes,
+nanossegundos e todos os demais campos continuam participando do CAS. Nenhuma
+data é regravada ou normalizada no SQL, no preview ou no diff. Binding e Rule,
+que não possuem timestamps, mantêm a comparação de todos os seus campos.
+Evidências: `TestPersistedRowsCompareInstantsWithoutIgnoringChanges` e o
+round-trip real `TestCommandAgentPortabilityScopeAndConfirmedRoundTrip`.
+Mudanças de owner, geração, nanossegundo, revogação e prazo continuam recusadas;
+NULL não equivale a uma data. Não acrescenta retry, fallback ou novo aceite dos
+itens ainda pendentes deste AEP.
+
 **Leituras de teclado e cancelamento da manutenção (26/10/2026): In Progress.**
 A leitura do mapa mantém uma única chamada em andamento por controller e
 agrupa pedidos posteriores pelo `refreshId` já existente. Invalidações continuam

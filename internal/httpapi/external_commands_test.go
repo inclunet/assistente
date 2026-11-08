@@ -23,7 +23,7 @@ import (
 	"assistente/internal/credentials"
 	"assistente/internal/database"
 
-	"github.com/glebarez/sqlite"
+	"assistente/internal/sqlite"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 )

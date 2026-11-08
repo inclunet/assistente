@@ -5,8 +5,8 @@ import (
 	"path/filepath"
 	"testing"
 
+	"assistente/internal/sqlite"
 	"assistente/internal/tools"
-	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
 )
 

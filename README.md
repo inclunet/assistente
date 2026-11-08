@@ -107,7 +107,7 @@ O Assistente é construído com:
 - Conexão com internet (ou rede local para servidores locais)
 
 **Para Desenvolver:**
-- [Go 1.23+](https://golang.org/dl/)
+- [Go 1.26+](https://golang.org/dl/)
 - [Node.js 20+](https://nodejs.org/)
 - [Wails CLI](https://wails.io/docs/gettingstarted/installation)
 - Windows: gcc (via MinGW) | macOS: Xcode tools | Linux: gcc + gtk3-dev

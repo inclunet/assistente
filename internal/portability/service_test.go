@@ -1,9 +1,9 @@
 package portability
 
 import (
+	"assistente/internal/sqlite"
 	"context"
 	"encoding/json"
-	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
 	"strings"
 	"testing"
@@ -2173,14 +2173,14 @@ func TestImportConversationsUsesUTCFallbackForTaskListTimestamps(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetTaskListWithHierarchy() error = %v", err)
 	}
-	if importedTaskList.CreatedAt.Location() != time.UTC {
-		t.Fatalf("tasklist CreatedAt location = %s, want UTC", importedTaskList.CreatedAt.Location())
+	if _, offset := importedTaskList.CreatedAt.Zone(); offset != 0 || importedTaskList.CreatedAt.IsZero() {
+		t.Fatalf("tasklist CreatedAt = %s, want valid UTC timestamp", importedTaskList.CreatedAt)
 	}
 	if len(importedTaskList.Tasks) != 1 {
 		t.Fatalf("len(Tasks) = %d, want 1", len(importedTaskList.Tasks))
 	}
-	if importedTaskList.Tasks[0].CreatedAt.Location() != time.UTC {
-		t.Fatalf("task CreatedAt location = %s, want UTC", importedTaskList.Tasks[0].CreatedAt.Location())
+	if _, offset := importedTaskList.Tasks[0].CreatedAt.Zone(); offset != 0 || importedTaskList.Tasks[0].CreatedAt.IsZero() {
+		t.Fatalf("task CreatedAt = %s, want valid UTC timestamp", importedTaskList.Tasks[0].CreatedAt)
 	}
 }
 

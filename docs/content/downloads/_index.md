@@ -90,4 +90,4 @@ cd frontend && npm install && cd ..
 wails dev
 ```
 
-Requisitos: [Go 1.23+](https://golang.org/dl/), [Node.js 20+](https://nodejs.org/), Wails CLI.
+Requisitos: [Go 1.26+](https://golang.org/dl/), [Node.js 20+](https://nodejs.org/), Wails CLI.

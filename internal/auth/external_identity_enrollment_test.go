@@ -10,7 +10,7 @@ import (
 
 	"assistente/internal/database"
 
-	"github.com/glebarez/sqlite"
+	"assistente/internal/sqlite"
 	"gorm.io/gorm"
 )
 
@@ -231,12 +231,19 @@ func TestExternalIdentityCreateMappedRollsBackAuditWhenMappingFails(t *testing.T
 
 func TestExternalIdentityBootstrapConcurrentConnectionsHasSingleWinner(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "concurrent.db")
-	db1 := enrollmentDB(t, path)
+	// As duas conexões usam o DSN produtivo: a disputa não pode depender de
+	// uma conexão sem espera e outra com busy_timeout arbitrário de 5 segundos.
+	restore := database.SetDB(database.DB())
+	t.Cleanup(func() { _ = database.Close(); restore() })
+	if err := database.InitPath(path); err != nil {
+		t.Fatal(err)
+	}
+	db1 := database.DB()
 	user, err := NewIdentityService(db1).CreateLocalUser(context.Background(), CreateUserParams{Username: "legacy", Password: "test-password"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	db2, err := gorm.Open(sqlite.Open(path), &gorm.Config{})
+	db2, err := gorm.Open(sqlite.Open(db1.Dialector.(*sqlite.Dialector).DSN), &gorm.Config{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -246,12 +253,6 @@ func TestExternalIdentityBootstrapConcurrentConnectionsHasSingleWinner(t *testin
 	}
 	sqlDB2.SetMaxOpenConns(1)
 	t.Cleanup(func() { _ = sqlDB2.Close() })
-	if err := db2.Exec("PRAGMA foreign_keys = ON").Error; err != nil {
-		t.Fatal(err)
-	}
-	if err := db2.Exec("PRAGMA busy_timeout = 5000").Error; err != nil {
-		t.Fatal(err)
-	}
 	claims := map[string]*ExternalClaims{"admin": {Issuer: enrollmentIssuer, Subject: user.ID, Scope: enrollmentScope}}
 	services := []*ExternalIdentityAdminService{enrollmentService(t, db1, claims), enrollmentService(t, db2, claims)}
 	start := make(chan struct{})

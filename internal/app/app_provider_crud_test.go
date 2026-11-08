@@ -11,7 +11,7 @@ import (
 	"assistente/internal/llm"
 	"assistente/internal/providers"
 
-	"github.com/glebarez/sqlite"
+	"assistente/internal/sqlite"
 	"gorm.io/gorm"
 )
 
