@@ -205,3 +205,44 @@ repetido após terminar uma consulta ao inventário Go; o ensaio concorrente nã
 integra estes números. Nenhum ACP foi executado localmente. Não extrapolar as
 porcentagens para o workflow: a qualificação Linux/race, a contagem da suíte e
 o custo total serão registrados no PR e na issue a partir do CI correspondente.
+
+## Fixtures de integração da timeline
+
+O quarto recorte da #1008 aplica `dbfixture.Open` a nove preparações em seis
+arquivos de WailsAPI, App e controllers. Esses cenários verificam autorização,
+cancelamento, replay, identidade, edição e exclusão; não são testes de bootstrap
+ou upgrade. Os dados, sessões, emissores e projetores continuam sendo criados
+individualmente, depois da instalação do banco privado. Os cleanups de serviço
+continuam executando antes do fechamento das conexões. Nenhum caso, assertion,
+prazo de cancelamento ou caminho de produto mudou.
+
+Fixtures de manutenção com `auto_vacuum=NONE`, reinicialização e migração
+permanecem no caminho anterior. Não se substitui schema legado pelo schema
+atual nem se transforma a suíte em compartilhamento de estado entre testes.
+Os contratos dos AEPs 0074, 0076 e 0116 permanecem vigentes.
+
+### Comparação local
+
+Windows/Go 1.26.0, binários antes/depois compilados previamente; três pares em
+processos separados, sem outra compilação ou suíte concorrente. Cada processo
+novo inclui a preparação inicial da imagem. Os mesmos nomes de testes passaram
+em todas as amostras, sem ACP local:
+
+- WailsAPI: 23 testes de timeline, mediana do processo **17,979 → 1,444 s**
+  (92,0%). Amostras antes: 20,058 / 17,511 / 17,979; depois:
+  26,878 / 1,433 / 1,444 s.
+- Controllers: `TestConversationDeletionCoordinatesAtomicBatchBeforeEffects`,
+  com seus seis cenários, **2,824 → 0,757 s** (73,2%). Amostras antes:
+  4,931 / 2,824 / 2,719; depois: 19,276 / 0,757 / 0,753 s.
+- App: oito testes de sessão da timeline, **7,469 → 1,822 s** (75,6%).
+  Amostras antes: 10,029 / 7,469 / 7,188; depois:
+  37,360 / 1,822 / 1,727 s.
+
+As primeiras execuções dos binários novos tiveram atraso fora do tempo
+reportado pelos testes. Essas amostras foram mantidas, sem atribuir a causa a
+um componente não medido. A soma das durações dos testes top-level na primeira
+execução depois foi 1,38 / 0,70 / 1,64 s, respectivamente. As medianas dessas
+somas nos três pares foram 17,59 → 1,37 s em WailsAPI, 2,76 → 0,70 s nos
+controllers e 7,10 → 1,68 s no App. Essa soma não inclui inicialização/saída do
+processo. O resultado Linux/race e o custo do workflow devem ser medidos no CI;
+não extrapolar as porcentagens locais.

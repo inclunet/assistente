@@ -4,7 +4,6 @@ import (
 	"assistente/internal/auth"
 	"context"
 	"errors"
-	"path/filepath"
 	"runtime"
 	"sync"
 	"testing"
@@ -14,6 +13,7 @@ import (
 	"assistente/internal/chat"
 	"assistente/internal/database"
 	"assistente/internal/events"
+	"assistente/internal/testutil/dbfixture"
 	"assistente/internal/wailsapi"
 )
 
@@ -151,11 +151,7 @@ func newAppTimelineFixture(t *testing.T) (*App, *wailsapi.ChatTimeline, apidto.O
 	cache := t.TempDir()
 	t.Setenv("LOCALAPPDATA", cache)
 	t.Setenv("XDG_CACHE_HOME", cache)
-	restore := database.SetDB(database.DB())
-	if err := database.InitPath(filepath.Join(t.TempDir(), "app-timeline.db")); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = database.Close(); restore() })
+	dbfixture.Open(t)
 	if err := database.DB().Create(&database.User{UUIDModel: database.UUIDModel{ID: timelineTestUserID}, Username: "timeline-user", IsActive: true}).Error; err != nil {
 		t.Fatal(err)
 	}

@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"path/filepath"
 	"reflect"
 	"strings"
 	"sync"
@@ -14,6 +13,7 @@ import (
 	"assistente/internal/apidto"
 	"assistente/internal/chat"
 	"assistente/internal/database"
+	"assistente/internal/testutil/dbfixture"
 )
 
 type timelineTestSession struct {
@@ -87,11 +87,7 @@ func newTimelineAPIFixture(t *testing.T) timelineAPIFixture {
 	cache := t.TempDir()
 	t.Setenv("LOCALAPPDATA", cache)
 	t.Setenv("XDG_CACHE_HOME", cache)
-	restore := database.SetDB(database.DB())
-	if err := database.InitPath(filepath.Join(t.TempDir(), "timeline.db")); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = database.Close(); restore() })
+	dbfixture.Open(t)
 	if err := database.DB().Create(&database.User{UUIDModel: database.UUIDModel{ID: "timeline-user"}, Username: "timeline-user"}).Error; err != nil {
 		t.Fatal(err)
 	}

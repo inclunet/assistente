@@ -3,12 +3,12 @@ package controllers
 import (
 	"context"
 	"errors"
-	"path/filepath"
 	"strings"
 	"testing"
 
 	"assistente/internal/chat"
 	"assistente/internal/database"
+	"assistente/internal/testutil/dbfixture"
 	"gorm.io/gorm"
 )
 
@@ -38,11 +38,7 @@ func (e commandTimelineEmitter) Emit(name string, _ any) { e.emit(name) }
 func TestMessageMutationsReconcileBeforeEvents(t *testing.T) {
 	for _, mode := range []string{"command-edit", "command-pin", "command-delete", "legacy-edit", "legacy-pin", "legacy-delete", "batch-partial"} {
 		t.Run(mode, func(t *testing.T) {
-			restore := database.SetDB(database.DB())
-			if err := database.InitPath(filepath.Join(t.TempDir(), "message-timeline.db")); err != nil {
-				t.Fatal(err)
-			}
-			t.Cleanup(func() { _ = database.Close(); restore() })
+			dbfixture.Open(t)
 			db := database.DB()
 			if err := db.Create(&database.User{UUIDModel: database.UUIDModel{ID: "owner"}, Username: "owner"}).Error; err != nil {
 				t.Fatal(err)
@@ -178,11 +174,7 @@ func TestMessageMutationsReconcileBeforeEvents(t *testing.T) {
 }
 
 func TestLegacyPinReadsOnlyAuthorizedIdentityBeforeCoordination(t *testing.T) {
-	restore := database.SetDB(database.DB())
-	if err := database.InitPath(filepath.Join(t.TempDir(), "pin-identity.db")); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = database.Close(); restore() })
+	dbfixture.Open(t)
 	db := database.DB()
 	if err := db.Create(&database.User{UUIDModel: database.UUIDModel{ID: "pin-owner"}, Username: "pin-owner"}).Error; err != nil {
 		t.Fatal(err)
@@ -251,11 +243,7 @@ func TestMessageMutationDeniedGuardDoesNotEnterProjector(t *testing.T) {
 func TestMessageMutationPreservesOpaqueTurnIdentityAndIgnoresWhitespace(t *testing.T) {
 	for _, link := range []string{" \t ", "\u2003\u00a0", " turno opaco "} {
 		t.Run(link, func(t *testing.T) {
-			restore := database.SetDB(database.DB())
-			if err := database.InitPath(filepath.Join(t.TempDir(), "turn-identity.db")); err != nil {
-				t.Fatal(err)
-			}
-			t.Cleanup(func() { _ = database.Close(); restore() })
+			dbfixture.Open(t)
 			db := database.DB()
 			if err := db.Create(&database.User{UUIDModel: database.UUIDModel{ID: "owner"}, Username: "owner"}).Error; err != nil {
 				t.Fatal(err)

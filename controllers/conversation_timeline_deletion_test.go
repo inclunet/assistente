@@ -3,22 +3,18 @@ package controllers
 import (
 	"context"
 	"errors"
-	"path/filepath"
 	"testing"
 
 	"assistente/internal/chat"
 	"assistente/internal/database"
+	"assistente/internal/testutil/dbfixture"
 	"gorm.io/gorm"
 )
 
 func TestConversationDeletionCoordinatesAtomicBatchBeforeEffects(t *testing.T) {
 	for _, mode := range []string{"single", "batch", "clear-all", "rollback", "foreign", "busy"} {
 		t.Run(mode, func(t *testing.T) {
-			restore := database.SetDB(database.DB())
-			if err := database.InitPath(filepath.Join(t.TempDir(), "delete-timeline.db")); err != nil {
-				t.Fatal(err)
-			}
-			t.Cleanup(func() { _ = database.Close(); restore() })
+			dbfixture.Open(t)
 			db := database.DB()
 			for _, user := range []string{"owner", "other"} {
 				if err := db.Create(&database.User{UUIDModel: database.UUIDModel{ID: user}, Username: user}).Error; err != nil {
