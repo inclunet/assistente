@@ -2,6 +2,19 @@
 
 Status: In Progress — evidências e aceites pendentes conforme os registros abaixo
 
+**Custo das fixtures de execução contextual (08/11/2026, issue #1008):**
+`newContextualDeckTestFixture` prepara camada, regra e bindings no SQLite
+isolado de cada cenário e publica pela leitura/projeção real do lifecycle.
+Evita repetir quatro edições confirmadas durante a preparação de cada teste;
+não compartilha App, conexão, sessão ou dados mutáveis entre cenários.
+As assertions de oferta, contexto, admissão, replay, cancelamento e ledger
+permanecem. A edição confirmada continua coberta por
+`TestCommandDeckVisualConditionsFromSettingsSelectDistinctCommands`, pelos
+testes de contrato/segurança de settings e pelas fixtures de camadas/páginas.
+Este ajuste da preparação não altera contratos nem promove aceites pendentes:
+o status global permanece **In Progress**. Medições e mapa de garantias em
+[`docs/operations/ci-test-cost.md`](../docs/operations/ci-test-cost.md).
+
 **Comparação de datas persistidas (08/11/2026): implementada; status global In Progress.**
 A qualificação do driver no AEP-0116 revelou um falso `ErrStale` no round-trip
 de configuração: `time.UTC` e um fuso fixo de offset zero representam o mesmo
