@@ -40,7 +40,7 @@ fi
 MOCK
 chmod +x "$test_dir/go"
 
-printf '%s\n' assistente/internal/app assistente/internal/app/child assistente/internal/chat assistente/internal/chat/child assistente/internal/wailsapi assistente/internal/wailsapi/child assistente/internal/auth > "$test_dir/packages"
+printf '%s\n' assistente/internal/app assistente/internal/app/child assistente/internal/chat assistente/internal/chat/child assistente/internal/wailsapi assistente/internal/wailsapi/child assistente/internal/database assistente/internal/database/child assistente/internal/auth > "$test_dir/packages"
 
 cat > "$test_dir/repo/build/bin/ci/app-race.test" <<'BINARY'
 #!/usr/bin/env bash
@@ -76,7 +76,7 @@ assert_flags() {
     fail "flags -race/-short/-count/-timeout não preservadas: ${got[*]}"
 }
 
-expected_groups=(pacotes-gerais pacote-wailsapi pacote-chat-0 pacote-chat-1 pacote-app-0 pacote-app-1 pacote-app-2 pacote-app-3)
+expected_groups=(pacotes-gerais pacotes-database-wailsapi pacote-chat-0 pacote-chat-1 pacote-app-0 pacote-app-1 pacote-app-2 pacote-app-3)
 mapfile -t script_groups < <(bash "$script_dir/testar-go-race.sh" --groups)
 printf '%s\n' "${script_groups[@]}" > "$test_dir/script-groups"
 printf '%s\n' "${expected_groups[@]}" > "$test_dir/expected-groups"
@@ -93,6 +93,22 @@ cp "$test_dir/script-groups" "$test_dir/script-ci-groups"
 [[ -s "$test_dir/ci-groups" ]] || fail 'Não foi possível ler a lista matrix.group em ci.yml'
 assert_unique 'matriz backend-race-tests do CI' "$test_dir/ci-groups"
 diff -u "$test_dir/script-ci-groups" "$test_dir/ci-groups"
+
+# Produtor e executores restauram o mesmo namespace de objetos instrumentados.
+printf '%s\n' go.sum .github/scripts/testar-go-race.sh > "$test_dir/cache-expected"
+for job in backend-race-build backend-race-tests backend-race-app; do
+  awk -v job="  $job:" '
+    $0 == job { capture=1; next }
+    capture && /^  [a-z]/ { exit }
+    capture { print }
+  ' "$repo_dir/.github/workflows/ci.yml" > "$test_dir/cache-job"
+  awk '
+    /^          cache-dependency-path: \|$/ { capture=1; next }
+    capture && /^            / { sub(/^            /, ""); print; next }
+    capture { exit }
+  ' "$test_dir/cache-job" > "$test_dir/cache-paths"
+  diff -u "$test_dir/cache-expected" "$test_dir/cache-paths"
+done
 
 # Executa o gate real do workflow: só sucesso de todas as dependências aprova.
 awk '/^  backend-race:$/ { capture=1; next } capture && /^  [a-z]/ { exit } capture { print }' "$repo_dir/.github/workflows/ci.yml" > "$test_dir/gate"
@@ -161,13 +177,13 @@ done
 
 run pacotes-gerais
 assert_flags 'test -race -short -count=1 -timeout=20m'
-[[ ${#got[@]} == 10 && ${got[0]} == test && ${got[5]} == -json && ${got[6]} == assistente/internal/app/child && ${got[7]} == assistente/internal/chat/child && ${got[8]} == assistente/internal/wailsapi/child && ${got[9]} == assistente/internal/auth ]] ||
-  fail "pacotes-gerais repetiu App/Chat/WailsAPI ou mudou a lista: ${got[*]}"
+[[ ${#got[@]} == 11 && ${got[0]} == test && ${got[5]} == -json && ${got[6]} == assistente/internal/app/child && ${got[7]} == assistente/internal/chat/child && ${got[8]} == assistente/internal/wailsapi/child && ${got[9]} == assistente/internal/database/child && ${got[10]} == assistente/internal/auth ]] ||
+  fail "pacotes-gerais repetiu App/Chat/WailsAPI/Database ou mudou a lista: ${got[*]}"
 
-run pacote-wailsapi
+run pacotes-database-wailsapi
 assert_flags 'test -race -short -count=1 -timeout=20m'
-[[ ${#got[@]} == 7 && ${got[5]} == -json && ${got[6]} == ./internal/wailsapi ]] ||
-  fail "pacote-wailsapi não executou o pacote inteiro exatamente uma vez: ${got[*]}"
+[[ ${#got[@]} == 8 && ${got[5]} == -json && ${got[6]} == ./internal/database && ${got[7]} == ./internal/wailsapi ]] ||
+  fail "pacotes-database-wailsapi não executou os dois pacotes inteiros exatamente uma vez: ${got[*]}"
 
 grep -Fxq 'list -race ./...' "$test_dir/calls"
 grep -Fxq 'test -race -short -count=1 -timeout=20m -list . ./internal/chat' "$test_dir/calls"
@@ -183,7 +199,7 @@ MOCK_FAIL=discovery reject pacote-app-0
 MOCK_FAIL=execution reject pacote-app-0
 MOCK_FAIL=packages reject pacotes-gerais
 MOCK_FAIL=execution reject pacotes-gerais
-MOCK_FAIL=execution reject pacote-wailsapi
+MOCK_FAIL=execution reject pacotes-database-wailsapi
 MOCK_FAIL=execution reject pacote-chat-0
 MOCK_FAIL=discovery reject pacote-chat-0
 : > "$test_dir/chat-names"
@@ -201,10 +217,15 @@ rm "$test_dir/repo/build/bin/ci/app-race.test"
 reject pacote-app-0
 : > "$test_dir/packages"
 reject pacotes-gerais
-printf '%s\n' assistente/internal/app assistente/internal/wailsapi assistente/internal/auth > "$test_dir/packages"
+printf '%s\n' assistente/internal/app assistente/internal/wailsapi assistente/internal/database assistente/internal/auth > "$test_dir/packages"
 reject pacotes-gerais
-printf '%s\n' assistente/internal/chat assistente/internal/wailsapi assistente/internal/auth > "$test_dir/packages"
+printf '%s\n' assistente/internal/chat assistente/internal/wailsapi assistente/internal/database assistente/internal/auth > "$test_dir/packages"
 reject pacotes-gerais
-printf '%s\n' assistente/internal/app assistente/internal/chat assistente/internal/auth > "$test_dir/packages"
+printf '%s\n' assistente/internal/app assistente/internal/chat assistente/internal/database assistente/internal/auth > "$test_dir/packages"
 reject pacotes-gerais
+printf '%s\n' assistente/internal/app assistente/internal/chat assistente/internal/wailsapi assistente/internal/auth > "$test_dir/packages"
+reject pacotes-gerais
+printf '%s\n' assistente/internal/app assistente/internal/chat assistente/internal/wailsapi assistente/internal/database assistente/internal/database assistente/internal/auth > "$test_dir/packages"
+reject pacotes-gerais
+
 echo 'PASS: compilação única, partições completas/disjuntas/estáveis, flags, cwd, matriz, pacotes e falhas'

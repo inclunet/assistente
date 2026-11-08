@@ -190,7 +190,7 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
-          # Namespace race do App: o produtor salva antes de liberar consumidores.
+          # Namespace race: separado dos builds normais em todos os executores.
           # Evita o cache imutável de builds normais, que não contém objetos race.
           cache-dependency-path: |
             go.sum
@@ -224,7 +224,7 @@ jobs:
       matrix:
         group:
           - pacotes-gerais
-          - pacote-wailsapi
+          - pacotes-database-wailsapi
           - pacote-chat-0
           - pacote-chat-1
     steps:
@@ -240,6 +240,10 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
+          # Reutiliza objetos instrumentados, inclusive os preparados pelo App.
+          cache-dependency-path: |
+            go.sum
+            .github/scripts/testar-go-race.sh
 
       - name: Go tests (-race -short)
         timeout-minutes: 23
@@ -292,7 +296,7 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
-          # Namespace race do App: o produtor salva antes de liberar consumidores.
+          # Namespace race compartilhado; o conteúdo salvo depende do primeiro job.
           # Evita o cache imutável de builds normais, que não contém objetos race.
           cache-dependency-path: |
             go.sum

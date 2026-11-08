@@ -301,3 +301,42 @@ essa soma não inclui inicialização/saída do processo nem constitui mediana.
 Os tempos pareados acima incluem o processo completo. Nenhum ACP local.
 Medições Linux/race e efeito sobre o workflow dependem do CI; não extrapolar
 os percentuais locais nem confundir redução de preparo com remoção de cobertura.
+
+## Distribuição e cache dos demais pacotes com race
+
+Depois de reduzir a preparação das fixtures, `internal/database` continuou
+no caminho crítico do grupo geral. Nos runs 42505601948, 42510063504 e
+42513880227, começou respectivamente **5min45s, 3min51s e 4min57s** após o
+início do passo de testes. Esse intervalo inclui compilação e escalonamento
+dos pacotes, não apenas execução de testes. O job WailsAPI terminou em cerca
+de três minutos nos dois últimos runs e ficou sem trabalho durante a espera
+final do workflow.
+
+O grupo `pacotes-database-wailsapi` executa os dois pacotes inteiros, colocando
+o banco no começo de uma lista curta. O grupo geral exclui exatamente esses
+pacotes, App e Chat; seus subpacotes continuam na descoberta automática.
+O inventário recusa ausência/duplicação dos pacotes isolados e lista geral
+vazia. Nenhum teste de migração/upgrade, flag de race, prazo ou gate foi removido.
+Permanecem **17 jobs** e até **oito executores de testes com race**.
+
+Os executores de race passam a usar o mesmo namespace instrumentado do
+produtor App: `go.sum` e o script de race compõem `cache-dependency-path`.
+Antes, os demais grupos restauravam a chave dos builds normais, que não
+garantia objetos compilados com `-race`. A validação do conteúdo/flags continua
+sob responsabilidade do cache do Go; não se cacheiam resultados dos testes
+(`-count=1` permanece) nem se reutiliza binário de outra revisão. O artefato
+App segue restrito ao run e SHA que o produziram.
+
+O cache da action é imutável por chave: em cache frio, o primeiro job que o
+salvar define seu conteúdo. Esse job pode ser Chat/WailsAPI, não necessariamente
+o produtor App. Um hit pode, portanto, exigir compilação de objetos ausentes;
+não garante que todo o App ou todos os demais pacotes já estejam no cache.
+Isso não muda a validação de conteúdo do Go, mas precisa entrar na comparação
+de desempenho, inclusive no tempo do produtor App da segunda execução.
+
+Uma mudança no script muda a chave: o primeiro run pode precisar recompilar.
+A qualificação deve registrar hits/misses e separar a primeira execução da
+repetição com cache restaurado, sem atribuir toda variação do workflow a esta
+mudança. Os resultados Linux/race serão registrados no PR e na #1008. Os
+contratos Bash verificam a matriz, os pacotes completos, a união disjunta,
+subpacotes, flags, falhas e o gate; não executam Go real nem ACP local.
