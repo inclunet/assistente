@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -87,6 +88,12 @@ func TestCommandDeckInputRefreshesEquivalentJobProjectionAfterWorkspaceTabSwitch
 	}
 	events := make(chan CommandDeckLocalUIEvent, 2)
 	statuses := make(chan string, 16)
+	var pauseStatus atomic.Bool
+	statusPaused := make(chan struct{})
+	resumeStatus := make(chan struct{})
+	var resumeOnce sync.Once
+	resume := func() { resumeOnce.Do(func() { close(resumeStatus) }) }
+	defer resume()
 	var keyboardMapChanges atomic.Int32
 	previousEmitter := a.emitter
 	a.emitter = commandOSBootstrapEmitter(func(name string, payload any) {
@@ -104,6 +111,12 @@ func TestCommandDeckInputRefreshesEquivalentJobProjectionAfterWorkspaceTabSwitch
 				Status string `json:"status"`
 			}
 			_ = json.Unmarshal(encoded, &status)
+			if status.Status == "connected" && pauseStatus.CompareAndSwap(true, false) {
+				close(statusPaused)
+				<-resumeStatus
+				// This publication belongs to the cycle before the tab switch.
+				return
+			}
 			statuses <- status.Status
 			return
 		}
@@ -170,6 +183,14 @@ func TestCommandDeckInputRefreshesEquivalentJobProjectionAfterWorkspaceTabSwitch
 	releaseKey := func() { handle.events <- commanddeck.PhysicalKeyEvent{Index: 0, Down: false} }
 	press()
 	releaseKey()
+	// Pause at the end of an actual cycle. Draining a channel alone does not
+	// exclude a connected publication still in flight from before the switch.
+	pauseStatus.Store(true)
+	select {
+	case <-statusPaused:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Deck did not reach the pre-switch status barrier")
+	}
 	for len(statuses) > 0 {
 		<-statuses
 	}
@@ -179,6 +200,7 @@ func TestCommandDeckInputRefreshesEquivalentJobProjectionAfterWorkspaceTabSwitch
 	if _, err := p.host.Snapshot(ctx, p.principal); !errors.Is(err, commandexecution.ErrStale) {
 		t.Fatalf("test did not invalidate the mounted workspace projection guard: %v", err)
 	}
+	resume()
 	// Observe one complete inner runDeckEpoch ticker after the guard goes stale.
 	// Without its refresh-before-deckMap, this reports unavailable, retires the
 	// original handle, and reopens a new epoch on the outer ticker.

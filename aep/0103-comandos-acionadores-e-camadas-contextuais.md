@@ -2,6 +2,13 @@
 
 Status: In Progress — evidências e aceites pendentes conforme os registros abaixo
 
+**Sincronização da prova de polling do Deck (08/11/2026, issue #1008):**
+A regressão de refresh após troca de aba sincroniza a publicação anterior no
+emitter antes de exigir o ciclo seguinte. A prova continua usando o ticker e
+as entradas reais do runtime com HID simulado, sem alterar o contrato de
+refresh nem os aceites pendentes. Diagnóstico em
+[`docs/operations/ci-test-cost.md`](../docs/operations/ci-test-cost.md).
+
 **Custo das fixtures de execução contextual (08/11/2026, issue #1008):**
 As fixtures de execução contextual do Deck, de páginas e de camadas preparam
 camadas, regras e bindings no SQLite isolado de cada cenário, pelos mesmos

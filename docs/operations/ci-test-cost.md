@@ -302,6 +302,24 @@ Os tempos pareados acima incluem o processo completo. Nenhum ACP local.
 Medições Linux/race e efeito sobre o workflow dependem do CI; não extrapolar
 os percentuais locais nem confundir redução de preparo com remoção de cobertura.
 
+
+### Sincronização do polling do Deck
+
+A revalidação do PR #1045 no run `42515424910`, com árvore idêntica à do run
+aprovado `42513880227`, expôs uma corrida em
+`TestCommandDeckInputRefreshesEquivalentJobProjectionAfterWorkspaceTabSwitch`.
+Esvaziar `statuses` não impedia uma publicação `connected` de uma iteração
+que já havia atualizado a projeção antes da troca de aba. O teste confundia
+esse evento com a conclusão do polling posterior à troca.
+
+A fixture agora pausa uma publicação real no emitter, troca a aba e comprova
+que o guard ficou obsoleto enquanto esse ciclo está suspenso. Descarta somente
+a publicação interceptada e exige a publicação do ciclo seguinte, pelo ticker
+real. Preserva a primeira tecla, a segunda tecla, a recusa do guard obsoleto,
+a continuidade do handle e a ausência de invalidação do mapa de teclado.
+A barreira é liberada também em falhas, antes do encerramento dos workers.
+Não há aumento de timeout, repetição da assertion até passar ou mudança produtiva.
+
 ## Distribuição e cache dos demais pacotes com race
 
 Depois de reduzir a preparação das fixtures, `internal/database` continuou
