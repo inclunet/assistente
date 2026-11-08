@@ -368,24 +368,40 @@ Após o merge do #1043, o #1044 recebeu os runs `42515424147`
 jobs. A chave anterior usava número do PR no primeiro caso e nome da branch
 no segundo: o controle de concorrência não reconhecia a duplicação.
 
-O atualizador passa `pr_number` no dispatch. O CI usa esse número no mesmo
-grupo do evento de PR, cancelando a execução concorrente que ficou obsoleta.
-Isso não impede criar dois registros de run nem elimina o custo já consumido
-antes do cancelamento. Não muda a matriz, os gates, os testes, as flags ou os
-limites; cada atualização ainda exige validação. PRs distintos, inclusive de
-forks com nomes de branch iguais, continuam separados por número.
+O atualizador passa `pr_number` no dispatch. O CI usa namespaces distintos para
+PR, dispatch automático e execução independente: um dispatch não pode cancelar
+nem substituir um PR ativo ou pendente. Os checks do PR pertencem ao commit de
+merge, e um dispatch no head da branch não os substitui. O primeiro ensaio
+(`42524102553` / `42524126708`) expôs esse problema ao compartilhar o grupo;
+a solução foi corrigida antes de aceitar a qualificação. Mesmo cancel-in-progress
+falso não protegeria o único slot pendente de uma fila compartilhada.
 
-O dispatch permanece necessário: o push feito por `GITHUB_TOKEN` não deve ser
-tratado como garantia de novo CI. Execuções manuais independentes deixam o
-input no padrão `0` e mantêm a política anterior, assim como pushes na main.
-O input de PR só é preenchido para validar aquela branch atualizada; o
-atualizador já exclui forks, drafts e PRs fora da janela de manutenção.
+Ao começar, o dispatch consulta CI do mesmo workflow, PR e head no job `scripts`.
+Se o PR já tem execução efetiva, solicita cancelamento do próprio dispatch.
+Falha/cancelamento do PR não é substituído por verde manual. Um evento
+`action_required` sem jobs, já observado no atualizador, não conta como execução:
+o dispatch continua necessário para validar esse head. Erros da API ficam
+visíveis. A permissão `actions:write` fica somente em `scripts`, que cancela o
+próprio run, sem token novo.
 
-O contrato Bash prova a associação branch→PR para pai, filho e base removida,
-e que branches sem mudança/em conflito não pedem CI. Actionlint valida os
-contextos e tipos da expressão. A qualificação remota deve confirmar que um
-dispatch com o número do PR substitui o run concorrente e que os quatro gates
-continuam aprovados no head, sem confundir cancelamento com sucesso.
+Isso elimina o desperdício observado quando o CI do PR já existe. Se o PR
+surgir depois da consulta, ambos podem executar: é uma janela residual de custo,
+não de perda de validação. Não há polling ou orquestração bidirecional. Os demais
+jobs continuam paralelos e podem consumir alguns segundos de setup antes do
+cancelamento; não há novo job nem barreira global. Os dois registros de run
+continuam existindo. Matriz, gates, testes, flags e limites permanecem.
+PRs distintos, inclusive forks com nomes de branch iguais, são separados por
+número; cada atualização continua exigindo validação.
+
+Push por `GITHUB_TOKEN` não garante novo CI, por isso o dispatch permanece.
+Execuções manuais independentes deixam o input no padrão `0`, preservando a
+política anterior, assim como pushes na main. O atualizador exclui forks,
+drafts e PRs fora da janela de manutenção.
+
+Contratos Bash verificam associação branch→PR, namespaces, identidade exata,
+ausência de execução, aprovação sem jobs e falhas de consulta/cancelamento.
+Actionlint valida contextos/tipos. A qualificação remota deve comprovar que o
+run do PR permanece verde e apenas o dispatch redundante é cancelado.
 Referências: [concorrência de workflows](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax#concurrency)
 e [eventos e workflow_dispatch](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#workflow_dispatch).
 
