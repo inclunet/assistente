@@ -416,9 +416,9 @@ não instala claims, ofertas, ocorrências nem invocações prontas. Mutações 
 pelos cenários e as provas específicas de edição confirmada não mudaram.
 
 A seleção antes/depois passou com os mesmos **20 testes top-level: 19 pass e
-1 skip opt-in**. Inclui também a prova de status vazio, que não usa essas
-fixtures. A soma dos tempos top-level foi **20,25 → 11,87 s** em uma execução
-de cada binário. O processo completo ficou em **48,935 / 49,212 s** nessas
+1 skip opt-in**. A prova de status vazio também usa `deckConfiguredFixture`
+e está incluída no preparo alterado. A soma dos tempos top-level foi
+**20,25 → 11,87 s** em uma execução de cada binário. O processo completo ficou em **48,935 / 49,212 s** nessas
 primeiras execuções; a redução interna não representou ganho de abertura.
 O teste opt-in `TestCommandDeckAppLatency` foi executado separadamente com
 `COMMAND_APP_LATENCY=1` e passou nos dois cenários.
