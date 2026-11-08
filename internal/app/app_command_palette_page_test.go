@@ -13,7 +13,7 @@ import (
 	"assistente/internal/workspace"
 )
 
-func configurePagePaletteCommand(t *testing.T, a *App, events <-chan map[string]any, id, surface string, extra ...CommandSettingsConditionClause) LocalCommandKeyboardMap {
+func configurePagePaletteCommand(t *testing.T, a *App, id, surface string, extra ...CommandSettingsConditionClause) LocalCommandKeyboardMap {
 	t.Helper()
 	if err := commandautomation.Migrate(context.Background(), database.DB()); err != nil {
 		t.Fatal(err)
@@ -21,10 +21,11 @@ func configurePagePaletteCommand(t *testing.T, a *App, events <-chan map[string]
 	if err := a.workspaceMgr.SetProfile("dev"); err != nil {
 		t.Fatal(err)
 	}
-	layer := settingsContractApply(t, a, events, CommandSettingsMutationRequest{Scope: CommandSettingsScopeGlobal, Operation: "layer_create", Layer: &CommandSettingsLayerInput{Name: "Page " + id, Enabled: true}})
-	settingsContractApply(t, a, events, CommandSettingsMutationRequest{Scope: CommandSettingsScopeGlobal, Operation: "rule_create", Rule: &CommandSettingsRuleInput{LayerID: layer.ID, Mode: "always", Lifecycle: "persistent", Enabled: true}})
+	config := contextualCommandConfigFixture{}
+	layerID, _ := config.layer(t, "Page "+id, "always")
 	clauses := append([]CommandSettingsConditionClause{{Field: "app.focused", Value: true}, {Field: "surface.type", Value: surface}, {Field: "profile", Value: "dev"}}, extra...)
-	settingsContractApply(t, a, events, CommandSettingsMutationRequest{Scope: CommandSettingsScopeGlobal, Operation: "binding_create", Binding: &CommandSettingsBindingInput{LayerID: layer.ID, CommandID: id, TriggerType: "palette", TriggerSpec: `{"version":1,"selection":"` + id + `"}`, Arguments: map[string]any{}, Effect: "execute", Enabled: true, Condition: &CommandSettingsCondition{Version: 1, Clauses: clauses}}})
+	config.binding(t, CommandSettingsBindingInput{LayerID: layerID, CommandID: id, TriggerType: "palette", TriggerSpec: `{"version":1,"selection":"` + id + `"}`, Arguments: map[string]any{}, Effect: "execute", Enabled: true, Condition: &CommandSettingsCondition{Version: 1, Clauses: clauses}})
+	config.publish(t, a)
 	view, err := a.GetLocalCommandKeyboardMap()
 	if err != nil {
 		t.Fatal(err)
@@ -65,7 +66,7 @@ func TestContextualPagePaletteTaskOperations(t *testing.T) {
 				kind = workspace.TabTypeTasklist
 			}
 			a, events, ctx, list := pagePaletteTaskFixture(t, kind)
-			view := configurePagePaletteCommand(t, a, events, scenario.id, scenario.surface)
+			view := configurePagePaletteCommand(t, a, scenario.id, scenario.surface)
 			target, err := a.ReadTaskListCommandTarget(list.ID)
 			if err != nil {
 				t.Fatal(err)
@@ -147,8 +148,8 @@ func TestContextualPagePaletteTaskOperations(t *testing.T) {
 func TestContextualPagePaletteTaskRefusesStaleAndForeignTargets(t *testing.T) {
 	for _, scenario := range []string{"fingerprint-prepare", "fingerprint-commit", "foreign-owner", "profile-ABA", "map", "cancel", "ordinary", "ABA-before-take", "deadline", "session"} {
 		t.Run(scenario, func(t *testing.T) {
-			a, events, ctx, list := pagePaletteTaskFixture(t, workspace.TabTypeChat)
-			view := configurePagePaletteCommand(t, a, events, "tasklists.duplicate", "tasklists")
+			a, _, ctx, list := pagePaletteTaskFixture(t, workspace.TabTypeChat)
+			view := configurePagePaletteCommand(t, a, "tasklists.duplicate", "tasklists")
 			target, err := a.ReadTaskListCommandTarget(list.ID)
 			if err != nil {
 				t.Fatal(err)
@@ -245,8 +246,8 @@ func TestContextualPagePaletteTaskRefusesStaleAndForeignTargets(t *testing.T) {
 }
 
 func TestContextualPagePaletteAdmissionClosed(t *testing.T) {
-	a, events, _, _ := pagePaletteTaskFixture(t, workspace.TabTypeChat)
-	view := configurePagePaletteCommand(t, a, events, "tasklists.duplicate", "tasklists")
+	a, _, _, _ := pagePaletteTaskFixture(t, workspace.TabTypeChat)
+	view := configurePagePaletteCommand(t, a, "tasklists.duplicate", "tasklists")
 	for _, c := range []struct{ id, surface, profile, generation string }{
 		{"tasklists.duplicate", "profiles", "dev", view.Generation}, {"tasklists.duplicate", "tasklist", "dev", view.Generation},
 		{"tasklists.delete", "tasklist", "dev", view.Generation}, {"profiles.activate", "tasklists", "dev", view.Generation},
@@ -261,8 +262,8 @@ func TestContextualPagePaletteAdmissionClosed(t *testing.T) {
 }
 
 func TestContextualPagePaletteRejectsSurfaceIDFact(t *testing.T) {
-	a, events, _, _ := pagePaletteTaskFixture(t, workspace.TabTypeChat)
-	view := configurePagePaletteCommand(t, a, events, "tasklists.duplicate", "tasklists", CommandSettingsConditionClause{Field: "surface.id", Value: "target-id"})
+	a, _, _, _ := pagePaletteTaskFixture(t, workspace.TabTypeChat)
+	view := configurePagePaletteCommand(t, a, "tasklists.duplicate", "tasklists", CommandSettingsConditionClause{Field: "surface.id", Value: "target-id"})
 	if r, err := a.BeginContextualPagePaletteUICommand(view.Generation, "tasklists.duplicate", LocalCommandKeyboardContext{SurfaceType: "tasklists", Profile: "dev"}); err == nil || r.Ticket != "" {
 		t.Fatalf("page accepted DOM target fact: %+v %v", r, err)
 	}
@@ -276,7 +277,7 @@ func TestContextualPagePaletteProfileOperations(t *testing.T) {
 			if operation == "delete-cancel" {
 				id = "profiles.delete"
 			}
-			view := configurePagePaletteCommand(t, a, events, id, "profiles")
+			view := configurePagePaletteCommand(t, a, id, "profiles")
 			target, err := a.ReadProfileCommandTarget(slug)
 			if err != nil {
 				t.Fatal(err)

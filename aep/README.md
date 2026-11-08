@@ -1,3 +1,5 @@
+AEP-0103 (08/11/2026): cadastro externo usa aquisição cancelável do writer pela política SQLite central, preservando auditoria atômica e bootstrap único; regressão de contenção real. Status **In Progress**.
+
 AEP-0103 (08/11/2026): fixtures de execução contextual usam banco isolado e projeção real sem repetir edições confirmadas na preparação (issue #1008); garantias de execução e testes de edição preservados. Status global **In Progress**. Medições em `docs/operations/ci-test-cost.md`.
 
 AEP-0103 (08/11/2026): comparação de datas persistidas corrige falso conflito de configuração, preservando CAS e status global In Progress.
@@ -1256,7 +1258,7 @@ de cancelamento de release na dependência; o AEP permanece **In Progress**.
 | [0100](0100-progresso-unificado-por-conversa.md) | Progresso unificado por conversa | ✅ Done |
 | [0101](0101-profiles-descobríveis-e-delegacao-autorizada.md) | Profiles descobríveis, delegação autorizada e grants específicos de jobs | ✅ Done |
 | [0102](0102-resultados-grandes-de-tools.md) | Resultados grandes de tools | ✅ Done |
-| [0103](0103-comandos-acionadores-e-camadas-contextuais.md) | Comandos, acionadores e camadas contextuais | 🚧 In Progress |
+| [0103](0103-comandos-acionadores-e-camadas-contextuais.md) | Comandos, acionadores e camadas contextuais (evidências de preparo contextual atualizadas; aceites pendentes preservados) | 🚧 In Progress |
 | [0104](0104-tool-invocations-como-ledger-canonico.md) | Tool invocations como ledger canônico; correção de vínculos remanescentes e índices de histórico | In Progress — ledger concluído; isolamento por execução do chat em implementação (AEP-0116) |
 | [0105](0105-reautorizacao-oauth-mcp-nativo.md) | Reautorização OAuth interativa para MCP nativo | 🚧 In Progress — recuperação interativa implementada; confirmação com servidor real e NVDA pendente; legado exige migração explícita |
 | [0106](0106-contencao-do-pipeline-de-jobs.md) | Contenção do pipeline de jobs (limite de concorrência + cache por slug) | 🚧 In Progress |

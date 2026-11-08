@@ -9490,6 +9490,15 @@ classificação de implementação dos critérios.
 
 ## 149. Cadastro administrativo externo montado — 23/09/2026
 
+Manutenção de concorrência (08/11/2026, #1008): bootstrap e cadastro adquirem
+o writer pela política SQLite central, repetindo somente BEGIN IMMEDIATE.
+Auditoria continua primeira escrita; validações de ator/alvo, corpo e COMMIT
+executam uma vez. Uma regressão com writer real prova a espera sem duplicar
+auditoria; o teste original de duas conexões e as recusas/rollback permanecem.
+Corrige SQLITE_BUSY exposto no CI `42519431471`, sem novos privilégios,
+pragmas ou promoção dos aceites pendentes. Status global **In Progress**.
+
+
 Primeiro percurso produtivo de preparação de C65/C70/R05.1, sem liberar o
 executor externo antes de seus pré-requisitos:
 

@@ -39,8 +39,12 @@ independentes por cenário. Não há cache no produto ou estado global novo.
 - Outros usuários de `newContextualDeckTestFixture`: recusas de contexto,
   invalidação, cancelamento, expiração e limpeza continuam com as mesmas
   assertions. Nenhuma condição de sucesso foi relaxada.
-- `TestCommandDeckVisualConditionsFromSettingsSelectDistinctCommands` e
-  fixtures de camadas/páginas mantêm edição confirmada → publicação → input.
+- `TestCommandDeckVisualConditionsFromSettingsSelectDistinctCommands`,
+  `TestContextualPagePaletteConditionsRealSettings` e
+  `TestCommandSettingsManualActivationChangesExecutedBinding` mantêm, em
+  conjunto, provas de edição confirmada, publicação/projeção e execução.
+  A preparação de outras fixtures
+  foi ampliada no recorte contextual descrito adiante.
 - `TestCommandSettingsContractContextualRuleActuallyResolves` e a suíte de
   segurança de settings mantêm confirmação, CAS e reautenticação.
 - Frontend: `npm run build` continua executando `tsc && vite build`; foi removida
@@ -246,3 +250,89 @@ somas nos três pares foram 17,59 → 1,37 s em WailsAPI, 2,76 → 0,70 s nos
 controllers e 7,10 → 1,68 s no App. Essa soma não inclui inicialização/saída do
 processo. O resultado Linux/race e o custo do workflow devem ser medidos no CI;
 não extrapolar as porcentagens locais.
+
+## Preparação de comandos contextuais
+
+O quinto recorte da #1008 reúne a preparação de páginas e camadas de paleta e
+Deck no helper de teste `contextualCommandConfigFixture`, também usado pela
+fixture contextual física já otimizada. Cada cenário mantém seu App, banco,
+sessão e dados privados. O helper normaliza regras e bindings com as funções
+produtivas, grava a configuração global do usuário em uma transação, avança a
+geração e chama o carregador/projetor real. Não instala claims, ofertas, tickets
+ou resultados prontos e não acrescenta API nem opção de bypass em produção.
+
+O perfil anterior mostrou `MutateCommandSettings` em 40,27% do tempo amostrado
+de CPU em `TestContextualDeckPageRejectsInvalidOffers` e em 46,13% de
+`TestContextualPaletteLayerRejectsInvalidAdmission`. Essas chamadas preparavam
+o cenário por meio de três, oito ou treze edições confirmadas. A preparação
+agora publica uma vez por configuração; a fixture física de camadas mantém
+as duas publicações de seus dois estágios de montagem.
+
+As operações e assertions dos cenários permanecem: ofertas físicas, contexto,
+autorização, geração obsoleta, ABA, cancelamento, replay, publicação e ledger.
+Excluir regra/binding durante o cenário continua usando a API confirmada.
+As provas completas de edição permanecem em
+`TestCommandDeckVisualConditionsFromSettingsSelectDistinctCommands`,
+`TestCommandSettingsManualActivationChangesExecutedBinding`,
+`TestContextualPagePaletteConditionsRealSettings` e nos testes de contrato e
+segurança de settings. AEP-0103 e índice continuam **In Progress**, sem promover
+aceites pendentes. Não há cache de App/conexão nem mudança no produto.
+
+### Medições do preparo contextual
+
+Windows/Go 1.26.0, binários compilados previamente, processos independentes e
+sem outras suítes/compilações concorrentes durante a medição. Três pares
+antes/depois, com os mesmos casos e assertions em todos os processos:
+
+- `TestContextualDeckPageRejectsInvalidOffers` (11 cenários): antes
+  12,504 / 7,762 / 12,063 s; depois 1,896 / 1,960 / 2,508 s.
+  Mediana **12,063 → 1,960 s**, redução de **83,8%**.
+- `TestContextualPaletteLayerRejectsInvalidAdmission` (10 cenários): antes
+  19,526 / 24,892 / 22,283 s; depois 1,972 / 2,077 / 1,905 s.
+  Mediana **22,283 → 1,972 s**, redução de **91,2%**.
+- `TestContextualDeckLayerRejectsInvalidOffers` (9 cenários): antes
+  26,264 / 38,263 / 29,856 s; depois 1,978 / 2,453 / 2,113 s.
+  Mediana **29,856 → 2,113 s**, redução de **92,9%**.
+
+O conjunto `TestContextual(Deck|Palette|Page)` também passou antes/depois com
+os mesmos **53 testes top-level / 878 casos incluindo subtestes**. Em uma
+execução de cada revisão, a soma dos tempos top-level foi **194,74 → 77,42 s**;
+essa soma não inclui inicialização/saída do processo nem constitui mediana.
+Os tempos pareados acima incluem o processo completo. Nenhum ACP local.
+Medições Linux/race e efeito sobre o workflow dependem do CI; não extrapolar
+os percentuais locais nem confundir redução de preparo com remoção de cobertura.
+
+
+### Sincronização do polling do Deck
+
+A revalidação do PR #1045 no run `42515424910`, com árvore idêntica à do run
+aprovado `42513880227`, expôs uma corrida em
+`TestCommandDeckInputRefreshesEquivalentJobProjectionAfterWorkspaceTabSwitch`.
+Esvaziar `statuses` não impedia uma publicação `connected` de uma iteração
+que já havia atualizado a projeção antes da troca de aba. O teste confundia
+esse evento com a conclusão do polling posterior à troca.
+
+A fixture agora pausa uma publicação real no emitter, troca a aba e comprova
+que o guard ficou obsoleto enquanto esse ciclo está suspenso. Descarta somente
+a publicação interceptada e exige a publicação do ciclo seguinte, pelo ticker
+real. Preserva a primeira tecla, a segunda tecla, a recusa do guard obsoleto,
+a continuidade do handle e a ausência de invalidação do mapa de teclado.
+A barreira é liberada também em falhas, antes do encerramento dos workers.
+Não há aumento de timeout, repetição da assertion até passar ou mudança produtiva.
+
+
+### Contenção real no cadastro de identidades externas
+
+A revalidação `42519431471` falhou em
+`TestExternalIdentityBootstrapConcurrentConnectionsHasSingleWinner`: um writer
+venceu e o outro recebeu `SQLITE_BUSY`, em vez do conflito de unicidade.
+O DSN produtivo espera 100 ms e depende da política central de retry, ausente
+nesse caminho. A regressão nova força um writer real e só o libera depois de
+observar BUSY; falhou antes tanto no bootstrap quanto no cadastro administrativo.
+
+Ambos usam agora `WithSQLiteImmediateTransactionOnce`: a política central
+retenta somente a aquisição do writer; corpo e COMMIT não são repetidos.
+Auditoria permanece a primeira escrita e vínculo/auditoria continuam atômicos.
+O teste concorrente original foi preservado; não houve aumento de timeout,
+retry no teste nem redução de concorrência. Isso corrige comportamento produtivo,
+não apenas a estabilidade do CI.

@@ -2,16 +2,13 @@ package app
 
 import (
 	"context"
-	"encoding/json"
 	"testing"
 	"time"
 
 	"assistente/controllers"
-	"assistente/internal/commandactivation"
 	"assistente/internal/commandadapter"
 	"assistente/internal/commandbindings"
 	"assistente/internal/commandcatalog"
-	"assistente/internal/commandconfig"
 	"assistente/internal/commanddecision"
 	"assistente/internal/commandinput"
 	"assistente/internal/database"
@@ -19,7 +16,6 @@ import (
 	"assistente/internal/terminal"
 	"assistente/internal/workspace"
 	"github.com/google/uuid"
-	"gorm.io/gorm"
 )
 
 type contextualDeckTestFixture struct {
@@ -170,23 +166,14 @@ func newContextualDeckTestFixture(t *testing.T, kind workspace.TabType, id strin
 		t.Fatal(err)
 	}
 	observed := LocalCommandKeyboardContext{SurfaceType: string(snapshot.Tab.Type), SurfaceID: snapshot.Tab.ID, Profile: "dev"}
-	// These tests exercise admission/execution from persisted configuration.
-	// Seed an isolated database and use the real loader/projector once, instead
-	// of repeating four confirmed settings edits for every execution scenario.
-	// Settings confirmation/CAS/publication are covered by settings contract tests.
-	uid := a.commandProduct.Load().principal.UserID
-	layer := commandconfig.Layer{ID: uuid.Must(uuid.NewV7()).String(), UserID: uid, Name: "Contextual physical Deck", Enabled: true, Source: "user"}
-	ruleID := uuid.Must(uuid.NewV7()).String()
-	rule := commandactivation.Rule{ID: ruleID, UserID: uid, LayerRefKind: commandactivation.UserRef, LayerRef: layer.ID,
-		RuleRefKind: commandactivation.UserRef, RuleRef: ruleID, Mode: commandactivation.ModeAlways,
-		Condition: "{}", Lifecycle: commandactivation.LifecyclePersistent, Enabled: true, Source: "user", ReviewStatus: "active"}
+	config := contextualCommandConfigFixture{}
+	layerID, _ := config.layer(t, "Contextual physical Deck", "always")
 	// Same physical key, disjoint local-UI branch: the offer must never turn
 	// this branch into a durable invocation or let the UI choose a command ID.
 	otherType := "editor"
 	if kind == workspace.TabTypeEditor {
 		otherType = "chat"
 	}
-	var bindings []commandconfig.Binding
 	for _, item := range []struct {
 		id      string
 		clauses []CommandSettingsConditionClause
@@ -197,30 +184,11 @@ func newContextualDeckTestFixture(t *testing.T, kind workspace.TabType, id strin
 		}},
 		{"navigation.settings.open", []CommandSettingsConditionClause{{Field: "surface.type", Op: "eq", Value: otherType}}},
 	} {
-		condition, err := json.Marshal(CommandSettingsCondition{Version: 1, Clauses: item.clauses})
-		if err != nil {
-			t.Fatal(err)
-		}
-		commandID := item.id
-		bindings = append(bindings, commandconfig.Binding{ID: uuid.Must(uuid.NewV7()).String(), UserID: uid, LayerRefKind: "user", LayerRef: layer.ID,
-			CommandID: &commandID, TriggerType: "streamdeck.key", TriggerSpec: `{"version":1,"device":"test-deck","key":1}`,
-			Arguments: commandSettingsDefaultArguments, Condition: string(condition), Effect: "execute", Enabled: true,
-			Source: "user", ReviewStatus: "active", Presentation: commandSettingsDefaultPresentation})
+		config.binding(t, CommandSettingsBindingInput{LayerID: layerID, CommandID: item.id,
+			TriggerType: "streamdeck.key", TriggerSpec: `{"version":1,"device":"test-deck","key":1}`,
+			Effect: "execute", Enabled: true, Condition: &CommandSettingsCondition{Version: 1, Clauses: item.clauses}})
 	}
-	if err := database.DB().Transaction(func(tx *gorm.DB) error {
-		for _, rows := range []any{&layer, &rule, &bindings} {
-			if err := tx.Create(rows).Error; err != nil {
-				return err
-			}
-		}
-		return tx.Model(&commandconfig.Generation{}).Where("user_id = ? AND workspace_id IS NULL", uid).
-			Update("generation", gorm.Expr("generation + 1")).Error
-	}); err != nil {
-		t.Fatal(err)
-	}
-	if err := a.rebuildCommandLifecyclePersistedConfiguration(context.Background()); err != nil {
-		t.Fatal(err)
-	}
+	config.publish(t, a)
 	if _, err = a.GetLocalCommandKeyboardMap(); err != nil {
 		t.Fatal(err)
 	}
@@ -245,7 +213,7 @@ func newContextualDeckTestFixture(t *testing.T, kind workspace.TabType, id strin
 	c := &commandDeckController{p: p, ctx: ctx, versions: versions, identities: identities, pressed: map[string]bool{}, instances: map[string]commandDeckInstance{}, models: map[string]string{}, generation: p.deckInputGeneration()}
 	c.opened("test-deck")
 	t.Cleanup(func() { c.reset("") })
-	return contextualDeckTestFixture{a: a, controller: c, events: events, decisions: decisions, observed: observed, conversationID: cid, layerID: layer.ID}
+	return contextualDeckTestFixture{a: a, controller: c, events: events, decisions: decisions, observed: observed, conversationID: cid, layerID: layerID}
 }
 
 func (f contextualDeckTestFixture) press(t *testing.T) CommandDeckContextualUIEvent {

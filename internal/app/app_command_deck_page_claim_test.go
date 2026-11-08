@@ -69,20 +69,19 @@ func TestContextualDeckPageClaimRechecksSourceAfterPreflight(t *testing.T) {
 		for _, scenario := range []string{"unchanged", "reset", "replaced", "expired", "disconnect", "occurrence-removed"} {
 			t.Run(domain+"/"+scenario, func(t *testing.T) {
 				var a *App
-				var decisions <-chan map[string]any
 				var taskCtx context.Context
 				var targetID, fingerprint, originalActive string
 				id := "tasklists.duplicate"
 				if domain == "profiles" {
 					id = "profiles.activate"
-					a, decisions, targetID = profileCommandFixture(t)
+					a, _, targetID = profileCommandFixture(t)
 					originalActive = a.profileManager.GetActiveSlug()
 				} else {
 					var list *database.TaskList
-					a, decisions, taskCtx, list = pagePaletteTaskFixture(t, workspace.TabTypeChat)
+					a, _, taskCtx, list = pagePaletteTaskFixture(t, workspace.TabTypeChat)
 					targetID = list.ID
 				}
-				bindingID := configurePageDeckCommand(t, a, decisions, id, domain)
+				bindingID := configurePageDeckCommand(t, a, id, domain)
 				if domain == "profiles" {
 					target, err := a.ReadProfileCommandTarget(targetID)
 					if err != nil {
