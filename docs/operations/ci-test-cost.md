@@ -133,3 +133,16 @@ saída diferente de zero em falha intencional. Não usa App/ACP nem qualifica
 race no Linux. ShellCheck 0.11.0 e actionlint 1.7.12 aprovaram os arquivos
 alterados. Revisão independente do diff: `review_race_build`, rodada 1,
 sem achados acionáveis; permanece necessária a qualificação remota acima.
+
+
+O cache persistente de compilação do produtor e dos consumidores do App usa
+`go.sum` e o script de build/seleção na chave do setup-go. Os paths já fazem
+parte da versão interna do cache; o namespace adicional separa a compilação
+instrumentada do cache imutável de `backend-checks`, que usa o mesmo GOCACHE,
+mas compila sem race. O produtor salva antes de liberar os consumidores;
+assim eles não criam primeiro uma entrada parcial. O artifact continua sendo
+exclusivo do run: cache de objetos compilados não aprova teste nem substitui
+execução. Evidência da separação necessária: no run 42498268593,
+`backend-checks` restaurou 1.083.452.142 bytes no mesmo GOCACHE e registrou
+primary-key hit, sem salvar. Reutilizar essa chave descartaria ao final o
+novo trabalho instrumentado do produtor.

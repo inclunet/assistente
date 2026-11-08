@@ -190,6 +190,11 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
+          # Namespace race do App: o produtor salva antes de liberar consumidores.
+          # Evita o cache imutável de builds normais, que não contém objetos race.
+          cache-dependency-path: |
+            go.sum
+            .github/scripts/testar-go-race.sh
 
       - name: Compilar App com detector de corrida
         run: bash .github/scripts/testar-go-race.sh --build-app
@@ -289,6 +294,11 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
+          # Namespace race do App: o produtor salva antes de liberar consumidores.
+          # Evita o cache imutável de builds normais, que não contém objetos race.
+          cache-dependency-path: |
+            go.sum
+            .github/scripts/testar-go-race.sh
 
       - name: Recuperar binário desta revisão
         uses: actions/download-artifact@v4
