@@ -167,39 +167,66 @@ jobs:
           test "$CHECKS_RESULT" = success
           test "$TESTS_RESULT" = success
 
+  backend-race-build:
+    # Um único binário race do App, compartilhado somente neste run/revisão.
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      GOTMPDIR: ${{ github.workspace }}/build/bin/ci/_go-work
+      GOCACHE: ${{ github.workspace }}/build/bin/ci/_go-cache
+      TEMP: ${{ github.workspace }}/build/bin/ci/_scratch
+      TMP: ${{ github.workspace }}/build/bin/ci/_scratch
+      TMPDIR: ${{ github.workspace }}/build/bin/ci/_scratch
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Preparar diretórios de compilação
+        run: mkdir -p "$GOTMPDIR" "$GOCACHE" "$TMPDIR"
+
+      - name: Install system dependencies
+        timeout-minutes: 10
+        run: bash .github/scripts/instalar-pacotes-apt.sh libgtk-3-dev libx11-dev
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Compilar App com detector de corrida
+        run: bash .github/scripts/testar-go-race.sh --build-app
+
+      - name: Publicar binário desta revisão
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-race-${{ github.sha }}
+          path: build/bin/ci/app-race.test
+          if-no-files-found: error
+          retention-days: 7
+          overwrite: true
+
   backend-race-tests:
-      # App é dividido por famílias; Chat, por hash estável do nome do teste.
-      # Cada grupo tem runner próprio e preserva os subtestes juntos.
     runs-on: ubuntu-latest
     # Inclui preparação e upload; o teste Go continua limitado a 20 minutos.
     timeout-minutes: 45
+    env:
+      GOTMPDIR: ${{ github.workspace }}/build/bin/ci/_go-work
+      GOCACHE: ${{ github.workspace }}/build/bin/ci/_go-cache
+      TEMP: ${{ github.workspace }}/build/bin/ci/_scratch
+      TMP: ${{ github.workspace }}/build/bin/ci/_scratch
+      TMPDIR: ${{ github.workspace }}/build/bin/ci/_scratch
     strategy:
       fail-fast: false
-      max-parallel: 8
+      max-parallel: 4
       matrix:
         group:
           - pacotes-gerais
           - pacote-wailsapi
           - pacote-chat-0
           - pacote-chat-1
-          - comandos-configuracao
-          - comandos-dispositivos
-          - comandos-contexto-deck-paginas
-          - comandos-contexto-deck-mermaid
-          - comandos-contexto-deck-camadas
-          - comandos-contexto-deck-base
-          - comandos-contexto-paleta
-          - comandos-contexto-workspace
-          - comandos-contexto-base
-          - comandos-execucao
-          - comandos-jobs
-          - comandos-interface
-          - comandos-seguranca
-          - comandos-outros
-          - app-chat
-          - app-demais
     steps:
       - uses: actions/checkout@v4
+
+      - name: Preparar diretórios de compilação
+        run: mkdir -p "$GOTMPDIR" "$GOCACHE" "$TMPDIR"
 
       - name: Install system dependencies
         timeout-minutes: 10
@@ -229,17 +256,85 @@ jobs:
           path: build/bin/ci/race-logs/*.log
           retention-days: 7
 
+  backend-race-app:
+    needs: backend-race-build
+    runs-on: ubuntu-latest
+    # Inclui preparação e upload; o teste Go continua limitado a 20 minutos.
+    timeout-minutes: 45
+    env:
+      GOTMPDIR: ${{ github.workspace }}/build/bin/ci/_go-work
+      GOCACHE: ${{ github.workspace }}/build/bin/ci/_go-cache
+      TEMP: ${{ github.workspace }}/build/bin/ci/_scratch
+      TMP: ${{ github.workspace }}/build/bin/ci/_scratch
+      TMPDIR: ${{ github.workspace }}/build/bin/ci/_scratch
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix:
+        group:
+          - pacote-app-0
+          - pacote-app-1
+          - pacote-app-2
+          - pacote-app-3
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Preparar diretórios de compilação
+        run: mkdir -p "$GOTMPDIR" "$GOCACHE" "$TMPDIR"
+
+      - name: Install system dependencies
+        timeout-minutes: 10
+        run: bash .github/scripts/instalar-pacotes-apt.sh libgtk-3-dev libx11-dev xvfb
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Recuperar binário desta revisão
+        uses: actions/download-artifact@v4
+        with:
+          name: app-race-${{ github.sha }}
+          path: build/bin/ci
+
+      - name: Restaurar permissão de execução
+        run: chmod +x build/bin/ci/app-race.test
+
+      - name: Go tests (-race -short)
+        timeout-minutes: 23
+        env:
+          RACE_GROUP: ${{ matrix.group }}
+        run: |
+          set -o pipefail
+          mkdir -p build/bin/ci/race-logs
+          Xvfb :99 -screen 0 1024x768x24 > /dev/null 2>&1 &
+          export DISPLAY=:99.0
+          bash .github/scripts/testar-go-race.sh "$RACE_GROUP" 2>&1 | tee "build/bin/ci/race-logs/$RACE_GROUP.log"
+
+      - name: Publicar diagnóstico de race
+        timeout-minutes: 2
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: race-log-${{ matrix.group }}
+          path: build/bin/ci/race-logs/*.log
+          retention-days: 7
+
   backend-race:
     # Preserva o nome do check exigido: só aprova se TODOS os grupos passaram.
-    needs: backend-race-tests
+    needs: [backend-race-build, backend-race-tests, backend-race-app]
     if: ${{ always() }}
     runs-on: ubuntu-latest
     timeout-minutes: 2
     steps:
       - name: Conferir todos os grupos
         env:
+          BUILD_RESULT: ${{ needs.backend-race-build.result }}
           RACE_RESULT: ${{ needs.backend-race-tests.result }}
-        run: test "$RACE_RESULT" = success
+          APP_RESULT: ${{ needs.backend-race-app.result }}
+        run: |
+          test "$BUILD_RESULT" = success
+          test "$RACE_RESULT" = success
+          test "$APP_RESULT" = success
 
   bindings:
     # Os tipos de `frontend/wailsjs/` são gerados a partir das assinaturas dos
