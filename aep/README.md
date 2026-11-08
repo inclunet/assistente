@@ -1,3 +1,5 @@
+AEP-0103 (08/11/2026): preparo das fixtures manuais do Deck compartilhado; ativação real e provas de edição preservadas (issue #1008). Status **In Progress**. Medições em `docs/operations/ci-test-cost.md`.
+
 AEP-0103 (08/11/2026): fixtures de execução contextual usam banco isolado e projeção real sem repetir edições confirmadas na preparação (issue #1008); garantias de execução e testes de edição preservados. Status global **In Progress**. Medições em `docs/operations/ci-test-cost.md`.
 
 AEP-0103 (08/11/2026): comparação de datas persistidas corrige falso conflito de configuração, preservando CAS e status global In Progress.

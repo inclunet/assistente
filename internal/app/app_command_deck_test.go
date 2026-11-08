@@ -57,24 +57,19 @@ func (d *appDeckDriver) Open(context.Context, commanddeck.PhysicalDevice) (comma
 
 func deckConfiguredFixture(t *testing.T) *App {
 	t.Helper()
-	a, decisions := settingsSecurityFixture(t)
-	layer, _ := settingsActivationSecurityLayerAndRule(t, a, decisions)
-	settingsActivationSecurityConfirmed(t, a, decisions, func() (CommandSettingsMutation, error) {
-		return a.SaveCommandBinding(CommandBindingEdit{LayerID: layer, CommandID: "navigation.settings.open", TriggerType: "streamdeck.key", TriggerSpec: `{"version":1,"device":"test-deck","key":0}`, Enabled: true})
-	})
-	if _, err := a.SetCommandLayerActive(layer, true); err != nil {
-		t.Fatal(err)
-	}
-	return a
+	return deckChatPickerFixture(t, "navigation.settings.open")
 }
 
 func deckChatPickerFixture(t *testing.T, commandID string) *App {
 	t.Helper()
-	a, decisions := settingsSecurityFixture(t)
-	layer, _ := settingsActivationSecurityLayerAndRule(t, a, decisions)
-	settingsActivationSecurityConfirmed(t, a, decisions, func() (CommandSettingsMutation, error) {
-		return a.SaveCommandBinding(CommandBindingEdit{LayerID: layer, CommandID: commandID, TriggerType: "streamdeck.key", TriggerSpec: `{"version":1,"device":"test-deck","key":0}`, Enabled: true})
-	})
+	a, _ := settingsSecurityFixture(t)
+	var fixture contextualCommandConfigFixture
+	layer, _ := fixture.layer(t, "Camada de segurança", "manual")
+	fixture.binding(t, CommandSettingsBindingInput{LayerID: layer, CommandID: commandID,
+		TriggerType: "streamdeck.key", TriggerSpec: `{"version":1,"device":"test-deck","key":0}`,
+		Effect: "execute", Enabled: true})
+	fixture.publish(t, a)
+	// Activation stays on the production path: seed configuration, never claims.
 	if _, err := a.SetCommandLayerActive(layer, true); err != nil {
 		t.Fatal(err)
 	}

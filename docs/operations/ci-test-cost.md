@@ -388,3 +388,29 @@ dispatch com o número do PR substitui o run concorrente e que os quatro gates
 continuam aprovados no head, sem confundir cancelamento com sucesso.
 Referências: [concorrência de workflows](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax#concurrency)
 e [eventos e workflow_dispatch](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#workflow_dispatch).
+
+
+## Preparo compartilhado de comandos manuais do Deck
+
+`deckConfiguredFixture` e `deckChatPickerFixture` repetiam a mesma sequência
+confirmada de criação de camada, regra manual e binding. Agora compartilham o
+preparo persistido de configuração e a projeção real já usados pelas fixtures
+contextuais. `SetCommandLayerActive` permanece no caminho produtivo: a fixture
+não instala claims, ofertas, ocorrências nem invocações prontas. Mutações feitas
+pelos cenários e as provas específicas de edição confirmada não mudaram.
+
+A seleção antes/depois passou com os mesmos **20 testes top-level: 19 pass e
+1 skip opt-in**. Inclui também a prova de status vazio, que não usa essas
+fixtures. A soma dos tempos top-level foi **20,25 → 11,87 s** em uma execução
+de cada binário. O processo completo ficou em **48,935 / 49,212 s** nessas
+primeiras execuções; a redução interna não representou ganho de abertura.
+O teste opt-in `TestCommandDeckAppLatency` foi executado separadamente com
+`COMMAND_APP_LATENCY=1` e passou nos dois cenários.
+
+Para distinguir preparo de inicialização do binário, três pares posteriores
+em processos independentes e sem compilação/suítes concorrentes mediram
+`TestCommandLocalFamiliesDeckProjectionAndSingleDispatch`, com os mesmos
+16 comandos e assertions de origem, projeção, repetição e dispatch único:
+antes **6,352 / 6,584 / 7,010 s**; depois **2,031 / 2,137 / 2,114 s**.
+Mediana **6,584 → 2,114 s (−67,9%)**, Windows/Go 1.26.0. Não extrapolar esse
+percentual ao workflow: ganho Linux/race ainda depende da qualificação remota.
