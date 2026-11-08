@@ -203,7 +203,7 @@ No editor de regras, **Página do aplicativo** também está disponível para as
 ações de camada do Stream Deck: ativar, alternar e voltar. As restrições da
 origem continuam valendo para as demais condições.
 
-**Escape** fecha primeiro o formulário e retorna o foco à grade do gerenciador.
+**Escape** fecha primeiro o formulário e retorna o foco à grade do gerenciador. Se você já navegar para outro controle após fechar o formulário, o retorno de foco pendente do modal preserva essa nova posição.
 Outro **Escape** fecha o gerenciador e volta à camada selecionada. Enquanto
 uma operação estiver em andamento, aguarde sua conclusão antes de fechar.
 Trocar usuário, sessão, workspace ou escopo encerra o gerenciador anterior.

@@ -2,6 +2,12 @@
 
 Status: In Progress — evidências e aceites pendentes conforme os registros abaixo
 
+**Retorno de foco dos formulários (08/11/2026, issue #1008):**
+O retorno adiado do Modal preserva foco adquirido depois do fechamento;
+sem nova aquisição, continua devolvendo à área padrão. Regressão determinística
+cobre ambos os percursos, sem substituir a prova E2E dos gerenciadores nem
+promover aceites manuais. Status **In Progress** e demais contratos inalterados.
+
 **Preparo dos comandos manuais do Deck (08/11/2026, issue #1008):**
 As fixtures de comandos/pickers compartilham a configuração persistida e a
 projeção real. A ativação continua passando por `SetCommandLayerActive`, sem

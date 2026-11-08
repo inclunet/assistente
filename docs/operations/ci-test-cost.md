@@ -414,3 +414,26 @@ em processos independentes e sem compilação/suítes concorrentes mediram
 antes **6,352 / 6,584 / 7,010 s**; depois **2,031 / 2,137 / 2,114 s**.
 Mediana **6,584 → 2,114 s (−67,9%)**, Windows/Go 1.26.0. Não extrapolar esse
 percentual ao workflow: ganho Linux/race ainda depende da qualificação remota.
+
+
+## Investigação de intermitência de foco no E2E
+
+O run `42517346349` passou, mas registrou retry em
+`command-managers.spec.ts:86`: depois de sair do editor e navegar na toolbar,
+o botão esperado não tinha foco. Vinte repetições locais sem retry passaram
+(1,6 min), portanto a causa daquele episódio **não foi reproduzida**.
+Uma cópia diagnóstica, removida antes do commit, registrou chamadas independentes
+de restauração por Menu, MenuButton e Modal; isso não demonstra qual causou
+a falha remota e não autoriza cortar assertions ou elevar timeouts.
+
+A investigação encontrou uma janela demonstrável no Modal: sua restauração
+adiada sobrescrevia uma nova aquisição de foco feita após fechar o diálogo.
+Uma regressão com frames controlados falhou antes no caso de nova navegação,
+e o caso de retorno padrão passou. O callback agora preserva um alvo conectado
+adquirido depois do agendamento; se o foco não mudou ou voltou ao documento,
+o retorno padrão continua. A guarda de outro modal aberto permanece.
+
+Os dois casos de regressão e os vinte testes anteriores do Modal passam, com
+os spies de frames restaurados ao final. Esta correção não declara resolvido
+o E2E original; sua eventual recorrência precisa de nova evidência. Não houve
+mudança em retries, timeouts, seleção de testes ou uso de NVDA.
