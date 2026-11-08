@@ -1,8 +1,13 @@
 # AEP-0116 — Timeline canônica de chat do backend à apresentação
 
-## Status: In Progress — implementação e qualificação local concluídas; validação final e CI em andamento
+## Status: Done — escopo implementado e critérios locais verificados; entrega sujeita aos gates do PR #1040
 
 Data: 2026-10-30
+
+O escopo aceito das fases 1–5 está implementado, com os critérios abaixo
+verificados. Este status não afirma CI verde antecipadamente: o PR #1040 só
+pode ser entregue como pronto após CI e review remota sem pendências, conforme
+AGENTS.md. Não depende de outro recorte de implementação.
 
 ### Consultas preparadas e qualificação do SQLite (08/11/2026)
 
@@ -85,6 +90,22 @@ por orientação do mantenedor; sua validação continua no CI. Não houve alter
 do banco pessoal nem alegação de medição em sessão instalada. A prova produtiva
 acima usa o leitor real da aplicação, sem driver experimental ou fork.
 
+A primeira rodada Copilot no PR #1040 identificou que a espera do mutex de
+preparo ignorava cancelamento. A exclusão agora usa aquisição cancelável,
+preservando inicialização atômica e mapa imutável. A regressão ocupa a única
+conexão, comprova a primeira espera por `WaitCount`, exige o término da segunda
+abertura antes de liberar o pool e confirma recuperação posterior. Ela falhou
+com o mutex anterior e passou em dez repetições com a correção; 53 testes
+focados de timeline, vet e lint incremental também passaram. Revisão
+independente adicional aprovou a correção sem pendências.
+
+Nova medição após essa correção, mesmo Go 1.27.1 e protocolo: medianas
+3,984585 / 10,418035 / 12,848895 ms, payload 36.477 / 85.960 / 85.961 bytes
+e 727.394 / 1.584.730 / 1.562.856 B/op. Todos os limites originais continuam
+atendidos. As medições anteriores permanecem registradas para não esconder
+variabilidade. CodeRabbit pulou a revisão por exceder seu limite de 100
+arquivos; a migração mecânica de imports faz parte do diff revisado localmente.
+
 Revisão independente `review_canonical_cleanup`: revisão inicial, incrementos
 e revisão final do diff completo, incluindo arquivos novos, sem pendências
 funcionais. A documentação recebeu uma rodada adicional sem pendências.
@@ -92,7 +113,7 @@ Go 1.26: build e vet passaram; lint incremental contra `379e49b62` retornou
 zero ocorrências (o lint global possui ocorrências preexistentes). A seleção
 ampla sem ACP cobriu mais de cinco mil testes; regressões encontradas foram
 corrigidas e revalidadas. A rodada final passou nos 3 testes do adaptador,
-499 de chat e 179 de configuração. TypeScript, ESLint e Stylelint passaram.
+499 de chat, 179 de configuração e 395 de banco. TypeScript, ESLint e Stylelint passaram.
 Vitest teve 7.044 aprovações e uma falha de espera no Topbar sob carga;
 a repetição do arquivo completo passou em 122/122, sem alteração de código
 frontend. CI e review remota permanecem gates da entrega.

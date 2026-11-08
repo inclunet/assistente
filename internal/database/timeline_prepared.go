@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"sync"
 
 	"gorm.io/gorm"
 )
@@ -14,21 +13,25 @@ import (
 // ou parâmetros. Os handles pertencem ao mesmo sql.DB e são liberados por Close
 // desse banco; uma nova instância de banco exige um novo leitor.
 type TimelineStatements struct {
-	mu         sync.Mutex
+	prepare    chan struct{}
 	db         *gorm.DB
 	statements map[string]*sql.Stmt
 }
 
 func NewTimelineStatements(db *gorm.DB) *TimelineStatements {
-	return &TimelineStatements{db: db}
+	return &TimelineStatements{db: db, prepare: make(chan struct{}, 1)}
 }
 
 // Prepare acontece antes da transação: preparar pelo pool dentro dela poderia
 // bloquear com MaxOpenConns=1 ou acessar outra conexão de um banco em memória.
 // Falha fecha os handles parciais e não envenena as próximas requisições.
 func (p *TimelineStatements) Prepare(ctx context.Context) error {
-	p.mu.Lock()
-	defer p.mu.Unlock()
+	select {
+	case p.prepare <- struct{}{}:
+		defer func() { <-p.prepare }()
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 	if err := ctx.Err(); err != nil {
 		return err
 	}

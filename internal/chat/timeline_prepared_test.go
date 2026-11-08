@@ -102,3 +102,60 @@ func TestTimelinePreparedOpeningCancellationConnectionAndReopen(t *testing.T) {
 		}
 	}
 }
+
+// Outra abertura não pode herdar a espera de uma preparação que disputa o pool.
+func TestTimelinePreparedOpeningCancelsWhileAnotherOpeningWaitsForConnection(t *testing.T) {
+	f := newSnapshotFixture(t)
+	raw, err := f.db.DB()
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw.SetMaxOpenConns(1)
+	ctx, stop := context.WithTimeout(f.ctx, 5*time.Second)
+	defer stop()
+	held, err := raw.Conn(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = held.Close() }()
+	query := database.MessageWindowQuery{ConversationID: f.conversation, Anchor: "end", Direction: "before", Limit: 20}
+	waits := raw.Stats().WaitCount
+	first := make(chan error, 1)
+	go func() { _, err := f.reader.ReadCanonicalWindow(ctx, query); first <- err }()
+	// WaitCount prova que o primeiro preparo já detém a exclusão e espera o pool.
+	ticker := time.NewTicker(time.Millisecond)
+	defer ticker.Stop()
+	for raw.Stats().WaitCount == waits {
+		select {
+		case <-ticker.C:
+		case <-ctx.Done():
+			t.Fatal("primeira abertura não aguardou o pool")
+		}
+	}
+	canceled, cancel := context.WithTimeout(ctx, 20*time.Millisecond)
+	defer cancel()
+	second := make(chan error, 1)
+	go func() { _, err := f.reader.ReadCanonicalWindow(canceled, query); second <- err }()
+	select {
+	case err := <-second:
+		if !errors.Is(err, context.DeadlineExceeded) {
+			t.Fatalf("cancelamento: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("abertura cancelada ficou presa à preparação de outra abertura")
+	}
+	select {
+	case err := <-first:
+		t.Fatalf("primeira abertura não deveria concluir com pool ocupado: %v", err)
+	default:
+	}
+	if err := held.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-first; err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.reader.ReadCanonicalWindow(ctx, query); err != nil {
+		t.Fatal(err)
+	}
+}
