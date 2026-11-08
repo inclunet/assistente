@@ -358,3 +358,20 @@ repetição com cache restaurado, sem atribuir toda variação do workflow a est
 mudança. Os resultados Linux/race serão registrados no PR e na #1008. Os
 contratos Bash verificam a matriz, os pacotes completos, a união disjunta,
 subpacotes, flags, falhas e o gate; não executam Go real nem ACP local.
+
+
+### Contenção real no cadastro de identidades externas
+
+A revalidação `42519431471` falhou em
+`TestExternalIdentityBootstrapConcurrentConnectionsHasSingleWinner`: um writer
+venceu e o outro recebeu `SQLITE_BUSY`, em vez do conflito de unicidade.
+O DSN produtivo espera 100 ms e depende da política central de retry, ausente
+nesse caminho. A regressão nova força um writer real e só o libera depois de
+observar BUSY; falhou antes tanto no bootstrap quanto no cadastro administrativo.
+
+Ambos usam agora `WithSQLiteImmediateTransactionOnce`: a política central
+retenta somente a aquisição do writer; corpo e COMMIT não são repetidos.
+Auditoria permanece a primeira escrita e vínculo/auditoria continuam atômicos.
+O teste concorrente original foi preservado; não houve aumento de timeout,
+retry no teste nem redução de concorrência. Isso corrige comportamento produtivo,
+não apenas a estabilidade do CI.
