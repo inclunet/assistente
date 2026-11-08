@@ -64,6 +64,10 @@ precisa coincidir com o ID de um usuário local ativo. Não é possível escolhe
 outra pessoa no corpo da solicitação. Se essa correspondência não existir,
 o cadastro é recusado: não há criação automática nem uso do usuário atual.
 
+Se outro processo estiver gravando no banco, o bootstrap e o cadastro administrativo
+aguardam brevemente pela política de contenção do SQLite, respeitando o cancelamento
+da solicitação. Essa espera não duplica o vínculo nem sua auditoria.
+
 O bootstrap só pode ser concluído uma vez por emissor. Repeti-lo responde
 **409**; revogar um vínculo não reabre o bootstrap. Se o administrador perder
 seu acesso, não apague auditoria para tentar reiniciar esse procedimento.

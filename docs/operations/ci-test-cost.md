@@ -388,3 +388,19 @@ dispatch com o número do PR substitui o run concorrente e que os quatro gates
 continuam aprovados no head, sem confundir cancelamento com sucesso.
 Referências: [concorrência de workflows](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax#concurrency)
 e [eventos e workflow_dispatch](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#workflow_dispatch).
+
+### Contenção real no cadastro de identidades externas
+
+A revalidação `42519431471` falhou em
+`TestExternalIdentityBootstrapConcurrentConnectionsHasSingleWinner`: um writer
+venceu e o outro recebeu `SQLITE_BUSY`, em vez do conflito de unicidade.
+O DSN produtivo espera 100 ms e depende da política central de retry, ausente
+nesse caminho. A regressão nova força um writer real e só o libera depois de
+observar BUSY; falhou antes tanto no bootstrap quanto no cadastro administrativo.
+
+Ambos usam agora `WithSQLiteImmediateTransactionOnce`: a política central
+retenta somente a aquisição do writer; corpo e COMMIT não são repetidos.
+Auditoria permanece a primeira escrita e vínculo/auditoria continuam atômicos.
+O teste concorrente original foi preservado; não houve aumento de timeout,
+retry no teste nem redução de concorrência. Isso corrige comportamento produtivo,
+não apenas a estabilidade do CI.
