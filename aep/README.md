@@ -1,4 +1,4 @@
-AEP-0074-B (08/11/2026): compactação restaura a política de espera da conexão antes de devolvê-la ao pool; regressão real de sucesso, limiar e erro. Status **In Progress**, sem promover aceites das extensões.
+AEP-0074-B (08/11/2026): compactação restaura a política de espera da conexão antes de devolvê-la ao pool; regressões reais de sucesso, limiar, erro, cancelamento e falha de cleanup. Status **In Progress**, sem promover aceites das extensões.
 
 AEP-0047 / AEP-0116 (08/11/2026): provas de portabilidade reutilizam apenas o schema produtivo, preservando isolamento, importação e rollback reais; medições em `docs/operations/ci-test-cost.md` (#1008). Status permanecem **In Progress** / **Done**, respectivamente.
 

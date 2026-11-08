@@ -471,6 +471,11 @@ Aproveitando a reforma do `config`, os fallbacks de modelo que liam `config.Defa
 | R3 | `VACUUM` longo em banco muito grande | Baixa | Médio | Roda uma vez (converte para incremental); subsequentes usam `incremental_vacuum` barato |
 | R4 | Erro de manutenção interrompe boot | Baixa | Alto | Best-effort: tudo logado, nada propaga erro fatal |
 
+A prova `TestCompactCleanupCancellationAndFailure` também cobre cancelamento
+após elevar o timeout e falhas injetadas no VACUUM/restauração, usando SQLite
+real com invólucro restrito ao teste. Verifica descarte e substituição da conexão,
+restauração após cancelamento, dados preservados e ambos os erros via `errors.Is`.
+
 ## Critérios de aceitação
 
 - [x] `Init` define `auto_vacuum=INCREMENTAL` e `busy_timeout`; bancos novos nascem no modo incremental.

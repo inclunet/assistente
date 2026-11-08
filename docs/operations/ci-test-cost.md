@@ -515,3 +515,10 @@ preserva/restaura o estado da própria conexão. O cleanup não herda cancelamen
 da operação; falha ao restaurar descarta a conexão e é reportada, preservando
 também eventual erro de compactação. Os dados e resultados da operação continuam
 verificados; não há mudança em prazos de teste nem na espera da compactação.
+
+Os caminhos de cleanup também têm três provas determinísticas com SQLite real
+sob um invólucro de driver exclusivo do teste: cancelamento imediatamente após
+elevar o timeout, falha só na restauração e falhas na operação e restauração.
+Verificam reutilização com timeout restaurado após cancelamento, fechamento e
+substituição da conexão após falha no cleanup, preservação de ambos os erros
+com `errors.Is` e dos dados. Não há hook de teste no código de produção.
