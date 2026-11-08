@@ -127,7 +127,10 @@ while read -r branch; do
 
   # O push já valeu; se o pedido de CI falhar, o lote segue. Parar aqui deixaria
   # os outros PRs sem atualização e ainda comeria o resumo do run.
-  if ! gh workflow run ci.yml --ref "$branch"; then
+  # GITHUB_TOKEN não dispara CI no push; o dispatch continua necessário.
+  # A identidade do PR evita um segundo workflow concorrente se o retarget
+  # da pilha também gerar pull_request para esta atualização.
+  if ! gh workflow run ci.yml --ref "$branch" -f "pr_number=$numero"; then
     echo "::warning::PR #$numero ($branch): atualizado, mas o CI não foi pedido."
     sem_ci+=("#$numero ($branch)")
     continue

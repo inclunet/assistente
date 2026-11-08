@@ -358,3 +358,33 @@ repetição com cache restaurado, sem atribuir toda variação do workflow a est
 mudança. Os resultados Linux/race serão registrados no PR e na #1008. Os
 contratos Bash verificam a matriz, os pacotes completos, a união disjunta,
 subpacotes, flags, falhas e o gate; não executam Go real nem ACP local.
+
+
+## Disparos concorrentes ao atualizar PRs empilhados
+
+Após o merge do #1043, o #1044 recebeu os runs `42515424147`
+(`pull_request`) e `42515419837` (`workflow_dispatch`) para o mesmo head
+`4d2648867e5cfed342455fc973ea1c2d998c9bae`. Os dois workflows iniciaram
+jobs. A chave anterior usava número do PR no primeiro caso e nome da branch
+no segundo: o controle de concorrência não reconhecia a duplicação.
+
+O atualizador passa `pr_number` no dispatch. O CI usa esse número no mesmo
+grupo do evento de PR, cancelando a execução concorrente que ficou obsoleta.
+Isso não impede criar dois registros de run nem elimina o custo já consumido
+antes do cancelamento. Não muda a matriz, os gates, os testes, as flags ou os
+limites; cada atualização ainda exige validação. PRs distintos, inclusive de
+forks com nomes de branch iguais, continuam separados por número.
+
+O dispatch permanece necessário: o push feito por `GITHUB_TOKEN` não deve ser
+tratado como garantia de novo CI. Execuções manuais independentes deixam o
+input no padrão `0` e mantêm a política anterior, assim como pushes na main.
+O input de PR só é preenchido para validar aquela branch atualizada; o
+atualizador já exclui forks, drafts e PRs fora da janela de manutenção.
+
+O contrato Bash prova a associação branch→PR para pai, filho e base removida,
+e que branches sem mudança/em conflito não pedem CI. Actionlint valida os
+contextos e tipos da expressão. A qualificação remota deve confirmar que um
+dispatch com o número do PR substitui o run concorrente e que os quatro gates
+continuam aprovados no head, sem confundir cancelamento com sucesso.
+Referências: [concorrência de workflows](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax#concurrency)
+e [eventos e workflow_dispatch](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#workflow_dispatch).
