@@ -1,3 +1,5 @@
+AEP-0047 / AEP-0116 (08/11/2026): provas de portabilidade reutilizam apenas o schema produtivo, preservando isolamento, importação e rollback reais; medições em `docs/operations/ci-test-cost.md` (#1008). Status permanecem **In Progress** / **Done**, respectivamente.
+
 AEP-0103 (08/11/2026): retorno adiado do Modal preserva nova aquisição de foco, mantendo o retorno padrão. Regressão determinística; causa da intermitência E2E continua sob investigação (#1008). Status **In Progress**.
 
 AEP-0103 (08/11/2026): preparo das fixtures manuais do Deck compartilhado; ativação real e provas de edição preservadas (issue #1008). Status **In Progress**. Medições em `docs/operations/ci-test-cost.md`.

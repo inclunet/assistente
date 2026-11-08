@@ -9,6 +9,15 @@ verificados. Este status não afirma CI verde antecipadamente: o PR #1040 só
 pode ser entregue como pronto após CI e review remota sem pendências, conforme
 AGENTS.md. Não depende de outro recorte de implementação.
 
+### Manutenção das provas de portabilidade (08/11/2026)
+
+As provas de histórico de execuções e anexos reutilizam somente o schema
+produtivo migrado, em bancos privados por teste. Dados, importações, validação
+do grafo, rollback e assertions permanecem próprios de cada cenário. Os mesmos
+11 testes principais / 21 casos da seleção local passam antes/depois; medições
+em `docs/operations/ci-test-cost.md` (issue #1008). Não há mudança no contrato
+canônico ou no escopo concluído; o status **Done** permanece.
+
 ### Consultas preparadas e qualificação do SQLite (08/11/2026)
 
 A investigação localizou recompilação de SQL na abertura: o driver anterior

@@ -437,3 +437,30 @@ Os dois casos de regressão e os vinte testes anteriores do Modal passam, com
 os spies de frames restaurados ao final. Esta correção não declara resolvido
 o E2E original; sua eventual recorrência precisa de nova evidência. Não houve
 mudança em retries, timeouts, seleção de testes ou uso de NVDA.
+
+
+## Reuso do schema produtivo nos testes de portabilidade
+
+`setupPortabilityRuntimeTestDB` usa `dbfixture.Open`: migra o schema produtivo
+uma vez por processo e abre uma cópia privada por teste. Cada cenário continua
+criando seu usuário, histórico e anexos, com conexão e cleanup próprios. Não
+reutiliza resultados de importação nem altera a fixture parcial dos importadores
+legados ou os testes de migração. Validações de grafo, rollback, colisões,
+seleção de execução, continuidade e round-trip de áudio/mídia permanecem.
+
+A motivação remota é o run `42518594812`: portabilidade levou **328,912 s** no
+grupo geral com race; o teste de grafo inválido e rollback consumiu **76,29 s**.
+Isso identifica custo, não constitui comparação Linux antes/depois.
+
+Windows/Go 1.26.0, binários previamente compilados e processos independentes:
+a seleção permitida localmente passou antes/depois com os mesmos **11 testes
+principais / 21 casos incluindo subtestes**. A soma dos tempos dos testes
+principais caiu de **12,02 para 1,43 s** em uma execução; os processos completos
+levaram **32,200 / 16,306 s**, incluindo sua inicialização.
+
+Três pares isolados, sem outras suítes/compilações concorrentes, executaram
+`TestExecutionHistoryRejectsInvalidGraphAndRollsBack` (oito grafos inválidos):
+antes **4,214 / 4,091 / 4,208 s**; depois **1,085 / 0,969 / 0,985 s**.
+Mediana **4,208 → 0,985 s (−76,6%)**, incluindo o processo inteiro. Não
+extrapolar o ganho ao workflow. Testes ACP e funções de arquivos que mencionam
+ACP não foram executados localmente; permanecem no CI integral.

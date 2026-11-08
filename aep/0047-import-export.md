@@ -2,6 +2,15 @@
 
 **Status:** In Progress — escopo DB-only e upgrades entregues; cobertura explícita de acessibilidade do fluxo inline permanece pendente
 
+## Custo das provas de portabilidade (08/11/2026)
+
+A fixture de runtime agora reutiliza uma imagem do schema migrado pelo caminho
+produtivo, mantendo banco/conexão privados por teste. Importação, validação do
+grafo, rollback e round-trip continuam reais; fixtures parciais de importadores
+legados não mudaram. Evidência e comparação de inventários em
+`docs/operations/ci-test-cost.md` (issue #1008). Status **In Progress** e
+pendências de acessibilidade do fluxo inline permanecem inalterados.
+
 ## Continuação AEP-0116 — anexos normalizados (06/11/2026)
 
 O armazenamento de mídia passa a vínculos ordenados e binários únicos por usuário,
