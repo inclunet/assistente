@@ -6,8 +6,9 @@ export LC_ALL=C
 app=assistente/internal/app
 chat=assistente/internal/chat
 wailsapi=assistente/internal/wailsapi
+database=assistente/internal/database
 flags=(-race -short -count=1 -timeout=20m)
-groups=(pacote-wailsapi pacote-chat-0 pacote-chat-1 pacote-app-0 pacote-app-1 pacote-app-2 pacote-app-3)
+groups=(pacotes-database-wailsapi pacote-chat-0 pacote-chat-1 pacote-app-0 pacote-app-1 pacote-app-2 pacote-app-3)
 app_binary="$(pwd)/build/bin/ci/app-race.test"
 
 # Compilação única por execução do workflow; não executa testes nem TestMain.
@@ -23,11 +24,17 @@ fi
 
 if [[ $# == 1 && $1 == pacotes-gerais ]]; then
   inventory=$(go list -race ./...)
-  mapfile -t packages < <(printf '%s\n' "$inventory" | awk -v app="$app" -v chat="$chat" -v wailsapi="$wailsapi" 'NF && $0 != app && $0 != chat && $0 != wailsapi')
-  if [[ $(printf '%s\n' "$inventory" | grep -Fxc "$app") != 1 || $(printf '%s\n' "$inventory" | grep -Fxc "$chat") != 1 || $(printf '%s\n' "$inventory" | grep -Fxc "$wailsapi") != 1 || ${#packages[@]} == 0 ]]; then
-    echo 'Inventário de pacotes vazio ou sem App/Chat/WailsAPI únicos' >&2
+  mapfile -t packages < <(printf '%s\n' "$inventory" | awk -v app="$app" -v chat="$chat" -v wailsapi="$wailsapi" -v database="$database" 'NF && $0 != app && $0 != chat && $0 != wailsapi && $0 != database')
+  if (( ${#packages[@]} == 0 )); then
+    echo 'Inventário dos pacotes gerais vazio' >&2
     exit 1
   fi
+  for isolated in "$app" "$chat" "$wailsapi" "$database"; do
+    if [[ $(printf '%s\n' "$inventory" | grep -Fxc "$isolated") != 1 ]]; then
+      echo "Pacote isolado ausente ou duplicado: $isolated" >&2
+      exit 1
+    fi
+  done
   exec go test "${flags[@]}" -json "${packages[@]}"
 fi
 
@@ -36,10 +43,10 @@ if [[ $# != 1 || " ${groups[*]} " != *" $1 "* ]]; then
   exit 1
 fi
 
-# O pacote inteiro tem runner próprio; novos testes entram automaticamente.
-# Evita que o tempo acumulado dos outros pacotes o corte no fim do job.
-if [[ $1 == pacote-wailsapi ]]; then
-  exec go test "${flags[@]}" -json ./internal/wailsapi
+# Database começa junto da API, sem esperar a fila dos demais pacotes.
+# Ambos entram inteiros; novos testes/migrações continuam sendo descobertos.
+if [[ $1 == pacotes-database-wailsapi ]]; then
+  exec go test "${flags[@]}" -json ./internal/database ./internal/wailsapi
 fi
 
 package=./internal/chat
