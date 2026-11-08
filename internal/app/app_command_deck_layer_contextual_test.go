@@ -20,18 +20,19 @@ import (
 func contextualDeckLayerFixture(t *testing.T) contextualLayerPaletteFixture {
 	t.Helper()
 	f := newContextualLayerPaletteFixture(t)
-	layer := settingsContractApply(t, f.a, f.events, CommandSettingsMutationRequest{Scope: CommandSettingsScopeGlobal, Operation: "layer_create", Layer: &CommandSettingsLayerInput{Name: "Deck layer controller", Enabled: true}})
-	settingsContractApply(t, f.a, f.events, CommandSettingsMutationRequest{Scope: CommandSettingsScopeGlobal, Operation: "rule_create", Rule: &CommandSettingsRuleInput{LayerID: layer.ID, Mode: "always", Lifecycle: "persistent", Enabled: true}})
+	config := contextualCommandConfigFixture{}
+	layerID, _ := config.layer(t, "Deck layer controller", "always")
 	for key, id := range []string{commandLayerActivateID, commandLayerToggleID, commandLayerBackID} {
 		ruleID := f.ruleID
 		if id == commandLayerBackID {
 			ruleID = ""
 		}
-		binding := settingsContractApply(t, f.a, f.events, CommandSettingsMutationRequest{Scope: CommandSettingsScopeGlobal, Operation: "binding_create", Binding: &CommandSettingsBindingInput{LayerID: layer.ID, CommandID: id, TriggerType: "streamdeck.key", TriggerSpec: fmt.Sprintf(`{"version":1,"device":"test-deck","key":%d}`, key), Arguments: map[string]any{"scope": "global", "rule_id": ruleID, "duration_seconds": 0}, Effect: "execute", Enabled: true, Condition: &CommandSettingsCondition{Version: 1, Clauses: []CommandSettingsConditionClause{
+		binding := config.binding(t, CommandSettingsBindingInput{LayerID: layerID, CommandID: id, TriggerType: "streamdeck.key", TriggerSpec: fmt.Sprintf(`{"version":1,"device":"test-deck","key":%d}`, key), Arguments: map[string]any{"scope": "global", "rule_id": ruleID, "duration_seconds": 0}, Effect: "execute", Enabled: true, Condition: &CommandSettingsCondition{Version: 1, Clauses: []CommandSettingsConditionClause{
 			{Field: "app.focused", Value: true}, {Field: "surface.type", Value: f.observed.SurfaceType}, {Field: "surface.id", Value: f.observed.SurfaceID}, {Field: "profile", Value: f.observed.Profile},
-		}}}})
-		f.bindings[id] = binding.ID
+		}}})
+		f.bindings[id] = binding
 	}
+	config.publish(t, f.a)
 	var err error
 	f.view, err = f.a.GetLocalCommandKeyboardMap()
 	if err != nil {

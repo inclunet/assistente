@@ -54,8 +54,8 @@ func TestContextualDeckPageSurfaceAllowlist(t *testing.T) {
 func TestContextualDeckPageMapRetiredBeforeCommit(t *testing.T) {
 	for _, mode := range []string{"expired", "replaced"} {
 		t.Run(mode, func(t *testing.T) {
-			a, decisions, ctx, list := pagePaletteTaskFixture(t, workspace.TabTypeChat)
-			configurePageDeckCommand(t, a, decisions, "tasklists.duplicate", "tasklists")
+			a, _, ctx, list := pagePaletteTaskFixture(t, workspace.TabTypeChat)
+			configurePageDeckCommand(t, a, "tasklists.duplicate", "tasklists")
 			target, err := a.ReadTaskListCommandTarget(list.ID)
 			if err != nil {
 				t.Fatal(err)

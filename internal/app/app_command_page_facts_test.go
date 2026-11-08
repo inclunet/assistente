@@ -51,8 +51,8 @@ func TestWorkspaceVisualCommandFactsAppPage(t *testing.T) {
 }
 
 func TestContextualPagePaletteAppPageReachesExecution(t *testing.T) {
-	a, events, _, list := pagePaletteTaskFixture(t, workspace.TabTypeChat)
-	view := configurePagePaletteCommand(t, a, events, "tasklists.duplicate", "tasklists", CommandSettingsConditionClause{Field: "app.page", Value: "tasklists"})
+	a, _, _, list := pagePaletteTaskFixture(t, workspace.TabTypeChat)
+	view := configurePagePaletteCommand(t, a, "tasklists.duplicate", "tasklists", CommandSettingsConditionClause{Field: "app.page", Value: "tasklists"})
 	for _, page := range []string{"", "unknown", "profiles", "workspace"} {
 		result, err := a.BeginContextualPagePaletteUICommand(view.Generation, "tasklists.duplicate", LocalCommandKeyboardContext{SurfaceType: "tasklists", Profile: "dev", AppPage: page})
 		if err == nil || result.Ticket != "" {

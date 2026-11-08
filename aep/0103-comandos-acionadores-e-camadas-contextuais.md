@@ -3,14 +3,18 @@
 Status: In Progress — evidências e aceites pendentes conforme os registros abaixo
 
 **Custo das fixtures de execução contextual (08/11/2026, issue #1008):**
-`newContextualDeckTestFixture` prepara camada, regra e bindings no SQLite
-isolado de cada cenário e publica pela leitura/projeção real do lifecycle.
-Evita repetir quatro edições confirmadas durante a preparação de cada teste;
+As fixtures de execução contextual do Deck, de páginas e de camadas preparam
+camadas, regras e bindings no SQLite isolado de cada cenário, pelos mesmos
+normalizadores de entrada, e publicam pela leitura/projeção real do lifecycle.
+O preparo compartilhado evita repetir edições confirmadas em cada cenário;
 não compartilha App, conexão, sessão ou dados mutáveis entre cenários.
 As assertions de oferta, contexto, admissão, replay, cancelamento e ledger
 permanecem. A edição confirmada continua coberta por
 `TestCommandDeckVisualConditionsFromSettingsSelectDistinctCommands`, pelos
-testes de contrato/segurança de settings e pelas fixtures de camadas/páginas.
+testes de contrato/segurança de settings e por
+`TestCommandSettingsManualActivationChangesExecutedBinding` e
+`TestContextualPagePaletteConditionsRealSettings`. Mutações durante
+os cenários (como excluir uma regra ou binding) continuam usando a API confirmada.
 Este ajuste da preparação não altera contratos nem promove aceites pendentes:
 o status global permanece **In Progress**. Medições e mapa de garantias em
 [`docs/operations/ci-test-cost.md`](../docs/operations/ci-test-cost.md).

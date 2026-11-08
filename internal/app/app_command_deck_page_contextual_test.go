@@ -15,7 +15,7 @@ import (
 	"assistente/internal/workspace"
 )
 
-func configurePageDeckCommand(t *testing.T, a *App, decisions <-chan map[string]any, id, surface string) string {
+func configurePageDeckCommand(t *testing.T, a *App, id, surface string) string {
 	t.Helper()
 	if err := commandautomation.Migrate(context.Background(), database.DB()); err != nil {
 		t.Fatal(err)
@@ -23,19 +23,20 @@ func configurePageDeckCommand(t *testing.T, a *App, decisions <-chan map[string]
 	if err := a.workspaceMgr.SetProfile("dev"); err != nil {
 		t.Fatal(err)
 	}
-	layer := settingsContractApply(t, a, decisions, CommandSettingsMutationRequest{Scope: CommandSettingsScopeGlobal, Operation: "layer_create", Layer: &CommandSettingsLayerInput{Name: "Physical page " + id, Enabled: true}})
-	settingsContractApply(t, a, decisions, CommandSettingsMutationRequest{Scope: CommandSettingsScopeGlobal, Operation: "rule_create", Rule: &CommandSettingsRuleInput{LayerID: layer.ID, Mode: "always", Lifecycle: "persistent", Enabled: true}})
+	config := contextualCommandConfigFixture{}
+	layerID, _ := config.layer(t, "Physical page "+id, "always")
 	appPage := surface
 	if surface == "tasklist" {
 		appPage = "workspace"
 	}
-	binding := settingsContractApply(t, a, decisions, CommandSettingsMutationRequest{Scope: CommandSettingsScopeGlobal, Operation: "binding_create", Binding: &CommandSettingsBindingInput{LayerID: layer.ID, CommandID: id, TriggerType: "streamdeck.key", TriggerSpec: `{"version":1,"device":"test-deck","key":3}`, Arguments: map[string]any{}, Effect: "execute", Enabled: true, Condition: &CommandSettingsCondition{Version: 1, Clauses: []CommandSettingsConditionClause{
+	binding := config.binding(t, CommandSettingsBindingInput{LayerID: layerID, CommandID: id, TriggerType: "streamdeck.key", TriggerSpec: `{"version":1,"device":"test-deck","key":3}`, Arguments: map[string]any{}, Effect: "execute", Enabled: true, Condition: &CommandSettingsCondition{Version: 1, Clauses: []CommandSettingsConditionClause{
 		{Field: "app.focused", Value: true}, {Field: "app.page", Value: appPage}, {Field: "surface.type", Value: surface}, {Field: "profile", Value: "dev"},
-	}}}})
+	}}})
+	config.publish(t, a)
 	if _, err := a.GetLocalCommandKeyboardMap(); err != nil {
 		t.Fatal(err)
 	}
-	return binding.ID
+	return binding
 }
 
 func pageDeckOffer(t *testing.T, a *App) (CommandDeckContextualUIEvent, *commandDeckController) {
@@ -144,7 +145,7 @@ func TestContextualDeckPageTaskOperations(t *testing.T) {
 				kind = workspace.TabTypeTasklist
 			}
 			a, decisions, ctx, list := pagePaletteTaskFixture(t, kind)
-			bindingID := configurePageDeckCommand(t, a, decisions, scenario.id, scenario.surface)
+			bindingID := configurePageDeckCommand(t, a, scenario.id, scenario.surface)
 			target, err := a.ReadTaskListCommandTarget(list.ID)
 			if err != nil {
 				t.Fatal(err)
@@ -225,7 +226,7 @@ func TestContextualDeckPageProfileOperations(t *testing.T) {
 			if operation == "delete-cancel" {
 				id = "profiles.delete"
 			}
-			bindingID := configurePageDeckCommand(t, a, decisions, id, "profiles")
+			bindingID := configurePageDeckCommand(t, a, id, "profiles")
 			target, err := a.ReadProfileCommandTarget(slug)
 			if err != nil {
 				t.Fatal(err)
@@ -293,12 +294,12 @@ func TestContextualDeckPageProfileOperations(t *testing.T) {
 func TestContextualDeckPageRejectsInvalidOffers(t *testing.T) {
 	for _, scenario := range []string{"forged", "expiry", "wrong-page", "wrong-profile", "missing-profile", "stale-generation", "expired-map", "profile-ABA", "background-tab-not-page", "disconnect", "workspace-ingress"} {
 		t.Run(scenario, func(t *testing.T) {
-			a, decisions, _, _ := pagePaletteTaskFixture(t, workspace.TabTypeChat)
+			a, _, _, _ := pagePaletteTaskFixture(t, workspace.TabTypeChat)
 			surface := "tasklists"
 			if scenario == "background-tab-not-page" {
 				surface = "tasklist"
 			}
-			configurePageDeckCommand(t, a, decisions, "tasklists.duplicate", surface)
+			configurePageDeckCommand(t, a, "tasklists.duplicate", surface)
 			event, controller := pageDeckOffer(t, a)
 			p := a.commandProduct.Load()
 			profile := "dev"
@@ -358,8 +359,8 @@ func TestContextualDeckPageRejectsInvalidOffers(t *testing.T) {
 func TestContextualDeckPageTargetAndSourceGuards(t *testing.T) {
 	for _, scenario := range []string{"foreign-target", "changed-before-prepare", "changed-before-commit", "cancel-before-prepare", "disconnect-before-take", "disconnect-before-commit", "ABA-before-commit"} {
 		t.Run(scenario, func(t *testing.T) {
-			a, decisions, ctx, list := pagePaletteTaskFixture(t, workspace.TabTypeChat)
-			configurePageDeckCommand(t, a, decisions, "tasklists.duplicate", "tasklists")
+			a, _, ctx, list := pagePaletteTaskFixture(t, workspace.TabTypeChat)
+			configurePageDeckCommand(t, a, "tasklists.duplicate", "tasklists")
 			target, err := a.ReadTaskListCommandTarget(list.ID)
 			if err != nil {
 				t.Fatal(err)

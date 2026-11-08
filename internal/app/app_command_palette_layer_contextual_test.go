@@ -117,27 +117,27 @@ func newContextualLayerPaletteFixture(t *testing.T) contextualLayerPaletteFixtur
 		t.Fatal(err)
 	}
 	observed := LocalCommandKeyboardContext{SurfaceType: string(snapshot.Tab.Type), SurfaceID: snapshot.Tab.ID, Profile: "dev"}
-	control := settingsContractApply(t, a, events, CommandSettingsMutationRequest{Scope: CommandSettingsScopeGlobal, Operation: "layer_create", Layer: &CommandSettingsLayerInput{Name: "Contextual palette control", Enabled: true}})
-	settingsContractApply(t, a, events, CommandSettingsMutationRequest{Scope: CommandSettingsScopeGlobal, Operation: "rule_create", Rule: &CommandSettingsRuleInput{LayerID: control.ID, Mode: "always", Lifecycle: "persistent", Enabled: true}})
-	target := settingsContractApply(t, a, events, CommandSettingsMutationRequest{Scope: CommandSettingsScopeGlobal, Operation: "layer_create", Layer: &CommandSettingsLayerInput{Name: "Contextual palette manual target", Enabled: true}})
-	rule := settingsContractApply(t, a, events, CommandSettingsMutationRequest{Scope: CommandSettingsScopeGlobal, Operation: "rule_create", Rule: &CommandSettingsRuleInput{LayerID: target.ID, Mode: "manual", Lifecycle: "persistent", Enabled: true}})
-	settingsContractApply(t, a, events, CommandSettingsMutationRequest{Scope: CommandSettingsScopeGlobal, Operation: "binding_create", Binding: &CommandSettingsBindingInput{LayerID: target.ID, CommandID: commandProductWorkspaceListID, TriggerType: "keyboard.local", TriggerSpec: `{"version":1,"code":"F12","modifiers":["Control","Alt"]}`, Arguments: map[string]any{}, Effect: "execute", Enabled: true}})
+	config := contextualCommandConfigFixture{}
+	controlID, _ := config.layer(t, "Contextual palette control", "always")
+	targetID, targetRuleID := config.layer(t, "Contextual palette manual target", "manual")
+	config.binding(t, CommandSettingsBindingInput{LayerID: targetID, CommandID: commandProductWorkspaceListID, TriggerType: "keyboard.local", TriggerSpec: `{"version":1,"code":"F12","modifiers":["Control","Alt"]}`, Arguments: map[string]any{}, Effect: "execute", Enabled: true})
 	bindings := map[string]string{}
 	for _, id := range []string{commandLayerActivateID, commandLayerToggleID, commandLayerBackID} {
-		ruleID := rule.ID
+		ruleID := targetRuleID
 		if id == commandLayerBackID {
 			ruleID = ""
 		}
-		binding := settingsContractApply(t, a, events, CommandSettingsMutationRequest{Scope: CommandSettingsScopeGlobal, Operation: "binding_create", Binding: &CommandSettingsBindingInput{LayerID: control.ID, CommandID: id, TriggerType: "palette", TriggerSpec: `{"version":1,"selection":"` + id + `"}`, Arguments: map[string]any{"scope": "global", "rule_id": ruleID, "duration_seconds": 0}, Effect: "execute", Enabled: true, Condition: &CommandSettingsCondition{Version: 1, Clauses: []CommandSettingsConditionClause{
+		binding := config.binding(t, CommandSettingsBindingInput{LayerID: controlID, CommandID: id, TriggerType: "palette", TriggerSpec: `{"version":1,"selection":"` + id + `"}`, Arguments: map[string]any{"scope": "global", "rule_id": ruleID, "duration_seconds": 0}, Effect: "execute", Enabled: true, Condition: &CommandSettingsCondition{Version: 1, Clauses: []CommandSettingsConditionClause{
 			{Field: "app.focused", Value: true}, {Field: "surface.type", Value: observed.SurfaceType}, {Field: "surface.id", Value: observed.SurfaceID}, {Field: "profile", Value: observed.Profile},
-		}}}})
-		bindings[id] = binding.ID
+		}}})
+		bindings[id] = binding
 	}
+	config.publish(t, a)
 	view, err := a.GetLocalCommandKeyboardMap()
 	if err != nil {
 		t.Fatal(err)
 	}
-	return contextualLayerPaletteFixture{a: a, events: events, ruleID: rule.ID, bindings: bindings, view: view, observed: observed}
+	return contextualLayerPaletteFixture{a: a, events: events, ruleID: targetRuleID, bindings: bindings, view: view, observed: observed}
 }
 
 func assertContextualLayerReady(t *testing.T, a *App, id string, want bool) {
