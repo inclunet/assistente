@@ -395,7 +395,9 @@ número; cada atualização continua exigindo validação.
 
 Push por `GITHUB_TOKEN` não garante novo CI, por isso o dispatch permanece.
 Execuções manuais independentes deixam o input no padrão `0`, preservando a
-política anterior, assim como pushes na main. O atualizador exclui forks,
+política anterior, assim como pushes na main. O identificador só usa o input
+quando positivo, com o mesmo predicado do namespace: o sentinela zero, mesmo
+recebido como texto, não agrupa branches independentes. O atualizador exclui forks,
 drafts e PRs fora da janela de manutenção.
 
 Contratos Bash verificam associação branch→PR, namespaces, identidade exata,

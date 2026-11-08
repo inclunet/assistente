@@ -64,4 +64,6 @@ row pull_request "$GITHUB_SHA" action_required 12
 if MOCK_JOBS=invalid run; then fail 'aceitou inventário inválido'; fi
 # Namespaces distintos protegem tanto PR ativo quanto PR pendente.
 grep -Fq "group: ci-\${{ github.event_name == 'pull_request' && 'pr' || inputs.pr_number > 0 && 'dispatch' || 'ref' }}-" "$repo_dir/.github/workflows/ci.yml" || fail 'grupos de PR e dispatch deixaram de ser separados'
+# O sentinela zero nunca identifica o grupo: manuais independentes usam a ref.
+grep -Fq "\${{ github.event.pull_request.number || (inputs.pr_number > 0 && inputs.pr_number) || github.ref_name }}" "$repo_dir/.github/workflows/ci.yml" || fail 'dispatch sem PR deixou de usar a ref'
 echo 'PASS: prioridade do PR, isolamento por PR/head/evento, aprovação sem jobs e falhas visíveis'
