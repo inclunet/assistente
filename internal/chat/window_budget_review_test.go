@@ -212,7 +212,7 @@ func TestPublicationBudgetPreservesOpaqueIDs(t *testing.T) {
 		if err := f.db.Create(&message).Error; err != nil {
 			t.Fatal(err)
 		}
-		_, err := publicationSelectionReadSize(f.db.WithContext(f.ctx), f.conversation, []string{id}, nil)
+		_, err := database.ReadBoundedTimelineSources(f.db.WithContext(f.ctx), f.conversation, []string{id}, nil)
 		if !errors.Is(err, ErrTimelineSourceLimit) {
 			t.Fatalf("identidade normalizada deixou payload fora da conta: %q", id)
 		}
@@ -324,12 +324,19 @@ func TestWindowIdentityBudgetPrecedesPayloadGuard(t *testing.T) {
 		t.Fatal(err)
 	}
 	guardCalls := 0
-	_, err := database.NewMessageRepository(f.db).ReadMessageWindowWithContext(f.ctx, database.MessageWindowQuery{ConversationID: f.conversation, Limit: 100}, func(_ []database.MessageWindowItem) error { guardCalls++; return nil })
+	if err := f.db.Callback().Row().After("gorm:row").Register("bounded_source_guard", func(tx *gorm.DB) {
+		if strings.Contains(tx.Statement.SQL.String(), "admitted_sources") {
+			guardCalls++
+		}
+	}); err != nil {
+		t.Fatal(err)
+	}
+	_, err := database.NewMessageRepository(f.db).ReadMessageWindowWithContext(f.ctx, database.MessageWindowQuery{ConversationID: f.conversation, Limit: 100})
 	if !errors.Is(err, ErrTimelineSourceLimit) || guardCalls != 0 {
 		t.Fatal("identidades transferidas antes da cota", err, guardCalls)
 	}
 	// A recusa de parâmetros acontece antes de qualquer consulta ou expansão hex.
-	if _, err := publicationSelectionReadSize(nil, f.conversation, []string{strings.Repeat("i", canonicalSourceBytes)}, nil); !errors.Is(err, ErrTimelineSourceLimit) {
+	if _, err := database.ReadBoundedTimelineSources(nil, f.conversation, []string{strings.Repeat("i", canonicalSourceBytes)}, nil); !errors.Is(err, ErrTimelineSourceLimit) {
 		t.Fatal(err)
 	}
 }
@@ -447,12 +454,20 @@ func TestSelectionBudgetsQuestionScopeWithoutContent(t *testing.T) {
 	if _, err := f.reader.ReadSelection(f.ctx, f.conversation, refs); !errors.Is(err, ErrTimelineSourceLimit) {
 		t.Fatal("escopos agregados fora da cota", err)
 	}
+	questionReads := 0
+	if err := f.db.Callback().Query().After("gorm:query").Register("budget_before_question", func(tx *gorm.DB) {
+		if _, ok := tx.Statement.Dest.(*timelineQuestion); ok {
+			questionReads++
+		}
+	}); err != nil {
+		t.Fatal(err)
+	}
 	id := strings.TrimPrefix(refs[0], "turn:")
 	if err := f.db.Model(&database.ChatMessage{}).Where("id=?", id).Update("parent_id", strings.Repeat("p", canonicalSourceBytes+1)).Error; err != nil {
 		t.Fatal(err)
 	}
-	if _, err := f.reader.ReadPublicationTurn(f.ctx, f.conversation, id); !errors.Is(err, ErrTimelineSourceLimit) {
-		t.Fatal("escopo individual fora da cota", err)
+	if _, err := f.reader.ReadPublicationTurn(f.ctx, f.conversation, id); !errors.Is(err, ErrTimelineSourceLimit) || questionReads != 0 {
+		t.Fatal("escopo individual materializado antes da cota", err, questionReads)
 	}
 }
 

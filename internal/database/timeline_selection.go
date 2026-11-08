@@ -6,9 +6,9 @@ import (
 	"strings"
 )
 
-// GetTimelineItemsByIDWithContext reconcilia somente identidades materializadas.
+// SelectTimelineItemsByIDWithContext reconcilia somente identidades materializadas.
 // A ausência é significativa neste conjunto explícito; não é paginação.
-func (r *MessageRepository) GetTimelineItemsByIDWithContext(ctx context.Context, conversationID string, parentID *string, ids []string) (*MessageWindowResult, error) {
+func (r *MessageRepository) SelectTimelineItemsByIDWithContext(ctx context.Context, conversationID string, parentID *string, ids []string) (*MessageWindowResult, error) {
 	if len(ids) > 16384 {
 		return nil, fmt.Errorf("seleção de timeline excede o limite")
 	}
@@ -29,12 +29,7 @@ func (r *MessageRepository) GetTimelineItemsByIDWithContext(ctx context.Context,
 		if err != nil {
 			return nil, err
 		}
-		messages, err := r.fetchMessagesForTimelineItems(conversationID, parentID, rows)
-		if err != nil {
-			return nil, err
-		}
 		result.Items = append(result.Items, rows...)
-		result.Messages = append(result.Messages, messages...)
 	}
 	return result, nil
 }

@@ -1,3 +1,8 @@
+AEP-0116 (07/11/2026): leitura limitada unifica seleção, orçamento e payload;
+contagem de filhos projeta apenas identidade/escopo. Critérios funcionais,
+payload e alocações atendidos; tempo da abertura ainda pendente. **In Progress**.
+As notas anteriores abaixo preservam o histórico dos recortes.
+
 AEP-0084 (07/11/2026): fixture de serialização encerra o turno antes da resposta
 terminal, com regressão determinística e controle de sobreposição real. Status
 permanece In Progress; testes ACP são executados apenas no CI remoto.

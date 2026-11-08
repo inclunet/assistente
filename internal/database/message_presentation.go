@@ -26,6 +26,23 @@ func ReadMessagePresentation(ctx context.Context, tx *gorm.DB, messages []ChatMe
 	return nil
 }
 
+// A consulta de contagem projeta apenas identidade/escopo. UNION deduplica os
+// mesmos itens da janela; a pergunta/execução usa os predicados compartilhados.
+var canonicalChildCountSQL = `WITH authorized_parents AS MATERIALIZED (
+ SELECT p.id FROM (SELECT CAST(unhex(value) AS TEXT) AS id FROM json_each(?)) selected_parent
+ CROSS JOIN chat_messages p ON p.id=selected_parent.id
+ JOIN conversations c ON c.id=p.conversation_id WHERE c.user_id=? AND p.conversation_id=?
+), child_items AS (
+ SELECT ` + timelineItemKindSQL + ` AS kind, ` + timelineItemIDSQL + ` AS id, m.parent_id
+ FROM chat_messages m ` + timelineQuestionJoinSQL + `
+ WHERE m.conversation_id=? AND m.parent_id IN (SELECT id FROM authorized_parents) AND ` + CurrentChatMessageSQL("m") + `
+ UNION
+ SELECT 'turn',t.user_message_id,q.parent_id FROM chat_messages q
+ CROSS JOIN chat_turns t ON t.user_message_id=q.id
+ WHERE t.conversation_id=? AND q.conversation_id=t.conversation_id AND q.role='user'
+ AND q.parent_id IN (SELECT id FROM authorized_parents)
+) SELECT parent_id, COUNT(*) AS count FROM child_items GROUP BY parent_id`
+
 // Reuses the same classification as the window, including admitted responses.
 func countCanonicalChildren(ctx context.Context, tx *gorm.DB, conversationID string, ids []string) (map[string]int, error) {
 	userID, err := RequireUserID(ctx)
@@ -33,15 +50,7 @@ func countCanonicalChildren(ctx context.Context, tx *gorm.DB, conversationID str
 		return nil, err
 	}
 	encodedIDs := EncodeTimelineIDSet(ids)
-	repo := NewMessageRepository(tx)
-	// CROSS JOIN fixes the loop order: select child questions by parent first,
-	// then probe the turn primary key. No conversation-wide turn scan is needed,
-	// even before SQLite has collected planner statistics.
-	query := repo.timelineItemCTEWithSources("m.parent_id IN (SELECT CAST(unhex(value) AS TEXT) FROM json_each(?))", "q.parent_id IN (SELECT CAST(unhex(value) AS TEXT) FROM json_each(?))", "chat_messages m",
-		"chat_messages q CROSS JOIN chat_turns t ON t.user_message_id=q.id", "") + `
- SELECT parent_id, COUNT(*) AS count FROM timeline_items WHERE parent_id IN (
- SELECT p.id FROM chat_messages p JOIN conversations c ON c.id=p.conversation_id WHERE c.user_id=? AND p.conversation_id=? AND p.id IN (SELECT CAST(unhex(value) AS TEXT) FROM json_each(?))) GROUP BY parent_id`
-	rows, err := tx.WithContext(ctx).Raw(query, conversationID, encodedIDs, conversationID, encodedIDs, userID, conversationID, encodedIDs).Rows()
+	rows, err := tx.WithContext(ctx).Raw(canonicalChildCountSQL, encodedIDs, userID, conversationID, conversationID, conversationID).Rows()
 	if err != nil {
 		return nil, err
 	}

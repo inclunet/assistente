@@ -123,13 +123,16 @@ func TestStoragePublicationSelectionQueryPlanUsesSelectedIdentities(t *testing.T
 	var budgets []capturedQuery
 	var payload, children capturedQuery
 	if err := f.db.Callback().Row().After("gorm:row").Register("selection_payload_plan", func(tx *gorm.DB) {
-		if strings.Contains(tx.Statement.SQL.String(), "selected_payload") {
+		if strings.Contains(tx.Statement.SQL.String(), "admitted_sources") {
 			payload = capturedQuery{tx.Statement.SQL.String(), append([]interface{}(nil), tx.Statement.Vars...)}
 		}
 	}); err != nil {
 		t.Fatal(err)
 	}
 	if err := f.db.Callback().Row().After("gorm:row").Register("selection_plan", func(tx *gorm.DB) {
+		if strings.HasPrefix(tx.Statement.SQL.String(), "EXPLAIN ") {
+			return
+		}
 		if strings.Contains(tx.Statement.SQL.String(), "WITH scoped AS") && !strings.Contains(tx.Statement.SQL.String(), "SELECT parent_id, COUNT(*)") {
 			query = tx.Statement.SQL.String()
 			args = append([]interface{}(nil), tx.Statement.Vars...)
@@ -173,7 +176,7 @@ func TestStoragePublicationSelectionQueryPlanUsesSelectedIdentities(t *testing.T
 	messageLookup, turnLookup = false, false
 	for _, row := range plan {
 		messageLookup = messageLookup || (strings.HasPrefix(row.Detail, "SEARCH chat_messages ") && strings.Contains(row.Detail, "(id=?)"))
-		turnLookup = turnLookup || (strings.HasPrefix(row.Detail, "SEARCH chat_messages ") && strings.Contains(row.Detail, "turn_id=?"))
+		turnLookup = turnLookup || (strings.HasPrefix(row.Detail, "SEARCH m ") && strings.Contains(row.Detail, "turn_id=?"))
 		if strings.HasPrefix(row.Detail, "SEARCH chat_messages ") && strings.Contains(row.Detail, "conversation_id=?") && !strings.Contains(row.Detail, "turn_id=?") {
 			t.Fatalf("payload varre escopo: %+v", plan)
 		}
@@ -310,20 +313,18 @@ func TestStoragePublicationQuestionBudgetExcludesUnselectedLargeResponse(t *test
 
 func TestStoragePublicationBudgetDoesNotDoubleCountSelectedMessageAndTurn(t *testing.T) {
 	f := newSnapshotFixture(t)
+	content := strings.Repeat("x", canonicalSourceBytes/2+16384)
+	if err := f.db.Model(&database.ChatMessage{}).Where("id=?", f.answer).Update("content", content).Error; err != nil {
+		t.Fatal(err)
+	}
 	tx := f.db.WithContext(f.ctx)
-	turn, err := publicationSelectionReadSize(tx, f.conversation, nil, []string{f.question})
-	if err != nil {
-		t.Fatal(err)
-	}
-	both, err := publicationSelectionReadSize(tx, f.conversation, []string{f.answer}, []string{f.question})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if both != turn {
-		t.Fatalf("mensagem duplicada pelo turno: %d != %d", both, turn)
+	for _, messages := range [][]string{nil, {f.answer}} {
+		sources, err := database.ReadBoundedTimelineSources(tx, f.conversation, messages, []string{f.question})
+		if err != nil || len(sources) != 1 || sources[0].ID != f.answer || sources[0].Content != content {
+			t.Fatal("sobreposição duplicou fonte ou orçamento", len(sources), err)
+		}
 	}
 }
-
 func TestStoragePublicationOversizedTurnStillAllowsAuthorizedExplicitRecovery(t *testing.T) {
 	f, p, e, _ := automaticFixture(t)
 	sub, before, err := p.SubscribeTimeline(f.ctx, &fixtureTimelineSession{ctx: f.ctx, id: "large-recovery"}, "history", database.MessageWindowQuery{ConversationID: f.conversation, Anchor: "end", Direction: "before", Limit: 20}, f.reader)

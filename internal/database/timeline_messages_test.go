@@ -8,6 +8,9 @@ import (
 
 func TestTimelineMessageScanPreservesValuesAndLegacyNulls(t *testing.T) {
 	setupOrderingTestDB(t)
+	if err := db.Create(&Conversation{UUIDModel: UUIDModel{ID: "conversation"}, UserID: testUserID, Title: "test"}).Error; err != nil {
+		t.Fatal(err)
+	}
 	parent, turn := "parent", "turn"
 	expected := ChatMessage{UUIDModel: UUIDModel{ID: "message", CreatedAt: time.Date(2026, 11, 7, 12, 34, 56, 123456789, time.UTC)},
 		ConversationID: "conversation", ParentID: &parent, TurnID: &turn, Role: "assistant", Content: "ação <>&\x00",
@@ -28,7 +31,7 @@ func TestTimelineMessageScanPreservesValuesAndLegacyNulls(t *testing.T) {
 		if err := db.Find(&previous).Error; err != nil {
 			t.Fatal(err)
 		}
-		actual, err := scanTimelineMessages(db.Model(&ChatMessage{}), 1)
+		actual, err := ReadBoundedTimelineSources(db.WithContext(testCtx()), "conversation", []string{"message"}, nil)
 		if err != nil || !reflect.DeepEqual(actual, previous) {
 			t.Fatalf("leitura divergente (nulls=%v): %v\n%+v\n%+v", legacyNulls, err, actual, previous)
 		}

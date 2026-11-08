@@ -3,93 +3,10 @@ package chat
 import (
 	"encoding/json"
 	"reflect"
-	"slices"
-	"strings"
+
 	"sync"
 	"unicode/utf8"
-
-	"assistente/internal/database"
-	"gorm.io/gorm"
 )
-
-// Expressões constantes compartilhadas: não reconstruir nomes/concatenações
-// em cada leitura. O destino de PresentationMessage é contado por invocação.
-var (
-	publicationLifecycleSizeSQL = publicationSQLBytes("chat_turns", "user_message_id", "active_execution_id", "current_execution_id")
-	publicationMessageSizeSQL   = publicationSQLBytes("chat_messages", "id", "conversation_id", "parent_id", "turn_id", "chat_execution_id", "role", "content", "reasoning", "model", "source")
-	publicationTurnSizeSQL      = publicationSQLBytes("chat_turns", "user_message_id", "conversation_id", "response_message_id", "current_execution_id", "active_execution_id", "state", "origin")
-	publicationCallSizeSQL      = publicationSQLBytes("tool_invocations", "id", "user_id", "conversation_id", "turn_id", "chat_execution_id", "tool_catalog_id", "origin_id", "parent_invocation_id", "metadata", "input_preview", "output_preview", "display_name", "tool_call_id", "result_availability", "status") + " + " + publicationSQLBytes("selected_chat_turn", "response_message_id")
-	publicationCatalogSizeSQL   = publicationSQLBytes("tool_catalog", "name", "display_name", "origin")
-)
-
-// Parte de turn_id para usar a busca indexada da seleção. Partir de cada
-// pergunta permite ao SQLite escolher a conversa inteira como fonte interna.
-// A validação de conversa/escopo continua depois da seleção por identidade.
-const publicationMessageSourceSQL = `(SELECT id FROM chat_messages WHERE id IN (SELECT CAST(unhex(value) AS TEXT) FROM json_each(?))
- UNION SELECT m.id FROM chat_messages m CROSS JOIN chat_messages q ON q.id=m.turn_id
- WHERE m.turn_id IN (SELECT CAST(unhex(value) AS TEXT) FROM json_each(?))
- AND m.conversation_id=q.conversation_id AND m.parent_id IS q.parent_id
- AND m.role <> 'user') selected CROSS JOIN chat_messages ON chat_messages.id=selected.id`
-
-var publicationReadBudgetSQL = "SELECT (SELECT COALESCE(SUM(1024 + " + publicationSQLBytes("chat_messages", "id", "conversation_id", "role", "parent_id", "created_at") + "),0) FROM (SELECT CAST(unhex(value) AS TEXT) AS scope_id FROM json_each(?)) selected_scope CROSS JOIN chat_messages ON chat_messages.id=selected_scope.scope_id WHERE conversation_id=?) + COALESCE(SUM(1024 + " + publicationMessageSizeSQL + "), 0) + (SELECT COALESCE(SUM(1024 + " + publicationTurnSizeSQL + "), 0) FROM chat_turns WHERE conversation_id=? AND user_message_id IN (SELECT CAST(unhex(value) AS TEXT) FROM json_each(?))) FROM " + publicationMessageSourceSQL + " WHERE chat_messages.conversation_id=? AND " + database.CurrentChatMessageSQL("chat_messages")
-var publicationCallBudgetSQL = "COALESCE(SUM(1024 + " + publicationCallSizeSQL + " + " + publicationCatalogSizeSQL + "), 0)"
-
-// Um único resultado escalar precede a materialização. CASE conserva a recusa
-// antecipada: ferramentas só são somadas se mensagens/turnos cabem no teto.
-var publicationCombinedBudgetSQL = func() string {
-	selection := database.ChatInvocationSelection{}
-	calls := "SELECT " + publicationCallBudgetSQL + " FROM tool_invocations LEFT JOIN tool_catalog ON tool_catalog.id=tool_invocations.tool_catalog_id " + selection.Join("tool_invocations") + " WHERE " + selection.Predicate("tool_invocations") + " AND tool_invocations.user_id=? AND tool_invocations.origin_type='chat' AND tool_invocations.turn_id IN (SELECT CAST(unhex(value) AS TEXT) FROM json_each(?))"
-	return "WITH message_budget(size) AS MATERIALIZED (" + publicationReadBudgetSQL + ") SELECT CASE WHEN size > ? THEN size ELSE size + (" + calls + ") END FROM message_budget"
-}()
-
-// Executado depois da autorização, na mesma transação da materialização.
-// LENGTH(BLOB) mede bytes sem transportar payloads para o processo Go. O custo
-// fixo por linha também limita coleções enormes de registros quase vazios.
-func checkPublicationReadBudget(tx *gorm.DB, conversationID, turnID string) error {
-	_, err := publicationSelectionReadSize(tx, conversationID, nil, []string{turnID})
-	return err
-}
-
-func publicationSelectionReadSize(tx *gorm.DB, conversationID string, messageIDs, turnIDs []string) (int64, error) {
-	var size int64
-	if err := database.CheckTimelineIdentityBudget(messageIDs, turnIDs); err != nil {
-		return 0, err
-	}
-	// Perguntas e respostas da mesma página frequentemente repetem o conjunto.
-	// Serializar uma vez quando os IDs coincidem, preservando a seleção exata.
-	turnsJSON := database.EncodeTimelineIDSet(turnIDs)
-	messagesJSON, metadataJSON := turnsJSON, turnsJSON
-	if !slices.Equal(messageIDs, turnIDs) {
-		messagesJSON = database.EncodeTimelineIDSet(messageIDs)
-		metadataJSON = database.EncodeTimelineIDSet(uniquePublicationIDs(append(append([]string(nil), messageIDs...), turnIDs...)))
-	}
-	query := publicationReadBudgetSQL
-	args := []interface{}{turnsJSON, conversationID, conversationID, metadataJSON, messagesJSON, turnsJSON, conversationID}
-	if len(turnIDs) != 0 {
-		userID, err := database.RequireUserID(tx.Statement.Context)
-		if err != nil {
-			return 0, err
-		}
-		query = publicationCombinedBudgetSQL
-		args = append(args, canonicalSourceBytes, userID, turnsJSON)
-	}
-	if err := tx.Raw(query, args...).Row().Scan(&size); err != nil {
-		return 0, err
-	}
-	if size > canonicalSourceBytes {
-		return 0, ErrTimelineSourceLimit
-	}
-	return size, nil
-}
-
-// Identificadores são constantes locais, nunca parâmetros vindos da UI.
-func publicationSQLBytes(table string, columns ...string) string {
-	parts := make([]string, len(columns))
-	for i, column := range columns {
-		parts[i] = "COALESCE(LENGTH(CAST(" + table + "." + column + " AS BLOB)), 0)"
-	}
-	return strings.Join(parts, " + ")
-}
 
 // Limite conservador antes de copiar/serializar: contempla o pior escape JSON
 // (seis bytes por byte de string) e encerra a travessia assim que esgota a cota.

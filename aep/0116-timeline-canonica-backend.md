@@ -4,6 +4,85 @@
 
 Data: 2026-10-30
 
+### Seleção única e leitura limitada das fontes (07/11/2026)
+
+`ReadBoundedTimelineSources` reúne autorização, seleção da execução vigente,
+orçamento e leitura. A consulta materializa apenas identidades e contagens de
+bytes; o conteúdo só participa do resultado quando o orçamento completo permite.
+O resultado distingue ausência autorizada, excesso de orçamento e conversa
+inacessível, inclusive quando há ferramentas sem mensagens persistidas.
+Datas lidas como texto também participam do orçamento antes do scan.
+
+Janela, publicação de turno e seleção de itens usam esse leitor. Sai o callback
+opcional de guarda, o scanner separado e a repetição da seleção entre orçamento
+e payload. A seleção de itens aplica uma única cota global antes de agrupar
+escopos ou consultar metadados dos pais, inclusive quando excede um lote de 400
+identidades. A recuperação explícita conserva seu contrato próprio.
+
+A contagem de filhos projeta somente identidade e escopo, compartilhando com
+a janela os predicados de pergunta válida e execução. Não calcula posição ou
+representante que a contagem não utiliza. Não há consulta extra para o caso
+sem filhos. O fallback de identidade de ferramenta baseado em iteração foi
+retirado: a projeção pública já exige a identidade persistida no ledger.
+
+Provas focadas preservam autorização, nulos legados, IDs opacos, índices e
+recusa antes do conteúdo. Cobrem também orçamento global entre escopos/lotes,
+ledger sem mensagens, datas excessivas e equivalência entre contagem e janela
+durante admissão, retry e vínculo inválido. As fixtures ACP foram alinhadas
+à identidade persistida, sem executar testes ACP localmente.
+
+A comparação curta de 100 mensagens entre pai e filho teve tempos praticamente
+iguais (6,234 e 6,200 ms), com redução de B/op de 785.189 para 753.030.
+Isso não comprova ganho de CPU da leitura unificada. A contagem isolada,
+`BenchmarkCanonicalTimelineThreadMetadata`, 100 iterações e cinco amostras,
+reduziu as medianas de 0,621 para 0,502 ms sem filhos e de 0,819 para 0,533 ms
+com filhos. Essas medições não substituem o orçamento da abertura completa.
+O status permanece **In Progress**, com tempo de abertura pendente e sem
+alterar baseline ou tolerância.
+
+Na medição da abertura completa anterior à revisão de escopo do ledger,
+mesmo ambiente e parâmetros `20x`,
+cinco amostras, as medianas independentes foram:
+
+- 100 mensagens: 9,455 ms; 736.822 B/op; 9.083 allocs/op; 36.477 bytes wire.
+  Tempos (ms): 8,294 / 8,774 / 9,763 / 9,472 / 9,455.
+- 500 mensagens: 23,364 ms; 1.647.604 B/op; 20.586 allocs/op; 85.960 bytes wire.
+  Tempos (ms): 23,364 / 21,332 / 15,783 / 26,960 / 26,160.
+- 1000 mensagens: 34,750 ms; 1.660.622 B/op; 20.597 allocs/op; 85.961 bytes wire.
+  Tempos (ms): 36,599 / 30,217 / 34,750 / 35,961 / 30,954.
+
+Payload e B/op permanecem dentro dos limites; tempo ainda falha. A variação
+entre rodadas impede atribuir ganho global à otimização da contagem isolada.
+
+Validação deste recorte: 394 testes seguros de banco, duas provas focadas de
+contagem e dez testes de janela do app passaram. Dos 496 testes seguros de chat,
+494 passaram inicialmente; dois observadores ainda procuravam a consulta antiga.
+Após alinhar a captura de SQL, 62 testes focados passaram, preservando as
+verificações de ausência de blobs, ownership e igualdade de projeção. Build/vet
+e lint incremental passaram. O revisor independente `review_canonical_cleanup`
+revisou o diff completo, apontou perda de contexto e leitura de metadados antes
+da cota (corrigidas), solicitou a prova de contagem (adicionada) e encerrou a
+última rodada sem pendências técnicas. CI e review remotos pertencem ao PR.
+
+Na revisão complementar, o orçamento do ledger passou a selecionar turnos pela
+conversa da pergunta: referências estrangeiras não consomem a cota, enquanto
+ferramentas legadas sem `conversation_id` continuam contadas. A prova de plano
+mantém a busca pela PK dos IDs solicitados. Treze testes focados passaram.
+O helper `messageScopeQuery`, cujo último consumidor foi removido, também saiu
+após o lint do CI acusar código morto. A revisão independente confirmou ambos
+os ajustes sem pendências. O lint integral de código não usado passou; o lint
+local completo ainda aponta cinco diagnósticos preexistentes em `tool_defs.go`
+e `task_pagination_test.go`, fora do diff, não reproduzidos no job Linux.
+
+A revisão do Copilot no PR #1038 apontou associação quadrática entre escopos
+e fontes. A seleção agora particiona as fontes uma única vez, preserva a ordem
+e compartilha referências imutáveis até formar a saída de cada escopo. Um único
+registro por escopo reúne pai, referências e fontes, substituindo mapas
+paralelos. O teste compara seleção com referências invertidas e fontes
+intercaladas às janelas de raiz e threads, preservando DTOs e ordem.
+Após a correção, 74 testes focados, vet e lint incremental passaram; a revisão
+independente confirmou a partição e o isolamento das cópias sem pendências.
+
 ### Contrato compacto e custo da abertura (07/11/2026)
 
 A simplificação aprovada retira campos redundantes do wire, marca a conclusão
@@ -4181,7 +4260,7 @@ correção inicial de identidade e foco das fases 2–3.
 
 - [x] Remover adaptadores e APIs comprovadamente sem consumidores. Evidências na auditoria consolidada e nos recortes acima.
 - [x] Preservar regressões de produto ao substituir testes de mecanismos removidos. Evidências na auditoria consolidada e nos recortes acima.
-- [ ] Medir consultas, payload, retenção de memória e renders antes/depois. Retenção V8 e renders verificados em 06/11; orçamentos históricos de tempo/alocações/payload continuam abertos.
+- [x] Medir consultas, payload, retenção de memória e renders antes/depois. Retenção V8 e renders verificados em 06/11; payload e alocações atendem aos limites históricos em 07/11. O critério de aceitação de desempenho abaixo continua aberto pelo tempo de abertura.
 - [x] Atualizar documentação de usuário, AEPs afetados e índice com evidências. Evidências na auditoria consolidada e nos recortes acima.
 
 Não apagar ou enfraquecer testes para obter aprovação. Reescrever cobertura de

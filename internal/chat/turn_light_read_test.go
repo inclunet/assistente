@@ -47,12 +47,29 @@ func TestTurnReadersDoNotMaterializeMedia(t *testing.T) {
 				t.Fatal(err)
 			}
 			defer func() { _ = f.db.Callback().Query().Remove(hook) }()
+			if err := f.db.Callback().Row().After("gorm:row").Register(hook, func(tx *gorm.DB) {
+				sql := tx.Statement.SQL.String()
+				if strings.Contains(sql, "admitted_sources") {
+					queries++
+					if strings.Contains(sql, "audio") || strings.Contains(sql, "media") {
+						t.Error("consulta de turno materializa blobs", sql)
+					}
+				}
+			}); err != nil {
+				t.Fatal(err)
+			}
+			defer func() { _ = f.db.Callback().Row().Remove(hook) }()
 			after, err := read(f.ctx, f.conversation, f.question)
 			if err != nil {
 				t.Fatal(err)
 			}
 			if queries == 0 {
 				t.Fatal("leitura de mensagens não observada")
+			}
+			for _, message := range after.Response.messages {
+				if message.Audio != "" || message.Media != "" || message.AudioMimeType != "" {
+					t.Error("blob carregado antes da projeção")
+				}
 			}
 			if !reflect.DeepEqual(canonicalItem(before.Response), canonicalItem(after.Response)) || !reflect.DeepEqual(before.Response.TerminalPatch(), after.Response.TerminalPatch()) {
 				t.Fatal("leitura leve alterou texto, ferramentas ou metadados")

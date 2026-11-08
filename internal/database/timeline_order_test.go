@@ -37,7 +37,7 @@ func TestTimelineOrderAnchorsResponsesAndPaginatesEveryBoundary(t *testing.T) {
 	read := func(q MessageWindowQuery) *MessageWindowResult {
 		t.Helper()
 		q.ConversationID = conv.ID
-		window, err := NewMessageRepository(db).ReadMessageWindowWithContext(testCtx(), q, nil)
+		window, err := NewMessageRepository(db).ReadMessageWindowWithContext(testCtx(), q)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -132,7 +132,7 @@ func TestTimelineOrderInvalidLinksRemainIndependentWithoutStorageRepair(t *testi
 			t.Fatal(err)
 		}
 	}
-	window, err := NewMessageRepository(db).ReadMessageWindowWithContext(testCtx(), MessageWindowQuery{ConversationID: conv.ID, Anchor: "start", Direction: "after", Limit: 100}, nil)
+	window, err := NewMessageRepository(db).ReadMessageWindowWithContext(testCtx(), MessageWindowQuery{ConversationID: conv.ID, Anchor: "start", Direction: "after", Limit: 100})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -168,7 +168,7 @@ func TestTimelineOrderInvalidLinksRemainIndependentWithoutStorageRepair(t *testi
 		t.Fatal(err)
 	}
 	for _, scope := range []string{parent, otherParent} {
-		w, err := NewMessageRepository(db).ReadMessageWindowWithContext(testCtx(), MessageWindowQuery{ConversationID: conv.ID, ParentID: &scope, Anchor: "start", Direction: "after", Limit: 100}, nil)
+		w, err := NewMessageRepository(db).ReadMessageWindowWithContext(testCtx(), MessageWindowQuery{ConversationID: conv.ID, ParentID: &scope, Anchor: "start", Direction: "after", Limit: 100})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -180,7 +180,7 @@ func TestTimelineOrderInvalidLinksRemainIndependentWithoutStorageRepair(t *testi
 		}
 	}
 	for _, anchor := range []string{"foreign", "thread-question", "deleted"} {
-		if _, err := NewMessageRepository(db).ReadMessageWindowWithContext(testCtx(), MessageWindowQuery{ConversationID: conv.ID, AnchorMessageID: anchor, Direction: "around", Limit: 1}, nil); err == nil {
+		if _, err := NewMessageRepository(db).ReadMessageWindowWithContext(testCtx(), MessageWindowQuery{ConversationID: conv.ID, AnchorMessageID: anchor, Direction: "around", Limit: 1}); err == nil {
 			t.Fatalf("âncora inválida aceita: %s", anchor)
 		}
 	}
@@ -200,7 +200,7 @@ func TestTimelineOrderDeletedAnchorDoesNotLookLikeEmptySuccess(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, limit := range []int{0, 10} {
-		if _, err := NewMessageRepository(db).ReadMessageWindowWithContext(testCtx(), MessageWindowQuery{ConversationID: conv.ID, AnchorMessageID: message.ID, Direction: "before", Limit: limit}, nil); err == nil {
+		if _, err := NewMessageRepository(db).ReadMessageWindowWithContext(testCtx(), MessageWindowQuery{ConversationID: conv.ID, AnchorMessageID: message.ID, Direction: "before", Limit: limit}); err == nil {
 			t.Fatal("âncora excluída virou sucesso vazio")
 		}
 	}

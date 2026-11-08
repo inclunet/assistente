@@ -55,7 +55,7 @@ func TestCanonicalWindowDoesNotMaterializeMediaOrParentPayload(t *testing.T) {
 				t.Fatal(err)
 			}
 			if err := f.db.Callback().Row().After("gorm:row").Register("window_light_payload", func(tx *gorm.DB) {
-				if strings.Contains(tx.Statement.SQL.String(), "selected_payload") {
+				if strings.Contains(tx.Statement.SQL.String(), "admitted_sources") {
 					payloadSQL = append(payloadSQL, tx.Statement.SQL.String())
 				}
 			}); err != nil {
