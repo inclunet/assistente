@@ -414,3 +414,19 @@ em processos independentes e sem compilação/suítes concorrentes mediram
 antes **6,352 / 6,584 / 7,010 s**; depois **2,031 / 2,137 / 2,114 s**.
 Mediana **6,584 → 2,114 s (−67,9%)**, Windows/Go 1.26.0. Não extrapolar esse
 percentual ao workflow: ganho Linux/race ainda depende da qualificação remota.
+
+### Contenção real no cadastro de identidades externas
+
+A revalidação `42519431471` falhou em
+`TestExternalIdentityBootstrapConcurrentConnectionsHasSingleWinner`: um writer
+venceu e o outro recebeu `SQLITE_BUSY`, em vez do conflito de unicidade.
+O DSN produtivo espera 100 ms e depende da política central de retry, ausente
+nesse caminho. A regressão nova força um writer real e só o libera depois de
+observar BUSY; falhou antes tanto no bootstrap quanto no cadastro administrativo.
+
+Ambos usam agora `WithSQLiteImmediateTransactionOnce`: a política central
+retenta somente a aquisição do writer; corpo e COMMIT não são repetidos.
+Auditoria permanece a primeira escrita e vínculo/auditoria continuam atômicos.
+O teste concorrente original foi preservado; não houve aumento de timeout,
+retry no teste nem redução de concorrência. Isso corrige comportamento produtivo,
+não apenas a estabilidade do CI.
