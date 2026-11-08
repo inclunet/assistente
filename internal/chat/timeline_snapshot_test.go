@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -14,6 +13,7 @@ import (
 
 	"assistente/internal/database"
 	"assistente/internal/sqlite"
+	"assistente/internal/testutil/dbfixture"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 )
@@ -28,12 +28,7 @@ type snapshotFixture struct {
 
 func newSnapshotFixture(t testing.TB) snapshotFixture {
 	t.Helper()
-	restore := database.SetDB(database.DB())
-	path := filepath.Join(t.TempDir(), "snapshot.db")
-	if err := database.InitPath(path); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = database.Close(); restore() })
+	path := dbfixture.Open(t)
 	db := database.DB()
 	// Fixtures exercitam payloads sintéticos de vários MiB. Scan do GORM registra
 	// SQL já expandido, mesmo com ParameterizedQueries. Lentidão é esperada aqui;

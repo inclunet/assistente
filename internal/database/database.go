@@ -157,8 +157,10 @@ func Init() error {
 	return InitPath(path)
 }
 
-// InitPath abre exatamente o banco previamente reservado pelo desktop.
-func InitPath(path string) error {
+// OpenPath abre e configura as conexões do banco, sem criar ou migrar schema.
+// O bootstrap do aplicativo usa InitPath. A abertura separada permite reabrir
+// imagens de schema já inicializadas com a mesma política de SQLite e pool.
+func OpenPath(path string) error {
 	if !filepath.IsAbs(path) {
 		return errors.New("caminho do banco deve ser absoluto")
 	}
@@ -195,6 +197,20 @@ func InitPath(path string) error {
 	// busy_timeout também é aplicado via DSN para cobrir todas as conexões do
 	// pool; este PRAGMA mantém compatibilidade com a conexão inicial.
 	db.Exec(fmt.Sprintf("PRAGMA busy_timeout=%d", sqliteBusyTimeout.Milliseconds()))
+
+	return nil
+}
+
+// InitPath abre exatamente o banco previamente reservado pelo desktop e
+// executa o bootstrap completo, inclusive migrações e FTS.
+func InitPath(path string) error {
+	if err := OpenPath(path); err != nil {
+		return err
+	}
+	sqlDB, err := db.DB()
+	if err != nil {
+		return err
+	}
 
 	// Versionamento de schema (AEP-0076): migrações da fase PRÉ-AutoMigrate.
 	// Inclui a conversão de IDs INTEGER → UUIDv7 (AEP-0046) e o dedup de
