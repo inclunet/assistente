@@ -18,22 +18,33 @@ on:
         required: false
         default: 0
 
-# Um run por PR. O push que atualiza um PR torna o run anterior obsoleto, e
-# manter os dois só disputa runner. A chave é o número do PR, não o nome da
-# branch: nome se repete entre forks, e duas pessoas com `feature/x` acabariam
-# cancelando o run uma da outra. O atualizador informa pr_number para que seu
-# dispatch dispute o mesmo grupo do evento pull_request, inclusive no retarget
-# de PR empilhado. Push na main e dispatch sem PR mantêm a política anterior.
+# PR e dispatch têm namespaces distintos: até um run pendente pode ser
+# substituído por outro do mesmo grupo, independentemente de cancel-in-progress.
+# O guard do dispatch cancela somente a si próprio quando já existe CI do PR.
+# Um PR criado depois dessa consulta pode duplicar trabalho, nunca perder checks.
 concurrency:
-  group: ci-${{ github.event.pull_request.number || inputs.pr_number || github.ref_name }}
+  group: ci-${{ github.event_name == 'pull_request' && 'pr' || inputs.pr_number > 0 && 'dispatch' || 'ref' }}-${{ github.event.pull_request.number || inputs.pr_number || github.ref_name }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && inputs.pr_number > 0) }}
 
 jobs:
   scripts:
+    permissions:
+      contents: read
+      actions: write # Somente este job pode cancelar seu dispatch redundante.
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
+
+      - name: Preservar o CI do PR e cancelar dispatch redundante
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.pr_number > 0 }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CI_PR_NUMBER: ${{ inputs.pr_number }}
+        run: bash .github/scripts/cancelar-dispatch-redundante.sh
+
+      - name: Teste da prioridade entre PR e dispatch
+        run: bash .github/scripts/cancelar-dispatch-redundante.teste.sh
 
       - name: ShellCheck
         run: shellcheck .github/scripts/*.sh
