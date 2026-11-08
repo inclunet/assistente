@@ -43,7 +43,7 @@ func (s *ExternalIdentityAdminService) BootstrapLegacy(ctx context.Context, toke
 	if err != nil {
 		return nil, err
 	}
-	err = s.repo.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	err = database.WithSQLiteImmediateTransactionOnce(ctx, time.Time{}, s.repo.db, "auth.external_identity.bootstrap", func(tx *gorm.DB) error {
 		// Esta deve ser a primeira escrita para que a unique index do bootstrap
 		// arbitre concorrência sem promover uma leitura SQLite antiga a writer.
 		if err := tx.Create(&audit).Error; err != nil {
@@ -110,7 +110,7 @@ func (s *ExternalIdentityAdminService) CreateMapped(ctx context.Context, token s
 	if err != nil {
 		return nil, err
 	}
-	err = s.repo.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	err = database.WithSQLiteImmediateTransactionOnce(ctx, time.Time{}, s.repo.db, "auth.external_identity.create", func(tx *gorm.DB) error {
 		// Auditar primeiro evita a janela SQLite read→write; toda recusa abaixo
 		// aborta a transação e remove esse registro junto com o vínculo.
 		if err := tx.Create(&audit).Error; err != nil {
