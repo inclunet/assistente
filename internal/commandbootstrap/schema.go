@@ -17,7 +17,7 @@ import (
 	"assistente/internal/commandjobevents"
 	"assistente/internal/commandledger"
 	"assistente/internal/database"
-	"github.com/glebarez/sqlite"
+	"assistente/internal/sqlite"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 )
@@ -206,5 +206,12 @@ func normalizeDDL(obj schemaObject) string {
 	}
 	parts = append(parts, strings.TrimSpace(body[from:]))
 	sort.Strings(parts)
-	return strings.TrimSpace(sql[:start]) + "(" + strings.Join(parts, ",") + ")" + strings.TrimSpace(sql[end+1:])
+	// ALTER TABLE/AutoMigrate podem trocar backticks por aspas duplas apenas
+	// no nome da tabela. Reconhecer a grafia do identificador declarado não
+	// permite normalizar expressões, tipos ou literais do restante do DDL.
+	header := strings.TrimSpace(sql[:start])
+	if obj.Name != "" && header == `CREATE TABLE "`+strings.ReplaceAll(obj.Name, `"`, `""`)+`"` {
+		header = "CREATE TABLE `" + strings.ReplaceAll(obj.Name, "`", "``") + "`"
+	}
+	return header + "(" + strings.Join(parts, ",") + ")" + strings.TrimSpace(sql[end+1:])
 }

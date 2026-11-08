@@ -28,8 +28,8 @@ import (
 	"assistente/internal/database"
 	"assistente/internal/llm"
 	"assistente/internal/questionnaire"
+	"assistente/internal/sqlite"
 	"assistente/internal/workspace"
-	"github.com/glebarez/sqlite"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 )

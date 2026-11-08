@@ -17,8 +17,8 @@ import (
 	"assistente/internal/core/ports"
 	"assistente/internal/database"
 	"assistente/internal/docextract"
+	sqlitegorm "assistente/internal/sqlite"
 	"assistente/internal/tools/filesystem"
-	sqlitegorm "github.com/glebarez/sqlite"
 	"gorm.io/gorm"
 )
 

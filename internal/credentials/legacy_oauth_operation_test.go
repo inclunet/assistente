@@ -17,7 +17,7 @@ import (
 
 	"assistente/internal/database"
 	"assistente/internal/oauthflow"
-	"github.com/glebarez/sqlite"
+	"assistente/internal/sqlite"
 	"gorm.io/gorm"
 )
 

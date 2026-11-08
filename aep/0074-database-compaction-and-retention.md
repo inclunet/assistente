@@ -2,6 +2,20 @@
 
 **Status:** In Progress
 
+**Driver SQLite para a abertura do chat (08/11/2026): Accepted.**
+O mantenedor autorizou revisar a escolha de `github.com/glebarez/sqlite` para
+qualificar `modernc.org/sqlite` com `gorm.io/driver/sqlite` oficial e Go 1.26,
+sem fork. A motivação e as provas de desempenho estão no AEP-0116; não se
+atribui a esta troca resolução das extensões de contenção ainda pendentes.
+O adaptador interno apenas seleciona o driver, preserva o formato de datas
+persistido e traduz os códigos de erro já suportados. Não substitui migrações
+nem altera limites, writer, transações ou retries de retenção.
+A escolha vigente passa a ser `modernc.org/sqlite` com o adaptador oficial
+`gorm.io/driver/sqlite`, conforme qualificação de migrações, datas, concorrência,
+abertura e builds das plataformas registrada no AEP-0116. O custo adicional da
+primeira abertura é explícito; os limites históricos de leitura são preservados. A experiência anterior
+com `ncruces/go-sqlite3` + `gormlite` continua abandonada; não foi retomada.
+
 **Varredura de órfãos por páginas (26/10/2026): In Progress.** Após v37,
 o log instalado registrou 11 chamadas concluídas, incluindo sete do Databricks,
 sem nova falha de criação do ledger no período observado. Persistem consultas
@@ -90,8 +104,8 @@ nem certifica resolução de toda contenção. Aceite no banco carregado pendent
 do mantenedor, a proposta `ncruces/go-sqlite3` + `gormlite` foi abandonada
 após a qualificação reproduzir perda de conteúdo em reconstrução de tabela
 no adaptador. Não haverá fork nem correção local da dependência. A proposta
-não foi publicada em PR nem aplicada ao banco pessoal. O driver vigente
-`github.com/glebarez/sqlite` permanece; melhorias de contenção devem reduzir
+não foi publicada em PR nem aplicada ao banco pessoal. Naquela decisão,
+`github.com/glebarez/sqlite` permaneceu (nova qualificação autorizada acima); melhorias de contenção devem reduzir
 o trabalho SQL sem depender de cancelamento imediato de consultas.
 
 **Extensão coordenada, seleção sob carga (16/10/2026): In Progress.**

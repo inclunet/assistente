@@ -9,7 +9,7 @@ import (
 	"assistente/internal/configdir"
 	"assistente/internal/database"
 	"assistente/internal/events"
-	"github.com/glebarez/sqlite"
+	"assistente/internal/sqlite"
 	"gorm.io/gorm"
 )
 

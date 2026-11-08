@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/glebarez/sqlite"
+	"assistente/internal/sqlite"
 	"gorm.io/gorm"
 )
 
@@ -19,23 +19,23 @@ import (
 //   - tabela `credential_entries` com schema pré-AEP-0052 (sem `user_id`,
 //     `id TEXT PRIMARY KEY`).
 //   - 14 rows com `token_enc`/`client_secret_enc` populados:
-//       * 11 patterns user-scoped (api.*, hosts internos, MCP tokens, …);
-//       * 3 patterns instance secrets (`internal-auth:*`).
+//   - 11 patterns user-scoped (api.*, hosts internos, MCP tokens, …);
+//   - 3 patterns instance secrets (`internal-auth:*`).
 //   - SEM tabela `users` nem `sessions`.
 //
 // Sequência simulada do primeiro boot AEP-0052:
 //
-//   1. dedupCredentialEntriesBeforeMigrate() (noop sem user_id).
-//   2. db.AutoMigrate (adiciona user_id, cria
-//      ux_credential_entries_user_pattern, cria users/sessions).
-//   3. ensureCredentialEntryUserPatternIndex().
-//   4. CreateAdminUser (apenas insere row em users).
-//   5. AdoptLegacyData(userID) — adota órfãs.
+//  1. dedupCredentialEntriesBeforeMigrate() (noop sem user_id).
+//  2. db.AutoMigrate (adiciona user_id, cria
+//     ux_credential_entries_user_pattern, cria users/sessions).
+//  3. ensureCredentialEntryUserPatternIndex().
+//  4. CreateAdminUser (apenas insere row em users).
+//  5. AdoptLegacyData(userID) — adota órfãs.
 //
 // Invariantes verificados:
 //   - Nenhuma row é deletada.
 //   - Após adoção, as 11 rows user-scoped têm `user_id=admin.ID`.
-//   - As 3 rows instance secrets continuam com `user_id=''`.
+//   - As 3 rows instance secrets continuam com `user_id vazio`.
 //   - `token_enc`/`client_secret_enc` permanecem intactos
 //     (verifica que o caminho não dropou nem zerou colunas — defesa contra
 //     o bug histórico do migrateToUUIDv7 que perdeu dados em 27/04).

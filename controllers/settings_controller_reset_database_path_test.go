@@ -15,7 +15,7 @@ import (
 	"assistente/internal/database"
 	"assistente/internal/desktopinstance"
 	"assistente/internal/events"
-	"github.com/glebarez/sqlite"
+	"assistente/internal/sqlite"
 	"gorm.io/gorm"
 )
 

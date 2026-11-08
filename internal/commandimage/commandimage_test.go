@@ -16,7 +16,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/glebarez/sqlite"
+	"assistente/internal/sqlite"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
 )

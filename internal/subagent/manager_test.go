@@ -16,7 +16,7 @@ import (
 	"assistente/internal/eventctx"
 	"assistente/internal/messaging"
 
-	"github.com/glebarez/sqlite"
+	"assistente/internal/sqlite"
 	"gorm.io/gorm"
 )
 

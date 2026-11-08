@@ -7,7 +7,7 @@ import (
 	"assistente/internal/database"
 	"assistente/internal/llm"
 
-	"github.com/glebarez/sqlite"
+	"assistente/internal/sqlite"
 	"gorm.io/gorm"
 )
 

@@ -15,7 +15,7 @@ import (
 
 	"assistente/internal/configdir"
 
-	"github.com/glebarez/sqlite"
+	"assistente/internal/sqlite"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 )
@@ -168,7 +168,7 @@ func InitPath(path string) error {
 	dbPath = filepath.Clean(path)
 	var err error
 
-	db, err = gorm.Open(sqlite.Open(sqliteDSN(dbPath)), &gorm.Config{
+	db, err = gorm.Open(sqlite.Open(SQLiteDSN(dbPath)), &gorm.Config{
 		Logger: configuredGORMLogger(),
 	})
 	if err != nil {

@@ -19,7 +19,7 @@ import (
 	"assistente/internal/commandimage"
 	"assistente/internal/database"
 	"assistente/internal/questionnaire"
-	"github.com/glebarez/sqlite"
+	"assistente/internal/sqlite"
 	"gorm.io/gorm"
 )
 

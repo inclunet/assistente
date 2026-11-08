@@ -13,7 +13,7 @@ import (
 	"time"
 
 	"assistente/internal/database"
-	"github.com/glebarez/sqlite"
+	"assistente/internal/sqlite"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 )

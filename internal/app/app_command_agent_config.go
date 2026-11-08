@@ -282,7 +282,7 @@ func (b commandAgentTools) mutateAgentConfig(ctx context.Context, c *commandAgen
 		if err := c.revalidateTx(hookCtx, tx); err != nil {
 			return err
 		}
-		if !commandSettingsDiffMatchesSnapshot(diff, snapshot) {
+		if !diff.MatchesSnapshot(snapshot) {
 			return commandconfig.ErrStale
 		}
 		// baseHook usa o tx recebido; nenhuma transação adicional é criada.

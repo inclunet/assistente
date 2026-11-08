@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/glebarez/sqlite"
+	"assistente/internal/sqlite"
 	"gorm.io/gorm"
 )
 
@@ -42,7 +42,7 @@ func openSQLitePolicyTestDB(t *testing.T, dsn string) (*gorm.DB, func()) {
 
 func TestSQLiteDSNAppliesBusyTimeout(t *testing.T) {
 	path := t.TempDir() + "/policy.db"
-	gdb, cleanup := openSQLitePolicyTestDB(t, sqliteDSN(path))
+	gdb, cleanup := openSQLitePolicyTestDB(t, SQLiteDSN(path))
 	defer cleanup()
 
 	var busyTimeout int
@@ -116,7 +116,7 @@ func TestSQLiteDSNHandlesReservedPathCharacters(t *testing.T) {
 		t.Fatalf("mkdir: %v", err)
 	}
 	path := filepath.Join(dir, "policy.db")
-	gdb, cleanup := openSQLitePolicyTestDB(t, sqliteDSN(path))
+	gdb, cleanup := openSQLitePolicyTestDB(t, SQLiteDSN(path))
 	defer cleanup()
 
 	var busyTimeout int
@@ -133,7 +133,7 @@ func TestSQLiteDSNHandlesReservedPathCharacters(t *testing.T) {
 
 func TestSQLiteDSNDoesNotEnableWALBeforeAutoVacuum(t *testing.T) {
 	path := t.TempDir() + "/auto-vacuum.db"
-	gdb, err := gorm.Open(sqlite.Open(sqliteDSN(path)), &gorm.Config{})
+	gdb, err := gorm.Open(sqlite.Open(SQLiteDSN(path)), &gorm.Config{})
 	if err != nil {
 		t.Fatalf("open sqlite: %v", err)
 	}
@@ -211,7 +211,7 @@ func TestWithSQLiteBusyRetryWaitsForTransientWriterLock(t *testing.T) {
 
 func TestWALReaderSucceedsDuringBackgroundWriter(t *testing.T) {
 	path := t.TempDir() + "/wal-read.db"
-	gdb, cleanup := openSQLitePolicyTestDB(t, sqliteDSN(path)+"&_pragma=journal_mode(WAL)")
+	gdb, cleanup := openSQLitePolicyTestDB(t, SQLiteDSN(path)+"&_pragma=journal_mode(WAL)")
 	defer cleanup()
 
 	if err := gdb.Create(&MemoryRecord{
@@ -254,7 +254,7 @@ func TestWALReaderSucceedsDuringBackgroundWriter(t *testing.T) {
 }
 
 func TestImmediateTransactionRollsBackAfterContextCancellation(t *testing.T) {
-	gdb, cleanup := openSQLitePolicyTestDB(t, sqliteDSN(t.TempDir()+"/cancel-rollback.db"))
+	gdb, cleanup := openSQLitePolicyTestDB(t, SQLiteDSN(t.TempDir()+"/cancel-rollback.db"))
 	defer cleanup()
 	ctx, cancel := context.WithCancel(context.Background())
 
@@ -296,7 +296,7 @@ func TestImmediateTransactionRollsBackAfterContextCancellation(t *testing.T) {
 }
 
 func TestImmediateTransactionOnceUsesSavepointInsideOuterTransaction(t *testing.T) {
-	gdb, cleanup := openSQLitePolicyTestDB(t, sqliteDSN(t.TempDir()+"/savepoint-once.db"))
+	gdb, cleanup := openSQLitePolicyTestDB(t, SQLiteDSN(t.TempDir()+"/savepoint-once.db"))
 	defer cleanup()
 	if err := gdb.Exec("CREATE TABLE once_savepoint_rows (value TEXT PRIMARY KEY)").Error; err != nil {
 		t.Fatal(err)
@@ -325,7 +325,7 @@ func TestImmediateTransactionOnceUsesSavepointInsideOuterTransaction(t *testing.
 }
 
 func TestImmediateTransactionOncePoolWaitHonorsAcquisitionDeadline(t *testing.T) {
-	gdb, cleanup := openSQLitePolicyTestDB(t, sqliteDSN(t.TempDir()+"/once-pool.db"))
+	gdb, cleanup := openSQLitePolicyTestDB(t, SQLiteDSN(t.TempDir()+"/once-pool.db"))
 	defer cleanup()
 	root, err := gdb.DB()
 	if err != nil {
@@ -351,7 +351,7 @@ func TestImmediateTransactionOncePoolWaitHonorsAcquisitionDeadline(t *testing.T)
 }
 
 func TestImmediateTransactionOnceCallbackSavepointUsesPinnedConnectionAndRoot(t *testing.T) {
-	gdb, cleanup := openSQLitePolicyTestDB(t, sqliteDSN(t.TempDir()+"/once-wrapper-savepoint.db"))
+	gdb, cleanup := openSQLitePolicyTestDB(t, SQLiteDSN(t.TempDir()+"/once-wrapper-savepoint.db"))
 	defer cleanup()
 	if err := gdb.Exec("CREATE TABLE once_wrapper_rows (value TEXT PRIMARY KEY)").Error; err != nil {
 		t.Fatal(err)

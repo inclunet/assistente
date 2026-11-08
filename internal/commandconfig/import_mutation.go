@@ -115,7 +115,7 @@ func (s *Store) prepareImportedSnapshot(ctx context.Context, scope Scope, before
 				continue
 			}
 			row.CreatedAt, row.UpdatedAt = old.CreatedAt, old.UpdatedAt
-			if !reflect.DeepEqual(old, *row) {
+			if !equalRow(old, *row) {
 				row.UpdatedAt = now
 			}
 			break
@@ -236,7 +236,7 @@ func proveUntouchedRows(before Snapshot, imported ImportedSnapshot) error {
 			continue
 		}
 		candidate, ok := layers[row.ID]
-		if !ok || !reflect.DeepEqual(row, candidate) {
+		if !ok || !equalRow(row, candidate) {
 			return ErrStale
 		}
 	}

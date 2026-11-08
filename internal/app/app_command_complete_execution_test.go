@@ -21,8 +21,8 @@ import (
 	"assistente/internal/credentials"
 	"assistente/internal/database"
 	"assistente/internal/questionnaire"
+	"assistente/internal/sqlite"
 	"assistente/internal/workspace"
-	"github.com/glebarez/sqlite"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 )
@@ -277,7 +277,7 @@ func completeFactoryRegistry() (*commandcatalog.Registry, error) {
 	interactive.HandlerRoute = "internal/fixture/confirm"
 	return commandcatalog.NewComplete([]commandcatalog.Registration{{Definition: definition, Handler: handler}, {
 		Definition: interactive,
-		Handler: commandcatalog.HandlerContract{Effect: commandcatalog.Read, Route: interactive.HandlerRoute, Classification: commandcatalog.HandlerInternal},
+		Handler:    commandcatalog.HandlerContract{Effect: commandcatalog.Read, Route: interactive.HandlerRoute, Classification: commandcatalog.HandlerInternal},
 	}})
 }
 

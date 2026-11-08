@@ -1,8 +1,8 @@
 package database
 
 import (
+	"assistente/internal/sqlite"
 	"errors"
-	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 	"strings"
@@ -47,8 +47,17 @@ func TestTimelineIdentitySelectionMasksBeforeScan(t *testing.T) {
 	if err := db.Raw(captured, huge).Scan(&rows).Error; err != nil {
 		t.Fatal(err)
 	}
-	if len(rows) != 2 || rows[0].ID != "" || rows[1].ID != "" || rows[0].IdentityBytes <= MaxTimelineSourceBytes {
+	if len(rows) != 1 || rows[0].ID != "" || rows[0].IdentityBytes <= MaxTimelineSourceBytes {
 		t.Fatal("identidades excessivas atravessaram SQL")
+	}
+	// A recusa retorna somente o orçamento, sem transportar uma linha por item.
+	// Mesmo as identidades redundantes, omitidas da projeção, mantêm sua cota.
+	anchorQuery := `SELECT 'message' kind, 'small' id, 'small' message_id, '' turn_id, '2026' created_at, ? anchor_id, 0 invalid_turn_reference, 0 slot, 'message:small' item_key, 1 window_total`
+	if _, err := repo.scanTimelineItems(anchorQuery, []interface{}{huge}, timelineOrderAscending); !errors.Is(err, ErrTimelineSourceLimit) {
+		t.Fatal("âncora excedente deixou de participar do orçamento", err)
+	}
+	if items, err := repo.scanTimelineItems(anchorQuery+" WHERE 0", []interface{}{"small"}, timelineOrderAscending); err != nil || len(items) != 0 {
+		t.Fatal("página vazia ganhou item de controle", items, err)
 	}
 	items, err := repo.scanTimelineItems(query, []interface{}{"normal"}, timelineOrderAscending)
 	if err != nil || len(items) != 2 || items[0].ID != "small" || items[1].ID != "normal" || items[0].WindowTotal != 12 {

@@ -1,6 +1,6 @@
 module assistente
 
-go 1.25.0
+go 1.26.0
 
 require (
 	codeberg.org/go-pdf/fpdf v0.11.1
@@ -11,7 +11,6 @@ require (
 	github.com/coreos/go-oidc/v3 v3.17.0
 	github.com/danieljoos/wincred v1.2.3
 	github.com/fsnotify/fsnotify v1.9.0
-	github.com/glebarez/sqlite v1.11.0
 	github.com/go-jose/go-jose/v4 v4.1.3
 	github.com/go-ole/go-ole v1.3.0
 	github.com/go-telegram-bot-api/telegram-bot-api/v5 v5.5.1
@@ -38,8 +37,8 @@ require (
 	golang.org/x/image v0.45.0
 	golang.org/x/net v0.56.0
 	golang.org/x/oauth2 v0.34.0
-	golang.org/x/sync v0.22.0
-	golang.org/x/sys v0.47.0
+	golang.org/x/sync v0.24.0
+	golang.org/x/sys v0.49.0
 	golang.org/x/term v0.44.0
 	golang.org/x/text v0.41.0
 	golang.org/x/time v0.8.0
@@ -48,6 +47,8 @@ require (
 	gorm.io/gorm v1.31.1
 	rafaelmartins.com/p/streamdeck v0.0.0-20260905040856-709e442a380b
 )
+
+require github.com/mattn/go-sqlite3 v1.14.22 // indirect
 
 require (
 	cloud.google.com/go v0.116.0 // indirect
@@ -59,9 +60,8 @@ require (
 	github.com/bep/debounce v1.2.1 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/dlclark/regexp2 v1.11.0 // indirect
-	github.com/dustin/go-humanize v1.0.1 // indirect
+	github.com/dustin/go-humanize v1.1.0 // indirect
 	github.com/ebitengine/purego v0.10.2 // indirect
-	github.com/glebarez/go-sqlite v1.21.2 // indirect
 	github.com/golang/groupcache v0.0.0-20241129210726-2c02b8208cf8 // indirect
 	github.com/google/go-cmp v0.7.0 // indirect
 	github.com/google/s2a-go v0.1.8 // indirect
@@ -79,10 +79,11 @@ require (
 	github.com/leaanthony/slicer v1.6.0 // indirect
 	github.com/leaanthony/u v1.1.1 // indirect
 	github.com/mattn/go-colorable v0.1.13 // indirect
-	github.com/mattn/go-isatty v0.0.20 // indirect
+	github.com/mattn/go-isatty v0.0.24 // indirect
 	github.com/mmcdole/goxpp v1.1.1-0.20240225020742-a0c311522b23 // indirect
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
 	github.com/modern-go/reflect2 v1.0.2 // indirect
+	github.com/ncruces/go-strftime v1.1.0 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
@@ -107,10 +108,11 @@ require (
 	google.golang.org/grpc v1.66.2 // indirect
 	google.golang.org/protobuf v1.34.2 // indirect
 	gopkg.in/check.v1 v1.0.0-20201130134442-10cb98267c6c // indirect
-	modernc.org/libc v1.22.5 // indirect
-	modernc.org/mathutil v1.5.0 // indirect
-	modernc.org/memory v1.5.0 // indirect
-	modernc.org/sqlite v1.23.1 // indirect
+	gorm.io/driver/sqlite v1.6.0
+	modernc.org/libc v1.80.1 // indirect
+	modernc.org/mathutil v1.7.1 // indirect
+	modernc.org/memory v1.12.1 // indirect
+	modernc.org/sqlite v1.62.0
 	rafaelmartins.com/p/usbhid v0.0.0-20260811025057-543484740bef // indirect
 )
 

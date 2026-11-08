@@ -1,8 +1,131 @@
 # AEP-0116 — Timeline canônica de chat do backend à apresentação
 
-## Status: In Progress — critérios funcionais, payload e alocações atendidos; tempo da abertura ainda pendente
+## Status: Done — escopo implementado e critérios locais verificados; entrega sujeita aos gates do PR #1040
 
 Data: 2026-10-30
+
+O escopo aceito das fases 1–5 está implementado, com os critérios abaixo
+verificados. Este status não afirma CI verde antecipadamente: o PR #1040 só
+pode ser entregue como pronto após CI e review remota sem pendências, conforme
+AGENTS.md. Não depende de outro recorte de implementação.
+
+### Consultas preparadas e qualificação do SQLite (08/11/2026)
+
+A investigação localizou recompilação de SQL na abertura: o driver anterior
+mantinha o texto em `Prepare`, mas recompilava a consulta na execução. O uso
+isolado de `PrepareStmt` do GORM não resolvia esse custo. O mantenedor autorizou
+qualificar `modernc.org/sqlite` com o adaptador oficial do GORM e Go 1.26,
+sem fork, e revisar a decisão do AEP-0074 caso aprovada a qualificação.
+
+`internal/sqlite` compõe o adaptador oficial, selecionando o driver pure Go,
+o formato de datas SQLite já persistido e a tradução dos mesmos erros de
+unicidade/PK/FK. Aplicação e fixtures usam esse ponto único. Não há alteração
+manual de dados, formato de anexos ou política de retenção.
+
+O leitor prepara seis formas fixas: página inicial/final, com/sem pai,
+leitura limitada das fontes e contagem de filhos. Os builders são os mesmos usados na execução.
+Preparo ocorre antes da transação; a primeira leitura continua autorizando e
+fixando seu snapshot, e `Tx.StmtContext` vincula os planos à mesma transação.
+O conjunto não armazena resultados nem parâmetros e não cresce com IDs ou
+paginação. Os handles são liberados pelo `sql.DB.Close`; banco reaberto recebe
+outro leitor. Falha parcial fecha os handles criados e permite nova tentativa.
+
+A qualificação encontrou e corrigiu um falso conflito no AEP-0103: o driver
+pode reler UTC como fuso fixo de offset zero. O comparador de configuração agora
+compara instantes, normalizando somente cópias em memória; não muda os horários
+persistidos, não ignora nanossegundos nem campos de autorização. O round-trip
+real de importação passou após a correção, sem enfraquecer seus testes.
+
+As consultas também deixam de repetir a seleção recursiva por execução e
+colunas de agrupamento funcionalmente determinadas pela identidade. O orçamento
+continua incluindo todas as identidades antes de transportar conteúdo; acima
+da cota, somente uma linha de controle atravessa o resultado SQL. Não houve
+relaxamento de limites, alterações da fixture histórica ou retirada de testes.
+
+Prova final do caminho produtivo, Windows/amd64, Intel Core Ultra 7 155H,
+Go 1.27.1 (mesmo compilador do baseline), cinco amostras de 20 iterações,
+GOMAXPROCS padrão (22), sem outras suítes em execução. Na fixture histórica
+com resultado de 1 KiB, medianas de tempo 4,133760 / 10,856590 / 14,621140 ms
+para 100/500/1.000 mensagens, contra tetos 4,4436 / 13,9692 / 15,9204 ms.
+Payload 36.477 / 85.960 / 85.961 bytes; medianas independentes de alocação
+729.268 / 1.566.436 / 1.559.448 B/op, também abaixo dos tetos históricos.
+O preparo inicial está incluído, sem aquecimento adicional no benchmark.
+Resultados de ferramenta de 100 KiB/10 MiB permanecem fora da janela:
+o maior payload dessas fixtures foi 85.969 bytes.
+
+`BenchmarkCanonicalTimelineColdOpen` mede separadamente abrir pool, preparar,
+ler, serializar e fechar a cada operação, em banco em arquivo; não promete
+cache frio do SO/disco. No mesmo Go 1.27.1 e protocolo de cinco amostras de
+20 operações, o controle com SQL/leitor/driver de `379e49b62` mediu
+9,938080 / 17,841930 / 22,080020 ms; a implementação final mediu
+11,536935 / 18,459405 / 26,881975 ms. Há custo adicional de primeira abertura
+(de 0,62 a 4,80 ms nestas fixtures), não uma melhora universal. A inicialização
+atômica das seis formas mantém mapa imutável e evita estados concorrentes de
+preparo parcial por consulta. Esse custo é amortizado ao reutilizar o leitor.
+
+Go 1.26.0 foi qualificado separadamente, sem recalibrar os tetos históricos:
+controle `379e49b62` em 6,280025 / 14,295700 / 18,055835 ms e implementação
+final em 4,705275 / 11,843780 / 14,279225 ms. Os resultados de compiladores
+diferentes não são usados para atribuir ganho à implementação. O desempenho
+medido combina simplificação SQL e consultas preparadas, não apenas o driver.
+
+Reprodução: compilar `./internal/app` com `go test -c -o` sob `build/bin/`,
+executar o binário com `-test.run=^$`,
+`-test.bench=^BenchmarkCanonicalTimelineWindow$|^BenchmarkCanonicalTimelineColdOpen$`,
+`-test.benchmem -test.benchtime=20x -test.count=5`. Usar o mesmo compilador,
+máquina e fixtures no controle; calcular medianas, sem escolher a melhor amostra.
+Todos os temporários e caches ficam sob `build/bin/` conforme AGENTS.md.
+
+A qualificação cobre migração/reconstrução de tabela com conteúdo e datas,
+FKs, triggers, rollback, snapshots WAL, cancelamento, preparação concorrente,
+falha parcial, troca de conexão e reabertura. A checagem de DDL admite somente
+a variação equivalente de aspas no nome da tabela produzida pelo adaptador
+oficial; continua rejeitando mudança de tipo, CHECK ou identidade. Fixtures de
+contenção usam a mesma DSN/busy timeout da produção, sem novos retries.
+
+Builds CLI com Go 1.26 e CGO desativado passaram para Windows/amd64,
+Linux/amd64 e arm64, macOS/amd64 e arm64. Isso prova compilação; execução
+nativa local foi verificada no Windows. Testes ACP não são executados localmente
+por orientação do mantenedor; sua validação continua no CI. Não houve alteração
+do banco pessoal nem alegação de medição em sessão instalada. A prova produtiva
+acima usa o leitor real da aplicação, sem driver experimental ou fork.
+
+A primeira rodada Copilot no PR #1040 identificou que a espera do mutex de
+preparo ignorava cancelamento. A exclusão agora usa aquisição cancelável,
+preservando inicialização atômica e mapa imutável. A regressão ocupa a única
+conexão, comprova a primeira espera por `WaitCount`, exige o término da segunda
+abertura antes de liberar o pool e confirma recuperação posterior. Ela falhou
+com o mutex anterior e passou em dez repetições com a correção; 53 testes
+focados de timeline, vet e lint incremental também passaram. Revisão
+independente adicional aprovou a correção sem pendências.
+
+Nova medição após essa correção, mesmo Go 1.27.1 e protocolo: medianas
+3,984585 / 10,418035 / 12,848895 ms, payload 36.477 / 85.960 / 85.961 bytes
+e 727.394 / 1.584.730 / 1.562.856 B/op. Todos os limites originais continuam
+atendidos. As medições anteriores permanecem registradas para não esconder
+variabilidade. CodeRabbit pulou a revisão por exceder seu limite de 100
+arquivos; a migração mecânica de imports faz parte do diff revisado localmente.
+
+O CI com detector de corrida expôs duas fixtures concorrentes que abriam
+SQLite em rollback journal e com espera nativa zero: reserva única do ledger
+e revogação HTTP durante execução. Ambas passam a usar `SQLiteDSN` e WAL como
+na aplicação, sem mudar concorrência, asserções, limites de pool ou adicionar
+retry. Passaram 98 testes de ledger, 30 de HTTP e cem repetições de cada caso,
+mais vet/lint focados e revisão independente. A confirmação sob detector de
+corrida fica no CI do commit corrigido; não se apresenta repetição sem race
+como substituta dessa prova.
+
+Revisão independente `review_canonical_cleanup`: revisão inicial, incrementos
+e revisão final do diff completo, incluindo arquivos novos, sem pendências
+funcionais. A documentação recebeu uma rodada adicional sem pendências.
+Go 1.26: build e vet passaram; lint incremental contra `379e49b62` retornou
+zero ocorrências (o lint global possui ocorrências preexistentes). A seleção
+ampla sem ACP cobriu mais de cinco mil testes; regressões encontradas foram
+corrigidas e revalidadas. A rodada final passou nos 3 testes do adaptador,
+499 de chat, 179 de configuração e 395 de banco. TypeScript, ESLint e Stylelint passaram.
+Vitest teve 7.044 aprovações e uma falha de espera no Topbar sob carga;
+a repetição do arquivo completo passou em 122/122, sem alteração de código
+frontend. CI e review remota permanecem gates da entrega.
 
 ### Seleção única e leitura limitada das fontes (07/11/2026)
 
@@ -4260,7 +4383,7 @@ correção inicial de identidade e foco das fases 2–3.
 
 - [x] Remover adaptadores e APIs comprovadamente sem consumidores. Evidências na auditoria consolidada e nos recortes acima.
 - [x] Preservar regressões de produto ao substituir testes de mecanismos removidos. Evidências na auditoria consolidada e nos recortes acima.
-- [x] Medir consultas, payload, retenção de memória e renders antes/depois. Retenção V8 e renders verificados em 06/11; payload e alocações atendem aos limites históricos em 07/11. O critério de aceitação de desempenho abaixo continua aberto pelo tempo de abertura.
+- [x] Medir consultas, payload, retenção de memória e renders antes/depois. Retenção V8 e renders verificados em 06/11; payload e alocações atendem aos limites históricos em 07/11. Tempo de abertura aprovado em 08/11 com os limites originais; custo da primeira abertura registrado separadamente acima.
 - [x] Atualizar documentação de usuário, AEPs afetados e índice com evidências. Evidências na auditoria consolidada e nos recortes acima.
 
 Não apagar ou enfraquecer testes para obter aprovação. Reescrever cobertura de
@@ -4286,7 +4409,7 @@ mecanismos extintos somente mantendo os comportamentos e falhas relevantes.
 - [x] Erro de persistência/projeção é explícito e não apaga silenciosamente conteúdo recebido. Evidências na auditoria consolidada acima.
 - [x] Frontend não infere identidade, ordem, representante ou composição conversacional. Evidências na auditoria consolidada acima.
 - [x] Anexos não duplicam áudio recebido nem entram integralmente na janela sem necessidade. Evidências na auditoria consolidada acima.
-- [ ] Metas de desempenho da fase 1 passam em fixtures reprodutíveis e comparáveis.
+- [x] Metas de desempenho da fase 1 passam em fixtures reprodutíveis e comparáveis. Medição final de 08/11 acima, com Go 1.27.1 e limites originais; primeira abertura em arquivo qualificada separadamente.
 - [x] Não restam adaptadores sem prazo de remoção nem duas fontes autoritativas. Evidências na auditoria consolidada acima.
 
 NVDA não é requisito desta investigação/PR documental, por orientação do

@@ -1510,16 +1510,14 @@ func (r *MessageRepository) timelineItemCTEWithSources(parentPredicate, turnPare
 	// A identidade determina a âncora, o slot e o escopo: respostas vêm da
 	// mesma pergunta (PK), mensagens independentes da própria PK. Agrupar
 	// novamente essas colunas só amplia a chave temporária do SQLite.
-	extra := ` UNION ALL SELECT NULL,'turn',t.user_message_id,CAST(q.created_at AS TEXT),q.id,1,0,q.parent_id FROM ` + turnSource + ` WHERE t.conversation_id=? AND q.conversation_id=t.conversation_id AND q.role='user' AND ` + turnParentPredicate + turnPredicate
+	extra := ` UNION ALL SELECT NULL,'turn',t.user_message_id,CAST(q.created_at AS TEXT),0 FROM ` + turnSource + ` WHERE t.conversation_id=? AND q.conversation_id=t.conversation_id AND q.role='user' AND ` + turnParentPredicate + turnPredicate
 	return fmt.Sprintf(`
 WITH scoped AS (
  SELECT m.id,
   `+timelineItemKindSQL+` AS item_kind,
   `+timelineItemIDSQL+` AS item_id,
   CASE WHEN q.id IS NOT NULL THEN q.created_at ELSE m.created_at END AS created_at,
-  CASE WHEN q.id IS NOT NULL THEN q.id ELSE m.id END AS anchor_id,
-  CASE WHEN q.id IS NOT NULL THEN 1 ELSE 0 END AS slot,
-  CASE WHEN m.role <> 'user' AND COALESCE(m.turn_id, '') <> '' AND q.id IS NULL THEN 1 ELSE 0 END AS invalid_turn_reference, m.parent_id
+  CASE WHEN m.role <> 'user' AND COALESCE(m.turn_id, '') <> '' AND q.id IS NULL THEN 1 ELSE 0 END AS invalid_turn_reference
  FROM %s
 `+timelineQuestionJoinSQL+`
  WHERE m.conversation_id = ? AND %s AND %s
@@ -1527,9 +1525,9 @@ WITH scoped AS (
 ), timeline_items AS (
  SELECT item_kind AS kind, item_id AS id, MIN(id) AS message_id,
   CASE WHEN item_kind = 'turn' THEN item_id ELSE '' END AS turn_id,
-  created_at, anchor_id, slot,
+  created_at, item_id AS anchor_id, CASE WHEN item_kind = 'turn' THEN 1 ELSE 0 END AS slot,
   CASE WHEN item_kind = 'turn' THEN 'turn:' ELSE 'message:' END || item_id AS item_key,
-  MAX(invalid_turn_reference) AS invalid_turn_reference, parent_id
+  MAX(invalid_turn_reference) AS invalid_turn_reference
  FROM scoped
  GROUP BY item_kind, item_id
 )`, messageSource, parentPredicate, CurrentChatMessageSQL("m"), extra)
@@ -1614,19 +1612,22 @@ func (r *MessageRepository) queryTimelineItems(conversationID string, parentID *
 	if limit <= 0 {
 		return []MessageWindowItem{}, nil
 	}
+	args := r.timelineItemArgs(conversationID, parentID)
+	args = append(args, extraArgs...)
+	args = append(args, limit)
+	return r.scanTimelineItems(r.timelinePageSQL(parentID, where, order), args, order)
+}
+
+func (r *MessageRepository) timelinePageSQL(parentID *string, where, order string) string {
 	columns := timelineItemColumns
 	if where == "" {
 		columns = strings.Replace(columns, "0 AS window_total", "COUNT(*) OVER () AS window_total", 1)
 	}
-	sql := r.timelineItemCTE(parentID) + " SELECT " + columns + " FROM timeline_items"
-	args := r.timelineItemArgs(conversationID, parentID)
+	query := r.timelineItemCTE(parentID) + " SELECT " + columns + " FROM timeline_items"
 	if where != "" {
-		sql += " WHERE " + where
-		args = append(args, extraArgs...)
+		query += " WHERE " + where
 	}
-	sql += " ORDER BY " + order + " LIMIT ?"
-	args = append(args, limit)
-	return r.scanTimelineItems(sql, args, order)
+	return query + " ORDER BY " + order + " LIMIT ?"
 }
 
 func (r *MessageRepository) queryTimelineItemsAround(conversationID string, parentID *string, offset int, limit int) ([]MessageWindowItem, error) {

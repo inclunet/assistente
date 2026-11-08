@@ -18,7 +18,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/glebarez/sqlite"
+	"assistente/internal/sqlite"
 	"gorm.io/gorm"
 )
 

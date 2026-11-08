@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/glebarez/sqlite"
+	"assistente/internal/sqlite"
 	"gorm.io/gorm"
 )
 
@@ -58,7 +58,7 @@ func openMessageRevisionTestFileDB(t *testing.T, path string) *gorm.DB {
 	if err != nil {
 		t.Fatal(err)
 	}
-	database, err := gorm.Open(sqlite.Open(sqliteDSN(path)), &gorm.Config{
+	database, err := gorm.Open(sqlite.Open(SQLiteDSN(path)), &gorm.Config{
 		NowFunc: func() time.Time { return fixed },
 	})
 	if err != nil {

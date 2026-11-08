@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/glebarez/sqlite"
+	"assistente/internal/sqlite"
 	"gorm.io/gorm"
 )
 
@@ -17,7 +17,7 @@ func setupConversationBatchDeleteDB(t *testing.T) (*gorm.DB, context.Context, co
 	t.Helper()
 	previousDB, previousPath := db, dbPath
 	path := filepath.ToSlash(filepath.Join(t.TempDir(), "conversation-delete.db"))
-	testDB, err := gorm.Open(sqlite.Open(sqliteDSN(path)), &gorm.Config{})
+	testDB, err := gorm.Open(sqlite.Open(SQLiteDSN(path)), &gorm.Config{})
 	if err != nil {
 		t.Fatal(err)
 	}

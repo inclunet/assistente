@@ -5,14 +5,14 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/glebarez/sqlite"
+	"assistente/internal/sqlite"
 	"gorm.io/gorm"
 )
 
 func openStartupVacuumDB(t *testing.T) (*gorm.DB, string) {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "startup.db")
-	gdb, err := gorm.Open(sqlite.Open(sqliteDSN(path)), &gorm.Config{})
+	gdb, err := gorm.Open(sqlite.Open(SQLiteDSN(path)), &gorm.Config{})
 	if err != nil {
 		t.Fatal(err)
 	}

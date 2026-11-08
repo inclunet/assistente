@@ -51,9 +51,14 @@ type PublicationSnapshotReader interface {
 	TimelineSelectionReader
 }
 
-type DBTimelineReader struct{ db *gorm.DB }
+type DBTimelineReader struct {
+	db         *gorm.DB
+	statements *database.TimelineStatements
+}
 
-func NewDBTimelineReader(db *gorm.DB) *DBTimelineReader { return &DBTimelineReader{db: db} }
+func NewDBTimelineReader(db *gorm.DB) *DBTimelineReader {
+	return &DBTimelineReader{db: db, statements: database.NewTimelineStatements(db)}
+}
 
 type timelineFacts struct {
 	turns map[string]*database.ChatTurn
@@ -79,6 +84,12 @@ func readTimelineFactsForSelection(ctx context.Context, tx *gorm.DB, conversatio
 
 // ReadCanonicalWindow lê uma única projeção leve para toda apresentação.
 func (r *DBTimelineReader) ReadCanonicalWindow(ctx context.Context, query database.MessageWindowQuery) (*TimelineWindowSnapshot, error) {
+	if _, err := database.RequireUserID(ctx); err != nil {
+		return nil, err
+	}
+	if err := r.statements.Prepare(ctx); err != nil {
+		return nil, err
+	}
 	result := &TimelineWindowSnapshot{}
 	var rows *database.MessageWindowResult
 	var facts timelineFacts
@@ -90,6 +101,9 @@ func (r *DBTimelineReader) ReadCanonicalWindow(ctx context.Context, query databa
 			return err
 		}
 		result.Version = version
+		if err := r.statements.Bind(tx); err != nil {
+			return err
+		}
 		repo := database.NewMessageRepository(tx)
 
 		if err := validateTimelineParent(ctx, repo, query); err != nil {

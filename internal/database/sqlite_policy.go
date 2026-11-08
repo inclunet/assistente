@@ -36,10 +36,10 @@ var sqliteBusyRetryDelays = []time.Duration{
 	375 * time.Millisecond,
 }
 
-// sqliteDSN configura pragmas por conexão. O busy_timeout nativo é curto para
+// SQLiteDSN configura pragmas por conexão. O busy_timeout nativo é curto para
 // devolver SQLITE_BUSY rapidamente; WithSQLiteBusyRetry controla a espera total
 // com backoff e logging centralizados.
-func sqliteDSN(path string) string {
+func SQLiteDSN(path string) string {
 	normalized := filepath.ToSlash(path)
 	if !strings.HasPrefix(normalized, "/") {
 		normalized = "/" + normalized

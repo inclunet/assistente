@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"assistente/internal/commandjobevents"
-	"github.com/glebarez/sqlite"
+	"assistente/internal/sqlite"
 	"gorm.io/gorm"
 )
 

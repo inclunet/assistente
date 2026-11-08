@@ -4,7 +4,7 @@ import (
 	"database/sql"
 	"testing"
 
-	"github.com/glebarez/sqlite"
+	"assistente/internal/sqlite"
 	"gorm.io/gorm"
 )
 
@@ -151,12 +151,12 @@ func TestAdoptLegacyDataAssignsBlankOwners(t *testing.T) {
 // `database.go:208 UNIQUE constraint failed: credential_entries.user_id,
 // credential_entries.pattern`):
 //
-//   - banco contém um par (user_id='', pattern=X) — herdado de boots
+//   - banco contém um par (user_id vazio, pattern=X) — herdado de boots
 //     pré-AEP-0052 que ainda gravavam órfãos depois do AutoMigrate.
 //   - o usuário corrente já tem (user_id=X, pattern=X) gravado por um
 //     login bem-sucedido anterior.
 //   - AdoptLegacyData tenta `UPDATE ... SET user_id = X WHERE user_id =
-//     ''` e o índice `ux_credential_entries_user_pattern` aborta a
+//     string vazia` e o índice `ux_credential_entries_user_pattern` aborta a
 //     transação inteira.
 //
 // Resultado observado pelo usuário: CreateAdminUser cria o User no banco,

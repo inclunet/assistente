@@ -14,7 +14,7 @@ import (
 	"assistente/internal/commandconfig"
 	"assistente/internal/commandexecution"
 	"assistente/internal/commandimage"
-	"github.com/glebarez/sqlite"
+	"assistente/internal/sqlite"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
 )

@@ -10,7 +10,7 @@ import (
 	"assistente/internal/commandledger"
 	"assistente/internal/credentials"
 	"assistente/internal/database"
-	"github.com/glebarez/sqlite"
+	"assistente/internal/sqlite"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"

@@ -8,7 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/glebarez/sqlite"
+	"assistente/internal/database"
+	"assistente/internal/sqlite"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 )
@@ -16,7 +17,7 @@ import (
 func testStore(t *testing.T, now *time.Time) (*Store, *gorm.DB) {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "ledger.db")
-	db, err := gorm.Open(sqlite.Open(path), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open(database.SQLiteDSN(path)+"&_pragma=journal_mode(WAL)"), &gorm.Config{})
 	if err != nil {
 		t.Fatalf("abrir sqlite: %v", err)
 	}
@@ -57,7 +58,7 @@ func TestReserveIsIdempotentAndDoesNotRenew(t *testing.T) {
 		t.Fatalf("primeira reserva: %+v, %v", first, err)
 	}
 	retry, err := s.Reserve(context.Background(), req)
-	if err != nil || retry.Created || retry.Record.ExpiresAt != req.ExpiresAt {
+	if err != nil || retry.Created || !retry.Record.ExpiresAt.Equal(req.ExpiresAt) {
 		t.Fatalf("reentrega: %+v, %v", retry, err)
 	}
 	var ledgers, audits int64

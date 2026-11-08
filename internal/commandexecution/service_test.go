@@ -17,7 +17,7 @@ import (
 	"assistente/internal/credentials"
 	"assistente/internal/database"
 
-	"github.com/glebarez/sqlite"
+	"assistente/internal/sqlite"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 )
@@ -49,7 +49,7 @@ func newExecutionFixture(t *testing.T) *executionFixture {
 
 	ctx := context.Background()
 	now := time.Now().UTC()
-	db, err := gorm.Open(sqlite.Open(filepath.Join(t.TempDir(), "command-execution.db")), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open(database.SQLiteDSN(filepath.Join(t.TempDir(), "command-execution.db"))), &gorm.Config{})
 	if err != nil {
 		t.Fatalf("abrir SQLite temporário: %v", err)
 	}
