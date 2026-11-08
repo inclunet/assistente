@@ -146,3 +146,11 @@ execução. Evidência da separação necessária: no run 42498268593,
 `backend-checks` restaurou 1.083.452.142 bytes no mesmo GOCACHE e registrou
 primary-key hit, sem salvar. Reutilizar essa chave descartaria ao final o
 novo trabalho instrumentado do produtor.
+
+
+A primeira execução direta no Linux revelou uma corrida de preparação antes
+escondida pela compilação: o binário abriu o display antes de Xvfb estar pronto.
+Os dois runners de race usam agora `xvfb-run` e declaram a dependência `xauth`;
+o wrapper aguarda o servidor e preserva o código de saída. Não se adiciona
+sleep arbitrário nem se ignora falha de inicialização. A falha interrompeu a
+descoberta e reprovou o job, como esperado; não foi falha de teste de produto.
