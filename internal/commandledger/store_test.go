@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"assistente/internal/database"
 	"assistente/internal/sqlite"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
@@ -16,7 +17,7 @@ import (
 func testStore(t *testing.T, now *time.Time) (*Store, *gorm.DB) {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "ledger.db")
-	db, err := gorm.Open(sqlite.Open(path), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open(database.SQLiteDSN(path)+"&_pragma=journal_mode(WAL)"), &gorm.Config{})
 	if err != nil {
 		t.Fatalf("abrir sqlite: %v", err)
 	}

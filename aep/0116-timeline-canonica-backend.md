@@ -106,6 +106,15 @@ atendidos. As medições anteriores permanecem registradas para não esconder
 variabilidade. CodeRabbit pulou a revisão por exceder seu limite de 100
 arquivos; a migração mecânica de imports faz parte do diff revisado localmente.
 
+O CI com detector de corrida expôs duas fixtures concorrentes que abriam
+SQLite em rollback journal e com espera nativa zero: reserva única do ledger
+e revogação HTTP durante execução. Ambas passam a usar `SQLiteDSN` e WAL como
+na aplicação, sem mudar concorrência, asserções, limites de pool ou adicionar
+retry. Passaram 98 testes de ledger, 30 de HTTP e cem repetições de cada caso,
+mais vet/lint focados e revisão independente. A confirmação sob detector de
+corrida fica no CI do commit corrigido; não se apresenta repetição sem race
+como substituta dessa prova.
+
 Revisão independente `review_canonical_cleanup`: revisão inicial, incrementos
 e revisão final do diff completo, incluindo arquivos novos, sem pendências
 funcionais. A documentação recebeu uma rodada adicional sem pendências.

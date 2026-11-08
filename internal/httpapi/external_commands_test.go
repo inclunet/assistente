@@ -63,7 +63,7 @@ type httpCommandFixture struct {
 
 func newHTTPCommandFixture(t *testing.T, waitInQueue bool) *httpCommandFixture {
 	t.Helper()
-	db, err := gorm.Open(sqlite.Open(filepath.Join(t.TempDir(), "http-commands.db")), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open(database.SQLiteDSN(filepath.Join(t.TempDir(), "http-commands.db"))+"&_pragma=journal_mode(WAL)"), &gorm.Config{})
 	if err != nil {
 		t.Fatal(err)
 	}
