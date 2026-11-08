@@ -1,3 +1,5 @@
+AEP-0103 (08/11/2026): fixtures de execução contextual usam banco isolado e projeção real sem repetir edições confirmadas na preparação (issue #1008); garantias de execução e testes de edição preservados. Status global **In Progress**. Medições em `docs/operations/ci-test-cost.md`.
+
 AEP-0103 (08/11/2026): comparação de datas persistidas corrige falso conflito de configuração, preservando CAS e status global In Progress.
 
 AEP-0116 (08/11/2026): **Done — escopo implementado e critérios locais verificados; entrega sujeita aos gates do PR #1040**. Limites históricos preservados; custo adicional da primeira abertura documentado. CI e review sem pendências continuam obrigatórios antes de entregar o PR como pronto.

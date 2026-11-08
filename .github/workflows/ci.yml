@@ -333,8 +333,10 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: TypeScript check
-        run: npx tsc --noEmit
+      # npm run build executa tsc antes do Vite; bindings mantém seu próprio
+      # typecheck sobre os arquivos recém-gerados no job correspondente.
+      - name: TypeScript e build (Vite) — falha se dist ficar vazio
+        run: npm run build
 
       - name: ESLint (includes jsx-a11y)
         run: npm run lint
@@ -347,9 +349,6 @@ jobs:
 
       - name: Tests (includes axe-core a11y)
         run: npm run test
-
-      - name: Build (Vite) — falha se dist ficar vazio
-        run: npm run build
 
   e2e:
     runs-on: ubuntu-latest
