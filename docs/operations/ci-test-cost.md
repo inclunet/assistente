@@ -319,3 +319,20 @@ real. Preserva a primeira tecla, a segunda tecla, a recusa do guard obsoleto,
 a continuidade do handle e a ausência de invalidação do mapa de teclado.
 A barreira é liberada também em falhas, antes do encerramento dos workers.
 Não há aumento de timeout, repetição da assertion até passar ou mudança produtiva.
+
+
+### Contenção real no cadastro de identidades externas
+
+A revalidação `42519431471` falhou em
+`TestExternalIdentityBootstrapConcurrentConnectionsHasSingleWinner`: um writer
+venceu e o outro recebeu `SQLITE_BUSY`, em vez do conflito de unicidade.
+O DSN produtivo espera 100 ms e depende da política central de retry, ausente
+nesse caminho. A regressão nova força um writer real e só o libera depois de
+observar BUSY; falhou antes tanto no bootstrap quanto no cadastro administrativo.
+
+Ambos usam agora `WithSQLiteImmediateTransactionOnce`: a política central
+retenta somente a aquisição do writer; corpo e COMMIT não são repetidos.
+Auditoria permanece a primeira escrita e vínculo/auditoria continuam atômicos.
+O teste concorrente original foi preservado; não houve aumento de timeout,
+retry no teste nem redução de concorrência. Isso corrige comportamento produtivo,
+não apenas a estabilidade do CI.
