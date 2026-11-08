@@ -10,6 +10,7 @@ import (
 	"assistente/internal/core/ports"
 	"assistente/internal/database"
 	"assistente/internal/llm"
+	"assistente/internal/testutil/dbfixture"
 )
 
 func setupTurnRuntime(t *testing.T) (*Service, context.Context, string, string, *captureEmitter) {
@@ -17,11 +18,7 @@ func setupTurnRuntime(t *testing.T) (*Service, context.Context, string, string, 
 	cache := t.TempDir()
 	t.Setenv("LOCALAPPDATA", cache)
 	t.Setenv("XDG_CACHE_HOME", cache)
-	restore := database.SetDB(database.DB())
-	if err := database.InitPath(filepath.Join(t.TempDir(), "runtime.db")); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = database.Close(); restore() })
+	dbfixture.Open(t, filepath.Join(t.TempDir(), "runtime.db"))
 	if err := database.DB().Create(&database.User{UUIDModel: database.UUIDModel{ID: "runtime-user"}, Username: "runtime-user"}).Error; err != nil {
 		t.Fatal(err)
 	}

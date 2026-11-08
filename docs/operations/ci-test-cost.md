@@ -154,3 +154,52 @@ Os dois runners de race usam agora `xvfb-run` e declaram a dependência `xauth`;
 o wrapper aguarda o servidor e preserva o código de saída. Não se adiciona
 sleep arbitrário nem se ignora falha de inicialização. A falha interrompeu a
 descoberta e reprovou o job, como esperado; não foi falha de teste de produto.
+
+## Imagem de schema para fixtures de Agent e Chat
+
+O terceiro recorte da #1008 atua em `setupTurnRuntime` e `newSnapshotFixture`.
+Um perfil local de `TestExecutionWriterChronologySurvivesTerminalAndPersistenceFailure`
+atribuiu 7,82 s dos 10,12 s amostrados de CPU (77,27%) a `database.InitPath`.
+O teste estava repetindo o bootstrap do banco durante a preparação dos cenários.
+
+`internal/testutil/dbfixture` prepara uma imagem vazia pelo `InitPath` real uma
+vez por processo e fecha suas conexões antes de ler o arquivo consolidado.
+Cada fixture recebe uma cópia física privada dessa imagem e conexões novas.
+Os bytes não são expostos nem modificados; não se compartilham usuários,
+conversas, transações ou conexões. A imagem não é versionada, salva em cache de
+CI nem reaproveitada entre processos/revisões. Não há lista manual de models,
+DDL alternativo ou migrações simuladas.
+
+A configuração existente de conexões foi extraída para `database.OpenPath`,
+utilizada tanto pelo `InitPath` de produção quanto pela abertura da cópia.
+Pool, DSN, WAL, pragmas, logger e registro do caminho permanecem no mesmo código.
+`InitPath` continua executando todas as migrações, AutoMigrate e inicialização
+FTS no mesmo fluxo. A decomposição não cria flag de atalho para o aplicativo.
+O helper depende de `testing` e só é importado pelas fixtures de teste.
+
+Os testes de bootstrap e upgrades publicados continuam chamando `InitPath`
+diretamente (AEP-0076). Os contratos dos AEPs 0074 e 0116 não mudam. Os testes
+novos verificam schema completo, índices/triggers/FTS, versões de migração,
+pragmas e pool contra o bootstrap real, além de isolamento de dados/DDL,
+fechamento de conexões e restauração do banco e caminho anteriores. A ordem
+textual das constraints nomeadas é normalizada na comparação porque GORM pode
+emiti-las em ordens diferentes; o conteúdo SQL, incluindo CHECKs, é preservado.
+
+### Medição local pareada
+
+Windows, Go 1.26.0, sem race; binários antes/depois compilados previamente,
+executados a partir do diretório do pacote em processos separados. Três pares,
+sem compilações ou suítes concorrentes durante as medições aceitas:
+
+- Agent (`TestExecutionWriterChronologySurvivesTerminalAndPersistenceFailure`):
+  12,15 / 11,92 / 10,53 s antes; 2,08 / 2,04 / 1,76 s depois.
+  Mediana **11,92 → 2,04 s** (82,9% de redução).
+- Chat (`TestNormalizedAudioReachesSendAndRetryHistory`):
+  5,29 / 5,72 / 6,30 s antes; 1,00 / 0,93 / 0,95 s depois.
+  Mediana **5,72 → 0,95 s** (83,4% de redução).
+
+Todos os casos e assertions originais permanecem. O terceiro par de Chat foi
+repetido após terminar uma consulta ao inventário Go; o ensaio concorrente não
+integra estes números. Nenhum ACP foi executado localmente. Não extrapolar as
+porcentagens para o workflow: a qualificação Linux/race, a contagem da suíte e
+o custo total serão registrados no PR e na issue a partir do CI correspondente.
