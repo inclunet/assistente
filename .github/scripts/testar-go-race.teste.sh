@@ -12,6 +12,9 @@ test_dir=$(cd -- "$test_dir" && pwd -P)
 trap 'rm -rf -- "$test_dir"' EXIT
 export RACE_MOCK_DIR="$test_dir"
 export PATH="$test_dir:$PATH"
+# Repositório sintético: nunca substituir um binário real do worktree.
+mkdir -p "$test_dir/repo/internal/app" "$test_dir/repo/build/bin/ci"
+cd "$test_dir/repo"
 cat > "$test_dir/go" <<'MOCK'
 #!/usr/bin/env bash
 set -euo pipefail
@@ -19,6 +22,10 @@ printf '%s\n' "$*" >> "$RACE_MOCK_DIR/calls"
 if [[ $1 == list ]]; then
   [[ ${MOCK_FAIL:-} != packages ]] || exit 17
   cat "$RACE_MOCK_DIR/packages"
+elif [[ $1 == tool ]]; then
+  [[ ${MOCK_FAIL:-} != execution ]] || exit 19
+  printf '%s\n' "$@" > "$RACE_MOCK_DIR/args"
+  [[ $PWD == "$RACE_MOCK_DIR/repo/internal/app" ]] || exit 20
 elif [[ " $* " == *' -list '* ]]; then
   [[ ${MOCK_FAIL:-} != discovery ]] || exit 18
   if [[ ${!#} == ./internal/chat ]]; then
@@ -35,45 +42,23 @@ chmod +x "$test_dir/go"
 
 printf '%s\n' assistente/internal/app assistente/internal/app/child assistente/internal/chat assistente/internal/chat/child assistente/internal/wailsapi assistente/internal/wailsapi/child assistente/internal/auth > "$test_dir/packages"
 
-add_fixture() {
-  local group=$1
-  shift
-  local name
-  for name in "$@"; do
-    printf '%s\t%s\n' "$group" "$name" >> "$test_dir/expected-map"
-    printf '%s\n' "$name" >> "$test_dir/expected"
-  done
-}
+cat > "$test_dir/repo/build/bin/ci/app-race.test" <<'BINARY'
+#!/usr/bin/env bash
+set -euo pipefail
+[[ $PWD == "$RACE_MOCK_DIR/repo/internal/app" ]] || exit 20
+[[ $* == '-test.short -test.list .' ]] || exit 21
+[[ ${MOCK_FAIL:-} != discovery ]] || exit 18
+cat "$RACE_MOCK_DIR/names"
+BINARY
+chmod +x "$test_dir/repo/build/bin/ci/app-race.test"
 
-: > "$test_dir/expected-map"
-: > "$test_dir/expected"
-# Mantém representatividade das famílias preexistentes do fixture.
-add_fixture comandos-configuracao TestCommandSettingsA
-add_fixture comandos-dispositivos TestCommandDeckA
-add_fixture comandos-contexto-base TestContextualA
-add_fixture comandos-execucao TestCommandExecutionA
-add_fixture comandos-jobs TestCommandJobA
-add_fixture comandos-interface TestCommandEditorA
-add_fixture comandos-seguranca TestCommandAuthA
-add_fixture comandos-outros TestCommandFutureA
-add_fixture app-chat TestChatA
-add_fixture app-demais TestA FuzzInput Example ExampleOutput TestAção
-
-# Famílias específicas devem vencer os padrões residuais mais amplos.
-add_fixture comandos-contexto-deck-paginas TestContextualDeckPageA TestContextualDeckPageFuture
-add_fixture comandos-contexto-deck-mermaid TestContextualDeckMermaidA TestContextualDeckMermaidFuture
-add_fixture comandos-contexto-deck-camadas TestContextualDeckLayerA TestContextualDeckLayerFuture
-add_fixture comandos-contexto-deck-base TestContextualDeckA TestContextualDeckFutureBase
-add_fixture comandos-contexto-paleta TestContextualPaletteA TestContextualPagePaletteA TestContextualLayerPaletteA
-add_fixture comandos-contexto-workspace TestCommandWorkspaceA
-add_fixture comandos-contexto-base \
-  TestCommandContextA TestCommandProfileA TestCommandScopeA \
-  TestContextualFutureBase TestCommandContextFutureBase TestCommandProfileFutureBase TestCommandScopeFutureBase
-
+# Famílias antigas e nomes novos entram pelo mesmo contrato de descoberta.
+printf '%s\n' TestCommandSettingsA TestContextualDeckA TestCommandEditorA TestChatA TestChatB TestFutureTimeline TestAção FuzzInput Example ExampleOutput > "$test_dir/expected"
 {
   cat "$test_dir/expected"
   printf '%s\n' BenchmarkSpeed TestMain 'ok assistente/internal/app 0.001s'
 } > "$test_dir/names"
+cp "$test_dir/names" "$test_dir/chat-names"
 
 run() { bash "$script_dir/testar-go-race.sh" "$@" > "$test_dir/output" 2>&1; }
 reject() { if run "$@"; then echo "Deveria falhar: $*" >&2; exit 1; fi; }
@@ -91,12 +76,7 @@ assert_flags() {
     fail "flags -race/-short/-count/-timeout não preservadas: ${got[*]}"
 }
 
-expected_groups=(
-  pacotes-gerais pacote-wailsapi pacote-chat-0 pacote-chat-1 comandos-configuracao comandos-dispositivos
-  comandos-contexto-deck-paginas comandos-contexto-deck-mermaid comandos-contexto-deck-camadas comandos-contexto-deck-base
-  comandos-contexto-paleta comandos-contexto-workspace comandos-contexto-base
-  comandos-execucao comandos-jobs comandos-interface comandos-seguranca comandos-outros app-chat app-demais
-)
+expected_groups=(pacotes-gerais pacote-wailsapi pacote-chat-0 pacote-chat-1 pacote-app-0 pacote-app-1 pacote-app-2 pacote-app-3)
 mapfile -t script_groups < <(bash "$script_dir/testar-go-race.sh" --groups)
 printf '%s\n' "${script_groups[@]}" > "$test_dir/script-groups"
 printf '%s\n' "${expected_groups[@]}" > "$test_dir/expected-groups"
@@ -107,41 +87,76 @@ diff -u "$test_dir/expected-groups" "$test_dir/script-groups"
 awk '
   $0 == "        group:" { capture = 1; next }
   capture && /^          - / { sub(/^          - /, ""); print; next }
-  capture { exit }
+  capture { capture = 0 }
 ' "$repo_dir/.github/workflows/ci.yml" > "$test_dir/ci-groups"
 cp "$test_dir/script-groups" "$test_dir/script-ci-groups"
 [[ -s "$test_dir/ci-groups" ]] || fail 'Não foi possível ler a lista matrix.group em ci.yml'
 assert_unique 'matriz backend-race-tests do CI' "$test_dir/ci-groups"
 diff -u "$test_dir/script-ci-groups" "$test_dir/ci-groups"
 
-assert_unique 'fixture de nomes' "$test_dir/expected"
-mapfile -t fixture_names < "$test_dir/expected"
-for group in "${expected_groups[@]:4}"; do
-  run "$group"
-  assert_flags 'test -race -short -count=1 -timeout=20m'
-  [[ ${#got[@]} == 8 && ${got[0]} == test && ${got[5]} == -run && ${got[7]} == ./internal/app ]] ||
-    fail "invocação de execução do grupo alterada: ${got[*]}"
-  pattern=${got[6]}
-  [[ $pattern == '^('* && $pattern == *')$' ]] || fail "regex não ancorada para $group: $pattern"
-
-  awk -F '\t' -v group="$group" '$1 == group { print $2 }' "$test_dir/expected-map" > "$test_dir/expected-selection"
-  grep -E "$pattern" "$test_dir/expected" > "$test_dir/actual-selection" || true
-  diff -u <(LC_ALL=C sort "$test_dir/expected-selection") <(LC_ALL=C sort "$test_dir/actual-selection") ||
-    fail "o grupo $group não selecionou exatamente sua família"
-
-  # Confirma que a lista de execução impressa também corresponde ao destino,
-  # em vez de validar apenas uma união disjunta dos testes.
-  : > "$test_dir/printed-selection"
-  for name in "${fixture_names[@]}"; do
-    if grep -Fxq -- "$name" "$test_dir/output"; then
-      printf '%s\n' "$name" >> "$test_dir/printed-selection"
+# Executa o gate real do workflow: só sucesso de todas as dependências aprova.
+awk '/^  backend-race:$/ { capture=1; next } capture && /^  [a-z]/ { exit } capture { print }' "$repo_dir/.github/workflows/ci.yml" > "$test_dir/gate"
+grep -Fq 'needs: [backend-race-build, backend-race-tests, backend-race-app]' "$test_dir/gate"
+# Expressões literais do GitHub, não expansão pelo shell.
+# shellcheck disable=SC2016
+for binding in 'BUILD_RESULT: ${{ needs.backend-race-build.result }}' 'RACE_RESULT: ${{ needs.backend-race-tests.result }}' 'APP_RESULT: ${{ needs.backend-race-app.result }}'; do
+  grep -Fq "$binding" "$test_dir/gate" || fail 'dependência do gate desconectada'
+done
+# shellcheck disable=SC2016
+grep -Fq 'if: ${{ always() }}' "$test_dir/gate"
+awk '/^        run: \|$/ { capture=1; next } capture && /^          / { sub(/^          /, ""); print }' "$test_dir/gate" > "$test_dir/gate.sh"
+[[ -s "$test_dir/gate.sh" ]] || fail 'gate não encontrado'
+BUILD_RESULT=success RACE_RESULT=success APP_RESULT=success bash -e "$test_dir/gate.sh"
+for dependency in BUILD_RESULT RACE_RESULT APP_RESULT; do
+  for result in failure cancelled skipped ''; do
+    if env BUILD_RESULT=success RACE_RESULT=success APP_RESULT=success "$dependency=$result" bash -e "$test_dir/gate.sh"; then
+      fail "gate aprovou $dependency=$result"
     fi
   done
-  diff -u <(LC_ALL=C sort "$test_dir/expected-selection") <(LC_ALL=C sort "$test_dir/printed-selection") ||
-    fail "a saída do grupo $group divergiu da seleção esperada"
-  if printf '%s\n' BenchmarkSpeed TestMain TestAB | grep -Eq "$pattern"; then
-    fail "o grupo $group selecionou benchmark, TestMain ou prefixo parcial"
-  fi
+done
+
+# Testa o contrato da compilação sem executar Go real.
+run --build-app
+mapfile -t got < "$test_dir/args"
+[[ ${got[*]:0:4} == 'test -race -c -o' && ${got[4]} == "$test_dir/repo/build/bin/ci/app-race.test" && ${got[5]} == ./internal/app && ${#got[@]} == 6 ]] || fail 'compilação não preservou race/pacote/destino'
+MOCK_FAIL=execution reject --build-app
+
+# União disjunta, nomes futuros e estabilidade; sem replicar o hash no teste.
+for package in chat app; do
+  : > "$test_dir/selected"
+  for group in "${expected_groups[@]}"; do
+    [[ $group == pacote-$package-* ]] || continue
+    run "$group"
+    mapfile -t got < "$test_dir/args"
+    if [[ $package == app ]]; then
+      [[ ${got[*]:0:5} == 'tool test2json -t -p assistente/internal/app' && ${got[5]} == "$test_dir/repo/build/bin/ci/app-race.test" && ${got[*]:6:5} == '-test.v=test2json -test.short -test.count=1 -test.timeout=20m -test.run' && ${#got[@]} == 12 ]] || fail "invocação App incorreta: ${got[*]}"
+      pattern=${got[11]}
+    else
+      assert_flags 'test -race -short -count=1 -timeout=20m'
+      [[ ${#got[@]} == 9 && ${got[5]} == -v && ${got[6]} == -run && ${got[8]} == ./internal/chat ]] || fail 'invocação Chat incorreta'
+      pattern=${got[7]}
+    fi
+    [[ $pattern == '^('* && $pattern == *')$' ]] || fail "regex não ancorada: $pattern"
+    grep -E "$pattern" "$test_dir/expected" >> "$test_dir/selected" || fail "grupo vazio: $group"
+    grep -E "$pattern" "$test_dir/expected" > "$test_dir/before"
+    if printf '%s\n' BenchmarkSpeed TestMain TestChatAB | grep -Eq "$pattern"; then
+      fail 'selecionou benchmark, TestMain ou prefixo parcial'
+    fi
+    # Adicionar um nome não desloca nenhum teste preexistente.
+    cp "$test_dir/names" "$test_dir/original"
+    printf '%s\n' TestNewUnrelatedName >> "$test_dir/names"
+    cp "$test_dir/names" "$test_dir/chat-names"
+    run "$group"
+    mapfile -t added < "$test_dir/args"
+    index=11
+    [[ $package == app ]] || index=7
+    grep -E "${added[index]}" "$test_dir/expected" > "$test_dir/after"
+    diff -u "$test_dir/before" "$test_dir/after"
+    cp "$test_dir/original" "$test_dir/names"
+    cp "$test_dir/original" "$test_dir/chat-names"
+  done
+  assert_unique "grupos de $package" "$test_dir/selected"
+  diff -u <(LC_ALL=C sort "$test_dir/expected") <(LC_ALL=C sort "$test_dir/selected")
 done
 
 run pacotes-gerais
@@ -154,38 +169,18 @@ assert_flags 'test -race -short -count=1 -timeout=20m'
 [[ ${#got[@]} == 7 && ${got[5]} == -json && ${got[6]} == ./internal/wailsapi ]] ||
   fail "pacote-wailsapi não executou o pacote inteiro exatamente uma vez: ${got[*]}"
 
-# A união disjunta dos grupos precisa cobrir tudo que Go descobriu, incluindo
-# nomes futuros. Não replica o algoritmo de hash para calcular o esperado.
-printf '%s\n' TestChatA TestChatB TestFutureTimeline TestAção FuzzInput Example ExampleOutput > "$test_dir/chat-expected"
-{
-  cat "$test_dir/chat-expected"
-  printf '%s\n' BenchmarkSpeed TestMain 'ok assistente/internal/chat 0.001s'
-} > "$test_dir/chat-names"
-: > "$test_dir/chat-selected"
-for group in pacote-chat-0 pacote-chat-1; do
-  run "$group"
-  assert_flags 'test -race -short -count=1 -timeout=20m'
-  [[ ${#got[@]} == 9 && ${got[5]} == -v && ${got[6]} == -run && ${got[8]} == ./internal/chat ]] ||
-    fail "invocação do chat alterada: ${got[*]}"
-  pattern=${got[7]}
-  [[ $pattern == '^('* && $pattern == *')$' ]] || fail "regex não ancorada: $pattern"
-  grep -E "$pattern" "$test_dir/chat-expected" >> "$test_dir/chat-selected" || fail "grupo vazio: $group"
-  if printf '%s\n' BenchmarkSpeed TestMain TestChatAB | grep -Eq "$pattern"; then
-    fail "grupo de chat selecionou benchmark, TestMain ou prefixo parcial"
-  fi
-done
-assert_unique 'grupos de chat' "$test_dir/chat-selected"
-diff -u <(LC_ALL=C sort "$test_dir/chat-expected") <(LC_ALL=C sort "$test_dir/chat-selected")
 grep -Fxq 'list -race ./...' "$test_dir/calls"
-grep -Fxq 'test -race -short -count=1 -timeout=20m -list . ./internal/app' "$test_dir/calls"
+grep -Fxq 'test -race -short -count=1 -timeout=20m -list . ./internal/chat' "$test_dir/calls"
+# Nenhum consumidor App recompila o pacote.
+[[ $(grep -c '^test -race -c' "$test_dir/calls") == 2 ]] || fail 'compilação App repetida'
 
 for args in '' '8 8' '-1 8' '0 0' '08 8' '0 08' '9999 8' 'x 8' 'others 8'; do
   # Separação intencional: são argumentos inválidos fixos, sem entrada externa.
   read -r -a invalid <<< "$args"
   reject "${invalid[@]}"
 done
-MOCK_FAIL=discovery reject comandos-configuracao
-MOCK_FAIL=execution reject comandos-configuracao
+MOCK_FAIL=discovery reject pacote-app-0
+MOCK_FAIL=execution reject pacote-app-0
 MOCK_FAIL=packages reject pacotes-gerais
 MOCK_FAIL=execution reject pacotes-gerais
 MOCK_FAIL=execution reject pacote-wailsapi
@@ -194,9 +189,16 @@ MOCK_FAIL=discovery reject pacote-chat-0
 : > "$test_dir/chat-names"
 reject pacote-chat-0
 : > "$test_dir/names"
-reject comandos-configuracao
+reject pacote-app-0
 printf '%s\n' TestOnly > "$test_dir/names"
-reject comandos-configuracao
+# Com um teste, ao menos três partições devem falhar por estarem vazias.
+failures=0
+for group in pacote-app-{0..3}; do
+  if ! run "$group"; then failures=$((failures + 1)); fi
+done
+[[ $failures == 3 ]] || fail 'grupo vazio não foi recusado'
+rm "$test_dir/repo/build/bin/ci/app-race.test"
+reject pacote-app-0
 : > "$test_dir/packages"
 reject pacotes-gerais
 printf '%s\n' assistente/internal/app assistente/internal/wailsapi assistente/internal/auth > "$test_dir/packages"
@@ -205,4 +207,4 @@ printf '%s\n' assistente/internal/chat assistente/internal/wailsapi assistente/i
 reject pacotes-gerais
 printf '%s\n' assistente/internal/app assistente/internal/chat assistente/internal/auth > "$test_dir/packages"
 reject pacotes-gerais
-echo 'PASS: destino exato dos grupos, fallback residual, flags, matriz CI, pacotes e falhas'
+echo 'PASS: compilação única, partições completas/disjuntas/estáveis, flags, cwd, matriz, pacotes e falhas'

@@ -87,3 +87,70 @@ ambiente DOM em testes puros, seleção por impacto e cancelamento/diagnóstico.
 Cache já é restaurado pelos jobs de Go medidos: habilitá-lo novamente não
 explica nem resolve o custo de execução. Não reduzir grupos antes de medir
 o efeito sobre o caminho crítico, nem usar resultados antigos como aprovação.
+
+## Compilação compartilhada e grupos uniformes de race
+
+O run [42495213574](https://github.com/inclunet/assistente/actions/runs/42495213574),
+após o primeiro recorte, levou 20m27s e somou 161,33 runner-minutos em 28 jobs.
+O teste contextual caiu de 32,73 s para 6,45 s, preservando seus 45 casos.
+Isso não foi suficiente para reduzir o custo agregado: a referência anterior
+somava 158,17 runner-minutos. O cache de Go foi restaurado nos dois runs.
+
+O segundo recorte substitui os 16 grupos do App por quatro partições estáveis
+por nome, com o mesmo critério já usado nas duas partições do Chat. A descoberta
+inclui todos os testes, exemplos e fuzz seeds; subtestes permanecem juntos.
+Não há lista de famílias ou exceções a manter. Com os tempos individuais dos
+1.408 testes aprovados do App no run de referência, as quatro somas são
+141,83 / 168,99 / 116,71 / 110,19 s. São tempos sem race, usados apenas para
+avaliar distribuição: não estimam a duração com detector de corrida e não
+incluem o teste que teve skip. A seleção efetiva usa o inventário completo do
+binário, incluindo testes que podem decidir pular durante a execução.
+
+Um produtor compila `internal/app` uma vez com `go test -race -c`. Os quatro
+consumidores recebem esse binário por artifact da mesma execução e revisão,
+sem reutilizar resultados de testes. A execução parte de `internal/app`, como
+`go test`, com `-test.short`, `-test.count=1` e timeout de 20 minutos. `test2json`
+registra tempos por teste e propaga falhas. Ausência do artifact é erro; não há
+fallback para binário antigo nem recompilação silenciosa nos consumidores.
+Go permanece instalado, pois testes podem compilar subprocessos auxiliares.
+
+Os outros quatro grupos iniciam independentemente do produtor. O máximo é
+oito executores de testes simultâneos; cada matriz limita-se a quatro. O check
+obrigatório `backend-race` exige sucesso do produtor e das duas matrizes,
+inclusive quando uma dependência falha, é cancelada ou não executa. Os jobs
+do workflow passam de 28 a 17. Cobertura normal, vet/lint, builds, bindings,
+frontend e E2E continuam com seus gates próprios.
+
+A validação local usa Go/binário simulados para comprovar partição integral,
+disjunta e estável, flags, diretório de execução, tratamento de falhas e
+correspondência com a matriz. Não executa ACP. A qualificação do binário Linux
+com race e a medição do caminho crítico/custo agregado dependem do run do PR;
+a redução de jobs não deve ser apresentada como ganho de tempo já medido.
+
+Validação local do mecanismo: uma fixture Go isolada, compilada com Go 1.26.0
+no Windows, comprovou `short`, diretório do pacote, saída JSON e código de
+saída diferente de zero em falha intencional. Não usa App/ACP nem qualifica
+race no Linux. ShellCheck 0.11.0 e actionlint 1.7.12 aprovaram os arquivos
+alterados. Revisão independente do diff: `review_race_build`, rodada 1,
+sem achados acionáveis; permanece necessária a qualificação remota acima.
+
+
+O cache persistente de compilação do produtor e dos consumidores do App usa
+`go.sum` e o script de build/seleção na chave do setup-go. Os paths já fazem
+parte da versão interna do cache; o namespace adicional separa a compilação
+instrumentada do cache imutável de `backend-checks`, que usa o mesmo GOCACHE,
+mas compila sem race. O produtor salva antes de liberar os consumidores;
+assim eles não criam primeiro uma entrada parcial. O artifact continua sendo
+exclusivo do run: cache de objetos compilados não aprova teste nem substitui
+execução. Evidência da separação necessária: no run 42498268593,
+`backend-checks` restaurou 1.083.452.142 bytes no mesmo GOCACHE e registrou
+primary-key hit, sem salvar. Reutilizar essa chave descartaria ao final o
+novo trabalho instrumentado do produtor.
+
+
+A primeira execução direta no Linux revelou uma corrida de preparação antes
+escondida pela compilação: o binário abriu o display antes de Xvfb estar pronto.
+Os dois runners de race usam agora `xvfb-run` e declaram a dependência `xauth`;
+o wrapper aguarda o servidor e preserva o código de saída. Não se adiciona
+sleep arbitrário nem se ignora falha de inicialização. A falha interrompeu a
+descoberta e reprovou o job, como esperado; não foi falha de teste de produto.
