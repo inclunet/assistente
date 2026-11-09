@@ -3,6 +3,7 @@ package database
 import (
 	"assistente/internal/logging"
 	"context"
+	"database/sql/driver"
 	"errors"
 	"fmt"
 	"os"
@@ -156,12 +157,26 @@ func Compact(ctx context.Context, force bool, minFreeBytes int64) (CompactionRes
 	// PRAGMA auto_vacuum e o VACUUM (conversão de modo) ocorram juntos. A conexão
 	// é liberada ANTES do snapshot final: do contrário, com pool de 1 conexão,
 	// a leitura de estatísticas ficaria bloqueada esperando a própria conexão.
-	if err := func() error {
+	if err := func() (runErr error) {
 		conn, err := sqlDB.Conn(ctx)
 		if err != nil {
 			return err
 		}
 		defer func() { _ = conn.Close() }()
+
+		var previousBusyTimeout int
+		if err := conn.QueryRowContext(ctx, "PRAGMA busy_timeout").Scan(&previousBusyTimeout); err != nil {
+			return fmt.Errorf("read maintenance busy_timeout: %w", err)
+		}
+		defer func() {
+			// A conexão volta ao pool também em erro/cancelamento. Não propagar
+			// a espera longa da manutenção às próximas operações do aplicativo.
+			if _, err := conn.ExecContext(context.WithoutCancel(ctx), fmt.Sprintf("PRAGMA busy_timeout=%d", previousBusyTimeout)); err != nil {
+				// Uma conexão cuja política não foi restaurada não pode ser reusada.
+				_ = conn.Raw(func(any) error { return driver.ErrBadConn })
+				runErr = errors.Join(runErr, fmt.Errorf("restore maintenance busy_timeout: %w", err))
+			}
+		}()
 
 		// busy_timeout é por conexão: o pragma de Init() roda em OUTRA conexão do
 		// pool, então é preciso reaplicá-lo aqui para que checkpoint/VACUUM
