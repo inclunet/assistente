@@ -199,6 +199,9 @@ e [runs que permanecem presos](https://docs.github.com/en/actions/how-tos/troubl
 
 ## Pendências preservadas fora do encerramento
 
+O acompanhamento e as capturas de diagnóstico estão em
+[Investigação de polling e foco — #1062](intermittent-polling-focus-1062.md).
+
 A [#1062](https://github.com/inclunet/assistente/issues/1062) reúne as ocorrências
 sem causa demonstrada: polling do Deck após liberar a barreira, foco no E2E
 após fechar editor e commit/foco da criação de terminal na Topbar. O retry HTTP
