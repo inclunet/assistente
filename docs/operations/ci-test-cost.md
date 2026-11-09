@@ -648,3 +648,29 @@ Contraprovas em overlays não versionados: remover a espera faz os três casos
 falharem com atraso 0 em vez de 15 s; remover a parada por erros de autorização
 faz os três falharem no limite virtual de término. Testes de rede/polling que
 exigem interação real não foram convertidos em bloco para relógio virtual.
+
+## Prazo da prévia sem espera duplicada na borda
+
+`TestWailsProviderPreviewPreservesCommandBudget` percorre a borda Wails,
+controller, serviço, comando real de credencial e HTTP local. Observa o
+contexto da requisição no callback Proxy de um `http.Transport` clonado,
+retornando nil para continuar a conexão direta. Não simula o serviço nem a
+resposta do transporte. A autorização e o modelo retornado continuam verificados.
+
+Os três casos verificam orçamento padrão de 60 s, configurado de 120 s e
+preservação exata de prazo pai menor (20 s). A margem de 10 s na observação
+dos dois primeiros acomoda execução do helper; não é espera nem alteração
+no timeout produtivo. A contraprova, via overlay não versionado que recoloca
+15 s no bind, falhou nas três assertions. Nenhum código produtivo foi alterado.
+
+O teste `TestProviderCredentialPreviewAllowsSlowCommand`, no serviço, mantém
+o comando real de 16 s. A borda deixa de repetir a prova temporal e passa a
+cobrir diretamente seu contrato de encaminhamento; não se remove a garantia
+nem se enfraquece uma assertion para esconder falha.
+
+Três pares de processos Windows/Go 1.26.0: antes 45,094 / 16,368 / 16,295 s;
+depois 26,549 / 0,496 / 0,673 s. A primeira execução de ambos teve custo extra
+de inicialização não atribuído. Medianas 16,368 → 0,673 s; os casos ampliam de
+um cenário para três, todos aprovados. Havia outra suíte backend local ativa;
+esses valores não são benchmark isolado nem previsão de duração global do CI.
+O ganho determinístico é deixar de repetir uma espera artificial de 16 s.

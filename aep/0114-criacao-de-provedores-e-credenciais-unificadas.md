@@ -3,6 +3,14 @@
 **Status:** Done
 **Data:** 2026-10-05
 
+**Prova do orçamento da prévia (08/11/2026, issue #1008):** a borda Wails
+verifica diretamente o deadline que chega ao transporte HTTP real, passando
+por controller, serviço e resolução de credencial por comando. Cobre prazo
+padrão, configurado e prazo menor do chamador. O serviço conserva a prova
+real de comando de 16 segundos; a borda não repete essa espera. Reintroduzir
+um teto de 15 s no bind faz as três verificações falharem. Contrato e status
+**Done** preservados; medições em `docs/operations/ci-test-cost.md`.
+
 ## Resumo
 
 Separar a criação de conta ChatGPT, serviço ACP e provedor API no menu
@@ -160,7 +168,9 @@ build/bin; o CI Linux reexecuta o cenário.
 
 Terceira rodada remota: a troca de origem com APIKey explícita preserva o
 wildcard compartilhado; o bind Wails delega o prazo ao serviço, comprovado
-pelo percurso real Wails/controller/serviço com comando de 16 segundos.
+naquela rodada pelo percurso real Wails/controller/serviço com comando de
+16 segundos. A qualificação de custo acima substitui apenas a espera repetida
+na borda por observação direta do deadline, mantendo a prova lenta no serviço.
 Google valida o tipo da credencial efetivamente referenciada sem executar a
 fonte. Alternar required/optional preserva o rascunho e invalida somente a
 prévia. Durante a gravação, o foco fica no estado de progresso dentro do
