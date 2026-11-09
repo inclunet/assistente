@@ -2,6 +2,13 @@
 
 Status: In Progress — evidências e aceites pendentes conforme os registros abaixo
 
+**Ambientes das provas frontend (08/11/2026, issue #1008):**
+Provas de lógica/DTO sem dependência de DOM usam o projeto Node do Vitest;
+provas de interface, eventos reais de teclado, foco e axe preservam jsdom e
+seu setup. Nenhuma assertion ou contrato muda. Novos arquivos permanecem em
+UI por padrão, sem seleção por impacto ou dispensa de checks. Medições em
+`docs/operations/ci-test-cost.md`; status **In Progress**, sem novo aceite.
+
 **Aquisição dos writers na prova de revisão ABA (08/11/2026, issue #1008):**
 A prova com dois writers em arquivo usa a política central de aquisição do
 writer antes de cada alteração. Continua verificando SQL direto e ORM,

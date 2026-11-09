@@ -499,7 +499,6 @@ O teste concorrente original foi preservado; não houve aumento de timeout,
 retry no teste nem redução de concorrência. Isso corrige comportamento produtivo,
 não apenas a estabilidade do CI.
 
-
 ## Política da conexão após compactação
 
 A investigação das falhas temporais de jobs encontrou um defeito separado:
@@ -542,3 +541,29 @@ Contraprova local com overlay diagnóstico não versionado: outro writer mantém
 corrigida passa em três repetições. O teste normal passou em 30 repetições.
 O overlay apenas provoca contenção real; não é incorporado à suíte nem muda
 sua duração permanente. Testes locais continuam excluindo ACP conforme pedido.
+
+## Ambientes Vitest por dependência de DOM — segundo lote (#1008)
+
+52 arquivos de lógica executam em Node, sem carregar jsdom, React e os setups
+de UI/axe. Os demais continuam em jsdom com a configuração existente. A lista
+é explícita: arquivos novos entram no projeto UI por padrão; a migração exige
+qualificar suas dependências. Nenhuma assertion, cenário ou código produtivo
+foi alterado. Testes de teclado com KeyboardEvent e conversão de Blob continuam
+no projeto UI. Hooks/componentes renderizados e acessibilidade também permanecem.
+
+A seleção foi inspecionada por imports e uso de APIs de navegador, inclusive
+nas dependências locais transitivas, e executada sem mocks globais de UI.
+Alguns arquivos de contrato leem fontes ou validam DTOs sem renderizar, mesmo
+quando seu nome menciona foco, abas ou região viva. Isso não migra as provas
+que exercitam a interface correspondente.
+
+Três pares locais, em processos independentes, Windows, quatro workers, com os
+mesmos 52 arquivos e 366 testes aprovados em cada execução:
+
+- Antes: 21,995 / 22,288 / 23,749 s.
+- Depois: 6,891 / 7,692 / 7,743 s.
+- Mediana: 22,288 → 7,692 s (−65,5%), incluindo inicialização do processo.
+
+O inventário de casos/resultados foi comparado entre cada par. O ganho é desta
+seleção; não é uma redução equivalente prometida para o workflow completo.
+`npm test` continua executando os dois projetos no mesmo processo Vitest.
