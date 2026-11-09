@@ -1,5 +1,10 @@
 # Custo de testes e CI — issue #1008
 
+A [conclusão consolidada](ci-audit-1008.md) registra a amostra final, as decisões
+sobre reexecução/cancelamento e o destino das instabilidades. As seções abaixo
+preservam o histórico e as medições de cada recorte; referências a próximos
+passos refletem a data do registro, não pendências atuais automaticamente.
+
 ## Baseline e escopo
 
 O [run 42487226598](https://github.com/inclunet/assistente/actions/runs/42487226598)
@@ -83,7 +88,7 @@ anterior concorreu com instalação/compilação e não integra esta comparaçã
 O ganho do workflow completo precisa ser medido no CI; não extrapolar esta
 porcentagem para a suíte nem para race.
 
-## Próximas frentes da issue
+## Próximas frentes da issue (registro inicial)
 
 A issue permanece aberta: verificar cache útil/atualização da compilação,
 reaproveitamento entre partições, distribuição da matriz, esperas reais,
