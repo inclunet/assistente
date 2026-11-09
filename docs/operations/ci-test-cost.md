@@ -648,3 +648,35 @@ Contraprovas em overlays não versionados: remover a espera faz os três casos
 falharem com atraso 0 em vez de 15 s; remover a parada por erros de autorização
 faz os três falharem no limite virtual de término. Testes de rede/polling que
 exigem interação real não foram convertidos em bloco para relógio virtual.
+
+## Provas de conexão no serviço responsável
+
+Os 17 testes `TestValidateWizardURL_*` / `TestValidateWizardConnection_*`
+foram movidos de `internal/app/app_wizard_test.go` para
+`internal/providers/connection_test.go`. Já chamavam diretamente o serviço,
+sem exercitar orquestração do App. Onze deles deixam de construir App e banco:
+`NewService(ServiceConfig{})` basta ao percurso de sondagem, que não consulta
+store nem registry. Os testes de persistência/configuração do wizard continuam
+usando suas integrações existentes.
+
+Mapa das garantias preservadas:
+
+- URL válida/inválida, esquema e host;
+- falha de transporte e classificação `url_unreachable`;
+- HTTP 200, 401, 403, 404 e 500, com as flags correspondentes;
+- lista de modelos presente/vazia e Bearer presente/ausente.
+
+Nenhum caso ou assertion foi removido. A comparação dos corpos confirma apenas
+a troca de pacote, contexto equivalente, fixture e endereço da falha. Os dois
+casos antes dirigidos a `192.0.2.1:1` usam agora um servidor HTTP em loopback
+que aceita a conexão e a fecha sem resposta. É uma falha real de transporte,
+sem substituição global de client/transport, corrida por porta desocupada ou
+alteração dos timeouts produtivos de 10/15 s. A causa concreta muda para EOF;
+essas provas verificavam classificação, não a duração do timeout.
+
+Três processos independentes por versão, Windows/Go 1.26.0, binários previamente
+compilados e sem outra suíte/compilação local concorrente: soma das durações
+dos 17 testes antes **25,01 / 25,00 / 25,00 s**. Depois, cada teste foi reportado
+como **0,00 s** nas três execuções, na precisão de centésimos do Go; isso não
+significa duração física zero. As medições excluem compilação e início do
+processo e não são estimativa do ganho global do CI.
