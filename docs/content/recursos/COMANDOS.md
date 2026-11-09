@@ -3090,3 +3090,6 @@ Roteiro manual acumulado deste lote (regressão automatizada concluída):
   a supressão e que o editor genérico não altera a combinação. Resultado: ________.
 
 Ao escolher outro workspace, o retorno de foco aguarda sua abertura e aponta para o painel ativo. Se você navegar para outro controle durante a espera, esse foco é preservado.
+
+Se a troca de workspace falhar, o foco retorna ao painel de origem somente se
+a origem continuar ativa e não houver nova navegação, modal ou mudança de sessão.
