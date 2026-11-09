@@ -42,15 +42,24 @@ func TestHTTPRejectionDoesNotRetryNumbersInURL(t *testing.T) {
 		for _, status := range []int{400, 401, 403, 404} {
 			t.Run(fmt.Sprintf("%s/%d", format, status), func(t *testing.T) {
 				var calls atomic.Int32
-				server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				constructor := NewOpenAIProvider
+				wantPath := "/429/502/503/524/v1/chat/completions"
+				if format == APIFormatOpenAIResponses {
+					constructor = NewOpenAIResponsesProvider
+					wantPath = "/429/502/503/524/v1/responses"
+				}
+				server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 					calls.Add(1)
+					if r.URL.Path != wantPath {
+						t.Errorf("request path=%q, want %q", r.URL.Path, wantPath)
+					}
 					w.Header().Set("Content-Type", "application/json")
 					w.Header().Set("x-should-retry", "false")
 					w.WriteHeader(status)
 					_, _ = w.Write([]byte(`{"error":{"message":"request rejected","type":"invalid_request_error"}}`))
 				}))
 				defer server.Close()
-				provider := NewOpenAIProvider(&ProviderConfig{
+				provider := constructor(&ProviderConfig{
 					ID: "retry-status", APIFormat: format, AuthMode: AuthModeNone,
 					BaseURL: server.URL + "/429/502/503/524/v1",
 				}, credentials.NewManager(nil))
