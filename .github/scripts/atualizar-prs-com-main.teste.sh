@@ -76,12 +76,19 @@ case "${1:-}" in
     ;;
   workflow)
     prev=''
+    branch=''
+    pr=''
     for arg in "$@"; do
       if [ "$prev" = '--ref' ]; then
-        echo "$arg" >> "$RAIZ_TESTE/ci-pedido.txt"
+        branch=$arg
+      fi
+      if [ "$prev" = '-f' ]; then
+        case "$arg" in pr_number=*) pr=${arg#pr_number=} ;; esac
       fi
       prev=$arg
     done
+    [ -n "$branch" ] && [ -n "$pr" ] || exit 1
+    echo "$branch:$pr" >> "$RAIZ_TESTE/ci-pedido.txt"
     ;;
 esac
 FIM
@@ -144,8 +151,8 @@ orfa_tem_main=nao
 git -C "$raiz/trabalho" merge-base --is-ancestor origin/main origin/orfa && orfa_tem_main=sim
 conferir 'PR com base apagada recebeu a main assim mesmo' sim "$orfa_tem_main"
 
-conferir 'CI pedido para quem mudou, não para quem já estava em dia' \
-  'filho orfa pai' "$(sort "$raiz/ci-pedido.txt" | tr '\n' ' ' | sed 's/ *$//')"
+conferir 'CI associa cada branch alterada ao PR correto e ignora as demais' \
+  'filho:11 orfa:14 pai:10' "$(sort "$raiz/ci-pedido.txt" | tr '\n' ' ' | sed 's/ *$//')"
 
 conferir 'conflito é notícia, não falha do run' 0 "$saida"
 
