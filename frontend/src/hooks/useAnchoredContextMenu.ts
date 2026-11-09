@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { MenuItem } from '../components/menu';
 
 export type MenuCloseReason = 'dismiss' | 'select';
@@ -63,6 +63,7 @@ export function useAnchoredContextMenu(options: UseAnchoredContextMenuOptions = 
 
   const triggerElementRef = useRef<HTMLElement | null>(null);
   const closeReasonRef = useRef<MenuCloseReason>('dismiss');
+  const pendingCloseRef = useRef<(() => void) | null>(null);
 
   const [menu, setMenu] = useState<AnchoredContextMenuState>({
     visible: false,
@@ -73,6 +74,7 @@ export function useAnchoredContextMenu(options: UseAnchoredContextMenuOptions = 
   });
 
   const openForTrigger = useCallback((trigger: HTMLElement, ariaLabel: string, items: MenuItem[]) => {
+    pendingCloseRef.current = null;
     const rect = trigger.getBoundingClientRect();
     triggerElementRef.current = trigger;
     setMenu({
@@ -86,6 +88,7 @@ export function useAnchoredContextMenu(options: UseAnchoredContextMenuOptions = 
 
   const openAtPoint = useCallback(
     (x: number, y: number, ariaLabel: string, items: MenuItem[], trigger?: HTMLElement | null) => {
+      pendingCloseRef.current = null;
       triggerElementRef.current = trigger ?? null;
       setMenu({ visible: true, x, y, ariaLabel, items });
     },
@@ -98,12 +101,11 @@ export function useAnchoredContextMenu(options: UseAnchoredContextMenuOptions = 
   }, []);
 
   const closeMenu = useCallback(() => {
+    if (pendingCloseRef.current) return;
     const reason = closeReasonRef.current;
     closeReasonRef.current = 'dismiss';
-
-    setMenu((prev) => (prev.visible ? { ...prev, visible: false } : prev));
-
-    window.setTimeout(() => {
+    const trigger = triggerElementRef.current;
+    pendingCloseRef.current = () => {
       try {
         if (reason === 'select') {
           if (onAfterSelect) {
@@ -112,7 +114,7 @@ export function useAnchoredContextMenu(options: UseAnchoredContextMenuOptions = 
           }
 
           if (restoreTriggerFocusOnSelect) {
-            triggerElementRef.current?.focus?.();
+            trigger?.focus();
           }
           return;
         }
@@ -123,15 +125,26 @@ export function useAnchoredContextMenu(options: UseAnchoredContextMenuOptions = 
         }
 
         if (restoreTriggerFocusOnDismiss) {
-          triggerElementRef.current?.focus?.();
+          trigger?.focus();
         }
       } catch {
         // best-effort
       }
-    }, 10);
+    };
+    setMenu((prev) => (prev.visible ? { ...prev, visible: false } : prev));
   }, [onAfterDismiss, onAfterSelect, restoreTriggerFocusOnDismiss, restoreTriggerFocusOnSelect]);
 
+  // DOM removal, rather than an arbitrary delay, defines when closing completes.
+  // Reopening or unmounting cannot leave an old timer stealing the new focus.
+  useEffect(() => {
+    if (menu.visible) return;
+    const complete = pendingCloseRef.current;
+    pendingCloseRef.current = null;
+    complete?.();
+  }, [menu.visible]);
+
   const closeMenuForTab = useCallback(() => {
+    pendingCloseRef.current = null;
     closeReasonRef.current = 'dismiss';
     setMenu(prev => prev.visible ? { ...prev, visible: false } : prev);
     triggerElementRef.current?.focus();

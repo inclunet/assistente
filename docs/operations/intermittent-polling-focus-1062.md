@@ -54,6 +54,40 @@ e correlacionar navegação, fechamento de modal/menu e snapshots. Se isso não
 identificar a origem, adicionar instrumentação direcionada; o trace por si só
 não garante a stack de cada chamada interna de `focus()`.
 
+## Defeito demonstrado no retorno adiado dos menus
+
+Frames controlados reproduziram a restauração dupla no `MenuButton` (duas
+chamadas à área padrão por seleção) e a sobrescrita de foco adquirido após
+agendar o retorno no Menu/MenuButton. O caso sem nova navegação do Menu já
+passava; os três outros casos falhavam antes da correção. Uma quarta
+contraprova, com Modal real aberto pela ação, também falha no código anterior.
+
+O agendamento protegido anteriormente local ao Modal passa a ser compartilhado
+por Menu, MenuButton e Modal. A restauração não atravessa uma mudança do modal do topo
+nem sobrescreve foco novo conectado; a notificação pós-seleção do MenuButton continua
+uma vez. O MenuButton desabilita a restauração do Menu interno e mantém um único
+responsável pelo retorno. A prova com um Modal real aberto pela ação também
+exige que a área padrão da página não seja invocada.
+
+Essa reprodução demonstra um defeito independente no mesmo percurso visual,
+mas não identifica quem tirou o foco no run histórico `42517346349`. Tampouco
+abrange todos os callbacks/timers dos demais consumidores do hook de menus.
+Uma contraprova adicional demonstrou a perda de foco antes do callback de
+10 ms do hook. O fechamento agora conclui após o commit que remove o menu do
+DOM, sem timer arbitrário. Reabrir antes desse commit descarta a conclusão
+anterior; desmontar não deixa timer pendente. Os callbacks pós-seleção e
+pós-dismiss continuam com suas funções atuais, inclusive os que fazem handoff
+de criação no Topbar. Novas provas cobrem DOM removido, reabertura e desmontagem.
+A revisão remota encontrou uma recusa excessiva: menus dentro do chat modal
+também precisam retornar ao compositor. Duas contraprovas com Modal, Menu e
+landmarks reais (Escape/Copiar) falharam com a guarda anterior. O retorno agora
+exige o mesmo modal no topo, e o landmark recusa a página e modais inferiores.
+Provas adicionais exercitam essas duas recusas. A autorização de retorno interno
+é exclusiva dos menus; fechar um Modal continua recusando outro modal aberto,
+inclusive quando um questionário assume foco no mesmo commit. A prova existente
+desse cenário permanece intacta. O trace do incidente permanece
+necessário; não encerrar o item por essa inferência.
+
 ## Topbar e critérios ainda abertos
 
 A ausência de commit na criação de terminal em `Topbar.palette.integration.test.tsx`

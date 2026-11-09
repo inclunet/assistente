@@ -2,6 +2,24 @@
 
 Status: In Progress — evidências e aceites pendentes conforme os registros abaixo
 
+**Retorno adiado de menus e diálogos (09/11/2026, issue #1062):**
+Menu, MenuButton e Modal compartilham o agendamento de retorno à área padrão:
+trocar o modal do topo ou adquirir foco novo após o agendamento impede esse retorno.
+Dentro do mesmo modal, o foco padrão só é autorizado ao landmark do modal ativo;
+a página e modais inferiores são recusados pelo registro de landmarks. Somente
+menus autorizam esse retorno interno; fechar um diálogo continua recusando
+qualquer outro modal aberto.
+O MenuButton assume o retorno de seu menu, removendo a segunda restauração
+concorrente. A notificação pós-seleção continua acontecendo mesmo quando outra
+navegação assume o foco. O hook conclui o fechamento após remover o menu do DOM
+no commit do React, eliminando o timer de 10 ms e callbacks de menus já reabertos
+ou desmontados. Contraprovas com frames controlados demonstram a
+duplicação e a sobrescrita do foco antes da mudança; testes preservam retorno
+padrão, foco em diálogo aberto pela ação e navegação posterior. Isso não atribui
+causa ao incidente E2E histórico, nem resolve as pendências de Deck/Topbar.
+Status **In Progress**, sem promoção de aceite manual. Evidências em
+`docs/operations/intermittent-polling-focus-1062.md`.
+
 **Montagem única nas provas de lifecycle (09/11/2026, issue #1008):**
 As 14 provas que usavam `ConfigureCommandLifecycle` ou
 `ConfigureCommandLifecycleMountSpec` passam por `ConfigureCommandLifecycleForApp`,

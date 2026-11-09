@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useCallback, useRef, useId, createContext, useContext } from 'react';
 import { UNSAFE_LocationContext } from 'react-router-dom';
 import { registerDefaultFocus, unregisterDefaultFocus } from './useDefaultFocus';
+import { isModalOpen } from '../lib/modalRegistry';
 import { captureLandmarkNavigationTarget, registerLandmarkNavigationSurface, requestLandmarkNavigationCommand, type NavigationLandmark } from '../lib/commandLandmarkNavigation';
 
 const ParentLandmarkContext = createContext(false);
@@ -32,6 +33,7 @@ export function useLandmarkNavigation({ landmarks, enabled = true, allowWhenModa
   // Modal/Menu restoration is a native callback, not a command ingress.
   const focusDefault = useCallback(() => {
     const state = live.current;
+    if (isModalOpen() && (!state.allowWhenModalOpen || state.shouldHandleKey?.() !== true)) return false;
     const landmark = state.landmarks.find(l => l.id === state.defaultLandmarkId);
     return state.enabled && !!landmark && landmark.isAvailable?.() !== false && landmark.focus();
   }, []);

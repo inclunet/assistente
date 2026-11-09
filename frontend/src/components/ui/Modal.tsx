@@ -12,13 +12,12 @@ import {
 import { createPortal } from 'react-dom';
 import { CloseOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
-import { restoreDefaultFocus } from '../../hooks/useDefaultFocus';
+import { scheduleDefaultFocusRestore } from '../../lib/deferredDefaultFocus';
 import {
   registerOpenModal,
   updateOpenModalScope,
   unregisterOpenModal,
   isTopmostModal,
-  isModalOpen,
 } from '../../lib/modalRegistry';
 import type { DialogCommandScope } from '../../lib/commandBridge';
 import './Modal.css';
@@ -71,19 +70,6 @@ function isVisibleFocusableElement(el: HTMLElement): boolean {
   if (el.matches(':disabled')) return false;
   if (el.closest('[hidden], [aria-hidden="true"]')) return false;
   return el.offsetParent !== null || el.getClientRects().length > 0;
-}
-
-function restorePageFocus() {
-  const focusAtClose = document.activeElement;
-  requestAnimationFrame(() => {
-    if (isModalOpen()) return;
-    const currentFocus = document.activeElement;
-    // A later navigation owns its focus; only complete the pending return
-    // while focus is unchanged or has fallen back to the document.
-    if (currentFocus !== focusAtClose && currentFocus !== document.body &&
-      currentFocus !== document.documentElement && currentFocus?.isConnected) return;
-    restoreDefaultFocus();
-  });
 }
 
 export interface ModalProps {
@@ -190,7 +176,7 @@ export function Modal({
   // Restaura foco na área padrão quando isOpen transita de true → false
   useEffect(() => {
     if (prevOpenRef.current && !isOpen && returnFocusOnClose) {
-      restorePageFocus();
+      scheduleDefaultFocusRestore();
     }
     prevOpenRef.current = isOpen;
   }, [isOpen, returnFocusOnClose]);

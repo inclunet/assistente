@@ -4,7 +4,7 @@ import { MenuOutlined } from '@ant-design/icons';
 import './MenuButton.css';
 import { Menu, type MenuItem as MenuModelItem } from '../menu';
 import { useAnchoredContextMenu } from '../../hooks/useAnchoredContextMenu';
-import { restoreDefaultFocus } from '../../hooks/useDefaultFocus';
+import { scheduleDefaultFocusRestore } from '../../lib/deferredDefaultFocus';
 
 export interface MenuItem {
   id: string;
@@ -89,10 +89,7 @@ export const MenuButton = forwardRef<MenuButtonRef, MenuButtonProps>(
     onSelectItem,
   } = useAnchoredContextMenu({
     onAfterSelect: () => {
-      requestAnimationFrame(() => {
-        restoreDefaultFocus();
-        onAfterSelectProp?.();
-      });
+      scheduleDefaultFocusRestore({ onComplete: onAfterSelectProp, allowCurrentModal: true });
     },
     onAfterDismiss: () => {
       resolveTriggerElement()?.focus();
@@ -166,6 +163,7 @@ export const MenuButton = forwardRef<MenuButtonRef, MenuButtonProps>(
       </button>
 
       <Menu
+        restoreFocusOnClose={false}
         items={menu.items}
         x={menu.x}
         y={menu.y}
