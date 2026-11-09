@@ -789,11 +789,11 @@ pendência, não a otimização de todo teste lento do repositório:
    ambiente antes de propor reaproveitamento. A política atual continua
    revalidando cada head; seleção por impacto/reuso não será ativada sem
    revisar o contrato e provar recusas em mudanças transversais.
-3. **Código exclusivo de testes:** mapear cada prova que usa
-   `ConfigureCommandLifecycle`/`ConfigureCommandLifecycleMountSpec` para a
-   montagem produtiva ou uma responsabilidade estritamente de teste. O
-   AEP-0103 ainda registra essas entradas: a retirada exige revisão explícita
-   desse contrato, não apenas ausência de chamadas produtivas.
+3. **Código exclusivo de testes:** as 14 provas das duas entradas
+   intermediárias de lifecycle foram migradas para a montagem produtiva
+   `ConfigureCommandLifecycleForApp`. O registro histórico de I14, o AEP
+   principal e o índice foram atualizados no mesmo recorte. Ver evidências
+   e limites abaixo.
 4. **Aceite final:** reunir garantias preservadas, resultados antes/depois,
    flakes ainda não corrigidos e amostra final de CI, separando fila, setup,
    compilação e execução. Atualizar os critérios da issue com evidências e
@@ -802,3 +802,55 @@ pendência, não a otimização de todo teste lento do repositório:
 Os ganhos já entregues estão documentados por recorte acima. Não se atribui
 à última alteração toda a diferença entre 28 e 17 jobs nem entre runs de
 runners/revisões diferentes. ACP permanece excluído da execução local.
+
+
+## Montagem única do lifecycle nas provas do App (#1008)
+
+As 18 chamadas de `ConfigureCommandLifecycle`/`ConfigureCommandLifecycleMountSpec`
+em 14 testes agora usam `ConfigureCommandLifecycleForApp`. Foram removidas as
+duas entradas produtivas sem consumidores de produto e seu helper exclusivo
+(43 linhas); nenhuma regra de montagem foi transportada para código de teste.
+O helper de preparação compartilha os objetos concretos já usados pela fixture
+de integração, e a fixture focada abre schema privado sem preparar workspace,
+login ou manutenção. Ledger e recibos usam suas migrações reais nesse banco,
+inclusive para que o shutdown possa drenar os stores. O login integrado conserva seu banco e sessão reais.
+
+As garantias permanecem nas mesmas provas: manifesto incompleto e nova tentativa;
+publicação/reset; vencedor único na montagem; candidato rejeitado sem cleanup;
+shutdown frio e concorrente; remoção da mesma instância; retenção do worker até
+retry; hooks opcionais; fronteira de autenticação e callbacks fora dos locks;
+resultado de login preservado; resultado obsoleto recusado; resets e shutdowns
+serializados. As provas já existentes de montagem atômica e do produto completo
+continuam exercitando suas fixtures originais.
+
+Duas diferenças de preparação são explícitas: a tentativa após shutdown recebe
+novamente a versão válida de storage, para provar a barreira de encerramento;
+e a tentativa enquanto o worker drena exige `ErrStopped`, que é a precedência
+do caminho produtivo. Continua obrigatório reter o worker até sua confirmação.
+O controle de falha/cleanup permanece nas portas do runtime; ele não substitui
+a montagem do App. O objetivo deste recorte é remover um caminho artificial,
+não reduzir quantidade de testes ou prometer aceleração dessa suíte.
+
+Contraprova local: um overlay que retira somente a recusa por
+`commandLifecycleClosing` da montagem produtiva faz
+`TestAppCommandLifecycleShutdownClosesMountAdmissionEvenWhenCold` falhar com
+`montagem após shutdown=<nil>`. O overlay não integra o PR. A suíte focada
+sem mutação passou; build, vet e golangci-lint também passaram. Isso comprova
+que as provas migradas observam a barreira usada pelo produto, além de manter
+o inventário de testes anterior.
+
+Na revisão das mesmas provas, foi corrigido um falso positivo preexistente:
+`TestAppCommandLifecycleAuthResultSurvivesBootstrapFailure` fornecia uma identidade
+sem torná-la vigente e retornava antes do bootstrap. Agora exige `ErrStale` no
+recovery sem produto, verifica a identidade armazenada e os locks. O Login
+integrado mantém autenticação real e também exige essa falha de recovery,
+além de revalidar a sessão persistida. Foi retirada a opção `failAuth` do probe:
+nenhum dos dois casos alcançava aquela injeção. Não se atribui a estes testes
+cobertura de falha em `Authenticate`; eles provam preservação da sessão quando
+o pós-auth não consegue recuperar o runtime.
+
+O teste de Login observa a limpeza com a sessão já autenticada antes de retornar,
+sem confundi-la com o reset inicial anterior ao login. Contraprova adicional:
+um overlay que suprime somente a chamada de bootstrap no defer do Login falha
+com `Login não percorreu o pós-auth antes de retornar`. A seleção de lifecycle
+sem mutação passa com as duas provas fortalecidas. Nenhum overlay integra o PR.

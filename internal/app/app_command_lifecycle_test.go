@@ -29,6 +29,7 @@ import (
 	"assistente/internal/llm"
 	"assistente/internal/questionnaire"
 	"assistente/internal/sqlite"
+	"assistente/internal/testutil/dbfixture"
 	"assistente/internal/workspace"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
@@ -41,10 +42,10 @@ type appLifecyclePort struct {
 	lockHeld               atomic.Bool
 	deterministicLockProbe bool
 	lockProbeWG            sync.WaitGroup
-	failAuth               bool
 	clearStarted           chan struct{}
 	clearRelease           chan struct{}
 	clearOnce              sync.Once
+	onClear                func()
 }
 
 func (p *appLifecyclePort) checkLocks() {
@@ -77,9 +78,6 @@ func (p *appLifecyclePort) waitForLockProbes() {
 
 func (p *appLifecyclePort) Authenticate(context.Context) error {
 	p.checkLocks()
-	if p.failAuth {
-		return errors.New("autenticação de teste falhou")
-	}
 	return nil
 }
 func (p *appLifecyclePort) Recover(context.Context, commandruntime.Generation) error {
@@ -96,6 +94,9 @@ func (p *appLifecyclePort) Publish(context.Context, commandruntime.Projection) e
 }
 func (p *appLifecyclePort) Clear(context.Context, commandruntime.Generation) error {
 	p.checkLocks()
+	if p.onClear != nil {
+		p.onClear()
+	}
 	if p.clearStarted != nil {
 		p.clearOnce.Do(func() { close(p.clearStarted) })
 		<-p.clearRelease
@@ -159,26 +160,14 @@ func appLifecycleConfig(probe *appLifecyclePort) commandruntime.Config {
 	}
 }
 
-func appLifecycleMountSpec(probe *appLifecyclePort) commandruntime.MountSpec {
-	return commandruntime.MountSpec{Config: appLifecycleConfig(probe), Dependencies: []commandruntime.MountDependency{
-		{Role: commandruntime.MountDependencyCatalog, Name: "catalogo-app", Instance: struct{}{}},
-		{Role: commandruntime.MountDependencyDefaults, Name: "defaults-app", Instance: struct{}{}},
-		{Role: commandruntime.MountDependencyPolicies, Name: "politicas-app", Instance: struct{}{}},
-		{Role: commandruntime.MountDependencyStores, Name: "stores-app", Instance: struct{}{}},
-		{Role: commandruntime.MountDependencyPresenter, Name: "presenter-app", Instance: struct{}{}},
-		{Role: commandruntime.MountDependencyProviders, Name: "providers-app", Instance: struct{}{}},
-		{Role: commandruntime.MountDependencyDispatcher, Name: "dispatcher-app", Instance: struct{}{}},
-		{Role: commandruntime.MountDependencyAdapters, Name: "adapters-app", Instance: struct{}{}},
-	}}
-}
-
 func TestAppCommandLifecycleBridgeRequiresMountedRuntimeAndRunsTransitions(t *testing.T) {
-	app := &App{}
+	app, inputs := appLifecycleProbeFixture(t)
 	if _, err := CommandLifecycleSnapshot(app); err == nil {
 		t.Fatal("snapshot criou runtime sem bootstrap confiável")
 	}
 	probe := &appLifecyclePort{}
-	if err := ConfigureCommandLifecycle(app, appLifecycleConfig(probe)); err != nil {
+	inputs.Runtime = appLifecycleConfig(probe)
+	if err := ConfigureCommandLifecycleForApp(app, inputs); err != nil {
 		t.Fatal(err)
 	}
 	if err := BootstrapCommandLifecycle(context.Background(), app); err != nil {
@@ -203,17 +192,16 @@ func TestAppCommandLifecycleBridgeRequiresMountedRuntimeAndRunsTransitions(t *te
 }
 
 func TestAppCommandLifecycleMountSpecFailsClosedBeforeInstallingRuntime(t *testing.T) {
-	app := &App{}
-	probe := &appLifecyclePort{}
-	spec := appLifecycleMountSpec(probe)
-	spec.Dependencies = spec.Dependencies[:len(spec.Dependencies)-1]
-	if err := ConfigureCommandLifecycleMountSpec(app, spec); !errors.Is(err, commandruntime.ErrMissingDependency) {
+	app, inputs := appLifecycleProbeFixture(t)
+	incomplete := inputs
+	incomplete.Adapter = nil
+	if err := ConfigureCommandLifecycleForApp(app, incomplete); !errors.Is(err, commandruntime.ErrMissingDependency) {
 		t.Fatalf("montagem incompleta foi aceita/erro errado: %v", err)
 	}
 	if app.commandLifecycle.Load() != nil {
 		t.Fatal("controller instalado apesar de manifesto incompleto")
 	}
-	if err := ConfigureCommandLifecycleMountSpec(app, appLifecycleMountSpec(probe)); err != nil {
+	if err := ConfigureCommandLifecycleForApp(app, inputs); err != nil {
 		t.Fatalf("manifesto completo recusado: %v", err)
 	}
 	if err := ShutdownCommandLifecycle(context.Background(), app); err != nil {
@@ -228,6 +216,42 @@ func (appLifecycleBridgePort) Dispatch(context.Context, commandbridge.Invocation
 }
 
 func (appLifecycleBridgePort) Cancel(context.Context, commandbridge.CancelRequest) error { return nil }
+
+func appLifecycleProbeFixture(t *testing.T) (*App, CommandLifecycleMountInputs) {
+	t.Helper()
+	dbfixture.Open(t)
+	app := &App{questionnaireMgr: questionnaire.NewManager(func(string, any) {}), commandStorageVersion: "v1"}
+	return app, appLifecycleProbeInputs(t, app, database.DB())
+}
+
+func appLifecycleProbeInputs(t *testing.T, app *App, db *gorm.DB) CommandLifecycleMountInputs {
+	t.Helper()
+	if err := commandledger.Migrate(context.Background(), db); err != nil {
+		t.Fatal(err)
+	}
+	if err := commanddecision.Migrate(context.Background(), db); err != nil {
+		t.Fatal(err)
+	}
+	store, err := commandledger.New(db, time.Now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	epochs, err := app.commandSecurityService()
+	if err != nil {
+		t.Fatal(err)
+	}
+	state, err := commandexecution.NewHostState(epochs, commandProductRegistryVersion)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		_ = app.shutdownCommandLifecycleIfConfigured(ctx)
+		_ = app.shutdownCommandBridgeIfConfigured(ctx)
+	})
+	return appLifecycleMountInputs(t, state, store, app.sessionSvc)
+}
 
 func appLifecycleProductMountFixture(t *testing.T) (*App, CommandLifecycleMountInputs) {
 	t.Helper()
@@ -348,6 +372,14 @@ func appLifecycleProductMountFixture(t *testing.T) (*App, CommandLifecycleMountI
 	// a montagem produtiva não deve inferir vault desbloqueado quando cria um
 	// host novo.
 	app.commandHost = state
+	return app, appLifecycleMountInputs(t, state, store, sessions)
+}
+
+// appLifecycleMountInputs prepara objetos concretos; a montagem e suas guardas
+// continuam exclusivamente em ConfigureCommandLifecycleForApp.
+func appLifecycleMountInputs(t *testing.T, state *commandexecution.HostState, store *commandledger.Store, sessions *auth.SessionService) CommandLifecycleMountInputs {
+	t.Helper()
+	epochs := state.Epochs()
 	locales := map[string]commandcatalog.LocalizedMetadata{}
 	for _, locale := range []string{"pt-BR", "en", "es"} {
 		locales[locale] = commandcatalog.LocalizedMetadata{Name: "Fixture", Description: "Fixture", Category: "Fixture"}
@@ -402,7 +434,7 @@ func appLifecycleProductMountFixture(t *testing.T) (*App, CommandLifecycleMountI
 			},
 		}},
 	}
-	return app, CommandLifecycleMountInputs{
+	return CommandLifecycleMountInputs{
 		Runtime:   appLifecycleConfig(runtimeProbe),
 		Execution: execution,
 		Host:      state,
@@ -800,7 +832,11 @@ func TestAppCommandLifecycleShutdownDrainsBridgeAndBlocksRemount(t *testing.T) {
 	if err := core.RegisterExecutorDrain(ctx, func(context.Context) error { return nil }); !errors.Is(err, commandsecurity.ErrStaleEpoch) {
 		t.Fatalf("shutdown integrado não fechou admissões de executores: %v", err)
 	}
-	if err := ConfigureCommandLifecycle(app, appLifecycleConfig(&appLifecyclePort{})); !errors.Is(err, commandruntime.ErrStopped) {
+	// Uma tentativa válida deve ser recusada pela barreira de shutdown.
+	app.authMu.Lock()
+	app.commandStorageVersion = "v1"
+	app.authMu.Unlock()
+	if err := ConfigureCommandLifecycleForApp(app, inputs); !errors.Is(err, commandruntime.ErrStopped) {
 		t.Fatalf("shutdown integrado permitiu remontar lifecycle: %v", err)
 	}
 	if err := ConfigureCommandBridge(app, inputs.Bridge); !errors.Is(err, commandbridge.ErrBridgeClosed) {
@@ -1076,7 +1112,7 @@ func ensureCommandLifecycleMountedForCurrentUserForTest(ctx context.Context, app
 }
 
 func TestAppCommandLifecycleConfigureAllowsOnlyOneInstance(t *testing.T) {
-	app := &App{}
+	app, inputs := appLifecycleProbeFixture(t)
 	start := make(chan struct{})
 	results := make(chan error, 2)
 	var wait sync.WaitGroup
@@ -1085,7 +1121,7 @@ func TestAppCommandLifecycleConfigureAllowsOnlyOneInstance(t *testing.T) {
 		go func() {
 			defer wait.Done()
 			<-start
-			results <- ConfigureCommandLifecycle(app, appLifecycleConfig(&appLifecyclePort{}))
+			results <- ConfigureCommandLifecycleForApp(app, inputs)
 		}()
 	}
 	close(start)
@@ -1108,15 +1144,16 @@ func TestAppCommandLifecycleConfigureAllowsOnlyOneInstance(t *testing.T) {
 }
 
 func TestAppCommandLifecycleRejectedMountDoesNotRunCandidateCleanup(t *testing.T) {
-	app := &App{}
-	if err := ConfigureCommandLifecycle(app, appLifecycleConfig(&appLifecyclePort{})); err != nil {
+	app, inputs := appLifecycleProbeFixture(t)
+	if err := ConfigureCommandLifecycleForApp(app, inputs); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = ShutdownCommandLifecycle(context.Background(), app) })
 	probe := &appLifecyclePort{clearStarted: make(chan struct{}), clearRelease: make(chan struct{})}
 	defer close(probe.clearRelease)
 	result := make(chan error, 1)
-	go func() { result <- ConfigureCommandLifecycle(app, appLifecycleConfig(probe)) }()
+	inputs.Runtime = appLifecycleConfig(probe)
+	go func() { result <- ConfigureCommandLifecycleForApp(app, inputs) }()
 	select {
 	case err := <-result:
 		if !errors.Is(err, errCommandLifecycleAlreadyConfigured) {
@@ -1134,16 +1171,16 @@ func TestAppCommandLifecycleRejectedMountDoesNotRunCandidateCleanup(t *testing.T
 
 func TestAppCommandLifecycleShutdownClosesMountAdmissionEvenWhenCold(t *testing.T) {
 	for _, mounted := range []bool{false, true} {
-		app := &App{}
+		app, inputs := appLifecycleProbeFixture(t)
 		if mounted {
-			if err := ConfigureCommandLifecycle(app, appLifecycleConfig(&appLifecyclePort{})); err != nil {
+			if err := ConfigureCommandLifecycleForApp(app, inputs); err != nil {
 				t.Fatal(err)
 			}
 		}
 		if err := app.shutdownCommandLifecycleIfConfigured(context.Background()); err != nil {
 			t.Fatal(err)
 		}
-		if err := ConfigureCommandLifecycle(app, appLifecycleConfig(&appLifecyclePort{})); !errors.Is(err, commandruntime.ErrStopped) {
+		if err := ConfigureCommandLifecycleForApp(app, inputs); !errors.Is(err, commandruntime.ErrStopped) {
 			t.Fatalf("montagem após shutdown=%v", err)
 		}
 		if app.commandLifecycle.Load() != nil {
@@ -1154,10 +1191,10 @@ func TestAppCommandLifecycleShutdownClosesMountAdmissionEvenWhenCold(t *testing.
 
 func TestAppCommandLifecycleConcurrentMountAndShutdownLeavesNoWorker(t *testing.T) {
 	for range 20 {
-		app := &App{}
+		app, inputs := appLifecycleProbeFixture(t)
 		start := make(chan struct{})
 		result := make(chan error, 1)
-		go func() { <-start; result <- ConfigureCommandLifecycle(app, appLifecycleConfig(&appLifecyclePort{})) }()
+		go func() { <-start; result <- ConfigureCommandLifecycleForApp(app, inputs) }()
 		close(start)
 		if err := app.shutdownCommandLifecycleIfConfigured(context.Background()); err != nil {
 			t.Fatal(err)
@@ -1172,8 +1209,8 @@ func TestAppCommandLifecycleConcurrentMountAndShutdownLeavesNoWorker(t *testing.
 }
 
 func TestAppCommandLifecycleShutdownCASRemovesSameInstance(t *testing.T) {
-	app := &App{}
-	if err := ConfigureCommandLifecycle(app, appLifecycleConfig(&appLifecyclePort{})); err != nil {
+	app, inputs := appLifecycleProbeFixture(t)
+	if err := ConfigureCommandLifecycleForApp(app, inputs); err != nil {
 		t.Fatal(err)
 	}
 	results := make(chan error, 2)
@@ -1204,9 +1241,12 @@ func TestAppCommandLifecycleShutdownCASRemovesSameInstance(t *testing.T) {
 }
 
 func TestAppCommandLifecycleShutdownRetainsMountedWorkerUntilRetry(t *testing.T) {
-	app := &App{}
+	app, inputs := appLifecycleProbeFixture(t)
 	probe := &appLifecyclePort{app: app, clearStarted: make(chan struct{}), clearRelease: make(chan struct{})}
-	if err := ConfigureCommandLifecycle(app, appLifecycleConfig(probe)); err != nil {
+	var release sync.Once
+	defer release.Do(func() { close(probe.clearRelease) })
+	inputs.Runtime = appLifecycleConfig(probe)
+	if err := ConfigureCommandLifecycleForApp(app, inputs); err != nil {
 		t.Fatal(err)
 	}
 	if err := BootstrapCommandLifecycle(context.Background(), app); err != nil {
@@ -1225,10 +1265,10 @@ func TestAppCommandLifecycleShutdownRetainsMountedWorkerUntilRetry(t *testing.T)
 	if app.commandLifecycle.Load() == nil {
 		t.Fatal("controller foi desmontado antes da confirmação do worker")
 	}
-	if err := ConfigureCommandLifecycle(app, appLifecycleConfig(&appLifecyclePort{})); !errors.Is(err, errCommandLifecycleAlreadyConfigured) {
+	if err := ConfigureCommandLifecycleForApp(app, inputs); !errors.Is(err, commandruntime.ErrStopped) {
 		t.Fatalf("reconfiguração aceita com worker antigo vivo: %v", err)
 	}
-	close(probe.clearRelease)
+	release.Do(func() { close(probe.clearRelease) })
 	retryCtx, retryCancel := context.WithTimeout(context.Background(), time.Second)
 	defer retryCancel()
 	err := ShutdownCommandLifecycle(retryCtx, app)
@@ -1265,10 +1305,11 @@ func TestAppCommandLifecycleHooksAreOptionalAndRespectAuthBoundary(t *testing.T)
 		t.Fatalf("shutdown legado falhou sem montagem: %v", err)
 	}
 
-	app := &App{}
+	app, inputs := appLifecycleProbeFixture(t)
 	probe := &appLifecyclePort{app: app, deterministicLockProbe: true}
 	defer probe.waitForLockProbes()
-	if err := ConfigureCommandLifecycle(app, appLifecycleConfig(probe)); err != nil {
+	inputs.Runtime = appLifecycleConfig(probe)
+	if err := ConfigureCommandLifecycleForApp(app, inputs); err != nil {
 		t.Fatal(err)
 	}
 	if err := app.bootstrapCommandLifecycleAtStartup(context.Background()); err != nil {
@@ -1305,18 +1346,26 @@ func TestAppCommandLifecycleHooksAreOptionalAndRespectAuthBoundary(t *testing.T)
 }
 
 func TestAppCommandLifecycleAuthResultSurvivesBootstrapFailure(t *testing.T) {
-	app := &App{}
-	probe := &appLifecyclePort{app: app, failAuth: true, deterministicLockProbe: true}
+	app, inputs := appLifecycleProbeFixture(t)
+	probe := &appLifecyclePort{app: app, deterministicLockProbe: true}
 	defer probe.waitForLockProbes()
-	if err := ConfigureCommandLifecycle(app, appLifecycleConfig(probe)); err != nil {
+	inputs.Runtime = appLifecycleConfig(probe)
+	if err := ConfigureCommandLifecycleForApp(app, inputs); err != nil {
 		t.Fatal(err)
 	}
-	want := &AuthUser{UserID: "user-1", SessionID: "session-1"}
-	result := want
-	var authErr error
-	app.bootstrapCommandLifecycleAfterAuth(context.Background(), result, authErr)
-	if result != want || authErr != nil {
-		t.Fatalf("falha do bootstrap alterou resultado da autenticação: result=%+v err=%v", result, authErr)
+	want := &AuthUser{UserID: uuid.Must(uuid.NewV7()).String(), SessionID: uuid.Must(uuid.NewV7()).String()}
+	app.setCurrentUserID(want.UserID)
+	app.setCurrentAuthUser(want)
+	// A sessão é vigente, mas falta o produto para recuperar confirmações.
+	// Exigir o erro evita aprovar esta prova pela recusa de auth obsoleta.
+	if err := app.tryBootstrapCommandLifecycleAfterAuth(context.Background(), want, nil); !errors.Is(err, commandexecution.ErrStale) {
+		t.Fatalf("falha de recovery não foi exercitada: %v", err)
+	}
+	if !app.authResultStillCurrent(want) {
+		t.Fatal("falha do bootstrap invalidou a sessão vigente")
+	}
+	if probe.lockHeld.Load() {
+		t.Fatal("callback do lifecycle executou sob lock de autenticação")
 	}
 	if snapshot := app.commandLifecycle.Load().Snapshot(); snapshot.State == commandruntime.StateReady || snapshot.Published {
 		t.Fatalf("bootstrap falho publicou runtime: %+v", snapshot)
@@ -1357,9 +1406,10 @@ func TestAppCommandLifecycleLockProbeDetectsEachAuthLockWhenHeld(t *testing.T) {
 }
 
 func TestAppCommandLifecycleSuppressesDelayedStaleAuthResult(t *testing.T) {
-	app := &App{}
+	app, inputs := appLifecycleProbeFixture(t)
 	probe := &appLifecyclePort{app: app}
-	if err := ConfigureCommandLifecycle(app, appLifecycleConfig(probe)); err != nil {
+	inputs.Runtime = appLifecycleConfig(probe)
+	if err := ConfigureCommandLifecycleForApp(app, inputs); err != nil {
 		t.Fatal(err)
 	}
 	app.authMu.Lock()
@@ -1422,8 +1472,21 @@ func TestAppLoginPreservesSessionWhenCommandLifecycleBootstrapFails(t *testing.T
 			return nil
 		},
 	}
-	probe := &appLifecyclePort{app: app, failAuth: true}
-	if err := ConfigureCommandLifecycle(app, appLifecycleConfig(probe)); err != nil {
+	app.questionnaireMgr = questionnaire.NewManager(func(string, any) {})
+	app.commandStorageVersion = "v1"
+	inputs := appLifecycleProbeInputs(t, app, db)
+	probe := &appLifecyclePort{app: app, deterministicLockProbe: true}
+	defer probe.waitForLockProbes()
+	var clearedAfterAuth atomic.Bool
+	probe.onClear = func() {
+		app.authMu.RLock()
+		defer app.authMu.RUnlock()
+		if app.currentAuthUser != nil && app.currentAuthUser.UserID == user.ID {
+			clearedAfterAuth.Store(true)
+		}
+	}
+	inputs.Runtime = appLifecycleConfig(probe)
+	if err := ConfigureCommandLifecycleForApp(app, inputs); err != nil {
 		t.Fatal(err)
 	}
 
@@ -1433,6 +1496,18 @@ func TestAppLoginPreservesSessionWhenCommandLifecycleBootstrapFails(t *testing.T
 	}
 	if result == nil || result.UserID != user.ID {
 		t.Fatalf("login não retornou sessão válida: %+v", result)
+	}
+	if !clearedAfterAuth.Load() {
+		t.Fatal("Login não percorreu o pós-auth antes de retornar")
+	}
+	// A montagem de lifecycle não contém o produto necessário ao recovery.
+	// Confirme a falha real e a validade durável da sessão retornada pelo Login.
+	if err := app.tryBootstrapCommandLifecycleAfterAuth(context.Background(), result, nil); !errors.Is(err, commandexecution.ErrStale) {
+		t.Fatalf("falha de recovery não foi exercitada: %v", err)
+	}
+	principal := auth.LocalSessionPrincipal{UserID: result.UserID, SessionID: result.SessionID}
+	if _, err := sessionSvc.RevalidateLocalSession(context.Background(), principal); err != nil {
+		t.Fatalf("falha opcional invalidou sessão persistida: %v", err)
 	}
 	app.authMu.RLock()
 	currentUserID := app.currentUserID
@@ -1451,9 +1526,10 @@ func TestAppLoginPreservesSessionWhenCommandLifecycleBootstrapFails(t *testing.T
 }
 
 func TestAppCommandLifecycleHooksSerializeConcurrentResetAndShutdown(t *testing.T) {
-	app := &App{}
+	app, inputs := appLifecycleProbeFixture(t)
 	probe := &appLifecyclePort{app: app}
-	if err := ConfigureCommandLifecycle(app, appLifecycleConfig(probe)); err != nil {
+	inputs.Runtime = appLifecycleConfig(probe)
+	if err := ConfigureCommandLifecycleForApp(app, inputs); err != nil {
 		t.Fatal(err)
 	}
 	if err := BootstrapCommandLifecycle(context.Background(), app); err != nil {

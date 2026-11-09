@@ -16,26 +16,6 @@ import (
 
 var errCommandLifecycleAlreadyConfigured = errors.New("ciclo de vida de comandos já configurado")
 
-// ConfigureCommandLifecycle registra uma única montagem de ciclo de vida para
-// o App. O principal deve fornecer adapters reais de autenticação, recovery,
-// projeção, publicação, entradas, geração e readiness. A função não é método
-// Wails e não inicia comandos por conta própria.
-func ConfigureCommandLifecycle(a *App, config commandruntime.Config) error {
-	return configureCommandLifecycleController(a, func() (*commandruntime.Controller, error) {
-		return commandruntime.New(config)
-	})
-}
-
-// ConfigureCommandLifecycleMountSpec registra a montagem final com manifesto
-// explícito de dependências. Use esta entrada para I14: ela falha fechado
-// quando catálogo/defaults/políticas/stores/presenter/providers/dispatcher ou
-// adapters não foram realmente conectados pelo App.
-func ConfigureCommandLifecycleMountSpec(a *App, spec commandruntime.MountSpec) error {
-	return configureCommandLifecycleController(a, func() (*commandruntime.Controller, error) {
-		return commandruntime.NewMounted(spec)
-	})
-}
-
 // CommandLifecycleMountInputs são as dependências de produto que precisam ser
 // conhecidas pelo App antes de aceitar o runtime final. A estrutura deliberadamente
 // mistura os objetos concretos usados pelas fábricas existentes em vez de recriar
@@ -173,29 +153,6 @@ func nilCommandMountDependency(value any) bool {
 	default:
 		return false
 	}
-}
-
-func configureCommandLifecycleController(a *App, build func() (*commandruntime.Controller, error)) error {
-	if a == nil {
-		return commandruntime.ErrInvalidConfiguration
-	}
-	// Não construir um worker que já sabemos que perderá a montagem: parar
-	// esse candidato exigiria callbacks externos mesmo sem nunca ter sido usado.
-	// New apenas valida/cria o worker frio; nenhuma porta roda sob este mutex.
-	a.commandLifecycleMount.Lock()
-	defer a.commandLifecycleMount.Unlock()
-	if a.commandLifecycle.Load() != nil {
-		return errCommandLifecycleAlreadyConfigured
-	}
-	if a.commandLifecycleClosing {
-		return commandruntime.ErrStopped
-	}
-	runtime, err := build()
-	if err != nil {
-		return err
-	}
-	a.commandLifecycle.Store(runtime)
-	return nil
 }
 
 // BootstrapCommandLifecycle executa a cadeia autenticar → recuperar →
