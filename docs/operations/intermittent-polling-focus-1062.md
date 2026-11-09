@@ -41,7 +41,7 @@ falha, mas o único `trace.zip` pertence a `chromium-retry1`, que passou.
 `on-first-retry` não registra a execução original e não permite identificar
 quem tirou o foco de `Atualizar padrões` naquele episódio.
 
-Somente `e2e/settings/command-managers.spec.ts` passa a usar
+O arquivo `e2e/settings/command-managers.spec.ts` passa a usar
 `trace: 'retain-on-failure'`. Todas as tentativas são gravadas, mas somente
 falhas retêm trace. O restante da suíte conserva a política vigente. Não há
 mudança de retry, timeout, seleção ou assertion. Há custo de captura limitado
@@ -53,6 +53,25 @@ A injeção foi removida. Na recorrência, recuperar o trace da tentativa falha
 e correlacionar navegação, fechamento de modal/menu e snapshots. Se isso não
 identificar a origem, adicionar instrumentação direcionada; o trace por si só
 não garante a stack de cada chamada interna de `focus()`.
+
+## Nova ocorrência E2E durante a investigação
+
+O run `42665634891`, job `129328659730`, terminou verde com um flaky em
+`workspace/tabs-interactions.spec.ts`, caso `Enter confirma renomeação e chama
+UpdateWorkspaceTab`. A primeira tentativa perdeu foco da aba antes de F2; a
+assertion `toBeFocused()` falhou e o retry passou. Não é o cenário histórico do
+gerenciador de comandos. O artefato contém screenshot/contexto da falha, mas
+novamente só um trace do retry aprovado, insuficiente para atribuir a origem.
+
+Esse arquivo também usa `retain-on-failure`, limitado aos seus cenários (o
+Playwright exige essa opção no arquivo, não dentro de `describe`). A primeira
+tentativa passa a ter trace quando falha; timeout,
+retry e assertions permanecem intactos. A ocorrência permanece na #1062; check
+verde não significa ausência de flaky nem demonstra correção causal.
+
+Contraprova local: uma falha deliberada após a assertion de foco, sem retry,
+produziu o trace da primeira tentativa. Após remover a injeção, os 14 testes
+do arquivo passaram sem retry (25,7 s).
 
 ## Defeito demonstrado no retorno adiado dos menus
 
