@@ -455,6 +455,31 @@ func TestPromptCandidatesKeepsBestAcrossBatchesAndHonorsCancellation(t *testing.
 	}
 }
 
+func TestPromptCandidatesWithoutTermsKeepsPriorityAndExcludesAuto(t *testing.T) {
+	svc, ctx, _ := setupMemoryService(t)
+	for _, input := range []RecordInput{
+		{Content: "auto", LoadPolicy: LoadPolicyAuto, Importance: 5},
+		{Content: "pinned", LoadPolicy: LoadPolicyPinned, Importance: 5},
+		{Content: "core", LoadPolicy: LoadPolicyCore, Importance: 1},
+	} {
+		if _, err := svc.Create(ctx, input); err != nil {
+			t.Fatal(err)
+		}
+	}
+	records, err := svc.store.PromptCandidates(ctx, PromptCandidateFilter{
+		LoadPolicies: []string{LoadPolicyCore, LoadPolicyPinned, LoadPolicyAuto}, RelevanceText: "oi", Limit: 1,
+	})
+	if err != nil || len(records) != 1 || records[0].Content != "core" {
+		t.Fatalf("expected core within the candidate limit, got %+v, err=%v", records, err)
+	}
+	records, err = svc.store.PromptCandidates(ctx, PromptCandidateFilter{
+		LoadPolicies: []string{LoadPolicyCore, LoadPolicyPinned, LoadPolicyAuto}, RelevanceText: "oi", Limit: 3,
+	})
+	if err != nil || len(records) != 2 || records[0].Content != "core" || records[1].Content != "pinned" {
+		t.Fatalf("expected only core and pinned, got %+v, err=%v", records, err)
+	}
+}
+
 func TestPromptCandidatesEscapesLikeWildcardsInRelevanceText(t *testing.T) {
 	svc, ctx, _ := setupMemoryService(t)
 	if _, err := svc.Create(ctx, RecordInput{Content: "taxa de 100 percent", LoadPolicy: LoadPolicyAuto}); err != nil {

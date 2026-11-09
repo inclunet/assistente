@@ -71,6 +71,7 @@ type scoredPromptRecord struct {
 	score  int
 }
 
+// sortScoredPromptRecords prioriza política, relevância, importância e atualização.
 func sortScoredPromptRecords(ordered []scoredPromptRecord) {
 	sort.SliceStable(ordered, func(i, j int) bool {
 		left, right := ordered[i], ordered[j]
@@ -87,6 +88,7 @@ func sortScoredPromptRecords(ordered []scoredPromptRecord) {
 	})
 }
 
+// sortPromptRecords ordena registros usando a relevância em relação ao texto atual.
 func sortPromptRecords(records []database.MemoryRecord, text string) {
 	tokens := relevanceTokens(text)
 	scored := make([]scoredPromptRecord, len(records))
@@ -128,6 +130,7 @@ func autoRelevanceScore(record database.MemoryRecord, currentUserText string) in
 	return relevanceScoreTokens(record, relevanceTokens(currentUserText))
 }
 
+// relevanceScoreTokens conta termos distintos presentes no conteúdo e nos metadados.
 func relevanceScoreTokens(record database.MemoryRecord, tokens []string) int {
 	if len(tokens) == 0 {
 		return 0

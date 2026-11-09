@@ -35,6 +35,14 @@ func (s *DBStore) PromptCandidates(ctx context.Context, filter PromptCandidateFi
 	}
 	var records []database.MemoryRecord
 	tokens := relevanceTokens(filter.RelevanceText)
+	if len(tokens) == 0 {
+		err := database.WithSQLiteBusyRetry(ctx, "memory.prompt_candidates", func() error {
+			return q.Where("load_policy <> ?", LoadPolicyAuto).
+				Order("CASE load_policy WHEN 'core' THEN 0 WHEN 'pinned' THEN 1 ELSE 9 END ASC").
+				Order("importance DESC").Order("updated_at DESC").Limit(limit).Find(&records).Error
+		})
+		return records, err
+	}
 	err := database.WithSQLiteBusyRetry(ctx, "memory.prompt_candidates", func() error {
 		records = nil
 		var candidates []scoredPromptRecord
