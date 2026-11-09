@@ -468,6 +468,14 @@ Status: concluída pelo PR #297.
 
 Status: concluída pelo PR #297 e PRs anteriores; o fallback legado de leitura foi retirado por decisão posterior do mantenedor.
 
+Manutenção: a seleção de registros `auto` considera a quantidade de termos
+correspondentes antes de importância e atualização, inclusive antes do limite
+de candidatos (`TestPromptCandidatesRanksRelevanceBeforeLimiting` e
+`TestPromptSelectorRanksAutoRelevanceBeforeImportance`). A correspondência ainda
+é textual, não semântica. As instruções do provider orientam busca, reconciliação
+e classificação de fatos duráveis; essas instruções não garantem decisões do
+modelo nem substituem a política de acesso às tools do perfil.
+
 - Extrair a skill `memory` para provider.
 - Criar bloco de instruções estáveis de memória.
 - Criar bloco dinâmico pequeno de memórias pinned/essenciais.

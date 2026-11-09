@@ -27,15 +27,7 @@ func (s PromptSelector) Select(records []database.MemoryRecord, req contextprovi
 		return nil
 	}
 	ordered := append([]database.MemoryRecord(nil), records...)
-	sort.SliceStable(ordered, func(i, j int) bool {
-		if ordered[i].LoadPolicy != ordered[j].LoadPolicy {
-			return policyRank(ordered[i].LoadPolicy) < policyRank(ordered[j].LoadPolicy)
-		}
-		if ordered[i].Importance != ordered[j].Importance {
-			return ordered[i].Importance > ordered[j].Importance
-		}
-		return ordered[i].UpdatedAt.After(ordered[j].UpdatedAt)
-	})
+	sortPromptRecords(ordered, req.CurrentUserText)
 
 	var selected []PromptLine
 	used := 0
@@ -74,6 +66,39 @@ func (s PromptSelector) Select(records []database.MemoryRecord, req contextprovi
 	return selected
 }
 
+type scoredPromptRecord struct {
+	record database.MemoryRecord
+	score  int
+}
+
+func sortScoredPromptRecords(ordered []scoredPromptRecord) {
+	sort.SliceStable(ordered, func(i, j int) bool {
+		left, right := ordered[i], ordered[j]
+		if left.record.LoadPolicy != right.record.LoadPolicy {
+			return policyRank(left.record.LoadPolicy) < policyRank(right.record.LoadPolicy)
+		}
+		if left.record.LoadPolicy == LoadPolicyAuto && left.score != right.score {
+			return left.score > right.score
+		}
+		if left.record.Importance != right.record.Importance {
+			return left.record.Importance > right.record.Importance
+		}
+		return left.record.UpdatedAt.After(right.record.UpdatedAt)
+	})
+}
+
+func sortPromptRecords(records []database.MemoryRecord, text string) {
+	tokens := relevanceTokens(text)
+	scored := make([]scoredPromptRecord, len(records))
+	for i, record := range records {
+		scored[i] = scoredPromptRecord{record: record, score: relevanceScoreTokens(record, tokens)}
+	}
+	sortScoredPromptRecords(scored)
+	for i := range scored {
+		records[i] = scored[i].record
+	}
+}
+
 func truncatePromptLine(line string, budget int) string {
 	if budget <= 0 {
 		return ""
@@ -100,7 +125,10 @@ func promptLine(record database.MemoryRecord) string {
 }
 
 func autoRelevanceScore(record database.MemoryRecord, currentUserText string) int {
-	tokens := relevanceTokens(currentUserText)
+	return relevanceScoreTokens(record, relevanceTokens(currentUserText))
+}
+
+func relevanceScoreTokens(record database.MemoryRecord, tokens []string) int {
 	if len(tokens) == 0 {
 		return 0
 	}

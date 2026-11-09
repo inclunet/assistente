@@ -3,6 +3,7 @@ package memory
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -137,6 +138,22 @@ func TestServiceBuildReturnsInstructionsAndErrorWhenPromptFails(t *testing.T) {
 	}
 	if !strings.Contains(block.Content, "<memory_instructions>") {
 		t.Fatalf("unexpected instructions block: %s", block.Content)
+	}
+}
+
+func TestMemoryInstructionsCoverRecallAndReconciliation(t *testing.T) {
+	instructions := memoryInstructionsBlock()
+	for _, expected := range []string{
+		"explaining something rather than explicitly asking",
+		"search memory if the provided records do not settle the question",
+		"Before saving, search for related records",
+		"Update an existing record when the user corrects or changes it",
+		"If the meaning or scope is uncertain, ask instead of overwriting",
+		"Do not save transient context, secrets, or uncertain inferences",
+	} {
+		if !strings.Contains(instructions, expected) {
+			t.Errorf("memory instructions missing %q", expected)
+		}
 	}
 }
 
@@ -354,6 +371,87 @@ func TestContextProviderFiltersAutoByRelevance(t *testing.T) {
 	}
 	if block := findMemoryBlock(blocks, "user_memory"); block != nil {
 		t.Fatalf("auto sem relevância entrou: %+v", blocks)
+	}
+}
+
+func TestPromptCandidatesRanksRelevanceBeforeLimiting(t *testing.T) {
+	svc, ctx, _ := setupMemoryService(t)
+	for _, input := range []RecordInput{
+		{Content: "relatórios antigos", LoadPolicy: LoadPolicyAuto, Importance: 5},
+		{Content: "relatórios financeiros detalhados", LoadPolicy: LoadPolicyAuto, Importance: 1},
+	} {
+		if _, err := svc.Create(ctx, input); err != nil {
+			t.Fatal(err)
+		}
+	}
+	req := contextprovider.BuildRequest{CurrentUserText: "relatórios financeiros"}
+	records, err := svc.store.PromptCandidates(ctx, PromptCandidateFilter{
+		LoadPolicies: []string{LoadPolicyAuto}, RelevanceText: req.CurrentUserText, Limit: 1,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(records) != 1 || records[0].Content != "relatórios financeiros detalhados" {
+		t.Fatalf("expected the most relevant candidate before the limit, got %+v", records)
+	}
+	lines := NewPromptSelector().Select(records, req, 500)
+	if len(lines) != 1 || lines[0].Record.Content != records[0].Content {
+		t.Fatalf("candidate was not selected: %+v", lines)
+	}
+}
+
+func TestPromptSelectorRanksAutoRelevanceBeforeImportance(t *testing.T) {
+	req := contextprovider.BuildRequest{CurrentUserText: "relatórios financeiros"}
+	lines := NewPromptSelector().Select([]database.MemoryRecord{
+		{Content: "relatórios antigos", LoadPolicy: LoadPolicyAuto, Importance: 5},
+		{Content: "relatórios financeiros detalhados", LoadPolicy: LoadPolicyAuto, Importance: 1},
+	}, req, 500)
+	if len(lines) != 2 || lines[0].Record.Content != "relatórios financeiros detalhados" {
+		t.Fatalf("expected more relevant memory first, got %+v", lines)
+	}
+}
+
+func TestPromptCandidatesRanksUppercaseAccentedTerms(t *testing.T) {
+	svc, ctx, _ := setupMemoryService(t)
+	for _, input := range []RecordInput{
+		{Content: "relatorios antigos", LoadPolicy: LoadPolicyAuto, Importance: 5},
+		{Content: "relatorios FINANÇAS", LoadPolicy: LoadPolicyAuto, Importance: 1},
+	} {
+		if _, err := svc.Create(ctx, input); err != nil {
+			t.Fatal(err)
+		}
+	}
+	records, err := svc.store.PromptCandidates(ctx, PromptCandidateFilter{
+		LoadPolicies: []string{LoadPolicyAuto}, RelevanceText: "relatorios finanças", Limit: 1,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(records) != 1 || records[0].Content != "relatorios FINANÇAS" {
+		t.Fatalf("expected accented uppercase match to rank first, got %+v", records)
+	}
+}
+
+func TestPromptCandidatesKeepsBestAcrossBatchesAndHonorsCancellation(t *testing.T) {
+	svc, ctx, _ := setupMemoryService(t)
+	for i := 0; i < 12; i++ {
+		content := fmt.Sprintf("relatorios antigos %d", i)
+		if i == 11 {
+			content = "relatorios financeiros relevantes"
+		}
+		if _, err := svc.Create(ctx, RecordInput{Content: content, LoadPolicy: LoadPolicyAuto}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	filter := PromptCandidateFilter{LoadPolicies: []string{LoadPolicyAuto}, RelevanceText: "relatorios financeiros", Limit: 2}
+	records, err := svc.store.PromptCandidates(ctx, filter)
+	if err != nil || len(records) != 2 || records[0].Content != "relatorios financeiros relevantes" {
+		t.Fatalf("best candidate lost across batches: records=%+v err=%v", records, err)
+	}
+	canceled, cancel := context.WithCancel(ctx)
+	cancel()
+	if _, err := svc.store.PromptCandidates(canceled, filter); !errors.Is(err, context.Canceled) {
+		t.Fatalf("expected cancellation, got %v", err)
 	}
 }
 
