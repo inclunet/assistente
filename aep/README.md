@@ -2,6 +2,10 @@ AEP-0103 (08/11/2026): sete provas de catálogo usam produto real com preparo me
 
 AEP-0103 (08/11/2026): provas frontend de lógica/DTO sem DOM usam Node; interface, foco, teclado e axe preservam jsdom. Mesmo inventário e assertions, medições em `docs/operations/ci-test-cost.md` (#1008). Status **In Progress**.
 
+AEP-0103 (08/11/2026): a prova de revisão ABA adota a aquisição central do writer, preservando duas escritas concorrentes e todas as assertions. Corrige falha comprovada de contenção da fixture (#1008); status **In Progress**. Evidências em `docs/operations/ci-test-cost.md`.
+
+AEP-0074-B (08/11/2026): compactação restaura a política de espera da conexão antes de devolvê-la ao pool; regressões reais de sucesso, limiar, erro, cancelamento e falha de cleanup. Status **In Progress**, sem promover aceites das extensões.
+
 AEP-0047 / AEP-0116 (08/11/2026): provas de portabilidade reutilizam apenas o schema produtivo, preservando isolamento, importação e rollback reais; medições em `docs/operations/ci-test-cost.md` (#1008). Status permanecem **In Progress** / **Done**, respectivamente.
 
 AEP-0103 (08/11/2026): retorno adiado do Modal preserva nova aquisição de foco, mantendo o retorno padrão. Regressão determinística; causa da intermitência E2E continua sob investigação (#1008). Status **In Progress**.

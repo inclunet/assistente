@@ -502,16 +502,20 @@ func TestMessageRevisionStorageCommittedFileWriterInvalidatesCapturedConversatio
 	writeErrors := make(chan error, 2)
 	go func() {
 		<-start
-		writeErrors <- writer.Model(&ChatMessage{}).
-			Where("id = ?", message.ID).
-			UpdateColumn("pinned", gorm.Expr("NOT pinned")).Error
+		writeErrors <- WithSQLiteImmediateTransactionOnce(testCtx(), time.Time{}, writer, "test.message_revision.orm", func(tx *gorm.DB) error {
+			return tx.Model(&ChatMessage{}).
+				Where("id = ?", message.ID).
+				UpdateColumn("pinned", gorm.Expr("NOT pinned")).Error
+		})
 	}()
 	go func() {
 		<-start
-		writeErrors <- writer.Exec(
-			"UPDATE chat_messages SET pinned = NOT pinned, updated_at = ? WHERE id = ?",
-			fixed, message.ID,
-		).Error
+		writeErrors <- WithSQLiteImmediateTransactionOnce(testCtx(), time.Time{}, writer, "test.message_revision.sql", func(tx *gorm.DB) error {
+			return tx.Exec(
+				"UPDATE chat_messages SET pinned = NOT pinned, updated_at = ? WHERE id = ?",
+				fixed, message.ID,
+			).Error
+		})
 	}()
 	close(start)
 	var writerErrors []error
