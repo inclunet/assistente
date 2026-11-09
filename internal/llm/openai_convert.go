@@ -221,7 +221,13 @@ func effectivePromptCacheKey(params ChatParams) string {
 	return params.PromptCacheKey
 }
 
-func isRetryableError(errStr string) bool {
+// isRetryableError dá precedência ao status HTTP estruturado. Números em
+// URLs ou mensagens não podem transformar uma rejeição HTTP em retry.
+// Sem status (falhas de transporte/eventos), preserva o tratamento existente.
+func isRetryableError(errStr string, status int) bool {
+	if status != 0 {
+		return status == 429 || status == 502 || status == 503 || status == 524
+	}
 	lower := strings.ToLower(errStr)
 	return strings.Contains(lower, "timeout") ||
 		strings.Contains(lower, "connection refused") ||

@@ -408,7 +408,7 @@ func (p *GoogleProvider) doStream(ctx context.Context, client *genai.Client, usa
 				return true
 			}
 
-			if !emittedNonRetryableEffect && isRetryableError(errStr) {
+			if !emittedNonRetryableEffect && isRetryableError(errStr, providerError.StatusCode) {
 				reportCurrentDiagnostics()
 				return false
 			}

@@ -25,6 +25,12 @@ sendo um vínculo compartilhado; editar essa credencial afeta quem a reutiliza.
 
 Durante o envio, o Assistente reconhece algumas assinaturas documentadas de erro por provedor. Quando a resposta identifica um parâmetro opcional que o modelo não aceita, ele pode repetir uma vez sem esse parâmetro e memorizar a restrição para aquela conexão e modelo. Erros genéricos ou valores inválidos não removem parâmetros nem alteram o perfil salvo. Basta adicionar um provedor nas configurações (`Alt + 2`) e informar uma chave de API ou usar uma credencial já cadastrada para o domínio.
 
+Rejeições HTTP de requisição, autenticação ou permissão não são repetidas
+por conterem números como `429` ou `503` na URL ou na mensagem de erro.
+O status HTTP recebido determina a elegibilidade para retry transitório;
+ausência de efeitos já produzidos e as demais condições de segurança continuam necessárias.
+
+
 A tela inicial de **Configurações** já mostra Provedores. **Novo provedor**
 abre por clique, Enter, Espaço ou pelo comando contextual **Ctrl+N**.
 Ao focar um provedor na lista, o menu **Ações**, à direita de Novo provedor,
