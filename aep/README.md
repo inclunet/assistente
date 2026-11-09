@@ -1432,3 +1432,7 @@ de provedores e modelos. Modelos e vozes continuam pendentes; status **In Progre
 AEP-0113 — **Done**: retry transitório prioriza status HTTP estruturado;
 regressões `TestRetryHTTPStatusOverridesErrorText` e
 `TestHTTPRejectionDoesNotRetryNumbersInURL` impedem retry causado por números na URL (#1008).
+
+AEP-0112 — **In Progress**: prova de reconexão silenciosa usa relógio virtual
+com manager/SQLite reais, preservando três cenários e verificando o backoff;
+mediana local 45,07 → 0,05 s. Validação real/NVDA do diagnóstico segue pendente.

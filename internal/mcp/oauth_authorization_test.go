@@ -14,6 +14,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"assistente/internal/credentials"
@@ -1049,59 +1050,72 @@ func TestManagedOAuthReauthorizationPublishesCancelableAttempt(t *testing.T) {
 func TestManagedOAuthBackgroundRetryNeverOpensBrowser(t *testing.T) {
 	for _, mode := range []string{"pkce", "client-configuration", "client-permission"} {
 		t.Run(mode, func(t *testing.T) {
-			m, _, ctx := managedFixture(t)
 			var resourceCalls, browsers atomic.Int32
+			// O servidor real fica fora da bubble: Accept não deve segurar o relógio.
 			remote := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				resourceCalls.Add(1)
 				w.WriteHeader(http.StatusUnauthorized)
 			}))
 			defer remote.Close()
-			cfg := managedConfig(remote.URL)
-			cfg.DisableSSE = true
-			if mode != "pkce" {
-				cfg.AuthType = AuthOAuth2ClientCredentials
-			}
-			if err := m.SaveConfig("silent", cfg); err != nil {
-				t.Fatal(err)
-			}
-			_, store, before := loadManaged(t, m, ctx, "silent")
-			if mode == "client-permission" {
-				before.State = "permission_required"
-				before.Revision++
-				if err := store.CompareAndSwap(ctx, before, before.Revision-1); err != nil {
+			synctest.Test(t, func(t *testing.T) {
+				m, repo, ctx := managedFixture(t)
+				sqlDB, err := repo.db.DB()
+				if err != nil {
 					t.Fatal(err)
 				}
-			}
-			oldBrowser := browserOpen
-			browserOpen = func(string) error { browsers.Add(1); return errors.New("unexpected browser") }
-			defer func() { browserOpen = oldBrowser }()
-			m.mu.Lock()
-			m.servers["silent"].Status = StatusError
-			m.mu.Unlock()
-			done := make(chan struct{})
-			go func() { defer close(done); m.reconnectWithRetry("silent") }()
-			select {
-			case <-done:
-			case <-time.After(baseRetryDelay + 10*time.Second):
-				m.CloseAll()
-				<-done
-				t.Fatal("retry did not stop for explicit authorization")
-			}
-			if browsers.Load() != 0 || resourceCalls.Load() != 0 {
-				t.Fatal("background recovery attempted authorization or sent an unauthenticated request")
-			}
-			status := m.List()[0]
-			m.mu.RLock()
-			reconnecting := m.servers["silent"].Reconnecting
-			m.mu.RUnlock()
-			if status.NeedsReauth != (mode == "pkce") || reconnecting || status.Status != StatusError {
-				t.Fatalf("expected reauthorization without retry loop: %+v", status)
-			}
-			after, err := store.Load(ctx, before.ID)
-			if err != nil || after.AuthorizationAttempt != "" || after.Tokens.Access != before.Tokens.Access {
-				t.Fatalf("background retry altered grant: %v", err)
-			}
+				// Encerra também o opener do pool antes de sair da bubble.
+				defer func() { m.CloseAll(); _ = sqlDB.Close() }()
+				cfg := managedConfig(remote.URL)
+				cfg.DisableSSE = true
+				if mode != "pkce" {
+					cfg.AuthType = AuthOAuth2ClientCredentials
+				}
+				if err := m.SaveConfig("silent", cfg); err != nil {
+					t.Fatal(err)
+				}
+				_, store, before := loadManaged(t, m, ctx, "silent")
+				if mode == "client-permission" {
+					before.State = "permission_required"
+					before.Revision++
+					if err := store.CompareAndSwap(ctx, before, before.Revision-1); err != nil {
+						t.Fatal(err)
+					}
+				}
+				oldBrowser := browserOpen
+				browserOpen = func(string) error { browsers.Add(1); return errors.New("unexpected browser") }
+				defer func() { browserOpen = oldBrowser }()
+				m.mu.Lock()
+				m.servers["silent"].Status = StatusError
+				m.mu.Unlock()
+				started := time.Now()
+				done := make(chan struct{})
+				go func() { defer close(done); m.reconnectWithRetry("silent") }()
+				select {
+				case <-done:
+				case <-time.After(baseRetryDelay + 10*time.Second):
+					m.CloseAll()
+					<-done
+					t.Fatal("retry did not stop for explicit authorization")
+				}
+				if elapsed := time.Since(started); elapsed != baseRetryDelay {
+					t.Fatalf("retry delay=%v, want %v", elapsed, baseRetryDelay)
+				}
+				if browsers.Load() != 0 || resourceCalls.Load() != 0 {
+					t.Fatal("background recovery attempted authorization or sent an unauthenticated request")
+				}
+				status := m.List()[0]
+				m.mu.RLock()
+				reconnecting := m.servers["silent"].Reconnecting
+				m.mu.RUnlock()
+				if status.NeedsReauth != (mode == "pkce") || reconnecting || status.Status != StatusError {
+					t.Fatalf("expected reauthorization without retry loop: %+v", status)
+				}
+				after, err := store.Load(ctx, before.ID)
+				if err != nil || after.AuthorizationAttempt != "" || after.Tokens.Access != before.Tokens.Access {
+					t.Fatalf("background retry altered grant: %v", err)
+				}
 
+			})
 		})
 	}
 }

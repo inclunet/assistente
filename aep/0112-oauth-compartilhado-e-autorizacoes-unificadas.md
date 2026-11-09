@@ -4,6 +4,21 @@
 **Contrato base concluído em:** 2026-10-05
 **Data:** 2026-09-30
 
+## Validação de reconexão silenciosa com tempo virtual — issue #1008
+
+`TestManagedOAuthBackgroundRetryNeverOpensBrowser` percorre o manager e a
+persistência reais sob `testing/synctest`. Preserva PKCE, configuração e
+permissão de client credentials, ausência de navegador/requisição, estado do
+servidor e conteúdo da autorização. Verifica ainda que o backoff de 15 segundos
+foi percorrido no relógio virtual. O servidor HTTP fica fora da bubble; manager
+e pool SQLite são encerrados dentro dela. Não há hook nem alteração produtiva.
+
+Três processos independentes mediram o teste em 45,07 / 45,07 / 45,06 s antes e
+0,05 / 0,05 / 0,05 s depois. Overlays não versionados que removem o atraso ou a
+parada por erro terminal fazem os três cenários falharem por suas assertions.
+O status permanece **In Progress**; a confirmação em ocorrência real/NVDA da
+extensão de diagnóstico não faz parte deste recorte nem foi declarada concluída.
+
 ## Extensão: diagnóstico de renovação — 28/10/2026
 
 O refresh automático do Databricks falhou em 28/10, mas o registro antigo
