@@ -9,6 +9,15 @@ verificados. Este status não afirma CI verde antecipadamente: o PR #1040 só
 pode ser entregue como pronto após CI e review remota sem pendências, conforme
 AGENTS.md. Não depende de outro recorte de implementação.
 
+### Preparo das provas de envio e áudio (08/11/2026)
+
+Os testes de envio/retry e persistência de áudio usam `dbfixture.Open` para
+copiar o schema produtivo em bancos privados. Mantêm dados, sessões, eventos,
+transcrições, revisão da timeline e assertions de cada cenário. A prova que
+remove uma versão de migração continua verificando recusa antes da escrita;
+bootstrap e migrações não passam pela fixture de comportamento. Medições e
+limites em `docs/operations/ci-test-cost.md` (#1008). Status **Done** preservado.
+
 ### Manutenção das provas de portabilidade (08/11/2026)
 
 As provas de histórico de execuções e anexos reutilizam somente o schema
