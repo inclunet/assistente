@@ -623,3 +623,28 @@ Windows/Go 1.26.0, sem outras suítes/compilações locais concorrentes: antes
 1,986 → 0,876 s (−55,9%). Os mesmos sete testes passaram em todos os pares;
 não houve alteração de assertions, prazo ou política produtiva. São tempos
 da seleção, sem extrapolação ao CI ou ao pacote completo.
+
+## Reconexão OAuth sem espera de parede
+
+`TestManagedOAuthBackgroundRetryNeverOpensBrowser` repetia três esperas reais
+de 15 segundos para provar que reconexão em background não abre consentimento.
+Agora usa o relógio virtual da biblioteca padrão (`testing/synctest`, Go 1.26),
+sem alterar o atraso produtivo ou expor relógio/hook no Manager.
+
+O manager, as credenciais e o SQLite são criados dentro da bubble. O servidor
+HTTP de detecção permanece fora: seu Accept real não deve impedir o avanço do
+relógio, mas qualquer requisição indevida continua sendo contada. O fechamento
+explícito do pool e do manager permite finalizar suas goroutines. Nenhuma
+assertion anterior foi removida. A prova acrescenta atraso virtual exato de
+15 segundos e conserva limite de término, ausência de browser/requisição,
+NeedsReauth, estado final, flag de reconexão e autorização inalterada.
+
+Três processos independentes, Windows/Go 1.26.0, binários previamente compilados,
+sem outras suítes locais concorrentes: duração do teste antes **45,07 / 45,07 /
+45,06 s**; depois **0,05 / 0,05 / 0,05 s**. Mediana **45,07 → 0,05 s** (~99,9%).
+São tempos do teste, não duração de compilação/processo nem ganho global do CI.
+
+Contraprovas em overlays não versionados: remover a espera faz os três casos
+falharem com atraso 0 em vez de 15 s; remover a parada por erros de autorização
+faz os três falharem no limite virtual de término. Testes de rede/polling que
+exigem interação real não foram convertidos em bloco para relógio virtual.
