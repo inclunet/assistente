@@ -9,6 +9,7 @@ test_dir=$(mktemp -d "$test_root/run.XXXXXX")
 trap 'rm -rf -- "$test_dir"' EXIT
 export DISPATCH_TEST_DIR="$test_dir" PATH="$test_dir:$PATH"
 export GITHUB_REPOSITORY=owner/repo GITHUB_SHA=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa GITHUB_RUN_ID=99
+export EXPECTED_DISPATCH_RUN_ID=99
 export GITHUB_EVENT_NAME=workflow_dispatch CI_PR_NUMBER=12
 cat > "$test_dir/gh" <<'MOCK'
 #!/usr/bin/env bash
@@ -19,7 +20,7 @@ case $2 in
     [[ ${MOCK_FAIL:-} != query ]] || exit 91
     cat "$DISPATCH_TEST_DIR/runs" ;;
   'repos/owner/repo/actions/runs/10/jobs?per_page=1') printf '%s\n' "${MOCK_JOBS:-0}" ;;
-  repos/owner/repo/actions/runs/99/force-cancel)
+  "repos/owner/repo/actions/runs/$EXPECTED_DISPATCH_RUN_ID/force-cancel")
     [[ $3 == --method && $4 == POST && $5 == --silent ]] || exit 92
     [[ ${MOCK_FAIL:-} != cancel ]] || exit 93
     echo force-cancel >> "$DISPATCH_TEST_DIR/calls" ;;
@@ -55,6 +56,7 @@ row pull_request "$GITHUB_SHA" action_required 12
 MOCK_JOBS=0 expect 0
 MOCK_JOBS=1 expect 1
 row pull_request "$GITHUB_SHA" success 12
+GITHUB_RUN_ID=100 EXPECTED_DISPATCH_RUN_ID=100 expect 1
 GITHUB_EVENT_NAME=pull_request expect 0
 CI_PR_NUMBER=0 expect 0
 if CI_PR_NUMBER=invalid run; then fail 'aceitou PR inválido'; fi
