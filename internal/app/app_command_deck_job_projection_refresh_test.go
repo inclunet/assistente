@@ -1,10 +1,11 @@
 package app
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"os"
 	"runtime/pprof"
 	"sync"
 	"sync/atomic"
@@ -213,9 +214,8 @@ func TestCommandDeckInputRefreshesEquivalentJobProjectionAfterWorkspaceTabSwitch
 		}
 	case <-time.After(5 * time.Second):
 		// Capture before deferred cancellation drains the workers and hides the wait.
-		var stacks bytes.Buffer
-		_ = pprof.Lookup("goroutine").WriteTo(&stacks, 2)
-		t.Logf("Deck refresh timeout before cleanup: status queue=%d, render queue=%d, input queue=%d, context=%v\n%s", len(statuses), len(handle.writes), len(handle.events), deckCtx.Err(), stacks.String())
+		_, _ = fmt.Fprintf(os.Stderr, "%s: Deck refresh timeout before cleanup: status queue=%d, render queue=%d, input queue=%d, context=%v\n", t.Name(), len(statuses), len(handle.writes), len(handle.events), deckCtx.Err())
+		_ = pprof.Lookup("goroutine").WriteTo(os.Stderr, 2)
 		t.Fatal("runDeckEpoch did not publish status after its refresh tick")
 	}
 	if changed := keyboardMapChanges.Load(); changed != 0 {
