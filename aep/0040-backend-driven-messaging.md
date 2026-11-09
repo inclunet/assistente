@@ -9,6 +9,14 @@
 > obrigatório. Decisões factuais ainda em aberto (ex.: IDs `streaming-*`) são
 > rastreadas separadamente e não invalidam o contrato.
 
+## Manutenção das provas (08/11/2026, issue #1008)
+
+O preparo das provas de envio/retry e áudio reutiliza somente o schema vazio
+migrado, com banco privado por cenário. SendMessage, persistência, eventos,
+STT, cancelamento e recusa de envio com migração pendente continuam exercidos
+pelas implementações reais. Nenhuma assertion ou contrato muda. Evidências em
+`docs/operations/ci-test-cost.md`; status **Accepted** preservado.
+
 ## Estratégia de entrega
 
 Este é um **refactor**. Todas as fases são commits em um **único PR**. A ordem dos commits segue a ordem das fases. Cada commit deve deixar os testes passando.

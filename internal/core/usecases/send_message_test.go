@@ -12,8 +12,6 @@ import (
 	"testing"
 	"time"
 
-	"path/filepath"
-
 	"assistente/adapters/noop"
 	"assistente/internal/agent"
 	"assistente/internal/chat"
@@ -27,24 +25,21 @@ import (
 	"assistente/internal/profiles"
 	"assistente/internal/providers"
 	"assistente/internal/speech"
+	"assistente/internal/testutil/dbfixture"
 	"assistente/internal/toolcatalog"
 	"assistente/internal/tools"
 )
 
-// setupTestDB usa o mesmo schema/migrações da composição de produção.
+// setupTestDB abre uma cópia privada do schema produtivo, sem repetir migrações por cenário.
 func setupTestDB(t *testing.T) {
 	t.Helper()
 	cache := t.TempDir()
 	t.Setenv("LOCALAPPDATA", cache)
 	t.Setenv("XDG_CACHE_HOME", cache)
-	restore := database.SetDB(database.DB())
-	if err := database.InitPath(filepath.Join(t.TempDir(), "usecase.db")); err != nil {
-		t.Fatal(err)
-	}
+	dbfixture.Open(t)
 	if err := database.DB().Create(&database.User{UUIDModel: database.UUIDModel{ID: "test-user"}, Username: "test-user"}).Error; err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = database.Close(); restore() })
 }
 
 // setupProfileDir prepara um HOME temporário isolado para o configdir resolver.
