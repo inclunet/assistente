@@ -39,7 +39,7 @@ func TestLooksLikeTokenRateLimit(t *testing.T) {
 	}
 	// Um 429 de token continua sendo, por definição, um erro retryável genérico;
 	// o tratamento específico apenas o intercepta antes do retry.
-	if !isRetryableError("429", 0) {
+	if !isRetryableError("429", ProviderError{}) {
 		t.Fatal("429 deveria ser retryável genérico (guarda de token roda antes)")
 	}
 }

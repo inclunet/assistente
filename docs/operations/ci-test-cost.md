@@ -577,9 +577,11 @@ com race precisou ser reexecutado. O defeito estava na política produtiva que
 procurava `429/502/503/524` em todo o texto do erro, inclusive URL/porta.
 
 O status estruturado já normalizado pelos adaptadores agora tem precedência,
-sem ampliar os códigos retentáveis nem mudar o fallback sem status. A prova
+incluindo explicitamente 408/504 (antes dependentes da palavra timeout).
+Sem status, categorias terminais reconhecidas também recusam retry; o fallback
+permanece para erros sem categoria terminal. A prova
 HTTP usa `/429/502/503/524/v1` e verifica uma chamada e nenhum aviso de retry
-para 400/401/403/404 nos dois adaptadores OpenAI. Se regredir, o handler cancela
+para 400/401/403/404 nos dois adaptadores OpenAI e no Anthropic. Se regredir, o handler cancela
 no primeiro aviso: a contraprova não precisa consumir todo o backoff.
 Não há aumento de timeout, nova tentativa no teste ou remoção de assertions.
 
@@ -587,3 +589,9 @@ Contraprova local: um overlay não versionado desativou apenas a precedência do
 status; os oito casos HTTP falharam por emissão indevida de `stream_retry`.
 Com a correção, todos passaram. Isso demonstra o defeito sem depender da porta
 aleatória do servidor nem esperar o timeout de 10 segundos do use case.
+
+A revisão remota corrigiu a seleção do construtor Responses e acrescentou
+verificação da rota HTTP efetiva. As provas finais incluem Anthropic e eventos
+SSE terminais sem status, além do fallback desconhecido. HTTP 408/504 agora são
+retentáveis também com texto opaco: uma ampliação explícita em relação à
+heurística anterior, sem depender da tradução da mensagem.

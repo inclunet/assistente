@@ -716,7 +716,7 @@ func (p *AnthropicProvider) doStreamBeta(ctx context.Context, params anthropic.B
 			reportCurrentDiagnostics()
 			return mcpStreamAttemptResult{mcpFailure: failure}
 		}
-		if !emittedNonRetryableEffect && isRetryableError(errStr, providerError.StatusCode) {
+		if !emittedNonRetryableEffect && isRetryableError(errStr, providerError) {
 			reportCurrentDiagnostics()
 			return mcpStreamAttemptResult{retry: true}
 		}
@@ -1034,7 +1034,7 @@ func (p *AnthropicProvider) doStream(ctx context.Context, params anthropic.Messa
 			return true
 		}
 
-		if !emittedNonRetryableEffect && isRetryableError(errStr, providerError.StatusCode) {
+		if !emittedNonRetryableEffect && isRetryableError(errStr, providerError) {
 			reportCurrentDiagnostics()
 			return false
 		}

@@ -5,16 +5,19 @@ Status: Done — fases 1–3 concluídas nos PRs #889, #909 e #919; fase 4 imple
 ## Correção de retry HTTP — issue #1008
 
 A política de retry transitório usa o status HTTP estruturado já extraído pelos
-adaptadores antes de consultar texto livre. Preserva os códigos atualmente
-retentáveis (`429`, `502`, `503`, `524`); números na URL ou no corpo de uma
+adaptadores antes de consultar texto livre. Mantém `429`, `502`, `503`, `524` e reconhece explicitamente os timeouts
+HTTP `408` e `504`, antes dependentes de texto como `timeout`, inclusive quando
+a mensagem é opaca. Números na URL ou no corpo de uma
 rejeição `400/401/403/404` não autorizam novas tentativas. As guardas de
 cancelamento, efeitos emitidos, valor inválido e cota de tokens permanecem.
-Sem status HTTP disponível, o tratamento anterior de transporte/eventos continua.
+Sem status HTTP, categorias terminais já reconhecidas também recusam retry;
+transporte e eventos sem categoria terminal mantêm o fallback anterior.
 Não há nova assinatura de aprendizado nem alteração de família de provedor.
 
 Evidências: `TestRetryHTTPStatusOverridesErrorText` e
 `TestHTTPRejectionDoesNotRetryNumbersInURL`, com HTTP real nos adaptadores
-Chat Completions e Responses. O status da AEP permanece **Done**.
+Chat Completions, Responses e Anthropic, e
+`TestResponsesFailureUsesTerminalCategoryBeforeText` para SSE. O status da AEP permanece **Done**.
 
 ## Resumo
 
