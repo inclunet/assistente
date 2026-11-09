@@ -23,7 +23,9 @@ while IFS=$'\t' read -r run_id event sha conclusion prs; do
     [[ $jobs != 0 ]] || continue
   fi
   echo "CI do PR #$CI_PR_NUMBER já representado pelo run $run_id; solicitando cancelamento do dispatch $GITHUB_RUN_ID."
-  gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/cancel" --method POST --silent
+  # Os gates obrigatórios usam always(): cancel normal pode deixá-los vivos.
+  # Encerrar somente este dispatch comprovadamente redundante, nunca o run do PR.
+  gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/force-cancel" --method POST --silent
   exit 0
 done <<< "$runs"
 echo "Sem CI efetivo do PR #$CI_PR_NUMBER neste head; dispatch preservado."

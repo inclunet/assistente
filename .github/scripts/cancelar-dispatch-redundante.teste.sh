@@ -19,10 +19,10 @@ case $2 in
     [[ ${MOCK_FAIL:-} != query ]] || exit 91
     cat "$DISPATCH_TEST_DIR/runs" ;;
   'repos/owner/repo/actions/runs/10/jobs?per_page=1') printf '%s\n' "${MOCK_JOBS:-0}" ;;
-  repos/owner/repo/actions/runs/99/cancel)
+  repos/owner/repo/actions/runs/99/force-cancel)
     [[ $3 == --method && $4 == POST && $5 == --silent ]] || exit 92
     [[ ${MOCK_FAIL:-} != cancel ]] || exit 93
-    echo cancel >> "$DISPATCH_TEST_DIR/calls" ;;
+    echo force-cancel >> "$DISPATCH_TEST_DIR/calls" ;;
   *) echo "API inesperada: $2" >&2; exit 94 ;;
 esac
 MOCK
@@ -58,6 +58,7 @@ row pull_request "$GITHUB_SHA" success 12
 GITHUB_EVENT_NAME=pull_request expect 0
 CI_PR_NUMBER=0 expect 0
 if CI_PR_NUMBER=invalid run; then fail 'aceitou PR inválido'; fi
+if GITHUB_RUN_ID=invalid run; then fail 'aceitou run inválido'; fi
 if MOCK_FAIL=query run; then fail 'ocultou erro de consulta'; fi
 if MOCK_FAIL=cancel run; then fail 'ocultou erro de cancelamento'; fi
 row pull_request "$GITHUB_SHA" action_required 12
