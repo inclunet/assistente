@@ -675,7 +675,6 @@ um cenário para três, todos aprovados. Havia outra suíte backend local ativa;
 esses valores não são benchmark isolado nem previsão de duração global do CI.
 O ganho determinístico é deixar de repetir uma espera artificial de 16 s.
 
-
 ## Schema compartilhado nas provas de envio e áudio
 
 Três preparações passam a usar `dbfixture.Open`: casos de uso de envio/retry,
@@ -706,3 +705,35 @@ medição substitui a qualificação inicial sob carga concorrente; não é prev
 de ganho no CI completo. A seleção inclui o fallback de provedor com retry
 intermitente já registrado na issue; esta mudança de fixture não corrige
 aquele problema produtivo.
+
+## Provas de conexão no serviço responsável
+
+Os 17 testes `TestValidateWizardURL_*` / `TestValidateWizardConnection_*`
+foram movidos de `internal/app/app_wizard_test.go` para
+`internal/providers/connection_test.go`. Já chamavam diretamente o serviço,
+sem exercitar orquestração do App. Onze deles deixam de construir App e banco:
+`NewService(ServiceConfig{})` basta ao percurso de sondagem, que não consulta
+store nem registry. Os testes de persistência/configuração do wizard continuam
+usando suas integrações existentes.
+
+Mapa das garantias preservadas:
+
+- URL válida/inválida, esquema e host;
+- falha de transporte e classificação `url_unreachable`;
+- HTTP 200, 401, 403, 404 e 500, com as flags correspondentes;
+- lista de modelos presente/vazia e Bearer presente/ausente.
+
+Nenhum caso ou assertion foi removido. A comparação dos corpos confirma apenas
+a troca de pacote, contexto equivalente, fixture e endereço da falha. Os dois
+casos antes dirigidos a `192.0.2.1:1` usam agora um servidor HTTP em loopback
+que aceita a conexão e a fecha sem resposta. É uma falha real de transporte,
+sem substituição global de client/transport, corrida por porta desocupada ou
+alteração dos timeouts produtivos de 10/15 s. A causa concreta muda para EOF;
+essas provas verificavam classificação, não a duração do timeout.
+
+Três processos independentes por versão, Windows/Go 1.26.0, binários previamente
+compilados e sem outra suíte/compilação local concorrente: soma das durações
+dos 17 testes antes **25,01 / 25,00 / 25,00 s**. Depois, cada teste foi reportado
+como **0,00 s** nas três execuções, na precisão de centésimos do Go; isso não
+significa duração física zero. As medições excluem compilação e início do
+processo e não são estimativa do ganho global do CI.

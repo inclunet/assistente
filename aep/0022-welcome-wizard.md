@@ -170,3 +170,19 @@ evitando fetches e prompts concorrentes. Se houver nova versão, a decisão usa
 - Em caso de erro, não deixa sistema em estado inconsistente
 - Logs detalhados para debug
 - Mensagens de erro amigáveis para o usuário
+
+## Evidência de validação de conexão (issue #1008)
+
+Os 17 testes `TestValidateWizardURL_*` e `TestValidateWizardConnection_*`
+residem em `internal/providers/connection_test.go`, junto ao serviço que já
+exercitavam diretamente. Preservam URLs inválidas, falha de transporte,
+200/401/403/404/500, modelos disponíveis/vazios e envio opcional de Bearer.
+A fixture usa o construtor real do serviço sem inicializar App ou SQLite;
+as integrações de configuração e persistência do wizard continuam em App.
+
+A falha de transporte usa conexão HTTP local encerrada sem resposta, evitando
+espera por um endereço externo. A prova verifica classificação do erro, não
+prazo de timeout; os limites produtivos de 10/15 segundos permanecem intactos.
+Medição e mapa de garantias: `docs/operations/ci-test-cost.md`.
+O status permanece **Done**; os testes manuais recomendados acima não são
+reivindicados como executados por esta validação.
