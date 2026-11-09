@@ -5686,3 +5686,15 @@ Checkbox é aceite final, não ausência de código.
 - [ ] C83 — Testes cobrem fallback de defaults, sobreposição, múltiplas camadas,
   modais, inputs, múltiplas abas, troca de foco, reconexão de dispositivo e
   prevenção de execução duplicada.
+
+
+Revisão do #1066: a troca de workspace pelo picker aguarda o snapshot aplicado
+antes de agendar o retorno de foco. O foco/modal é capturado ao fechar o menu,
+não depois da espera; navegação, sessão alterada, reabertura e desmontagem
+invalidam a conclusão. A mesma seleção é usada na lista aberta pelo comando.
+A contraprova assíncrona falhava antes por focar o painel antigo enquanto a
+resposta estava pendente. Após a correção, o destino substituído recebe foco
+uma única vez e foco posterior do usuário é preservado. Os cenários de navegação das opções
+usam MemoryRouter e substituem a página antes do frame; a recusa de conclusão
+assíncrona após mudar de rota usa a identidade de rota da fixture. Isso não atribui causa
+às intermitências históricas da #1062. AEP-0103 permanece In Progress.

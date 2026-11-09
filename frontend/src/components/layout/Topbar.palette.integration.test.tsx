@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useEffect, useRef } from 'react';
+import { MemoryRouter, Routes, Route, useNavigate } from 'react-router-dom';
 import { Topbar } from './Topbar';
 import { logger } from '../../utils/logger';
 import { createCommandContextScope, type CommandContextScope } from '../../lib/commandContextReact';
@@ -153,10 +154,28 @@ vi.mock('react-i18next', () => ({
   }),
 }));
 
-vi.mock('react-router-dom', () => ({
-  useNavigate: () => navigate,
-  useLocation: () => ({ pathname: locationState.pathname, search: '', hash: '', key: locationState.pathname }),
-}));
+vi.mock('react-router-dom', async importOriginal => {
+  const router = await importOriginal<typeof import('react-router-dom')>();
+  return {
+    ...router,
+    useNavigate: () => router.useInRouterContext() ? router.useNavigate() : navigate,
+    useLocation: () => router.useInRouterContext() ? router.useLocation() : ({ pathname: locationState.pathname, search: '', hash: '', key: locationState.pathname }),
+  };
+});
+
+function RouteFocusDestination() {
+  const input = useRef<HTMLInputElement>(null);
+  useEffect(() => { input.current?.focus(); }, []);
+  return <input ref={input} aria-label="Destino da rota" />;
+}
+
+function RouteFocusControls() {
+  const navigateTo = useNavigate();
+  return <Routes>
+    <Route path="/" element={<button onClick={() => navigateTo('/settings')}>Abrir rota</button>} />
+    <Route path="/settings" element={<RouteFocusDestination />} />
+  </Routes>;
+}
 
 vi.mock('../../services/commandCatalog', () => ({
   listCommandCatalog: (query: unknown) => listCommandCatalog(query),
@@ -255,6 +274,7 @@ beforeEach(() => {
   paletteContextScope = null;
   state.workspaceListeners.clear();
   vi.resetAllMocks();
+  state.workspace.switchWorkspace.mockResolvedValue(undefined);
   localStorage.clear();
   locationState.pathname = '/';
   state.auth.user = { userId: 'user-a', sessionId: 'session-a' };
@@ -899,7 +919,7 @@ describe('Criação de abas — Topbar, Toolbar e Menu reais', () => {
       root.remove();
     }
   });
-  async function mountCreation() {
+  async function mountCreation(withRouter = false) {
     vi.spyOn(document, 'hasFocus').mockReturnValue(true);
     state.loadMap.mockResolvedValue({
       generation: 'g-create', ownerId: 'user-a', sessionId: 'session-a', workspaceId: 'workspace-a',
@@ -926,16 +946,17 @@ describe('Criação de abas — Topbar, Toolbar e Menu reais', () => {
     }));
     getUICommandResult.mockResolvedValue({ invocationId: 'invocation', status: 'succeeded' });
     state.commitBackendCommand.mockResolvedValue(undefined);
-    const view = render(<WorkspaceTabCreationMenuProvider><div className="workspace-layout">
-      <Topbar /><WorkspaceToolbar />
-    </div></WorkspaceTabCreationMenuProvider>);
+    const content = <WorkspaceTabCreationMenuProvider><div className="workspace-layout">
+      <Topbar /><WorkspaceToolbar />{withRouter && <RouteFocusControls />}
+    </div></WorkspaceTabCreationMenuProvider>;
+    const view = render(withRouter ? <MemoryRouter>{content}</MemoryRouter> : content);
     await act(async () => {});
     screen.getByRole('button', { name: 'workspace.newTab, Ctrl+N' }).focus();
     return view;
   }
 
   it.each(['toolbar', 'topbar'].flatMap(surface => ['rename', 'dismiss', 'import', 'navigate'].map(action => ({ surface, action }))))('opções do workspace respeitam o destino do foco: $surface/$action', async ({ surface, action }) => {
-    const view = await mountCreation();
+    const view = await mountCreation(action === 'navigate');
     const frames: FrameRequestCallback[] = [];
     const requestFrame = vi.spyOn(window, 'requestAnimationFrame').mockImplementation(callback => {
       frames.push(callback);
@@ -950,14 +971,86 @@ describe('Criação de abas — Topbar, Toolbar e Menu reais', () => {
       const menu = screen.getByRole('menu', { name: 'workspace.workspaceOptions' });
       if (action === 'dismiss') fireEvent.keyDown(document.activeElement!, { key: 'Escape' });
       else fireEvent.click(within(menu).getByRole('menuitem', { name: action === 'rename' ? /workspace.rename/ : /workspace.import/ }));
-      if (action === 'navigate') trigger.focus();
+      if (action === 'navigate') fireEvent.click(screen.getByRole('button', { name: 'Abrir rota' }));
       act(() => frames.forEach(callback => callback(0)));
       expect(restoreDefaultFocus).toHaveBeenCalledTimes(action === 'import' ? 1 : 0);
       if (action === 'rename') expect(screen.getByRole('textbox', { name: 'workspace.renamePlaceholder' })).toHaveFocus();
+      else if (action === 'navigate') expect(screen.getByRole('textbox', { name: 'Destino da rota' })).toHaveFocus();
       else expect(action === 'import' ? destination : trigger).toHaveFocus();
     } finally {
       view.unmount();
       requestFrame.mockRestore();
+    }
+  });
+
+  it.each(['restore', 'new-focus', 'route', 'session', 'unmount', 'modal', 'reject', 'reopened'])('troca assíncrona de workspace respeita conclusão e foco: %s', async scenario => {
+    const originalWorkspace = state.workspace.workspace;
+    const originalWorkspaces = state.workspace.workspaces;
+    let view: ReturnType<typeof render> | undefined;
+    const frames: FrameRequestCallback[] = [];
+    const requestFrame = vi.spyOn(window, 'requestAnimationFrame').mockImplementation(callback => {
+      frames.push(callback); return frames.length;
+    });
+    let complete = () => {};
+    try {
+      state.workspace.workspaces = [
+        { id: 'workspace-a', name: 'Workspace atual', is_active: true, tab_count: 1 },
+        { id: 'workspace-b', name: 'Outro workspace', is_active: false, tab_count: 1 },
+      ];
+      let reject!: (error: Error) => void;
+      const response = new Promise<void>((resolve, fail) => { complete = resolve; reject = fail; });
+      view = await mountCreation();
+      let showModal = false;
+      const content = () => <WorkspaceTabCreationMenuProvider><div className="workspace-layout">
+        <Topbar /><WorkspaceToolbar />
+        <input key={state.workspace.workspace.id} aria-label="Painel ativo" />
+        <button type="button">Outro controle</button>
+        {showModal && <Modal isOpen onClose={() => {}} title="Diálogo da troca"><button>Continuar</button></Modal>}
+      </div></WorkspaceTabCreationMenuProvider>;
+      view.rerender(content());
+      const oldPanel = screen.getByRole('textbox', { name: 'Painel ativo' });
+      state.workspace.switchWorkspace.mockImplementation(async () => {
+        await response;
+        state.workspace.workspace = { ...originalWorkspace, id: 'workspace-b', activeTabId: 'tab-b', tabs: [{ id: 'tab-b', type: 'tasklist' }] };
+        if (scenario !== 'unmount') view?.rerender(content());
+        state.workspaceListeners.forEach(listener => listener());
+      });
+
+      vi.mocked(restoreDefaultFocus).mockImplementation(() => {
+        screen.getByRole('textbox', { name: 'Painel ativo' }).focus(); return true;
+      });
+      fireEvent.click(screen.getByRole('button', { name: 'workspace.workspaceList' }));
+      act(() => frames.splice(0).forEach(callback => callback(0)));
+      fireEvent.click(screen.getByRole('menuitem', { name: /Outro workspace/ }));
+      expect(state.workspace.switchWorkspace).toHaveBeenCalledExactlyOnceWith('workspace-b');
+      act(() => frames.splice(0).forEach(callback => callback(0)));
+      expect(restoreDefaultFocus).not.toHaveBeenCalled();
+      const otherControl = screen.getByRole('button', { name: 'Outro controle' });
+      if (scenario === 'new-focus') otherControl.focus();
+      if (scenario === 'reopened') fireEvent.click(screen.getByRole('button', { name: 'workspace.workspaceList' }));
+      if (scenario === 'route') { locationState.pathname = '/settings'; view.rerender(content()); }
+      if (scenario === 'session') state.auth.user = { userId: 'user-b', sessionId: 'session-b' };
+      if (scenario === 'modal') { showModal = true; view.rerender(content()); }
+      if (scenario === 'unmount') view.unmount();
+      await act(async () => {
+        if (scenario === 'reject') reject(new Error('switch failed'));
+        else complete();
+        await Promise.resolve();
+      });
+      act(() => frames.splice(0).forEach(callback => callback(0)));
+      expect(restoreDefaultFocus).toHaveBeenCalledTimes(scenario === 'restore' ? 1 : 0);
+      if (scenario === 'restore') {
+        expect(oldPanel).not.toBeInTheDocument();
+        expect(screen.getByRole('textbox', { name: 'Painel ativo' })).toHaveFocus();
+      }
+      if (scenario === 'new-focus') expect(otherControl).toHaveFocus();
+    } finally {
+      complete();
+      await act(async () => { await Promise.resolve(); });
+      view?.unmount();
+      requestFrame.mockRestore();
+      state.workspace.workspace = originalWorkspace;
+      state.workspace.workspaces = originalWorkspaces;
     }
   });
 

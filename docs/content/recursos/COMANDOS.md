@@ -3088,3 +3088,5 @@ Roteiro manual acumulado deste lote (regressão automatizada concluída):
   combinação na camada **Atalhos globais de voz e jobs**. Suprimir e restaurar
   o padrão, confirmando cada alteração; verificar que a execução respeita
   a supressão e que o editor genérico não altera a combinação. Resultado: ________.
+
+Ao escolher outro workspace, o retorno de foco aguarda sua abertura e aponta para o painel ativo. Se você navegar para outro controle durante a espera, esse foco é preservado.
