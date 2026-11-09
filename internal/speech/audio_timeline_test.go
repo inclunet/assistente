@@ -3,13 +3,13 @@ package speech_test
 import (
 	"context"
 	"errors"
-	"path/filepath"
 	"strings"
 	"testing"
 
 	"assistente/internal/chat"
 	"assistente/internal/database"
 	"assistente/internal/speech"
+	"assistente/internal/testutil/dbfixture"
 	"gorm.io/gorm"
 )
 
@@ -35,11 +35,7 @@ func (s audioTimelineSession) AuthorizeTimeline(context.Context) (context.Contex
 func TestAudioPersistenceCoordinatesTimelineWithoutReadingPayload(t *testing.T) {
 	for _, mode := range []string{"standalone", "turn", "blank-link"} {
 		t.Run(mode, func(t *testing.T) {
-			restore := database.SetDB(database.DB())
-			if err := database.InitPath(filepath.Join(t.TempDir(), "audio.db")); err != nil {
-				t.Fatal(err)
-			}
-			t.Cleanup(func() { _ = database.Close(); restore() })
+			dbfixture.Open(t)
 			db := database.DB()
 			if err := db.Create(&database.User{UUIDModel: database.UUIDModel{ID: "owner"}, Username: "owner"}).Error; err != nil {
 				t.Fatal(err)
