@@ -221,7 +221,19 @@ func effectivePromptCacheKey(params ChatParams) string {
 	return params.PromptCacheKey
 }
 
-func isRetryableError(errStr string) bool {
+// isRetryableError dá precedência ao status HTTP estruturado. Números em
+// URLs ou mensagens não podem transformar uma rejeição HTTP em retry.
+// Sem status, categorias terminais reconhecidas recusam retry; o fallback
+// textual permanece para transporte/eventos sem classificação terminal.
+func isRetryableError(errStr string, providerError ProviderError) bool {
+	if status := providerError.StatusCode; status != 0 {
+		return status == 408 || status == 429 || status == 502 || status == 503 || status == 504 || status == 524
+	}
+	switch providerError.Category {
+	case ProviderErrorUnsupportedParameter, ProviderErrorInvalidValue, ProviderErrorInvalidRequest,
+		ProviderErrorAuthentication, ProviderErrorPermission, ProviderErrorNotFound:
+		return false
+	}
 	lower := strings.ToLower(errStr)
 	return strings.Contains(lower, "timeout") ||
 		strings.Contains(lower, "connection refused") ||

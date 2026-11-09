@@ -391,7 +391,7 @@ func (p *OpenAIProvider) doStream(ctx context.Context, params openai.ChatComplet
 				return chatStreamAttempt{done: true}
 			}
 
-			if isRetryableError(errStr) {
+			if isRetryableError(errStr, providerError) {
 				reportCurrentDiagnostics()
 				return chatStreamAttempt{plainRetry: true}
 			}

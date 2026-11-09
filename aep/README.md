@@ -1428,3 +1428,7 @@ com chave usa a transação cofre/consumidor e referência por conexão. IDs
 existentes são preservados por recusa de duplicata. O onboarding desktop agora
 reutiliza o formulário de provedores; a CLI usa autenticação e cadastro compartilhados, sem listas legadas
 de provedores e modelos. Modelos e vozes continuam pendentes; status **In Progress**.
+
+AEP-0113 — **Done**: retry transitório prioriza status HTTP estruturado;
+regressões `TestRetryHTTPStatusOverridesErrorText` e
+`TestHTTPRejectionDoesNotRetryNumbersInURL` impedem retry causado por números na URL (#1008).

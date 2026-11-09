@@ -737,7 +737,7 @@ responseEvents:
 				reportError(providerError.DisplayMessage())
 				return mcpStreamAttemptResult{done: true}
 			}
-			if !emittedNonRetryableEffect && isRetryableError(errMsg) {
+			if !emittedNonRetryableEffect && isRetryableError(errMsg, *providerError) {
 				reportCurrentDiagnostics()
 				return mcpStreamAttemptResult{retry: true}
 			}
@@ -829,7 +829,7 @@ responseEvents:
 			reportError(providerError.DisplayMessage())
 			return mcpStreamAttemptResult{done: true}
 		}
-		if !emittedNonRetryableEffect && isRetryableError(errStr) {
+		if !emittedNonRetryableEffect && isRetryableError(errStr, providerError) {
 			reportCurrentDiagnostics()
 			return mcpStreamAttemptResult{retry: true}
 		}
