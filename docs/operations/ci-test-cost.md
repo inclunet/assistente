@@ -580,3 +580,35 @@ de inicialização não atribuído. Medianas 16,368 → 0,673 s; os casos amplia
 um cenário para três, todos aprovados. Havia outra suíte backend local ativa;
 esses valores não são benchmark isolado nem previsão de duração global do CI.
 O ganho determinístico é deixar de repetir uma espera artificial de 16 s.
+
+
+## Schema compartilhado nas provas de envio e áudio
+
+Três preparações passam a usar `dbfixture.Open`: casos de uso de envio/retry,
+persistência de áudio coordenada com a timeline e três integrações de áudio.
+Somente os bytes do schema vazio são compartilhados por processo; banco,
+conexão, usuário, conversa, mídia e callbacks continuam privados de cada caso.
+O helper existente fecha a conexão capturada e restaura o singleton no cleanup.
+Não há nova infraestrutura de teste ou cache de resultados.
+
+Permanecem as provas de cancelamento/STT único, preservação em falha de MCP,
+retry sem duplicar a mensagem, validações de prefill/provedor, recusa antes de
+escrever quando falta migração, coordenação de revisão de áudio sem ler payload
+e persistência de áudio/mídia nos canais. Bootstrap e testes de migração seguem
+usando suas entradas reais. Nenhuma assertion foi alterada.
+
+Três pares isolados por seleção, sem outras suítes ou compilações locais,
+Windows/Go 1.26.0, executáveis previamente compilados:
+
+- Envio: antes 12,647 / 11,332 / 12,502 s; depois 3,544 / 2,572 / 2,400 s.
+  Mediana 12,502 → 2,572 s (−79,4%); mesmos 27 casos, incluindo subtestes.
+- Timeline de áudio: antes 2,396 / 1,705 / 1,971 s; depois 1,731 / 0,921 / 0,935 s.
+  Mediana 1,971 → 0,935 s (−52,6%); mesmos 4 casos, incluindo subtestes.
+- Integração de áudio: antes 2,052 / 1,480 / 1,516 s; depois 1,638 / 0,683 / 0,817 s.
+  Mediana 1,516 → 0,817 s (−46,1%); mesmos 3 casos, incluindo subtestes.
+
+Os 34 nomes/resultados foram comparados em cada par, todos aprovados. Esta
+medição substitui a qualificação inicial sob carga concorrente; não é previsão
+de ganho no CI completo. A seleção inclui o fallback de provedor com retry
+intermitente já registrado na issue; esta mudança de fixture não corrige
+aquele problema produtivo.

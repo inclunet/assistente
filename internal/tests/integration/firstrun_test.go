@@ -4,11 +4,11 @@ import (
 	"context"
 	"encoding/base64"
 	"gorm.io/gorm"
-	"path/filepath"
 	"testing"
 
 	"assistente/internal/database"
 	"assistente/internal/llm"
+	"assistente/internal/testutil/dbfixture"
 )
 
 // TestIntegration_FirstUserMessage testa o fluxo da primeira mensagem do usuário
@@ -500,11 +500,7 @@ func TestIntegration_FirstMessageWithTurnTracking(t *testing.T) {
 
 func setupAudioIntegrationDB(t *testing.T) (*gorm.DB, context.Context) {
 	t.Helper()
-	restore := database.SetDB(database.DB())
-	if err := database.InitPath(filepath.Join(t.TempDir(), "audio.db")); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = database.Close(); restore() })
+	dbfixture.Open(t)
 	db := database.DB()
 	if err := db.Create(&database.User{UUIDModel: database.UUIDModel{ID: "audio-integration"}, Username: "audio-integration"}).Error; err != nil {
 		t.Fatal(err)
