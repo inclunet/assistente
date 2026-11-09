@@ -173,7 +173,7 @@ const backendExecutionState = vi.hoisted(() => ({
 const workspaceState = vi.hoisted(() => ({
   workspace: { id: 'workspace-a', name: 'Test Workspace', profile: '', activeTabId: 'tab-a', tabs: [{ id: 'tab-a', type: 'chat' as const }] as Array<{ id: string; type: 'chat'; profileOverride?: Record<string, unknown> }> },
   workspaces: [] as Array<{ id: string; name: string; is_active: boolean; tab_count: number }>,
-  switchWorkspace: vi.fn(),
+  switchWorkspace: vi.fn(async () => {}),
   setActiveTab: vi.fn((tabId: string) => {
     workspaceState.workspace = { ...workspaceState.workspace, activeTabId: tabId };
     workspaceState.listeners.forEach((listener) => listener());
