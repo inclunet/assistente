@@ -21,6 +21,8 @@ contextuais disponíveis. Seleção múltipla não habilita alterações individ
 seguido das ações menos frequentes de restauração e atualização dos padrões.
 
 Ao selecionar uma opção que abre um diálogo, o foco permanece no diálogo.
+Dentro do chat modal, fechar o menu de código/tabela retorna ao compositor do
+próprio chat, sem focar a página atrás dele.
 O retorno adiado de menus e diálogos à área padrão também preserva uma nova
 navegação feita depois de esse retorno ter sido agendado.
 Nos menus de opções do workspace das duas barras, **Renomear** mantém o foco

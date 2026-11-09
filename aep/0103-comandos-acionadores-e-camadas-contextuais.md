@@ -13,7 +13,11 @@ criação de terminal. Evidências em `docs/operations/intermittent-polling-focu
 
 **Retorno adiado de menus e diálogos (09/11/2026, issue #1062):**
 Menu, MenuButton e Modal compartilham o agendamento de retorno à área padrão:
-um modal aberto ou foco novo adquirido após o agendamento impedem esse retorno.
+trocar o modal do topo ou adquirir foco novo após o agendamento impede esse retorno.
+Dentro do mesmo modal, o foco padrão só é autorizado ao landmark do modal ativo;
+a página e modais inferiores são recusados pelo registro de landmarks. Somente
+menus autorizam esse retorno interno; fechar um diálogo continua recusando
+qualquer outro modal aberto.
 O MenuButton assume o retorno de seu menu, removendo a segunda restauração
 concorrente. A notificação pós-seleção continua acontecendo mesmo quando outra
 navegação assume o foco. O hook conclui o fechamento após remover o menu do DOM
