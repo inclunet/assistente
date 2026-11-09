@@ -10,7 +10,7 @@ import (
 // returns. The final notification must therefore follow lifecycle readiness,
 // not just configuration publication.
 func TestCommandCatalogRefreshPublishesReadyKeyboardMap(t *testing.T) {
-	a := commandJobPublicationApp(t)
+	a := commandCatalogProductFixture(t)
 	before, err := a.GetLocalCommandKeyboardMap()
 	if err != nil {
 		t.Fatal(err)
@@ -38,7 +38,7 @@ func TestCommandCatalogRefreshPublishesReadyKeyboardMap(t *testing.T) {
 }
 
 func TestCommandCatalogRefreshDoesNotPublishReadyMapWhenBootstrapCancelled(t *testing.T) {
-	a := commandJobPublicationApp(t)
+	a := commandCatalogProductFixture(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	notifications := 0

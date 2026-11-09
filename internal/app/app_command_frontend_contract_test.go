@@ -10,7 +10,7 @@ import (
 // O mesmo JSON é consumido por commandFrontendContract.test.ts através do
 // adaptador Wails e do controlador real, não por uma cópia do validador.
 func TestCommandFrontendKeyboardWireContract(t *testing.T) {
-	a := commandJobPublicationApp(t)
+	a := commandCatalogProductFixture(t)
 	keyboard, err := a.GetLocalCommandKeyboardMap()
 	if err != nil {
 		t.Fatal(err)
