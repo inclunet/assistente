@@ -41,7 +41,7 @@ falha, mas o único `trace.zip` pertence a `chromium-retry1`, que passou.
 `on-first-retry` não registra a execução original e não permite identificar
 quem tirou o foco de `Atualizar padrões` naquele episódio.
 
-Somente `e2e/settings/command-managers.spec.ts` passa a usar
+O arquivo `e2e/settings/command-managers.spec.ts` passa a usar
 `trace: 'retain-on-failure'`. Todas as tentativas são gravadas, mas somente
 falhas retêm trace. O restante da suíte conserva a política vigente. Não há
 mudança de retry, timeout, seleção ou assertion. Há custo de captura limitado
@@ -53,6 +53,25 @@ A injeção foi removida. Na recorrência, recuperar o trace da tentativa falha
 e correlacionar navegação, fechamento de modal/menu e snapshots. Se isso não
 identificar a origem, adicionar instrumentação direcionada; o trace por si só
 não garante a stack de cada chamada interna de `focus()`.
+
+## Nova ocorrência E2E durante a investigação
+
+O run `42665634891`, job `129328659730`, terminou verde com um flaky em
+`workspace/tabs-interactions.spec.ts`, caso `Enter confirma renomeação e chama
+UpdateWorkspaceTab`. A primeira tentativa perdeu foco da aba antes de F2; a
+assertion `toBeFocused()` falhou e o retry passou. Não é o cenário histórico do
+gerenciador de comandos. O artefato contém screenshot/contexto da falha, mas
+novamente só um trace do retry aprovado, insuficiente para atribuir a origem.
+
+Esse arquivo também usa `retain-on-failure`, limitado aos seus cenários (o
+Playwright exige essa opção no arquivo, não dentro de `describe`). A primeira
+tentativa passa a ter trace quando falha; timeout,
+retry e assertions permanecem intactos. A ocorrência permanece na #1062; check
+verde não significa ausência de flaky nem demonstra correção causal.
+
+Contraprova local: uma falha deliberada após a assertion de foco, sem retry,
+produziu o trace da primeira tentativa. Após remover a injeção, os 14 testes
+do arquivo passaram sem retry (25,7 s).
 
 ## Defeito demonstrado no retorno adiado dos menus
 
@@ -104,6 +123,31 @@ Essa correção é independente da ausência histórica de commit de terminal.
 A ausência de commit na criação de terminal em `Topbar.palette.integration.test.tsx`
 continua sem reprodução causal. Nenhuma alteração foi feita nesse contrato.
 Reexecuções verdes não encerram esse item.
+
+Na validação integrada de 09/11, a ausência de commit voltou a ocorrer nos casos
+`conclui KeyC pelo ingresso teclado` e `criar chat pelo menu entrega o foco`.
+Uma tentativa separada de qualificar o diagnóstico nem alcançou a injeção em
+Take: a captura registrou Begin/Take/Commit = 0, sessão autenticada, `hasFocus`
+verdadeiro, nenhum modal, aba original, menu desconectado e foco no `BODY`.
+Isso restringe aquela observação ao percurso anterior à admissão, mas não prova
+qual guarda ou transição recusou o pedido, nem atribui a causa à carga da máquina.
+
+Os quatro casos de criação com entrega de foco agora imprimem esse snapshot
+somente se a assertion de commit falhar, antes do `finally` desmontar a Topbar
+e restaurar o workspace. Preservam a assertion e seu prazo, e relançam o mesmo
+erro; não fazem consultas, retries nem modificam código produtivo.
+
+Contraprova qualificada: travar temporariamente a resposta de Take produziu
+Begin=1, Take=1 e Commit=0, com o acionador focado e o menu fechado, distinguindo
+essa espera da recusa anterior. A assertion original falhou e o diagnóstico
+permaneceu no stderr. Injeção removida. Vinte repetições exploratórias passaram;
+outras vinte com 50 ms entre exibição e seleção também passaram. A instrumentação
+temporária de guardas foi removida, sem adotar atrasos nos testes versionados.
+
+Na próxima ocorrência, usar os contadores para escolher a investigação:
+Begin=0 exige examinar intenção, foco, executor montado e guardas após flush;
+Begin/Take positivos com Commit=0 exige examinar a resposta e o contexto do
+handoff. Não substituir essas guardas por fallback nem encerrar por rerun verde.
 
 As capturas acima preparam evidência para a próxima ocorrência. Identificar o
 bloqueio real do Deck, atribuir a mudança de foco e resolver ou delimitar a

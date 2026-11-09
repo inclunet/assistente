@@ -1,6 +1,8 @@
 import { test, expect } from '../fixtures';
 import { pauseRAF, resumeRAF } from '../helpers/pauseRaf';
 
+test.use({ trace: 'retain-on-failure' });
+
 const now = new Date().toISOString();
 
 const makeWorkspace = (tabs: Array<{ id: string; title: string; conversation_id: string; position: number }>, activeTab?: string, sequence = '1') => ({
