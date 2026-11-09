@@ -17,6 +17,14 @@ seu setup. Nenhuma assertion ou contrato muda. Novos arquivos permanecem em
 UI por padrão, sem seleção por impacto ou dispensa de checks. Medições em
 `docs/operations/ci-test-cost.md`; status **In Progress**, sem novo aceite.
 
+**Aquisição dos writers na prova de revisão ABA (08/11/2026, issue #1008):**
+A prova com dois writers em arquivo usa a política central de aquisição do
+writer antes de cada alteração. Continua verificando SQL direto e ORM,
+concorrência, nonce durável e rejeição do snapshot anterior mesmo quando o
+conteúdo/timestamp voltam ao estado inicial. Corpo e COMMIT não são repetidos;
+o timeout nativo permanece 100 ms. Contraprova de contenção e evidência do CI
+em `docs/operations/ci-test-cost.md`. Status **In Progress**, sem novo aceite.
+
 **Retorno de foco dos formulários (08/11/2026, issue #1008):**
 O retorno adiado do Modal preserva foco adquirido depois do fechamento;
 sem nova aquisição, continua devolvendo à área padrão. Regressão determinística
