@@ -288,8 +288,8 @@ Propostas de melhoria para o Assistente, inspiradas nos PEPs (Python) e RFCs.
 Este diretório é o **repositório único** de decisões arquiteturais do projeto
 (ver `CLAUDE.md`). Não criar outro diretório para AEPs — tudo fica em `aep/`.
 
-> **Inventário (2026-10-06):** este índice contém **113 documentos principais
-> para 112 números ocupados**. A diferença é a colisão histórica 0074, representada
+> **Inventário (2026-11-09):** este índice contém **115 documentos principais
+> para 114 números ocupados**. A diferença é a colisão histórica 0074, representada
 > temporariamente como 0074-A e 0074-B até sua renumeração. Séries multi-arquivo
 > têm o principal listado na tabela e os demais em
 > [Apêndices por AEP](#apêndices-por-aep). Convenção em
