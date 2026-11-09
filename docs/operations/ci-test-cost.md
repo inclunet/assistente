@@ -499,6 +499,49 @@ O teste concorrente original foi preservado; não houve aumento de timeout,
 retry no teste nem redução de concorrência. Isso corrige comportamento produtivo,
 não apenas a estabilidade do CI.
 
+## Política da conexão após compactação
+
+A investigação das falhas temporais de jobs encontrou um defeito separado:
+`Compact` configurava `busy_timeout=5000` e devolvia essa conexão ao pool sem
+restaurá-la. Operações comuns podiam herdar cinco segundos em vez dos 100 ms
+do DSN produtivo, antes de voltar à política central de retry. Não foi provado
+que esse vazamento causou as duas falhas do run `42522084440`.
+
+A regressão usa um pool de uma conexão e um timeout original não padrão (37 ms):
+antes, os quatro casos — completo, incremental, abaixo do limiar e erro de
+VACUUM em arquivo somente leitura — devolveram 5000 ms. A manutenção agora
+preserva/restaura o estado da própria conexão. O cleanup não herda cancelamento
+da operação; falha ao restaurar descarta a conexão e é reportada, preservando
+também eventual erro de compactação. Os dados e resultados da operação continuam
+verificados; não há mudança em prazos de teste nem na espera da compactação.
+
+Os caminhos de cleanup também têm três provas determinísticas com SQLite real
+sob um invólucro de driver exclusivo do teste: cancelamento imediatamente após
+elevar o timeout, falha só na restauração e falhas na operação e restauração.
+Verificam reutilização com timeout restaurado após cancelamento, fechamento e
+substituição da conexão após falha no cleanup, preservação de ambos os erros
+com `errors.Is` e dos dados. Não há hook de teste no código de produção.
+
+## Aquisição do writer na prova de revisão ABA
+
+O run `42538662712`, job `128908877651`, falhou em
+`TestMessageRevisionStorageCommittedFileWriterInvalidatesCapturedConversation`:
+um dos dois writers recebeu `SQLITE_BUSY` após 105 ms. A prova exige duas
+escritas confirmadas para verificar invalidação mesmo quando duas alternâncias
+de `pinned` restauram o conteúdo original com timestamp congelado. Seu preparo
+usava SQL/ORM diretamente, sem a política central de aquisição do writer.
+
+Cada goroutine agora usa `WithSQLiteImmediateTransactionOnce`, mantendo a
+barreira de partida, o handle independente, as duas alterações e todas as
+assertions. A política repete somente `BEGIN IMMEDIATE`; corpo e COMMIT são
+executados uma vez. Não há mudança de produção, timeout ou retry do teste.
+
+Contraprova local com overlay diagnóstico não versionado: outro writer mantém
+`BEGIN IMMEDIATE` por 350 ms. A versão anterior falha com `SQLITE_BUSY`; a
+corrigida passa em três repetições. O teste normal passou em 30 repetições.
+O overlay apenas provoca contenção real; não é incorporado à suíte nem muda
+sua duração permanente. Testes locais continuam excluindo ACP conforme pedido.
+
 ## Ambientes Vitest por dependência de DOM — segundo lote (#1008)
 
 52 arquivos de lógica executam em Node, sem carregar jsdom, React e os setups

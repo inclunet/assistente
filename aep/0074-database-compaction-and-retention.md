@@ -2,6 +2,15 @@
 
 **Status:** In Progress
 
+**Isolamento da política de conexão na compactação (08/11/2026): In Progress.**
+A espera nativa maior de checkpoint/VACUUM permanece restrita à conexão durante
+a manutenção: seu valor anterior é restaurado antes do retorno ao pool, também
+em erro. O cleanup não usa o cancelamento da operação; se a restauração falhar,
+a conexão é descartada e o erro é reportado. Regressão com SQLite real cobre
+compactação completa, incremental, limiar e falha em banco somente leitura,
+preservando dados. Evidência em `docs/operations/ci-test-cost.md` (#1008).
+Não promove aceites das extensões nem atribui a correção às falhas de jobs no CI.
+
 **Driver SQLite para a abertura do chat (08/11/2026): Accepted.**
 O mantenedor autorizou revisar a escolha de `github.com/glebarez/sqlite` para
 qualificar `modernc.org/sqlite` com `gorm.io/driver/sqlite` oficial e Go 1.26,
@@ -461,6 +470,11 @@ Aproveitando a reforma do `config`, os fallbacks de modelo que liam `config.Defa
 | R5 | Retenção curta (24h) descarta dado de job ainda necessário | Média | Baixo | Configurável (horas) + cap por contagem independente; dados de jobs são operacionais por definição |
 | R3 | `VACUUM` longo em banco muito grande | Baixa | Médio | Roda uma vez (converte para incremental); subsequentes usam `incremental_vacuum` barato |
 | R4 | Erro de manutenção interrompe boot | Baixa | Alto | Best-effort: tudo logado, nada propaga erro fatal |
+
+A prova `TestCompactCleanupCancellationAndFailure` também cobre cancelamento
+após elevar o timeout e falhas injetadas no VACUUM/restauração, usando SQLite
+real com invólucro restrito ao teste. Verifica descarte e substituição da conexão,
+restauração após cancelamento, dados preservados e ambos os erros via `errors.Is`.
 
 ## Critérios de aceitação
 
