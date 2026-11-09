@@ -15,6 +15,7 @@ vi.mock('../../lib/commandGlobalOwnershipWails', () => ({
   }),
 }));
 import { WorkspaceToolbar } from '../workspace/WorkspaceToolbar';
+import { restoreDefaultFocus } from '../../hooks/useDefaultFocus';
 import { registerWorkspacePanelFocus } from '../workspace/workspacePanelFocusRegistry';
 import { WorkspaceTabCreationMenuProvider } from '../../lib/workspaceTabCreationMenu';
 import { getModalRegistrySnapshot, registerOpenModal, unregisterOpenModal } from '../../lib/modalRegistry';
@@ -931,6 +932,32 @@ describe('Criação de abas — Topbar, Toolbar e Menu reais', () => {
     screen.getByRole('button', { name: 'workspace.newTab, Ctrl+N' }).focus();
     return view;
   }
+
+  it.each(['rename', 'dismiss', 'import', 'navigate'])('opções do workspace respeitam o destino do foco: %s', async action => {
+    const view = await mountCreation();
+    const frames: FrameRequestCallback[] = [];
+    const requestFrame = vi.spyOn(window, 'requestAnimationFrame').mockImplementation(callback => {
+      frames.push(callback);
+      return frames.length;
+    });
+    try {
+      const trigger = screen.getByRole('button', { name: 'workspace.workspaceOptions' });
+      const destination = screen.getByRole('button', { name: 'commandPalette.title' });
+      vi.mocked(restoreDefaultFocus).mockImplementation(() => { destination.focus(); return true; });
+      fireEvent.click(trigger);
+      const menu = screen.getByRole('menu', { name: 'workspace.workspaceOptions' });
+      if (action === 'dismiss') fireEvent.keyDown(document.activeElement!, { key: 'Escape' });
+      else fireEvent.click(within(menu).getByRole('menuitem', { name: action === 'rename' ? /workspace.rename/ : /workspace.import/ }));
+      if (action === 'navigate') trigger.focus();
+      act(() => frames.forEach(callback => callback(0)));
+      expect(restoreDefaultFocus).toHaveBeenCalledTimes(action === 'import' ? 1 : 0);
+      if (action === 'rename') expect(screen.getByRole('textbox', { name: 'workspace.renamePlaceholder' })).toHaveFocus();
+      else expect(action === 'import' ? destination : trigger).toHaveFocus();
+    } finally {
+      view.unmount();
+      requestFrame.mockRestore();
+    }
+  });
 
   it.each(['KeyC', 'KeyE', 'KeyR', 'KeyT'])('conclui %s pelo ingresso teclado com Menu real', async (code) => {
     await mountCreation();
