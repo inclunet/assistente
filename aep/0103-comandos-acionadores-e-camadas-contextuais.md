@@ -2,6 +2,13 @@
 
 Status: In Progress — evidências e aceites pendentes conforme os registros abaixo
 
+**Preparo dos comandos manuais do Deck (08/11/2026, issue #1008):**
+As fixtures de comandos/pickers compartilham a configuração persistida e a
+projeção real. A ativação continua passando por `SetCommandLayerActive`, sem
+precriar claims. Provas de edição confirmada e mutações dos cenários permanecem.
+Medições e limites em `docs/operations/ci-test-cost.md`; status **In Progress**
+e aceites de produto inalterados.
+
 **Sincronização da prova de polling do Deck (08/11/2026, issue #1008):**
 A regressão de refresh após troca de aba sincroniza a publicação anterior no
 emitter antes de exigir o ciclo seguinte. A prova continua usando o ticker e
