@@ -2,6 +2,13 @@
 
 Status: In Progress — evidências e aceites pendentes conforme os registros abaixo
 
+**Ambientes das provas frontend (08/11/2026, issue #1008):**
+Provas de lógica/DTO sem dependência de DOM usam o projeto Node do Vitest;
+provas de interface, eventos reais de teclado, foco e axe preservam jsdom e
+seu setup. Nenhuma assertion ou contrato muda. Novos arquivos permanecem em
+UI por padrão, sem seleção por impacto ou dispensa de checks. Medições em
+`docs/operations/ci-test-cost.md`; status **In Progress**, sem novo aceite.
+
 **Retorno de foco dos formulários (08/11/2026, issue #1008):**
 O retorno adiado do Modal preserva foco adquirido depois do fechamento;
 sem nova aquisição, continua devolvendo à área padrão. Regressão determinística
