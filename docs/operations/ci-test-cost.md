@@ -522,3 +522,23 @@ elevar o timeout, falha só na restauração e falhas na operação e restauraç
 Verificam reutilização com timeout restaurado após cancelamento, fechamento e
 substituição da conexão após falha no cleanup, preservação de ambos os erros
 com `errors.Is` e dos dados. Não há hook de teste no código de produção.
+
+## Aquisição do writer na prova de revisão ABA
+
+O run `42538662712`, job `128908877651`, falhou em
+`TestMessageRevisionStorageCommittedFileWriterInvalidatesCapturedConversation`:
+um dos dois writers recebeu `SQLITE_BUSY` após 105 ms. A prova exige duas
+escritas confirmadas para verificar invalidação mesmo quando duas alternâncias
+de `pinned` restauram o conteúdo original com timestamp congelado. Seu preparo
+usava SQL/ORM diretamente, sem a política central de aquisição do writer.
+
+Cada goroutine agora usa `WithSQLiteImmediateTransactionOnce`, mantendo a
+barreira de partida, o handle independente, as duas alterações e todas as
+assertions. A política repete somente `BEGIN IMMEDIATE`; corpo e COMMIT são
+executados uma vez. Não há mudança de produção, timeout ou retry do teste.
+
+Contraprova local com overlay diagnóstico não versionado: outro writer mantém
+`BEGIN IMMEDIATE` por 350 ms. A versão anterior falha com `SQLITE_BUSY`; a
+corrigida passa em três repetições. O teste normal passou em 30 repetições.
+O overlay apenas provoca contenção real; não é incorporado à suíte nem muda
+sua duração permanente. Testes locais continuam excluindo ACP conforme pedido.
