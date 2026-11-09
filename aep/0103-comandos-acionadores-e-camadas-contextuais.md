@@ -2,6 +2,14 @@
 
 Status: In Progress — evidências e aceites pendentes conforme os registros abaixo
 
+**Preparo das provas de catálogo (08/11/2026, issue #1008):**
+Sete provas de mapa, publicação e hot-swap usam `readyCommandProduct` com
+HOME/configdir isolados. Sessão, SQLite, workspace, lifecycle, executor e bridge
+continuam reais; o preparo não cria manutenção de jobs nem reinicia previamente
+o App. Provas do worker de regeneração, manutenção e restart conservam suas
+fixtures completas. Assertions e contratos inalterados; evidências em
+`docs/operations/ci-test-cost.md`. Status **In Progress**, sem novo aceite.
+
 **Ambientes das provas frontend (08/11/2026, issue #1008):**
 Provas de lógica/DTO sem dependência de DOM usam o projeto Node do Vitest;
 provas de interface, eventos reais de teclado, foco e axe preservam jsdom e

@@ -11,7 +11,7 @@ import (
 )
 
 func TestRecoverCommandCatalogAfterProductClosedAndLifecycleUnmounted(t *testing.T) {
-	a := commandJobPublicationApp(t)
+	a := commandCatalogProductFixture(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	ticket := a.captureCommandCatalogRecoveryTicket()
@@ -35,7 +35,7 @@ func TestRecoverCommandCatalogAfterProductClosedAndLifecycleUnmounted(t *testing
 }
 
 func TestRecoverCommandCatalogRetriesAfterMountDependencyFailure(t *testing.T) {
-	a := commandJobPublicationApp(t)
+	a := commandCatalogProductFixture(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	ticket := a.captureCommandCatalogRecoveryTicket()
@@ -77,7 +77,7 @@ func TestRecoverCommandCatalogRetriesAfterMountDependencyFailure(t *testing.T) {
 }
 
 func TestRecoverCommandCatalogJoinsStoppedLifecycleInsteadOfResettingIt(t *testing.T) {
-	a := commandJobPublicationApp(t)
+	a := commandCatalogProductFixture(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	old := a.commandProduct.Load()
@@ -106,7 +106,7 @@ func TestRecoverCommandCatalogJoinsStoppedLifecycleInsteadOfResettingIt(t *testi
 }
 
 func TestCommandCatalogRecoveryTicketStopsOnLogoutAndWorkspaceChange(t *testing.T) {
-	a := commandJobPublicationApp(t)
+	a := commandCatalogProductFixture(t)
 	ticket := a.captureCommandCatalogRecoveryTicket()
 	if ticket == nil || !ticket.current(a) {
 		t.Fatal("ticket autenticado inválido no início")

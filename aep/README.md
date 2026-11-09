@@ -1,3 +1,5 @@
+AEP-0103 (08/11/2026): sete provas de catálogo usam produto real com preparo menor; worker, jobs e restart mantêm provas próprias. Medições e mapa de garantias em `docs/operations/ci-test-cost.md` (#1008). Status **In Progress**.
+
 AEP-0103 (08/11/2026): provas frontend de lógica/DTO sem DOM usam Node; interface, foco, teclado e axe preservam jsdom. Mesmo inventário e assertions, medições em `docs/operations/ci-test-cost.md` (#1008). Status **In Progress**.
 
 AEP-0103 (08/11/2026): a prova de revisão ABA adota a aquisição central do writer, preservando duas escritas concorrentes e todas as assertions. Corrige falha comprovada de contenção da fixture (#1008); status **In Progress**. Evidências em `docs/operations/ci-test-cost.md`.
