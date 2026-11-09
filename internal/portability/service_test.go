@@ -11,8 +11,7 @@ import (
 
 	"assistente/internal/credentials"
 	"assistente/internal/database"
-
-	"path/filepath"
+	"assistente/internal/testutil/dbfixture"
 )
 
 type memoryCredentialStore struct {
@@ -1083,11 +1082,7 @@ func setupPortabilityTestDB(t *testing.T) {
 
 func setupPortabilityRuntimeTestDB(t *testing.T) {
 	t.Helper()
-	restore := database.SetDB(database.DB())
-	if err := database.InitPath(filepath.Join(t.TempDir(), "portability.db")); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = database.Close(); restore() })
+	dbfixture.Open(t)
 	if err := database.DB().Create(&database.User{UUIDModel: database.UUIDModel{ID: portabilityTestUserID}, Username: portabilityTestUserID}).Error; err != nil {
 		t.Fatal(err)
 	}
