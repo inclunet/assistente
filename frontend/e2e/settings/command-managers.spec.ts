@@ -1,6 +1,7 @@
 import { test, expect } from '../fixtures';
 
-test.use({ locale: 'pt-BR' });
+// Preserve the failing attempt: a passing retry cannot explain who stole focus.
+test.use({ locale: 'pt-BR', trace: 'retain-on-failure' });
 
 const configuration = {
   scope: 'global', revision: 1, fingerprint: 'manager-fixture', keyboardOperational: true,

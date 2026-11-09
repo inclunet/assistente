@@ -1,9 +1,11 @@
 package app
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"runtime/pprof"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -210,6 +212,10 @@ func TestCommandDeckInputRefreshesEquivalentJobProjectionAfterWorkspaceTabSwitch
 			t.Fatalf("Deck epoch did not survive the tab-switch tick: status=%q", status)
 		}
 	case <-time.After(5 * time.Second):
+		// Capture before deferred cancellation drains the workers and hides the wait.
+		var stacks bytes.Buffer
+		_ = pprof.Lookup("goroutine").WriteTo(&stacks, 2)
+		t.Logf("Deck refresh timeout before cleanup: status queue=%d, render queue=%d, input queue=%d, context=%v\n%s", len(statuses), len(handle.writes), len(handle.events), deckCtx.Err(), stacks.String())
 		t.Fatal("runDeckEpoch did not publish status after its refresh tick")
 	}
 	if changed := keyboardMapChanges.Load(); changed != 0 {
