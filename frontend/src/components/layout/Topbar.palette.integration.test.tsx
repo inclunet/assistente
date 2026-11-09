@@ -982,7 +982,7 @@ describe('Criação de abas — Topbar, Toolbar e Menu reais', () => {
     }
   });
 
-  it.each(['restore', 'new-focus', 'route', 'session', 'unmount', 'modal', 'reject', 'reopened'])('troca assíncrona de workspace respeita conclusão e foco: %s', async scenario => {
+  it.each(['restore', 'new-focus', 'route', 'session', 'unmount', 'modal', 'reject', 'reject-new-focus', 'reopened'])('troca assíncrona de workspace respeita conclusão e foco: %s', async scenario => {
     const originalWorkspace = state.workspace.workspace;
     const originalWorkspaces = state.workspace.workspaces;
     let view: ReturnType<typeof render> | undefined;
@@ -1025,24 +1025,25 @@ describe('Criação de abas — Topbar, Toolbar e Menu reais', () => {
       act(() => frames.splice(0).forEach(callback => callback(0)));
       expect(restoreDefaultFocus).not.toHaveBeenCalled();
       const otherControl = screen.getByRole('button', { name: 'Outro controle' });
-      if (scenario === 'new-focus') otherControl.focus();
+      if (scenario === 'new-focus' || scenario === 'reject-new-focus') otherControl.focus();
       if (scenario === 'reopened') fireEvent.click(screen.getByRole('button', { name: 'workspace.workspaceList' }));
       if (scenario === 'route') { locationState.pathname = '/settings'; view.rerender(content()); }
       if (scenario === 'session') state.auth.user = { userId: 'user-b', sessionId: 'session-b' };
       if (scenario === 'modal') { showModal = true; view.rerender(content()); }
       if (scenario === 'unmount') view.unmount();
       await act(async () => {
-        if (scenario === 'reject') reject(new Error('switch failed'));
+        if (scenario.startsWith('reject')) reject(new Error('switch failed'));
         else complete();
         await Promise.resolve();
       });
       act(() => frames.splice(0).forEach(callback => callback(0)));
-      expect(restoreDefaultFocus).toHaveBeenCalledTimes(scenario === 'restore' ? 1 : 0);
+      expect(restoreDefaultFocus).toHaveBeenCalledTimes(scenario === 'restore' || scenario === 'reject' ? 1 : 0);
       if (scenario === 'restore') {
         expect(oldPanel).not.toBeInTheDocument();
         expect(screen.getByRole('textbox', { name: 'Painel ativo' })).toHaveFocus();
       }
-      if (scenario === 'new-focus') expect(otherControl).toHaveFocus();
+      if (scenario === 'reject') expect(oldPanel).toHaveFocus();
+      if (scenario === 'new-focus' || scenario === 'reject-new-focus') expect(otherControl).toHaveFocus();
     } finally {
       complete();
       await act(async () => { await Promise.resolve(); });

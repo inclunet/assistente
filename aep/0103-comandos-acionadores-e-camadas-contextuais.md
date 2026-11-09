@@ -5698,3 +5698,6 @@ uma única vez e foco posterior do usuário é preservado. Os cenários de naveg
 usam MemoryRouter e substituem a página antes do frame; a recusa de conclusão
 assíncrona após mudar de rota usa a identidade de rota da fixture. Isso não atribui causa
 às intermitências históricas da #1062. AEP-0103 permanece In Progress.
+
+Se a troca de workspace falhar, o foco retorna ao painel de origem somente se
+a origem continuar ativa e não houver nova navegação, modal ou mudança de sessão.

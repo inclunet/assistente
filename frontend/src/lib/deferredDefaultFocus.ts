@@ -7,8 +7,8 @@ import { getTopmostModalID } from './modalRegistry';
 export function scheduleDefaultFocusRestore({ onComplete, allowCurrentModal = false, after, isCurrent }: {
   onComplete?: () => void;
   allowCurrentModal?: boolean;
-  /** Wait for an asynchronous selection to apply its destination. False cancels. */
-  after?: Promise<boolean>;
+  /** Wait for an asynchronous selection to settle before scheduling its focus return. */
+  after?: Promise<void>;
   isCurrent?: () => boolean;
 } = {}): void {
   const focusAtClose = document.activeElement;
@@ -23,6 +23,6 @@ export function scheduleDefaultFocusRestore({ onComplete, allowCurrentModal = fa
     onComplete?.();
   });
   if (after) {
-    void after.then(ready => { if (ready) schedule(); else onComplete?.(); }, () => onComplete?.());
+    void after.then(schedule, () => onComplete?.());
   } else schedule();
 }

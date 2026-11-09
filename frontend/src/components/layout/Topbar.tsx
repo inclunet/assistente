@@ -1546,23 +1546,26 @@ export function Topbar() {
       commandRouteIdentityRef.current === intent.routeIdentity && !isModalOpen();
   }, []);
 
-  const pendingWorkspaceSwitchRef = useRef<{ ready: Promise<boolean>; isCurrent: () => boolean } | null>(null);
+  const pendingWorkspaceSwitchRef = useRef<{ ready: Promise<void>; isCurrent: () => boolean } | null>(null);
   /** Keep selection completion separate from command intents, which expire on workspace changes. */
   const selectWorkspace = useCallback((workspaceId: string, active: boolean) => {
     pendingWorkspaceSwitchRef.current = null;
     if (active) return;
     const user = useAuthStore.getState().user;
     const route = commandRouteIdentityRef.current;
+    const originWorkspaceId = useWorkspaceStore.getState().workspace?.id;
+    let focusWorkspaceId: string | undefined = workspaceId;
     const selection = {
-      ready: switchWorkspace(workspaceId).then(() => true, error => {
+      ready: switchWorkspace(workspaceId).catch(error => {
+        focusWorkspaceId = originWorkspaceId;
         logger.error('[Workspace] Falha ao trocar workspace', error);
-        return false;
       }),
       isCurrent: (): boolean => {
         const auth = useAuthStore.getState();
         return pendingWorkspaceSwitchRef.current === selection && commandPickerMountedRef.current &&
           auth.isAuthenticated && auth.user?.userId === user?.userId && auth.user?.sessionId === user?.sessionId &&
-          commandRouteIdentityRef.current === route && useWorkspaceStore.getState().workspace?.id === workspaceId;
+          commandRouteIdentityRef.current === route && Boolean(focusWorkspaceId) &&
+          useWorkspaceStore.getState().workspace?.id === focusWorkspaceId;
       },
     };
     pendingWorkspaceSwitchRef.current = selection;
