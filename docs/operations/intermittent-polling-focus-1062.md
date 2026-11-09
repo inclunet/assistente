@@ -105,6 +105,31 @@ A ausência de commit na criação de terminal em `Topbar.palette.integration.te
 continua sem reprodução causal. Nenhuma alteração foi feita nesse contrato.
 Reexecuções verdes não encerram esse item.
 
+Na validação integrada de 09/11, a ausência de commit voltou a ocorrer nos casos
+`conclui KeyC pelo ingresso teclado` e `criar chat pelo menu entrega o foco`.
+Uma tentativa separada de qualificar o diagnóstico nem alcançou a injeção em
+Take: a captura registrou Begin/Take/Commit = 0, sessão autenticada, `hasFocus`
+verdadeiro, nenhum modal, aba original, menu desconectado e foco no `BODY`.
+Isso restringe aquela observação ao percurso anterior à admissão, mas não prova
+qual guarda ou transição recusou o pedido, nem atribui a causa à carga da máquina.
+
+Os quatro casos de criação com entrega de foco agora imprimem esse snapshot
+somente se a assertion de commit falhar, antes do `finally` desmontar a Topbar
+e restaurar o workspace. Preservam a assertion e seu prazo, e relançam o mesmo
+erro; não fazem consultas, retries nem modificam código produtivo.
+
+Contraprova qualificada: travar temporariamente a resposta de Take produziu
+Begin=1, Take=1 e Commit=0, com o acionador focado e o menu fechado, distinguindo
+essa espera da recusa anterior. A assertion original falhou e o diagnóstico
+permaneceu no stderr. Injeção removida. Vinte repetições exploratórias passaram;
+outras vinte com 50 ms entre exibição e seleção também passaram. A instrumentação
+temporária de guardas foi removida, sem adotar atrasos nos testes versionados.
+
+Na próxima ocorrência, usar os contadores para escolher a investigação:
+Begin=0 exige examinar intenção, foco, executor montado e guardas após flush;
+Begin/Take positivos com Commit=0 exige examinar a resposta e o contexto do
+handoff. Não substituir essas guardas por fallback nem encerrar por rerun verde.
+
 As capturas acima preparam evidência para a próxima ocorrência. Identificar o
 bloqueio real do Deck, atribuir a mudança de foco e resolver ou delimitar a
 ocorrência da Topbar continuam pendentes na #1062. Só causas demonstradas

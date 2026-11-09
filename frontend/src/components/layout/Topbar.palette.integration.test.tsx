@@ -3,6 +3,7 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 import userEvent from '@testing-library/user-event';
 import { useEffect, useRef } from 'react';
 import { Topbar } from './Topbar';
+import { logger } from '../../utils/logger';
 import { createCommandContextScope, type CommandContextScope } from '../../lib/commandContextReact';
 
 let paletteContextScope: CommandContextScope | null = null;
@@ -1045,7 +1046,27 @@ describe('Criação de abas — Topbar, Toolbar e Menu reais', () => {
       fireEvent.keyDown(document.activeElement!, { key: 'n', code: 'KeyN', ctrlKey: true });
       const menu = await screen.findByRole('menu', { name: 'workspace.newTabMenu' });
       fireEvent.click(within(menu).getByRole('menuitem', { name: new RegExp(`^${type},`) }));
-      await waitFor(() => expect(state.commitBackendCommand).toHaveBeenCalledTimes(1));
+      try {
+        await waitFor(() => expect(state.commitBackendCommand).toHaveBeenCalledTimes(1));
+      } catch (error) {
+        const focused = document.activeElement;
+        logger.error('Topbar tab creation before cleanup', {
+          type,
+          begin: beginUICommand.mock.calls.length,
+          requestedCommand: beginUICommand.mock.calls[beginUICommand.mock.calls.length - 1]?.[0],
+          take: takeUICommand.mock.calls.length,
+          commit: state.commitBackendCommand.mock.calls.length,
+          cancel: state.cancelUICommand.mock.calls.length,
+          result: getUICommandResult.mock.calls.length,
+          authenticated: state.auth.isAuthenticated,
+          activeTab: state.workspace.workspace.activeTabId,
+          hasFocus: document.hasFocus(),
+          topModal: getModalRegistrySnapshot().topID,
+          focused: { tag: focused?.tagName, id: focused?.id, label: focused?.getAttribute('aria-label') },
+          menuConnected: menu.isConnected,
+        });
+        throw error;
+      }
       await waitFor(() => expect(input).toHaveFocus());
       expect(focus).toHaveBeenCalledTimes(1);
       expect(state.beginLocalCommandUIKey).not.toHaveBeenCalled();
