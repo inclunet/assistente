@@ -1,4 +1,4 @@
-AEP-0103 (09/11/2026): opções do workspace preservam foco na renomeação e na navegação posterior; retorno único e Escape cobertos por regressões (#1062). Status **In Progress**. Evidências em `docs/operations/intermittent-polling-focus-1062.md`.
+AEP-0103 (09/11/2026): menus de opções e lista do workspace preservam foco na renomeação e na navegação posterior; retorno único e Escape cobertos por regressões (#1062). Status **In Progress**. Evidências em `docs/operations/intermittent-polling-focus-1062.md`.
 
 AEP-0103 (09/11/2026): Menu, MenuButton e Modal compartilham retorno adiado que preserva nova navegação e modal aberto; eliminados a restauração dupla do MenuButton e o timer de fechamento do hook, com contraprovas (#1062). Status **In Progress**. Evidências em `docs/operations/intermittent-polling-focus-1062.md`; incidentes históricos continuam em investigação.
 

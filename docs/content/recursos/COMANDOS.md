@@ -23,7 +23,8 @@ seguido das ações menos frequentes de restauração e atualização dos padrõ
 Ao selecionar uma opção que abre um diálogo, o foco permanece no diálogo.
 O retorno adiado de menus e diálogos à área padrão também preserva uma nova
 navegação feita depois de esse retorno ter sido agendado.
-No menu de opções do workspace, **Renomear** mantém o foco no campo do nome.
+Nos menus de opções do workspace das duas barras, **Renomear** mantém o foco
+no campo do nome. A lista de workspaces também preserva navegação posterior.
 Escape no menu retorna ao botão de opções sem deslocar o foco para a conversa.
 
 Condições de página também são reconhecidas ao carregar as configurações.

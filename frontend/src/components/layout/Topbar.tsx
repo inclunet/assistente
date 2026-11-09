@@ -29,7 +29,7 @@ import { KeyboardShortcutsHelp } from '../ui/KeyboardShortcutsHelp';
 import { useAnchoredContextMenu } from '../../hooks/useAnchoredContextMenu';
 import { useToolbarKeyboardNav } from '../../hooks/useToolbarKeyboardNav';
 import { useAnnouncer } from '../../hooks/useAnnouncer';
-import { restoreDefaultFocus } from '../../hooks/useDefaultFocus';
+import { scheduleDefaultFocusRestore } from '../../lib/deferredDefaultFocus';
 import { captureWorkspaceTabCreateFocus } from '../../lib/commandWorkspaceTabCreateFocus';
 import { describeCommandCatalogItem, listCommandCatalog } from '../../services/commandCatalog';
 import { CommandArgumentsDialog } from '../commands/CommandArgumentsDialog';
@@ -3349,7 +3349,7 @@ export function Topbar() {
     closeMenu: closePicker,
     onSelectItem: onPickerSelect,
   } = useAnchoredContextMenu({
-    onAfterSelect: () => requestAnimationFrame(() => restoreDefaultFocus()),
+    onAfterSelect: () => scheduleDefaultFocusRestore(),
     onAfterDismiss: () => {
       workspacePickerIntentRef.current = null;
       workspacePickerTriggerRef.current?.focus();
@@ -3383,7 +3383,7 @@ export function Topbar() {
         executePendingCommandRef.current?.();
         return;
       }
-      requestAnimationFrame(() => restoreDefaultFocus());
+      scheduleDefaultFocusRestore();
     },
     onAfterDismiss: () => pickerButtonRef.current?.focus(),
   });
@@ -4218,6 +4218,7 @@ export function Topbar() {
         y={pickerMenu.y}
         visible={pickerMenu.visible}
         ariaLabel={pickerMenu.ariaLabel || t('workspace.workspaceList')}
+        restoreFocusOnClose={false}
         searchable
         searchPlaceholder={t('workspace.searchWorkspaces')}
         onClose={closePicker}
@@ -4230,6 +4231,7 @@ export function Topbar() {
         y={ctxMenu.y}
         visible={ctxMenu.visible}
         ariaLabel={ctxMenu.ariaLabel || t('workspace.workspaceOptions')}
+        restoreFocusOnClose={false}
         onClose={closeCtx}
         onSelect={onCtxSelect}
       />

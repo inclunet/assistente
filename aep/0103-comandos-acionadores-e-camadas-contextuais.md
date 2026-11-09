@@ -3,12 +3,12 @@
 Status: In Progress — evidências e aceites pendentes conforme os registros abaixo
 
 **Opções do workspace (09/11/2026, issue #1062):**
-O menu de opções usa um único retorno compartilhado. A ação Renomear mantém
+Os menus de opções e a lista de workspaces usam um único retorno compartilhado. A ação Renomear mantém
 o foco no campo de edição; navegação posterior ao fechamento não é sobrescrita.
 Escape continua devolvendo foco ao acionador e o handoff de criação continua
-sob responsabilidade do fluxo de comandos. Três contraprovas falham antes da
-correção (renomeação, navegação e retorno duplicado); a prova de Escape permanece
-verde. Status **In Progress**, sem atribuir causa à intermitência histórica da
+sob responsabilidade do fluxo de comandos. Oito contraprovas falham antes da
+correção (renomeação, navegação e retorno duplicado nas duas barras/lista); as
+duas provas de Escape permanecem verdes. Status **In Progress**, sem atribuir causa à intermitência histórica da
 criação de terminal. Evidências em `docs/operations/intermittent-polling-focus-1062.md`.
 
 **Retorno adiado de menus e diálogos (09/11/2026, issue #1062):**

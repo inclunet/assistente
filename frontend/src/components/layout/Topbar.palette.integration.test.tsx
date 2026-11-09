@@ -59,7 +59,7 @@ const state = vi.hoisted(() => ({
   },
   workspace: {
     workspace: { id: 'workspace-a', name: 'Workspace', activeTabId: 'tab-a', tabs: [{ id: 'tab-a', type: 'chat' }] },
-    workspaces: [],
+    workspaces: [] as Array<{ id: string; name: string; is_active: boolean; tab_count: number }>,
     switchWorkspace: vi.fn(),
     createWorkspace: vi.fn(),
     renameWorkspace: vi.fn(),
@@ -90,7 +90,7 @@ type IntegrationAuthState = {
 
 type IntegrationWorkspaceState = {
   workspace: { id: string; name: string; activeTabId: string };
-  workspaces: never[];
+  workspaces: typeof state.workspace.workspaces;
   switchWorkspace: typeof state.workspace.switchWorkspace;
   createWorkspace: typeof state.workspace.createWorkspace;
   renameWorkspace: typeof state.workspace.renameWorkspace;
@@ -933,7 +933,7 @@ describe('Criação de abas — Topbar, Toolbar e Menu reais', () => {
     return view;
   }
 
-  it.each(['rename', 'dismiss', 'import', 'navigate'])('opções do workspace respeitam o destino do foco: %s', async action => {
+  it.each(['toolbar', 'topbar'].flatMap(surface => ['rename', 'dismiss', 'import', 'navigate'].map(action => ({ surface, action }))))('opções do workspace respeitam o destino do foco: $surface/$action', async ({ surface, action }) => {
     const view = await mountCreation();
     const frames: FrameRequestCallback[] = [];
     const requestFrame = vi.spyOn(window, 'requestAnimationFrame').mockImplementation(callback => {
@@ -941,10 +941,11 @@ describe('Criação de abas — Topbar, Toolbar e Menu reais', () => {
       return frames.length;
     });
     try {
-      const trigger = screen.getByRole('button', { name: 'workspace.workspaceOptions' });
+      const trigger = screen.getByRole('button', { name: surface === 'toolbar' ? 'workspace.workspaceOptions' : 'workspace.workspaceList' });
       const destination = screen.getByRole('button', { name: 'commandPalette.title' });
       vi.mocked(restoreDefaultFocus).mockImplementation(() => { destination.focus(); return true; });
-      fireEvent.click(trigger);
+      if (surface === 'toolbar') fireEvent.click(trigger);
+      else fireEvent.contextMenu(trigger);
       const menu = screen.getByRole('menu', { name: 'workspace.workspaceOptions' });
       if (action === 'dismiss') fireEvent.keyDown(document.activeElement!, { key: 'Escape' });
       else fireEvent.click(within(menu).getByRole('menuitem', { name: action === 'rename' ? /workspace.rename/ : /workspace.import/ }));
@@ -955,6 +956,35 @@ describe('Criação de abas — Topbar, Toolbar e Menu reais', () => {
       else expect(action === 'import' ? destination : trigger).toHaveFocus();
     } finally {
       view.unmount();
+      requestFrame.mockRestore();
+    }
+  });
+
+  it.each([false, true])('lista de workspaces tem retorno único sem sobrescrever navegação: %s', async navigated => {
+    const originalWorkspaces = state.workspace.workspaces;
+    state.workspace.workspaces = [{ id: 'workspace-a', name: 'Workspace atual', is_active: true, tab_count: 1 }];
+    let view: ReturnType<typeof render> | undefined;
+    const frames: FrameRequestCallback[] = [];
+    const requestFrame = vi.spyOn(window, 'requestAnimationFrame').mockImplementation(callback => {
+      frames.push(callback);
+      return frames.length;
+    });
+    try {
+      view = await mountCreation();
+      const trigger = screen.getByRole('button', { name: 'workspace.workspaceList' });
+      const destination = screen.getByRole('button', { name: 'commandPalette.title' });
+      vi.mocked(restoreDefaultFocus).mockImplementation(() => { destination.focus(); return true; });
+      fireEvent.click(trigger);
+      act(() => frames.splice(0).forEach(callback => callback(0)));
+      fireEvent.click(screen.getByRole('menuitem', { name: /Workspace atual/ }));
+      if (navigated) trigger.focus();
+      act(() => frames.splice(0).forEach(callback => callback(0)));
+      expect(restoreDefaultFocus).toHaveBeenCalledTimes(navigated ? 0 : 1);
+      expect(navigated ? trigger : destination).toHaveFocus();
+      expect(state.workspace.switchWorkspace).not.toHaveBeenCalled();
+    } finally {
+      view?.unmount();
+      state.workspace.workspaces = originalWorkspaces;
       requestFrame.mockRestore();
     }
   });

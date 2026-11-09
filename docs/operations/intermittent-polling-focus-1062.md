@@ -82,13 +82,13 @@ O trace do incidente permanece necessário; não encerrar o item por essa infer�
 
 ## Topbar e critérios ainda abertos
 
-O menu de opções do workspace tinha outro retorno concorrente: o Menu interno
-e o callback do WorkspaceToolbar restauravam a área padrão. Três contraprovas
-com Menu/Toolbar reais demonstraram retorno duplicado, sobrescrita de navegação
-nova e perda de foco no campo Renomear. O último caso também encerrava a edição
-pelo blur. O menu agora delega o retorno ao callback do Toolbar, que usa o
-agendamento protegido compartilhado. As três provas passam; Escape continua
-focando o acionador, sem retorno à área padrão. O handoff de criação de workspace
+Os menus de opções das duas barras e a lista de workspaces tinham outro retorno
+concorrente: o Menu interno e os callbacks de Topbar/WorkspaceToolbar restauravam
+a área padrão. Oito contraprovas com os componentes reais demonstraram retorno
+duplicado, sobrescrita de navegação nova e perda de foco no campo Renomear. O último caso também encerrava a edição
+pelo blur. Os menus agora delegam o retorno aos callbacks dos consumidores, que usam o
+agendamento protegido compartilhado. As oito provas passam; Escape continua
+focando o acionador nas duas barras, sem retorno à área padrão. O handoff de criação de workspace
 continua com a prioridade e as validações existentes.
 
 Essa correção é independente da ausência histórica de commit de terminal.
