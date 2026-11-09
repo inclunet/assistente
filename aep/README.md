@@ -1,3 +1,5 @@
+AEP-0114 (08/11/2026): prova da borda Wails observa orçamento real de prévia sem repetir a espera de 16 s, preservada no serviço; contraprova detecta teto indevido. Status **Done** (#1008).
+
 AEP-0103 (08/11/2026): sete provas de catálogo usam produto real com preparo menor; worker, jobs e restart mantêm provas próprias. Medições e mapa de garantias em `docs/operations/ci-test-cost.md` (#1008). Status **In Progress**.
 
 AEP-0103 (08/11/2026): provas frontend de lógica/DTO sem DOM usam Node; interface, foco, teclado e axe preservam jsdom. Mesmo inventário e assertions, medições em `docs/operations/ci-test-cost.md` (#1008). Status **In Progress**.
