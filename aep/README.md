@@ -1,3 +1,5 @@
+AEP-0103 (08/11/2026): sete provas de catálogo usam produto real com preparo menor; worker, jobs e restart mantêm provas próprias. Medições e mapa de garantias em `docs/operations/ci-test-cost.md` (#1008). Status **In Progress**.
+
 AEP-0103 (08/11/2026): provas frontend de lógica/DTO sem DOM usam Node; interface, foco, teclado e axe preservam jsdom. Mesmo inventário e assertions, medições em `docs/operations/ci-test-cost.md` (#1008). Status **In Progress**.
 
 AEP-0047 / AEP-0116 (08/11/2026): provas de portabilidade reutilizam apenas o schema produtivo, preservando isolamento, importação e rollback reais; medições em `docs/operations/ci-test-cost.md` (#1008). Status permanecem **In Progress** / **Done**, respectivamente.

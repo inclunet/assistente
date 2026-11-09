@@ -524,3 +524,32 @@ mesmos 52 arquivos e 366 testes aprovados em cada execução:
 O inventário de casos/resultados foi comparado entre cada par. O ganho é desta
 seleção; não é uma redução equivalente prometida para o workflow completo.
 `npm test` continua executando os dois projetos no mesmo processo Vitest.
+
+
+## Preparo proporcional das provas de catálogo
+
+Sete testes de contrato wire, publicação do mapa e recuperação direta do
+catálogo passam a usar o produto real com HOME/configdir isolados, sem criar
+jobs/manutenção nem reiniciar previamente o App. SQLite, autenticação,
+workspace, bootstrap, executor, bridge e as operações sob teste permanecem
+reais. O helper reutiliza `readyCommandProduct`; não introduz mocks de domínio.
+
+Mapa das garantias:
+
+- `TestCommandFrontendKeyboardWireContract` continua comparando o JSON real
+  com a fixture consumida pelo frontend.
+- As duas provas de readiness continuam verificando a notificação após
+  bootstrap e a recusa de mapa quando o bootstrap é cancelado.
+- As quatro provas diretas de recovery preservam produto antigo fechado,
+  falha/retry de montagem, join de lifecycle parado e invalidação de ticket
+  por troca de workspace/logout.
+- Worker/singleflight, regeneração de jobs, falha de storage, projeção,
+  manutenção e restart conservam suas fixtures completas. Não se substituiu
+  uma integração exercitada por essas provas por um stub.
+
+Três pares locais com binários previamente compilados, processos independentes,
+Windows/Go 1.26.0, sem outras suítes/compilações locais concorrentes: antes
+4,401 / 1,986 / 1,859 s; depois 1,220 / 0,876 / 0,866 s. Mediana
+1,986 → 0,876 s (−55,9%). Os mesmos sete testes passaram em todos os pares;
+não houve alteração de assertions, prazo ou política produtiva. São tempos
+da seleção, sem extrapolação ao CI ou ao pacote completo.
