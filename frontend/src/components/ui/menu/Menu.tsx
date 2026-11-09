@@ -108,7 +108,7 @@ export const Menu: React.FC<MenuProps> = ({
     const handleClickOutside = (e: MouseEvent) => {
       if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
         onCloseRef.current?.();
-        if (restoreFocusOnClose) scheduleDefaultFocusRestore();
+        if (restoreFocusOnClose) scheduleDefaultFocusRestore({ allowCurrentModal: true });
       }
     };
 
@@ -198,12 +198,12 @@ export const Menu: React.FC<MenuProps> = ({
         setSearchQuery('');
       } else {
         onClose?.();
-        if (restoreFocusOnClose) scheduleDefaultFocusRestore();
+        if (restoreFocusOnClose) scheduleDefaultFocusRestore({ allowCurrentModal: true });
       }
     } else if (e.key === 'Tab') {
       e.preventDefault();
       onClose?.();
-      if (restoreFocusOnClose) scheduleDefaultFocusRestore();
+      if (restoreFocusOnClose) scheduleDefaultFocusRestore({ allowCurrentModal: true });
     } else if (e.key === 'Enter') {
       e.preventDefault();
       const currentItems = getCurrentItems();
@@ -212,7 +212,7 @@ export const Menu: React.FC<MenuProps> = ({
         first.action();
         onSelect?.(first);
         onClose?.();
-        if (restoreFocusOnClose) scheduleDefaultFocusRestore();
+        if (restoreFocusOnClose) scheduleDefaultFocusRestore({ allowCurrentModal: true });
       }
     }
   };
@@ -227,7 +227,7 @@ export const Menu: React.FC<MenuProps> = ({
     if (e.key === 'Tab') {
       e.preventDefault();
       onClose?.();
-      if (restoreFocusOnClose) scheduleDefaultFocusRestore();
+      if (restoreFocusOnClose) scheduleDefaultFocusRestore({ allowCurrentModal: true });
       return;
     }
     const currentItems = getCurrentItems();
@@ -293,7 +293,7 @@ export const Menu: React.FC<MenuProps> = ({
           announce(t('a11y.announce.submenuClosed'));
         } else {
           onClose?.();
-          if (restoreFocusOnClose) scheduleDefaultFocusRestore();
+          if (restoreFocusOnClose) scheduleDefaultFocusRestore({ allowCurrentModal: true });
         }
         break;
 
@@ -310,7 +310,7 @@ export const Menu: React.FC<MenuProps> = ({
           currentItem.action();
           onSelect?.(currentItem);
           onClose?.();
-          if (restoreFocusOnClose) scheduleDefaultFocusRestore();
+          if (restoreFocusOnClose) scheduleDefaultFocusRestore({ allowCurrentModal: true });
         }
         break;
       }
@@ -356,7 +356,7 @@ export const Menu: React.FC<MenuProps> = ({
                 item.action?.();
                 onSelect?.(item);
                 onClose?.();
-          if (restoreFocusOnClose) scheduleDefaultFocusRestore();
+          if (restoreFocusOnClose) scheduleDefaultFocusRestore({ allowCurrentModal: true });
               }
             }}
             onMouseEnter={() => {

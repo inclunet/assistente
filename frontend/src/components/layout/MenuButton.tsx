@@ -89,7 +89,7 @@ export const MenuButton = forwardRef<MenuButtonRef, MenuButtonProps>(
     onSelectItem,
   } = useAnchoredContextMenu({
     onAfterSelect: () => {
-      scheduleDefaultFocusRestore(onAfterSelectProp);
+      scheduleDefaultFocusRestore({ onComplete: onAfterSelectProp, allowCurrentModal: true });
     },
     onAfterDismiss: () => {
       resolveTriggerElement()?.focus();
