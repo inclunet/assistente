@@ -31,6 +31,7 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && inputs.pr_number > 0) }}
 
 jobs:
+  # O guard descarta o dispatch antes de reservar runners para jobs pesados.
   scripts:
     permissions:
       contents: read
@@ -63,6 +64,7 @@ jobs:
         run: bash .github/scripts/testar-go-race.teste.sh
 
   backend-checks:
+    needs: scripts
     # Validação e compilações rodam em paralelo com a suíte de cobertura.
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -113,6 +115,7 @@ jobs:
           GOOS=darwin GOARCH=arm64 go build -o build/bin/ci/asst-darwin-arm64 ./cmd/asst/
 
   backend-tests:
+    needs: scripts
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -190,6 +193,7 @@ jobs:
           test "$TESTS_RESULT" = success
 
   backend-race-build:
+    needs: scripts
     # Um único binário race do App, compartilhado somente neste run/revisão.
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -231,6 +235,7 @@ jobs:
           overwrite: true
 
   backend-race-tests:
+    needs: scripts
     runs-on: ubuntu-latest
     # Inclui preparação e upload; o teste Go continua limitado a 20 minutos.
     timeout-minutes: 45
@@ -369,6 +374,7 @@ jobs:
           test "$APP_RESULT" = success
 
   bindings:
+    needs: scripts
     # Os tipos de `frontend/wailsjs/` são gerados a partir das assinaturas dos
     # métodos do App e ficam versionados no repositório. Isso abre uma fresta: o
     # `tsc` do job frontend lê o arquivo que está no git, nunca o que o gerador
@@ -441,6 +447,7 @@ jobs:
         run: npx tsc --noEmit
 
   frontend:
+    needs: scripts
     runs-on: ubuntu-latest
     timeout-minutes: 15
     defaults:
@@ -478,6 +485,7 @@ jobs:
         run: npm run test
 
   e2e:
+    needs: scripts
     runs-on: ubuntu-latest
     timeout-minutes: 20
     defaults:

@@ -70,4 +70,17 @@ grep -Fq "\${{ github.event.pull_request.number || (inputs.pr_number > 0 && inpu
 # Jobs sem sobrescrita não podem herdar escrita do padrão do repositório.
 grep -A2 '^permissions:$' "$repo_dir/.github/workflows/ci.yml" | grep -Fq '  contents: read' || fail 'padrão contents deixou de ser leitura'
 grep -A2 '^permissions:$' "$repo_dir/.github/workflows/ci.yml" | grep -Fq '  actions: read' || fail 'padrão actions deixou de ser leitura'
+# Em um DAG válido, uma única raiz implica que todo trabalho aguarda o guard.
+# Novos jobs sem dependência também devem falhar nesta prova.
+awk '
+  /^jobs:$/ { in_jobs=1; next }
+  in_jobs && /^  [A-Za-z_][A-Za-z0-9_-]*:$/ {
+    job=$1; sub(/:$/, "", job); jobs[job]=1
+  }
+  in_jobs && /^    needs:/ { dependencies[job]=1 }
+  END {
+    if (!("scripts" in jobs) || ("scripts" in dependencies)) exit 1
+    for (job in jobs) if (job != "scripts" && !(job in dependencies)) exit 1
+  }
+' "$repo_dir/.github/workflows/ci.yml" || fail 'job de trabalho pode iniciar antes do guard'
 echo 'PASS: prioridade do PR, isolamento por PR/head/evento, aprovação sem jobs e falhas visíveis'

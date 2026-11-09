@@ -762,7 +762,15 @@ Validação local: a suíte do guard preserva os cenários de isolamento e falha
 exige o endpoint `force-cancel` do run simulado 99 e rejeita identidade de run
 inválida. O script anterior falha nessa prova por usar `/cancel`. Essa
 contraprova verifica a solicitação correta; não simula o escalonador do GitHub.
-A qualificação real deve observar um dispatch encerrado e o CI do PR preservado.
+A primeira qualificação real mostrou o guard em fila enquanto compilação e
+outros jobs do dispatch já ocupavam runners. Os sete jobs de entrada passam
+por isso a depender de `scripts`; os descendentes conservam suas dependências.
+O guard torna-se a única raiz do DAG, sem acrescentar check. O teste também
+recusa novos jobs de trabalho sem dependência. CI legítimo aguarda o job de
+scripts (10 s na execução inicial desta qualificação); depois, os jobs seguem
+em paralelo. Falha do guard interrompe trabalho e os gates continuam recusando
+as dependências ignoradas. A qualificação final deve observar dispatch
+encerrado sem iniciar jobs pesados e CI do PR preservado.
 
 Referências oficiais:
 - [Cancelamento de workflows](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-cancellation).
