@@ -2,6 +2,17 @@
 
 Status: In Progress — evidências e aceites pendentes conforme os registros abaixo
 
+**Montagem única nas provas de lifecycle (09/11/2026, issue #1008):**
+As 14 provas que usavam `ConfigureCommandLifecycle` ou
+`ConfigureCommandLifecycleMountSpec` passam por `ConfigureCommandLifecycleForApp`,
+a mesma montagem do produto. As duas entradas intermediárias e seu helper
+exclusivo são removidos. Permanecem as provas de dependências, concorrência,
+shutdown, retry, autenticação e locks; após início do shutdown, a montagem
+canônica recusa com `ErrStopped`, inclusive enquanto drena o worker anterior.
+A preparação reaproveita objetos concretos e schema privado, sem duplicar a
+montagem em helper de teste. Não muda o contrato produtivo nem promove aceites:
+status **In Progress**. Evidências em `docs/operations/ci-test-cost.md`.
+
 **Preparo das provas de catálogo (08/11/2026, issue #1008):**
 Sete provas de mapa, publicação e hot-swap usam `readyCommandProduct` com
 HOME/configdir isolados. Sessão, SQLite, workspace, lifecycle, executor e bridge

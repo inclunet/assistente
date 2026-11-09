@@ -7,6 +7,13 @@ Branch: `feat/aep-0103-comandos`. AEP principal continua **In Progress**.
 
 Este documento passa a ser **histórico**. Usar a [tasklist de conclusão integral](0103-tasklist-conclusao.md) e a [revisão técnica](0103-revisao-integral-2026-09-16.md) para acompanhar o trabalho restante.
 
+**Superação das entradas intermediárias (09/11/2026, #1008):** os registros
+abaixo de `ConfigureCommandLifecycle`/`ConfigureCommandLifecycleMountSpec`
+descrevem a etapa histórica de I14. A montagem vigente é
+`ConfigureCommandLifecycleForApp`; as 14 provas restantes foram migradas para
+ela e as entradas intermediárias retiradas. AEP principal e índice continuam
+**In Progress**; este registro não promove aceites.
+
 **Correção de contagem:** há 84 itens Ixx.n de infraestrutura, com 53 checkboxes marcados e 31 abertos neste arquivo, e 83 critérios finais C01–C83 distintos. As 28 anotações posteriores de fechamento local de Cxx foram somadas ao contador Ixx, produzindo 81/84 indevidamente. As contagens narrativas 60/84, 70/84 e 81/84 abaixo ficam preservadas apenas como histórico, **não como progresso válido**. Os 53 marcados também não são recertificação de integração: I13/I14 têm provas parciais/sentinela e precisam do aceite completo previsto no plano novo.
 
 Não restam apenas testes manuais: composição produtiva, consumer/manutenção/recovery, migração do catálogo, palette executável, configuração, dispositivos integrados e entradas de chat/CLI ainda têm trabalho de implementação. Nenhuma evidência válida foi descartada; nenhum contrato do AEP foi reduzido.
