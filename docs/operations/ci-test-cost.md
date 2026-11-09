@@ -737,3 +737,68 @@ dos 17 testes antes **25,01 / 25,00 / 25,00 s**. Depois, cada teste foi reportad
 como **0,00 s** nas três execuções, na precisão de centésimos do Go; isso não
 significa duração física zero. As medições excluem compilação e início do
 processo e não são estimativa do ganho global do CI.
+
+## Cancelamento do dispatch comprovadamente redundante
+
+Na qualificação dos PRs #1057–#1059, cancelamentos normais deixaram runs
+substituídos com gates finais em `queued`, exigindo `force-cancel`. Os gates
+`backend` e `backend-race` usam `always()` para reprovar dependências que falhem,
+sejam canceladas ou ignoradas. A semântica de cancelamento do GitHub reavalia
+essa condição e pode manter o job vivo; `timeout-minutes` do job não limita
+sua espera por um runner.
+
+O guard existente de dispatch usa agora `force-cancel` para encerrar **somente
+seu próprio run**, depois de comprovar CI do mesmo PR e head. Permanecem os
+filtros de evento, PR, SHA e o tratamento de `action_required` sem jobs.
+Falha de consulta/cancelamento continua visível. Os gates e os checks exigidos
+não mudam; não se transforma cancelamento de teste em aprovação.
+
+Esta correção não monitora PRs, não cancela outros runs e não deduplica um CI de
+PR que apareça depois da consulta. Também não resolve, por si só, cancelamentos
+de runs de PR substituídos. Ela encerra o dispatch que o guard já identificou
+como redundante, sem acrescentar workflow, polling ou permissão.
+
+Validação local: a suíte do guard preserva os cenários de isolamento e falhas,
+exige o endpoint `force-cancel` do run simulado 99 e rejeita identidade de run
+inválida. O script anterior falha nessa prova por usar `/cancel`. Essa
+contraprova verifica a solicitação correta; não simula o escalonador do GitHub.
+A primeira qualificação real mostrou o guard em fila enquanto compilação e
+outros jobs do dispatch já ocupavam runners. Os sete jobs de entrada passam
+por isso a depender de `scripts`; os descendentes conservam suas dependências.
+O guard torna-se a única raiz do DAG, sem acrescentar check. O teste também
+recusa novos jobs de trabalho sem dependência. CI legítimo aguarda o job de
+scripts (10 s na execução inicial desta qualificação); depois, os jobs seguem
+em paralelo. Falha do guard interrompe trabalho e os gates continuam recusando
+as dependências ignoradas. A qualificação final deve observar dispatch
+encerrado sem iniciar jobs pesados e CI do PR preservado.
+
+Referências oficiais:
+- [Cancelamento de workflows](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-cancellation).
+- [Force cancel de um run](https://docs.github.com/en/rest/actions/workflow-runs#force-cancel-a-workflow-run).
+
+## Plano delimitado para concluir a auditoria #1008
+
+A conclusão da auditoria exige evidência e uma decisão explícita para cada
+pendência, não a otimização de todo teste lento do repositório:
+
+1. **Cancelamento e diagnósticos:** qualificar o encerramento do dispatch
+   redundante; separar esse resultado dos gates de runs de PR substituídos.
+   Qualquer alteração desses gates precisa preservar recusa de falha,
+   cancelamento e skip, conforme AEP-0103 e proteção efetiva da main.
+2. **Reexecuções:** comparar árvore de integração, revisão, base, workflow e
+   ambiente antes de propor reaproveitamento. A política atual continua
+   revalidando cada head; seleção por impacto/reuso não será ativada sem
+   revisar o contrato e provar recusas em mudanças transversais.
+3. **Código exclusivo de testes:** mapear cada prova que usa
+   `ConfigureCommandLifecycle`/`ConfigureCommandLifecycleMountSpec` para a
+   montagem produtiva ou uma responsabilidade estritamente de teste. O
+   AEP-0103 ainda registra essas entradas: a retirada exige revisão explícita
+   desse contrato, não apenas ausência de chamadas produtivas.
+4. **Aceite final:** reunir garantias preservadas, resultados antes/depois,
+   flakes ainda não corrigidos e amostra final de CI, separando fila, setup,
+   compilação e execução. Atualizar os critérios da issue com evidências e
+   distinguir decisões pendentes de oportunidades opcionais futuras.
+
+Os ganhos já entregues estão documentados por recorte acima. Não se atribui
+à última alteração toda a diferença entre 28 e 17 jobs nem entre runs de
+runners/revisões diferentes. ACP permanece excluído da execução local.
