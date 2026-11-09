@@ -21,6 +21,8 @@ O timeout preserva seus 5 s e sua assertion. Antes do `Fatal` e dos defers de
 cancelamento, registra filas de status/renderização/entrada, cancelamento do
 contexto e stacks das goroutines. Não faz consultas ao banco nem adquire locks
 do produto para produzir o diagnóstico. Não altera o caminho de sucesso.
+Escreve diretamente em stderr, sem depender do buffer de `t.Logf`: a captura
+permanece na saída mesmo sem `-v`/`-json` se o prazo global vencer no cleanup.
 
 Contraprova local: omitir temporariamente o `resume()` imediatamente antes da
 espera fez a assertion original falhar; o dump capturou a goroutine do emissor
