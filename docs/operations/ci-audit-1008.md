@@ -160,14 +160,28 @@ não quantificado. A limitação permanece explícita e o tratamento é operacio
 1. Conferir PR, evento, head, base/integração, tentativa e existência da execução
    substituta. Não usar somente idade ou `head_sha`; rerun ou retarget pode
    preservar o mesmo SHA. Preservar a execução atual do PR e o CI da main.
-2. Registrar o run antigo e sua substituição; coletar diagnósticos já disponíveis.
-   Solicitar cancelamento normal apenas do run comprovadamente substituído.
-3. Se ele continuar ativo, revalidar a identidade/estado antes de usar
+2. Antes de qualquer cancelamento, coordenar com quem opera o PR para não
+   iniciar reruns desse run até a confirmação do encerramento. O ID não muda
+   no rerun e os endpoints de cancelamento não oferecem condição por
+   `run_attempt`: reler o estado sozinho não elimina essa corrida. Sem essa
+   coordenação, não solicitar cancelamento normal nem force-cancel.
+   Registrar o run antigo e sua substituição; coletar diagnósticos já disponíveis.
+   Revalidar identidade, tentativa e estado imediatamente antes de solicitar
+   cancelamento normal apenas do run comprovadamente substituído.
+3. Se ele continuar ativo, conferir os uploads Go/race após o cancelamento:
+   aguardar os uploads em execução concluírem ou falharem e coletar os artefatos
+   novos antes de escalar. Publicação de diagnóstico em andamento não prova
+   que o run está preso. Os 2 min limitam a etapa em execução, não a espera
+   para iniciá-la; upload sem progresso deve ser tratado como anomalia, sem
+   prometer preservação de logs indisponíveis.
+4. Mantendo a coordenação do passo 2, revalidar identidade, tentativa e estado
+   imediatamente antes de usar
    `POST /repos/{owner}/{repo}/actions/runs/{run_id}/force-cancel` nesse run.
    Não cancelar em lote por branch, nem cancelar para transformar falha em verde.
-4. Confirmar conclusão e conferir que a execução atual segue preservada.
-   `409` não significa sucesso por si só: reler o estado. Se continuar preso
-   após as tentativas, preservar os IDs e acionar suporte GitHub, sem mudar gates.
+5. Confirmar conclusão e conferir que a execução atual segue preservada antes
+   de liberar reruns. `409` não significa sucesso por si só: reler o estado.
+   Se continuar preso após as tentativas, preservar os IDs e acionar suporte
+   GitHub, sem mudar gates.
 
 Limites atuais: Go normal 15 min por processo de teste e job de 30 min;
 race 20 min por processo, etapa de 23 min e job de 45 min; uploads de logs
@@ -179,6 +193,7 @@ Os logs disponíveis devem ser coletados antes do encerramento forçado.
 
 Referências: [cancelamento](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-cancellation),
 [force-cancel](https://docs.github.com/en/rest/actions/workflow-runs#force-cancel-a-workflow-run),
+[identidade de run e tentativa](https://docs.github.com/en/actions/reference/workflows-and-actions/variables),
 [estados de checks obrigatórios](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-protected-branches/about-protected-branches#require-status-checks-before-merging)
 e [runs que permanecem presos](https://docs.github.com/en/actions/how-tos/troubleshoot-workflows#canceling-workflows).
 
