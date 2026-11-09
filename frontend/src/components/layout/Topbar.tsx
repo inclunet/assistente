@@ -29,7 +29,7 @@ import { KeyboardShortcutsHelp } from '../ui/KeyboardShortcutsHelp';
 import { useAnchoredContextMenu } from '../../hooks/useAnchoredContextMenu';
 import { useToolbarKeyboardNav } from '../../hooks/useToolbarKeyboardNav';
 import { useAnnouncer } from '../../hooks/useAnnouncer';
-import { restoreDefaultFocus } from '../../hooks/useDefaultFocus';
+import { scheduleDefaultFocusRestore } from '../../lib/deferredDefaultFocus';
 import { captureWorkspaceTabCreateFocus } from '../../lib/commandWorkspaceTabCreateFocus';
 import { describeCommandCatalogItem, listCommandCatalog } from '../../services/commandCatalog';
 import { CommandArgumentsDialog } from '../commands/CommandArgumentsDialog';
@@ -1546,6 +1546,31 @@ export function Topbar() {
       commandRouteIdentityRef.current === intent.routeIdentity && !isModalOpen();
   }, []);
 
+  const pendingWorkspaceSwitchRef = useRef<{ ready: Promise<void>; isCurrent: () => boolean } | null>(null);
+  /** Keep selection completion separate from command intents, which expire on workspace changes. */
+  const selectWorkspace = useCallback((workspaceId: string, active: boolean) => {
+    pendingWorkspaceSwitchRef.current = null;
+    if (active) return;
+    const user = useAuthStore.getState().user;
+    const route = commandRouteIdentityRef.current;
+    const originWorkspaceId = useWorkspaceStore.getState().workspace?.id;
+    let focusWorkspaceId: string | undefined = workspaceId;
+    const selection = {
+      ready: switchWorkspace(workspaceId).catch(error => {
+        focusWorkspaceId = originWorkspaceId;
+        logger.error('[Workspace] Falha ao trocar workspace', error);
+      }),
+      isCurrent: (): boolean => {
+        const auth = useAuthStore.getState();
+        return pendingWorkspaceSwitchRef.current === selection && commandPickerMountedRef.current &&
+          auth.isAuthenticated && auth.user?.userId === user?.userId && auth.user?.sessionId === user?.sessionId &&
+          commandRouteIdentityRef.current === route && Boolean(focusWorkspaceId) &&
+          useWorkspaceStore.getState().workspace?.id === focusWorkspaceId;
+      },
+    };
+    pendingWorkspaceSwitchRef.current = selection;
+  }, [switchWorkspace]);
+
   const presentWorkspaceList = useCallback((intent: PendingCommandIntent, output: WorkspaceListCommandOutput): undefined => {
     if (activeCommandIntentRef.current !== intent || !intentIsCurrent(intent)) return undefined;
     const trigger = commandPickerButtonRef.current;
@@ -1560,13 +1585,13 @@ export function Topbar() {
         if (workspacePickerIntentRef.current !== intent || !intentIsCurrent(intent)) return;
         // Consumir antes do efeito: o mesmo callback não pode trocar duas vezes.
         workspacePickerIntentRef.current = null;
-        if (!ws.is_active) void switchWorkspace(ws.id);
+        selectWorkspace(ws.id, ws.is_active);
       },
     }));
     workspacePickerIntentRef.current = intent;
     openWorkspacePickerRef.current?.(trigger, t('workspace.workspaceList'), items);
     return undefined;
-  }, [intentIsCurrent, switchWorkspace, t]);
+  }, [intentIsCurrent, selectWorkspace, t]);
   const presentWorkspaceListRef = useRef(presentWorkspaceList);
   presentWorkspaceListRef.current = presentWorkspaceList;
 
@@ -3349,7 +3374,10 @@ export function Topbar() {
     closeMenu: closePicker,
     onSelectItem: onPickerSelect,
   } = useAnchoredContextMenu({
-    onAfterSelect: () => requestAnimationFrame(() => restoreDefaultFocus()),
+    onAfterSelect: () => {
+      const selection = pendingWorkspaceSwitchRef.current;
+      scheduleDefaultFocusRestore({ after: selection?.ready, isCurrent: selection?.isCurrent });
+    },
     onAfterDismiss: () => {
       workspacePickerIntentRef.current = null;
       workspacePickerTriggerRef.current?.focus();
@@ -3357,6 +3385,7 @@ export function Topbar() {
     },
   });
   const openWorkspacePicker = useCallback((trigger: HTMLElement, ariaLabel: string, items: MenuItem[]) => {
+    pendingWorkspaceSwitchRef.current = null;
     workspacePickerTriggerRef.current = trigger;
     openPicker(trigger, ariaLabel, items);
   }, [openPicker]);
@@ -3383,7 +3412,7 @@ export function Topbar() {
         executePendingCommandRef.current?.();
         return;
       }
-      requestAnimationFrame(() => restoreDefaultFocus());
+      scheduleDefaultFocusRestore();
     },
     onAfterDismiss: () => pickerButtonRef.current?.focus(),
   });
@@ -3545,9 +3574,9 @@ export function Topbar() {
       icon: ws.is_active ? <CheckOutlined /> : undefined,
       shortcut: `${ws.tab_count} ${ws.tab_count === 1 ? t('workspace.tabSingular') : t('workspace.tabPlural')}`,
       checked: ws.is_active,
-      action: () => { if (!ws.is_active) void switchWorkspace(ws.id); },
+      action: () => { selectWorkspace(ws.id, ws.is_active); },
     }));
-  }, [workspaces, switchWorkspace, t]);
+  }, [workspaces, selectWorkspace, t]);
 
   const ctxMenuItems = useMemo((): MenuItem[] => [
     {
@@ -4218,6 +4247,7 @@ export function Topbar() {
         y={pickerMenu.y}
         visible={pickerMenu.visible}
         ariaLabel={pickerMenu.ariaLabel || t('workspace.workspaceList')}
+        restoreFocusOnClose={false}
         searchable
         searchPlaceholder={t('workspace.searchWorkspaces')}
         onClose={closePicker}
@@ -4230,6 +4260,7 @@ export function Topbar() {
         y={ctxMenu.y}
         visible={ctxMenu.visible}
         ariaLabel={ctxMenu.ariaLabel || t('workspace.workspaceOptions')}
+        restoreFocusOnClose={false}
         onClose={closeCtx}
         onSelect={onCtxSelect}
       />

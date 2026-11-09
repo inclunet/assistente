@@ -1,3 +1,5 @@
+AEP-0103 (09/11/2026): menus de opções e lista do workspace preservam foco na renomeação e na navegação posterior; retorno único e Escape cobertos por regressões (#1062). Status **In Progress**. Evidências em `docs/operations/intermittent-polling-focus-1062.md`.
+
 AEP-0103 (09/11/2026): Menu, MenuButton e Modal compartilham retorno adiado que preserva nova navegação e o modal ativo, permitindo retorno ao seu compositor sem atravessar a stack; eliminados a restauração dupla do MenuButton e o timer de fechamento do hook, com contraprovas (#1062). Status **In Progress**. Evidências em `docs/operations/intermittent-polling-focus-1062.md`; incidentes históricos continuam em investigação.
 
 AEP-0103 (09/11/2026): 14 provas de lifecycle usam a montagem produtiva; retiradas duas entradas intermediárias e helper exclusivo dos testes. Garantias de autenticação, concorrência e shutdown preservadas (#1008). Status **In Progress**. Evidências em `docs/operations/ci-test-cost.md`.
@@ -1280,7 +1282,7 @@ de cancelamento de release na dependência; o AEP permanece **In Progress**.
 | [0100](0100-progresso-unificado-por-conversa.md) | Progresso unificado por conversa | ✅ Done |
 | [0101](0101-profiles-descobríveis-e-delegacao-autorizada.md) | Profiles descobríveis, delegação autorizada e grants específicos de jobs | ✅ Done |
 | [0102](0102-resultados-grandes-de-tools.md) | Resultados grandes de tools | ✅ Done |
-| [0103](0103-comandos-acionadores-e-camadas-contextuais.md) | Comandos, acionadores e camadas contextuais (evidências de preparo contextual atualizadas; aceites pendentes preservados) | 🚧 In Progress |
+| [0103](0103-comandos-acionadores-e-camadas-contextuais.md) | Comandos, acionadores e camadas contextuais (picker aguarda troca assíncrona e recupera foco na falha; transição de rota comprovada; aceites pendentes preservados) | 🚧 In Progress |
 | [0104](0104-tool-invocations-como-ledger-canonico.md) | Tool invocations como ledger canônico; correção de vínculos remanescentes e índices de histórico | In Progress — ledger concluído; isolamento por execução do chat em implementação (AEP-0116) |
 | [0105](0105-reautorizacao-oauth-mcp-nativo.md) | Reautorização OAuth interativa para MCP nativo | 🚧 In Progress — recuperação interativa implementada; confirmação com servidor real e NVDA pendente; legado exige migração explícita |
 | [0106](0106-contencao-do-pipeline-de-jobs.md) | Contenção do pipeline de jobs (limite de concorrência + cache por slug) | 🚧 In Progress |

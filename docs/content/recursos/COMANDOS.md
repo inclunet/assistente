@@ -25,6 +25,9 @@ Dentro do chat modal, fechar o menu de código/tabela retorna ao compositor do
 próprio chat, sem focar a página atrás dele.
 O retorno adiado de menus e diálogos à área padrão também preserva uma nova
 navegação feita depois de esse retorno ter sido agendado.
+Nos menus de opções do workspace das duas barras, **Renomear** mantém o foco
+no campo do nome. A lista de workspaces também preserva navegação posterior.
+Escape no menu retorna ao botão de opções sem deslocar o foco para a conversa.
 
 Condições de página também são reconhecidas ao carregar as configurações.
 Uma página sem ação para determinada combinação (como Ctrl+N) não desabilita
@@ -3085,3 +3088,8 @@ Roteiro manual acumulado deste lote (regressão automatizada concluída):
   combinação na camada **Atalhos globais de voz e jobs**. Suprimir e restaurar
   o padrão, confirmando cada alteração; verificar que a execução respeita
   a supressão e que o editor genérico não altera a combinação. Resultado: ________.
+
+Ao escolher outro workspace, o retorno de foco aguarda sua abertura e aponta para o painel ativo. Se você navegar para outro controle durante a espera, esse foco é preservado.
+
+Se a troca de workspace falhar, o foco retorna ao painel de origem somente se
+a origem continuar ativa e não houver nova navegação, modal ou mudança de sessão.

@@ -16,6 +16,7 @@ import { Menu, type MenuItem } from '../menu';
 import { ProfilePicker } from '../pickers/ProfilePicker';
 import { useAnchoredContextMenu } from '../../hooks/useAnchoredContextMenu';
 import { useAnnouncer } from '../../hooks/useAnnouncer';
+import { scheduleDefaultFocusRestore } from '../../lib/deferredDefaultFocus';
 import { restoreDefaultFocus } from '../../hooks/useDefaultFocus';
 import { isModalOpen } from '../ui/Modal';
 import { useUIStore } from '../../store/uiStore';
@@ -67,7 +68,7 @@ export function WorkspaceToolbar() {
         const handled = tabCreationMenu.completeWorkspaceCreate(() => wsMenuButtonRef.current?.focus());
         if (handled) return;
       }
-      requestAnimationFrame(() => restoreDefaultFocus());
+      scheduleDefaultFocusRestore();
     },
     onAfterDismiss: () => wsMenuButtonRef.current?.focus(),
   });
@@ -338,6 +339,7 @@ export function WorkspaceToolbar() {
         y={wsMenu.y}
         visible={wsMenu.visible}
         ariaLabel={wsMenu.ariaLabel || t('workspace.workspaceOptions')}
+        restoreFocusOnClose={false}
         onClose={closeWsMenu}
         onSelect={onWsMenuSelect}
       />
