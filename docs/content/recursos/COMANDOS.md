@@ -20,6 +20,10 @@ contextuais disponíveis. Seleção múltipla não habilita alterações individ
 **Voltar à última ativação** fica na barra principal, depois desses controles,
 seguido das ações menos frequentes de restauração e atualização dos padrões.
 
+Ao selecionar uma opção que abre um diálogo, o foco permanece no diálogo.
+O retorno adiado de menus e diálogos à área padrão também preserva uma nova
+navegação feita depois de esse retorno ter sido agendado.
+
 Condições de página também são reconhecidas ao carregar as configurações.
 Uma página sem ação para determinada combinação (como Ctrl+N) não desabilita
 os demais atalhos. A ação de criar nas configurações continua restrita ao

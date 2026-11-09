@@ -3,6 +3,7 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { MenuItem } from './types';
 import { Menu } from './Menu';
+import { registerDefaultFocus, unregisterDefaultFocus } from '../../../hooks/useDefaultFocus';
 
 const buildItems = (): MenuItem[] => [
   { id: 'item-1', label: 'Primeiro', action: vi.fn() },
@@ -11,6 +12,33 @@ const buildItems = (): MenuItem[] => [
 ];
 
 describe('Menu', () => {
+  it.each([false, true])('retorno adiado preserva nova navegação (navegou=%s)', navigated => {
+    const frames: FrameRequestCallback[] = [];
+    const requestFrame = vi.spyOn(window, 'requestAnimationFrame').mockImplementation(callback => {
+      frames.push(callback);
+      return frames.length;
+    });
+    let restore: (() => boolean) | undefined;
+    try {
+      const view = (visible: boolean) => <>
+        <button>Área padrão</button><button>Próxima ação</button>
+        <Menu visible={visible} items={buildItems()} onClose={() => rerender(view(false))} />
+      </>;
+      const { rerender } = render(view(true));
+      const defaultArea = screen.getByRole('button', { name: 'Área padrão' });
+      const chosen = screen.getByRole('button', { name: 'Próxima ação' });
+      restore = () => { defaultArea.focus(); return true; };
+      registerDefaultFocus(restore);
+      fireEvent.keyDown(screen.getByRole('menu'), { key: 'Escape' });
+      if (navigated) chosen.focus();
+      frames.forEach(callback => callback(0));
+      expect(navigated ? chosen : defaultArea).toHaveFocus();
+    } finally {
+      if (restore) unregisterDefaultFocus(restore);
+      requestFrame.mockRestore();
+    }
+  });
+
   it.each(['{Escape}', '{Tab}'])('mantém fechamento por %s quando todas as ações estão desabilitadas', async key => {
     const close = vi.fn();
     const action = vi.fn();

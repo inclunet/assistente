@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { CheckOutlined, RightOutlined } from '@ant-design/icons';
 import type { MenuItem, MenuProps } from './types';
-import { restoreDefaultFocus } from '../../../hooks/useDefaultFocus';
+import { scheduleDefaultFocusRestore } from '../../../lib/deferredDefaultFocus';
 import { useAnnouncer } from '../../../hooks/useAnnouncer';
 
 import '../ContextMenu.css';
@@ -108,7 +108,7 @@ export const Menu: React.FC<MenuProps> = ({
     const handleClickOutside = (e: MouseEvent) => {
       if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
         onCloseRef.current?.();
-        if (restoreFocusOnClose) requestAnimationFrame(() => restoreDefaultFocus());
+        if (restoreFocusOnClose) scheduleDefaultFocusRestore();
       }
     };
 
@@ -198,12 +198,12 @@ export const Menu: React.FC<MenuProps> = ({
         setSearchQuery('');
       } else {
         onClose?.();
-        if (restoreFocusOnClose) requestAnimationFrame(() => restoreDefaultFocus());
+        if (restoreFocusOnClose) scheduleDefaultFocusRestore();
       }
     } else if (e.key === 'Tab') {
       e.preventDefault();
       onClose?.();
-      if (restoreFocusOnClose) requestAnimationFrame(() => restoreDefaultFocus());
+      if (restoreFocusOnClose) scheduleDefaultFocusRestore();
     } else if (e.key === 'Enter') {
       e.preventDefault();
       const currentItems = getCurrentItems();
@@ -212,7 +212,7 @@ export const Menu: React.FC<MenuProps> = ({
         first.action();
         onSelect?.(first);
         onClose?.();
-        if (restoreFocusOnClose) requestAnimationFrame(() => restoreDefaultFocus());
+        if (restoreFocusOnClose) scheduleDefaultFocusRestore();
       }
     }
   };
@@ -227,7 +227,7 @@ export const Menu: React.FC<MenuProps> = ({
     if (e.key === 'Tab') {
       e.preventDefault();
       onClose?.();
-      if (restoreFocusOnClose) requestAnimationFrame(() => restoreDefaultFocus());
+      if (restoreFocusOnClose) scheduleDefaultFocusRestore();
       return;
     }
     const currentItems = getCurrentItems();
@@ -293,7 +293,7 @@ export const Menu: React.FC<MenuProps> = ({
           announce(t('a11y.announce.submenuClosed'));
         } else {
           onClose?.();
-          if (restoreFocusOnClose) requestAnimationFrame(() => restoreDefaultFocus());
+          if (restoreFocusOnClose) scheduleDefaultFocusRestore();
         }
         break;
 
@@ -310,7 +310,7 @@ export const Menu: React.FC<MenuProps> = ({
           currentItem.action();
           onSelect?.(currentItem);
           onClose?.();
-          if (restoreFocusOnClose) requestAnimationFrame(() => restoreDefaultFocus());
+          if (restoreFocusOnClose) scheduleDefaultFocusRestore();
         }
         break;
       }
@@ -356,7 +356,7 @@ export const Menu: React.FC<MenuProps> = ({
                 item.action?.();
                 onSelect?.(item);
                 onClose?.();
-          if (restoreFocusOnClose) requestAnimationFrame(() => restoreDefaultFocus());
+          if (restoreFocusOnClose) scheduleDefaultFocusRestore();
               }
             }}
             onMouseEnter={() => {

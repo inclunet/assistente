@@ -1,3 +1,5 @@
+AEP-0103 (09/11/2026): Menu, MenuButton e Modal compartilham retorno adiado que preserva nova navegação e modal aberto; eliminados a restauração dupla do MenuButton e o timer de fechamento do hook, com contraprovas (#1062). Status **In Progress**. Evidências em `docs/operations/intermittent-polling-focus-1062.md`; incidentes históricos continuam em investigação.
+
 AEP-0103 (09/11/2026): 14 provas de lifecycle usam a montagem produtiva; retiradas duas entradas intermediárias e helper exclusivo dos testes. Garantias de autenticação, concorrência e shutdown preservadas (#1008). Status **In Progress**. Evidências em `docs/operations/ci-test-cost.md`.
 
 AEP-0040 / AEP-0116 (08/11/2026): provas de envio e áudio reutilizam schema vazio em bancos privados, sem alterar dados/assertions ou migrações; medições em `docs/operations/ci-test-cost.md` (#1008). Status **Accepted** / **Done** preservados.
