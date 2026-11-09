@@ -3,6 +3,7 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { useEffect, useRef } from 'react';
 import { Modal } from './Modal';
 import { getModalRegistrySnapshot } from '../../lib/modalRegistry';
+import { registerDefaultFocus, unregisterDefaultFocus } from '../../hooks/useDefaultFocus';
 import type { DialogCommandScope } from '../../lib/commandBridge';
 
 const decisionScope: DialogCommandScope = {
@@ -344,6 +345,39 @@ describe('Modal', () => {
     // trocado o foco para o primeiro campo pela heurística padrão.
     await new Promise((resolve) => setTimeout(resolve, 250));
     expect(principal).toHaveFocus();
+  });
+
+  it.each([false, true])('preserva navegação posterior ao fechar sem perder o fallback (navegou=%s)', (navigated) => {
+    const frames = new Map<number, FrameRequestCallback>();
+    let nextFrame = 0;
+    const requestFrame = vi.spyOn(window, 'requestAnimationFrame').mockImplementation(callback => {
+      const id = ++nextFrame;
+      frames.set(id, callback);
+      return id;
+    });
+    const cancelFrame = vi.spyOn(window, 'cancelAnimationFrame').mockImplementation(id => { frames.delete(id); });
+    const view = (open: boolean) => <>
+      <button>Área padrão</button>
+      <button>Próxima ação</button>
+      <Modal isOpen={open} onClose={vi.fn()} title="Titulo"><input aria-label="Campo" /></Modal>
+    </>;
+    let restore: (() => boolean) | undefined;
+    try {
+      const { rerender } = render(view(true));
+      screen.getByRole('textbox', { name: 'Campo' }).focus();
+      const defaultArea = screen.getByRole('button', { name: 'Área padrão' });
+      const chosen = screen.getByRole('button', { name: 'Próxima ação' });
+      restore = () => { defaultArea.focus(); return true; };
+      registerDefaultFocus(restore);
+      rerender(view(false));
+      if (navigated) chosen.focus();
+      for (const callback of frames.values()) callback(0);
+      expect(navigated ? chosen : defaultArea).toHaveFocus();
+    } finally {
+      if (restore) unregisterDefaultFocus(restore);
+      requestFrame.mockRestore();
+      cancelFrame.mockRestore();
+    }
   });
 
   it('cancela rAF/timeout pendentes quando o modal fecha rapido', async () => {

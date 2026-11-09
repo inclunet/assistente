@@ -74,8 +74,14 @@ function isVisibleFocusableElement(el: HTMLElement): boolean {
 }
 
 function restorePageFocus() {
+  const focusAtClose = document.activeElement;
   requestAnimationFrame(() => {
     if (isModalOpen()) return;
+    const currentFocus = document.activeElement;
+    // A later navigation owns its focus; only complete the pending return
+    // while focus is unchanged or has fallen back to the document.
+    if (currentFocus !== focusAtClose && currentFocus !== document.body &&
+      currentFocus !== document.documentElement && currentFocus?.isConnected) return;
     restoreDefaultFocus();
   });
 }

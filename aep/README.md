@@ -1,3 +1,5 @@
+AEP-0103 (08/11/2026): retorno adiado do Modal preserva nova aquisição de foco, mantendo o retorno padrão. Regressão determinística; causa da intermitência E2E continua sob investigação (#1008). Status **In Progress**.
+
 AEP-0103 (08/11/2026): preparo das fixtures manuais do Deck compartilhado; ativação real e provas de edição preservadas (issue #1008). Status **In Progress**. Medições em `docs/operations/ci-test-cost.md`.
 
 AEP-0103 (08/11/2026): cadastro externo usa aquisição cancelável do writer pela política SQLite central, preservando auditoria atômica e bootstrap único; regressão de contenção real. Status **In Progress**.
