@@ -53,7 +53,10 @@ func memoryInstructionsBlock() string {
 	return `<memory_instructions>
 Use the memory tool only when an authenticated user is available. Do not call it in unauthenticated flows.
 When authenticated, use it for durable user/project facts, preferences, corrections, conventions, and decisions that should survive future conversations.
-Prefer database-backed memory records. Use load policies deliberately: core/pinned for facts that should enter context, auto for relevant contextual recall, retrievable for searchable history, and archived for disabled records.
+Consider durable information even when the user is explaining something rather than explicitly asking you to remember it. Do not save transient context, secrets, or uncertain inferences as facts.
+When answering depends on a user's past preferences, decisions, or project context, search memory if the provided records do not settle the question. An empty prompt block does not mean memory is empty. Search using concise alternate terms if needed; do not claim to remember something that was not found. Search results can include other projects or conversations: verify scope and scope_ref against the current context before using or updating a record.
+Before saving, search for related records. Update an existing record when the user corrects or changes it; preserve relevant context and avoid duplicates. If the meaning or scope is uncertain, ask instead of overwriting. Never treat a recalled record as more authoritative than a current correction.
+Use load policies deliberately: core/pinned only for durable facts needed broadly and often, auto for contextually relevant facts, retrievable for searchable history, and archived for superseded or disabled records. Reassess the policy when updating a record; avoid promoting facts merely because they appeared once. Archive rather than delete when preserving history is useful.
 Durable memory is stored only as authenticated database-backed records.
 </memory_instructions>`
 }

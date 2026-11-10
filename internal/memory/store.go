@@ -24,11 +24,8 @@ type Store interface {
 }
 
 func (s *DBStore) PromptCandidates(ctx context.Context, filter PromptCandidateFilter) ([]database.MemoryRecord, error) {
-	q := s.applyFilter(ctx, s.scoped(ctx), Filter{
-		LoadPolicies: filter.LoadPolicies,
-	})
+	q := s.applyFilter(ctx, s.scoped(ctx), Filter{LoadPolicies: filter.LoadPolicies})
 	q = applyPromptScopeFilter(q, filter)
-	q = applyPromptRelevanceFilter(q, filter)
 	limit := filter.Limit
 	if limit <= 0 {
 		limit = 200
@@ -37,12 +34,55 @@ func (s *DBStore) PromptCandidates(ctx context.Context, filter PromptCandidateFi
 		limit = 1000
 	}
 	var records []database.MemoryRecord
+	tokens := relevanceTokens(filter.RelevanceText)
+	if len(tokens) == 0 {
+		err := database.WithSQLiteBusyRetry(ctx, "memory.prompt_candidates", func() error {
+			return q.Where("load_policy <> ?", LoadPolicyAuto).
+				Order("CASE load_policy WHEN 'core' THEN 0 WHEN 'pinned' THEN 1 ELSE 9 END ASC").
+				Order("importance DESC").Order("updated_at DESC").Limit(limit).Find(&records).Error
+		})
+		return records, err
+	}
 	err := database.WithSQLiteBusyRetry(ctx, "memory.prompt_candidates", func() error {
-		return q.Order("CASE load_policy WHEN 'core' THEN 0 WHEN 'pinned' THEN 1 WHEN 'auto' THEN 2 ELSE 9 END ASC").
-			Order("importance DESC").
-			Order("updated_at DESC").
-			Limit(limit).
-			Find(&records).Error
+		records = nil
+		var candidates []scoredPromptRecord
+		rows, err := q.Rows()
+		if err != nil {
+			return err
+		}
+		defer func() { _ = rows.Close() }()
+		for rows.Next() {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			var record database.MemoryRecord
+			if err := q.ScanRows(rows, &record); err != nil {
+				return err
+			}
+			score := relevanceScoreTokens(record, tokens)
+			if record.LoadPolicy == LoadPolicyAuto && score == 0 {
+				continue
+			}
+			candidates = append(candidates, scoredPromptRecord{record: record, score: score})
+			if len(candidates) >= 2*limit {
+				sortScoredPromptRecords(candidates)
+				candidates = candidates[:limit]
+			}
+		}
+		if err := rows.Err(); err != nil {
+			return err
+		}
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		sortScoredPromptRecords(candidates)
+		if len(candidates) > limit {
+			candidates = candidates[:limit]
+		}
+		for _, candidate := range candidates {
+			records = append(records, candidate.record)
+		}
+		return nil
 	})
 	return records, err
 }
@@ -65,21 +105,6 @@ func applyPromptScopeFilter(q *gorm.DB, filter PromptCandidateFilter) *gorm.DB {
 		args = append(args, database.MemoryScopeProject, filter.ProjectID)
 	}
 	return q.Where("("+strings.Join(clauses, " OR ")+")", args...)
-}
-
-func applyPromptRelevanceFilter(q *gorm.DB, filter PromptCandidateFilter) *gorm.DB {
-	tokens := relevanceTokens(filter.RelevanceText)
-	if len(tokens) == 0 {
-		return q.Where("load_policy <> ?", LoadPolicyAuto)
-	}
-	var clauses []string
-	var args []any
-	for _, token := range tokens {
-		like := likeContains(token)
-		clauses = append(clauses, "lower(content) LIKE ? ESCAPE '\\' OR lower(summary) LIKE ? ESCAPE '\\' OR lower(tags) LIKE ? ESCAPE '\\' OR lower(kind) LIKE ? ESCAPE '\\'")
-		args = append(args, like, like, like, like)
-	}
-	return q.Where("(load_policy <> ? OR "+strings.Join(clauses, " OR ")+")", append([]any{LoadPolicyAuto}, args...)...)
 }
 
 type DBStore struct {
