@@ -123,9 +123,8 @@ func (s *SlackAdapter) Connect(ctx context.Context) error {
 
 	go s.eventLoop()
 	go func() {
-		if err := socketClient.RunContext(s.ctx); err != nil {
-			logging.Errorf(ctx, logComponent, "[Slack] RunContext error: %v", err)
-		}
+		err := socketClient.RunContext(s.ctx)
+		logging.Errorf(ctx, logComponent, "[Slack] RunContext error: %v", err)
 	}()
 	// Probe leve e não bloqueante: Connect de texto não depende de files:read.
 	go s.probeFilesReadScope(s.ctx)

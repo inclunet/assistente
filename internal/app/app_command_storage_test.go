@@ -33,9 +33,8 @@ func TestCommandStoragePreparesWithoutPublishingExecution(t *testing.T) {
 	if err := db.AutoMigrate(&database.CredentialEntry{}, &database.CredentialKeyWrap{}); err != nil {
 		t.Fatal(err)
 	}
-	previous := database.DB()
-	database.SetDB(db)
-	defer database.SetDB(previous)
+	restore := database.SetDB(db)
+	defer restore()
 	dek := bytes.Repeat([]byte{17}, 32)
 	manager := credentials.NewManagerWithStore(dek, credentials.NewDBStore(), true)
 	if err := manager.LoadInstanceSecrets(ctx); err != nil {

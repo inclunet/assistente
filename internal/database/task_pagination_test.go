@@ -380,9 +380,8 @@ func TestListTasksPageWithContext_RetriesMetadataReadDuringTransientLock(t *test
 	if err := testDB.AutoMigrate(&TaskList{}, &Task{}); err != nil {
 		t.Fatal(err)
 	}
-	previous := DB()
-	SetDB(testDB)
-	defer SetDB(previous)
+	restore := SetDB(testDB)
+	defer restore()
 
 	ctx := WithUserID(context.Background(), "user-a")
 	list := TaskList{UUIDModel: UUIDModel{ID: "list-a"}, UserID: "user-a", Title: "Fila"}
@@ -469,9 +468,8 @@ func BenchmarkListTasksPageWithContext_2581Roots(b *testing.B) {
 	if err := ensureTaskPaginationIndexes(testDB); err != nil {
 		b.Fatal(err)
 	}
-	previous := DB()
-	SetDB(testDB)
-	defer SetDB(previous)
+	restore := SetDB(testDB)
+	defer restore()
 
 	list := TaskList{UUIDModel: UUIDModel{ID: "list-a"}, UserID: "user-a", Title: "Fila"}
 	if err := testDB.Create(&list).Error; err != nil {
@@ -517,9 +515,8 @@ func BenchmarkTaskListCatalogWithContext_2581Roots(b *testing.B) {
 	if err := ensureTaskPaginationIndexes(testDB); err != nil {
 		b.Fatal(err)
 	}
-	previous := DB()
-	SetDB(testDB)
-	defer SetDB(previous)
+	restore := SetDB(testDB)
+	defer restore()
 
 	for i := 0; i < 10; i++ {
 		list := TaskList{UUIDModel: UUIDModel{ID: fmt.Sprintf("list-%02d", i)}, UserID: "user-a", Title: "Fila"}

@@ -16,7 +16,7 @@ func ChatProviderIsNil(c llm.ChatProvider) bool {
 	}
 	v := reflect.ValueOf(c)
 	switch v.Kind() {
-	case reflect.Ptr, reflect.Interface, reflect.Map, reflect.Slice, reflect.Chan, reflect.Func:
+	case reflect.Pointer, reflect.Interface, reflect.Map, reflect.Slice, reflect.Chan, reflect.Func:
 		return v.IsNil()
 	default:
 		return false
@@ -30,7 +30,7 @@ func NativeMCPManagerIsNil(m NativeMCPManager) bool {
 	}
 	v := reflect.ValueOf(m)
 	switch v.Kind() {
-	case reflect.Ptr, reflect.Interface, reflect.Map, reflect.Slice, reflect.Chan, reflect.Func:
+	case reflect.Pointer, reflect.Interface, reflect.Map, reflect.Slice, reflect.Chan, reflect.Func:
 		return v.IsNil()
 	default:
 		return false
