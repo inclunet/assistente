@@ -48,8 +48,8 @@ func TestExecuteReservaConversaAntesDoPipeline(t *testing.T) {
 		finished <- executeErr
 	}()
 	select {
-	case <-finished:
-		t.Fatal("pipeline atravessou gate de exclusão antes de reservar a conversa")
+	case err := <-finished:
+		t.Fatalf("pipeline atravessou gate de exclusão antes de reservar a conversa: %v", err)
 	case <-time.After(25 * time.Millisecond):
 	}
 

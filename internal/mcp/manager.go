@@ -1655,7 +1655,7 @@ func closeServerConnection(slug string, conn *serverConnection, expected bool) e
 				waitErr = result
 				// O watcher fecha o canal logo depois do envio. Aguarde esse
 				// passo também para que o retorno represente um join completo.
-				<-conn.sessionDone
+				<-conn.sessionDone //nolint:errcheck // Apenas aguarda o fechamento depois do resultado.
 			}
 		default:
 		}
@@ -1695,7 +1695,7 @@ func waitConnectionSession(conn *serverConnection) (error, bool) {
 		if ok {
 			// Há exatamente um resultado por watcher; o segundo receive
 			// aguarda o close que conclui sua execução.
-			<-conn.sessionDone
+			<-conn.sessionDone //nolint:errcheck // Apenas aguarda o fechamento depois do resultado.
 		}
 		return result, ok
 	}

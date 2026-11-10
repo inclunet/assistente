@@ -455,7 +455,7 @@ func waitCleanup(done <-chan error) error {
 	timer := time.NewTimer(cleanupTimeout)
 	defer timer.Stop()
 	select {
-	case <-done:
+	case <-done: //nolint:errcheck // O valor é ignorado; aguardamos apenas o encerramento.
 		return nil
 	case <-timer.C:
 		return fmt.Errorf("ossession: cleanup timeout after %s", cleanupTimeout)

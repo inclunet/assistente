@@ -95,7 +95,8 @@ func TestCommandAgentAdmissionRejectsBorrowedDesktopAuthority(t *testing.T) {
 				case <-decisions:
 					cancel()
 					select {
-					case <-done:
+					case err := <-done:
+						t.Logf("requisição cancelada: %v", err)
 					case <-time.After(5 * time.Second):
 						t.Fatal("unauthorized call did not terminate after cancellation")
 					}

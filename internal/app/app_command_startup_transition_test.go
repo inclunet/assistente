@@ -66,7 +66,8 @@ func TestCommandJobsConcurrentRetriesOwnPreparationThroughStart(t *testing.T) {
 		cancel()
 		for received < launched {
 			select {
-			case <-done:
+			case err := <-done:
+				t.Logf("retry encerrado: %v", err)
 				received++
 			case <-time.After(5 * time.Second):
 				t.Error("retry não terminou após cancelamento")
@@ -124,7 +125,8 @@ func TestCommandJobsOSUnlockWaitingForStartupIsCancelable(t *testing.T) {
 	}()
 	cancel()
 	select {
-	case <-done:
+	case err := <-done:
+		t.Logf("retry encerrado: %v", err)
 	case <-time.After(5 * time.Second):
 		t.Fatal("worker cancelado ficou preso atrás da transição de startup")
 	}

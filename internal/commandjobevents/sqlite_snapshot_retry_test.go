@@ -341,7 +341,7 @@ func TestEnsureReplayPolicyEpochRetriesSQLiteBusySnapshot(t *testing.T) {
 	t.Cleanup(func() {
 		unblock()
 		if !joined {
-			<-done
+			t.Logf("operação encerrada: %v", <-done)
 		}
 	})
 	if err := release(); err != nil {
@@ -381,7 +381,7 @@ func TestClaimBatchRetriesSQLiteBusySnapshot(t *testing.T) {
 	t.Cleanup(func() {
 		unblock()
 		if !joined {
-			<-done
+			t.Logf("operação encerrada: %v", <-done)
 		}
 	})
 	if err := release(); err != nil {
@@ -431,7 +431,7 @@ func TestRequeueExpiredLeasesRetriesSQLiteBusySnapshot(t *testing.T) {
 	t.Cleanup(func() {
 		unblock()
 		if !joined {
-			<-done
+			t.Logf("operação encerrada: %v", <-done)
 		}
 	})
 	if err := release(); err != nil {
@@ -514,7 +514,7 @@ func TestPurgeExpiredAtRetriesSQLiteBusySnapshot(t *testing.T) {
 	t.Cleanup(func() {
 		unblock()
 		if !joined {
-			<-done
+			t.Logf("operação encerrada: %v", <-done)
 		}
 	})
 	if err := release(); err != nil {

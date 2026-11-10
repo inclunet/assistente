@@ -3,6 +3,7 @@ package commandexecution
 import (
 	"context"
 	"errors"
+	"fmt"
 	"math"
 	"sync"
 	"sync/atomic"
@@ -322,8 +323,8 @@ func TestHostChangeSucessoRemoveSomenteMapaDoUsuarioAlvo(t *testing.T) {
 				return errors.New("admission concorrente não iniciou")
 			}
 			select {
-			case <-admitted:
-				return errors.New("admission não deveria atravessar o commit")
+			case err := <-admitted:
+				return fmt.Errorf("admission não deveria atravessar o commit: %v", err)
 			case <-time.After(50 * time.Millisecond):
 			}
 			commitCalled.Store(true)

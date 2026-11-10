@@ -355,7 +355,8 @@ func TestCancelarOTurnoCancelaOPedidoDePermissaoPendente(t *testing.T) {
 		t.Fatal("o diálogo de permissão não foi fechado pelo cancelamento")
 	}
 	select {
-	case <-resultado:
+	case err := <-resultado:
+		t.Logf("turno encerrado: %v", err)
 	case <-time.After(testTimeout):
 		t.Fatal("o turno cancelado nunca voltou")
 	}
@@ -404,7 +405,8 @@ func TestFecharASessaoCancelaOPedidoDePermissaoPendente(t *testing.T) {
 		t.Fatal("o diálogo de permissão sobreviveu ao fim da sessão")
 	}
 	select {
-	case <-resultado:
+	case err := <-resultado:
+		t.Logf("turno encerrado: %v", err)
 	case <-time.After(testTimeout):
 		t.Fatal("o turno da sessão encerrada nunca voltou")
 	}
@@ -744,7 +746,8 @@ func TestCancelarOTurnoCancelaAExtensaoSemSessao(t *testing.T) {
 	desistir()
 
 	select {
-	case <-resultado:
+	case err := <-resultado:
+		t.Logf("turno encerrado: %v", err)
 	case <-time.After(testTimeout):
 		t.Fatal("o turno cancelado nunca voltou")
 	}
@@ -818,7 +821,8 @@ func TestCancelarOTurnoCancelaAExtensaoBloqueante(t *testing.T) {
 		t.Fatal("a pergunta da extensão sobreviveu ao cancelamento")
 	}
 	select {
-	case <-resultado:
+	case err := <-resultado:
+		t.Logf("turno encerrado: %v", err)
 	case <-time.After(testTimeout):
 		t.Fatal("o turno cancelado nunca voltou")
 	}
@@ -1786,7 +1790,8 @@ func TestSinkPodeEncerrarAPropriaConversaSemTravar(t *testing.T) {
 	}()
 
 	select {
-	case <-fechou:
+	case err := <-fechou:
+		t.Logf("sessão encerrada: %v", err)
 	case <-time.After(5 * time.Second):
 		t.Fatal("o sink travou ao encerrar a própria conversa")
 	}

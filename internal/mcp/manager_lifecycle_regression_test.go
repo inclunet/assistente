@@ -998,7 +998,8 @@ func TestQuedaImediataDuranteRetryPreservaContadorAteFinalizacao(t *testing.T) {
 		t.Fatal("Connect não publicou a sessão do retry")
 	}
 	select {
-	case <-conn.sessionDone:
+	case err := <-conn.sessionDone:
+		t.Logf("sessão encerrada: %v", err)
 	case <-time.After(time.Second):
 		t.Fatal("a queda imediata da sessão não foi observada")
 	}
@@ -1726,8 +1727,8 @@ func TestWatcherDaSessaoIniciaComBackgroundFechado(t *testing.T) {
 	sessionDone := m.connections["watcher-direto"].sessionDone
 	m.mu.RUnlock()
 	select {
-	case <-sessionDone:
-		t.Fatal("sessionDone fechou sem aguardar session.Wait")
+	case err := <-sessionDone:
+		t.Fatalf("sessionDone fechou sem aguardar session.Wait: %v", err)
 	default:
 	}
 

@@ -58,7 +58,7 @@ func TestStopTimeoutWhileWorkerCannotReadOperationsStillStopsAfterRelease(t *tes
 	if err := runtime.WaitStopped(waitCtx); err != nil {
 		t.Fatal(err)
 	}
-	<-resetResult
+	t.Logf("reset encerrado: %v", <-resetResult)
 }
 
 func TestRebootstrapReadinessFailureStillClearsPreviousGeneration(t *testing.T) {

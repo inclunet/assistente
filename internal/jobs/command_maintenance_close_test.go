@@ -76,8 +76,8 @@ func TestCloseCommandMaintenanceIsIdempotentAndStopDoesNotDeadlock(t *testing.T)
 	closed := make(chan error, 1)
 	go func() { closed <- m.CloseCommandMaintenance(context.Background()) }()
 	select {
-	case <-closed:
-		t.Fatal("fechamento retornou antes da retenção terminar")
+	case err := <-closed:
+		t.Fatalf("fechamento retornou antes da retenção terminar: %v", err)
 	case <-time.After(20 * time.Millisecond):
 	}
 
