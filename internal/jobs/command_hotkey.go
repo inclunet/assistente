@@ -107,7 +107,7 @@ func (m *Manager) hotkeyOwnerMatches(ctx context.Context, owner string) bool {
 	ctxOwner, ctxOK := database.UserIDFromContext(ctx)
 	managerCtx := m.context()
 	managerOwner, ok := database.UserIDFromContext(managerCtx)
-	return ctxOK && ctxOwner == owner && managerCtx != nil && managerCtx.Err() == nil && ok && managerOwner == owner
+	return ctxOK && ctxOwner == owner && managerCtx.Err() == nil && ok && managerOwner == owner
 }
 
 func hasHotkeyTrigger(job *Job, keys, when string) bool {

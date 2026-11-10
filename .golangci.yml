@@ -1,5 +1,5 @@
 # Configuração explícita do golangci-lint (formato v2).
-# Compatível com golangci-lint v2.11.x usado pela golangci/golangci-lint-action@v9.
+# Compatível com golangci-lint v2.14.x usado pela golangci/golangci-lint-action@v9.
 version: "2"
 
 run:

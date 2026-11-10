@@ -640,7 +640,7 @@ func validateValue(value reflect.Value, depth int, active map[visit]struct{}) er
 		if math.IsNaN(f) || math.IsInf(f, 0) {
 			return ErrNumberRange
 		}
-	case reflect.Ptr:
+	case reflect.Pointer:
 		if value.IsNil() {
 			return nil
 		}
