@@ -449,7 +449,7 @@ func (a *App) runEditorDirWatch(dw *editorDirWatch) {
 				}
 				a.emitter.Emit("editor:fileChanged", payload)
 			}
-		case <-dw.watcher.Errors:
+		case <-dw.watcher.Errors: //nolint:errcheck // Erros de observação são best-effort neste caminho.
 			// best-effort: ignore
 		}
 	}

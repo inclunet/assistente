@@ -111,7 +111,7 @@ func TestCommandReadBoundedUnderProjectionAndPoolContention(t *testing.T) {
 				case <-time.After(commandReadTimeout + 2*time.Second):
 					release()
 					release = nil
-					<-done
+					t.Logf("leitura encerrada: %v", <-done)
 					t.Fatal("leitura ficou presa além do orçamento")
 				}
 				release()

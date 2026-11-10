@@ -221,7 +221,7 @@ func TestPersistRunStateBoundsSaturatedPoolAndRecovers(t *testing.T) {
 				}
 			case <-time.After(runStatePersistenceTimeout + 2*time.Second):
 				release()
-				<-done // Não deixar goroutine acessando o banco após o cleanup.
+				t.Logf("persistência encerrada: %v", <-done) // Aguarda a goroutine antes do cleanup.
 				t.Fatal("pool wait exceeded persistence budget")
 			}
 			if !durable && time.Since(started) >= runStatePersistenceTimeout {

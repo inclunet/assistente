@@ -59,7 +59,8 @@ func TestCommandOSObservationRecoversBootstrapBeforeFirstObservation(t *testing.
 	t.Cleanup(func() {
 		cancel()
 		select {
-		case <-done:
+		case err := <-done:
+			t.Logf("monitor encerrado: %v", err)
 		case <-time.After(5 * time.Second):
 			t.Error("monitor não encerrou")
 		}

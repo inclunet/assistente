@@ -80,7 +80,8 @@ func TestCommandOSObservationCallbackDoesNotWaitForBootstrapMutex(t *testing.T) 
 	}
 	cancel()
 	select {
-	case <-result:
+	case err := <-result:
+		t.Logf("monitor encerrado: %v", err)
 	case <-time.After(3 * time.Second):
 		t.Fatal("monitor não encerrou após cancelamento")
 	}

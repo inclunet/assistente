@@ -281,7 +281,7 @@ func TestRuntimeBlockedReadDoesNotBlockOtherDeviceRender(t *testing.T) {
 		t.Fatal("leitura de A bloqueou render de B")
 	}
 	cancel()
-	<-poll
+	t.Logf("leitura encerrada: %v", <-poll)
 }
 
 func TestRuntimeShutdownRetainsCleanupErrors(t *testing.T) {
