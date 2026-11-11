@@ -2,6 +2,17 @@
 
 ## Status: In Progress — janela, timeline, detalhes lazy, contagem indexada e memoização da lista entregues; demais conteúdos pesados seguem pendentes
 
+### Estabilidade das ações durante streaming (11/11/2026)
+
+As ações de copiar e abrir/salvar edição fornecidas à lista mantêm a mesma
+identidade durante atualizações da conversa. Assim, elas não invalidam a
+memoização dos nós não alterados a cada atualização de streaming. O teste de
+estabilidade em `ChatSessionView.test.tsx` verifica as três ações junto aos
+demais callbacks da lista, e `MessageList.identity.test.tsx` conta as
+renderizações de nós inalterados durante um lote. A medição do impacto no aplicativo real e a
+investigação dos demais custos de renderização permanecem pendentes; esta
+correção isolada não comprova a resolução da lentidão relatada.
+
 ## Relação com a AEP-0056
 
 Esta AEP é uma AEP filha da `AEP-0056: Workspace com Abas Autocontidas`.
