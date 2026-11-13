@@ -574,6 +574,15 @@ function ChatSessionViewContent({
     return accepted;
   }, [t]);
   const handleCancelStreaming = useCallback(() => { requestMessaging('chat.response.cancel'); }, [requestMessaging]);
+  const handleCopyMessage = useCallback((message: Message, markdown: boolean) => {
+    requestMessaging(markdown ? 'chat.message.copy_markdown' : 'chat.message.copy', { messageId: message.id });
+  }, [requestMessaging]);
+  const handleEditMessage = useCallback((message: Message) => {
+    requestMessaging('chat.message.edit.open', { messageId: message.id });
+  }, [requestMessaging]);
+  const handleSaveMessage = useCallback((message: Message) => {
+    requestMessaging('chat.message.edit.save', { messageId: message.id });
+  }, [requestMessaging]);
 
   const wsTabs = useWorkspaceStore((state) => state.workspace?.tabs);
 
@@ -1158,9 +1167,9 @@ function ChatSessionViewContent({
           ref={messagesContainerRef}
           onContextMenu={handleMessageContextMenu}
           onSpeak={handleSpeakRequest}
-          onCopy={(message, markdown) => { requestMessaging(markdown ? 'chat.message.copy_markdown' : 'chat.message.copy', { messageId: message.id }); }}
-          onEdit={(message) => { requestMessaging('chat.message.edit.open', { messageId: message.id }); }}
-          onSaveEdit={(message) => { requestMessaging('chat.message.edit.save', { messageId: message.id }); }}
+          onCopy={handleCopyMessage}
+          onEdit={handleEditMessage}
+          onSaveEdit={handleSaveMessage}
           commandPathname={pathname}
           onDelete={handleDeleteMessage}
           editorTargets={editorTargets}

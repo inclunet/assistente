@@ -241,6 +241,9 @@ vi.mock('./MessageList', async (importOriginal) => {
       threadedMessages?: Array<{ id?: string; message?: { id: string; role?: string; isStreaming?: boolean; turnId?: string; content?: string } }>;
       shouldShowContinue?: (message: { id: string; role?: string; isStreaming?: boolean; turnId?: string; content?: string }) => boolean;
       onSpeak?: (message: { id: string; role: string; content: string }) => void;
+      onCopy?: unknown;
+      onEdit?: unknown;
+      onSaveEdit?: unknown;
       onJumpToStart?: () => Promise<void> | void;
       onJumpToEnd?: () => Promise<void> | void;
       onLoadNewer?: (trigger: 'scroll' | 'navigation') => Promise<void> | void;
@@ -257,12 +260,15 @@ vi.mock('./MessageList', async (importOriginal) => {
       onJumpToEnd,
       onLoadNewer,
       onSpeak,
+      onCopy,
+      onEdit,
+      onSaveEdit,
       isLoading,
       origin,
     },
     ref: React.Ref<HTMLDivElement>,
   ) => {
-    messageListRenderMock({ onContextMenu, onReachEnd, onDelete, threadedMessages, isLoading, origin });
+    messageListRenderMock({ onContextMenu, onReachEnd, onDelete, onCopy, onEdit, onSaveEdit, threadedMessages, isLoading, origin });
     if (messageListMode.real) return <actual.MessageList ref={ref}
       threadedMessages={threadedMessages as MessageNode[]}
       onJumpToStart={onJumpToStart} onJumpToEnd={onJumpToEnd} />;
@@ -1156,6 +1162,9 @@ describe('ChatSessionView', () => {
       onContextMenu?: unknown;
       onReachEnd?: unknown;
       onDelete?: unknown;
+      onCopy?: unknown;
+      onEdit?: unknown;
+      onSaveEdit?: unknown;
       origin?: unknown;
     };
     messageListRenderMock.mockClear();
@@ -1172,6 +1181,9 @@ describe('ChatSessionView', () => {
       onContextMenu?: unknown;
       onReachEnd?: unknown;
       onDelete?: unknown;
+      onCopy?: unknown;
+      onEdit?: unknown;
+      onSaveEdit?: unknown;
       origin?: unknown;
       isLoading?: boolean;
     };
@@ -1179,6 +1191,9 @@ describe('ChatSessionView', () => {
     expect(updatedProps.onContextMenu).toBe(firstProps.onContextMenu);
     expect(updatedProps.onReachEnd).toBe(firstProps.onReachEnd);
     expect(updatedProps.onDelete).toBe(firstProps.onDelete);
+    expect(updatedProps.onCopy).toBe(firstProps.onCopy);
+    expect(updatedProps.onEdit).toBe(firstProps.onEdit);
+    expect(updatedProps.onSaveEdit).toBe(firstProps.onSaveEdit);
     expect(updatedProps.origin).toBe(firstProps.origin);
   });
 

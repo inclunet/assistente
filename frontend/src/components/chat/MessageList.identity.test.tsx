@@ -10,14 +10,19 @@ vi.mock('../../hooks/useAnnouncer', () => ({
 }));
 // Isola a identidade do container da lista, sem simular focusout.
 // Não comprova o comportamento do Markdown ou do cursor virtual do NVDA.
-vi.mock('./MessageNode', () => ({
-  MessageNode: ({ node, siblingIndex }: { node: MessageNode; siblingIndex: number }) => (
+const nodeRendered = vi.hoisted(() => vi.fn());
+vi.mock('./MessageNode', async () => {
+  const React = await import('react');
+  return { MessageNode: React.memo(({ node, siblingIndex }: { node: MessageNode; siblingIndex: number }) => {
+    nodeRendered(node.itemId);
+    return (
     <div tabIndex={-1} data-message-node="" data-level="0"
       data-sibling-index={siblingIndex} data-testid={node.message.id}>
       {node.message.content}
     </div>
-  ),
-}));
+    );
+  }) };
+});
 
 const clients: ReturnType<typeof canonicalTestFixture>['client'][] = [];
 afterEach(async () => {
@@ -40,6 +45,23 @@ async function responseView(hasTarget = true) {
 }
 
 describe('AEP-0116 — identidade visual na conclusão', () => {
+  it('atualiza a resposta sem renderizar novamente uma mensagem inalterada', async () => {
+    const previous = canonicalTestItem('previous', 'mensagem anterior');
+    const response = canonicalTestItem('response', 'parcial', { state: 'streaming' });
+    const fixture = canonicalTestFixture([previous, response]);
+    clients.push(fixture.client);
+    const presentation = fixture.presentation();
+    await presentation.open();
+    const onCopy = vi.fn(); const onEdit = vi.fn(); const onSaveEdit = vi.fn();
+    nodeRendered.mockClear();
+    const view = render(<MessageList threadedMessages={presentation.nodes()} onCopy={onCopy} onEdit={onEdit} onSaveEdit={onSaveEdit} />);
+    nodeRendered.mockClear();
+    act(() => { fixture.publish('surface', { ...response, segments: [{ segmentId: 'text', kind: 'text', conclusion: true, text: 'mais texto' }] }); });
+    view.rerender(<MessageList threadedMessages={presentation.nodes()} onCopy={onCopy} onEdit={onEdit} onSaveEdit={onSaveEdit} />);
+    expect(nodeRendered.mock.calls.map(([id]) => id)).toEqual(['response']);
+    expect(view.getByTestId('response')).toHaveTextContent('mais texto');
+  });
+
   it('mantém o elemento e foco quando o backend atribui o alvo persistido', async () => {
     const f = await responseView(false);
     const view = render(<MessageList threadedMessages={f.presentation.nodes()} />);
