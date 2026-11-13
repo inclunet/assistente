@@ -52,7 +52,7 @@ class MarkdownContent extends React.Component<MarkdownContentProps, object, { hr
         this.props.containerRef.current?.closest('[hidden], [inert], [aria-hidden="true"]')) return;
     const matches = [...this.props.containerRef.current?.querySelectorAll<HTMLAnchorElement>('a[href]') ?? []]
       .filter(link => link.getAttribute('href') === snapshot.href && link.textContent === snapshot.label);
-    if (matches.length === 1) matches[0].focus();
+    if (matches.length === 1) matches[0].focus({ preventScroll: true });
   }
 
   render() {

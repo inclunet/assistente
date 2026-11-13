@@ -91,10 +91,13 @@ describe('MarkdownRenderer', () => {
   });
 
   it('preserva o foco no mesmo link quando o conteúdo é atualizado', () => {
+    const focus = vi.spyOn(HTMLAnchorElement.prototype, 'focus');
     const { rerender } = render(<MarkdownRenderer content="[Link](https://example.com)" tabNavigation="enabled" />);
     screen.getByRole('link', { name: 'Link' }).focus();
     rerender(<MarkdownRenderer content="[Link](https://example.com) texto adicional" tabNavigation="enabled" />);
     expect(screen.getByRole('link', { name: 'Link' })).toHaveFocus();
+    expect(focus).toHaveBeenLastCalledWith({ preventScroll: true });
+    focus.mockRestore();
   });
 
   it('não desvia o foco de um controle externo durante a atualização', () => {
