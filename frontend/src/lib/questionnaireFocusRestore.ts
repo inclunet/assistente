@@ -1,4 +1,5 @@
 import { getModalRegistrySnapshot } from './modalRegistry';
+import { useQuestionnaireUIStore } from '../store/questionnaireUIStore';
 
 export interface QuestionnaireFocusOrigin {
   target: HTMLElement | null;
@@ -13,6 +14,18 @@ export function captureQuestionnaireFocusOrigin(target: HTMLElement | null): Que
     ownerModalId: target?.closest<HTMLElement>('[data-modal-id]')?.dataset.modalId ?? null,
     readingRoot: target?.closest<HTMLElement>('[data-message-node][role="dialog"]') ?? null,
   };
+}
+
+/** Captura antes de publicar a abertura e antes de qualquer autoFocus do formulário. */
+export function subscribeUIQuestionnaireFocusOrigin(
+  isQuestionnaireOpen: () => boolean,
+  onOrigin: (origin: QuestionnaireFocusOrigin) => void,
+): () => void {
+  return useQuestionnaireUIStore.subscribe((state, previous) => {
+    if (state.active && !previous.active && !isQuestionnaireOpen()) {
+      onOrigin(captureQuestionnaireFocusOrigin(document.activeElement as HTMLElement | null));
+    }
+  });
 }
 
 /** Não escolher um compositor pertencente a uma aba mantida oculta. */

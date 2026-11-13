@@ -30,7 +30,7 @@ import { getAntdTheme } from './theme/antdTheme';
 import { summaryErrorMessage } from './lib/summaryError';
 import { chatNoticeMessage, chatNoticeTone, type ChatNoticeEvent } from './lib/chatNotice';
 import { useBackendQuestionnaire } from './hooks/useBackendQuestionnaire';
-import { captureQuestionnaireFocusOrigin, findActiveChatComposer, scheduleQuestionnaireFocusRestore, type QuestionnaireFocusOrigin } from './lib/questionnaireFocusRestore';
+import { captureQuestionnaireFocusOrigin, findActiveChatComposer, scheduleQuestionnaireFocusRestore, subscribeUIQuestionnaireFocusOrigin, type QuestionnaireFocusOrigin } from './lib/questionnaireFocusRestore';
 import { AuthGate } from './components/auth/AuthGate';
 import { CommandContextProvider } from './lib/commandContextReact';
 import { ExternalUIConnectionProvider } from './services/externalUIConnectionReact';
@@ -235,12 +235,11 @@ function App() {
         };
     }, [handleExternalIncoming, addToast, t]);
 
-    // Quando um questionário da UI abre, captura o foco atual
-    useEffect(() => {
-        if (uiQuestionnaireData && !questionnaireData && !wasQuestionnaireOpenRef.current) {
-            lastFocusedElementRef.current = captureQuestionnaireFocusOrigin(document.activeElement as HTMLElement | null);
-        }
-    }, [uiQuestionnaireData, questionnaireData]);
+    // A store notifica antes de React montar o formulário e aplicar autoFocus.
+    useEffect(() => subscribeUIQuestionnaireFocusOrigin(
+        () => effectiveQuestionnaireOpenRef.current,
+        (origin) => { lastFocusedElementRef.current = origin; },
+    ), []);
 
     // Previne menu de contexto nativo quando tecla ContextMenu ou Shift+F10 for pressionada
     useEffect(() => {

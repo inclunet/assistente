@@ -6,6 +6,8 @@ import { axe } from '../../test/a11yAxe';
 import { QuestionnaireDialog } from './QuestionnaireDialog';
 import { Modal } from './Modal';
 import { useQuestionnaireUIStore } from '../../store/questionnaireUIStore';
+import { useEffect, useRef } from 'react';
+import { scheduleQuestionnaireFocusRestore, subscribeUIQuestionnaireFocusOrigin, type QuestionnaireFocusOrigin } from '../../lib/questionnaireFocusRestore';
 
 const announceMock = vi.hoisted(() => vi.fn());
 const restoreDefaultFocusMock = vi.hoisted(() => vi.fn(() => {
@@ -47,6 +49,27 @@ describe('QuestionnaireDialog', () => {
       delete (HTMLElement.prototype as { offsetParent?: unknown }).offsetParent;
     }
     useQuestionnaireUIStore.setState({ active: null, queue: [], _activeResolve: null });
+  });
+
+  it('retorna à origem após questionário da UI com autoFocus', async () => {
+    function Harness() {
+      const active = useQuestionnaireUIStore((state) => state.active);
+      const origin = useRef<QuestionnaireFocusOrigin | null>(null);
+      const open = useRef(false);
+      open.current = !!active;
+      useEffect(() => subscribeUIQuestionnaireFocusOrigin(() => open.current, (value) => { origin.current = value; }), []);
+      return <><textarea aria-label="Envio" /><QuestionnaireDialog isOpen={!!active} data={active} onSubmit={() => {}} onCancel={() => {
+        useQuestionnaireUIStore.getState().cancel();
+        scheduleQuestionnaireFocusRestore(() => open.current, origin.current, () => null);
+      }} /></>;
+    }
+    render(<Harness />);
+    const composer = screen.getByRole('textbox', { name: 'Envio' });
+    composer.focus();
+    act(() => { void useQuestionnaireUIStore.getState().request({ id: 'ui-auto', title: 'Pergunta', questions: [{ id: 'answer', type: 'text', prompt: 'Resposta', autoFocus: true }] }); });
+    await waitFor(() => expect(screen.getByRole('textbox', { name: /Resposta/ })).toHaveFocus());
+    await userEvent.click(screen.getByRole('button', { name: /cancel/i }));
+    await waitFor(() => expect(composer).toHaveFocus());
   });
 
   it('move foco para o primeiro controle e anuncia a abertura', async () => {

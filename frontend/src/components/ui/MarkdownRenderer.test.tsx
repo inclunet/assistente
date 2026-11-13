@@ -100,6 +100,17 @@ describe('MarkdownRenderer', () => {
     focus.mockRestore();
   });
 
+  it('preserva o link focado ao reconstruir uma tabela durante o streaming', () => {
+    const focus = vi.spyOn(HTMLAnchorElement.prototype, 'focus');
+    const table = '| Coluna |\n| --- |\n| [Link](https://example.com) |';
+    const { rerender } = render(<MarkdownRenderer content={table} tabNavigation="enabled" />);
+    screen.getByRole('link', { name: 'Link' }).focus();
+    rerender(<MarkdownRenderer content={`${table}\n\nNovo texto`} tabNavigation="enabled" />);
+    expect(screen.getByRole('link', { name: 'Link' })).toHaveFocus();
+    expect(focus).toHaveBeenLastCalledWith({ preventScroll: true });
+    focus.mockRestore();
+  });
+
   it('não desvia o foco de um controle externo durante a atualização', () => {
     const { rerender } = render(<><input aria-label="Outro campo" /><MarkdownRenderer content="[Link](https://example.com)" tabNavigation="enabled" /></>);
     const input = screen.getByRole('textbox', { name: 'Outro campo' });

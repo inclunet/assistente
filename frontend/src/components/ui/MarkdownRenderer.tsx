@@ -395,7 +395,13 @@ export const MarkdownRenderer = React.memo(function MarkdownRenderer({
         wrapper.setAttribute('role', 'group');
         wrapper.setAttribute('aria-label', 'Tabela');
         tableEl.parentNode!.insertBefore(wrapper, tableEl);
+        const focused = document.activeElement instanceof HTMLElement && tableEl.contains(document.activeElement)
+          ? document.activeElement : null;
         wrapper.appendChild(tableEl);
+        if (focused && document.activeElement === document.body &&
+            !focused.closest('[hidden], [inert], [aria-hidden="true"]')) {
+          focused.focus({ preventScroll: true });
+        }
 
         const editorKey = interactiveButtons ? `table-${index}` : null;
         const monacoContainer = interactiveButtons

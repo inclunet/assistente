@@ -9,7 +9,8 @@ Data: 2026-10-30
 Quando o HTML Markdown muda, um link focado é recuperado somente se o mesmo
 destino e texto forem inequívocos e nenhum outro controle tiver assumido o foco.
 `MarkdownRenderer.test.tsx` cobre atualização, foco externo e destinos iguais
-com textos distintos. A navegação real com NVDA ainda precisa de validação;
+com textos distintos, inclusive links em tabelas, verificando `preventScroll`.
+A navegação real com NVDA ainda precisa de validação;
 isso não demonstra preservação do cursor virtual em todos os conteúdos.
 
 O escopo aceito das fases 1–5 está implementado, com os critérios abaixo
