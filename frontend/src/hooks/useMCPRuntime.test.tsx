@@ -16,7 +16,7 @@ const mocks = vi.hoisted(() => ({
 }));
 vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: mocks.t }) }));
 vi.mock('../lib/i18n', () => ({ default: { t: mocks.t } }));
-vi.mock('../services/voiceAccessibility/announcerBroker', () => ({ announceWithOrigin: mocks.announce }));
+vi.mock('../services/voiceAccessibility/announcerBroker', () => ({ announceWithOrigin: mocks.announce, estimateAnnouncementReadingMs: () => 3000 }));
 vi.mock('../store/authStore', async () => {
   const { create } = await import('zustand');
   return { useAuthStore: create(() => ({ isAuthenticated: true, user: { userId: 'user', sessionId: 'session', role: 'admin' } })) };
@@ -63,12 +63,12 @@ describe('global MCP authorization presentation', () => {
   const { unmount } = renderHook(useMCPRuntime);
   await waitFor(() => expect(useMCPStore.getState().servers).toHaveLength(1));
   act(() => { mocks.handlers.get('mcp:oauth_interactive_result')?.({ slug: 'db', userId: 'user', sessionId: 'session', success: true }); });
-  act(() => { mocks.handlers.get('mcp:oauth_interactive_result')?.({ slug: 'db', userId: 'user', sessionId: 'session', success: false }); });
+  act(() => { mocks.handlers.get('mcp:oauth_interactive_result')?.({ slug: 'other-server', userId: 'user', sessionId: 'session', success: false }); });
   act(() => { mocks.handlers.get('mcp:oauth_interactive_result')?.({ slug: 'db', userId: 'other', sessionId: 'session', success: true }); });
   act(() => { mocks.handlers.get('mcp:oauth_interactive_result')?.({ slug: 'db', userId: 'user', sessionId: 'old-session', success: true }); });
-  expect(useUIStore.getState().toasts.map((toast) => [toast.message, toast.type])).toEqual([
+  await waitFor(() => expect(useUIStore.getState().toasts.map((toast) => [toast.message, toast.type])).toEqual([
    ['mcp.toast.serverReauthorized', 'success'], ['mcp.toast.interactiveAuthorizationFailed', 'error'],
-  ]);
+  ]));
   unmount();
  });
  it('waits until the application regains focus to announce interactive results', async () => {
@@ -82,11 +82,30 @@ describe('global MCP authorization presentation', () => {
   expect(mocks.announce).not.toHaveBeenCalled();
   focused = true;
   act(() => window.dispatchEvent(new Event('focus')));
-  expect(useUIStore.getState().toasts.map((toast) => toast.type)).toEqual(['success']);
+  await waitFor(() => expect(useUIStore.getState().toasts.map((toast) => toast.type)).toEqual(['success']));
   expect(mocks.announce).toHaveBeenCalledTimes(1);
   act(() => window.dispatchEvent(new Event('focus')));
   expect(useUIStore.getState().toasts).toHaveLength(1);
   unmount();
+ });
+ it('waits for visibility even if focused and delivers exactly once on visibilitychange', async () => {
+  let visible = false;
+  vi.spyOn(document, 'visibilityState', 'get').mockImplementation(() => visible ? 'visible' : 'hidden');
+  const { unmount } = renderHook(useMCPRuntime);
+  await waitFor(() => expect(useMCPStore.getState().servers).toHaveLength(1));
+  mocks.announce.mockClear();
+  act(() => { mocks.handlers.get('mcp:oauth_interactive_result')?.({ slug: 'db', userId: 'user', sessionId: 'session', success: false }); });
+  act(() => window.dispatchEvent(new Event('focus')));
+  expect(useUIStore.getState().toasts).toHaveLength(0);
+  expect(mocks.announce).not.toHaveBeenCalled();
+  visible = true;
+  act(() => document.dispatchEvent(new Event('visibilitychange')));
+  await waitFor(() => expect(useUIStore.getState().toasts).toHaveLength(1));
+  expect(mocks.announce).toHaveBeenCalledTimes(1);
+  act(() => document.dispatchEvent(new Event('visibilitychange')));
+  expect(useUIStore.getState().toasts).toHaveLength(1);
+  unmount();
+  vi.restoreAllMocks();
  });
  it('discards a deferred failure when the session changes', async () => {
   let focused = false;
@@ -122,7 +141,7 @@ describe('global MCP authorization presentation', () => {
   });
   focused = true;
   act(() => window.dispatchEvent(new Event('focus')));
-  expect(useUIStore.getState().toasts.map((toast) => toast.type)).toEqual(['error']);
+  await waitFor(() => expect(useUIStore.getState().toasts.map((toast) => toast.type)).toEqual(['error']));
   unmount();
  });
  it('waits for focus before presenting an explicit authorization failure', async () => {
@@ -134,7 +153,7 @@ describe('global MCP authorization presentation', () => {
   expect(useUIStore.getState().toasts).toHaveLength(0);
   focused = true;
   act(() => window.dispatchEvent(new Event('focus')));
-  expect(useUIStore.getState().toasts.map((toast) => toast.message)).toEqual(['mcp.error.consentDeclined']);
+  await waitFor(() => expect(useUIStore.getState().toasts.map((toast) => toast.message)).toEqual(['mcp.error.consentDeclined']));
   unmount();
  });
  it('cancels deferred explicit results when the runtime unmounts', async () => {
@@ -178,7 +197,7 @@ describe('global MCP authorization presentation', () => {
   const secondOperation = reauthorizeMCPServer({ slug: 'db', name: 'Databricks' });
   expect(mocks.reauthorize).toHaveBeenCalledTimes(1);
   await act(async () => { finish(); await Promise.all([firstOperation, secondOperation]); });
-  expect(useUIStore.getState().toasts.map((toast) => toast.type)).toEqual(['success']);
+  await waitFor(() => expect(useUIStore.getState().toasts.map((toast) => toast.type)).toEqual(['success']));
   second.unmount();
  });
  it('deduplicates repeated explicit reauthorization actions', async () => {
@@ -191,7 +210,7 @@ describe('global MCP authorization presentation', () => {
   expect(mocks.reauthorize).toHaveBeenCalledTimes(1);
   mocks.list.mockResolvedValue([server({ needsReauth: false })]);
   await act(async () => { finish(); await Promise.all([first, second]); });
-  expect(useUIStore.getState().toasts.map((toast) => toast.type)).toEqual(['success']);
+  await waitFor(() => expect(useUIStore.getState().toasts.map((toast) => toast.type)).toEqual(['success']));
   unmount();
  });
  it('uses the existing translated error on consent failure', async () => {
@@ -199,7 +218,7 @@ describe('global MCP authorization presentation', () => {
   const { unmount } = renderHook(useMCPRuntime);
   await waitFor(() => expect(useMCPStore.getState().servers).toHaveLength(1));
   await act(async () => { await reauthorizeMCPServer({ slug: 'db', name: 'Databricks' }); });
-  expect(useUIStore.getState().toasts.map((toast) => toast.message)).toEqual(['mcp.error.consentDeclined']);
+  await waitFor(() => expect(useUIStore.getState().toasts.map((toast) => toast.message)).toEqual(['mcp.error.consentDeclined']));
   unmount();
  });
  it('ignores late results after logout', async () => {
