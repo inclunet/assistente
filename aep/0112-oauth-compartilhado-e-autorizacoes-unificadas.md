@@ -6,15 +6,12 @@
 
 ### Retorno PKCE do MCP sem sucesso prematuro — 13/11/2026
 
-O callback local do MCP informa apenas que o retorno chegou e tenta fechar a
-aba; a confirmação ou o erro da operação permanecem no aplicativo. Falhas da
+O callback local do MCP responde sem conteúdo; o resultado confirmado da
+autorização interativa aparece no aplicativo em aviso temporário. Falhas da
 troca são registradas com diagnóstico limitado e seguro. As provas em
-`internal/mcp/oauth_exchange_diagnostics_test.go` cobrem a página anterior à
-troca e a sanitização do diagnóstico. O status permanece **In Progress**; a
-confirmação com o servidor real continua pendente.
-O texto temporário usa o idioma do navegador (pt-BR, en ou es; fallback en),
-pois a preferência do Assistente está no armazenamento local da aplicação,
-inacessível à origem loopback. Os avisos no aplicativo usam seu próprio idioma.
+`internal/mcp/oauth_exchange_diagnostics_test.go` cobrem o callback sem página
+e a sanitização; `useMCPRuntime.test.tsx` cobre os avisos. O status permanece
+**In Progress**; a confirmação com o servidor real continua pendente.
 
 ## Validação de reconexão silenciosa com tempo virtual — issue #1008
 

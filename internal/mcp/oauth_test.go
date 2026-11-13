@@ -252,11 +252,8 @@ func TestAuthorizePKCEReregistersWhenFixedCallbackPortIsBusy(t *testing.T) {
 				if err != nil {
 					return err
 				}
-				_, nonceHTML, found := strings.Cut(string(body), `<style nonce="`)
-				nonce, _, closed := strings.Cut(nonceHTML, `"`)
-				policy := resp.Header.Get("Content-Security-Policy")
-				if !found || !closed || len(nonce) < 32 || !strings.Contains(string(body), `<script nonce="`+nonce+`">`) || !strings.Contains(policy, "style-src 'nonce-"+nonce+"'") || !strings.Contains(policy, "script-src 'nonce-"+nonce+"'") || strings.Contains(string(body), "style=") {
-					t.Error("MCP callback assets do not match the restricted CSP")
+				if resp.StatusCode != http.StatusNoContent || len(body) != 0 {
+					t.Error("MCP callback must not render a result page")
 				}
 				return nil
 			}

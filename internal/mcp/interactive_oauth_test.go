@@ -17,9 +17,10 @@ import (
 )
 
 func TestInteractiveOAuthRecoversBeforeResourceRequestAndDeduplicates(t *testing.T) {
-	for _, scenario := range []string{"success", "denied", "insufficient_scopes"} {
+	for _, scenario := range []string{"success", "denied", "insufficient_scopes", "conflict"} {
 		t.Run(scenario, func(t *testing.T) {
 			denied := scenario == "denied"
+			conflict := scenario == "conflict"
 			m, repo, ctx := managedFixture(t)
 			sqlDB, err := repo.db.DB()
 			if err != nil {
@@ -75,6 +76,16 @@ func TestInteractiveOAuthRecoversBeforeResourceRequestAndDeduplicates(t *testing
 				case <-time.After(5 * time.Second):
 					return errors.New("consent test timed out")
 				}
+				if conflict {
+					current, err := store.Load(ctx, cfg.OAuthAuthorizationID)
+					if err != nil {
+						return err
+					}
+					current.Revision++
+					if err := store.CompareAndSwap(ctx, current, current.Revision-1); err != nil {
+						return err
+					}
+				}
 				u, _ := url.Parse(raw)
 				query := u.Query()
 				callback := query.Get("redirect_uri") + "?state=" + url.QueryEscape(query.Get("state")) + "&code=CODE"
@@ -102,7 +113,13 @@ func TestInteractiveOAuthRecoversBeforeResourceRequestAndDeduplicates(t *testing
 			if err := call(ctx); !errors.Is(err, expectedError) || browsers.Load() != 0 || resources.Load() != 0 {
 				t.Fatalf("background consent or request: %v", err)
 			}
-			turn := WithInteractiveOAuth(ctx)
+			events := make(chan interactiveOAuthResult, 2)
+			m.emitEvent = func(name string, data any) {
+				if name == "mcp:oauth_interactive_result" {
+					events <- data.(interactiveOAuthResult)
+				}
+			}
+			turn := WithInteractiveOAuth(WithOAuthSession(ctx, "session-original"))
 			first, second := make(chan error, 1), make(chan error, 1)
 			go func() { first <- call(turn) }()
 			select {
@@ -118,12 +135,28 @@ func TestInteractiveOAuthRecoversBeforeResourceRequestAndDeduplicates(t *testing
 					if denied && (err == nil || !strings.Contains(err.Error(), "oauth_consent_declined")) {
 						t.Fatalf("expected declined consent: %v", err)
 					}
-					if !denied && err != nil {
+					if conflict && !errors.Is(err, oauthflow.ErrConflict) {
+						t.Fatalf("expected conflict: %v", err)
+					}
+					if !denied && !conflict && err != nil {
 						t.Fatal(err)
 					}
 				case <-time.After(5 * time.Second):
 					t.Fatal("concurrent authorization deadlocked")
 				}
+			}
+			select {
+			case event := <-events:
+				if event.Slug != cfg.Slug || event.UserID != cfg.UserID || event.SessionID != "session-original" || event.Success == (denied || conflict) {
+					t.Fatalf("unexpected authorization result: %+v", event)
+				}
+			default:
+				t.Fatal("missing authorization result")
+			}
+			select {
+			case event := <-events:
+				t.Fatalf("duplicate authorization result: %+v", event)
+			default:
 			}
 			if browsers.Load() != 1 {
 				t.Fatalf("browser opens=%d", browsers.Load())
@@ -131,6 +164,10 @@ func TestInteractiveOAuthRecoversBeforeResourceRequestAndDeduplicates(t *testing
 			if denied {
 				if err := call(turn); err == nil || browsers.Load() != 1 || resources.Load() != 0 || tokens.Load() != 0 {
 					t.Fatalf("denial retried: %v", err)
+				}
+			} else if conflict {
+				if resources.Load() != 0 {
+					t.Fatal("conflicting authorization reached resource")
 				}
 			} else if tokens.Load() != 1 || resources.Load() != 2 {
 				t.Fatalf("token/resource calls %d/%d", tokens.Load(), resources.Load())

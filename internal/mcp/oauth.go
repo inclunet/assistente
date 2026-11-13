@@ -502,7 +502,7 @@ func (rt *oauthProtocol) authorizePKCE(ctx context.Context) error {
 	}
 	authURL := oauthCfg.AuthCodeURL(state, authURLOpts...)
 
-	if err := callback.Start(state, oauthflow.CallbackPage{Success: authCallbackHTML, Failure: authCallbackHTML, ContentType: "text/html; charset=utf-8", HTMLNonce: true}); err != nil {
+	if err := callback.Start(state, oauthflow.CallbackPage{NoContent: true}); err != nil {
 		return err
 	}
 
@@ -716,31 +716,6 @@ func generateState() string {
 	h.Write(b)
 	return base64.RawURLEncoding.EncodeToString(h.Sum(nil))
 }
-
-const authCallbackHTML = `<!DOCTYPE html>
-<html lang="en"><head><meta charset="utf-8"><title>Returning to Assistente</title>
-<style nonce="` + oauthflow.CallbackNoncePlaceholder + `">body{font-family:sans-serif;text-align:center;padding:40px}</style></head>
-<body>
-<h2 id="title">Return received</h2>
-<p id="message">Assistente is processing the return. You may close this window.</p>
-<script nonce="` + oauthflow.CallbackNoncePlaceholder + `">
-(function(){
-  var translations={
-    en:{title:'Returning to Assistente',heading:'Return received',message:'Assistente is processing the return. You may close this window.'},
-    'pt-BR':{title:'Retornando ao Assistente',heading:'Retorno recebido',message:'O Assistente está processando o retorno. Você pode fechar esta janela.'},
-    es:{title:'Volviendo a Assistente',heading:'Retorno recibido',message:'Assistente está procesando el retorno. Puedes cerrar esta ventana.'}
-  };
-  var preferred=(navigator.language||'en').toLowerCase();
-  var language=preferred.indexOf('pt')===0?'pt-BR':preferred.indexOf('es')===0?'es':'en';
-  var value=translations[language];
-  document.documentElement.lang=language;
-  document.title=value.title;
-  document.getElementById('title').textContent=value.heading;
-  document.getElementById('message').textContent=value.message;
-  setTimeout(function(){window.close()},250);
-})();
-</script>
-</body></html>`
 
 func (rt *oauthProtocol) oauthHTTPClient(timeout time.Duration) *http.Client {
 	return oauthintegrations.MCPHTTPClient(oauthflow.NewNetworkHTTPClient(rt.cfg.URL, rt.networkAuthorizer, timeout), rt.cfg.URL)

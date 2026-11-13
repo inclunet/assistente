@@ -27,7 +27,7 @@ func TestPKCECallbackDoesNotClaimSuccessBeforeTokenExchange(t *testing.T) {
 				t.Fatal(err)
 			}
 			t.Cleanup(callback.Close)
-			if err := callback.Start("state", oauthflow.CallbackPage{Success: authCallbackHTML, Failure: authCallbackHTML, ContentType: "text/html; charset=utf-8", HTMLNonce: true}); err != nil {
+			if err := callback.Start("state", oauthflow.CallbackPage{NoContent: true}); err != nil {
 				t.Fatal(err)
 			}
 			query := url.Values{"state": {"state"}, tc.key: {tc.value}}
@@ -41,13 +41,8 @@ func TestPKCECallbackDoesNotClaimSuccessBeforeTokenExchange(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			text := string(body)
-			if response.StatusCode != http.StatusOK || !strings.Contains(text, `lang="en"`) || !strings.Contains(text, "document.documentElement.lang=language") ||
-				!strings.Contains(text, "Retorno recebido") || !strings.Contains(text, "Return received") || !strings.Contains(text, "Retorno recibido") || !strings.Contains(text, "window.close()") {
-				t.Fatal("callback não apresentou retorno transitório")
-			}
-			if strings.Contains(text, "Autorização concluída") || strings.Contains(text, "private-code") {
-				t.Fatal("callback afirmou sucesso prematuro ou expôs o código")
+			if response.StatusCode != http.StatusNoContent || len(body) != 0 {
+				t.Fatal("callback apresentou conteudo ou resultado prematuro")
 			}
 			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 			defer cancel()

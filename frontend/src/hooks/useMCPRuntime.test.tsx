@@ -58,6 +58,18 @@ describe('global MCP authorization presentation', () => {
   unmount();
   expect(mocks.handlers.size).toBe(0);
  });
+ it('shows temporary feedback for interactive authorization in the active session', async () => {
+  const { unmount } = renderHook(useMCPRuntime);
+  await waitFor(() => expect(useMCPStore.getState().servers).toHaveLength(1));
+  act(() => { mocks.handlers.get('mcp:oauth_interactive_result')?.({ slug: 'db', userId: 'user', sessionId: 'session', success: true }); });
+  act(() => { mocks.handlers.get('mcp:oauth_interactive_result')?.({ slug: 'db', userId: 'user', sessionId: 'session', success: false }); });
+  act(() => { mocks.handlers.get('mcp:oauth_interactive_result')?.({ slug: 'db', userId: 'other', sessionId: 'session', success: true }); });
+  act(() => { mocks.handlers.get('mcp:oauth_interactive_result')?.({ slug: 'db', userId: 'user', sessionId: 'old-session', success: true }); });
+  expect(useUIStore.getState().toasts.map((toast) => [toast.message, toast.type])).toEqual([
+   ['mcp.toast.serverReauthorized', 'success'], ['mcp.toast.interactiveAuthorizationFailed', 'error'],
+  ]);
+  unmount();
+ });
  it('deduplicates repeated explicit reauthorization actions', async () => {
   let finish!: () => void;
   mocks.reauthorize.mockImplementation(() => new Promise<void>((resolve) => { finish = resolve; }));
