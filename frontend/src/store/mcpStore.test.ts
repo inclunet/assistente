@@ -1,7 +1,7 @@
 /** @vitest-environment jsdom */
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { mcp } from '@wailsjs/go/models';
-import { ConnectMCPServer, SaveMCPServer, SaveMCPServerWithOAuthSecret, SaveMCPServerWithCredential } from '@wailsjs/go/wailsapi/MCP';
+import { ConnectMCPServer, DisconnectMCPServer, ReconnectMCPServer, SaveMCPServer, SaveMCPServerWithOAuthSecret, SaveMCPServerWithCredential } from '@wailsjs/go/wailsapi/MCP';
 import { useMCPStore } from './mcpStore';
 
 const mockListMCPServers = vi.fn();
@@ -72,6 +72,19 @@ describe('mcpStore reautorização', () => {
     expect(mockListMCPServers).toHaveBeenCalledTimes(2);
     cleanup();
   });
+});
+
+it.each([
+  ['reconectar', 'reconnect', ReconnectMCPServer],
+  ['desconectar', 'disconnect', DisconnectMCPServer],
+] as const)('propaga falha ao %s e atualiza o estado do servidor', async (_label, action, binding) => {
+  mockListMCPServers.mockReset();
+  mockListMCPServers.mockResolvedValue([]);
+  const failure = new Error('oauth_reauthorization_required');
+  vi.mocked(binding).mockRejectedValueOnce(failure);
+  await expect(useMCPStore.getState()[action]('nu-mcp')).rejects.toBe(failure);
+  expect(binding).toHaveBeenCalledWith('nu-mcp');
+  expect(mockListMCPServers).toHaveBeenCalled();
 });
 
 it('salva configuração e segredo gerenciados pela mesma operação e propaga rollback', async () => {

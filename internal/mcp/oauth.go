@@ -532,6 +532,7 @@ func (rt *oauthProtocol) authorizePKCE(ctx context.Context) error {
 	}
 	token, err := oauthCfg.Exchange(context.WithValue(ctx, oauth2.HTTPClient, rt.oauthHTTPClient(30*time.Second)), result.Get("code"), exchangeOpts...)
 	if err != nil {
+		logPKCEExchangeFailure(ctx, rt.serverSlug, err)
 		var rejected *oauth2.RetrieveError
 		if errors.As(err, &rejected) {
 			switch rejected.ErrorCode {
@@ -550,6 +551,35 @@ func (rt *oauthProtocol) authorizePKCE(ctx context.Context) error {
 	rt.issuedToken = token
 	logging.Infof(ctx, "mcp.oauth", "pkce_authorization_completed server=%s", rt.serverSlug)
 	return nil
+}
+
+// Registra somente metadados limitados: erros do servidor podem conter tokens,
+// URLs ou descrições arbitrárias e nunca devem ser copiados para o log.
+func logPKCEExchangeFailure(ctx context.Context, slug string, err error) {
+	status, code, cause := 0, "none", "other"
+	var rejected *oauth2.RetrieveError
+	var networkError net.Error
+	switch {
+	case errors.As(err, &rejected):
+		cause = "http"
+		if rejected.Response != nil {
+			status = rejected.Response.StatusCode
+		}
+		switch rejected.ErrorCode {
+		case "invalid_client", "invalid_scope", "invalid_grant", "invalid_request", "unauthorized_client", "unsupported_grant_type", "access_denied", "server_error", "temporarily_unavailable":
+			code = rejected.ErrorCode
+		case "":
+		default:
+			code = "other"
+		}
+	case errors.Is(err, context.DeadlineExceeded), errors.As(err, &networkError) && networkError.Timeout():
+		cause = "timeout"
+	case errors.Is(err, context.Canceled):
+		cause = "canceled"
+	case errors.Is(err, oauthflow.ErrNetworkAuthorization):
+		cause = "network_authorization"
+	}
+	logging.Logger(ctx, "mcp.oauth").Warn("oauth_code_exchange_failed", "server", slug, "cause", cause, "http_status", status, "oauth_error", code)
 }
 
 func safeOAuthExchangeError(ctx context.Context, err error) error {

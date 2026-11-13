@@ -5,6 +5,17 @@ expirado no caminho nativo e sinalização `NeedsReauth`), binding Wails, UI de
 reautorização, testes, documentação de usuário e CI verde entregues no PR #771.
 Integração com o ciclo compartilhado do AEP-0112 em andamento; recuperação interativa implementada; confirmação com servidor real e NVDA pendente.
 
+### Propagação de falhas de conexão (13/11/2026)
+
+Falhas retornadas ao reconectar ou desconectar são propagadas pela store para a
+página, que apresenta o erro em vez de anunciar sucesso. A lista é atualizada
+também na falha. `mcpStore.test.ts` e `McpPage.test.tsx` cobrem propagação e
+feedback; a causa específica da falha real de autorização ainda precisa ser
+investigada. Uma falha na troca PKCE registra a etapa, categoria, status HTTP e
+código OAuth de lista fechada, sem corpo, URL ou descrições do servidor; a
+regressão em `oauth_exchange_diagnostics_test.go` verifica a sanitização.
+O status permanece **In Progress**.
+
 ## Resumo
 
 Servidores MCP autenticados por OAuth2 PKCE (ex.: Atlassian) podem ter o
