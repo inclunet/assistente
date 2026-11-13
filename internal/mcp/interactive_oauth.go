@@ -8,11 +8,25 @@ import (
 	"assistente/internal/oauthflow"
 )
 
+type oauthSessionKey struct{}
+
+// WithOAuthSession associates user-visible results with the originating session.
+func WithOAuthSession(ctx context.Context, sessionID string) context.Context {
+	return context.WithValue(ctx, oauthSessionKey{}, sessionID)
+}
+
 type interactiveOAuthKey struct{}
 type interactiveOAuthScope struct {
 	mu       sync.Mutex
 	attempts map[string]*interactiveOAuthAttempt
 }
+type interactiveOAuthResult struct {
+	Slug      string `json:"slug"`
+	UserID    string `json:"userId"`
+	SessionID string `json:"sessionId"`
+	Success   bool   `json:"success"`
+}
+
 type interactiveOAuthAttempt struct {
 	done chan struct{}
 	err  error
@@ -66,6 +80,7 @@ func (m *Manager) recoverInteractiveOAuth(ctx context.Context, cfg ServerConfig)
 	}
 	defer close(attempt.done)
 	attempt.err = m.authorizeManagedOAuth(ctx, cfg.Slug, cfg)
+	joinedExplicitAction := false
 	if errors.Is(attempt.err, oauthflow.ErrConflict) {
 		// Another explicit action may already own this server's consent. Join its
 		// completion instead of starting another flow; never repeat a failed flow.
@@ -73,6 +88,7 @@ func (m *Manager) recoverInteractiveOAuth(ctx context.Context, cfg ServerConfig)
 		active := m.managedAttempts[cfg.Slug]
 		m.mu.RUnlock()
 		if active != nil {
+			joinedExplicitAction = true
 			select {
 			case <-ctx.Done():
 				attempt.err = ctx.Err()
@@ -80,6 +96,10 @@ func (m *Manager) recoverInteractiveOAuth(ctx context.Context, cfg ServerConfig)
 				_, attempt.err = m.resolveManagedOAuthSilent(ctx, cfg, "")
 			}
 		}
+	}
+	sessionID, _ := ctx.Value(oauthSessionKey{}).(string)
+	if !joinedExplicitAction && ctx.Err() == nil && sessionID != "" {
+		m.emit("mcp:oauth_interactive_result", interactiveOAuthResult{Slug: cfg.Slug, UserID: cfg.UserID, SessionID: sessionID, Success: attempt.err == nil})
 	}
 	return attempt.err
 }

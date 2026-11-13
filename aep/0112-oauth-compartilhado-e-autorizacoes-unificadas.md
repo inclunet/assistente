@@ -4,6 +4,18 @@
 **Contrato base concluído em:** 2026-10-05
 **Data:** 2026-09-30
 
+### Retorno PKCE do MCP sem sucesso prematuro — 13/11/2026
+
+O callback local do MCP exibe retorno recebido ou erro do provedor, sem afirmar
+que a troca e a gravação já terminaram; o resultado confirmado da autorização
+interativa aparece no aplicativo em aviso temporário. A página usa o idioma do
+navegador (pt-BR, en ou es, com fallback en), pois a preferência do aplicativo
+não está disponível à origem local; o aviso usa o idioma do Assistente. Falhas da
+troca são registradas com diagnóstico limitado e seguro. As provas em
+`internal/mcp/oauth_exchange_diagnostics_test.go` cobrem as páginas de retorno e erro
+e a sanitização; `useMCPRuntime.test.tsx` cobre os avisos. O status permanece
+**In Progress**; a confirmação com o servidor real continua pendente.
+
 ## Validação de reconexão silenciosa com tempo virtual — issue #1008
 
 `TestManagedOAuthBackgroundRetryNeverOpensBrowser` percorre o manager e a

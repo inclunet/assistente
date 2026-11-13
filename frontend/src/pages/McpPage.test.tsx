@@ -8,6 +8,7 @@ import { SaveMCPServerAuth, DeleteMCPServerAuth, GetMCPServerAuthInfo } from '@w
 
 const mockSave = vi.fn();
 const mockConnect = vi.fn();
+const mockReconnect = vi.fn();
 const mockToast = vi.fn();
 const mockGetConfig = vi.fn();
 const mockLoadServers = vi.fn();
@@ -40,7 +41,7 @@ vi.mock('../store/mcpStore', () => ({
     loadServers: mockLoadServers,
     connect: mockConnect,
     disconnect: vi.fn(),
-    reconnect: vi.fn(),
+    reconnect: mockReconnect,
     save: mockSave,
     remove: vi.fn(),
     getConfig: mockGetConfig,
@@ -874,6 +875,18 @@ it('mostra erro OAuth localizado sem toast de sucesso quando Conectar falha', as
  if (!row) throw new Error('Linha do servidor ausente');
  await userEvent.click(within(row).getByRole('button', {name:'mcp.actions.connect'}));
  await waitFor(() => expect(mockToast).toHaveBeenCalledWith('mcp.error.consentDeclined','error'));
+ expect(mockToast.mock.calls.some((call) => call[1] === 'success')).toBe(false);
+});
+
+it('mostra erro OAuth sem anunciar sucesso quando Reconectar falha', async () => {
+ mockServers = [{slug:'managed', name:'Managed', status:'disconnected', enabled:true, transport:'streamable', authType:'oauth2_pkce', tools:[]}];
+ mockToast.mockClear();
+ mockReconnect.mockRejectedValueOnce(new Error('oauth_reauthorization_required'));
+ render(<McpPage />);
+ const row = screen.getByText('Managed').closest('div');
+ if (!row) throw new Error('Linha do servidor ausente');
+ await userEvent.click(within(row).getByRole('button', {name:'mcp.actions.reconnect'}));
+ await waitFor(() => expect(mockToast).toHaveBeenCalledWith('mcp.error.authorizationRequired','error'));
  expect(mockToast.mock.calls.some((call) => call[1] === 'success')).toBe(false);
 });
 

@@ -1575,6 +1575,7 @@ const en = {
         serverConnected: 'Server "{{name}}" connected!',
         serverDisconnected: 'Server "{{name}}" disconnected',
         serverReconnected: 'Server "{{name}}" reconnected!',
+        interactiveAuthorizationFailed: 'Could not authorize server "{{name}}".',
         serverReauthorized: 'Server "{{name}}" reauthorized!',
       },
       confirm: {

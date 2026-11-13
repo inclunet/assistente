@@ -1576,6 +1576,7 @@ const ptBR = {
         serverConnected: 'Servidor "{{name}}" conectado!',
         serverDisconnected: 'Servidor "{{name}}" desconectado',
         serverReconnected: 'Servidor "{{name}}" reconectado!',
+        interactiveAuthorizationFailed: 'Não foi possível autorizar o servidor "{{name}}".',
         serverReauthorized: 'Servidor "{{name}}" reautorizado!',
       },
       confirm: {

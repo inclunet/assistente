@@ -704,6 +704,15 @@ Alterações de callback, recurso, endpoints ou escopos em um cadastro DCR inval
 Se o consentimento falhar após o DCR, o cliente registrado é preservado para a próxima tentativa. Uma conexão OAuth bem-sucedida limpa o aviso anterior de reautorização. Para Client Credentials inválido, revise ID/segredo ou escopos e conecte novamente; esse fluxo não usa o botão Reautorizar.
 
 Durante a autorização ao conectar, o servidor fica em Conectando e oferece Cancelar. Recusa ou falha do login exibe erro; a interface só confirma sucesso após a conexão completar.
+Depois do retorno OAuth, o navegador informa se recebeu uma resposta ou um erro
+do provedor. Quando a autorização começa no chat, o Assistente informa o resultado
+em um aviso temporário. Ao conectar pela página MCP, consulte a lista de servidores;
+a conexão pode exigir etapas adicionais. Você pode fechar a aba do navegador.
+
+Ao reconectar ou desconectar, o Assistente atualiza a lista e informa qualquer
+falha retornada pela operação; a confirmação de sucesso aparece apenas quando
+ela é concluída. Se a mensagem pedir reautorização, use **Reautorizar** no
+servidor e aguarde a conclusão no aplicativo.
 
 O seletor de autenticação Basic/Post aplica-se a clientes configurados manualmente e Client Credentials. Quando o discovery seleciona registro dinâmico público (DCR), o seletor é ocultado, pois o cliente é registrado sem segredo (`none`).
 

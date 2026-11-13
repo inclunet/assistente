@@ -11,6 +11,7 @@ import (
 	"assistente/internal/channels"
 	"assistente/internal/credentials"
 	"assistente/internal/database"
+	"assistente/internal/mcp"
 	"assistente/internal/wailsapi"
 )
 
@@ -707,7 +708,11 @@ func (a *App) internalBootstrapCtx() context.Context {
 	if a.currentUserID == "" {
 		return ctx
 	}
-	return database.WithUserID(ctx, a.currentUserID)
+	ctx = database.WithUserID(ctx, a.currentUserID)
+	if a.currentAuthUser != nil {
+		ctx = mcp.WithOAuthSession(ctx, a.currentAuthUser.SessionID)
+	}
+	return ctx
 }
 
 // requireAuthenticatedContext retorna o context com userID e um erro

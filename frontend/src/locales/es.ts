@@ -1578,6 +1578,7 @@ const es = {
         serverConnected: '¡Servidor "{{name}}" conectado!',
         serverDisconnected: 'Servidor "{{name}}" desconectado',
         serverReconnected: '¡Servidor "{{name}}" reconectado!',
+        interactiveAuthorizationFailed: 'No se pudo autorizar el servidor "{{name}}".',
         serverReauthorized: '¡Servidor "{{name}}" reautorizado!',
       },
       confirm: {

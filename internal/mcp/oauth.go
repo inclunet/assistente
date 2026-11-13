@@ -502,7 +502,7 @@ func (rt *oauthProtocol) authorizePKCE(ctx context.Context) error {
 	}
 	authURL := oauthCfg.AuthCodeURL(state, authURLOpts...)
 
-	if err := callback.Start(state, oauthflow.CallbackPage{Success: authSuccessHTML, Failure: authErrorHTML, ContentType: "text/html; charset=utf-8", HTMLNonce: true}); err != nil {
+	if err := callback.Start(state, oauthflow.CallbackPage{Success: authCallbackPage("received"), Failure: authCallbackPage("error"), ContentType: "text/html; charset=utf-8", HTMLNonce: true}); err != nil {
 		return err
 	}
 
@@ -532,6 +532,7 @@ func (rt *oauthProtocol) authorizePKCE(ctx context.Context) error {
 	}
 	token, err := oauthCfg.Exchange(context.WithValue(ctx, oauth2.HTTPClient, rt.oauthHTTPClient(30*time.Second)), result.Get("code"), exchangeOpts...)
 	if err != nil {
+		logPKCEExchangeFailure(ctx, rt.serverSlug, err)
 		var rejected *oauth2.RetrieveError
 		if errors.As(err, &rejected) {
 			switch rejected.ErrorCode {
@@ -550,6 +551,35 @@ func (rt *oauthProtocol) authorizePKCE(ctx context.Context) error {
 	rt.issuedToken = token
 	logging.Infof(ctx, "mcp.oauth", "pkce_authorization_completed server=%s", rt.serverSlug)
 	return nil
+}
+
+// Registra somente metadados limitados: erros do servidor podem conter tokens,
+// URLs ou descrições arbitrárias e nunca devem ser copiados para o log.
+func logPKCEExchangeFailure(ctx context.Context, slug string, err error) {
+	status, code, cause := 0, "none", "other"
+	var rejected *oauth2.RetrieveError
+	var networkError net.Error
+	switch {
+	case errors.As(err, &rejected):
+		cause = "http"
+		if rejected.Response != nil {
+			status = rejected.Response.StatusCode
+		}
+		switch rejected.ErrorCode {
+		case "invalid_client", "invalid_scope", "invalid_grant", "invalid_request", "unauthorized_client", "unsupported_grant_type", "access_denied", "server_error", "temporarily_unavailable":
+			code = rejected.ErrorCode
+		case "":
+		default:
+			code = "other"
+		}
+	case errors.Is(err, context.DeadlineExceeded), errors.As(err, &networkError) && networkError.Timeout():
+		cause = "timeout"
+	case errors.Is(err, context.Canceled):
+		cause = "canceled"
+	case errors.Is(err, oauthflow.ErrNetworkAuthorization):
+		cause = "network_authorization"
+	}
+	logging.Logger(ctx, "mcp.oauth").Warn("oauth_code_exchange_failed", "server", slug, "cause", cause, "http_status", status, "oauth_error", code)
 }
 
 func safeOAuthExchangeError(ctx context.Context, err error) error {
@@ -687,22 +717,40 @@ func generateState() string {
 	return base64.RawURLEncoding.EncodeToString(h.Sum(nil))
 }
 
-const authSuccessHTML = `<!DOCTYPE html>
-<html><head><meta charset="utf-8"><title>Autorização concluída</title>
-<style nonce="` + oauthflow.CallbackNoncePlaceholder + `">body{font-family:sans-serif;text-align:center;padding:40px}</style></head>
-<body>
-<h2>Autorização concluída!</h2>
-<p>Pode fechar esta janela e retornar ao Assistente.</p>
-<script nonce="` + oauthflow.CallbackNoncePlaceholder + `">setTimeout(function(){window.close()},3000)</script>
-</body></html>`
+// The callback acknowledges only what the provider returned. Token exchange
+// and persistence finish later; the application reports their final result.
+func authCallbackPage(outcome string) string {
+	page := strings.ReplaceAll(authCallbackHTML, "__OUTCOME__", outcome)
+	if outcome == "error" {
+		page = strings.Replace(page, "<title>Returning to Assistente</title>", "<title>Authorization failed</title>", 1)
+		page = strings.Replace(page, `<h1 id="title">Return received</h1>`, `<h1 id="title">Authorization failed</h1>`, 1)
+		page = strings.Replace(page, `<p id="message">Return to Assistente to check the authorization result. You may close this tab.</p>`, `<p id="message">The provider returned an error. Return to Assistente for details. You may close this tab.</p>`, 1)
+	}
+	return page
+}
 
-const authErrorHTML = `<!DOCTYPE html>
-<html><head><meta charset="utf-8"><title>Erro de autorização</title>
+const authCallbackHTML = `<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><title>Returning to Assistente</title>
 <style nonce="` + oauthflow.CallbackNoncePlaceholder + `">body{font-family:sans-serif;text-align:center;padding:40px}</style></head>
-<body>
-<h2>Erro na autorização</h2>
-<p>Verifique os logs no Assistente para mais detalhes.</p>
-</body></html>`
+<body data-outcome="__OUTCOME__">
+<h1 id="title">Return received</h1>
+<p id="message">Return to Assistente to check the authorization result. You may close this tab.</p>
+<script nonce="` + oauthflow.CallbackNoncePlaceholder + `">
+(function(){
+ var translations={
+  en:{received:['Return received','Return to Assistente to check the authorization result. You may close this tab.'],error:['Authorization failed','The provider returned an error. Return to Assistente for details. You may close this tab.']},
+  'pt-BR':{received:['Retorno recebido','Volte ao Assistente para conferir o resultado da autorização. Você pode fechar esta aba.'],error:['Falha na autorização','O provedor retornou um erro. Volte ao Assistente para mais informações. Você pode fechar esta aba.']},
+  es:{received:['Retorno recibido','Vuelve a Assistente para consultar el resultado de la autorización. Puedes cerrar esta pestaña.'],error:['Error de autorización','El proveedor devolvió un error. Vuelve a Assistente para más información. Puedes cerrar esta pestaña.']}
+ };
+ var preferred=(navigator.language||'en').toLowerCase();
+ var language=preferred.indexOf('pt')===0?'pt-BR':preferred.indexOf('es')===0?'es':'en';
+ var value=translations[language][document.body.dataset.outcome];
+ document.documentElement.lang=language;
+ document.title=value[0];
+ document.getElementById('title').textContent=value[0];
+ document.getElementById('message').textContent=value[1];
+})();
+</script></body></html>`
 
 func (rt *oauthProtocol) oauthHTTPClient(timeout time.Duration) *http.Client {
 	return oauthintegrations.MCPHTTPClient(oauthflow.NewNetworkHTTPClient(rt.cfg.URL, rt.networkAuthorizer, timeout), rt.cfg.URL)
