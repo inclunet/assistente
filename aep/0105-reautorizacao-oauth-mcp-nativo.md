@@ -14,6 +14,8 @@ feedback; a causa específica da falha real de autorização ainda precisa ser
 investigada. Uma falha na troca PKCE registra a etapa, categoria, status HTTP e
 código OAuth de lista fechada, sem corpo, URL ou descrições do servidor; a
 regressão em `oauth_exchange_diagnostics_test.go` verifica a sanitização.
+O callback do navegador informa apenas que recebeu o retorno e tenta fechar a
+aba, sem antecipar sucesso; o aplicativo informa o resultado da operação.
 O status permanece **In Progress**.
 
 ## Resumo
