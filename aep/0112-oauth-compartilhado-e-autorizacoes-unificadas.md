@@ -8,7 +8,9 @@
 
 O callback local do MCP exibe retorno recebido ou erro do provedor, sem afirmar
 que a troca e a gravação já terminaram; o resultado confirmado da autorização
-interativa aparece no aplicativo em aviso temporário. A página usa o idioma do
+interativa aparece no aplicativo em aviso temporário após a janela recuperar o
+foco, para que anúncio e prazo não transcorram durante a autorização no
+navegador. Ao trocar de sessão o aviso pendente é descartado. A página usa o idioma do
 navegador (pt-BR, en ou es, com fallback en), pois a preferência do aplicativo
 não está disponível à origem local; o aviso usa o idioma do Assistente. Falhas da
 troca são registradas com diagnóstico limitado e seguro. As provas em

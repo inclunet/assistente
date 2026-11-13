@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { EventsOn } from '@wailsjs/runtime/runtime';
 import { useAuthStore } from '../store/authStore';
 import { useMCPStore } from '../store/mcpStore';
-import { useUIStore } from '../store/uiStore';
+import { activateMCPAuthorizationNotices, getMCPAuthorizationNoticeOwner, presentMCPAuthorizationNotice } from '../services/mcpAuthorizationNotice';
 import { announceWithOrigin } from '../services/voiceAccessibility/announcerBroker';
 
 /** One session-scoped owner for MCP subscriptions and consent announcements. */
@@ -20,6 +20,7 @@ export function useMCPRuntime() {
     const store = useMCPStore.getState();
     store.reset();
     if (!authenticated || !userId || !sessionId) return;
+    const deactivateNotices = activateMCPAuthorizationNotices({ userId, sessionId });
     const unsubscribeEvents = store.setupEventListeners();
     // The backend owns opening the browser. This listener only announces it;
     // it never opens another window or asks for a duplicate confirmation.
@@ -34,7 +35,7 @@ export function useMCPRuntime() {
       if (!auth.isAuthenticated || auth.user?.userId !== userId || auth.user?.sessionId !== sessionId || event.userId !== userId || event.sessionId !== sessionId) return;
       const server = useMCPStore.getState().servers.find((s) => s.slug === event.slug);
       const name = server?.name || event.slug;
-      useUIStore.getState().addToast(translation.current(event.success ? 'mcp.toast.serverReauthorized' : 'mcp.toast.interactiveAuthorizationFailed', { name }), event.success ? 'success' : 'error');
+      presentMCPAuthorizationNotice({ userId, sessionId }, event.slug, getMCPAuthorizationNoticeOwner({ userId, sessionId }), () => translation.current(event.success ? 'mcp.toast.serverReauthorized' : 'mcp.toast.interactiveAuthorizationFailed', { name }), event.success ? 'success' : 'error');
     });
     void store.loadServers();
     return () => {
@@ -42,6 +43,7 @@ export function useMCPRuntime() {
       unsubscribeConsent();
       unsubscribeDevice();
       unsubscribeResult();
+      deactivateNotices();
       useMCPStore.getState().reset();
     };
   }, [authenticated, userId, sessionId]);

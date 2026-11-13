@@ -706,7 +706,7 @@ Se o consentimento falhar após o DCR, o cliente registrado é preservado para a
 Durante a autorização ao conectar, o servidor fica em Conectando e oferece Cancelar. Recusa ou falha do login exibe erro; a interface só confirma sucesso após a conexão completar.
 Depois do retorno OAuth, o navegador informa se recebeu uma resposta ou um erro
 do provedor. Quando a autorização começa no chat, o Assistente informa o resultado
-em um aviso temporário. Ao conectar pela página MCP, consulte a lista de servidores;
+em um aviso temporário ao retornar à janela. Ao conectar pela página MCP, consulte a lista de servidores;
 a conexão pode exigir etapas adicionais. Você pode fechar a aba do navegador.
 
 Ao reconectar ou desconectar, o Assistente atualiza a lista e informa qualquer
