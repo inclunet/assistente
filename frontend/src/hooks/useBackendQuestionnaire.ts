@@ -48,7 +48,9 @@ export function useBackendQuestionnaire(onOpen?: () => void): BackendQuestionnai
 
   useEffect(() => {
     const unsub = EventsOn(QUESTIONNAIRE_EVENT, (payload: QuestionnairePayload) => {
-      onOpenRef.current?.();
+      // Perguntas consecutivas compartilham o foco de origem; não capturar um
+      // controle do diálogo anterior que será desmontado pela próxima pergunta.
+      if (!openIdRef.current) onOpenRef.current?.();
       openIdRef.current = payload?.id ?? null;
       // Publica o dado e seu scope no mesmo snapshot React para que o host
       // nunca observe a pergunta nova com a restrição do diálogo anterior.

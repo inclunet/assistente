@@ -17,6 +17,13 @@ terminar, e o foco não é reiniciado a cada trecho. Escape devolve o foco à me
 mensagem; é possível entrar novamente enquanto a geração continua. Isso não
 ativa anúncios automáticos de cada trecho nem outra voz concorrente.
 
+Quando uma pergunta de autorização interrompe o chat, ao respondê-la o foco
+retorna ao controle anterior ou à região da mensagem que permanece em modo de
+leitura. Se esse local não estiver mais disponível e não houver outro modal,
+o aplicativo tenta o campo de envio da aba ativa quando a origem não pertencia
+a outro modal. Outra pergunta aberta ou uma nova escolha de foco tem prioridade
+sobre esse retorno.
+
 Quando uma resposta não possui mensagem final confirmada, o encerramento não
 substitui o conteúdo recebido por uma mensagem intermediária do mesmo turno.
 

@@ -4,6 +4,14 @@
 
 Data: 2026-10-30
 
+### Foco em links durante atualização (13/11/2026)
+
+Quando o HTML Markdown muda, um link focado é recuperado somente se o mesmo
+destino e texto forem inequívocos e nenhum outro controle tiver assumido o foco.
+`MarkdownRenderer.test.tsx` cobre atualização, foco externo e destinos iguais
+com textos distintos. A navegação real com NVDA ainda precisa de validação;
+isso não demonstra preservação do cursor virtual em todos os conteúdos.
+
 O escopo aceito das fases 1–5 está implementado, com os critérios abaixo
 verificados. Este status não afirma CI verde antecipadamente: o PR #1040 só
 pode ser entregue como pronto após CI e review remota sem pendências, conforme

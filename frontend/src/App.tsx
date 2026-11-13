@@ -30,7 +30,7 @@ import { getAntdTheme } from './theme/antdTheme';
 import { summaryErrorMessage } from './lib/summaryError';
 import { chatNoticeMessage, chatNoticeTone, type ChatNoticeEvent } from './lib/chatNotice';
 import { useBackendQuestionnaire } from './hooks/useBackendQuestionnaire';
-import { scheduleQuestionnaireFocusRestore } from './lib/questionnaireFocusRestore';
+import { captureQuestionnaireFocusOrigin, findActiveChatComposer, scheduleQuestionnaireFocusRestore, type QuestionnaireFocusOrigin } from './lib/questionnaireFocusRestore';
 import { AuthGate } from './components/auth/AuthGate';
 import { CommandContextProvider } from './lib/commandContextReact';
 import { ExternalUIConnectionProvider } from './services/externalUIConnectionReact';
@@ -73,7 +73,8 @@ function App() {
     const handleDatabaseReset = useChatStore((s) => s.handleDatabaseReset);
     const handleExternalIncoming = useChatStore((s) => s.handleExternalIncoming);
     const wasQuestionnaireOpenRef = useRef(false);
-    const lastFocusedElementRef = useRef<HTMLElement | null>(null);
+    const lastFocusedElementRef = useRef<QuestionnaireFocusOrigin | null>(null);
+    const effectiveQuestionnaireOpenRef = useRef(false);
 
     // Diálogos que o backend abre (tool: collect_responses e aprovações)
     const {
@@ -81,7 +82,9 @@ function App() {
         scope: questionnaireCommandScope,
         clear: clearQuestionnaire,
     } = useBackendQuestionnaire(() => {
-        lastFocusedElementRef.current = document.activeElement as HTMLElement;
+        if (!effectiveQuestionnaireOpenRef.current) {
+            lastFocusedElementRef.current = captureQuestionnaireFocusOrigin(document.activeElement as HTMLElement | null);
+        }
     });
 
     // Questionários disparados pela UI (reusa o mesmo QuestionnaireDialog)
@@ -234,8 +237,8 @@ function App() {
 
     // Quando um questionário da UI abre, captura o foco atual
     useEffect(() => {
-        if (uiQuestionnaireData && !questionnaireData) {
-            lastFocusedElementRef.current = document.activeElement as HTMLElement;
+        if (uiQuestionnaireData && !questionnaireData && !wasQuestionnaireOpenRef.current) {
+            lastFocusedElementRef.current = captureQuestionnaireFocusOrigin(document.activeElement as HTMLElement | null);
         }
     }, [uiQuestionnaireData, questionnaireData]);
 
@@ -253,7 +256,6 @@ function App() {
     }, []);
 
     const effectiveQuestionnaireOpen = !!questionnaireData || !!uiQuestionnaireData;
-    const effectiveQuestionnaireOpenRef = useRef(effectiveQuestionnaireOpen);
     effectiveQuestionnaireOpenRef.current = effectiveQuestionnaireOpen;
 
     const restoreFocus = () => {
@@ -262,7 +264,7 @@ function App() {
         scheduleQuestionnaireFocusRestore(
             () => effectiveQuestionnaireOpenRef.current,
             lastFocusedElementRef.current,
-            () => document.querySelector('.chat-input__textarea') as HTMLTextAreaElement | null,
+            findActiveChatComposer,
         );
     };
 

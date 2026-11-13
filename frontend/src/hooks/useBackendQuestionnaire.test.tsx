@@ -90,6 +90,17 @@ describe('useBackendQuestionnaire', () => {
     expect(addToastSpy).not.toHaveBeenCalled();
   });
 
+  it('captura a origem apenas na primeira pergunta de uma sequência', () => {
+    const onOpen = vi.fn();
+    const { result } = renderHook(() => useBackendQuestionnaire(onOpen));
+    abrir('pergunta-1');
+    abrir('pergunta-2');
+    expect(onOpen).toHaveBeenCalledTimes(1);
+    act(() => { result.current.clear('pergunta-2'); });
+    abrir('pergunta-3');
+    expect(onOpen).toHaveBeenCalledTimes(2);
+  });
+
   it('publica o scope junto à decisão e não limpa o pedido novo por close/clear atrasados', () => {
     const { result } = renderHook(() => useBackendQuestionnaire());
     abrirDecisao('decision-old');

@@ -27,6 +27,39 @@ import './MarkdownRenderer.css';
 type MonacoModule = typeof import('monaco-editor');
 type MonacoEditor = MonacoEditorNamespace.IStandaloneCodeEditor;
 
+interface MarkdownContentProps {
+  containerRef: React.RefObject<HTMLDivElement>;
+  className: string;
+  html: string;
+}
+
+/** Preserva um link inequívoco que continua existindo após atualizar o HTML. */
+class MarkdownContent extends React.Component<MarkdownContentProps, object, { href: string; label: string } | null> {
+  getSnapshotBeforeUpdate(previous: MarkdownContentProps): { href: string; label: string } | null {
+    if (previous.html === this.props.html) return null;
+    const container = this.props.containerRef.current;
+    const active = document.activeElement;
+    if (!container || !(active instanceof HTMLAnchorElement) || !container.contains(active)) return null;
+    const href = active.getAttribute('href');
+    if (!href) return null;
+    const label = active.textContent ?? '';
+    const matches = [...container.querySelectorAll('a[href]')].filter(link => link.getAttribute('href') === href && link.textContent === label);
+    return matches.length === 1 ? { href, label } : null;
+  }
+
+  componentDidUpdate(_previous: MarkdownContentProps, _state: object, snapshot: { href: string; label: string } | null) {
+    if (!snapshot || document.activeElement !== document.body ||
+        this.props.containerRef.current?.closest('[hidden], [inert], [aria-hidden="true"]')) return;
+    const matches = [...this.props.containerRef.current?.querySelectorAll<HTMLAnchorElement>('a[href]') ?? []]
+      .filter(link => link.getAttribute('href') === snapshot.href && link.textContent === snapshot.label);
+    if (matches.length === 1) matches[0].focus();
+  }
+
+  render() {
+    return <div ref={this.props.containerRef} className={this.props.className} dangerouslySetInnerHTML={{ __html: this.props.html }} />;
+  }
+}
+
 export type RenderedContentTabNavigation = 'disabled' | 'enabled';
 
 interface MarkdownRendererProps {
@@ -1036,11 +1069,7 @@ export const MarkdownRenderer = React.memo(function MarkdownRenderer({
 
   return (
     <>
-      <div
-        ref={containerRef}
-        className={`markdown-content ${className}`}
-        dangerouslySetInnerHTML={{ __html: html }}
-      />
+      <MarkdownContent containerRef={containerRef} className={`markdown-content ${className}`} html={html} />
       <Menu
         items={menuState.items}
         x={menuState.x}
