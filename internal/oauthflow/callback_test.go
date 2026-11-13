@@ -198,13 +198,13 @@ func TestHTMLCallbackUsesFreshNonceWithoutRelaxingPlaintext(t *testing.T) {
 }
 
 // The browser must receive the response even if the consumer immediately closes the listener.
-func TestNoContentCallbackFlushesBeforeConsumerCloses(t *testing.T) {
+func TestCallbackFlushesBeforeConsumerCloses(t *testing.T) {
 	c, err := ReserveCallback(CallbackConfig{Host: "localhost", Path: "/callback", PortPolicy: "ephemeral"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer c.Close()
-	if err := c.Start("state", CallbackPage{NoContent: true}); err != nil {
+	if err := c.Start("state", CallbackPage{Success: "return received"}); err != nil {
 		t.Fatal(err)
 	}
 	finished := make(chan error, 1)
@@ -222,7 +222,7 @@ func TestNoContentCallbackFlushesBeforeConsumerCloses(t *testing.T) {
 	}
 	defer func() { _ = response.Body.Close() }()
 	body, err := io.ReadAll(response.Body)
-	if err != nil || response.StatusCode != http.StatusNoContent || len(body) != 0 {
+	if err != nil || response.StatusCode != http.StatusOK || string(body) != "return received" {
 		t.Fatalf("invalid callback response: %v, %d, %q", err, response.StatusCode, body)
 	}
 	if err := <-finished; err != nil {

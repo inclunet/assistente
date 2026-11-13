@@ -14,8 +14,9 @@ feedback; a causa específica da falha real de autorização ainda precisa ser
 investigada. Uma falha na troca PKCE registra a etapa, categoria, status HTTP e
 código OAuth de lista fechada, sem corpo, URL ou descrições do servidor; a
 regressão em `oauth_exchange_diagnostics_test.go` verifica a sanitização.
-O callback do navegador responde sem conteúdo; o aplicativo informa sucesso ou
-falha em aviso temporário, após o resultado confirmado da autorização interativa.
+A página do callback informa o recebimento ou erro retornado pelo provedor. A
+troca e gravação ocorrem depois; o resultado final aparece no aplicativo em aviso
+temporário, após a confirmação da autorização interativa.
 O status permanece **In Progress**.
 
 ## Resumo

@@ -27,7 +27,7 @@ func TestPKCECallbackDoesNotClaimSuccessBeforeTokenExchange(t *testing.T) {
 				t.Fatal(err)
 			}
 			t.Cleanup(callback.Close)
-			if err := callback.Start("state", oauthflow.CallbackPage{NoContent: true}); err != nil {
+			if err := callback.Start("state", oauthflow.CallbackPage{Success: authCallbackPage("received"), Failure: authCallbackPage("error"), ContentType: "text/html; charset=utf-8", HTMLNonce: true}); err != nil {
 				t.Fatal(err)
 			}
 			query := url.Values{"state": {"state"}, tc.key: {tc.value}}
@@ -41,8 +41,12 @@ func TestPKCECallbackDoesNotClaimSuccessBeforeTokenExchange(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if response.StatusCode != http.StatusNoContent || len(body) != 0 {
-				t.Fatal("callback apresentou conteudo ou resultado prematuro")
+			expected := `data-outcome="received"`
+			if tc.key == "error" {
+				expected = `data-outcome="error"`
+			}
+			if response.StatusCode != http.StatusOK || !strings.Contains(string(body), expected) || strings.Contains(string(body), tc.value) || strings.Contains(string(body), "Autorização concluída") {
+				t.Fatal("callback apresentou resultado prematuro ou expôs dados")
 			}
 			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 			defer cancel()

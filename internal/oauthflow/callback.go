@@ -22,8 +22,6 @@ const CallbackNoncePlaceholder = "__OAUTH_CALLBACK_NONCE__"
 
 // CallbackPage belongs to the consumer, including localization and presentation.
 type CallbackPage struct {
-	// NoContent acknowledges a valid callback without presenting a result page.
-	NoContent                     bool
 	Success, Failure, ContentType string
 	// HTMLNonce opts trusted consumer HTML into nonce-protected style/script blocks.
 	// Inline attributes remain blocked; plaintext callbacks retain default-src none.
@@ -110,15 +108,6 @@ func (c *LoopbackCallback) Start(state string, page CallbackPage) error {
 		}
 		if !consumed.CompareAndSwap(false, true) {
 			http.Error(w, "", http.StatusConflict)
-			return
-		}
-		if page.NoContent {
-			w.WriteHeader(http.StatusNoContent)
-			_ = http.NewResponseController(w).Flush()
-			select {
-			case c.results <- v:
-			default:
-			}
 			return
 		}
 		body := page.Success

@@ -704,9 +704,10 @@ Alterações de callback, recurso, endpoints ou escopos em um cadastro DCR inval
 Se o consentimento falhar após o DCR, o cliente registrado é preservado para a próxima tentativa. Uma conexão OAuth bem-sucedida limpa o aviso anterior de reautorização. Para Client Credentials inválido, revise ID/segredo ou escopos e conecte novamente; esse fluxo não usa o botão Reautorizar.
 
 Durante a autorização ao conectar, o servidor fica em Conectando e oferece Cancelar. Recusa ou falha do login exibe erro; a interface só confirma sucesso após a conexão completar.
-Depois do retorno OAuth, volte ao Assistente para conferir o resultado. O aviso
-temporário informa sucesso ou falha da autorização; a conexão pode exigir etapas
-adicionais. A aba do navegador pode permanecer aberta e pode ser fechada.
+Depois do retorno OAuth, o navegador informa se recebeu uma resposta ou um erro
+do provedor. Volte ao Assistente para conferir o resultado final: um aviso
+temporário informa sucesso ou falha da autorização, e a conexão pode exigir
+etapas adicionais. Você pode fechar a aba do navegador.
 
 Ao reconectar ou desconectar, o Assistente atualiza a lista e informa qualquer
 falha retornada pela operação; a confirmação de sucesso aparece apenas quando
