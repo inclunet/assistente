@@ -2,6 +2,16 @@
 
 **Status:** ✅ Done
 
+### Retorno após perguntas consecutivas (13/11/2026)
+
+A origem de foco é capturada na abertura e preservada quando uma pergunta é
+substituída por outra. Ao fechar a última, a restauração respeita foco novo e
+modal concorrente, tenta a origem e o documento de leitura ainda ativo e, se
+necessário e sem outro modal, o campo da superfície ativa. Os testes de
+`questionnaireFocusRestore.test.ts` e `useBackendQuestionnaire.test.tsx` cobrem
+os casos isolados; `QuestionnaireDialog.test.tsx` cobre abertura da UI com
+`autoFocus` e retorno ao campo de origem; a confirmação com NVDA no aplicativo permanece pendente.
+
 ## Resumo
 
 Toda confirmação bloqueante do app — shell, rede, ACP, edição de arquivo,

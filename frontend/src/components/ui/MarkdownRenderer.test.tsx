@@ -90,6 +90,42 @@ describe('MarkdownRenderer', () => {
     expect(screen.getByRole('link', { name: 'Link' })).toHaveAttribute('tabindex', '0');
   });
 
+  it('preserva o foco no mesmo link quando o conteúdo é atualizado', () => {
+    const focus = vi.spyOn(HTMLAnchorElement.prototype, 'focus');
+    const { rerender } = render(<MarkdownRenderer content="[Link](https://example.com)" tabNavigation="enabled" />);
+    screen.getByRole('link', { name: 'Link' }).focus();
+    rerender(<MarkdownRenderer content="[Link](https://example.com) texto adicional" tabNavigation="enabled" />);
+    expect(screen.getByRole('link', { name: 'Link' })).toHaveFocus();
+    expect(focus).toHaveBeenLastCalledWith({ preventScroll: true });
+    focus.mockRestore();
+  });
+
+  it('preserva o link focado ao reconstruir uma tabela durante o streaming', () => {
+    const focus = vi.spyOn(HTMLAnchorElement.prototype, 'focus');
+    const table = '| Coluna |\n| --- |\n| [Link](https://example.com) |';
+    const { rerender } = render(<MarkdownRenderer content={table} tabNavigation="enabled" />);
+    screen.getByRole('link', { name: 'Link' }).focus();
+    rerender(<MarkdownRenderer content={`${table}\n\nNovo texto`} tabNavigation="enabled" />);
+    expect(screen.getByRole('link', { name: 'Link' })).toHaveFocus();
+    expect(focus).toHaveBeenLastCalledWith({ preventScroll: true });
+    focus.mockRestore();
+  });
+
+  it('não desvia o foco de um controle externo durante a atualização', () => {
+    const { rerender } = render(<><input aria-label="Outro campo" /><MarkdownRenderer content="[Link](https://example.com)" tabNavigation="enabled" /></>);
+    const input = screen.getByRole('textbox', { name: 'Outro campo' });
+    input.focus();
+    rerender(<><input aria-label="Outro campo" /><MarkdownRenderer content="[Link](https://example.com) texto adicional" tabNavigation="enabled" /></>);
+    expect(input).toHaveFocus();
+  });
+
+  it('identifica o link pelo texto quando o destino é compartilhado', () => {
+    const { rerender } = render(<MarkdownRenderer content={'[Primeiro](https://example.com) [Segundo](https://example.com)'} tabNavigation="enabled" />);
+    screen.getByRole('link', { name: 'Primeiro' }).focus();
+    rerender(<MarkdownRenderer content={'[Primeiro](https://example.com) [Segundo](https://example.com) novo'} tabNavigation="enabled" />);
+    expect(screen.getByRole('link', { name: 'Primeiro' })).toHaveFocus();
+  });
+
   it('torna imagens interativas sem criar tab stop fora da região de leitura', () => {
     render(<MarkdownRenderer content={'![Gato](http://example.com/cat.png)'} />);
 
