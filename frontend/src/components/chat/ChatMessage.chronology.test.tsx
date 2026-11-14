@@ -191,6 +191,8 @@ describe('cronologia de ChatMessage', () => {
         <SessionMessage message={completed} />
       </ChatSessionProvider>,
     );
+    expect(within(messageContent()).getAllByTestId('markdown').map(node => node.textContent)).toEqual(['Parcial novo']);
+    fireEvent.click(screen.getByRole('button', { name: 'chat.expandChain' }));
     expect(within(messageContent()).getAllByTestId('markdown').map(node => node.textContent)).toEqual(['Parcial', ' novo']);
     fireEvent.click(screen.getByRole('button', { name: 'chat.collapseChain' }));
     expect(within(messageContent()).getAllByTestId('markdown').map(node => node.textContent)).toEqual(['Parcial novo']);
@@ -448,6 +450,8 @@ describe('cronologia de ChatMessage', () => {
         <SessionMessage message={canonicalMessage} />
       </ChatSessionProvider>,
     );
+    expect(screen.getByRole('button', { name: 'chat.expandChain' })).toHaveAttribute('aria-expanded', 'false');
+    fireEvent.click(screen.getByRole('button', { name: 'chat.expandChain' }));
     assertChronologicalOrder(messageContent());
 
     // Um reload entrega um novo objeto com o mesmo patch canônico; a cadeia

@@ -86,6 +86,8 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
       })
     : undefined, [onSendToEditor, sourceMessageId, content]);
   const messageRef = useRef<HTMLDivElement>(null);
+  const chainRef = useRef<HTMLDivElement>(null);
+  const wasStreamingRef = useRef(!!isStreaming);
   const chainRegionId = useId();
   // Issue #163: a cadeia do turno (segmentos intermediários + tool calls) ganha
   // uma affordance acessível de contrair/expandir. Inicia expandida para
@@ -345,6 +347,13 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
   isChainExpandedRef.current = isChainExpanded;
   const forcedChainExpandRef = useRef<{ restore: boolean } | null>(null);
   useEffect(() => {
+    const finished = wasStreamingRef.current && !effectiveIsStreaming;
+    wasStreamingRef.current = !!effectiveIsStreaming;
+    if (finished && !isReading && !chainRef.current?.contains(document.activeElement)) {
+      setIsChainExpanded(false);
+    }
+  }, [effectiveIsStreaming, isReading]);
+  useEffect(() => {
     if (isReading) {
       if (!isChainExpandedRef.current) {
         forcedChainExpandRef.current = { restore: isChainExpandedRef.current };
@@ -488,12 +497,14 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
                 aria-controls={chainRegionId}
                 tabIndex={isReading ? 0 : -1}
               >
+                <span className="chat-message__chain-chevron" aria-hidden="true">▸</span>
                 {isChainExpanded ? t('chat.collapseChain') : t('chat.expandChain')}
               </button>
             )}
             {/* Completed segments stay navigable without creating a local live region;
                 progress announcements are brokered globally with surface origin. */}
             <div
+              ref={chainRef}
               id={chainRegionId}
               aria-label={isAgenticStreaming ? t('chat.progressLabel') : undefined}
               className="chat-message__segments-log"

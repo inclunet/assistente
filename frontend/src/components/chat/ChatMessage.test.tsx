@@ -920,6 +920,47 @@ describe('ChatMessage', () => {
     expect(screen.getAllByTestId('toolcalls')).toHaveLength(1);
   });
 
+  it('recolhe a cadeia ao terminar o streaming e oculta o triângulo do leitor de tela', () => {
+    const message = messageFixture({
+      id: 'turn-auto-collapse', conversationId, role: 'assistant', content: 'conclusão',
+      isStreaming: true, turnSegments: [{ type: 'text', content: 'etapa intermediária' }],
+    });
+    const { rerender } = render(<ChatMessage message={message} />);
+    expect(screen.getByText('etapa intermediária')).toBeInTheDocument();
+    rerender(<ChatMessage message={{ ...message, isStreaming: false }} />);
+    const toggle = screen.getByRole('button', { name: 'chat.expandChain' });
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    expect(toggle.querySelector('.chat-message__chain-chevron')).toHaveAttribute('aria-hidden', 'true');
+    expect(screen.queryByText('etapa intermediária')).not.toBeInTheDocument();
+    expect(screen.getByText('conclusão')).toBeInTheDocument();
+    fireEvent.click(toggle);
+    expect(screen.getByText('etapa intermediária')).toBeInTheDocument();
+  });
+
+  it('preserva a cadeia durante a leitura quando o streaming termina', () => {
+    const message = messageFixture({
+      id: 'turn-reading-stream', conversationId, role: 'assistant', content: 'conclusão',
+      isStreaming: true, turnSegments: [{ type: 'text', content: 'etapa intermediária' }],
+    });
+    const { rerender } = render(<ChatMessage message={message} isReading />);
+    rerender(<ChatMessage message={{ ...message, isStreaming: false }} isReading />);
+    expect(screen.getByText('etapa intermediária')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'chat.collapseChain' })).toHaveAttribute('aria-expanded', 'true');
+  });
+
+  it('preserva elemento focado dentro da cadeia ao terminar o streaming', () => {
+    const message = messageFixture({
+      id: 'turn-focus-stream', conversationId, role: 'assistant', content: 'conclusão',
+      isStreaming: true, turnSegments: [{ type: 'text', content: '[focus]' }],
+    });
+    const { rerender } = render(<ChatMessage message={message} />);
+    const link = screen.getByRole('link');
+    link.focus();
+    rerender(<ChatMessage message={{ ...message, isStreaming: false }} />);
+    expect(link).toHaveFocus();
+    expect(screen.getByRole('button', { name: 'chat.collapseChain' })).toHaveAttribute('aria-expanded', 'true');
+  });
+
   // Issue #163 (PR #168, comentário de legle): o toggle só pode receber foco no
   // modo de leitura; do contrário ele (e os demais interativos da mensagem) não
   // deve ser um tabstop ao navegar pela lista de mensagens.

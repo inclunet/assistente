@@ -1,3 +1,5 @@
+AEP-0116 (14/11/2026): cadeia recolhida ao fim do streaming sem interromper leitura ou foco; indicador decorativo oculto de leitores de tela. Testes em `ChatMessage.test.tsx`; validação real com NVDA pendente. Status **Done** mantido.
+
 AEP-0103 (09/11/2026): menus de opções e lista do workspace preservam foco na renomeação e na navegação posterior; retorno único e Escape cobertos por regressões (#1062). Status **In Progress**. Evidências em `docs/operations/intermittent-polling-focus-1062.md`.
 
 AEP-0103 (09/11/2026): Menu, MenuButton e Modal compartilham retorno adiado que preserva nova navegação e o modal ativo, permitindo retorno ao seu compositor sem atravessar a stack; eliminados a restauração dupla do MenuButton e o timer de fechamento do hook, com contraprovas (#1062). Status **In Progress**. Evidências em `docs/operations/intermittent-polling-focus-1062.md`; incidentes históricos continuam em investigação.
