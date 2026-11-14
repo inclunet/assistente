@@ -2051,12 +2051,18 @@ func (m *Manager) legacyRetentionDelay() time.Duration {
 	m.compactMu.Lock()
 	more := m.compactMore
 	retryAt := m.compactRetryAt
+	lastCompaction := m.lastCompaction
 	m.compactMu.Unlock()
 	if more {
 		if delay := time.Until(retryAt); delay > 0 {
 			return delay
 		}
 		return time.Second
+	}
+	if !lastCompaction.IsZero() {
+		if delay := time.Until(lastCompaction.Add(jobRetentionInterval)); delay > 0 {
+			return delay
+		}
 	}
 	return jobRetentionInterval
 }

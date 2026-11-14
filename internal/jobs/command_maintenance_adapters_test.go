@@ -759,6 +759,17 @@ func TestBusyCheckpointDefersCompactionWithoutDelayingOtherWork(t *testing.T) {
 	}
 }
 
+func TestLegacyDelayResumesAfterCompactionThrottle(t *testing.T) {
+	m := &Manager{lastCompaction: time.Now().Add(-jobRetentionInterval + time.Minute)}
+	if delay := m.legacyRetentionDelay(); delay < 55*time.Second || delay > time.Minute {
+		t.Fatalf("espera até fim do throttle=%v", delay)
+	}
+	m.lastCompaction = time.Now().Add(-jobRetentionInterval - time.Second)
+	if delay := m.legacyRetentionDelay(); delay != jobRetentionInterval {
+		t.Fatalf("throttle expirado não deve causar loop: %v", delay)
+	}
+}
+
 func TestCompactionArmsThrottleAfterFinalBusyCheckpoint(t *testing.T) {
 	m, repo, ctx, _ := newCommandMaintenanceTestManager(t)
 	prepareIncrementalMaintenanceFixture(t, repo)
