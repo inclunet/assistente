@@ -41,6 +41,7 @@ interface Slot {
 interface Conversation {
   state: TimelineConversationState;
   slots: Map<string, Slot>;
+  invalidated?: boolean;
   candidate?: TimelineConversationState;
   recovery?: Promise<void>;
   recoveryError?: Error;
@@ -91,6 +92,7 @@ export class ChatTimelineClient {
     // Uma nova montagem pode chegar enquanto a última janela ainda fecha.
     // Conclua sua limpeza antes de escolher a época da nova inscrição.
     const previous = this.conversations.get(conversationId);
+    if (previous?.invalidated) throw new Error('Timeline conversation invalidated');
     if (previous && previous.slots.size && !previous.slots.has(surfaceId) &&
         ![...previous.slots.values()].some(slot => !slot.closed)) {
       // Falhas de cleanup exigem retry explícito; não reexecutar uma operação
@@ -99,6 +101,7 @@ export class ChatTimelineClient {
       if (closing.some(task => !task)) throw new Error('Timeline surface unavailable');
       await Promise.all(closing);
       this.assertActive();
+      if (previous.invalidated) throw new Error('Timeline conversation invalidated');
     }
     this.collectIdle();
     let conversation = this.conversations.get(conversationId);
@@ -446,6 +449,7 @@ export class ChatTimelineClient {
   async conversationDeleted(conversationId: string): Promise<void> {
     const conversation = this.conversations.get(conversationId);
     if (!conversation) return;
+    conversation.invalidated = true;
     for (const slot of conversation.slots.values()) slot.recoveryItems?.clear();
     const closing = [...conversation.slots.keys()].map(surface => this.close(conversationId, surface));
     conversation.state.dispose();

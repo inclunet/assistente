@@ -104,6 +104,41 @@ describe('ChatTimelineClient', () => {
     expect(f.client.getError('chat')).toBeUndefined();
   });
 
+  it.each(['reset', 'exclusão'] as const)('cancela abertura aguardando fechamento após %s', async operation => {
+    const f = fixture();
+    await f.open();
+    const pendingClose = deferred<void>();
+    f.port.close.mockReturnValueOnce(pendingClose.promise);
+    const closing = f.client.close('chat', 'a');
+    const opening = f.open('b');
+    const rejected = expect(opening).rejects.toThrow('invalidated');
+    const invalidation = operation === 'reset' ? f.client.databaseReset() : f.client.conversationDeleted('chat');
+    pendingClose.resolve();
+    await Promise.all([closing, rejected, invalidation]);
+    expect(f.port.open).toHaveBeenCalledTimes(1);
+    expect(f.client.hasSurface('chat', 'b')).toBe(false);
+    await f.open('c');
+    expect(f.client.getWindow('chat', 'c')).toBeDefined();
+    await f.client.dispose();
+  });
+
+  it.each(['reset', 'exclusão'] as const)('recusa abertura reentrante durante %s com múltiplas janelas', async operation => {
+    const f = fixture();
+    await f.open('a');
+    await f.open('b');
+    let opening: Promise<void> | undefined;
+    const unsubscribe = f.client.subscribe(() => {
+      if (!opening) opening = f.open('c');
+    });
+    const invalidation = operation === 'reset' ? f.client.databaseReset() : f.client.conversationDeleted('chat');
+    expect(opening).toBeDefined();
+    await Promise.all([expect(opening).rejects.toThrow('invalidated'), invalidation]);
+    unsubscribe();
+    expect(f.port.open).toHaveBeenCalledTimes(2);
+    expect(f.client.hasSurface('chat', 'c')).toBe(false);
+    await f.client.dispose();
+  });
+
   it('aguarda o fechamento mesmo quando a janela anterior ainda está abrindo', async () => {
     const f = fixture();
     const pending = deferred<TimelineSnapshot>();
