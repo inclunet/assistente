@@ -51,6 +51,7 @@ interface Conversation {
 export class ChatTimelineClient {
   private readonly budget = new TimelineCacheBudget();
   private readonly conversations = new Map<string, Conversation>();
+  private readonly waiting = new Map<string, Map<string, { cancelled: boolean }>>();
   private readonly listeners = new Set<() => void>();
   private readonly unsubscribe: () => void;
   private disposed = false;
@@ -93,15 +94,25 @@ export class ChatTimelineClient {
     // Conclua sua limpeza antes de escolher a época da nova inscrição.
     const previous = this.conversations.get(conversationId);
     if (previous?.invalidated) throw new Error('Timeline conversation invalidated');
+    if (this.waiting.get(conversationId)?.has(surfaceId)) throw new Error('Timeline surface unavailable');
     if (previous && previous.slots.size && !previous.slots.has(surfaceId) &&
         ![...previous.slots.values()].some(slot => !slot.closed)) {
       // Falhas de cleanup exigem retry explícito; não reexecutar uma operação
       // remota cujo resultado ou capability ainda é desconhecido.
       const closing = [...previous.slots.values()].map(slot => slot.closeTask);
       if (closing.some(task => !task)) throw new Error('Timeline surface unavailable');
-      await Promise.all(closing);
-      this.assertActive();
-      if (previous.invalidated) throw new Error('Timeline conversation invalidated');
+      const waiting = this.waiting.get(conversationId) ?? new Map();
+      const request = { cancelled: false };
+      waiting.set(surfaceId, request);
+      this.waiting.set(conversationId, waiting);
+      try {
+        await Promise.all(closing);
+        this.assertActive();
+        if (request.cancelled || previous.invalidated) throw new Error('Timeline conversation invalidated');
+      } finally {
+        if (waiting.get(surfaceId) === request) waiting.delete(surfaceId);
+        if (!waiting.size && this.waiting.get(conversationId) === waiting) this.waiting.delete(conversationId);
+      }
     }
     this.collectIdle();
     let conversation = this.conversations.get(conversationId);
@@ -366,6 +377,8 @@ export class ChatTimelineClient {
   }
 
   close(conversationId: string, surfaceId: string): Promise<void> {
+    const waiting = this.waiting.get(conversationId)?.get(surfaceId);
+    if (waiting) waiting.cancelled = true;
     const conversation = this.conversations.get(conversationId);
     const slot = conversation?.slots.get(surfaceId);
     if (!conversation || !slot) return Promise.resolve();
@@ -447,6 +460,7 @@ export class ChatTimelineClient {
 
   /** Exclusão confirmada pelo backend revoga também as fontes de recuperação. */
   async conversationDeleted(conversationId: string): Promise<void> {
+    for (const request of this.waiting.get(conversationId)?.values() ?? []) request.cancelled = true;
     const conversation = this.conversations.get(conversationId);
     if (!conversation) return;
     conversation.invalidated = true;
@@ -462,6 +476,7 @@ export class ChatTimelineClient {
   }
 
   async databaseReset(): Promise<void> {
+    for (const requests of this.waiting.values()) for (const request of requests.values()) request.cancelled = true;
     const results = await Promise.allSettled([...this.conversations.keys()].map(id => this.conversationDeleted(id)));
     const failure = results.find(result => result.status === 'rejected');
     if (failure?.status === 'rejected') throw failure.reason;

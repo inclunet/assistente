@@ -41,15 +41,35 @@ describe('canonical presentation', () => {
     const closingPrevious = f.presentation.close();
     const next = new ChatTimelinePresentation(f.presentation.client, 'conversation', 'next-surface');
     const opening = next.open();
+    const rejected = expect(opening).rejects.toThrow('invalidated');
     await Promise.resolve();
     await Promise.resolve();
     const closingNext = next.close();
     expect(f.transport.open).toHaveBeenCalledTimes(1);
     finishClose();
-    await Promise.all([closingPrevious, opening, closingNext]);
-    expect(f.transport.open).toHaveBeenCalledTimes(2);
-    expect(f.transport.close).toHaveBeenCalledWith('next-surface');
+    await Promise.all([closingPrevious, rejected, closingNext]);
+    expect(f.transport.open).toHaveBeenCalledTimes(1);
     expect(f.presentation.client.hasSurface('conversation', 'next-surface')).toBe(false);
+  });
+  it('fecha a raiz antes de esperar navegação quando limpeza já fechou uma thread', async () => {
+    const f = fixture();
+    await f.presentation.open();
+    f.setItems([item('child', 'second')]);
+    await f.presentation.openThread('second');
+    f.setItems([item('second'), item('first')]);
+    await f.presentation.client.conversationCleared('conversation');
+    let release!: () => void;
+    const navigate = vi.mocked(f.transport.navigate).getMockImplementation()!;
+    vi.mocked(f.transport.navigate).mockImplementationOnce(async (...args) => {
+      await new Promise<void>(resolve => { release = resolve; });
+      return navigate(...args);
+    });
+    const pending = f.presentation.navigate('older');
+    await vi.waitFor(() => expect(release).toBeDefined());
+    const closing = f.presentation.close();
+    await vi.waitFor(() => expect(f.transport.close).toHaveBeenCalledWith('surface'));
+    release();
+    await Promise.all([pending, closing]);
   });
   it('keeps backend order and preserves message references while only navigation changes', async () => {
     const f = fixture();

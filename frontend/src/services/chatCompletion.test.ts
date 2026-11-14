@@ -73,4 +73,20 @@ describe('leitura exata da conclusão canônica', () => {
       vi.mocked(fixture.port.open).mock.calls[0][1])).toBe(false));
     expect(fixture.port.close).toHaveBeenCalledTimes(1);
   });
+  it('cancela leitura enquanto aguarda o fechamento da janela anterior', async () => {
+    const visual = fixture.presentation('visual');
+    await visual.open();
+    let release!: () => void;
+    fixture.port.close = vi.fn(() => new Promise<void>(resolve => { release = resolve; }));
+    const closing = visual.close();
+    const controller = new AbortController();
+    const result = readChatCompletion(done, controller.signal);
+    const rejected = expect(result).rejects.toMatchObject({ name: 'AbortError' });
+    controller.abort();
+    await rejected;
+    release();
+    await closing;
+    await vi.waitFor(() => expect(fixture.port.open).toHaveBeenCalledTimes(1));
+    expect(fixture.port.close).toHaveBeenCalledTimes(1);
+  });
 });

@@ -12,9 +12,10 @@ da nova instância sem comparar épocas ou sequências distintas. Quando o
 fechamento ainda está em curso, uma nova superfície aguarda sua conclusão,
 inclusive se o Open anterior ainda não retornou. Falha de cleanup continua
 exigindo retry explícito; itens ativos ou voláteis não são descartados.
-Ao desmontar durante essa espera, a apresentação aguarda o registro e fecha a
-nova capability, sem deixar janela órfã. `chatTimelineClient.test.ts`,
-`chatTimelinePresentation.test.ts` e `ChatSessionContext.window.test.tsx`
+Ao desmontar durante essa espera, a abertura pendente é cancelada antes de
+registrar uma nova capability. Exclusão e reset também invalidam essas aberturas,
+mesmo após a coleta do coordenador. `chatTimelineClient.test.ts`,
+`chatTimelinePresentation.test.ts`, `chatCompletion.test.ts` e `ChatSessionContext.window.test.tsx`
 cobrem época nova, remontagem, corridas e conteúdo protegido. Status **Done** mantido.
 
 ### Recolhimento acessível ao concluir (14/11/2026)

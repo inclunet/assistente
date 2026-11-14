@@ -122,6 +122,23 @@ describe('ChatTimelineClient', () => {
     await f.client.dispose();
   });
 
+  it.each(['reset', 'exclusão', 'fechamento'] as const)('invalida abertura mesmo após coleta do coordenador: %s', async operation => {
+    const f = fixture();
+    await f.open();
+    const pendingClose = deferred<void>();
+    f.port.close.mockReturnValueOnce(pendingClose.promise);
+    const closing = f.client.close('chat', 'a');
+    const invalidation = closing.then(() => operation === 'reset' ? f.client.databaseReset()
+      : operation === 'exclusão' ? f.client.conversationDeleted('chat') : f.client.close('chat', 'b'));
+    const opening = f.open('b');
+    const rejected = expect(opening).rejects.toThrow('invalidated');
+    pendingClose.resolve();
+    await Promise.all([closing, invalidation, rejected]);
+    expect(f.port.open).toHaveBeenCalledTimes(1);
+    expect(f.client.hasSurface('chat', 'b')).toBe(false);
+    await f.client.dispose();
+  });
+
   it.each(['reset', 'exclusão'] as const)('recusa abertura reentrante durante %s com múltiplas janelas', async operation => {
     const f = fixture();
     await f.open('a');
