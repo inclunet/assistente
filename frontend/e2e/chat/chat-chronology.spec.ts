@@ -221,6 +221,17 @@ test.describe('Chat — cronologia canônica de tools', () => {
     });
 
     await expect(assistant.locator('.chat-message__chain-toggle')).toBeVisible();
+    const liveToggle = assistant.locator('.chat-message__chain-toggle');
+    await expect(liveToggle).toHaveAttribute('aria-expanded', 'false');
+    await expect.poll(() => readChronology(assistant)).toMatchObject({
+      children: [],
+      finalCount: 1,
+      finalOutsideRegion: true,
+      finalAfterRegion: true,
+      localLiveRegions: 0,
+    });
+    await liveToggle.click();
+    await expect(liveToggle).toHaveAttribute('aria-expanded', 'true');
     await expect.poll(() => readChronology(assistant)).toMatchObject({
       children: [
         'text:texto intermediário um',

@@ -189,13 +189,12 @@
   outline-offset: 1px;
 }
 
-.chat-message__chain-toggle::before {
-  content: '▸';
+.chat-message__chain-chevron {
   display: inline-block;
   transition: transform var(--duration-fast) var(--ease-default);
 }
 
-.chat-message__chain-toggle--expanded::before {
+.chat-message__chain-toggle--expanded .chat-message__chain-chevron {
   transform: rotate(90deg);
 }
 

@@ -1,6 +1,6 @@
 import { withFixtureProjection } from '../../test/chatWindowFixture';
 import { messageFixture, segmentFixture } from '../../test/chatPresentationFixture';
-import { act, fireEvent, render, screen, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ToolCallStatus } from '../../types/chat';
 import type { Message, TurnSegment } from '../../store/chatStore';
@@ -12,6 +12,7 @@ import {
 } from '../../services/chatSessionRegistry';
 import { ChatSessionProvider } from './ChatSessionContext';
 import { ChatMessage } from './ChatMessage';
+import { MessageInteractionProvider } from './MessageInteractionContext';
 
 vi.mock('../ui/MarkdownRenderer', () => ({
   MarkdownRenderer: ({ content }: { content: string }) => (
@@ -158,6 +159,30 @@ const assertChronologicalOrder = (content: HTMLElement) => {
 };
 
 describe('cronologia de ChatMessage', () => {
+  it('preserva a origem de um diálogo de ferramenta ao concluir streaming', async () => {
+    const message = messageFor('assistant-tool-dialog-stream', {
+      isStreaming: true,
+      turnSegments: [{ type: 'tool_calls', toolInvocations: [invocation('dialog', 'search')] }],
+    });
+    const surface = seedStore({ targetConversationId: conversationId, messageId: message.id });
+    const view = (current: Message) => (
+      <ChatSessionProvider surface={surface}>
+        <MessageInteractionProvider itemKey={message.id} retain={() => () => {}}>
+          <SessionMessage message={current} />
+        </MessageInteractionProvider>
+      </ChatSessionProvider>
+    );
+    const { rerender } = render(view(message));
+    const origin = screen.getByRole('button', { name: 'chat.technicalDetails' });
+    origin.focus();
+    fireEvent.click(origin);
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+    rerender(view({ ...message, isStreaming: false, content: 'conclusão' }));
+    expect(origin).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'ui.modal.close' }));
+    await waitFor(() => expect(origin).toHaveFocus());
+    expect(screen.getByRole('button', { name: 'chat.collapseChain' })).toHaveAttribute('aria-expanded', 'true');
+  });
   beforeEach(() => {
     useChatStore.setState({
       conversationInfoById: {},
@@ -191,6 +216,8 @@ describe('cronologia de ChatMessage', () => {
         <SessionMessage message={completed} />
       </ChatSessionProvider>,
     );
+    expect(within(messageContent()).getAllByTestId('markdown').map(node => node.textContent)).toEqual(['Parcial novo']);
+    fireEvent.click(screen.getByRole('button', { name: 'chat.expandChain' }));
     expect(within(messageContent()).getAllByTestId('markdown').map(node => node.textContent)).toEqual(['Parcial', ' novo']);
     fireEvent.click(screen.getByRole('button', { name: 'chat.collapseChain' }));
     expect(within(messageContent()).getAllByTestId('markdown').map(node => node.textContent)).toEqual(['Parcial novo']);
@@ -448,6 +475,8 @@ describe('cronologia de ChatMessage', () => {
         <SessionMessage message={canonicalMessage} />
       </ChatSessionProvider>,
     );
+    expect(screen.getByRole('button', { name: 'chat.expandChain' })).toHaveAttribute('aria-expanded', 'false');
+    fireEvent.click(screen.getByRole('button', { name: 'chat.expandChain' }));
     assertChronologicalOrder(messageContent());
 
     // Um reload entrega um novo objeto com o mesmo patch canônico; a cadeia
