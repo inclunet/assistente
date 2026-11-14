@@ -383,6 +383,9 @@ export class ChatTimelineClient {
     const slot = conversation?.slots.get(surfaceId);
     if (!conversation || !slot) return Promise.resolve();
     if (slot.closeTask) return slot.closeTask;
+    if (!this.disposed && [...slot.recoveryItems?.values() ?? []].some(held => held.transferred)) {
+      return Promise.reject(new Error('Timeline recovered content requires explicit release'));
+    }
     let resolve!: () => void;
     let reject!: (error: unknown) => void;
     const closing = new Promise<void>((done, fail) => { resolve = done; reject = fail; });
@@ -397,9 +400,6 @@ export class ChatTimelineClient {
   }
 
   private async closeSlot(surfaceId: string, conversation: Conversation, slot: Slot): Promise<void> {
-    if (!this.disposed && [...slot.recoveryItems?.values() ?? []].some(held => held.transferred)) {
-      throw new Error('Timeline recovered content requires explicit release');
-    }
     slot.closed = true;
     slot.recoveryReader?.invalidate();
     conversation.state.close(surfaceId);

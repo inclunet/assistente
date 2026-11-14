@@ -795,6 +795,28 @@ function itemRecoveryFixture() {
 }
 
 describe('Refresh com transferência de recuperação', () => {
+  it.each(['exclusão', 'descarte'] as const)('limpa janela após recusa de close imediatamente seguida de %s', async operation => {
+    const f = itemRecoveryFixture();
+    await f.open();
+    await f.client.refresh('chat');
+    expect(f.client.getRecoveredItems('chat')).toHaveLength(1);
+    const refused = expect(f.client.close('chat', 'a')).rejects.toThrow('requires explicit release');
+    const cleanup = operation === 'exclusão' ? f.client.conversationDeleted('chat') : f.client.dispose();
+    await Promise.all([refused, cleanup]);
+    expect(f.port.close).toHaveBeenCalledExactlyOnceWith('a');
+    if (operation === 'exclusão') await f.client.dispose();
+  });
+
+  it.each(['exclusão', 'descarte'] as const)('propaga falha remota após recusa de close e %s', async operation => {
+    const f = itemRecoveryFixture();
+    await f.open();
+    await f.client.refresh('chat');
+    f.port.close.mockRejectedValueOnce(new Error('offline'));
+    const refused = expect(f.client.close('chat', 'a')).rejects.toThrow('requires explicit release');
+    const cleanup = operation === 'exclusão' ? f.client.conversationDeleted('chat') : f.client.dispose();
+    await Promise.all([refused, expect(cleanup).rejects.toThrow('offline')]);
+    expect(f.port.close).toHaveBeenCalledTimes(1);
+  });
   it('limpa thread com parcial volátil sem Refresh prévio e sem reservar fonte removida', async () => {
     const f = itemRecoveryFixture();
     f.original.scopeParentId = 'parent';
