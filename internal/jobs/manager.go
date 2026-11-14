@@ -149,6 +149,11 @@ type Manager struct {
 	hotkeyLifetimes           map[string]map[int]*hotkeyRegistrationLifetime
 	started                   bool
 	compactMu                 sync.Mutex
+	compactMore               bool
+	compactDidWork            bool
+	compactRetryAt            time.Time
+	compactFailureBackoff     time.Duration
+	compactNoopCheckpointAt   time.Time
 	commandRuntimeMu          sync.Mutex
 	commandRuntime            map[string]commandRuntimeEntry
 	commandRuntimeAccepting   bool
@@ -1966,14 +1971,37 @@ func (m *Manager) maybeCompact(ctx context.Context, minFreeBytes int64) {
 // nil também cobre um no-op legítimo (throttle/limiar); somente compactação
 // física bem-sucedida arma lastCompaction.
 func (m *Manager) compact(ctx context.Context, minFreeBytes int64) error {
+	_, err := m.compactBatch(ctx, minFreeBytes)
+	return err
+}
+
+func (m *Manager) compactBatch(ctx context.Context, minFreeBytes int64) (bool, error) {
 	m.compactMu.Lock()
-	if m.compacting || (!m.lastCompaction.IsZero() && time.Since(m.lastCompaction) < jobRetentionInterval) {
+	if m.compacting {
 		m.compactMu.Unlock()
-		return nil
+		return true, nil
 	}
+	if remaining := time.Until(m.compactRetryAt); m.compactMore && remaining > 0 {
+		m.compactMu.Unlock()
+		return true, nil
+	}
+	if !m.lastCompaction.IsZero() && time.Since(m.lastCompaction) < jobRetentionInterval {
+		m.compactMu.Unlock()
+		return false, nil
+	}
+	checkNoop := !m.compactMore && time.Now().Before(m.compactNoopCheckpointAt)
 	m.compacting = true
 	m.compactMu.Unlock()
 
+	if checkNoop {
+		pages, err := database.SQLiteFreelistCount(ctx)
+		if err == nil && pages == 0 {
+			m.compactMu.Lock()
+			m.compacting = false
+			m.compactMu.Unlock()
+			return false, nil
+		}
+	}
 	res, err := database.Compact(ctx, false, minFreeBytes)
 
 	m.compactMu.Lock()
@@ -1982,11 +2010,61 @@ func (m *Manager) compact(ctx context.Context, minFreeBytes int64) error {
 	// SQLITE_BUSY) e no-ops gated por limiar (mode="skipped"/"noop") NÃO devem
 	// bloquear novas tentativas: após purgas de retenção o freelist pode cruzar
 	// o limiar e merecer um VACUUM antes das 24h.
-	if err == nil && res.Mode != "skipped" && res.Mode != "noop" {
-		m.lastCompaction = time.Now()
+	if err == nil {
+		m.compactFailureBackoff = 0
+		m.compactMore = res.HasMore()
+		m.compactRetryAt = time.Time{}
+		m.compactNoopCheckpointAt = time.Time{}
+		if res.Mode == "noop" && !m.compactMore {
+			m.compactNoopCheckpointAt = time.Now().Add(database.CompactionBusyRetry)
+		}
+		if res.CheckpointBusy() {
+			m.compactRetryAt = time.Now().Add(database.CompactionBusyRetry)
+		}
+		if res.Mode != "skipped" && res.Mode != "noop" {
+			m.compactDidWork = true
+		}
+		if !m.compactMore && m.compactDidWork {
+			m.lastCompaction = time.Now()
+			m.compactDidWork = false
+		}
+	} else if !errors.Is(ctx.Err(), context.Canceled) {
+		// Preserva o trabalho e limita falhas repetidas também no caminho legado.
+		m.compactMore = true
+		if m.compactFailureBackoff == 0 {
+			m.compactFailureBackoff = database.CompactionBusyRetry
+		} else {
+			m.compactFailureBackoff = min(2*m.compactFailureBackoff, 5*time.Minute)
+		}
+		m.compactRetryAt = time.Now().Add(m.compactFailureBackoff)
+	} else {
+		m.compactMore = false
+		m.compactRetryAt = time.Time{}
+		m.compactFailureBackoff = 0
 	}
+	more := m.compactMore
 	m.compactMu.Unlock()
-	return err
+	return more, err
+}
+
+func (m *Manager) legacyRetentionDelay() time.Duration {
+	m.compactMu.Lock()
+	more := m.compactMore
+	retryAt := m.compactRetryAt
+	lastCompaction := m.lastCompaction
+	m.compactMu.Unlock()
+	if more {
+		if delay := time.Until(retryAt); delay > 0 {
+			return delay
+		}
+		return time.Second
+	}
+	if !lastCompaction.IsZero() {
+		if delay := time.Until(lastCompaction.Add(jobRetentionInterval)); delay > 0 {
+			return delay
+		}
+	}
+	return jobRetentionInterval
 }
 
 func (m *Manager) startRetentionLoop(ctx context.Context) {
@@ -2002,7 +2080,8 @@ func (m *Manager) startRetentionLoop(ctx context.Context) {
 	go func() {
 		defer close(done)
 		defer cancel()
-		delay := jobRetentionInterval
+		nextRetention := time.Now().Add(jobRetentionInterval)
+		delay := m.legacyRetentionDelay()
 		if m.cfg.MaintenanceCoordinator != nil {
 			delay = 0
 		}
@@ -2017,7 +2096,16 @@ func (m *Manager) startRetentionLoop(ctx context.Context) {
 				if m.cfg.MaintenanceCoordinator != nil {
 					delay = m.runCommandMaintenance(ctx)
 				} else {
-					m.runRetention(ctx)
+					if !time.Now().Before(nextRetention) {
+						m.runRetention(ctx)
+						nextRetention = time.Now().Add(jobRetentionInterval)
+					} else {
+						m.maybeCompact(ctx, maintenanceSettings().VacuumMinFreeBytes)
+					}
+					delay = m.legacyRetentionDelay()
+					if untilRetention := time.Until(nextRetention); untilRetention < delay {
+						delay = max(untilRetention, 0)
+					}
 				}
 				timer.Reset(delay)
 			case <-ctx.Done():

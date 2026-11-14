@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -633,5 +634,221 @@ func TestMaintenanceAdapterClassifiesCancelledTransactionOnly(t *testing.T) {
 				t.Fatal("avançou cursor após erro")
 			}
 		})
+	}
+}
+
+func prepareIncrementalMaintenanceFixture(t *testing.T, repo *DBRepository) {
+	t.Helper()
+	for _, query := range []string{"PRAGMA auto_vacuum=INCREMENTAL", "VACUUM", "CREATE TABLE compaction_fixture(data BLOB)"} {
+		if err := repo.db.Exec(query).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func seedFreelistForMaintenance(t *testing.T, repo *DBRepository) {
+	t.Helper()
+	for _, query := range []string{"WITH RECURSIVE n(x) AS (VALUES(1) UNION ALL SELECT x+1 FROM n WHERE x<2048) INSERT INTO compaction_fixture SELECT zeroblob(8192) FROM n", "DELETE FROM compaction_fixture"} {
+		if err := repo.db.Exec(query).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func TestCompactNoPagesDoesNotThrottleNewFreeSpace(t *testing.T) {
+	m, repo, ctx, _ := newCommandMaintenanceTestManager(t)
+	prepareIncrementalMaintenanceFixture(t, repo)
+	more, err := m.compactBatch(ctx, 0)
+	if err != nil || more || !m.lastCompaction.IsZero() {
+		t.Fatalf("no-op more=%v last=%v err=%v", more, m.lastCompaction, err)
+	}
+	checkpointAt := m.compactNoopCheckpointAt
+	if checkpointAt.IsZero() {
+		t.Fatal("no-op não limitou checkpoints repetidos")
+	}
+	if more, err := m.compactBatch(ctx, 0); err != nil || more || !m.compactNoopCheckpointAt.Equal(checkpointAt) {
+		t.Fatalf("no-op repetiu checkpoint: more=%v err=%v", more, err)
+	}
+	seedFreelistForMaintenance(t, repo)
+	before, err := database.DatabaseStatsSnapshot(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	more, err = m.compactBatch(ctx, 0)
+	if err != nil || !more {
+		t.Fatalf("novo lote more=%v err=%v", more, err)
+	}
+	after, err := database.DatabaseStatsSnapshot(ctx)
+	if err != nil || after.FreelistCount >= before.FreelistCount {
+		t.Fatalf("sem progresso antes=%d depois=%d err=%v", before.FreelistCount, after.FreelistCount, err)
+	}
+}
+
+type retentionCountingRepository struct {
+	Repository
+	calls atomic.Int32
+}
+
+func (r *retentionCountingRepository) CleanOldRunEvents(ctx context.Context, age time.Duration) (int, error) {
+	r.calls.Add(1)
+	return r.Repository.CleanOldRunEvents(ctx, age)
+}
+
+func TestLegacyStartupContinuesPartialCompaction(t *testing.T) {
+	repo, ctx, _ := setupJobsRepositoryTest(t)
+	prepareIncrementalMaintenanceFixture(t, repo)
+	seedFreelistForMaintenance(t, repo)
+	counting := &retentionCountingRepository{Repository: repo}
+	m := mustNewManager(t, ManagerConfig{Repository: counting, ContextProvider: func() context.Context { return ctx }})
+	if err := m.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(m.Stop)
+	m.compactMu.Lock()
+	more := m.compactMore
+	m.compactMu.Unlock()
+	if !more {
+		t.Fatal("startup não deixou lote pendente")
+	}
+	before, err := database.DatabaseStatsSnapshot(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(8 * time.Second)
+	for time.Now().Before(deadline) {
+		time.Sleep(50 * time.Millisecond)
+		after, err := database.DatabaseStatsSnapshot(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if after.FreelistCount < before.FreelistCount {
+			if calls := counting.calls.Load(); calls != 1 {
+				t.Fatalf("retenção repetida na continuação: %d", calls)
+			}
+			return
+		}
+	}
+	t.Fatal("startup legado não retomou o lote pendente")
+}
+
+func TestBusyCheckpointDefersCompactionWithoutDelayingOtherWork(t *testing.T) {
+	m, repo, ctx, _ := newCommandMaintenanceTestManager(t)
+	prepareIncrementalMaintenanceFixture(t, repo)
+	m.compactMore = true
+	m.compactRetryAt = time.Now().Add(30 * time.Second)
+	more, err := m.compactBatch(ctx, 0)
+	if err != nil || !more {
+		t.Fatalf("espera more=%v err=%v", more, err)
+	}
+	if delay := m.legacyRetentionDelay(); delay < 25*time.Second || delay > 30*time.Second {
+		t.Fatalf("espera legada=%v", delay)
+	}
+	adapters, err := NewCommandMaintenanceAdapters(m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if delay := adapters.Compaction.CompactionRetryAfter(); delay < 25*time.Second || delay > 30*time.Second {
+		t.Fatalf("espera do coordenador=%v", delay)
+	}
+	m.compactMu.Lock()
+	m.compactRetryAt = time.Now().Add(-time.Second)
+	m.compactMu.Unlock()
+	more, err = m.compactBatch(ctx, 0)
+	if err != nil || more {
+		t.Fatalf("retomada more=%v err=%v", more, err)
+	}
+}
+
+func TestLegacyDelayResumesAfterCompactionThrottle(t *testing.T) {
+	m := &Manager{lastCompaction: time.Now().Add(-jobRetentionInterval + time.Minute)}
+	if delay := m.legacyRetentionDelay(); delay < 55*time.Second || delay > time.Minute {
+		t.Fatalf("espera até fim do throttle=%v", delay)
+	}
+	m.lastCompaction = time.Now().Add(-jobRetentionInterval - time.Second)
+	if delay := m.legacyRetentionDelay(); delay != jobRetentionInterval {
+		t.Fatalf("throttle expirado não deve causar loop: %v", delay)
+	}
+}
+
+func TestCompactionArmsThrottleAfterFinalBusyCheckpoint(t *testing.T) {
+	m, repo, ctx, _ := newCommandMaintenanceTestManager(t)
+	prepareIncrementalMaintenanceFixture(t, repo)
+	seedFreelistForMaintenance(t, repo)
+	more, err := m.compactBatch(ctx, 0)
+	if err != nil || !more || !m.compactDidWork {
+		t.Fatalf("primeiro lote more=%v worked=%v err=%v", more, m.compactDidWork, err)
+	}
+	// Simula o término dos lotes enquanto o manager aguarda um checkpoint ocupado.
+	for i := 0; i < 100; i++ {
+		stats, statsErr := database.DatabaseStatsSnapshot(ctx)
+		if statsErr != nil {
+			t.Fatal(statsErr)
+		}
+		if stats.FreelistCount == 0 {
+			break
+		}
+		if _, err := database.Compact(ctx, false, 0); err != nil {
+			t.Fatal(err)
+		}
+	}
+	m.compactRetryAt = time.Now().Add(-time.Second)
+	more, err = m.compactBatch(ctx, 0)
+	if err != nil || more || m.lastCompaction.IsZero() || m.compactDidWork {
+		t.Fatalf("conclusão more=%v last=%v worked=%v err=%v", more, m.lastCompaction, m.compactDidWork, err)
+	}
+}
+
+func TestLegacyCompactionRetriesFailureBetweenBatches(t *testing.T) {
+	m, repo, ctx, _ := newCommandMaintenanceTestManager(t)
+	prepareIncrementalMaintenanceFixture(t, repo)
+	seedFreelistForMaintenance(t, repo)
+	more, err := m.compactBatch(ctx, 0)
+	if err != nil || !more {
+		t.Fatalf("primeiro lote more=%v err=%v", more, err)
+	}
+	before, err := database.DatabaseStatsSnapshot(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	restore := database.SetDB(nil)
+	defer restore()
+	more, err = m.compactBatch(ctx, 0)
+	restore()
+	if err == nil || !more {
+		t.Fatalf("falha intermediária more=%v err=%v", more, err)
+	}
+	if delay := m.legacyRetentionDelay(); delay < 25*time.Second || delay > 30*time.Second {
+		t.Fatalf("backoff legado=%v", delay)
+	}
+	m.compactMu.Lock()
+	m.compactRetryAt = time.Now().Add(-time.Second)
+	m.compactMu.Unlock()
+	more, err = m.compactBatch(ctx, 0)
+	if err != nil || !more {
+		t.Fatalf("retomada more=%v err=%v", more, err)
+	}
+	after, err := database.DatabaseStatsSnapshot(ctx)
+	if err != nil || after.FreelistCount >= before.FreelistCount {
+		t.Fatalf("sem progresso após erro antes=%d depois=%d err=%v", before.FreelistCount, after.FreelistCount, err)
+	}
+}
+
+func TestLegacyCompactionBacksOffRepeatedFailuresBeforeFirstBatch(t *testing.T) {
+	m, repo, ctx, _ := newCommandMaintenanceTestManager(t)
+	prepareIncrementalMaintenanceFixture(t, repo)
+	restore := database.SetDB(nil)
+	defer restore()
+	for i, want := range []time.Duration{30 * time.Second, time.Minute, 2 * time.Minute, 4 * time.Minute, 5 * time.Minute, 5 * time.Minute} {
+		m.compactRetryAt = time.Time{}
+		more, err := m.compactBatch(ctx, 0)
+		if err == nil || !more || m.compactFailureBackoff != want {
+			t.Fatalf("tentativa %d more=%v backoff=%v err=%v", i, more, m.compactFailureBackoff, err)
+		}
+	}
+	restore()
+	m.compactRetryAt = time.Time{}
+	more, err := m.compactBatch(ctx, 0)
+	if err != nil || more || m.compactFailureBackoff != 0 {
+		t.Fatalf("recuperação more=%v backoff=%v err=%v", more, m.compactFailureBackoff, err)
 	}
 }

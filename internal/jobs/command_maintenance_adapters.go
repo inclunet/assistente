@@ -367,6 +367,34 @@ func (a *CompactionAdapter) Compact(ctx context.Context, minFreeBytes int64) err
 	return a.owner.manager.compact(ctx, minFreeBytes)
 }
 
+// CompactBatch reutiliza a admissão e comunica continuação ao coordenador.
+func (a *CompactionAdapter) CompactBatch(ctx context.Context, minFreeBytes int64) (bool, time.Duration, error) {
+	if a == nil || !a.owner.valid() || ctx == nil || minFreeBytes < 0 {
+		return false, 0, ErrCommandMaintenanceUnavailable
+	}
+	if err := ctx.Err(); err != nil {
+		return false, 0, err
+	}
+	if !a.owner.tryAdmit() {
+		return false, 0, ErrCommandMaintenanceBusy
+	}
+	defer a.owner.release()
+	more, err := a.owner.manager.compactBatch(ctx, minFreeBytes)
+	return more, a.CompactionRetryAfter(), err
+}
+
+// CompactionRetryAfter evita repetir um checkpoint ainda ocupado a cada passagem.
+func (a *CompactionAdapter) CompactionRetryAfter() time.Duration {
+	if a == nil || !a.owner.valid() {
+		return 0
+	}
+	m := a.owner.manager
+	m.compactMu.Lock()
+	defer m.compactMu.Unlock()
+	return max(0, time.Until(m.compactRetryAt))
+}
+
+var _ commandmaintenance.BoundedCompactionPort = (*CompactionAdapter)(nil)
 var _ commandmaintenance.RetentionPort = (*JobsRetentionAdapter)(nil)
 var _ commandmaintenance.BoundedRetentionPort = (*JobsRetentionAdapter)(nil)
 var _ commandmaintenance.ToolRetentionPort = (*ToolsRetentionAdapter)(nil)
