@@ -236,6 +236,8 @@ describe('cronologia de ChatMessage', () => {
     ]);
     const surface = seedStore({ targetConversationId: conversationId, messageId: message.id });
     renderMessage(surface, message);
+    expect(screen.getByRole('button', { name: 'chat.expandChain' })).toHaveAttribute('aria-expanded', 'false');
+    fireEvent.click(screen.getByRole('button', { name: 'chat.expandChain' }));
     const expanded = messageContent();
     expect(within(expanded).getAllByTestId('markdown').map(node => node.textContent)).toEqual([finalContent, warning]);
     const tools = expanded.querySelector('.tool-calls-section')!;
@@ -264,6 +266,8 @@ describe('cronologia de ChatMessage', () => {
     if (!represented) message.turnSegments!.push(segmentFixture({ type: 'text', content: scalar }));
     const surface = seedStore({ targetConversationId: conversationId, messageId: message.id });
     renderMessage(surface, message);
+    expect(screen.getByRole('button', { name: 'chat.expandChain' })).toHaveAttribute('aria-expanded', 'false');
+    fireEvent.click(screen.getByRole('button', { name: 'chat.expandChain' }));
     const expanded = [...texts, ...(!success ? [warning] : []), ...(!represented ? [scalar] : [])];
     expect(within(messageContent()).getAllByTestId('markdown').map(node => node.textContent)).toEqual(expanded);
     fireEvent.click(screen.getByRole('button', { name: 'chat.collapseChain' }));
@@ -280,6 +284,8 @@ describe('cronologia de ChatMessage', () => {
     ]);
     const surface = seedStore({ targetConversationId: conversationId, messageId: message.id });
     renderMessage(surface, message);
+    expect(screen.getByRole('button', { name: 'chat.expandChain' })).toHaveAttribute('aria-expanded', 'false');
+    fireEvent.click(screen.getByRole('button', { name: 'chat.expandChain' }));
     expect(within(messageContent()).getAllByTestId('markdown').map(node => node.textContent)).toEqual(['Original', 'Editado novo']);
     fireEvent.click(screen.getByRole('button', { name: 'chat.collapseChain' }));
     expect(within(messageContent()).getAllByTestId('markdown').map(node => node.textContent)).toEqual(['Editado novo']);
@@ -301,6 +307,8 @@ describe('cronologia de ChatMessage', () => {
     expect(message).not.toHaveProperty('_turnSegments');
     const surface = seedStore({ targetConversationId: conversationId, messageId: message.id });
     renderMessage(surface, message);
+    expect(screen.getByRole('button', { name: 'chat.expandChain' })).toHaveAttribute('aria-expanded', 'false');
+    fireEvent.click(screen.getByRole('button', { name: 'chat.expandChain' }));
     const expanded = messageContent();
     expect(within(expanded).getAllByText(editedContent)).toHaveLength(1);
     expect(expanded.querySelector('.tool-calls-section')).not.toBeNull();
@@ -319,6 +327,8 @@ describe('cronologia de ChatMessage', () => {
     message.turnSegments = canonicalSegments([{ type: 'tool_calls', toolInvocations: [invocation('only-call', 'search')] }]);
     const surface = seedStore({ targetConversationId: conversationId, messageId: message.id });
     renderMessage(surface, message);
+    expect(screen.getByRole('button', { name: 'chat.expandChain' })).toHaveAttribute('aria-expanded', 'false');
+    fireEvent.click(screen.getByRole('button', { name: 'chat.expandChain' }));
     const placeholder = 'chat.toolOnlyTurnPlaceholder';
     expect(within(messageContent()).getByText(placeholder)).toBeVisible();
     expect(messageContent().querySelector('.tool-calls-section')).not.toBeNull();
@@ -337,6 +347,8 @@ describe('cronologia de ChatMessage', () => {
     ]);
     const surface = seedStore({ targetConversationId: conversationId, messageId: message.id });
     renderMessage(surface, message);
+    expect(screen.getByRole('button', { name: 'chat.expandChain' })).toHaveAttribute('aria-expanded', 'false');
+    fireEvent.click(screen.getByRole('button', { name: 'chat.expandChain' }));
     const expanded = messageContent();
     expect(within(expanded).getAllByTestId('markdown').map(item => item.textContent)).toEqual([warning]);
     expect(expanded.querySelector('.tool-calls-section')!.compareDocumentPosition(within(expanded).getByText(warning)) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
@@ -355,6 +367,8 @@ describe('cronologia de ChatMessage', () => {
     });
 
     renderMessage(surface, message);
+    expect(screen.getByRole('button', { name: 'chat.expandChain' })).toHaveAttribute('aria-expanded', 'false');
+    fireEvent.click(screen.getByRole('button', { name: 'chat.expandChain' }));
 
     const content = messageContent();
     const toggle = screen.getByRole('button', { name: 'chat.collapseChain' });
@@ -376,6 +390,8 @@ describe('cronologia de ChatMessage', () => {
     });
 
     const { rerender } = renderMessage(surface, message);
+    expect(screen.getByRole('button', { name: 'chat.expandChain' })).toHaveAttribute('aria-expanded', 'false');
+    fireEvent.click(screen.getByRole('button', { name: 'chat.expandChain' }));
     const toggle = screen.getByRole('button', { name: 'chat.collapseChain' });
     expect(toggle).toHaveAttribute('aria-expanded', 'true');
     expect(toggle).toHaveAttribute('tabindex', '-1');
@@ -423,6 +439,8 @@ describe('cronologia de ChatMessage', () => {
     });
 
     renderMessage(surface, message);
+    expect(screen.getByRole('button', { name: 'chat.expandChain' })).toHaveAttribute('aria-expanded', 'false');
+    fireEvent.click(screen.getByRole('button', { name: 'chat.expandChain' }));
 
     const content = messageContent();
     const region = content.querySelector('.chat-message__segments-log') as HTMLElement;

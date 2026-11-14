@@ -250,6 +250,26 @@ test.describe('Chat — cronologia canônica de tools', () => {
     await page.reload();
     const reloadedAssistant = page.locator('.message-node:has(.chat-message--assistant)').last();
     await expect(reloadedAssistant.getByText(finalContent, { exact: true })).toBeVisible();
+    const toggle = reloadedAssistant.locator('.chat-message__chain-toggle');
+    await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    await expect.poll(() => readChronology(reloadedAssistant)).toMatchObject({
+      children: [],
+      finalCount: 1,
+      finalOutsideRegion: true,
+    });
+    await reloadedAssistant.focus();
+    await reloadedAssistant.press('Enter');
+    await expect(reloadedAssistant).toHaveAttribute('role', 'dialog');
+    await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    await expect(toggle).toHaveAttribute('tabindex', '0');
+    await toggle.focus();
+    await toggle.press('Enter');
+    await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    await expect(reloadedAssistant.getByText('texto intermediário um', { exact: true })).toBeVisible();
+    await toggle.press('Enter');
+    await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    await reloadedAssistant.press('Escape');
+    await toggle.click();
     await expect.poll(() => readChronology(reloadedAssistant)).toMatchObject({
       children: [
         'text:texto intermediário um',
@@ -263,7 +283,6 @@ test.describe('Chat — cronologia canônica de tools', () => {
       finalAfterRegion: false,
     });
 
-    const toggle = reloadedAssistant.locator('.chat-message__chain-toggle');
     await expect(toggle).toHaveAttribute('aria-expanded', 'true');
     await expect(toggle).toHaveAttribute('aria-controls', /^[^\s]+$/);
     const controlsId = await toggle.getAttribute('aria-controls');

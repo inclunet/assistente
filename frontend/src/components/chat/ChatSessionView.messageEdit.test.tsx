@@ -140,7 +140,9 @@ describe('salvar edição: MessageNode, fonte draft, store e executor reais', ()
     } });
     mount();
     await waitFor(() => expect(node()).toHaveTextContent('Resposta anterior'));
-    if (collapsed) fireEvent.click(screen.getByRole('button', { name: 'chat.collapseChain' }));
+    if (!collapsed) fireEvent.click(screen.getByRole('button', { name: 'chat.expandChain' }));
+    expect(screen.getByRole('button', { name: collapsed ? 'chat.expandChain' : 'chat.collapseChain' }))
+      .toHaveAttribute('aria-expanded', String(!collapsed));
     act(() => emitUpdate('Resposta corrigida'));
     const edited = fixtureMessages(id)[0] as Message;
     expect(edited.content).toBe('Resposta corrigida');

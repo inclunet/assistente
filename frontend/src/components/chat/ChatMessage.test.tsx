@@ -550,6 +550,8 @@ describe('ChatMessage', () => {
     const { container } = render(<ChatMessage message={message} />);
 
     expect(container.querySelectorAll('.chat-message')).toHaveLength(1);
+    expect(screen.getByRole('button', { name: 'chat.expandChain' })).toHaveAttribute('aria-expanded', 'false');
+    fireEvent.click(screen.getByRole('button', { name: 'chat.expandChain' }));
     expect(screen.getByText('vou pesquisar')).toBeInTheDocument();
     expect(screen.getByText('agora vou refinar')).toBeInTheDocument();
     expect(screen.getByText('resposta final')).toBeInTheDocument();
@@ -576,6 +578,7 @@ describe('ChatMessage', () => {
     render(<ChatMessage message={message} />);
 
     expect(screen.getByText('chat.toolOnlyTurnPlaceholder')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'chat.expandChain' }));
     expect(screen.getByTestId('toolcalls')).toBeInTheDocument();
     expect(buildAriaLabelMock).toHaveBeenCalledWith(expect.objectContaining({
       displayContent: 'chat.toolOnlyTurnPlaceholder',
@@ -824,6 +827,7 @@ describe('ChatMessage', () => {
     const { container } = render(<ChatMessage message={message} />);
 
     const placeholder = screen.getByText('chat.toolOnlyTurnPlaceholder');
+    fireEvent.click(screen.getByRole('button', { name: 'chat.expandChain' }));
     const tools = screen.getByTestId('toolcalls');
     expect(placeholder).toBeInTheDocument();
     expect(tools).toBeInTheDocument();
@@ -864,6 +868,7 @@ describe('ChatMessage', () => {
 
     const { container } = render(<ChatMessage message={message} isReading />);
 
+    fireEvent.click(screen.getByRole('button', { name: 'chat.expandChain' }));
     const content = container.querySelector('.chat-message__content');
     expect(content).not.toBeNull();
     expect(content).toHaveTextContent('vou pesquisar');
@@ -873,8 +878,7 @@ describe('ChatMessage', () => {
   });
 
   // Issue #163 (Parte A): a cadeia oferece uma affordance acessível de
-  // contrair/expandir (botão com nome e `aria-expanded`). Inicia expandida
-  // (preserva o visual) e recolher remove a cadeia do DOM por economia.
+  // contrair/expandir (botão com nome e `aria-expanded`). Inicia recolhida.
   it('expõe um controle de contrair/expandir a cadeia com aria-expanded', () => {
     const message = messageFixture({
       id: 'turn-toggle',
@@ -897,6 +901,11 @@ describe('ChatMessage', () => {
 
     render(<ChatMessage message={message} />);
 
+    const initial = screen.getByRole('button', { name: 'chat.expandChain' });
+    expect(initial).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.getByText('resposta final')).toBeInTheDocument();
+    expect(screen.queryByText('vou pesquisar')).not.toBeInTheDocument();
+    fireEvent.click(initial);
     const toggle = screen.getByRole('button', { name: 'chat.collapseChain' });
     expect(toggle).toHaveAttribute('aria-expanded', 'true');
     // Fora do modo de leitura o toggle não é alcançável por Tab (convenção do
@@ -1001,17 +1010,14 @@ describe('ChatMessage', () => {
     });
 
     const { rerender } = render(<ChatMessage message={message} />);
-    expect(screen.getByRole('button', { name: 'chat.collapseChain' })).toHaveAttribute('tabindex', '-1');
+    expect(screen.getByRole('button', { name: 'chat.expandChain' })).toHaveAttribute('tabindex', '-1');
 
     rerender(<ChatMessage message={message} isReading />);
-    expect(screen.getByRole('button', { name: 'chat.collapseChain' })).toHaveAttribute('tabindex', '0');
+    expect(screen.getByRole('button', { name: 'chat.expandChain' })).toHaveAttribute('tabindex', '0');
   });
 
-  // Issue #163 (PR #168, comentário Copilot 3337447363): se o usuário recolheu a
-  // cadeia, ao entrar no modo de leitura ela precisa ser forçada de volta ao DOM
-  // para que o role="document" do useVirtualModal exponha todos os segmentos +
-  // tool calls. O `aria-expanded` permanece consistente com o conteúdo visível.
-  it('força a cadeia recolhida de volta ao DOM ao entrar no modo de leitura', () => {
+  // No modo de leitura, o usuário escolhe quando incluir toda a cadeia no DOM.
+  it('mantém a cadeia recolhida ao entrar na leitura e permite expandi-la', () => {
     const message = messageFixture({
       id: 'turn-reading-collapsed',
       conversationId,
@@ -1038,14 +1044,16 @@ describe('ChatMessage', () => {
 
     const { rerender } = render(<ChatMessage message={message} />);
 
-    // Usuário recolhe a cadeia fora do modo de leitura.
-    fireEvent.click(screen.getByRole('button', { name: 'chat.collapseChain' }));
+    // Histórico começa recolhido fora do modo de leitura.
     expect(screen.getByRole('button', { name: 'chat.expandChain' })).toHaveAttribute('aria-expanded', 'false');
     expect(screen.queryByText('vou pesquisar')).not.toBeInTheDocument();
     expect(screen.queryByTestId('toolcalls')).not.toBeInTheDocument();
 
-    // Ao entrar no modo de leitura, a cadeia inteira volta ao DOM.
+    // Ao entrar na leitura, a cadeia só é aberta pela ação do usuário.
     rerender(<ChatMessage message={message} isReading />);
+
+    expect(screen.getByRole('button', { name: 'chat.expandChain' })).toHaveAttribute('aria-expanded', 'false');
+    fireEvent.click(screen.getByRole('button', { name: 'chat.expandChain' }));
 
     const toggle = screen.getByRole('button', { name: 'chat.collapseChain' });
     expect(toggle).toHaveAttribute('aria-expanded', 'true');
@@ -1055,10 +1063,8 @@ describe('ChatMessage', () => {
     expect(screen.getAllByTestId('toolcalls')).toHaveLength(2);
   });
 
-  // Issue #163 (PR #168, comentário Copilot 3337834792): ao SAIR do modo de
-  // leitura, o estado da cadeia deve voltar ao que era antes — se o usuário a
-  // tinha recolhido, ela volta a recolher (não fica expandida permanentemente).
-  it('restaura o estado recolhido da cadeia ao sair do modo de leitura', () => {
+  // A escolha explícita permanece ao sair do modo de leitura.
+  it('preserva a escolha de expansão ao sair do modo de leitura', () => {
     const message = messageFixture({
       id: 'turn-restore-collapsed',
       conversationId,
@@ -1080,20 +1086,20 @@ describe('ChatMessage', () => {
 
     const { rerender } = render(<ChatMessage message={message} />);
 
-    // Usuário recolhe a cadeia.
-    fireEvent.click(screen.getByRole('button', { name: 'chat.collapseChain' }));
     expect(screen.getByRole('button', { name: 'chat.expandChain' })).toHaveAttribute('aria-expanded', 'false');
 
-    // Entra no modo de leitura — a cadeia é forçada a expandir.
+    // A leitura preserva o recolhimento até a expansão explícita.
     rerender(<ChatMessage message={message} isReading />);
+    expect(screen.getByRole('button', { name: 'chat.expandChain' })).toHaveAttribute('aria-expanded', 'false');
+    fireEvent.click(screen.getByRole('button', { name: 'chat.expandChain' }));
     expect(screen.getByRole('button', { name: 'chat.collapseChain' })).toHaveAttribute('aria-expanded', 'true');
     expect(screen.getByText('vou pesquisar')).toBeInTheDocument();
 
-    // Sai do modo de leitura — o estado recolhido anterior é restaurado.
+    // A escolha explícita continua após sair da leitura.
     rerender(<ChatMessage message={message} />);
-    expect(screen.getByRole('button', { name: 'chat.expandChain' })).toHaveAttribute('aria-expanded', 'false');
-    expect(screen.queryByText('vou pesquisar')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('toolcalls')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'chat.collapseChain' })).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByText('vou pesquisar')).toBeInTheDocument();
+    expect(screen.getByTestId('toolcalls')).toBeInTheDocument();
   });
 
   // Issue #163 (PR #168, comentário baixa-confiança ChatMessage.tsx:536): com a
@@ -1123,7 +1129,7 @@ describe('ChatMessage', () => {
 
     render(<ChatMessage message={message} />);
 
-    fireEvent.click(screen.getByRole('button', { name: 'chat.collapseChain' }));
+    expect(screen.getByRole('button', { name: 'chat.expandChain' })).toHaveAttribute('aria-expanded', 'false');
 
     // Conclusão visível; mensagem não fica vazia.
     expect(screen.getByText('resposta final')).toBeInTheDocument();
