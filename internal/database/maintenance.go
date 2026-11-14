@@ -233,23 +233,29 @@ func Compact(ctx context.Context, force bool, minFreeBytes int64) (CompactionRes
 			if busy == 0 && pages == copied {
 				res.WALCheckpointed = true
 			}
+			// PASSIVE pode retornar busy=0 mesmo com leitor impedindo progresso.
+			if mode == "PASSIVE" && pages > copied {
+				busy = 1
+			}
 			return busy, nil
 		}
 		if force || before.AutoVacuumMode != "incremental" {
 			_, _ = checkpoint("TRUNCATE")
 		}
 		finishIncremental := func() error {
-			if _, err := checkpoint("PASSIVE"); err != nil {
+			busy, err := checkpoint("PASSIVE")
+			if err != nil {
 				return err
 			}
 			if res.more {
+				res.checkpointBusy = busy != 0
 				return nil
 			}
 			// Tentativa final sem esperar leitores; busy é uma continuação, não sucesso.
 			if _, err := conn.ExecContext(ctx, "PRAGMA busy_timeout=0"); err != nil {
 				return err
 			}
-			busy, err := checkpoint("TRUNCATE")
+			busy, err = checkpoint("TRUNCATE")
 			if err != nil {
 				return err
 			}

@@ -254,6 +254,39 @@ func TestCompactIncrementalBatchesAllowWritesAndFinish(t *testing.T) {
 	}
 }
 
+func TestCompactPartialCheckpointReportsReader(t *testing.T) {
+	path := setupMaintenanceDB(t, true)
+	ctx := context.Background()
+	if err := db.Exec("PRAGMA wal_checkpoint(TRUNCATE)").Error; err != nil {
+		t.Fatal(err)
+	}
+	reader, err := sql.Open("sqlite", SQLiteDSN(path))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = reader.Close() }()
+	tx, err := reader.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	var count int
+	if err := tx.QueryRowContext(ctx, "SELECT count(*) FROM maintenance_blobs").Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	result, err := Compact(ctx, false, 0)
+	if err != nil || !result.HasMore() || !result.CheckpointBusy() {
+		t.Fatalf("checkpoint parcial não sinalizou espera: result=%+v err=%v", result, err)
+	}
+	if err := tx.Rollback(); err != nil {
+		t.Fatal(err)
+	}
+	result, err = Compact(ctx, false, 0)
+	if err != nil || result.CheckpointBusy() {
+		t.Fatalf("checkpoint não retomou após leitor: result=%+v err=%v", result, err)
+	}
+}
+
 func TestCompactFinalCheckpointDoesNotWaitForReader(t *testing.T) {
 	path := setupMaintenanceDB(t, true)
 	ctx := context.Background()
