@@ -122,6 +122,11 @@ type CompactionPort interface {
 	Compact(context.Context, int64) error
 }
 
+// BoundedCompactionPort informa quando há páginas para outra passagem.
+type BoundedCompactionPort interface {
+	CompactBatch(context.Context, int64) (bool, time.Duration, error)
+}
+
 type Ports struct {
 	Heartbeat    HeartbeatPort // opcional para montagens sem claims de job
 	Outbox       OutboxPort
@@ -138,21 +143,23 @@ type Ports struct {
 type Report struct {
 	// Stage identifica a última etapa iniciada, inclusive em erro. Não contém
 	// owner, payload, segredo ou argumento de comando.
-	Stage              string
-	HeartbeatProcessed int
-	MoreHeartbeat      bool
-	OutboxRequeued     int
-	OutboxDrained      bool
-	MoreOutbox         bool
-	OutboxPurged       int
-	Recovered          int
-	MoreRecovery       bool
-	MoreRetention      bool
-	JobsDeleted        int64
-	ToolsDeleted       int64
-	InvocationsDeleted int64
-	ActivationsDeleted int64
-	Compacted          bool
+	Stage                string
+	HeartbeatProcessed   int
+	MoreHeartbeat        bool
+	OutboxRequeued       int
+	OutboxDrained        bool
+	MoreOutbox           bool
+	OutboxPurged         int
+	Recovered            int
+	MoreRecovery         bool
+	MoreRetention        bool
+	JobsDeleted          int64
+	ToolsDeleted         int64
+	InvocationsDeleted   int64
+	ActivationsDeleted   int64
+	Compacted            bool
+	MoreCompaction       bool
+	CompactionRetryAfter time.Duration
 	// RetentionRetryAfter adia somente limpeza; heartbeat e recuperação continuam.
 	RetentionRetryAfter time.Duration
 }
@@ -160,12 +167,13 @@ type Report struct {
 // Coordinator é o único dono da sequência de manutenção. Run é uma única
 // passagem; uma chamada posterior pode continuar um lote que retornou More.
 type Coordinator struct {
-	ports            Ports
-	mu               sync.Mutex
-	running          bool
-	now              func() time.Time
-	retentionRetryAt time.Time
-	retentionBackoff time.Duration
+	ports             Ports
+	mu                sync.Mutex
+	running           bool
+	now               func() time.Time
+	retentionRetryAt  time.Time
+	compactionRetryAt time.Time
+	retentionBackoff  time.Duration
 }
 
 func New(ports Ports) (*Coordinator, error) {
@@ -324,6 +332,11 @@ func (c *Coordinator) Run(ctx context.Context, policy Policy) (report Report, ru
 		return report, nil
 	}
 
+	if remaining := c.compactionRetryAt.Sub(c.now()); remaining > 0 {
+		report.Stage = "compaction.deferred"
+		report.MoreCompaction, report.CompactionRetryAfter = true, remaining
+		return report, nil
+	}
 	if err := ctx.Err(); err != nil {
 		return report, err
 	}
@@ -388,7 +401,17 @@ func (c *Coordinator) Run(ctx context.Context, policy Policy) (report Report, ru
 		return report, err
 	}
 	report.Stage = "compaction"
-	if err := c.ports.Compaction.Compact(ctx, policy.VacuumMinFreeBytes); err != nil {
+	if bounded, ok := c.ports.Compaction.(BoundedCompactionPort); ok {
+		more, retryAfter, err := bounded.CompactBatch(ctx, policy.VacuumMinFreeBytes)
+		report.MoreCompaction, report.CompactionRetryAfter = more, retryAfter
+		if err != nil {
+			return report, err
+		}
+		c.compactionRetryAt = time.Time{}
+		if more && retryAfter > 0 {
+			c.compactionRetryAt = c.now().Add(retryAfter)
+		}
+	} else if err := c.ports.Compaction.Compact(ctx, policy.VacuumMinFreeBytes); err != nil {
 		return report, err
 	}
 	report.Compacted = true

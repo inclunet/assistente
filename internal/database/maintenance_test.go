@@ -2,9 +2,11 @@ package database
 
 import (
 	"context"
+	"database/sql"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"assistente/internal/sqlite"
 	"gorm.io/gorm"
@@ -194,5 +196,120 @@ func TestCompactForceRunsFullVacuumForIncrementalDB(t *testing.T) {
 	}
 	if res.ReclaimedBytes <= 0 {
 		t.Fatalf("ReclaimedBytes = %d, want > 0", res.ReclaimedBytes)
+	}
+}
+
+// Usa SQLite real: cada passagem libera o writer e devolve apenas um lote.
+func TestCompactIncrementalBatchesAllowWritesAndFinish(t *testing.T) {
+	path := setupMaintenanceDB(t, true)
+	ctx := context.Background()
+	if err := db.Exec("PRAGMA wal_checkpoint(TRUNCATE)").Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Exec("PRAGMA wal_autocheckpoint=0").Error; err != nil {
+		t.Fatal(err)
+	}
+	before, err := DatabaseStatsSnapshot(ctx)
+	if err != nil || before.FreelistCount <= incrementalVacuumBatchPages {
+		t.Fatalf("freelist inicial=%d err=%v", before.FreelistCount, err)
+	}
+	first, err := Compact(ctx, false, 0)
+	if err != nil || !first.HasMore() {
+		t.Fatalf("primeiro lote=%+v more=%v err=%v", first, first.HasMore(), err)
+	}
+	after, err := DatabaseStatsSnapshot(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reclaimed := before.FreelistCount - after.FreelistCount
+	if reclaimed <= 0 || reclaimed > incrementalVacuumBatchPages {
+		t.Fatalf("lote removeu %d páginas", reclaimed)
+	}
+	if after.FileSizeBytes >= before.FileSizeBytes {
+		t.Fatalf("checkpoint após lote não reduziu arquivo: antes=%d depois=%d", before.FileSizeBytes, after.FileSizeBytes)
+	}
+	// Uma gravação real usa outra conexão entre passagens, como o chat.
+	writer, err := sql.Open("sqlite", SQLiteDSN(path))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = writer.Close() }()
+	if _, err := writer.ExecContext(ctx, "INSERT INTO maintenance_blobs(data) VALUES (?)", "chat"); err != nil {
+		t.Fatalf("gravação entre lotes: %v", err)
+	}
+	more := first.HasMore()
+	for i := 0; more && i < 100; i++ {
+		result, err := Compact(ctx, false, 0)
+		if err != nil {
+			t.Fatalf("lote %d: %v", i, err)
+		}
+		more = result.HasMore()
+	}
+	if more {
+		t.Fatal("compactação não terminou")
+	}
+	var count int64
+	if err := db.Model(&maintenanceBlob{}).Where("data = ?", "chat").Count(&count).Error; err != nil || count != 1 {
+		t.Fatalf("gravação perdida: count=%d err=%v", count, err)
+	}
+}
+
+func TestCompactFinalCheckpointDoesNotWaitForReader(t *testing.T) {
+	path := setupMaintenanceDB(t, true)
+	ctx := context.Background()
+	for {
+		stats, err := DatabaseStatsSnapshot(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if stats.FreelistCount <= incrementalVacuumBatchPages {
+			break
+		}
+		if _, err := Compact(ctx, false, 0); err != nil {
+			t.Fatal(err)
+		}
+	}
+	reader, err := sql.Open("sqlite", SQLiteDSN(path))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = reader.Close() }()
+	tx, err := reader.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	var count int
+	if err := tx.QueryRowContext(ctx, "SELECT count(*) FROM maintenance_blobs").Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Exec("INSERT INTO maintenance_blobs(data) VALUES ('writer-before')").Error; err != nil {
+		t.Fatal(err)
+	}
+	bounded, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+	result, err := Compact(bounded, false, 0)
+	if err != nil || !result.HasMore() || !result.CheckpointBusy() {
+		t.Fatalf("checkpoint ocupado não sinalizou continuação: result=%+v err=%v", result, err)
+	}
+	if err := db.WithContext(bounded).Exec("INSERT INTO maintenance_blobs(data) VALUES ('writer-after')").Error; err != nil {
+		t.Fatalf("writer após checkpoint: %v", err)
+	}
+	for i := 0; i < 2; i++ {
+		waiting, waitErr := Compact(bounded, false, 0)
+		if waitErr != nil || !waiting.HasMore() || !waiting.CheckpointBusy() || waiting.Mode != "noop" {
+			t.Fatalf("espera sem progresso %d: result=%+v err=%v", i, waiting, waitErr)
+		}
+	}
+	if err := tx.Rollback(); err != nil {
+		t.Fatal(err)
+	}
+	result, err = Compact(bounded, false, 0)
+	if err != nil || result.HasMore() || result.CheckpointBusy() {
+		t.Fatalf("continuação após leitor: result=%+v err=%v", result, err)
+	}
+	stats, err := DatabaseStatsSnapshot(bounded)
+	if err != nil || stats.WALSizeBytes != 0 {
+		t.Fatalf("WAL após continuação: bytes=%d err=%v", stats.WALSizeBytes, err)
 	}
 }

@@ -2,6 +2,22 @@
 
 **Status:** In Progress
 
+**Compactação incremental cooperativa (13/11/2026): In Progress.** A manutenção
+incremental automática processa até 1.024 páginas por passagem, libera o writer
+e retoma o trabalho pelo coordenador existente; o throttle de 24 horas só é
+armado ao concluir. O checkpoint após cada lote é PASSIVE e a tentativa final de
+TRUNCATE não espera leitores e é repetido em passagem posterior se houver
+leitor ativo, com intervalo de 30 segundos para evitar repetição sem progresso;
+falhas no caminho legado preservam a pendência com recuo progressivo até cinco
+minutos;
+heartbeat e recuperação continuam em sua cadência. Sem páginas livres nem checkpoint
+pendente, não se arma o throttle de 24 horas: o checkpoint ocioso aguarda
+30 segundos, mas páginas recém-liberadas são processadas na passagem seguinte, sem aguardar esse intervalo. O caminho legado também retoma lotes após o startup.
+SQLite real cobre lotes, gravação entre passagens, redução física do arquivo,
+leitor concorrente e continuação no startup; ainda falta validar o impacto no
+banco real e no streaming do aplicativo. O VACUUM completo explícito e o caminho
+legado de conversão mantêm os contratos existentes.
+
 **Isolamento da política de conexão na compactação (08/11/2026): In Progress.**
 A espera nativa maior de checkpoint/VACUUM permanece restrita à conexão durante
 a manutenção: seu valor anterior é restaurado antes do retorno ao pool, também
@@ -410,7 +426,7 @@ O `VACUUM` completo é **gated** por um limiar de páginas livres (`PRAGMA freel
 
 ### D3 — Compactação throttled e em momento ocioso
 
-A compactação roda a partir do `runRetention` do Manager (em `Start`, logo após o login, e a cada 24h), mas com **throttle global** (no máximo 1× por intervalo de retenção) para não competir com a UI. `wal_checkpoint(TRUNCATE)` roda junto para limitar o `-wal`. `PRAGMA busy_timeout` é configurado para que a compactação aguarde locks transitórios em vez de falhar imediatamente.
+A compactação roda a partir da manutenção do Manager, com throttle global após conclusão. No modo incremental, cada passagem limita as páginas e retoma enquanto houver trabalho, cedendo o writer entre lotes. O checkpoint PASSIVE acompanha cada lote; ao concluir, TRUNCATE é tentado sem esperar leitores e retomado se estiver ocupado. No VACUUM completo e na conversão legada, o checkpoint TRUNCATE e o timeout de manutenção permanecem como antes.
 
 A exclusão de conversas, inclusive em lote, compartilha um gate cancelável com compactação e importação. Assim, `VACUUM`, restauração de conversas e a transação destrutiva `BEGIN IMMEDIATE` do delete nunca disputam o arquivo entre si. Criadores de conversa — comum, reciclagem, subagente e canal — também entram nesse gate para tornar o clear-all linearizável. Os demais writers de dados associados usam a transação/retry canônicos e revalidam vínculos sob o writer lock; eles não mantêm o maintenance gate global durante toda escrita. O “Limpar mensagens” delega ao pipeline batch do Histórico e, se um criador alterar seu snapshot antes de o gate fechar, refaz o snapshot antes de qualquer mutação. Conversas com run de subagente, entrega terminal ao pai, pipeline/stream LLM, callback de canal ou reconcile/retry reservado/ativo são recusadas sem cancelar o trabalho antes do commit. Toda mutação de pendência conta como operação ativa até `Upsert`, `Delete` ou `DeleteIfTrace` terminar. O write gate dos subagentes permanece fechado até o desfecho da transação. Em sucesso, os gates runtime são convertidos no commit em tombstones temporários, normalizados e podados após a janela de callbacks; chamadas bloqueadas são recusadas, enquanto os mutexes globais são liberados antes da limpeza pós-commit. Um gate de ciclo de vida permanece até o fim dos efeitos pós-commit e impede que uma importação do mesmo ID seja seguida por um evento tardio de exclusão. A importação adquire os gates na mesma ordem da exclusão e, após cada commit, remove tombstones somente dos IDs efetivamente restaurados; em falha, libera os gates sem invalidá-los. Em rollback, nenhum tombstone permanece. A ordem de aquisição antecede o lock SQLite e é estável, evitando deadlock. Evidências: `internal/database/conversation_batch_delete_test.go`, `internal/app/conversation_deletion_test.go`, `internal/subagent/manager_test.go`, `internal/chat/streaming_manager_test.go` e `internal/messaging/notifier_test.go`.
 

@@ -158,6 +158,7 @@ func TestCommandMaintenanceDelayKeepsContinuationWithinLeaseTTL(t *testing.T) {
 		{name: "outbox", report: commandmaintenance.Report{MoreOutbox: true}},
 		{name: "recovery", report: commandmaintenance.Report{MoreRecovery: true}},
 		{name: "retention", report: commandmaintenance.Report{MoreRetention: true}},
+		{name: "compaction", report: commandmaintenance.Report{MoreCompaction: true}},
 		{name: "error", runErr: errors.New("transient")},
 	}
 	for _, tc := range continuations {
@@ -438,5 +439,18 @@ func TestMaintenancePassReportsOnlyRealFailuresDuringShutdown(t *testing.T) {
 				t.Fatalf("log failure=%v want=%v logs=%+v", failed, tc.wantFailure, sink.snapshot())
 			}
 		})
+	}
+}
+
+func TestCommandMaintenanceDelayRespectsBusyCheckpointWithoutDelayingHeartbeat(t *testing.T) {
+	policy := commandMaintenanceTestPolicy()
+	policy.LeaseDuration = 30 * time.Second
+	report := commandmaintenance.Report{MoreCompaction: true, CompactionRetryAfter: 30 * time.Second}
+	if delay := commandMaintenanceDelay(policy, report, nil); delay != 10*time.Second {
+		t.Fatalf("heartbeat delay=%v", delay)
+	}
+	report.MoreOutbox = true
+	if delay := commandMaintenanceDelay(policy, report, nil); delay != time.Second {
+		t.Fatalf("outbox delay=%v", delay)
 	}
 }

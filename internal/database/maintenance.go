@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"time"
 )
 
 // defaultVacuumMinFreeBytes é o limiar mínimo de espaço livre (freelist) usado
@@ -14,6 +15,12 @@ import (
 // ("sempre compactar"). A política real vem do config.json (AEP-0074); este
 // pacote não lê configuração diretamente.
 const defaultVacuumMinFreeBytes int64 = 16 * 1024 * 1024 // 16 MiB
+
+// Limita o tempo de posse do writer por passagem; a próxima retoma a freelist.
+const incrementalVacuumBatchPages = 1024
+
+// CompactionBusyRetry limita a frequência de tentativas enquanto há leitor no WAL.
+const CompactionBusyRetry = 30 * time.Second
 
 // Modos de auto_vacuum do SQLite (PRAGMA auto_vacuum).
 const (
@@ -37,6 +44,8 @@ type DatabaseStats struct {
 
 // CompactionResult descreve o que a manutenção física fez.
 type CompactionResult struct {
+	checkpointBusy  bool
+	more            bool
 	Mode            string `json:"mode"` // noop | incremental | full | skipped
 	WALCheckpointed bool   `json:"walCheckpointed"`
 	FreeBytesBefore int64  `json:"freeBytesBefore"`
@@ -44,6 +53,12 @@ type CompactionResult struct {
 	TotalSizeAfter  int64  `json:"totalSizeAfter"`
 	ReclaimedBytes  int64  `json:"reclaimedBytes"`
 }
+
+// HasMore indica que a freelist ou o checkpoint final exigem outra passagem.
+func (r CompactionResult) HasMore() bool { return r.more }
+
+// CheckpointBusy indica que um leitor adiou o truncamento do WAL.
+func (r CompactionResult) CheckpointBusy() bool { return r.checkpointBusy }
 
 // CoordinatorCompactor adapta a compactação global SQLite à porta do
 // InstanceMaintenanceCoordinator. Não cria loop nem lê configurações; o
@@ -53,6 +68,16 @@ type CoordinatorCompactor struct{}
 func (CoordinatorCompactor) Compact(ctx context.Context, minFreeBytes int64) error {
 	_, err := Compact(ctx, false, minFreeBytes)
 	return err
+}
+
+// CompactBatch permite ao coordenador retomar a compactação incremental.
+func (CoordinatorCompactor) CompactBatch(ctx context.Context, minFreeBytes int64) (bool, time.Duration, error) {
+	result, err := Compact(ctx, false, minFreeBytes)
+	var retryAfter time.Duration
+	if result.CheckpointBusy() {
+		retryAfter = CompactionBusyRetry
+	}
+	return result.HasMore(), retryAfter, err
 }
 
 func autoVacuumModeName(mode int64) string {
@@ -112,10 +137,22 @@ func DatabaseStatsSnapshot(ctx context.Context) (DatabaseStats, error) {
 	return stats, nil
 }
 
+// SQLiteFreelistCount lê apenas a freelist, sem checkpoint ou alteração física.
+func SQLiteFreelistCount(ctx context.Context) (int64, error) {
+	if db == nil {
+		return 0, errors.New("banco de dados não inicializado")
+	}
+	var pages int64
+	if err := db.WithContext(ctx).Raw("PRAGMA freelist_count").Scan(&pages).Error; err != nil {
+		return 0, err
+	}
+	return pages, nil
+}
+
 // Compact executa a manutenção física do arquivo SQLite (AEP-0074):
 //
-//   - wal_checkpoint(TRUNCATE) para limitar o arquivo -wal;
-//   - em bancos no modo incremental: PRAGMA incremental_vacuum (barato), salvo
+//   - checkpoint PASSIVE por lote incremental e TRUNCATE final sem espera;
+//   - em bancos no modo incremental: PRAGMA incremental_vacuum limitado, salvo
 //     quando force=true, que executa VACUUM completo;
 //   - em bancos legados (auto_vacuum=none/full): VACUUM completo, gated por
 //     limiar de páginas livres (a menos que force=true). O VACUUM também
@@ -186,12 +223,39 @@ func Compact(ctx context.Context, force bool, minFreeBytes int64) (CompactionRes
 			logging.Warnf(ctx, "database.maintenance", "[Database] manutenção: set busy_timeout falhou: %v", err)
 		}
 
-		// 1) Checkpoint do WAL: devolve o conteúdo do -wal ao arquivo principal e
-		//    trunca o -wal. Best-effort.
-		if _, err := conn.ExecContext(ctx, "PRAGMA wal_checkpoint(TRUNCATE)"); err != nil {
-			logging.Errorf(ctx, "database.maintenance", "[Database] manutenção: wal_checkpoint falhou: %v", err)
-		} else {
-			res.WALCheckpointed = true
+		checkpoint := func(mode string) (int, error) {
+			var busy, pages, copied int
+			err := conn.QueryRowContext(ctx, "PRAGMA wal_checkpoint("+mode+")").Scan(&busy, &pages, &copied)
+			if err != nil {
+				logging.Errorf(ctx, "database.maintenance", "[Database] manutenção: wal_checkpoint falhou: %v", err)
+				return 0, err
+			}
+			if busy == 0 && pages == copied {
+				res.WALCheckpointed = true
+			}
+			return busy, nil
+		}
+		if force || before.AutoVacuumMode != "incremental" {
+			_, _ = checkpoint("TRUNCATE")
+		}
+		finishIncremental := func() error {
+			if _, err := checkpoint("PASSIVE"); err != nil {
+				return err
+			}
+			if res.more {
+				return nil
+			}
+			// Tentativa final sem esperar leitores; busy é uma continuação, não sucesso.
+			if _, err := conn.ExecContext(ctx, "PRAGMA busy_timeout=0"); err != nil {
+				return err
+			}
+			busy, err := checkpoint("TRUNCATE")
+			if err != nil {
+				return err
+			}
+			res.checkpointBusy = busy != 0
+			res.more = res.checkpointBusy
+			return nil
 		}
 
 		runFullVacuum := func() error {
@@ -210,9 +274,27 @@ func Compact(ctx context.Context, force bool, minFreeBytes int64) (CompactionRes
 			if force {
 				return runFullVacuum()
 			}
-			// Devolve todas as páginas livres ao SO. Sem argumento = todas.
-			if _, err := conn.ExecContext(ctx, "PRAGMA incremental_vacuum"); err != nil {
+			// Uma passagem não monopoliza o writer para toda a freelist.
+			if before.FreelistCount == 0 {
+				if err := finishIncremental(); err != nil {
+					return err
+				}
+				return nil
+			}
+			if _, err := conn.ExecContext(ctx, fmt.Sprintf("PRAGMA incremental_vacuum(%d)", incrementalVacuumBatchPages)); err != nil {
 				return fmt.Errorf("incremental_vacuum: %w", err)
+			}
+			var remaining int64
+			if err := conn.QueryRowContext(ctx, "PRAGMA freelist_count").Scan(&remaining); err != nil {
+				return fmt.Errorf("read remaining freelist: %w", err)
+			}
+			res.more = remaining > 0
+			// Aplicar o WAL depois de cada lote recupera o espaço físico.
+			if err := finishIncremental(); err != nil {
+				return err
+			}
+			if err := ctx.Err(); err != nil {
+				return err
 			}
 			res.Mode = "incremental"
 		default:
