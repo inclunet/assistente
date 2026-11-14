@@ -39,6 +39,10 @@ seus callbacks antigos deixam de alterar a projeção em memória.
 
 ## Consistência do histórico
 
+Ao sair do chat para configurações e retornar, o histórico é carregado novamente
+sem exigir recuperação quando a sessão foi fechada normalmente. Conteúdo de
+respostas ainda não confirmado continua protegido em caso de falha real.
+
 Durante a navegação pelo histórico, o indicador informa “Carregando...” tanto
 para mensagens anteriores quanto posteriores. O leitor de tela anuncia o
 intervalo carregado quando há mensagens na janela; uma janela vazia não anuncia

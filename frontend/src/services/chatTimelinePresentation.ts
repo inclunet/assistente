@@ -166,6 +166,11 @@ export class ChatTimelinePresentation implements ChatMessageSource {
   async close(): Promise<void> {
     this.closing = true;
     try {
+      // Open pode estar aguardando o fechamento de outra superfície antes de
+      // registrar sua capability. Aguarde-o nesse caso para não deixá-la órfã.
+      if ([...this.sources.keys()].some(surface => !this.client.hasSurface(this.conversationId, surface))) {
+        await this.pending;
+      }
       for (const surface of [...this.sources.keys()].reverse()) {
         await this.client.close(this.conversationId, surface);
         this.sources.delete(surface);

@@ -4,6 +4,19 @@
 
 Data: 2026-10-30
 
+### Retorno ao chat após fechar a última janela (14/11/2026)
+
+Se a última janela fechar e não houver conteúdo protegido, o coordenador de
+época e seu cache dispensável são liberados; uma reabertura aceita o snapshot
+da nova instância sem comparar épocas ou sequências distintas. Quando o
+fechamento ainda está em curso, uma nova superfície aguarda sua conclusão,
+inclusive se o Open anterior ainda não retornou. Falha de cleanup continua
+exigindo retry explícito; itens ativos ou voláteis não são descartados.
+Ao desmontar durante essa espera, a apresentação aguarda o registro e fecha a
+nova capability, sem deixar janela órfã. `chatTimelineClient.test.ts`,
+`chatTimelinePresentation.test.ts` e `ChatSessionContext.window.test.tsx`
+cobrem época nova, remontagem, corridas e conteúdo protegido. Status **Done** mantido.
+
 ### Recolhimento acessível ao concluir (14/11/2026)
 
 A cadeia de etapas e ferramentas de mensagens salvas inicia recolhida, inclusive
@@ -4698,7 +4711,8 @@ volatile; ele permanece até descarte explícito ou persistência bem-sucedida.
 Frontend mantém referências às janelas (limite atual de 240 itens), foco/leitura,
 edição e execuções ativas; itens sem referências entram em LRU limitada a 240
 itens ou 8 MiB por usuário. Fechar última superfície remove sua janela e libera
-referências; logout limpa todo o cache. Itens ativos/volatile não são expulsos
+referências; sem itens protegidos, o coordenador daquela conversa é descartado
+para permitir a reabertura com nova época. Logout limpa todo o cache. Itens ativos/volatile não são expulsos
 silenciosamente: limite excedido bloqueia novas retenções opcionais e pede
 resolução explícita quando não houver conteúdo dispensável.
 

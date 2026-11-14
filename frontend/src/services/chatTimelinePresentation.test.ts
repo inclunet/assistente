@@ -33,6 +33,24 @@ function fixture() {
 }
 
 describe('canonical presentation', () => {
+  it('fecha nova janela mesmo se a apresentação sair enquanto aguarda fechamento anterior', async () => {
+    const f = fixture();
+    await f.presentation.open();
+    let finishClose!: () => void;
+    vi.mocked(f.transport.close).mockImplementationOnce(() => new Promise<void>(resolve => { finishClose = resolve; }));
+    const closingPrevious = f.presentation.close();
+    const next = new ChatTimelinePresentation(f.presentation.client, 'conversation', 'next-surface');
+    const opening = next.open();
+    await Promise.resolve();
+    await Promise.resolve();
+    const closingNext = next.close();
+    expect(f.transport.open).toHaveBeenCalledTimes(1);
+    finishClose();
+    await Promise.all([closingPrevious, opening, closingNext]);
+    expect(f.transport.open).toHaveBeenCalledTimes(2);
+    expect(f.transport.close).toHaveBeenCalledWith('next-surface');
+    expect(f.presentation.client.hasSurface('conversation', 'next-surface')).toBe(false);
+  });
   it('keeps backend order and preserves message references while only navigation changes', async () => {
     const f = fixture();
     await f.presentation.open();

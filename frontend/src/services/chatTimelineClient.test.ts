@@ -65,6 +65,125 @@ function fixture() {
 }
 
 describe('ChatTimelineClient', () => {
+  it('reabre histórico salvo após fechar a última janela e o backend mudar de época', async () => {
+    const f = fixture();
+    f.port.open.mockResolvedValueOnce(contentSnapshot(false));
+    await f.open();
+    expect(f.client.getItem('chat', 'a', 'item')?.durability).toBe('persisted');
+    await f.client.close('chat', 'a');
+
+    const reopened = contentSnapshot(false);
+    reopened.windowId = 'new-window';
+    reopened.epoch = 'new-epoch';
+    reopened.sequence = reopened.items[0].revision = '1';
+    f.port.open.mockResolvedValueOnce(reopened);
+    await f.open();
+    expect(f.client.getError('chat')).toBeUndefined();
+    expect(f.client.getWindow('chat', 'a')?.orderedItemIds).toEqual(['item']);
+    expect(f.client.getItem('chat', 'a', 'item')?.durability).toBe('persisted');
+  });
+
+  it('aguarda o fechamento pendente antes de reabrir em outra época', async () => {
+    const f = fixture();
+    f.port.open.mockResolvedValueOnce(contentSnapshot(false));
+    await f.open();
+    const pendingClose = deferred<void>();
+    f.port.close.mockReturnValueOnce(pendingClose.promise);
+    const closing = f.client.close('chat', 'a');
+    const reopened = contentSnapshot(false);
+    reopened.windowId = 'new-window';
+    reopened.epoch = 'new-epoch';
+    reopened.sequence = reopened.items[0].revision = '1';
+    f.port.open.mockResolvedValueOnce(reopened);
+    const opening = f.open('b');
+    await Promise.resolve();
+    expect(f.port.open).toHaveBeenCalledTimes(1);
+    pendingClose.resolve();
+    await Promise.all([closing, opening]);
+    expect(f.client.getWindow('chat', 'b')?.orderedItemIds).toEqual(['item']);
+    expect(f.client.getError('chat')).toBeUndefined();
+  });
+
+  it('aguarda o fechamento mesmo quando a janela anterior ainda está abrindo', async () => {
+    const f = fixture();
+    const pending = deferred<TimelineSnapshot>();
+    f.port.open.mockReturnValueOnce(pending.promise);
+    const first = f.open();
+    await Promise.resolve();
+    const closing = f.client.close('chat', 'a');
+    const reopened = contentSnapshot(false);
+    reopened.windowId = 'new-window';
+    reopened.epoch = 'new-epoch';
+    f.port.open.mockResolvedValueOnce(reopened);
+    const opening = f.open('b');
+    await Promise.resolve();
+    expect(f.port.open).toHaveBeenCalledTimes(1);
+    pending.resolve(contentSnapshot(false));
+    await Promise.all([first, closing, opening]);
+    expect(f.port.close).toHaveBeenCalledExactlyOnceWith('a');
+    expect(f.client.getWindow('chat', 'b')?.orderedItemIds).toEqual(['item']);
+    expect(f.client.getError('chat')).toBeUndefined();
+  });
+
+  it('permite nova abertura solicitada sincronicamente pela notificação de fechamento', async () => {
+    const f = fixture();
+    f.port.open.mockResolvedValueOnce(contentSnapshot(false));
+    await f.open();
+    const pendingClose = deferred<void>();
+    f.port.close.mockReturnValueOnce(pendingClose.promise);
+    const reopened = { ...contentSnapshot(false), windowId: 'new-window', epoch: 'new-epoch' };
+    f.port.open.mockResolvedValueOnce(reopened);
+    let opening: Promise<void> | undefined;
+    const unsubscribe = f.client.subscribe(() => {
+      if (!f.client.getWindow('chat', 'a') && !opening) opening = f.open('b');
+    });
+    const closing = f.client.close('chat', 'a');
+    expect(opening).toBeDefined();
+    expect(f.port.open).toHaveBeenCalledTimes(1);
+    pendingClose.resolve();
+    await Promise.all([closing, opening]);
+    unsubscribe();
+    expect(f.client.getWindow('chat', 'b')?.orderedItemIds).toEqual(['item']);
+  });
+
+  it('propaga falha de fechamento para nova abertura sem tentar cleanup novamente', async () => {
+    const f = fixture();
+    f.port.open.mockResolvedValueOnce(contentSnapshot(false));
+    await f.open();
+    const pendingClose = deferred<void>();
+    f.port.close.mockReturnValueOnce(pendingClose.promise);
+    const closing = f.client.close('chat', 'a');
+    const opening = f.open('b');
+    const closedWithError = expect(closing).rejects.toThrow('offline');
+    const openedWithError = expect(opening).rejects.toThrow('offline');
+    pendingClose.reject(new Error('offline'));
+    await Promise.all([closedWithError, openedWithError]);
+    expect(f.port.close).toHaveBeenCalledTimes(1);
+    expect(f.port.open).toHaveBeenCalledTimes(1);
+    await expect(f.open('b')).rejects.toThrow('unavailable');
+    await f.client.close('chat', 'a');
+  });
+
+  it('não descarta conteúdo não confirmado ao fechar e receber outra época', async () => {
+    const f = fixture();
+    f.port.open.mockResolvedValueOnce(contentSnapshot(true));
+    await f.open();
+    await f.client.close('chat', 'a');
+    f.port.open.mockResolvedValueOnce({ ...contentSnapshot(false), windowId: 'new-window', epoch: 'new-epoch' });
+    await expect(f.open()).rejects.toThrow('Timeline snapshot rejected');
+    expect(f.client.getError('chat')).toBeDefined();
+    await expect(f.open()).rejects.toThrow('unavailable');
+  });
+
+  it('não reinicia a época enquanto outra janela da conversa está aberta', async () => {
+    const f = fixture();
+    f.port.open.mockResolvedValueOnce(contentSnapshot(false));
+    await f.open();
+    f.port.open.mockResolvedValueOnce({ ...contentSnapshot(false), windowId: 'other-window', epoch: 'new-epoch' });
+    await expect(f.open('b')).rejects.toThrow('Timeline snapshot rejected');
+    expect(f.client.getWindow('chat', 'a')?.orderedItemIds).toEqual(['item']);
+    expect(f.client.getError('chat')).toBeDefined();
+  });
   it('recupera as duas janelas na limpeza confirmada, mesmo com syncRequired', async () => {
     const f = fixture();
     f.port.open.mockImplementation(async (_id, surface) => ({ ...contentSnapshot(false), windowId: surface.split('#')[0] }));
