@@ -1,6 +1,6 @@
 import { withFixtureProjection } from '../../test/chatWindowFixture';
 import { messageFixture, segmentFixture } from '../../test/chatPresentationFixture';
-import { act, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ToolCallStatus } from '../../types/chat';
 import type { Message, TurnSegment } from '../../store/chatStore';
@@ -258,6 +258,8 @@ describe('progresso live de ChatMessage', () => {
     );
 
     expect(screen.getByText('chat.toolOnlyTurnPlaceholder')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'chat.expandChain' })).toHaveAttribute('aria-expanded', 'false');
+    fireEvent.click(screen.getByRole('button', { name: 'chat.expandChain' }));
     expect(screen.getByRole('listitem')).toHaveTextContent('chat.toolStatusSucceeded');
   });
 
@@ -370,6 +372,9 @@ describe('progresso live de ChatMessage', () => {
       </ChatSessionProvider>,
     );
 
+    expect(screen.getByRole('button', { name: 'chat.expandChain' })).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.getByText('resposta canônica')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'chat.expandChain' }));
     expect(screen.getByText('intermediário ao vivo')).toBeInTheDocument();
     expect(screen.getByText('resposta canônica')).toBeInTheDocument();
     expect(screen.getByRole('listitem')).toHaveTextContent('chat.toolStatusSucceeded');

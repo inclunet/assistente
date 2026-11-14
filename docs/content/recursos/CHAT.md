@@ -17,8 +17,9 @@ terminar, e o foco não é reiniciado a cada trecho. Escape devolve o foco à me
 mensagem; é possível entrar novamente enquanto a geração continua. Isso não
 ativa anúncios automáticos de cada trecho nem outra voz concorrente.
 
-Ao terminar uma resposta, a cadeia de etapas e ferramentas é recolhida e pode
-ser expandida pelo botão da mensagem. Se você estiver lendo a mensagem, com
+No histórico, a cadeia de etapas e ferramentas começa recolhida, inclusive no
+modo de leitura, e pode ser expandida pelo botão da mensagem. Ao terminar uma
+resposta em andamento, a cadeia também é recolhida. Se você estiver lendo a mensagem, com
 foco em um elemento da cadeia ou com um diálogo de ferramenta aberto, ela
 permanece aberta para preservar sua posição e o retorno do foco.
 

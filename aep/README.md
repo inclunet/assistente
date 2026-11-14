@@ -88,6 +88,8 @@ latências após instalação pendente; o banco pessoal não foi alterado.
 
 # AEP — Assistente Enhancement Proposals
 
+AEP-0116 (14/11/2026): histórico abre com cadeia recolhida, inclusive na leitura; expansão explícita é preservada. Evidências em `ChatMessage.test.tsx` e `chat-chronology.spec.ts`; validação com NVDA pendente. Status **Done** mantido.
+
 **AEP-0074 — varredura de órfãos por páginas (26/10/2026): In Progress.**
 Índice v38 por usuário/origem/ID e cursor em memória limitam os registros
 examinados por passagem, mesmo sem órfãos; avanço só após commit, retorno ao

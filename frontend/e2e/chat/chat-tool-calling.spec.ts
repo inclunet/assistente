@@ -1,4 +1,5 @@
 import { test, expect, type WailsMock } from '../fixtures';
+import type { Page } from '@playwright/test';
 
 const now = new Date().toISOString();
 const conversationId = '01926b90-0000-7000-8000-000000000001';
@@ -52,10 +53,19 @@ const messagesWithToolCalls = [
   },
 ];
 
+async function expandHistoryChain(page: Page): Promise<void> {
+  const toggle = page.locator('.chat-message--assistant .chat-message__chain-toggle');
+  await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+  await expect(page.locator('.tool-calls-section')).toHaveCount(0);
+  await toggle.click();
+  await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+}
+
 test.describe('Chat — tool calls (histórico)', () => {
   test('exibe a seção de ferramentas pela projeção leve', async ({ page, wails }) => {
     await setMessagesResponse(wails, messagesWithToolCalls);
     await wails.waitForApp();
+    await expandHistoryChain(page);
 
     await page.waitForSelector('.chat-message', { timeout: 5_000 });
 
@@ -66,6 +76,7 @@ test.describe('Chat — tool calls (histórico)', () => {
   test('cada tool call aparece diretamente como card amigável', async ({ page, wails }) => {
     await setMessagesResponse(wails, messagesWithToolCalls);
     await wails.waitForApp();
+    await expandHistoryChain(page);
 
     await page.waitForSelector('.tool-calls-section', { timeout: 5_000 });
 
@@ -75,9 +86,10 @@ test.describe('Chat — tool calls (histórico)', () => {
     await expect(card).not.toContainText('search_web');
   });
 
-  test('card fica visível sem expansão', async ({ page, wails }) => {
+  test('card fica visível sem expansão adicional após abrir a cadeia', async ({ page, wails }) => {
     await setMessagesResponse(wails, messagesWithToolCalls);
     await wails.waitForApp();
+    await expandHistoryChain(page);
 
     await page.waitForSelector('.tool-calls-section', { timeout: 5_000 });
 
@@ -88,6 +100,7 @@ test.describe('Chat — tool calls (histórico)', () => {
   test('card mantém a saída técnica somente nos detalhes', async ({ page, wails }) => {
     await setMessagesResponse(wails, messagesWithToolCalls);
     await wails.waitForApp();
+    await expandHistoryChain(page);
 
     await page.waitForSelector('.tool-calls-section', { timeout: 5_000 });
 
@@ -99,6 +112,7 @@ test.describe('Chat — tool calls (histórico)', () => {
   test('card comunica o estado terminal da ferramenta', async ({ page, wails }) => {
     await setMessagesResponse(wails, messagesWithToolCalls);
     await wails.waitForApp();
+    await expandHistoryChain(page);
 
     await page.waitForSelector('.tool-calls-section', { timeout: 5_000 });
 
@@ -123,6 +137,7 @@ test.describe('Chat — tool calls (histórico)', () => {
       queuedAt: now,
     }]);
     await wails.waitForApp();
+    await expandHistoryChain(page);
     await page.getByRole('button', { name: /Detalhes técnicos|Technical details|Detalles técnicos/i }).click();
 
     await expect(page.locator('.tool-calls-section__args')).toContainText('clima hoje');
@@ -132,6 +147,7 @@ test.describe('Chat — tool calls (histórico)', () => {
   test('conjunto e cards usam semântica de lista', async ({ page, wails }) => {
     await setMessagesResponse(wails, messagesWithToolCalls);
     await wails.waitForApp();
+    await expandHistoryChain(page);
 
     await page.waitForSelector('.tool-calls-section', { timeout: 5_000 });
 

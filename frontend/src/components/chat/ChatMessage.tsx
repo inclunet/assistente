@@ -91,11 +91,8 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
   const chainRef = useRef<HTMLDivElement>(null);
   const wasStreamingRef = useRef(!!isStreaming);
   const chainRegionId = useId();
-  // Issue #163: a cadeia do turno (segmentos intermediários + tool calls) ganha
-  // uma affordance acessível de contrair/expandir. Inicia expandida para
-  // preservar o layout visual já existente (a cadeia é exibida agrupada); o
-  // controle expõe `aria-expanded` e permite recolher a cadeia por economia.
-  const [isChainExpanded, setIsChainExpanded] = useState(true);
+  // O histórico inicia recolhido; o turno ao vivo permanece visível.
+  const [isChainExpanded, setIsChainExpanded] = useState(!!isStreaming);
   const editTextareaRef = useRef<HTMLTextAreaElement>(null);
   const previousShouldDeferHeavyContentRef = useRef(false);
   const effectiveContent = content;
@@ -336,42 +333,16 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
     }
   }, [isEditing]);
 
-  // Issue #163: ao entrar no modo de leitura a cadeia precisa estar inteira no
-  // DOM (segmentos + tool calls) para que o `role="document"` do useVirtualModal
-  // a exponha por completo. Se o usuário a havia recolhido, força a expansão e
-  // lembra o estado anterior para restaurá-lo ao SAIR (ESC) — mantendo
-  // `aria-expanded` consistente com o conteúdo visível. A restauração só ocorre
-  // quando a expansão foi forçada por nós: se o usuário recolher/expandir
-  // manualmente dentro da leitura, o toggle limpa esta marca e preserva a
-  // escolha dele. O ref espelha o valor atual para evitar dependência de estado
-  // no effect (sem loops de render).
-  const isChainExpandedRef = useRef(isChainExpanded);
-  isChainExpandedRef.current = isChainExpanded;
-  const forcedChainExpandRef = useRef<{ restore: boolean } | null>(null);
   useEffect(() => {
     const started = !wasStreamingRef.current && !!effectiveIsStreaming;
     const finished = wasStreamingRef.current && !effectiveIsStreaming;
     wasStreamingRef.current = !!effectiveIsStreaming;
     if (started) {
-      forcedChainExpandRef.current = null;
       setIsChainExpanded(true);
     } else if (finished && !isReading && !interactionsActive() && !chainRef.current?.contains(document.activeElement)) {
       setIsChainExpanded(false);
     }
   }, [effectiveIsStreaming, interactionsActive, isReading]);
-  useEffect(() => {
-    if (isReading) {
-      if (!isChainExpandedRef.current) {
-        forcedChainExpandRef.current = { restore: isChainExpandedRef.current };
-        setIsChainExpanded(true);
-      }
-    } else if (forcedChainExpandRef.current) {
-      const { restore } = forcedChainExpandRef.current;
-      forcedChainExpandRef.current = null;
-      setIsChainExpanded(restore);
-    }
-  }, [isReading]);
-
   useEffect(() => {
     if (shouldDeferHeavyContent && !previousShouldDeferHeavyContentRef.current) {
       setIsHeavyContentReady(false);
@@ -498,7 +469,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
               <button
                 type="button"
                 className={`chat-message__chain-toggle${isChainExpanded ? ' chat-message__chain-toggle--expanded' : ''}`}
-                onClick={(e) => { e.stopPropagation(); forcedChainExpandRef.current = null; setIsChainExpanded((prev) => !prev); }}
+                onClick={(e) => { e.stopPropagation(); setIsChainExpanded((prev) => !prev); }}
                 aria-expanded={isChainExpanded}
                 aria-controls={chainRegionId}
                 tabIndex={isReading ? 0 : -1}
