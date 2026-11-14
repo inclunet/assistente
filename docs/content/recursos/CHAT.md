@@ -18,8 +18,9 @@ mensagem; é possível entrar novamente enquanto a geração continua. Isso não
 ativa anúncios automáticos de cada trecho nem outra voz concorrente.
 
 Ao terminar uma resposta, a cadeia de etapas e ferramentas é recolhida e pode
-ser expandida pelo botão da mensagem. Se você estiver lendo a mensagem ou com
-foco em um elemento da cadeia, ela permanece aberta para preservar sua posição.
+ser expandida pelo botão da mensagem. Se você estiver lendo a mensagem, com
+foco em um elemento da cadeia ou com um diálogo de ferramenta aberto, ela
+permanece aberta para preservar sua posição e o retorno do foco.
 
 Quando uma pergunta de autorização interrompe o chat, ao respondê-la o foco
 retorna ao controle anterior ou à região da mensagem que permanece em modo de

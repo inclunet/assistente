@@ -7,7 +7,8 @@ Data: 2026-10-30
 ### Recolhimento acessível ao concluir (14/11/2026)
 
 A cadeia de etapas e ferramentas é recolhida ao fim do streaming, exceto durante
-leitura da mensagem ou foco em elemento da cadeia, preservando a posição do usuário.
+leitura da mensagem, foco em elemento da cadeia ou interação retida por diálogo,
+preservando a posição e o retorno do foco mesmo após uma nova tentativa.
 O indicador do botão é decorativo e não integra seu nome acessível. Os testes de
 `ChatMessage.test.tsx` cobrem conclusão, expansão e preservação de leitura/foco;
 a confirmação com NVDA no aplicativo continua necessária. Status **Done** mantido.

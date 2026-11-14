@@ -10,6 +10,7 @@ import { ThreadIndicator } from './ThreadIndicator';
 import { ReasoningSection } from './ReasoningSection';
 import { ToolCallsSection } from './ToolCallsSection';
 import { ToolInvocationDialogsProvider, displayToolStatus } from './ToolInvocationDialogs';
+import { useMessageInteractionsActive } from './MessageInteractionContext';
 import { isAgentMessage } from '../../lib/chatUtils';
 import { formatRelativeTime } from '../../lib/dateUtils';
 import { buildChatMessageAriaLabel } from '../../lib/chatMessageAriaLabel';
@@ -86,6 +87,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
       })
     : undefined, [onSendToEditor, sourceMessageId, content]);
   const messageRef = useRef<HTMLDivElement>(null);
+  const interactionsActive = useMessageInteractionsActive();
   const chainRef = useRef<HTMLDivElement>(null);
   const wasStreamingRef = useRef(!!isStreaming);
   const chainRegionId = useId();
@@ -347,12 +349,16 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
   isChainExpandedRef.current = isChainExpanded;
   const forcedChainExpandRef = useRef<{ restore: boolean } | null>(null);
   useEffect(() => {
+    const started = !wasStreamingRef.current && !!effectiveIsStreaming;
     const finished = wasStreamingRef.current && !effectiveIsStreaming;
     wasStreamingRef.current = !!effectiveIsStreaming;
-    if (finished && !isReading && !chainRef.current?.contains(document.activeElement)) {
+    if (started) {
+      forcedChainExpandRef.current = null;
+      setIsChainExpanded(true);
+    } else if (finished && !isReading && !interactionsActive() && !chainRef.current?.contains(document.activeElement)) {
       setIsChainExpanded(false);
     }
-  }, [effectiveIsStreaming, isReading]);
+  }, [effectiveIsStreaming, interactionsActive, isReading]);
   useEffect(() => {
     if (isReading) {
       if (!isChainExpandedRef.current) {

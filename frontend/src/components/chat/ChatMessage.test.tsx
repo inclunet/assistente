@@ -961,6 +961,22 @@ describe('ChatMessage', () => {
     expect(screen.getByRole('button', { name: 'chat.collapseChain' })).toHaveAttribute('aria-expanded', 'true');
   });
 
+  it('preserva foco no encerramento de uma nova tentativa após recolhimento', () => {
+    const message = messageFixture({
+      id: 'turn-retry-stream', conversationId, role: 'assistant', content: 'conclusão',
+      isStreaming: true, turnSegments: [{ type: 'text', content: '[focus]' }],
+    });
+    const { rerender } = render(<ChatMessage message={message} />);
+    rerender(<ChatMessage message={{ ...message, isStreaming: false }} />);
+    expect(screen.getByRole('button', { name: 'chat.expandChain' })).toHaveAttribute('aria-expanded', 'false');
+    rerender(<ChatMessage message={{ ...message, isStreaming: true }} />);
+    const link = screen.getByRole('link');
+    link.focus();
+    rerender(<ChatMessage message={{ ...message, isStreaming: false }} />);
+    expect(link).toHaveFocus();
+    expect(screen.getByRole('button', { name: 'chat.collapseChain' })).toHaveAttribute('aria-expanded', 'true');
+  });
+
   // Issue #163 (PR #168, comentário de legle): o toggle só pode receber foco no
   // modo de leitura; do contrário ele (e os demais interativos da mensagem) não
   // deve ser um tabstop ao navegar pela lista de mensagens.
