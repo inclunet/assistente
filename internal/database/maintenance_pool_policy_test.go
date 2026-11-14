@@ -42,6 +42,17 @@ func TestCompactRestoresConnectionBusyTimeout(t *testing.T) {
 			if err := gdb.Exec("INSERT INTO evidence VALUES ('preserved')").Error; err != nil {
 				t.Fatal(err)
 			}
+			if mode == "incremental" {
+				if err := gdb.Exec("CREATE TABLE free_pages (payload BLOB)").Error; err != nil {
+					t.Fatal(err)
+				}
+				if err := gdb.Exec("INSERT INTO free_pages VALUES (zeroblob(16384))").Error; err != nil {
+					t.Fatal(err)
+				}
+				if err := gdb.Exec("DROP TABLE free_pages").Error; err != nil {
+					t.Fatal(err)
+				}
+			}
 			if mode == "readonly-error" {
 				if err := pool.Close(); err != nil {
 					t.Fatal(err)

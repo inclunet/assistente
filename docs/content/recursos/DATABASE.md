@@ -194,6 +194,12 @@ CLI ou executáveis de teste e não substituem o relatório do app.
 
 ## Manutenção e retenção
 
+A compactação incremental automática recupera o espaço livre em pequenas
+passagens, com intervalos entre elas para outras gravações. Em bancos grandes,
+a liberação de espaço pode continuar por várias passagens; o aplicativo não
+precisa esperar o processo inteiro para aceitar mensagens. A compactação
+completa solicitada manualmente continua sendo uma operação separada.
+
 A espera maior por bloqueios durante a compactação fica restrita à manutenção.
 Ao terminar, inclusive em erro, a conexão retorna à política anterior; as demais
 operações não herdam essa espera adicional.

@@ -72,7 +72,10 @@ func commandMaintenanceDelay(policy commandmaintenance.Policy, report commandmai
 	if report.RetentionRetryAfter > 0 {
 		delay = min(delay, report.RetentionRetryAfter)
 	}
-	if (report.MoreHeartbeat || report.MoreOutbox || report.MoreRecovery || ((runErr != nil || report.MoreRetention) && report.RetentionRetryAfter <= 0)) && delay > time.Second {
+	if report.MoreCompaction && report.CompactionRetryAfter > 0 {
+		delay = min(delay, report.CompactionRetryAfter)
+	}
+	if (report.MoreHeartbeat || report.MoreOutbox || report.MoreRecovery || (report.MoreCompaction && report.CompactionRetryAfter <= 0) || ((runErr != nil || report.MoreRetention) && report.RetentionRetryAfter <= 0)) && delay > time.Second {
 		delay = time.Second
 	}
 	return delay
