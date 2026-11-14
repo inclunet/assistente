@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -683,11 +684,22 @@ func TestCompactNoPagesDoesNotThrottleNewFreeSpace(t *testing.T) {
 	}
 }
 
+type retentionCountingRepository struct {
+	Repository
+	calls atomic.Int32
+}
+
+func (r *retentionCountingRepository) CleanOldRunEvents(ctx context.Context, age time.Duration) (int, error) {
+	r.calls.Add(1)
+	return r.Repository.CleanOldRunEvents(ctx, age)
+}
+
 func TestLegacyStartupContinuesPartialCompaction(t *testing.T) {
 	repo, ctx, _ := setupJobsRepositoryTest(t)
 	prepareIncrementalMaintenanceFixture(t, repo)
 	seedFreelistForMaintenance(t, repo)
-	m := mustNewManager(t, ManagerConfig{Repository: repo, ContextProvider: func() context.Context { return ctx }})
+	counting := &retentionCountingRepository{Repository: repo}
+	m := mustNewManager(t, ManagerConfig{Repository: counting, ContextProvider: func() context.Context { return ctx }})
 	if err := m.Start(); err != nil {
 		t.Fatal(err)
 	}
@@ -710,6 +722,9 @@ func TestLegacyStartupContinuesPartialCompaction(t *testing.T) {
 			t.Fatal(err)
 		}
 		if after.FreelistCount < before.FreelistCount {
+			if calls := counting.calls.Load(); calls != 1 {
+				t.Fatalf("retenção repetida na continuação: %d", calls)
+			}
 			return
 		}
 	}

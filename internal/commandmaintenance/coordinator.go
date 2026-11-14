@@ -173,6 +173,8 @@ type Coordinator struct {
 	now               func() time.Time
 	retentionRetryAt  time.Time
 	compactionRetryAt time.Time
+	compactionPending bool
+	nextRetention     time.Time
 	retentionBackoff  time.Duration
 }
 
@@ -332,69 +334,73 @@ func (c *Coordinator) Run(ctx context.Context, policy Policy) (report Report, ru
 		return report, nil
 	}
 
+	if !c.compactionPending || !c.now().Before(c.nextRetention) {
+		if err := ctx.Err(); err != nil {
+			return report, err
+		}
+		report.Stage = "retention.jobs"
+		jobsResult, err := retain(ctx, c.ports.Jobs, policy)
+		report.JobsDeleted = jobsResult.Deleted
+		report.MoreRetention = jobsResult.More
+		if err != nil {
+			report.MoreRetention = true
+			return report, err
+		}
+		for _, item := range []struct {
+			stage string
+			clean func(context.Context, ToolRetentionPort, Policy) (RetentionResult, error)
+		}{
+			{"retention.tools.dry_runs", cleanOldDryRuns},
+			{"retention.tools.orphan_chat", cleanOrphanChat},
+			{"retention.tools.old_chat", cleanOldChat},
+		} {
+			if err := ctx.Err(); err != nil {
+				return report, err
+			}
+			report.Stage = item.stage
+			result, err := item.clean(ctx, c.ports.Tools, policy)
+			if validationErr := validateDeletedCount(result.Deleted); validationErr != nil {
+				return report, validationErr
+			}
+			report.ToolsDeleted += result.Deleted
+			report.MoreRetention = report.MoreRetention || result.More
+			if err != nil {
+				report.MoreRetention = true
+				return report, err
+			}
+		}
+		for _, item := range []struct {
+			stage string
+			port  RetentionPort
+			dest  *int64
+		}{
+			{"retention.invocations", c.ports.InvocationDB, &report.InvocationsDeleted},
+			{"retention.activations", c.ports.Activations, &report.ActivationsDeleted},
+		} {
+			if err := ctx.Err(); err != nil {
+				return report, err
+			}
+			report.Stage = item.stage
+			result, err := retain(ctx, item.port, policy)
+			*item.dest = result.Deleted
+			report.MoreRetention = report.MoreRetention || result.More
+			if err != nil {
+				report.MoreRetention = true
+				return report, err
+			}
+		}
+		if err := ctx.Err(); err != nil {
+			return report, err
+		}
+		if report.MoreRetention {
+			return report, nil
+		}
+		// Uma compactação longa não deve suspender a retenção indefinidamente.
+		c.nextRetention = c.now().Add(time.Minute)
+	}
 	if remaining := c.compactionRetryAt.Sub(c.now()); remaining > 0 {
 		report.Stage = "compaction.deferred"
 		report.MoreCompaction, report.CompactionRetryAfter = true, remaining
-		return report, nil
-	}
-	if err := ctx.Err(); err != nil {
-		return report, err
-	}
-	report.Stage = "retention.jobs"
-	jobsResult, err := retain(ctx, c.ports.Jobs, policy)
-	report.JobsDeleted = jobsResult.Deleted
-	report.MoreRetention = jobsResult.More
-	if err != nil {
-		report.MoreRetention = true
-		return report, err
-	}
-	for _, item := range []struct {
-		stage string
-		clean func(context.Context, ToolRetentionPort, Policy) (RetentionResult, error)
-	}{
-		{"retention.tools.dry_runs", cleanOldDryRuns},
-		{"retention.tools.orphan_chat", cleanOrphanChat},
-		{"retention.tools.old_chat", cleanOldChat},
-	} {
-		if err := ctx.Err(); err != nil {
-			return report, err
-		}
-		report.Stage = item.stage
-		result, err := item.clean(ctx, c.ports.Tools, policy)
-		if validationErr := validateDeletedCount(result.Deleted); validationErr != nil {
-			return report, validationErr
-		}
-		report.ToolsDeleted += result.Deleted
-		report.MoreRetention = report.MoreRetention || result.More
-		if err != nil {
-			report.MoreRetention = true
-			return report, err
-		}
-	}
-	for _, item := range []struct {
-		stage string
-		port  RetentionPort
-		dest  *int64
-	}{
-		{"retention.invocations", c.ports.InvocationDB, &report.InvocationsDeleted},
-		{"retention.activations", c.ports.Activations, &report.ActivationsDeleted},
-	} {
-		if err := ctx.Err(); err != nil {
-			return report, err
-		}
-		report.Stage = item.stage
-		result, err := retain(ctx, item.port, policy)
-		*item.dest = result.Deleted
-		report.MoreRetention = report.MoreRetention || result.More
-		if err != nil {
-			report.MoreRetention = true
-			return report, err
-		}
-	}
-	if err := ctx.Err(); err != nil {
-		return report, err
-	}
-	if report.MoreRetention {
 		return report, nil
 	}
 	if err := ctx.Err(); err != nil {
@@ -404,6 +410,7 @@ func (c *Coordinator) Run(ctx context.Context, policy Policy) (report Report, ru
 	if bounded, ok := c.ports.Compaction.(BoundedCompactionPort); ok {
 		more, retryAfter, err := bounded.CompactBatch(ctx, policy.VacuumMinFreeBytes)
 		report.MoreCompaction, report.CompactionRetryAfter = more, retryAfter
+		c.compactionPending = more
 		if err != nil {
 			return report, err
 		}

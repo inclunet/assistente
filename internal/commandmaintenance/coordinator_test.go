@@ -696,9 +696,17 @@ func TestCoordinatorContinuesIncrementalCompaction(t *testing.T) {
 	if err != nil || !first.MoreCompaction || !first.Compacted {
 		t.Fatalf("primeira passagem=%+v err=%v", first, err)
 	}
+	order = nil
 	second, err := c.Run(context.Background(), validMaintenancePolicy(2))
 	if err != nil || second.MoreCompaction || !second.Compacted || compact.calls != 2 {
 		t.Fatalf("segunda passagem=%+v calls=%d err=%v", second, compact.calls, err)
+	}
+	if !reflect.DeepEqual(order, []string{"requeue", "drain"}) {
+		t.Fatalf("retenção repetida na continuação: %v", order)
+	}
+	order = nil
+	if _, err := c.Run(context.Background(), validMaintenancePolicy(2)); err != nil || len(order) <= 2 {
+		t.Fatalf("retenção não retomou após compactação: %v, err=%v", order, err)
 	}
 }
 
@@ -706,6 +714,40 @@ type waitingCompaction struct{ calls int }
 
 func (c *waitingCompaction) Compact(context.Context, int64) error {
 	return errors.New("legacy compaction called")
+}
+
+type persistentlyBusyCompaction struct{}
+
+func (persistentlyBusyCompaction) Compact(context.Context, int64) error { return nil }
+func (persistentlyBusyCompaction) CompactBatch(context.Context, int64) (bool, time.Duration, error) {
+	return true, 30 * time.Second, nil
+}
+
+func TestCoordinatorRunsRetentionDuringLongCompaction(t *testing.T) {
+	var order []string
+	now := time.Unix(1000, 0)
+	c, err := New(Ports{
+		Outbox: &maintenanceOutbox{order: &order}, Decisions: maintenanceRecovery{}, Invocations: maintenanceRecovery{}, Claims: maintenanceRecovery{},
+		Jobs: maintenanceRetention{name: "jobs", order: &order}, Tools: maintenanceTools{order: &order},
+		InvocationDB: maintenanceRetention{name: "invocations", order: &order}, Activations: maintenanceRetention{name: "activations", order: &order}, Compaction: persistentlyBusyCompaction{},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	c.now = func() time.Time { return now }
+	if _, err := c.Run(context.Background(), validMaintenancePolicy(2)); err != nil {
+		t.Fatal(err)
+	}
+	now = now.Add(30 * time.Second)
+	order = nil
+	if _, err := c.Run(context.Background(), validMaintenancePolicy(2)); err != nil || !reflect.DeepEqual(order, []string{"requeue", "drain"}) {
+		t.Fatalf("retenção antecipada: %v, err=%v", order, err)
+	}
+	now = now.Add(30 * time.Second)
+	order = nil
+	if _, err := c.Run(context.Background(), validMaintenancePolicy(2)); err != nil || len(order) <= 2 {
+		t.Fatalf("retenção não retomada durante espera longa: %v, err=%v", order, err)
+	}
 }
 func (c *waitingCompaction) CompactBatch(context.Context, int64) (bool, time.Duration, error) {
 	c.calls++
@@ -745,8 +787,9 @@ func TestCoordinatorDefersBusyCompactionWithoutRepeatingRetention(t *testing.T) 
 		t.Fatalf("heartbeat interrompido: %d", heartbeatCount)
 	}
 	now = now.Add(20 * time.Second)
+	order = nil
 	last, err := c.Run(context.Background(), validMaintenancePolicy(2))
-	if err != nil || last.MoreCompaction || compact.calls != 2 {
-		t.Fatalf("retomada=%+v calls=%d err=%v", last, compact.calls, err)
+	if err != nil || last.MoreCompaction || compact.calls != 2 || !reflect.DeepEqual(order, []string{"requeue", "drain"}) {
+		t.Fatalf("retomada=%+v calls=%d order=%v err=%v", last, compact.calls, order, err)
 	}
 }

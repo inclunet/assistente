@@ -2074,6 +2074,7 @@ func (m *Manager) startRetentionLoop(ctx context.Context) {
 	go func() {
 		defer close(done)
 		defer cancel()
+		nextRetention := time.Now().Add(jobRetentionInterval)
 		delay := m.legacyRetentionDelay()
 		if m.cfg.MaintenanceCoordinator != nil {
 			delay = 0
@@ -2089,8 +2090,16 @@ func (m *Manager) startRetentionLoop(ctx context.Context) {
 				if m.cfg.MaintenanceCoordinator != nil {
 					delay = m.runCommandMaintenance(ctx)
 				} else {
-					m.runRetention(ctx)
+					if !time.Now().Before(nextRetention) {
+						m.runRetention(ctx)
+						nextRetention = time.Now().Add(jobRetentionInterval)
+					} else {
+						m.maybeCompact(ctx, maintenanceSettings().VacuumMinFreeBytes)
+					}
 					delay = m.legacyRetentionDelay()
+					if untilRetention := time.Until(nextRetention); untilRetention < delay {
+						delay = max(untilRetention, 0)
+					}
 				}
 				timer.Reset(delay)
 			case <-ctx.Done():
