@@ -209,6 +209,7 @@ const ptBR = {
     timelineRecoveryClosingDecision: 'Não foi possível concluir o fechamento do histórico. Tente novamente.',
     timelineRecoverySyncDecision: 'Não foi possível sincronizar o histórico nesta posição. O que você deseja fazer?',
     timelineRecoveryLater: 'Decidir depois',
+    timelineRecoveryResume: 'Retomar recuperação do chat',
     timelineRecoveryOpen: "Ver recuperação",
     timelineRecoverAtEnd: 'Recuperar nas mensagens mais recentes',
     timelineRefresh: "Sincronizar histórico",

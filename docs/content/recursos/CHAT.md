@@ -49,6 +49,8 @@ há conteúdo protegido que precisa de atenção, um diálogo explica a situaç�
 permite examinar o conteúdo recuperável ou adiar a decisão. A liberação da cópia
 exige confirmação; se a sincronização da posição atual falhar, o diálogo também
 oferece recuperar nas mensagens mais recentes.
+Se você adiar a recuperação depois de fechar o chat, a barra principal oferece
+“Retomar recuperação do chat”. O conteúdo continua preservado até sua decisão.
 
 Durante a navegação pelo histórico, o indicador informa “Carregando...” tanto
 para mensagens anteriores quanto posteriores. O leitor de tela anuncia o

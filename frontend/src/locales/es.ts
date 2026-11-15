@@ -208,6 +208,7 @@ const es = {
     timelineRecoveryClosingDecision: 'No se pudo terminar de cerrar el historial. Inténtalo de nuevo.',
     timelineRecoverySyncDecision: 'No se pudo sincronizar el historial en esta posición. ¿Qué deseas hacer?',
     timelineRecoveryLater: 'Decidir más tarde',
+    timelineRecoveryResume: 'Retomar recuperación del chat',
     timelineRecoveryOpen: "Ver recuperación",
     timelineRecoverAtEnd: 'Recuperar en los mensajes más recientes',
     timelineRefresh: "Sincronizar historial",

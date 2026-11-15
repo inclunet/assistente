@@ -5,16 +5,22 @@ import { useAuthStore } from './authStore';
 /** Inscrições cujo fechamento foi recusado continuam acessíveis fora da aba. */
 export const useChatTimelineRecoveryStore = create<{
   pending: ChatTimelinePresentation[];
+  deferred: ChatTimelinePresentation[];
   hold(presentation: ChatTimelinePresentation): void;
+  defer(presentation: ChatTimelinePresentation): void;
+  resume(presentation: ChatTimelinePresentation): void;
   remove(presentation: ChatTimelinePresentation): void;
 }>(set => ({
   pending: [],
+  deferred: [],
   hold: presentation => set(state => state.pending.includes(presentation) ? state : { pending: [...state.pending, presentation] }),
-  remove: presentation => set(state => ({ pending: state.pending.filter(value => value !== presentation) })),
+  defer: presentation => set(state => state.deferred.includes(presentation) ? state : { deferred: [...state.deferred, presentation] }),
+  resume: presentation => set(state => ({ deferred: state.deferred.filter(value => value !== presentation) })),
+  remove: presentation => set(state => ({ pending: state.pending.filter(value => value !== presentation), deferred: state.deferred.filter(value => value !== presentation) })),
 }));
 
 useAuthStore.subscribe((state, previous) => {
   if (!state.isAuthenticated || state.user?.userId !== previous.user?.userId || state.user?.sessionId !== previous.user?.sessionId) {
-    useChatTimelineRecoveryStore.setState({ pending: [] });
+    useChatTimelineRecoveryStore.setState({ pending: [], deferred: [] });
   }
 });

@@ -9,7 +9,7 @@ import { getTopmostModalID, subscribeModalRegistry } from '../../lib/modalRegist
 import { restoreDefaultFocus } from '../../hooks/useDefaultFocus';
 import { MarkdownRenderer } from '../ui/MarkdownRenderer';
 import { useChatTimelineRecoveryStore } from '../../store/chatTimelineRecoveryStore';
-import { useChatTimelineRecoveryDialogStore } from '../../store/chatTimelineRecoveryDialogStore';
+import { clearRecoveryOrigin, rememberRecoveryOrigin, useChatTimelineRecoveryDialogStore } from '../../store/chatTimelineRecoveryDialogStore';
 import { requestConfirm } from '../../store/confirmStore';
 import type { ChatTimelinePresentation } from '../../services/chatTimelinePresentation';
 import type { TimelineItem } from '../../types/chatTimelineEvents';
@@ -17,7 +17,8 @@ import { recoveryItemKey, type RecoveredTimelineItem } from '../../services/time
 
 export function ChatTimelineRecoveryHost() {
   const pending = useChatTimelineRecoveryStore(state => state.pending);
-  const presentation = pending[0];
+  const deferred = useChatTimelineRecoveryStore(state => state.deferred);
+  const presentation = pending.find(item => !deferred.includes(item));
   return presentation ? <ChatTimelineRecovery key={presentation.surfaceId} presentation={presentation} closing /> : null;
 }
 
@@ -42,13 +43,16 @@ export function ChatTimelineRecovery({ presentation, closing = false, active = t
   useEffect(() => {
     if (!severe || !active || dismissed) {
       useChatTimelineRecoveryDialogStore.getState().release(owner);
-      if (!severe) { setDismissed(false); setDecisionOpen(false); }
+      if (!severe) {
+        if (decisionOpen || open) restoreOrigin();
+        setDismissed(false); setDecisionOpen(false); setOpen(false);
+      }
       if (!active) { setDecisionOpen(false); setOpen(false); }
       return;
     }
     if (!busy && !open && !decisionOpen && (!topModalId || topModalId === parentModalId) &&
         useChatTimelineRecoveryDialogStore.getState().acquire(owner)) {
-      origin.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+      origin.current = rememberRecoveryOrigin(document.activeElement instanceof HTMLElement ? document.activeElement : null);
       setDecisionOpen(true);
     }
   }, [active, dismissed, busy, open, severe, decisionOpen, topModalId, parentModalId, dialogOwner, owner]);
@@ -64,7 +68,7 @@ export function ChatTimelineRecovery({ presentation, closing = false, active = t
       }
     }
   }, [needsRecovery, topModalId, parentModalId, inputRef]);
-  const restoreOrigin = () => {
+  function restoreOrigin() {
     const target = origin.current;
     requestAnimationFrame(() => {
       if (getTopmostModalID() !== parentModalId) return;
@@ -72,11 +76,13 @@ export function ChatTimelineRecovery({ presentation, closing = false, active = t
       const targetOwner = target?.closest<HTMLElement>('[data-modal-id]')?.dataset.modalId ?? null;
       if (target && target !== document.body && target !== document.documentElement && target.isConnected &&
           targetOwner === parentModalId && !target.closest('[hidden], [inert], [aria-hidden="true"]') && !target.matches(':disabled')) target.focus();
-      if (document.activeElement !== document.body && document.activeElement !== document.documentElement) return;
-      if (parentModalId) inputRef?.current?.focus();
-      else restoreDefaultFocus();
+      if (document.activeElement === document.body || document.activeElement === document.documentElement) {
+        if (parentModalId) inputRef?.current?.focus();
+        else restoreDefaultFocus();
+      }
+      if (!useChatTimelineRecoveryDialogStore.getState().owner) clearRecoveryOrigin();
     });
-  };
+  }
   const run = async (action: () => Promise<void>, reopenNew = false) => {
     const before = new Set(presentation.recoveredItems.map(item => `${item.windowId}:${recoveryItemKey(item.identity)}`));
     setBusy(true); setFailed(false);
@@ -106,20 +112,20 @@ export function ChatTimelineRecovery({ presentation, closing = false, active = t
     : [{ id: closing ? 'close' : 'sync', label: t(closing ? 'chat.timelineRecoveryRetryClose' : 'chat.timelineRefresh'), primary: true }];
   if (!closing && recovered.length && presentation.error) actions.push({ id: 'sync', label: t('chat.timelineRefresh') });
   if (!closing && presentation.error) actions.push({ id: 'end', label: t('chat.timelineRecoverAtEnd') });
-  if (!closing) actions.push({ id: 'later', label: t('chat.timelineRecoveryLater'), variant: 'outline' });
+  actions.push({ id: 'later', label: t('chat.timelineRecoveryLater'), variant: 'outline' });
   const description = t(recovered.length || presentation.hasProtectedItems ? 'chat.timelineRecoveryDecision'
     : closing ? 'chat.timelineRecoveryClosingDecision' : 'chat.timelineRecoverySyncDecision');
   return <>
     {!closing && <ToolbarButton label={t('chat.timelineRefresh')} disabled={busy || presentation.loading}
-      onFocus={() => { buttonFocused.current = true; }} onBlur={event => { if (event.currentTarget.isConnected) buttonFocused.current = false; }}
+      onFocus={() => { buttonFocused.current = true; }} onBlur={event => { if (event.currentTarget.isConnected && !event.currentTarget.disabled) buttonFocused.current = false; }}
       onClick={() => { if (severe) { setDismissed(false); } else void run(() => presentation.refresh()); }} />}
     <DecisionDialog isOpen={active && decisionOpen && !open} title={t('chat.timelineRecoveryTitle')}
-      description={failed ? `${description} ${t('chat.timelineRecoveryError')}` : description} severity="info" allowClose={!closing}
-      actions={actions} returnFocusOnClose={false} onCancel={() => { setDismissed(true); setDecisionOpen(false); restoreOrigin(); }}
+      description={failed ? `${description} ${t('chat.timelineRecoveryError')}` : description} severity="info"
+      actions={actions} returnFocusOnClose={false} onCancel={() => { setDismissed(true); setDecisionOpen(false); if (closing) useChatTimelineRecoveryStore.getState().defer(presentation); restoreOrigin(); }}
       onAction={id => {
         setDecisionOpen(false);
         if (id === 'view') setOpen(true);
-        else if (id === 'later') { setDismissed(true); restoreOrigin(); }
+        else if (id === 'later') { setDismissed(true); if (closing) useChatTimelineRecoveryStore.getState().defer(presentation); restoreOrigin(); }
         else if (id === 'close') void run(finish);
         else if (id === 'end') { setDismissed(true); restoreOrigin(); void run(() => presentation.recoverAtEnd(), true); }
         else if (id === 'sync') { setDismissed(true); restoreOrigin(); void run(() => presentation.refresh(), true); }

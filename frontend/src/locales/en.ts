@@ -209,6 +209,7 @@ const en = {
     timelineRecoveryClosingDecision: 'Could not finish closing the history. Try again.',
     timelineRecoverySyncDecision: 'Could not sync the history at this position. What would you like to do?',
     timelineRecoveryLater: 'Decide later',
+    timelineRecoveryResume: 'Resume chat recovery',
     timelineRecoveryOpen: "View recovery",
     timelineRecoverAtEnd: 'Recover at the latest messages',
     timelineRefresh: "Sync history",

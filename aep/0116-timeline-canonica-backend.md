@@ -11,7 +11,8 @@ sincronização na toolbar, anunciada sem deslocar o foco. Conteúdo protegido o
 recuperado que exige atenção abre um diálogo de decisão na superfície ativa;
 uma leitura e liberação explícita preservam as capabilities e exigem confirmação.
 Se o fechamento da superfície foi recusado, a recuperação permanece acessível
-no host global. Falha da sincronização oferece recuperar nas mensagens recentes,
+no host global; seu adiamento mantém a inscrição e oferece retomada na toolbar
+principal. A fila conserva a origem de foco entre decisões consecutivas. Falha da sincronização oferece recuperar nas mensagens recentes,
 mantendo as guardas de retenção. Testes de `ChatTimelineRecovery.test.tsx`
 cobrem navegação, aviso, decisões, adiamento, liberação e falhas. A confirmação
 com NVDA no aplicativo instalado permanece pendente. Status **Done** mantido.

@@ -130,7 +130,7 @@ const queuedTurnCountRef = vi.hoisted(() => ({ current: 0 }));
 const cancelNextQueuedTurnMock = vi.hoisted(() => vi.fn(() => true));
 const contextRef = vi.hoisted(() => ({ owner: 'owner-1', session: 'session-1', workspace: 'workspace-1', tab: 'tab-chat', conversation: 'conversation-1' as string | null }));
 const contextSubscribers = vi.hoisted(() => new Set<() => void>());
-const subscribeContext = (changed: () => void) => { contextSubscribers.add(changed); return () => { contextSubscribers.delete(changed); }; };
+function subscribeContext(changed: () => void) { contextSubscribers.add(changed); return () => { contextSubscribers.delete(changed); }; }
 const tokenStats = vi.hoisted(() => ({ conversationId: 'conversation-1', promptTokens: 10, completionTokens: 2, totalTokens: 12, contextTokens: 10, contextLimit: 100, contextUsage: 10, messageCount: 1, mostUsedModel: 'fixture-model', modelCallCount: 1, isNearLimit: false, isCritical: false, systemPromptEstimatedTokens: 0, summaryTokens: 0, messagesInContextTokens: 10, messagesOutOfContextTokens: 0, messagesInContextCount: 1, messagesOutOfContextCount: 0, toolsUsedCount: 0, toolBreakdown: [] }));
 const getTokenStatsMock = vi.hoisted(() => vi.fn());
 const shortcutHintsRef = vi.hoisted(() => ({
