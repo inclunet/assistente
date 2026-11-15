@@ -634,7 +634,7 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
         }
         right={
           <>
-            {timelinePresentation && <ChatTimelineRecovery key={timelinePresentation.surfaceId} presentation={timelinePresentation} active={enableShortcuts} />}
+            {timelinePresentation && <ChatTimelineRecovery key={timelinePresentation.surfaceId} presentation={timelinePresentation} active={enableShortcuts} inputRef={inputRef} />}
             {queuedTurnCount > 0 && (
               <ToolbarButton
                 ref={setCancelQueuedTurnButtonRef}

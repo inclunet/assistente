@@ -142,7 +142,8 @@ vi.mock('../../lib/commandShortcutHints', () => ({
   useCommandShortcutHints: () => (commandId: string) => shortcutHintsRef.current[commandId],
 }));
 
-vi.mock('react-i18next', () => ({
+vi.mock('react-i18next', async importOriginal => ({
+  ...await importOriginal<typeof import('react-i18next')>(),
   useTranslation: () => ({
     t: tMock, i18n: { language: 'en' },
   }),

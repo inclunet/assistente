@@ -1,12 +1,14 @@
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { MemoryRouter } from 'react-router-dom';
-import { ChatTimelineRecovery } from './ChatTimelineRecovery';
+import { ChatTimelineRecovery, ChatTimelineRecoveryHost } from './ChatTimelineRecovery';
 import { useChatTimelineRecoveryStore } from '../../store/chatTimelineRecoveryStore';
 import type { ChatTimelinePresentation } from '../../services/chatTimelinePresentation';
 import { requestConfirm } from '../../store/confirmStore';
 import { Toolbar, ToolbarButton } from '../ui/Toolbar';
 import { registerDefaultFocus, unregisterDefaultFocus } from '../../hooks/useDefaultFocus';
+import { Modal } from '../ui/Modal';
+import { createRef } from 'react';
 vi.mock('react-i18next', async importOriginal => ({ ...await importOriginal<typeof import('react-i18next')>(), useTranslation: () => ({ t: (key: string) => key, i18n: { language: 'en', resolvedLanguage: 'en' } }) }));
 vi.mock('../../hooks/useAnnouncer', async importOriginal => ({ ...await importOriginal<typeof import('../../hooks/useAnnouncer')>(), announce: vi.fn() }));
 vi.mock('../../store/confirmStore', () => ({ requestConfirm: vi.fn() }));
@@ -21,7 +23,7 @@ function fixture() {
     } };
   const typed = presentation as unknown as ChatTimelinePresentation;
   useChatTimelineRecoveryStore.getState().hold(typed);
-  render(<MemoryRouter><ChatTimelineRecovery presentation={typed} closing /></MemoryRouter>);
+  render(<MemoryRouter><ChatTimelineRecoveryHost /></MemoryRouter>);
   fireEvent.click(screen.getByRole('button', { name: /chat.timelineRecoveryOpen/ }));
   return { presentation, typed };
 }
@@ -70,6 +72,31 @@ it('restaura o foco quando a sincronização remove o botão focado', async () =
   } finally { unregisterDefaultFocus(restore); fallback.remove(); }
 });
 
+it('retorna ao campo do chat embutido quando a sincronização remove o botão', async () => {
+  const inputRef = createRef<HTMLTextAreaElement>();
+  const presentation = { surfaceId: 'surface', conversationId: 'conversation', loading: false, recoveredItems: [], hasProtectedItems: false,
+    error: new Error('sync') as Error | undefined, subscribe: () => () => {}, getRevision: () => 1, refresh: vi.fn().mockResolvedValue(undefined) };
+  const view = () => <MemoryRouter><Modal isOpen title="chat" onClose={() => {}}><textarea ref={inputRef} aria-label="campo" /><Toolbar right={<ChatTimelineRecovery inputRef={inputRef} presentation={presentation as unknown as ChatTimelinePresentation} />} /></Modal></MemoryRouter>;
+  const { rerender } = render(view());
+  screen.getByRole('button', { name: 'chat.timelineRefresh' }).focus();
+  presentation.error = undefined;
+  rerender(view());
+  await waitFor(() => expect(inputRef.current).toHaveFocus());
+});
+
+it('devolve o foco ao chat embutido ao adiar a decisão', async () => {
+  const inputRef = createRef<HTMLTextAreaElement>();
+  const presentation = { surfaceId: 'surface', conversationId: 'conversation', loading: false, recoveredItems: [] as typeof descriptor[], hasProtectedItems: false,
+    subscribe: () => () => {}, getRevision: () => 1, client: {} };
+  const view = () => <MemoryRouter><Modal isOpen title="chat" onClose={() => {}}><textarea ref={inputRef} aria-label="campo" /><Toolbar right={<ChatTimelineRecovery inputRef={inputRef} presentation={presentation as unknown as ChatTimelinePresentation} />} /></Modal></MemoryRouter>;
+  const { rerender } = render(view());
+  inputRef.current!.focus();
+  presentation.recoveredItems = [descriptor];
+  rerender(view());
+  fireEvent.click(await screen.findByRole('button', { name: /chat.timelineRecoveryLater/ }));
+  await waitFor(() => expect(inputRef.current).toHaveFocus());
+});
+
 it('abre diálogo proativamente com conteúdo recuperado e permite adiar sem liberá-lo', async () => {
   const presentation = { surfaceId: 'surface', conversationId: 'conversation', loading: false, recoveredItems: [descriptor], hasProtectedItems: true,
     subscribe: () => () => {}, getRevision: () => 1, client: { releaseRecoveredItem: vi.fn() } };
@@ -113,6 +140,26 @@ it('oferece recuperar no fim após falha de sincronização', async () => {
   await waitFor(() => expect(presentation.recoverAtEnd).toHaveBeenCalledOnce());
 });
 
+it('permite sincronizar com cópias recuperadas e erro ativo', async () => {
+  const presentation = { surfaceId: 'surface', conversationId: 'conversation', loading: false, recoveredItems: [descriptor], hasProtectedItems: true,
+    error: new Error('sync'), subscribe: () => () => {}, getRevision: () => 1, client: {}, refresh: vi.fn().mockResolvedValue(undefined) };
+  render(<MemoryRouter><Toolbar right={<ChatTimelineRecovery presentation={presentation as unknown as ChatTimelinePresentation} />} /></MemoryRouter>);
+  const dialog = await screen.findByRole('alertdialog');
+  fireEvent.click(within(dialog).getByRole('button', { name: /chat.timelineRefresh/ }));
+  await waitFor(() => expect(presentation.refresh).toHaveBeenCalledOnce());
+});
+
+it('avisa novamente quando a sincronização transfere uma nova cópia recuperável', async () => {
+  const presentation = { surfaceId: 'surface', conversationId: 'conversation', loading: false, recoveredItems: [] as typeof descriptor[], hasProtectedItems: true,
+    error: new Error('sync') as Error | undefined, subscribe: () => () => {}, getRevision: () => 1, client: {}, refresh: vi.fn() };
+  presentation.refresh.mockImplementation(async () => { presentation.error = undefined; presentation.recoveredItems = [descriptor]; });
+  render(<MemoryRouter><Toolbar right={<ChatTimelineRecovery presentation={presentation as unknown as ChatTimelinePresentation} />} /></MemoryRouter>);
+  const dialog = await screen.findByRole('alertdialog');
+  fireEvent.click(within(dialog).getByRole('button', { name: /chat.timelineRefresh/ }));
+  await waitFor(() => expect(presentation.refresh).toHaveBeenCalledOnce());
+  expect(await screen.findByRole('button', { name: /chat.timelineRecoveryOpen/ })).toBeVisible();
+});
+
 it('não reabre a decisão enquanto fechamento pendente está em andamento e permite retry após erro', async () => {
   let reject!: (error: Error) => void;
   const presentation = { surfaceId: 'surface', conversationId: 'conversation', loading: false, recoveredItems: [],
@@ -145,4 +192,31 @@ it('falha conserva conteúdo para nova tentativa; só fecha após liberação co
   await act(async () => finish());
   await waitFor(() => expect(presentation.close).toHaveBeenCalledOnce());
   expect(useChatTimelineRecoveryStore.getState().pending).not.toContain(typed);
+});
+
+it('permite nova tentativa na leitura se fechar falhar depois da última liberação', async () => {
+  const origin = document.createElement('button'); document.body.appendChild(origin); origin.focus();
+  const { presentation, typed } = fixture();
+  vi.mocked(requestConfirm).mockResolvedValue(true);
+  presentation.client.releaseRecoveredItem.mockImplementationOnce(async () => { presentation.recoveredItems = []; });
+  presentation.close.mockRejectedValueOnce(new Error('offline'));
+  fireEvent.click(screen.getByRole('button', { name: 'chat.timelineRecoveryRelease' }));
+  expect(await screen.findByText('chat.timelineRecoveryError')).toBeVisible();
+  expect(useChatTimelineRecoveryStore.getState().pending).toContain(typed);
+  fireEvent.click(screen.getByRole('button', { name: 'chat.timelineRecoveryRetryClose' }));
+  await waitFor(() => expect(presentation.close).toHaveBeenCalledTimes(2));
+  expect(useChatTimelineRecoveryStore.getState().pending).not.toContain(typed);
+  await waitFor(() => expect(origin).toHaveFocus());
+  origin.remove();
+});
+
+it('restaura foco após fechar pelo diálogo de recuperação pendente', async () => {
+  const origin = document.createElement('button'); document.body.appendChild(origin); origin.focus();
+  const presentation = { surfaceId: 'surface', conversationId: 'conversation', loading: false, recoveredItems: [],
+    subscribe: () => () => {}, getRevision: () => 1, close: vi.fn().mockResolvedValue(undefined) } as unknown as ChatTimelinePresentation;
+  useChatTimelineRecoveryStore.getState().hold(presentation);
+  render(<MemoryRouter><ChatTimelineRecoveryHost /></MemoryRouter>);
+  fireEvent.click(await screen.findByRole('button', { name: /chat.timelineRecoveryRetryClose/ }));
+  await waitFor(() => expect(origin).toHaveFocus());
+  origin.remove();
 });
