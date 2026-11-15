@@ -107,6 +107,7 @@ export class ChatTimelinePresentation implements ChatMessageSource {
   get recoveredItems() {
     return this.client.getRecoveredItems(this.conversationId).filter(item => this.sources.has(item.surfaceId));
   }
+  get hasProtectedItems() { return this.client.hasProtectedItems(this.conversationId); }
   threadWindow(parent: string) {
     const surface = [...this.sources].find(([, scope]) => scope === parent)?.[0];
     return surface ? this.client.getWindow(this.conversationId, surface) : undefined;

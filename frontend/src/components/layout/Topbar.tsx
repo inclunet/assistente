@@ -23,6 +23,7 @@ import { isModalOpen } from '../ui/Modal';
 import { useShallow } from 'zustand/shallow';
 import { MenuButton, type MenuItem as MenuButtonItem, type MenuButtonRef } from './MenuButton';
 import { ConnectionStatusIndicator } from './ConnectionStatusIndicator';
+import { ChatTimelineRecoveryPendingButton } from '../chat/ChatTimelineRecoveryPendingButton';
 import { Menu, type MenuItem } from '../menu';
 import { Combobox, type ComboboxDismissReason, type ComboboxItem } from '../pickers/Combobox';
 import { KeyboardShortcutsHelp } from '../ui/KeyboardShortcutsHelp';
@@ -4133,6 +4134,7 @@ export function Topbar() {
             onAfterSelect={openCommandPickerAfterMainMenuSelect}
           />
           <ConnectionStatusIndicator />
+          <ChatTimelineRecoveryPendingButton />
           <Combobox
             icon={<ThunderboltOutlined />}
             label={t('commandPalette.shortTitle')}

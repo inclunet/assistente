@@ -23,6 +23,7 @@ import { useAuthStore } from '../../store/authStore';
 import { useWorkspaceChatModalStore } from '../../store/workspaceChatModalStore';
 import { useUIStore } from '../../store/uiStore';
 import { TokenStatsButton } from './TokenStatsButton';
+import { ChatTimelineRecovery } from './ChatTimelineRecovery';
 import { TokenStatsModal } from './TokenStatsModal';
 import { AgentOptionsPickers } from './AgentOptionsPickers';
 import { AgentWorkDirControl } from './AgentWorkDirControl';
@@ -140,6 +141,7 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
     conversation: activeConversation,
     isLoading,
     loadConversationSession,
+    presentation: timelinePresentation,
   } = useChatSession();
   const { tab: panelTab, isActive: isPanelActive } = useWorkspacePanel();
   const effectiveConversationId = sessionConversationId || conversationId || null;
@@ -632,6 +634,7 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
         }
         right={
           <>
+            {timelinePresentation && <ChatTimelineRecovery key={timelinePresentation.surfaceId} presentation={timelinePresentation} active={enableShortcuts} inputRef={inputRef} />}
             {queuedTurnCount > 0 && (
               <ToolbarButton
                 ref={setCancelQueuedTurnButtonRef}

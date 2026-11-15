@@ -87,6 +87,9 @@ export class ChatTimelineClient {
     const reason = (conversation.candidate ?? conversation.state).recoveryReason;
     return conversation.recoveryError ?? (reason ? new Error(`Timeline recovery required: ${reason}`) : undefined);
   }
+  hasProtectedItems(conversationId: string): boolean {
+    return this.conversations.get(conversationId)?.state.hasProtectedItems ?? false;
+  }
 
   async open(conversationId: string, surfaceId: string, scope: string | null, position: TimelinePosition): Promise<void> {
     this.assertActive();

@@ -43,6 +43,15 @@ Ao sair do chat para configurações e retornar, o histórico é carregado novam
 sem exigir recuperação quando a sessão foi fechada normalmente. Conteúdo de
 respostas ainda não confirmado continua protegido em caso de falha real.
 
+Se o histórico precisar ser sincronizado, a barra do chat oferece o botão
+“Sincronizar histórico” e anuncia sua disponibilidade sem mudar o foco. Quando
+há conteúdo protegido que precisa de atenção, um diálogo explica a situação e
+permite examinar o conteúdo recuperável ou adiar a decisão. A liberação da cópia
+exige confirmação; se a sincronização da posição atual falhar, o diálogo também
+oferece recuperar nas mensagens mais recentes.
+Se você adiar a recuperação depois de fechar o chat, a barra principal oferece
+“Retomar recuperação do chat”. O conteúdo continua preservado até sua decisão.
+
 Durante a navegação pelo histórico, o indicador informa “Carregando...” tanto
 para mensagens anteriores quanto posteriores. O leitor de tela anuncia o
 intervalo carregado quando há mensagens na janela; uma janela vazia não anuncia
