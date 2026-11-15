@@ -294,7 +294,14 @@ vi.mock('../../store/authStore', () => ({
     user: { userId: contextRef.owner, sessionId: contextRef.session },
   }), {
     getState: () => ({ isAuthenticated: true, user: { userId: contextRef.owner, sessionId: contextRef.session } }),
-    subscribe: (changed: () => void) => subscribeContext(changed),
+    subscribe: (changed: (state: { isAuthenticated: boolean; user: { userId: string; sessionId: string } }, previous: { isAuthenticated: boolean; user: { userId: string; sessionId: string } }) => void) => {
+      let previous = { isAuthenticated: true, user: { userId: contextRef.owner, sessionId: contextRef.session } };
+      return subscribeContext(() => {
+        const state = { isAuthenticated: true, user: { userId: contextRef.owner, sessionId: contextRef.session } };
+        changed(state, previous);
+        previous = state;
+      });
+    },
   }),
 }));
 
