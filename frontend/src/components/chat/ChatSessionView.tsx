@@ -1,5 +1,4 @@
 import { canContinueChatMessage } from '../../lib/chatContinuation';
-import { ChatTimelineRecovery } from './ChatTimelineRecovery';
 import { useRef, useState, useEffect, useCallback, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useLocation, useNavigate } from 'react-router-dom';
@@ -1151,7 +1150,6 @@ function ChatSessionViewContent({
         />
       </div>
       <div className="ws-content-area">
-        {presentation && <ChatTimelineRecovery presentation={presentation} />}
         <MessageList
           onRetainedItemsChange={retainItems}
           threadedMessages={threadedMessages}
