@@ -88,6 +88,8 @@ latências após instalação pendente; o banco pessoal não foi alterado.
 
 # AEP — Assistente Enhancement Proposals
 
+AEP-0116 (14/11/2026): reabertura após fechar última janela aceita nova época sem perder conteúdo protegido; testes de cliente e remontagem cobrem o ciclo e as corridas. Status **Done** mantido.
+
 AEP-0116 (14/11/2026): histórico abre com cadeia recolhida, inclusive na leitura; expansão explícita é preservada. Evidências em `ChatMessage.test.tsx` e `chat-chronology.spec.ts`; validação com NVDA pendente. Status **Done** mantido.
 
 **AEP-0074 — varredura de órfãos por páginas (26/10/2026): In Progress.**

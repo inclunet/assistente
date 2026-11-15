@@ -73,6 +73,29 @@ afterEach(async () => {
   await fixture.client.dispose();
 });
 
+it('retoma histórico após desmontar o chat e voltar com nova época do backend', async () => {
+  const originalOpen = fixture.port.open;
+  let count = 0;
+  fixture.port.open = vi.fn(async (...args: Parameters<typeof originalOpen>) => {
+    const snapshot = await originalOpen(...args);
+    const current = { ...snapshot, epoch: ++count === 1 ? 'old-epoch' : 'new-epoch' };
+    fixture.windows.set(current.windowId, current);
+    return current;
+  });
+  const surface = createChatSurfaceIdentity({ surfaceId: 'workspace-return', conversationId: 'conversation' });
+  const view = () => <ChatSessionProvider surface={surface}><Probe name="return" /></ChatSessionProvider>;
+  const { rerender } = render(view());
+  await waitFor(() => expect(observed.get('return')?.threadedMessages).toHaveLength(1));
+  rerender(<></>);
+  await waitFor(() => expect(fixture.port.close).toHaveBeenCalledTimes(1));
+  rerender(view());
+  await waitFor(() => {
+    expect(observed.get('return')?.threadedMessages).toHaveLength(1);
+    expect(observed.get('return')?.presentation?.error).toBeUndefined();
+    expect(observed.get('return')?.presentation?.window?.epoch).toBe('new-epoch');
+  });
+});
+
 it('usa a janela do backend para posição, fronteiras e carregamento isolado por superfície', async () => {
   render(<>{['first', 'second'].map(name => <ChatSessionProvider key={name}
     surface={createChatSurfaceIdentity({ surfaceId: name, conversationId: 'conversation' })}>

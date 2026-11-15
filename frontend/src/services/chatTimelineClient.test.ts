@@ -65,6 +65,177 @@ function fixture() {
 }
 
 describe('ChatTimelineClient', () => {
+  it('reabre histórico salvo após fechar a última janela e o backend mudar de época', async () => {
+    const f = fixture();
+    f.port.open.mockResolvedValueOnce(contentSnapshot(false));
+    await f.open();
+    expect(f.client.getItem('chat', 'a', 'item')?.durability).toBe('persisted');
+    await f.client.close('chat', 'a');
+
+    const reopened = contentSnapshot(false);
+    reopened.windowId = 'new-window';
+    reopened.epoch = 'new-epoch';
+    reopened.sequence = reopened.items[0].revision = '1';
+    f.port.open.mockResolvedValueOnce(reopened);
+    await f.open();
+    expect(f.client.getError('chat')).toBeUndefined();
+    expect(f.client.getWindow('chat', 'a')?.orderedItemIds).toEqual(['item']);
+    expect(f.client.getItem('chat', 'a', 'item')?.durability).toBe('persisted');
+  });
+
+  it('aguarda o fechamento pendente antes de reabrir em outra época', async () => {
+    const f = fixture();
+    f.port.open.mockResolvedValueOnce(contentSnapshot(false));
+    await f.open();
+    const pendingClose = deferred<void>();
+    f.port.close.mockReturnValueOnce(pendingClose.promise);
+    const closing = f.client.close('chat', 'a');
+    const reopened = contentSnapshot(false);
+    reopened.windowId = 'new-window';
+    reopened.epoch = 'new-epoch';
+    reopened.sequence = reopened.items[0].revision = '1';
+    f.port.open.mockResolvedValueOnce(reopened);
+    const opening = f.open('b');
+    await Promise.resolve();
+    expect(f.port.open).toHaveBeenCalledTimes(1);
+    pendingClose.resolve();
+    await Promise.all([closing, opening]);
+    expect(f.client.getWindow('chat', 'b')?.orderedItemIds).toEqual(['item']);
+    expect(f.client.getError('chat')).toBeUndefined();
+  });
+
+  it.each(['reset', 'exclusão'] as const)('cancela abertura aguardando fechamento após %s', async operation => {
+    const f = fixture();
+    await f.open();
+    const pendingClose = deferred<void>();
+    f.port.close.mockReturnValueOnce(pendingClose.promise);
+    const closing = f.client.close('chat', 'a');
+    const opening = f.open('b');
+    const rejected = expect(opening).rejects.toThrow('invalidated');
+    const invalidation = operation === 'reset' ? f.client.databaseReset() : f.client.conversationDeleted('chat');
+    pendingClose.resolve();
+    await Promise.all([closing, rejected, invalidation]);
+    expect(f.port.open).toHaveBeenCalledTimes(1);
+    expect(f.client.hasSurface('chat', 'b')).toBe(false);
+    await f.open('c');
+    expect(f.client.getWindow('chat', 'c')).toBeDefined();
+    await f.client.dispose();
+  });
+
+  it.each(['reset', 'exclusão', 'fechamento'] as const)('invalida abertura mesmo após coleta do coordenador: %s', async operation => {
+    const f = fixture();
+    await f.open();
+    const pendingClose = deferred<void>();
+    f.port.close.mockReturnValueOnce(pendingClose.promise);
+    const closing = f.client.close('chat', 'a');
+    const invalidation = closing.then(() => operation === 'reset' ? f.client.databaseReset()
+      : operation === 'exclusão' ? f.client.conversationDeleted('chat') : f.client.close('chat', 'b'));
+    const opening = f.open('b');
+    const rejected = expect(opening).rejects.toThrow('invalidated');
+    pendingClose.resolve();
+    await Promise.all([closing, invalidation, rejected]);
+    expect(f.port.open).toHaveBeenCalledTimes(1);
+    expect(f.client.hasSurface('chat', 'b')).toBe(false);
+    await f.client.dispose();
+  });
+
+  it.each(['reset', 'exclusão'] as const)('recusa abertura reentrante durante %s com múltiplas janelas', async operation => {
+    const f = fixture();
+    await f.open('a');
+    await f.open('b');
+    let opening: Promise<void> | undefined;
+    const unsubscribe = f.client.subscribe(() => {
+      if (!opening) opening = f.open('c');
+    });
+    const invalidation = operation === 'reset' ? f.client.databaseReset() : f.client.conversationDeleted('chat');
+    expect(opening).toBeDefined();
+    await Promise.all([expect(opening).rejects.toThrow('invalidated'), invalidation]);
+    unsubscribe();
+    expect(f.port.open).toHaveBeenCalledTimes(2);
+    expect(f.client.hasSurface('chat', 'c')).toBe(false);
+    await f.client.dispose();
+  });
+
+  it('aguarda o fechamento mesmo quando a janela anterior ainda está abrindo', async () => {
+    const f = fixture();
+    const pending = deferred<TimelineSnapshot>();
+    f.port.open.mockReturnValueOnce(pending.promise);
+    const first = f.open();
+    await Promise.resolve();
+    const closing = f.client.close('chat', 'a');
+    const reopened = contentSnapshot(false);
+    reopened.windowId = 'new-window';
+    reopened.epoch = 'new-epoch';
+    f.port.open.mockResolvedValueOnce(reopened);
+    const opening = f.open('b');
+    await Promise.resolve();
+    expect(f.port.open).toHaveBeenCalledTimes(1);
+    pending.resolve(contentSnapshot(false));
+    await Promise.all([first, closing, opening]);
+    expect(f.port.close).toHaveBeenCalledExactlyOnceWith('a');
+    expect(f.client.getWindow('chat', 'b')?.orderedItemIds).toEqual(['item']);
+    expect(f.client.getError('chat')).toBeUndefined();
+  });
+
+  it('permite nova abertura solicitada sincronicamente pela notificação de fechamento', async () => {
+    const f = fixture();
+    f.port.open.mockResolvedValueOnce(contentSnapshot(false));
+    await f.open();
+    const pendingClose = deferred<void>();
+    f.port.close.mockReturnValueOnce(pendingClose.promise);
+    const reopened = { ...contentSnapshot(false), windowId: 'new-window', epoch: 'new-epoch' };
+    f.port.open.mockResolvedValueOnce(reopened);
+    let opening: Promise<void> | undefined;
+    const unsubscribe = f.client.subscribe(() => {
+      if (!f.client.getWindow('chat', 'a') && !opening) opening = f.open('b');
+    });
+    const closing = f.client.close('chat', 'a');
+    expect(opening).toBeDefined();
+    expect(f.port.open).toHaveBeenCalledTimes(1);
+    pendingClose.resolve();
+    await Promise.all([closing, opening]);
+    unsubscribe();
+    expect(f.client.getWindow('chat', 'b')?.orderedItemIds).toEqual(['item']);
+  });
+
+  it('propaga falha de fechamento para nova abertura sem tentar cleanup novamente', async () => {
+    const f = fixture();
+    f.port.open.mockResolvedValueOnce(contentSnapshot(false));
+    await f.open();
+    const pendingClose = deferred<void>();
+    f.port.close.mockReturnValueOnce(pendingClose.promise);
+    const closing = f.client.close('chat', 'a');
+    const opening = f.open('b');
+    const closedWithError = expect(closing).rejects.toThrow('offline');
+    const openedWithError = expect(opening).rejects.toThrow('offline');
+    pendingClose.reject(new Error('offline'));
+    await Promise.all([closedWithError, openedWithError]);
+    expect(f.port.close).toHaveBeenCalledTimes(1);
+    expect(f.port.open).toHaveBeenCalledTimes(1);
+    await expect(f.open('b')).rejects.toThrow('unavailable');
+    await f.client.close('chat', 'a');
+  });
+
+  it('não descarta conteúdo não confirmado ao fechar e receber outra época', async () => {
+    const f = fixture();
+    f.port.open.mockResolvedValueOnce(contentSnapshot(true));
+    await f.open();
+    await f.client.close('chat', 'a');
+    f.port.open.mockResolvedValueOnce({ ...contentSnapshot(false), windowId: 'new-window', epoch: 'new-epoch' });
+    await expect(f.open()).rejects.toThrow('Timeline snapshot rejected');
+    expect(f.client.getError('chat')).toBeDefined();
+    await expect(f.open()).rejects.toThrow('unavailable');
+  });
+
+  it('não reinicia a época enquanto outra janela da conversa está aberta', async () => {
+    const f = fixture();
+    f.port.open.mockResolvedValueOnce(contentSnapshot(false));
+    await f.open();
+    f.port.open.mockResolvedValueOnce({ ...contentSnapshot(false), windowId: 'other-window', epoch: 'new-epoch' });
+    await expect(f.open('b')).rejects.toThrow('Timeline snapshot rejected');
+    expect(f.client.getWindow('chat', 'a')?.orderedItemIds).toEqual(['item']);
+    expect(f.client.getError('chat')).toBeDefined();
+  });
   it('recupera as duas janelas na limpeza confirmada, mesmo com syncRequired', async () => {
     const f = fixture();
     f.port.open.mockImplementation(async (_id, surface) => ({ ...contentSnapshot(false), windowId: surface.split('#')[0] }));
@@ -624,6 +795,28 @@ function itemRecoveryFixture() {
 }
 
 describe('Refresh com transferência de recuperação', () => {
+  it.each(['exclusão', 'descarte'] as const)('limpa janela após recusa de close imediatamente seguida de %s', async operation => {
+    const f = itemRecoveryFixture();
+    await f.open();
+    await f.client.refresh('chat');
+    expect(f.client.getRecoveredItems('chat')).toHaveLength(1);
+    const refused = expect(f.client.close('chat', 'a')).rejects.toThrow('requires explicit release');
+    const cleanup = operation === 'exclusão' ? f.client.conversationDeleted('chat') : f.client.dispose();
+    await Promise.all([refused, cleanup]);
+    expect(f.port.close).toHaveBeenCalledExactlyOnceWith('a');
+    if (operation === 'exclusão') await f.client.dispose();
+  });
+
+  it.each(['exclusão', 'descarte'] as const)('propaga falha remota após recusa de close e %s', async operation => {
+    const f = itemRecoveryFixture();
+    await f.open();
+    await f.client.refresh('chat');
+    f.port.close.mockRejectedValueOnce(new Error('offline'));
+    const refused = expect(f.client.close('chat', 'a')).rejects.toThrow('requires explicit release');
+    const cleanup = operation === 'exclusão' ? f.client.conversationDeleted('chat') : f.client.dispose();
+    await Promise.all([refused, expect(cleanup).rejects.toThrow('offline')]);
+    expect(f.port.close).toHaveBeenCalledTimes(1);
+  });
   it('limpa thread com parcial volátil sem Refresh prévio e sem reservar fonte removida', async () => {
     const f = itemRecoveryFixture();
     f.original.scopeParentId = 'parent';

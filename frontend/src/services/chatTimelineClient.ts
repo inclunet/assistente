@@ -36,10 +36,12 @@ interface Slot {
   pending?: Promise<unknown>;
   closed: boolean;
   closing?: Promise<void>;
+  closeTask?: Promise<void>;
 }
 interface Conversation {
   state: TimelineConversationState;
   slots: Map<string, Slot>;
+  invalidated?: boolean;
   candidate?: TimelineConversationState;
   recovery?: Promise<void>;
   recoveryError?: Error;
@@ -49,6 +51,7 @@ interface Conversation {
 export class ChatTimelineClient {
   private readonly budget = new TimelineCacheBudget();
   private readonly conversations = new Map<string, Conversation>();
+  private readonly waiting = new Map<string, Map<string, { cancelled: boolean }>>();
   private readonly listeners = new Set<() => void>();
   private readonly unsubscribe: () => void;
   private disposed = false;
@@ -87,6 +90,30 @@ export class ChatTimelineClient {
 
   async open(conversationId: string, surfaceId: string, scope: string | null, position: TimelinePosition): Promise<void> {
     this.assertActive();
+    // Uma nova montagem pode chegar enquanto a última janela ainda fecha.
+    // Conclua sua limpeza antes de escolher a época da nova inscrição.
+    const previous = this.conversations.get(conversationId);
+    if (previous?.invalidated) throw new Error('Timeline conversation invalidated');
+    if (this.waiting.get(conversationId)?.has(surfaceId)) throw new Error('Timeline surface unavailable');
+    if (previous && previous.slots.size && !previous.slots.has(surfaceId) &&
+        ![...previous.slots.values()].some(slot => !slot.closed)) {
+      // Falhas de cleanup exigem retry explícito; não reexecutar uma operação
+      // remota cujo resultado ou capability ainda é desconhecido.
+      const closing = [...previous.slots.values()].map(slot => slot.closeTask);
+      if (closing.some(task => !task)) throw new Error('Timeline surface unavailable');
+      const waiting = this.waiting.get(conversationId) ?? new Map();
+      const request = { cancelled: false };
+      waiting.set(surfaceId, request);
+      this.waiting.set(conversationId, waiting);
+      try {
+        await Promise.all(closing);
+        this.assertActive();
+        if (request.cancelled || previous.invalidated) throw new Error('Timeline conversation invalidated');
+      } finally {
+        if (waiting.get(surfaceId) === request) waiting.delete(surfaceId);
+        if (!waiting.size && this.waiting.get(conversationId) === waiting) this.waiting.delete(conversationId);
+      }
+    }
     this.collectIdle();
     let conversation = this.conversations.get(conversationId);
     if (!conversation) {
@@ -349,13 +376,30 @@ export class ChatTimelineClient {
     }
   }
 
-  async close(conversationId: string, surfaceId: string): Promise<void> {
+  close(conversationId: string, surfaceId: string): Promise<void> {
+    const waiting = this.waiting.get(conversationId)?.get(surfaceId);
+    if (waiting) waiting.cancelled = true;
     const conversation = this.conversations.get(conversationId);
     const slot = conversation?.slots.get(surfaceId);
-    if (!conversation || !slot) return;
+    if (!conversation || !slot) return Promise.resolve();
+    if (slot.closeTask) return slot.closeTask;
     if (!this.disposed && [...slot.recoveryItems?.values() ?? []].some(held => held.transferred)) {
-      throw new Error('Timeline recovered content requires explicit release');
+      return Promise.reject(new Error('Timeline recovered content requires explicit release'));
     }
+    let resolve!: () => void;
+    let reject!: (error: unknown) => void;
+    const closing = new Promise<void>((done, fail) => { resolve = done; reject = fail; });
+    // Publicar antes de notificar: um listener pode abrir outra superfície
+    // sincronicamente durante o fechamento.
+    slot.closeTask = closing;
+    void this.closeSlot(surfaceId, conversation, slot).then(resolve, error => {
+      slot.closeTask = undefined;
+      reject(error);
+    });
+    return closing;
+  }
+
+  private async closeSlot(surfaceId: string, conversation: Conversation, slot: Slot): Promise<void> {
     slot.closed = true;
     slot.recoveryReader?.invalidate();
     conversation.state.close(surfaceId);
@@ -416,8 +460,10 @@ export class ChatTimelineClient {
 
   /** Exclusão confirmada pelo backend revoga também as fontes de recuperação. */
   async conversationDeleted(conversationId: string): Promise<void> {
+    for (const request of this.waiting.get(conversationId)?.values() ?? []) request.cancelled = true;
     const conversation = this.conversations.get(conversationId);
     if (!conversation) return;
+    conversation.invalidated = true;
     for (const slot of conversation.slots.values()) slot.recoveryItems?.clear();
     const closing = [...conversation.slots.keys()].map(surface => this.close(conversationId, surface));
     conversation.state.dispose();
@@ -430,6 +476,7 @@ export class ChatTimelineClient {
   }
 
   async databaseReset(): Promise<void> {
+    for (const requests of this.waiting.values()) for (const request of requests.values()) request.cancelled = true;
     const results = await Promise.allSettled([...this.conversations.keys()].map(id => this.conversationDeleted(id)));
     const failure = results.find(result => result.status === 'rejected');
     if (failure?.status === 'rejected') throw failure.reason;
@@ -478,7 +525,10 @@ export class ChatTimelineClient {
   private collectIdle() {
     for (const [id, conversation] of this.conversations) {
       if (conversation.slots.size || conversation.recovery || conversation.candidate) continue;
-      if (conversation.state.cachedItems && (!this.getError(id) || conversation.state.hasProtectedItems)) continue;
+      // Sem janelas o backend pode descartar o projetor e gerar outra época.
+      // Um snapshot de reabertura não pode ser comparado à época anterior;
+      // apenas conteúdo não confirmado precisa sobreviver a esse fechamento.
+      if (conversation.state.hasProtectedItems) continue;
       conversation.state.dispose();
       this.conversations.delete(id);
     }
