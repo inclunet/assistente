@@ -170,7 +170,7 @@ Section
             IntOp $R0 $R0 + 1
             ${If} $R0 > 60
                 StrCpy $1 "asst.exe"
-                MessageBox MB_ICONEXCLAMATION|MB_OK "$(UserPathError)"
+                MessageBox MB_ICONEXCLAMATION|MB_OK "$(UserPathError)" /SD IDOK
                 Abort
             ${EndIf}
             Sleep 500
@@ -212,7 +212,7 @@ Section
     Pop $0
     Pop $1
     ${If} $0 != 0
-        MessageBox MB_ICONEXCLAMATION|MB_OK "$(UserPathError)"
+        MessageBox MB_ICONEXCLAMATION|MB_OK "$(UserPathError)" /SD IDOK
         Abort
     ${EndIf}
 SectionEnd
@@ -226,7 +226,8 @@ Section "uninstall"
         StrCpy $1 "$INSTDIR: $1"
     ${EndIf}
     ${If} $1 != ""
-        MessageBox MB_ICONEXCLAMATION|MB_OK "$(UserPathCleanupWarning)"
+        DetailPrint "$(UserPathCleanupWarning)"
+        MessageBox MB_ICONEXCLAMATION|MB_OK "$(UserPathCleanupWarning)" /SD IDOK
     ${EndIf}
     !insertmacro wails.setShellContext
 

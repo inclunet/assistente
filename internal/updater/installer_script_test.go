@@ -8,8 +8,8 @@ import (
 )
 
 // O instalador NSIS é o outro lado da atualização automática: o updater fecha o
-// app e o script precisa conseguir substituir o executável. Como não há como
-// rodar makensis no CI, estes testes leem o script e cobram as invariantes que
+// app e o script precisa conseguir substituir o executável. Além da compilação
+// com makensis no CI Windows, estes testes cobram as invariantes que
 // já quebraram a atualização em produção.
 
 const caminhoScriptInstalador = "../../build/windows/installer/project.nsi"
@@ -115,5 +115,24 @@ func TestInstaladorDefinePaginaFinal(t *testing.T) {
 		if !defineAtivo(linhas, define) {
 			t.Errorf("!define %s não está ativo (linha própria, fora de comentário)", define)
 		}
+	}
+}
+
+func TestInstaladorAvisosPathNaoBloqueiamModoSilencioso(t *testing.T) {
+	linhas := linhasEfetivas(t)
+	avisos := 0
+	for _, linha := range linhas {
+		if strings.HasPrefix(linha, "MessageBox ") && strings.Contains(linha, "$(UserPath") {
+			avisos++
+			if !strings.Contains(linha, "/SD IDOK") {
+				t.Errorf("aviso de PATH pode bloquear /S: %s", linha)
+			}
+		}
+	}
+	if avisos == 0 {
+		t.Fatal("avisos de PATH ausentes")
+	}
+	if !contemPrefixo(linhas, "DetailPrint "+`"$(UserPathCleanupWarning)"`) {
+		t.Fatal("limpeza parcial precisa aparecer nos detalhes do desinstalador")
 	}
 }
