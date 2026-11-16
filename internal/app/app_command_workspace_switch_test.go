@@ -20,6 +20,30 @@ func wireCommandWorkspaceForTest(a *App) *testEmitter {
 	return emitter
 }
 
+func TestCommandWorkspaceSwitchNotifiesReadyKeyboardMap(t *testing.T) {
+	a := readyCommandProduct(t)
+	second, err := a.workspaceMgr.Create("workspace novo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var notifications int
+	var lastMap LocalCommandKeyboardMap
+	var lastErr error
+	a.emitter = commandOSBootstrapEmitter(func(name string, _ any) {
+		if name == "command:keyboard-map-changed" {
+			notifications++
+			lastMap, lastErr = a.GetLocalCommandKeyboardMap()
+		}
+	})
+	a.configureWorkspaceController()
+	if _, err := a.workspaceCtrl.SwitchWorkspace(second.ID); err != nil {
+		t.Fatal(err)
+	}
+	if notifications == 0 || lastErr != nil || lastMap.Generation == "" || len(lastMap.Bindings) == 0 {
+		t.Fatalf("última notificação não oferece mapa operacional: eventos=%d erro=%v mapa=%+v", notifications, lastErr, lastMap)
+	}
+}
+
 func TestCommandWorkspaceSwitchRebuildsExactConfigurationAndRetiresOldRuntime(t *testing.T) {
 	a := readyCommandProduct(t)
 	emitter := wireCommandWorkspaceForTest(a)

@@ -64,5 +64,11 @@ func (a *App) reloadCommandsAfterWorkspaceSwitch() {
 	}
 	if err := BootstrapCommandLifecycle(ctx, a); err != nil {
 		logging.Warnf(ctx, "app.app-workspace", "comandos indisponíveis após troca de workspace: publicação: %v", err)
+		return
+	}
+	// A projeção notifica antes de o lifecycle aceitar leituras. Uma segunda
+	// notificação após readiness permite à interface buscar o mapa utilizável.
+	if a.emitter != nil {
+		a.emitter.Emit("command:keyboard-map-changed", nil)
 	}
 }

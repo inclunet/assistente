@@ -2,6 +2,13 @@
 
 Status: In Progress — evidências e aceites pendentes conforme os registros abaixo
 
+**Mapa após troca de workspace (16/11/2026):** a publicação da configuração
+antecede a prontidão do runtime. Depois de reconstruir e habilitar o lifecycle,
+a troca emite nova notificação para que a interface obtenha o mapa operacional.
+Na falha não anuncia prontidão nem reutiliza o mapa anterior. A contraprova
+`TestCommandWorkspaceSwitchNotifiesReadyKeyboardMap` observa a notificação de
+forma síncrona e falhava antes da correção. Status geral permanece **In Progress**.
+
 **Opções do workspace (09/11/2026, issue #1062):**
 Os menus de opções e a lista de workspaces usam um único retorno compartilhado. A ação Renomear mantém
 o foco no campo de edição; navegação posterior ao fechamento não é sobrescrita.

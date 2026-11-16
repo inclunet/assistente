@@ -9,6 +9,8 @@ Ao atualizar os atalhos, pedidos simultâneos são agrupados para evitar leitura
 redundantes. A resposta de uma leitura ultrapassada não é aplicada. Perda de foco,
 troca de sessão/workspace e encerramento continuam invalidando o mapa anterior;
 atalhos só voltam a funcionar quando o mapa atual estiver autorizado.
+Após trocar de workspace, o aplicativo atualiza o mapa assim que o runtime de
+comandos estiver pronto, sem depender de outra ação para iniciar a atualização.
 
 A barra de camadas começa com **Nova camada** e **Configurações da camada**,
 lado a lado. O menu reúne as ações da camada selecionada, incluindo editar,
