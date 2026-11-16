@@ -76,6 +76,9 @@ LangString UserPathError ${LANG_ENGLISH} "Could not update the user's PATH. Inst
 LangString UserPathError ${LANG_PORTUGUESEBR} "Não foi possível atualizar o PATH do usuário. A instalação foi interrompida. Detalhes: $1"
 LangString UserPathError ${LANG_SPANISH} "No se pudo actualizar el PATH del usuario. La instalación se detuvo. Detalles: $1"
 
+LangString CLIInUse ${LANG_ENGLISH} "The installer could not replace asst.exe. Close running asst commands and try again."
+LangString CLIInUse ${LANG_PORTUGUESEBR} "O instalador não conseguiu substituir asst.exe. Feche os comandos asst em execução e tente novamente."
+LangString CLIInUse ${LANG_SPANISH} "El instalador no pudo reemplazar asst.exe. Cierre los comandos asst en ejecución e inténtelo de nuevo."
 ## The following two statements can be used to sign the installer and the uninstaller. The path to the binaries are provided in %1
 #!uninstfinalize 'signtool --file "%1"'
 #!finalize 'signtool --file "%1"'
@@ -169,8 +172,7 @@ Section
             ${EndIf}
             IntOp $R0 $R0 + 1
             ${If} $R0 > 60
-                StrCpy $1 "asst.exe"
-                MessageBox MB_ICONEXCLAMATION|MB_OK "$(UserPathError)" /SD IDOK
+                MessageBox MB_ICONEXCLAMATION|MB_OK "$(CLIInUse)" /SD IDOK
                 Abort
             ${EndIf}
             Sleep 500

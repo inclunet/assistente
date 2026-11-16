@@ -118,19 +118,19 @@ func TestInstaladorDefinePaginaFinal(t *testing.T) {
 	}
 }
 
-func TestInstaladorAvisosPathNaoBloqueiamModoSilencioso(t *testing.T) {
+func TestInstaladorAvisosCLIEPathNaoBloqueiamModoSilencioso(t *testing.T) {
 	linhas := linhasEfetivas(t)
 	avisos := 0
 	for _, linha := range linhas {
-		if strings.HasPrefix(linha, "MessageBox ") && strings.Contains(linha, "$(UserPath") {
+		if strings.HasPrefix(linha, "MessageBox ") && (strings.Contains(linha, "$(UserPath") || strings.Contains(linha, "$(CLIInUse)")) {
 			avisos++
 			if !strings.Contains(linha, "/SD IDOK") {
 				t.Errorf("aviso de PATH pode bloquear /S: %s", linha)
 			}
 		}
 	}
-	if avisos == 0 {
-		t.Fatal("avisos de PATH ausentes")
+	if avisos != 3 {
+		t.Fatalf("esperados três avisos de CLI/PATH, encontrados %d", avisos)
 	}
 	if !contemPrefixo(linhas, "DetailPrint "+`"$(UserPathCleanupWarning)"`) {
 		t.Fatal("limpeza parcial precisa aparecer nos detalhes do desinstalador")
