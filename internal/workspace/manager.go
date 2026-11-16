@@ -40,7 +40,7 @@ func isValidUUIDv7(s string) bool {
 
 // Manager gerencia workspaces: CRUD, persistência YAML e índice global.
 type Manager struct {
-	mu                    sync.RWMutex
+	mu sync.RWMutex
 	snapshotState
 	active                *Workspace
 	activePath            string // diretório base do workspace ativo (contém .assistente/)
@@ -53,9 +53,44 @@ type Manager struct {
 // homeDir é o diretório ~/.assistente/ (onde ficam workspaces avulsos e o índice).
 func NewManager(homeDir string) *Manager {
 	return &Manager{
-		homeDir:        homeDir,
+		homeDir:       homeDir,
 		snapshotState: snapshotState{snapshotEpoch: newSnapshotEpoch()},
 	}
+}
+
+// LastOpenedPath consulta o índice e o fallback padrão sem alterar arquivos.
+func (m *Manager) LastOpenedPath() (string, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	unlock, err := m.lockIndex(context.Background())
+	if err != nil {
+		return "", err
+	}
+	defer unlock()
+	idx, err := m.loadIndex()
+	if err != nil {
+		return "", err
+	}
+	for _, entry := range idx.Workspaces {
+		if idx.LastOpened != "" && entry.ID == idx.LastOpened && entry.Path != "" {
+			path := filepath.Join(entry.Path, assistenteDir, workspaceFile)
+			if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
+				break
+			} else if err != nil {
+				return "", err
+			}
+			return filepath.Abs(entry.Path)
+		}
+	}
+	defaultPath := filepath.Join(m.homeDir, workspacesDir, "default")
+	for _, name := range []string{workspaceFile, "conversations.db"} {
+		if _, err := os.Stat(filepath.Join(defaultPath, assistenteDir, name)); err == nil {
+			return filepath.Abs(defaultPath)
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return "", err
+		}
+	}
+	return "", nil
 }
 
 // replaceActiveLocked troca o workspace ativo e registra a troca semântica
@@ -80,6 +115,9 @@ func (m *Manager) Initialize(workDir string) error {
 	if err := os.MkdirAll(filepath.Join(m.homeDir, workspacesDir), 0755); err != nil {
 		return fmt.Errorf("failed to create workspaces directory: %w", err)
 	}
+	if _, err := m.loadIndex(); err != nil {
+		return fmt.Errorf("failed to load workspace index: %w", err)
+	}
 
 	// Após carregar o workspace ativo com sucesso, migra todos os workspaces
 	// conhecidos (index) e só então apaga o remap.
@@ -102,7 +140,9 @@ func (m *Manager) Initialize(workDir string) error {
 				m.activeMigrationFailed = true
 			}
 			m.replaceActiveLocked(ws, workDir)
-			m.touchIndex(ws, workDir)
+			if err := m.touchIndex(ws, workDir); err != nil {
+				return err
+			}
 			initOK = true
 			return nil
 		}
@@ -113,24 +153,33 @@ func (m *Manager) Initialize(workDir string) error {
 			return fmt.Errorf("failed to create workspace at %s: %w", workDir, err)
 		}
 		m.replaceActiveLocked(ws, workDir)
-		m.touchIndex(ws, workDir)
+		if err := m.touchIndex(ws, workDir); err != nil {
+			return err
+		}
 		initOK = true
 		return nil
 	}
 
 	// 2. Sem workDir — carrega último usado via índice
-	idx, _ := m.loadIndex()
+	idx, err := m.loadIndex()
+	if err != nil {
+		return fmt.Errorf("failed to load workspace index: %w", err)
+	}
 	if idx != nil && idx.LastOpened != "" {
 		for _, entry := range idx.Workspaces {
 			if entry.ID == idx.LastOpened {
 				wsPath := filepath.Join(entry.Path, assistenteDir, workspaceFile)
-				if ws, err := m.loadWorkspaceFile(wsPath); err == nil || errors.Is(err, ErrMigrationSaveFailed) {
+				ws, err := m.loadWorkspaceFile(wsPath)
+				if err == nil || errors.Is(err, ErrMigrationSaveFailed) {
 					if errors.Is(err, ErrMigrationSaveFailed) {
 						m.activeMigrationFailed = true
 					}
 					m.replaceActiveLocked(ws, entry.Path)
 					initOK = true
 					return nil
+				}
+				if !errors.Is(err, os.ErrNotExist) {
+					return fmt.Errorf("failed to load last workspace at %s: %w", wsPath, err)
 				}
 			}
 		}
@@ -141,15 +190,21 @@ func (m *Manager) Initialize(workDir string) error {
 	defaultWsPath := filepath.Join(defaultPath, assistenteDir, workspaceFile)
 
 	if _, err := os.Stat(defaultWsPath); err == nil {
-		if ws, err := m.loadWorkspaceFile(defaultWsPath); err == nil || errors.Is(err, ErrMigrationSaveFailed) {
+		ws, err := m.loadWorkspaceFile(defaultWsPath)
+		if err == nil || errors.Is(err, ErrMigrationSaveFailed) {
 			if errors.Is(err, ErrMigrationSaveFailed) {
 				m.activeMigrationFailed = true
 			}
 			m.replaceActiveLocked(ws, defaultPath)
-			m.touchIndex(ws, defaultPath)
+			if err := m.touchIndex(ws, defaultPath); err != nil {
+				return err
+			}
 			initOK = true
 			return nil
 		}
+		return fmt.Errorf("failed to load default workspace at %s: %w", defaultWsPath, err)
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("failed to inspect default workspace at %s: %w", defaultWsPath, err)
 	}
 
 	ws := m.newWorkspace("Default")
@@ -158,7 +213,9 @@ func (m *Manager) Initialize(workDir string) error {
 		return fmt.Errorf("failed to create default workspace: %w", err)
 	}
 	m.replaceActiveLocked(ws, defaultPath)
-	m.touchIndex(ws, defaultPath)
+	if err := m.touchIndex(ws, defaultPath); err != nil {
+		return err
+	}
 	initOK = true
 	return nil
 }
@@ -251,15 +308,37 @@ func (m *Manager) List() ([]WorkspaceInfo, error) {
 func (m *Manager) Create(name string) (*Workspace, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-
-	ws := m.newWorkspace(name)
-	wsDir := filepath.Join(m.homeDir, workspacesDir, ws.ID)
-
-	if err := m.saveWorkspace(ws, wsDir); err != nil {
-		return nil, err
+	if _, err := m.loadIndex(); err != nil {
+		return nil, fmt.Errorf("failed to load workspace index: %w", err)
 	}
 
-	m.touchIndex(ws, wsDir)
+	ws := m.newWorkspace(name)
+	return m.createIndexedWorkspace(ws)
+}
+
+// createIndexedWorkspace somente remove um diretório recém-criado por esta
+// operação se não for possível publicar sua entrada no índice.
+func (m *Manager) createIndexedWorkspace(ws *Workspace) (*Workspace, error) {
+	root := filepath.Join(m.homeDir, workspacesDir)
+	if err := os.MkdirAll(root, 0755); err != nil {
+		return nil, err
+	}
+	dir := filepath.Join(root, ws.ID)
+	if err := os.Mkdir(dir, 0755); err != nil {
+		return nil, err
+	}
+	rollback := func(err error) (*Workspace, error) {
+		if cleanupErr := os.RemoveAll(dir); cleanupErr != nil {
+			return nil, errors.Join(err, fmt.Errorf("failed to remove new workspace: %w", cleanupErr))
+		}
+		return nil, err
+	}
+	if err := m.saveWorkspace(ws, dir); err != nil {
+		return rollback(err)
+	}
+	if err := m.touchIndex(ws, dir); err != nil {
+		return rollback(err)
+	}
 	return ws, nil
 }
 
@@ -267,6 +346,11 @@ func (m *Manager) Create(name string) (*Workspace, error) {
 func (m *Manager) Switch(workspaceID string) (*Workspace, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	unlock, err := m.lockIndex(context.Background())
+	if err != nil {
+		return nil, err
+	}
+	defer unlock()
 
 	// Salva o workspace atual antes de trocar
 	if m.active != nil {
@@ -287,11 +371,12 @@ func (m *Manager) Switch(workspaceID string) (*Workspace, error) {
 				return nil, fmt.Errorf("failed to load workspace %s: %w", workspaceID, err)
 			}
 
-			m.replaceActiveLocked(ws, entry.Path)
-
 			// Atualiza last_opened no índice
 			idx.LastOpened = workspaceID
-			_ = m.saveIndex(idx)
+			if err := m.saveIndex(idx); err != nil {
+				return nil, fmt.Errorf("failed to save workspace index: %w", err)
+			}
+			m.replaceActiveLocked(ws, entry.Path)
 
 			return m.cloneActiveSnapshotLocked(ws), nil
 		}
@@ -312,12 +397,19 @@ func (m *Manager) Rename(newName string) error {
 		return fmt.Errorf("name cannot be empty")
 	}
 
+	oldName := m.active.Name
 	m.active.Name = newName
 	if err := m.saveWorkspace(m.active, m.activePath); err != nil {
+		m.active.Name = oldName
 		return err
 	}
-
-	m.touchIndex(m.active, m.activePath)
+	if err := m.touchIndex(m.active, m.activePath); err != nil {
+		m.active.Name = oldName
+		if rollbackErr := m.saveWorkspace(m.active, m.activePath); rollbackErr != nil {
+			return errors.Join(err, fmt.Errorf("failed to restore workspace name: %w", rollbackErr))
+		}
+		return err
+	}
 	return nil
 }
 
@@ -325,6 +417,11 @@ func (m *Manager) Rename(newName string) error {
 func (m *Manager) Delete(workspaceID string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	unlock, err := m.lockIndex(context.Background())
+	if err != nil {
+		return err
+	}
+	defer unlock()
 
 	if m.active != nil && m.active.ID == workspaceID {
 		return fmt.Errorf("cannot delete the active workspace")
@@ -353,7 +450,9 @@ func (m *Manager) Delete(workspaceID string) error {
 	if idx.LastOpened == workspaceID {
 		idx.LastOpened = ""
 	}
-	_ = m.saveIndex(idx)
+	if err := m.saveIndex(idx); err != nil {
+		return fmt.Errorf("failed to save workspace index: %w", err)
+	}
 
 	// Remove workspace.yaml (mas não o diretório inteiro, pode ter outros arquivos)
 	wsFile := filepath.Join(deletePath, assistenteDir, workspaceFile)
@@ -886,13 +985,7 @@ func (m *Manager) ImportWorkspace(data []byte) (*Workspace, error) {
 		ws.Tabs.Active = ws.Tabs.Items[0].ID
 	}
 
-	wsDir := filepath.Join(m.homeDir, workspacesDir, ws.ID)
-	if err := m.saveWorkspace(ws, wsDir); err != nil {
-		return nil, err
-	}
-
-	m.touchIndex(ws, wsDir)
-	return ws, nil
+	return m.createIndexedWorkspace(ws)
 }
 
 // === Persistência YAML ===
@@ -1146,7 +1239,7 @@ func (m *Manager) loadIndex() (*Index, error) {
 
 	var idx Index
 	if err := yaml.Unmarshal(data, &idx); err != nil {
-		return &Index{}, nil
+		return nil, fmt.Errorf("failed to parse workspace index: %w", err)
 	}
 	return &idx, nil
 }
@@ -1157,22 +1250,24 @@ func (m *Manager) saveIndex(idx *Index) error {
 		return err
 	}
 
-	data, err := yaml.Marshal(idx)
-	if err != nil {
-		return err
-	}
-
-	return os.WriteFile(filepath.Join(dir, indexFile), data, 0644)
+	return publishCommandWorkspaceIndex(context.Background(), filepath.Join(dir, indexFile), idx)
 }
 
 // touchIndex atualiza ou adiciona a entrada do workspace no índice global.
-func (m *Manager) touchIndex(ws *Workspace, basePath string) {
-	idx, _ := m.loadIndex()
-	if idx == nil {
-		idx = &Index{}
+func (m *Manager) touchIndex(ws *Workspace, basePath string) error {
+	unlock, err := m.lockIndex(context.Background())
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	idx, err := m.loadIndex()
+	if err != nil {
+		return fmt.Errorf("failed to load workspace index: %w", err)
 	}
 
-	idx.LastOpened = ws.ID
+	if m.active != nil && m.active.ID == ws.ID {
+		idx.LastOpened = ws.ID
+	}
 
 	found := false
 	for i, entry := range idx.Workspaces {
@@ -1194,7 +1289,10 @@ func (m *Manager) touchIndex(ws *Workspace, basePath string) {
 		})
 	}
 
-	_ = m.saveIndex(idx)
+	if err := m.saveIndex(idx); err != nil {
+		return fmt.Errorf("failed to save workspace index: %w", err)
+	}
+	return nil
 }
 
 // OpenEditorFilePaths retorna os caminhos absolutos de todos os arquivos abertos em abas de editor
@@ -1230,6 +1328,5 @@ func (m *Manager) OpenEditorFilePaths() []string {
 }
 
 func generateID() string {
-	// ID curto baseado em timestamp + random suffix
-	return fmt.Sprintf("%x", time.Now().UnixNano()&0xFFFFFFFFFF)
+	return uuid.NewString()
 }

@@ -75,6 +75,11 @@ func (m *Manager) CreateForCommand(ctx context.Context, expected CommandSnapshot
 	}
 
 	indexPath := filepath.Join(m.homeDir, workspacesDir, indexFile)
+	unlock, err := m.lockIndex(ctx)
+	if err != nil {
+		return rollback(err)
+	}
+	defer unlock()
 	index, err := readCommandWorkspaceIndex(indexPath)
 	if err != nil {
 		return rollback(err)

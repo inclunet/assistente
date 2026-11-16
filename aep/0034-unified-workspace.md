@@ -67,6 +67,17 @@ Workspace (container de abas)
 | Limite de workspaces | Ilimitado |
 | Abas órfãs | Permitidas — qualquer aba pode existir sem depender de outra |
 
+Na abertura normal, restaura-se o último workspace. Seu banco local é usado se
+existir; caso contrário, usa-se o banco da home. A pasta herdada do iniciador não
+seleciona outro workspace. A escolha explícita por argumento de pasta abre ou cria o workspace da pasta;
+o menu de contexto do Windows usa essa opção. A reserva por banco da AEP-0111
+continua a apresentar a instância existente, sem trocar seu workspace.
+Essa seleção é coberta por `TestParseWorkspaceArgs` e
+`TestInitializeReopensLastWorkspace`; o teste físico de atualização automática
+no Windows permanece necessário para confirmar a causa do relato.
+O índice global é publicado atomicamente e suas mutações são serializadas entre
+instâncias que usem bancos distintos; a leitura no startup usa a mesma trava.
+
 Sessões de terminal são a exceção quanto à persistência: conforme a AEP-0089,
 o `terminalId` identifica um PTY vivo e não sobrevive ao processo do
 Assistente. A independência continua válida durante sua vida — fechar uma aba

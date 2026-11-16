@@ -27,6 +27,15 @@ Os workspaces são armazenados em:
 
 ## Operações
 
+Ao abrir o aplicativo normalmente, o último workspace usado é restaurado. Se a
+pasta dele tiver um banco em `.assistente/conversations.db`, o app usa esse
+banco; caso contrário usa o banco da pasta do usuário. Para
+abrir uma pasta específica a partir de um terminal, use
+`assistente .` para a pasta atual ou `assistente "caminho-da-pasta"` para outra.
+No Windows, também é possível usar **Abrir Assistente Aqui** no menu de contexto
+da pasta. Se o aplicativo já
+estiver aberto com o mesmo banco, a janela existente é apresentada.
+
 | Ação | Como |
 |---|---|
 | **Criar workspace** | Menu → Novo Workspace |

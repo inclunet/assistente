@@ -1,6 +1,8 @@
 package workspace
 
 import (
+	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -8,6 +10,226 @@ import (
 
 	"gopkg.in/yaml.v3"
 )
+
+func TestLeituraIndiceDurantePublicacoesAtomicas(t *testing.T) {
+	home := t.TempDir()
+	m := NewManager(home)
+	if err := os.MkdirAll(filepath.Join(home, workspacesDir), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.saveIndex(&Index{}); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() {
+		for i := 0; i < 100; i++ {
+			idx := &Index{LastOpened: fmt.Sprintf("ws-%d", i)}
+			unlock, err := m.lockIndex(context.Background())
+			if err != nil {
+				done <- err
+				return
+			}
+			err = m.saveIndex(idx)
+			unlock()
+			if err != nil {
+				done <- err
+				return
+			}
+		}
+		done <- nil
+	}()
+	var readErr error
+	for i := 0; i < 100; i++ {
+		if _, err := NewManager(home).LastOpenedPath(); err != nil {
+			readErr = err
+			break
+		}
+	}
+	if err := <-done; err != nil {
+		t.Error(err)
+	}
+	if readErr != nil {
+		t.Fatalf("índice parcialmente publicado: %v", readErr)
+	}
+}
+
+func TestAtualizacoesDeIndiceDeManagersDistintosNaoSePerdem(t *testing.T) {
+	home := t.TempDir()
+	first, second := NewManager(home), NewManager(home)
+	if err := first.Initialize(t.TempDir()); err != nil {
+		t.Fatal(err)
+	}
+	if err := second.Initialize(t.TempDir()); err != nil {
+		t.Fatal(err)
+	}
+	before, err := first.loadIndex()
+	if err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 2)
+	for _, manager := range []*Manager{first, second} {
+		go func(m *Manager) {
+			for i := 0; i < 10; i++ {
+				if _, err := m.Create(fmt.Sprintf("workspace-%d", i)); err != nil {
+					done <- err
+					return
+				}
+			}
+			done <- nil
+		}(manager)
+	}
+	for i := 0; i < 2; i++ {
+		if err := <-done; err != nil {
+			t.Error(err)
+		}
+	}
+	after, err := first.loadIndex()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := len(after.Workspaces), len(before.Workspaces)+20; got != want {
+		t.Fatalf("workspaces no índice = %d, esperado %d", got, want)
+	}
+}
+
+func TestFalhaNaTravaNaoDeixaCriacaoOuRenomeacaoParcial(t *testing.T) {
+	home := t.TempDir()
+	m := NewManager(home)
+	if err := m.Initialize(t.TempDir()); err != nil {
+		t.Fatal(err)
+	}
+	before, err := os.ReadDir(filepath.Join(home, workspacesDir))
+	if err != nil {
+		t.Fatal(err)
+	}
+	lockPath := filepath.Join(home, workspacesDir, ".index.lock")
+	if err := os.Remove(lockPath); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(lockPath, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.Create("Falha"); err == nil {
+		t.Fatal("criação deveria falhar")
+	}
+	if _, err := m.ImportWorkspace([]byte("name: Importado\n")); err == nil {
+		t.Fatal("importação deveria falhar")
+	}
+	oldName := m.Active().Name
+	if err := m.Rename("Nome que falha"); err == nil {
+		t.Fatal("renomeação deveria falhar")
+	}
+	if got := m.Active().Name; got != oldName {
+		t.Fatalf("nome em memória = %q", got)
+	}
+	ws, err := m.loadWorkspaceFile(filepath.Join(m.ActivePath(), assistenteDir, workspaceFile))
+	if err != nil || ws.Name != oldName {
+		t.Fatalf("nome salvo = %#v, %v", ws, err)
+	}
+	after, err := os.ReadDir(filepath.Join(home, workspacesDir))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(before) != len(after) {
+		t.Fatalf("sobraram diretórios: antes=%d depois=%d", len(before), len(after))
+	}
+}
+
+func TestInitializeReopensLastWorkspace(t *testing.T) {
+	home := t.TempDir()
+	selected := t.TempDir()
+	first := NewManager(home)
+	if err := first.Initialize(selected); err != nil {
+		t.Fatal(err)
+	}
+	want := first.Active().ID
+	if _, err := first.Create("Novo sem ativar"); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := NewManager(home).LastOpenedPath(); err != nil || got != selected {
+		t.Fatalf("caminho do último workspace = %q, %v", got, err)
+	}
+	reopened := NewManager(home)
+	if err := reopened.Initialize(""); err != nil {
+		t.Fatal(err)
+	}
+	if got := reopened.Active(); got == nil || got.ID != want || reopened.ActivePath() != selected {
+		t.Fatalf("workspace reaberto = %#v, caminho = %q", got, reopened.ActivePath())
+	}
+}
+
+func TestInitializeDoesNotOverwriteUnreadableDefault(t *testing.T) {
+	home := t.TempDir()
+	path := filepath.Join(home, workspacesDir, "default", assistenteDir, workspaceFile)
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		t.Fatal(err)
+	}
+	original := []byte("invalid: [yaml")
+	if err := os.WriteFile(path, original, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := NewManager(home).Initialize(""); err == nil {
+		t.Fatal("expected an error for malformed workspace")
+	}
+	got, err := os.ReadFile(path)
+	if err != nil || string(got) != string(original) {
+		t.Fatalf("workspace modified: %q, %v", got, err)
+	}
+}
+
+func TestInitializeFallsBackWhenLastWorkspaceDisappears(t *testing.T) {
+	home := t.TempDir()
+	selected := t.TempDir()
+	first := NewManager(home)
+	if err := first.Initialize(selected); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(filepath.Join(selected, assistenteDir, workspaceFile)); err != nil {
+		t.Fatal(err)
+	}
+	reopened := NewManager(home)
+	if err := reopened.Initialize(""); err != nil {
+		t.Fatal(err)
+	}
+	if got := reopened.Active(); got == nil || got.ID != "ws-default" {
+		t.Fatalf("workspace de fallback = %#v", got)
+	}
+}
+
+func TestLastOpenedPathSelecionaDefaultComBancoLocal(t *testing.T) {
+	home := t.TempDir()
+	defaultPath := filepath.Join(home, workspacesDir, "default")
+	local := filepath.Join(defaultPath, assistenteDir)
+	if err := os.MkdirAll(local, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(local, "conversations.db"), []byte("fixture"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	got, err := NewManager(home).LastOpenedPath()
+	if err != nil || got != defaultPath {
+		t.Fatalf("fallback = %q, %v", got, err)
+	}
+}
+
+func TestLastOpenedPathPreservaIndiceInvalido(t *testing.T) {
+	home := t.TempDir()
+	path := filepath.Join(home, workspacesDir, indexFile)
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		t.Fatal(err)
+	}
+	original := []byte("invalid: [yaml")
+	if err := os.WriteFile(path, original, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := NewManager(home).LastOpenedPath(); err == nil {
+		t.Fatal("índice inválido aceito")
+	}
+	got, err := os.ReadFile(path)
+	if err != nil || string(got) != string(original) {
+		t.Fatalf("índice alterado: %q, %v", got, err)
+	}
+}
 
 func TestInitialize_NewWorkspaceHasActiveChatTab(t *testing.T) {
 	m := NewManager(t.TempDir())

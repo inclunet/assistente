@@ -18,6 +18,7 @@ import (
 	"assistente/internal/database"
 	"assistente/internal/desktopinstance"
 	"assistente/internal/wailsapi"
+	"assistente/internal/workspace"
 
 	wailslib "github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/options"
@@ -36,10 +37,21 @@ type desktopReservation interface {
 var (
 	// Mantém os handles vivos até os.Exit: Shutdown pode preservar serviços
 	// quando não consegue comprovar a drenagem. Não liberar a reserva nesse intervalo.
-	desktopProcessReservation io.Closer
-	resolveDesktopDatabase    = database.ResolvePath
-	logUserDirectory          = configdir.GetHomeDir
-	acquireDesktopInstance    = func(path string, activate func()) (desktopReservation, error) {
+	desktopProcessReservation     io.Closer
+	desktopWorkspaceResolutionDir string
+	resolveDesktopDatabase        = func() (string, error) {
+		wd := desktopWorkspaceResolutionDir
+		if wd == "" {
+			var err error
+			wd, err = os.Getwd()
+			if err != nil {
+				return "", err
+			}
+		}
+		return database.ResolveDesktopWorkspacePath(wd, configdir.GetHomeDir())
+	}
+	logUserDirectory       = configdir.GetHomeDir
+	acquireDesktopInstance = func(path string, activate func()) (desktopReservation, error) {
 		return desktopinstance.Acquire(path, activate)
 	}
 	activateDesktop = func(ctx context.Context) {
@@ -94,6 +106,57 @@ func run(args []string) (exitCode int) {
 	if err != nil {
 		reportFatalError(os.Stderr, startupLogConfigurationError(err))
 		return 2
+	}
+	workspacePath, remainingArgs, err := parseWorkspaceArgs(remainingArgs)
+	if err != nil {
+		reportFatalError(os.Stderr, startupApplicationError(err))
+		return 2
+	}
+	if logPath != "" {
+		logPath, err = filepath.Abs(logPath)
+		if err != nil {
+			reportFatalError(os.Stderr, startupLogConfigurationError(err))
+			return 2
+		}
+	}
+	startupDir := workspacePath
+	// Argumentos restantes pertencem ao runtime Wails (desenvolvimento e
+	// bindings); preservar seus caminhos relativos ao diretório original.
+	if startupDir == "" && !wailsBindingsMode {
+		var home string
+		home, err = os.UserHomeDir()
+		if err != nil {
+			reportFatalError(os.Stderr, startupApplicationError(err))
+			return 2
+		}
+		startupDir, err = workspace.NewManager(filepath.Join(home, ".assistente")).LastOpenedPath()
+		if err != nil {
+			reportFatalError(os.Stderr, startupApplicationError(err))
+			return 2
+		}
+		if startupDir == "" {
+			startupDir = home
+		} else {
+			workspacePath = startupDir
+		}
+	}
+	previousWorkspaceResolutionDir := desktopWorkspaceResolutionDir
+	desktopWorkspaceResolutionDir = startupDir
+	defer func() { desktopWorkspaceResolutionDir = previousWorkspaceResolutionDir }()
+	if startupDir != "" && len(remainingArgs) == 0 && !wailsBindingsMode {
+		originalDir, err := os.Getwd()
+		if err != nil {
+			reportFatalError(os.Stderr, startupApplicationError(err))
+			return 2
+		}
+		if err := os.Chdir(startupDir); err != nil {
+			reportFatalError(os.Stderr, startupApplicationError(err))
+			return 2
+		}
+		defer func() { _ = os.Chdir(originalDir) }()
+	}
+	if startupDir != "" && !wailsBindingsMode {
+		configdir.SetStartupWorkDir(startupDir)
 	}
 
 	originalArgs := os.Args
@@ -168,6 +231,7 @@ func run(args []string) (exitCode int) {
 	defer stopActivation()
 	a := application.NewApp()
 	application.SetDesktopDatabasePath(a, instance.DatabasePath())
+	application.SetStartupWorkspacePath(a, workspacePath)
 	tokensAPI := wailsapi.NewTokens()
 	application.SetTokensAPI(a, tokensAPI)
 	allowlistsAPI := wailsapi.NewAllowlists()

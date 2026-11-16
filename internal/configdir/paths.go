@@ -68,6 +68,17 @@ func GetWorkDir() string {
 	return cachedWorkDir
 }
 
+// SetStartupWorkDir fixa a origem de configurações antes de iniciar serviços.
+// Não deve ser chamado concorrentemente com leituras do resolvedor.
+func SetStartupWorkDir(workDir string) {
+	initPaths()
+	if workDir == "" {
+		cachedWorkDir = ""
+		return
+	}
+	cachedWorkDir = filepath.Join(workDir, assistenteDir)
+}
+
 // GetBasePaths retorna os 3 diretórios base em ordem de prioridade CRESCENTE.
 // [0] = exe (menor prioridade)
 // [1] = home (média)

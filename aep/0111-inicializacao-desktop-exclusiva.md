@@ -17,9 +17,11 @@ contenção interna de uma única instância (AEP-0074 e AEP-0106).
 
 ## Decisões
 
-- Resolver o banco pela precedência existente (workdir > home > executável),
-  sem abrir SQLite; fixar o caminho canônico devolvido pela reserva para todo o
-  startup desktop e para reset/reabertura, sem redescobrir o arquivo por config.json.
+- Resolver o banco do workspace quando ele existir; caso contrário, usar o banco
+  da home, sem abrir SQLite na resolução. No startup e no reset, usar o caminho
+  canônico devolvido pela reserva, sem redescobri-lo por config.json.
+- O banco reservado permanece fixo durante a execução, inclusive ao alternar
+  workspaces. Um banco diferente é selecionado na próxima abertura do app.
 - Reservar a instância antes de construir/inicializar os serviços.
 - Solicitação de ativação não executa comandos, não recebe argumentos de ação
   e não muda usuário, sessão, autorização ou contexto da primeira instância.

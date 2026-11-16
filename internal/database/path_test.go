@@ -20,6 +20,29 @@ func TestResolvePathDoesNotCreateDatabase(t *testing.T) {
 	}
 }
 
+func TestResolveDesktopWorkspacePathLocalOuHome(t *testing.T) {
+	root := t.TempDir()
+	home := filepath.Join(root, "home", ".assistente")
+	workspaceDir := filepath.Join(root, "workspace")
+	wantHome := filepath.Join(home, "conversations.db")
+	got, err := ResolveDesktopWorkspacePath(workspaceDir, home)
+	if err != nil || got != wantHome {
+		t.Fatalf("sem banco local: %q, %v", got, err)
+	}
+	localDir := filepath.Join(workspaceDir, ".assistente")
+	if err := os.MkdirAll(localDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	local := filepath.Join(localDir, "conversations.db")
+	if err := os.WriteFile(local, []byte("fixture"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	got, err = ResolveDesktopWorkspacePath(workspaceDir, home)
+	if err != nil || got != local {
+		t.Fatalf("banco local: %q, %v", got, err)
+	}
+}
+
 func TestResolvePathSelectsExistingWithoutOpeningSQLite(t *testing.T) {
 	root := t.TempDir()
 	want := filepath.Join(root, "conversations.db")

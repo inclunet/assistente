@@ -132,6 +132,23 @@ func ResolvePath() (string, error) {
 	return resolvePath(configdir.NewResolver(""), configdir.GetHomeDir())
 }
 
+// ResolveDesktopWorkspacePath escolhe o banco local existente ou o banco do
+// usuário, sem criar arquivos nem procurar dados ao lado do executável.
+func ResolveDesktopWorkspacePath(workDir, homeDir string) (string, error) {
+	if homeDir == "" {
+		return "", errors.New("diretório de dados do usuário indisponível")
+	}
+	if workDir != "" {
+		local := filepath.Join(workDir, ".assistente", "conversations.db")
+		if _, err := os.Stat(local); err == nil {
+			return filepath.Abs(local)
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return "", err
+		}
+	}
+	return filepath.Abs(filepath.Join(homeDir, "conversations.db"))
+}
+
 func resolvePath(rootResolver interface {
 	Resolve(string) (*configdir.ResolvedFile, error)
 }, homeDir string) (string, error) {
