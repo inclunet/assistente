@@ -44,7 +44,11 @@ func (a *App) initWorkspace() error {
 	}
 
 	if err := a.workspaceMgr.Initialize(workDir); err != nil {
-		return fmt.Errorf("workspace: %w", err)
+		if a.startupWorkspaceDir != nil {
+			return fmt.Errorf("workspace: %w", err)
+		}
+		// Consumidores não desktop conservam o startup tolerante a falhas.
+		logging.Errorf(context.Background(), "app.app-workspace", "Erro ao inicializar workspace: %v", err)
 	} else if ws := a.workspaceMgr.Active(); ws != nil {
 		logging.Infof(context.Background(), "app.app-workspace", "Workspace ativo: %s (%s)", ws.Name, ws.ID)
 	}

@@ -159,12 +159,12 @@ Section
     # Adiciona menu de contexto "Abrir Assistente Aqui" para pastas
     WriteRegStr HKCR "Directory\shell\OpenAssistente" "" "Abrir Assistente Aqui"
     WriteRegStr HKCR "Directory\shell\OpenAssistente" "Icon" "$INSTDIR\${PRODUCT_EXECUTABLE}"
-    WriteRegStr HKCR "Directory\shell\OpenAssistente\command" "" '"$INSTDIR\${PRODUCT_EXECUTABLE}" "%V"'
+    WriteRegStr HKCR "Directory\shell\OpenAssistente\command" "" '"$INSTDIR\${PRODUCT_EXECUTABLE}" "%V\."'
 
     # Adiciona menu de contexto para background de pastas (clique em espaço vazio)
     WriteRegStr HKCR "Directory\Background\shell\OpenAssistente" "" "Abrir Assistente Aqui"
     WriteRegStr HKCR "Directory\Background\shell\OpenAssistente" "Icon" "$INSTDIR\${PRODUCT_EXECUTABLE}"
-    WriteRegStr HKCR "Directory\Background\shell\OpenAssistente\command" "" '"$INSTDIR\${PRODUCT_EXECUTABLE}" "%V"'
+    WriteRegStr HKCR "Directory\Background\shell\OpenAssistente\command" "" '"$INSTDIR\${PRODUCT_EXECUTABLE}" "%V\."'
 
     !insertmacro wails.writeUninstaller
 SectionEnd

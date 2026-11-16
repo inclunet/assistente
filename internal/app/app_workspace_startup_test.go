@@ -11,6 +11,7 @@ import (
 	"assistente/internal/configdir"
 	"assistente/internal/database"
 	"assistente/internal/events"
+	"assistente/internal/terminal"
 	"assistente/internal/workspace"
 )
 
@@ -148,5 +149,45 @@ func TestWorkspaceStartupFailureStopsStartupBeforeServices(t *testing.T) {
 		}
 	default:
 		t.Fatal("startup waiters were not released")
+	}
+}
+
+func TestWorkspaceStartupCLIPreservesTolerantInitialization(t *testing.T) {
+	root := isolateWorkspaceStartup(t)
+	blocked := filepath.Join(root, "blocked")
+	if err := os.Mkdir(blocked, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(blocked, ".assistente"), []byte("obstacle"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(blocked)
+	a := NewApp() // asst não define a pasta de startup desktop.
+	if err := a.initWorkspace(); err != nil {
+		t.Fatalf("CLI startup became fatal: %v", err)
+	}
+	if a.workspaceCtrl == nil {
+		t.Fatal("legacy CLI controller not wired")
+	}
+}
+
+func TestWorkspaceStartupDeepLinkTerminalUsesWorkspaceDirectory(t *testing.T) {
+	root := isolateWorkspaceStartup(t)
+	project := filepath.Join(root, "project")
+	a := NewApp()
+	SetStartupWorkspaceDirectory(a, project)
+	if err := a.initWorkspace(); err != nil {
+		t.Fatal(err)
+	}
+	a.terminalMgr = terminal.NewManager(terminal.DefaultManagerConfig(), nil)
+	t.Cleanup(a.terminalMgr.CloseAll)
+	a.wireTerminal()
+	// Controller chamado pelo bind Terminal.CreateTerminalSession no deep link.
+	info, err := a.terminalCtrl.CreateTerminalSession("deep-link")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if filepath.Clean(info.CWD) != project {
+		t.Fatalf("terminal cwd = %q, want %q", info.CWD, project)
 	}
 }

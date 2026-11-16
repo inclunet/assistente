@@ -351,15 +351,15 @@ O workspace é inicializado após as migrações existentes e antes dos serviço
 existente continua apenas apresentando uma instância já aberta (AEP-0111).
 Consumidores não desktop, como `asst`, conservam seu comportamento de cwd.
 
-Falha de inicialização do workspace deve alcançar o resultado do startup,
+No desktop, falha de inicialização do workspace deve alcançar o resultado do startup,
 que já impede autenticação sobre serviços incompletos e reporta o erro.
-Não expor o controller como pronto após uma falha de criação/carregamento.
+No desktop, não expor o controller como pronto após uma falha de criação/carregamento. A CLI conserva o registro do erro e a continuidade dos comandos que não dependem de workspace.
 
 Evidências automatizadas: `TestWorkspaceStartupRestoresLastWithoutUsingLauncherDirectory`
 (contraprova falha na versão anterior), `TestWorkspaceStartupEmptyDirectoryHasChatAndCommandContext`,
 `TestWorkspaceStartupFirstLaunchUsesHomeDefault`,
 `TestWorkspaceStartupFailureDoesNotExposeController`, `TestWorkspaceStartupFailureStopsStartupBeforeServices` e `TestParseWorkspaceArgs`.
-O teste de pasta vazia gravável já passava antes: não atribui a ele a causa
+A revisão remota acrescentou `TestWorkspaceStartupCLIPreservesTolerantInitialization`, `TestWorkspaceStartupDeepLinkTerminalUsesWorkspaceDirectory` e `TestInstallerWorkspaceCommandsAcceptDriveRootAndSpaces` (Windows) para preservar CLI, alcançar o controller usado pelos deep links e testar o parsing nativo dos comandos do instalador. O teste de pasta vazia gravável já passava antes: não atribui a ele a causa
 histórica da falha de comandos nas máquinas atualizadas. Status permanece **Done**.
 
 ### Identificação
