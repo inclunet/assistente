@@ -17,6 +17,24 @@ Um workspace é um container que agrupa:
 - **Listas de tarefas** — tarefas do projeto
 - **Perfil override** — cada workspace pode usar um perfil de interação diferente
 
+## Abertura pelo executável
+
+- `assistente.exe` restaura o último workspace usado. A pasta definida pelo
+  atalho ou pelo atualizador não é tratada como uma escolha de workspace.
+- `assistente.exe .` abre a pasta atual como workspace.
+- `assistente.exe "C:\Meus projetos\Projeto"` abre a pasta indicada.
+
+A pasta indicada precisa existir. Se ainda não houver
+`.assistente/workspace.yaml`, o aplicativo cria o workspace com uma aba de chat.
+Sem histórico de uso, a abertura sem argumentos cria o workspace padrão na home.
+O menu **Abrir Assistente Aqui** do Windows usa a mesma sintaxe. A opção
+`--workdir` não é suportada.
+
+Se a inicialização do workspace falhar, o aplicativo informa o erro e encerra
+essa abertura; não continua com uma interface sem contexto para comandos.
+Os logs habilitados também recebem o erro. Se já houver uma instância usando
+esse banco, a abertura apresenta a janela existente, sem trocar seu workspace.
+
 ## Localização dos Dados
 
 Os workspaces são armazenados em:

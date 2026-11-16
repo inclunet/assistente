@@ -13,17 +13,23 @@ import (
 // TerminalControllerConfig agrupa as dependências do TerminalController.
 type TerminalControllerConfig struct {
 	TerminalMgr *terminal.Manager
+	WorkDir     func() (string, error)
 }
 
 // TerminalController é o adapter primário (Inbound) para operações de sessões PTY.
 type TerminalController struct {
 	terminalMgr *terminal.Manager
+	workDir     func() (string, error)
 }
 
 // NewTerminalController cria um TerminalController com suas dependências.
 func NewTerminalController(cfg TerminalControllerConfig) *TerminalController {
+	if cfg.WorkDir == nil {
+		cfg.WorkDir = os.Getwd
+	}
 	return &TerminalController{
 		terminalMgr: cfg.TerminalMgr,
+		workDir:     cfg.WorkDir,
 	}
 }
 
@@ -40,7 +46,10 @@ func (c *TerminalController) CreateTerminalSession(name string) (*terminal.Sessi
 	if c.terminalMgr == nil {
 		return nil, fmt.Errorf("terminal manager não inicializado")
 	}
-	workDir, _ := os.Getwd()
+	workDir, err := c.workDir()
+	if err != nil {
+		return nil, err
+	}
 	session, err := c.terminalMgr.Create(name, workDir)
 	if err != nil {
 		return nil, err

@@ -383,6 +383,7 @@ func (a *App) wireSignal() {
 func (a *App) wireTerminal() {
 	a.terminalCtrl = controllers.NewTerminalController(controllers.TerminalControllerConfig{
 		TerminalMgr: a.terminalMgr,
+		WorkDir:     a.initialToolWorkDir,
 	})
 	if a.terminalAPI != nil {
 		wailsapi.AttachTerminal(a.terminalAPI, wailsSession{app: a}, a.terminalCtrl)

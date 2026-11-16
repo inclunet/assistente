@@ -96,6 +96,12 @@ func run(args []string) (exitCode int) {
 		return 2
 	}
 
+	workspaceDir, remainingArgs, err := parseWorkspaceArgs(remainingArgs)
+	if err != nil {
+		reportPreReservationFailure(logPath, startupApplicationError(err))
+		return 2
+	}
+
 	originalArgs := os.Args
 	os.Args = append([]string{args[0]}, remainingArgs...)
 	defer func() {
@@ -167,6 +173,7 @@ func run(args []string) (exitCode int) {
 	activationReady, stopActivation := startDesktopActivations(activationRequests, activateDesktop)
 	defer stopActivation()
 	a := application.NewApp()
+	application.SetStartupWorkspaceDirectory(a, workspaceDir)
 	application.SetDesktopDatabasePath(a, instance.DatabasePath())
 	tokensAPI := wailsapi.NewTokens()
 	application.SetTokensAPI(a, tokensAPI)

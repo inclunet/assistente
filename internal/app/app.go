@@ -173,7 +173,8 @@ type App struct {
 	editorAssistedWriteSeq    int64
 
 	// Workspace manager (unified tabs)
-	workspaceMgr *workspace.Manager
+	workspaceMgr        *workspace.Manager
+	startupWorkspaceDir *string // nil conserva o cwd para consumidores não desktop
 
 	// Jobs manager (event-driven automation)
 	jobMgr *jobs.Manager
@@ -971,6 +972,10 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 	if err := a.initDesktopDatabase(); err != nil {
 		return fmt.Errorf("erro ao inicializar banco de dados: %w", err)
 	}
+	// Carrega o workspace após as migrações e antes dos serviços que usam sua pasta.
+	if err := a.initWorkspace(); err != nil {
+		return err
+	}
 	// Drafts não são mais varridos por idade no boot pré-login. O cleanup
 	// legado apagava qualquer arquivo >24h sem consultar abas/merges e podia
 	// destruir recuperação de crash. Fechamento explícito da aba continua
@@ -1142,10 +1147,6 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 			return a.chatInteractor.RenameFromAgent(ctx, conversationID, turnMessageID, title)
 		},
 	})
-
-	// Workspace antes do Prompt Builder: senão Workspace fica (*Manager)(nil) numa interface (typed nil)
-	// e BuildTemplateData chama Active() → panic.
-	a.initWorkspace()
 
 	// StreamingManager: controla contextos canceláveis por conversa (barge-in)
 	a.streamMgr = chat.NewStreamingManager(a.responseNotifier)

@@ -10,50 +10,62 @@ import (
 )
 
 type startupMessages struct {
-	appTitle        string
-	logPathRequired string
-	logFlagRepeated string
-	logOpen         string
-	logConfigure    string
-	logClose        string
-	appStartup      string
-	appRun          string
-	instance        string
+	workspaceArguments    string
+	workspaceDirectory    string
+	workspaceNotDirectory string
+	appTitle              string
+	logPathRequired       string
+	logFlagRepeated       string
+	logOpen               string
+	logConfigure          string
+	logClose              string
+	appStartup            string
+	appRun                string
+	instance              string
 }
 
 var startupCatalog = map[string]startupMessages{
 	"pt": {
-		appTitle:        "Assistente IA",
-		logPathRequired: "A opção --log-file requer um caminho.",
-		logFlagRepeated: "A opção --log-file foi informada mais de uma vez.",
-		logOpen:         "Não foi possível abrir o arquivo de log %q: %v",
-		logConfigure:    "Erro ao configurar logs: %v",
-		logClose:        "Erro ao fechar arquivo de log %q: %v",
-		appStartup:      "Falha ao inicializar aplicação: %v",
-		appRun:          "Erro: %v",
-		instance:        "Não foi possível reservar ou ativar a instância do Assistente. Se ele já estiver aberto, volte à janela existente. Nenhum processo foi encerrado: %v",
+		workspaceArguments:    "Uso: assistente [pasta]. Informe apenas uma pasta; --workdir não é suportado.",
+		workspaceDirectory:    "Não foi possível abrir a pasta %q: %v",
+		workspaceNotDirectory: "O caminho %q não é uma pasta.",
+		appTitle:              "Assistente IA",
+		logPathRequired:       "A opção --log-file requer um caminho.",
+		logFlagRepeated:       "A opção --log-file foi informada mais de uma vez.",
+		logOpen:               "Não foi possível abrir o arquivo de log %q: %v",
+		logConfigure:          "Erro ao configurar logs: %v",
+		logClose:              "Erro ao fechar arquivo de log %q: %v",
+		appStartup:            "Falha ao inicializar aplicação: %v",
+		appRun:                "Erro: %v",
+		instance:              "Não foi possível reservar ou ativar a instância do Assistente. Se ele já estiver aberto, volte à janela existente. Nenhum processo foi encerrado: %v",
 	},
 	"en": {
-		appTitle:        "AI Assistant",
-		logPathRequired: "The --log-file option requires a path.",
-		logFlagRepeated: "The --log-file option was provided more than once.",
-		logOpen:         "Could not open log file %q: %v",
-		logConfigure:    "Error configuring logs: %v",
-		logClose:        "Error closing log file %q: %v",
-		appStartup:      "Failed to start application: %v",
-		appRun:          "Error: %v",
-		instance:        "Could not reserve or activate the Assistant instance. If it is already open, return to the existing window. No process was terminated: %v",
+		workspaceArguments:    "Usage: assistente [folder]. Specify only one folder; --workdir is not supported.",
+		workspaceDirectory:    "Could not open folder %q: %v",
+		workspaceNotDirectory: "The path %q is not a folder.",
+		appTitle:              "AI Assistant",
+		logPathRequired:       "The --log-file option requires a path.",
+		logFlagRepeated:       "The --log-file option was provided more than once.",
+		logOpen:               "Could not open log file %q: %v",
+		logConfigure:          "Error configuring logs: %v",
+		logClose:              "Error closing log file %q: %v",
+		appStartup:            "Failed to start application: %v",
+		appRun:                "Error: %v",
+		instance:              "Could not reserve or activate the Assistant instance. If it is already open, return to the existing window. No process was terminated: %v",
 	},
 	"es": {
-		appTitle:        "Asistente IA",
-		logPathRequired: "La opción --log-file requiere una ruta.",
-		logFlagRepeated: "La opción --log-file se proporcionó más de una vez.",
-		logOpen:         "No se pudo abrir el archivo de registro %q: %v",
-		logConfigure:    "Error al configurar los registros: %v",
-		logClose:        "Error al cerrar el archivo de registro %q: %v",
-		appStartup:      "No se pudo iniciar la aplicación: %v",
-		appRun:          "Error: %v",
-		instance:        "No se pudo reservar o activar la instancia del Asistente. Si ya está abierto, vuelva a la ventana existente. No se terminó ningún proceso: %v",
+		workspaceArguments:    "Uso: assistente [carpeta]. Indique solo una carpeta; --workdir no es compatible.",
+		workspaceDirectory:    "No se pudo abrir la carpeta %q: %v",
+		workspaceNotDirectory: "La ruta %q no es una carpeta.",
+		appTitle:              "Asistente IA",
+		logPathRequired:       "La opción --log-file requiere una ruta.",
+		logFlagRepeated:       "La opción --log-file se proporcionó más de una vez.",
+		logOpen:               "No se pudo abrir el archivo de registro %q: %v",
+		logConfigure:          "Error al configurar los registros: %v",
+		logClose:              "Error al cerrar el archivo de registro %q: %v",
+		appStartup:            "No se pudo iniciar la aplicación: %v",
+		appRun:                "Error: %v",
+		instance:              "No se pudo reservar o activar la instancia del Asistente. Si ya está abierto, vuelva a la ventana existente. No se terminó ningún proceso: %v",
 	},
 }
 

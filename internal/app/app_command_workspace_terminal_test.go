@@ -13,17 +13,19 @@ import (
 )
 
 type fakeCommandTerminalCreator struct {
-	info        terminal.SessionInfo
-	live        bool
-	closeCalls  []string
-	createCalls int
-	createErr   error
-	closeErr    error
-	afterCreate func()
+	info           terminal.SessionInfo
+	live           bool
+	closeCalls     []string
+	createCalls    int
+	createdWorkDir string
+	createErr      error
+	closeErr       error
+	afterCreate    func()
 }
 
 func (f *fakeCommandTerminalCreator) CreateInfo(name, workDir string) (terminal.SessionInfo, error) {
 	f.createCalls++
+	f.createdWorkDir = workDir
 	if f.createErr != nil {
 		return terminal.SessionInfo{}, f.createErr
 	}
@@ -57,11 +59,15 @@ func TestCreateTerminalSessionAndCommitPersisteAbaSemCleanupNoSucesso(t *testing
 		t.Fatal(err)
 	}
 	sessions := &fakeCommandTerminalCreator{info: terminal.SessionInfo{ID: "session-created"}}
-	created, err := createTerminalSessionAndCommit(context.Background(), "tab-created", sessions, func(ctx context.Context, info terminal.SessionInfo, _ string) (*workspace.Workspace, error) {
+	t.Chdir(root)
+	created, err := createTerminalSessionAndCommit(context.Background(), "tab-created", sessions, workspacePath, func(ctx context.Context, info terminal.SessionInfo, _ string) (*workspace.Workspace, error) {
 		return manager.AddTerminalTabForCommand(ctx, expected, workspace.Tab{ID: "tab-created", Type: workspace.TabTypeTerminal, State: map[string]any{"sessionId": info.ID}}, sessions)
 	})
 	if err != nil {
 		t.Fatal(err)
+	}
+	if sessions.createdWorkDir != workspacePath {
+		t.Fatalf("terminal started in %q instead of workspace %q", sessions.createdWorkDir, workspacePath)
 	}
 	if created.FindTab("tab-created").State["sessionId"] != "session-created" || len(sessions.closeCalls) != 0 {
 		t.Fatalf("sucesso alterou lifecycle indevidamente: created=%#v closes=%v", created, sessions.closeCalls)
@@ -75,7 +81,7 @@ func TestCreateTerminalSessionAndCommitPersisteAbaSemCleanupNoSucesso(t *testing
 func TestCreateTerminalSessionAndCommitCompensaSomenteSessaoNova(t *testing.T) {
 	sessions := &fakeCommandTerminalCreator{info: terminal.SessionInfo{ID: "session-new"}}
 	want := errors.New("commit falhou")
-	_, err := createTerminalSessionAndCommit(context.Background(), "tab-failed", sessions, func(context.Context, terminal.SessionInfo, string) (*workspace.Workspace, error) {
+	_, err := createTerminalSessionAndCommit(context.Background(), "tab-failed", sessions, t.TempDir(), func(context.Context, terminal.SessionInfo, string) (*workspace.Workspace, error) {
 		return nil, want
 	})
 	if !errors.Is(err, want) {
@@ -109,7 +115,7 @@ func TestCreateTerminalSessionAndCommitCancellationAndInvalidSession(t *testing.
 				wantClose = 0
 			}
 			commits := 0
-			_, err := createTerminalSessionAndCommit(ctx, "tab", sessions, func(context.Context, terminal.SessionInfo, string) (*workspace.Workspace, error) {
+			_, err := createTerminalSessionAndCommit(ctx, "tab", sessions, t.TempDir(), func(context.Context, terminal.SessionInfo, string) (*workspace.Workspace, error) {
 				commits++
 				return &workspace.Workspace{}, nil
 			})
@@ -126,7 +132,7 @@ func TestCreateTerminalSessionAndCommitCancellationAndInvalidSession(t *testing.
 func TestCreateTerminalSessionAndCommitPreservesCleanupFailure(t *testing.T) {
 	primary, cleanup := errors.New("stale target"), errors.New("close failed")
 	sessions := &fakeCommandTerminalCreator{info: terminal.SessionInfo{ID: "new-session"}, closeErr: cleanup}
-	result, err := createTerminalSessionAndCommit(context.Background(), "tab", sessions, func(context.Context, terminal.SessionInfo, string) (*workspace.Workspace, error) {
+	result, err := createTerminalSessionAndCommit(context.Background(), "tab", sessions, t.TempDir(), func(context.Context, terminal.SessionInfo, string) (*workspace.Workspace, error) {
 		return nil, primary
 	})
 	if result != nil || !errors.Is(err, primary) || !errors.Is(err, cleanup) || len(sessions.closeCalls) != 1 {
