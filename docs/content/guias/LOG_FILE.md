@@ -25,6 +25,8 @@ pendente e pede outro caminho para retomar a gravação. Os arquivos anteriores 
 os temporários permanecem na pasta `.assistente-archives` para inspeção e
 recuperação manual. A detecção depende do sistema de arquivos ter persistido o
 marcador da operação; uma queda de energia pode interromper essa persistência.
+Se a criação inicial for interrompida antes de terminar, o destino também pode
+exigir um novo caminho; os arquivos parciais ficam disponíveis para inspeção.
 
 Também é possível iniciar o executável gráfico com `--log-file` e informar o caminho:
 

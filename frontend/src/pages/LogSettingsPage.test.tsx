@@ -37,6 +37,7 @@ describe('LogSettingsPage', () => {
     getSettings.mockResolvedValue({ settings: { enabled: false, path: '', maxMiB: 50, backups: 5, rotateHours: 24 }, overridden: true });
     const { container } = render(<LogSettingsPage />);
     await screen.findByText('logSettings.overridden');
+    expect(screen.getByRole('region', { name: 'logSettings.title' })).toBeInTheDocument();
     expect(await axe(container)).toHaveNoViolations();
   });
 

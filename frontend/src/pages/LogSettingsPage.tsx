@@ -84,7 +84,7 @@ export default function LogSettingsPage() {
       {overridden && <p>{t('logSettings.overridden')}</p>}
       {error && <p>{error}</p>}
       {diagnostic && <p>{diagnostic}</p>}
-      {settings && <form onSubmit={(event) => { event.preventDefault(); void save(); }}>
+      {settings && <section aria-label={t('logSettings.title')}><form onSubmit={(event) => { event.preventDefault(); void save(); }}>
         <Checkbox label={t('logSettings.enabled')} checked={settings.enabled}
           onChange={(event) => setSettings({ ...settings, enabled: event.target.checked })} />
         <Input label={t('logSettings.path')} value={settings.path} disabled={!settings.enabled}
@@ -97,7 +97,7 @@ export default function LogSettingsPage() {
           hint={t('logSettings.rotateHoursHint')} value={settings.rotateHours}
           onChange={(event) => setSettings({ ...settings, rotateHours: Number(event.target.value) })} />
         <Button type="submit" loading={saving}>{t('logSettings.save')}</Button>
-      </form>}
+      </form></section>}
     </div>
   );
 }

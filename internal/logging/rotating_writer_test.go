@@ -46,6 +46,54 @@ func TestRotatingWriterNaoAdotaArquivosPreexistentes(t *testing.T) {
 	}
 }
 
+func TestRotatingWriterLimpaConfiguracaoInicialQueFalhou(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "app.log")
+	_, err := newRotatingWriter(path, 4, 1, func() error { return errors.New("falha simulada") })
+	if err == nil {
+		t.Fatal("falha inicial não foi propagada")
+	}
+	for _, target := range []string{path, path + ".assistente-archives"} {
+		if _, err := os.Lstat(target); !os.IsNotExist(err) {
+			t.Fatalf("estado parcial em %s: %v", target, err)
+		}
+	}
+	w, err := NewRotatingWriter(path, 4, 1)
+	if err != nil {
+		t.Fatalf("nova tentativa falhou: %v", err)
+	}
+	if err := w.Close(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestRotatingWriterGravaRegistroMesmoSeLimpezaFalhar(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "app.log")
+	w, err := NewRotatingWriter(path, 4, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if err := w.Close(); err != nil {
+			t.Error(err)
+		}
+	}()
+	if _, err := w.Write([]byte("aaaa")); err != nil {
+		t.Fatal(err)
+	}
+	w.afterCommit = func() error { return errors.New("limpeza indisponível") }
+	n, err := w.Write([]byte("bbbb"))
+	if n != 4 || err == nil {
+		t.Fatalf("escrita = %d, erro = %v", n, err)
+	}
+	got, err := os.ReadFile(path)
+	if err != nil || string(got) != "bbbb" {
+		t.Fatalf("registro atual = %q, erro = %v", got, err)
+	}
+	if _, err := os.Stat(filepath.Join(path+".assistente-archives", ".rotation-pending")); err != nil {
+		t.Fatalf("estado pendente ausente: %v", err)
+	}
+}
+
 func TestRotatingWriterRecusaDiretorioDeBackupNaoReconhecido(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "app.log")

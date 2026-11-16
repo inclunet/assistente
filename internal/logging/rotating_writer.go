@@ -16,20 +16,26 @@ import (
 // RotatingWriter mantém o arquivo atual e até backups arquivos anteriores.
 // Chamadas concorrentes são serializadas; cada registro é escrito inteiro.
 type RotatingWriter struct {
-	mu        sync.Mutex
-	path      string
-	archive   string
-	maxSize   int64
-	backups   int
-	file      *os.File
-	size      int64
-	lock      *commandinstance.Lock
-	afterMove func() error // injeção de falhas para teste de rollback
-	started   time.Time
-	interval  time.Duration
+	mu          sync.Mutex
+	path        string
+	archive     string
+	maxSize     int64
+	backups     int
+	file        *os.File
+	size        int64
+	lock        *commandinstance.Lock
+	afterMove   func() error // injeção de falhas para teste de rollback
+	afterCommit func() error // injeção de falhas para teste de limpeza
+	cleanupErr  error
+	started     time.Time
+	interval    time.Duration
 }
 
 func NewRotatingWriter(path string, maxSize int64, backups int) (*RotatingWriter, error) {
+	return newRotatingWriter(path, maxSize, backups, nil)
+}
+
+func newRotatingWriter(path string, maxSize int64, backups int, afterCreate func() error) (_ *RotatingWriter, resultErr error) {
 	if path == "" || maxSize <= 0 || backups < 1 || backups > 100 {
 		return nil, fmt.Errorf("configuração de rotação inválida")
 	}
@@ -37,6 +43,27 @@ func NewRotatingWriter(path string, maxSize int64, backups int) (*RotatingWriter
 	marker := filepath.Join(archive, ".assistente-log")
 	_, statErr := os.Lstat(archive)
 	created := false
+	var err error
+	var archiveInfo, markerInfo, createdFileInfo os.FileInfo
+	defer func() {
+		if resultErr == nil || !created {
+			return
+		}
+		removeIfSame := func(path string, original os.FileInfo) {
+			if original == nil {
+				return
+			}
+			if current, err := os.Lstat(path); err == nil && os.SameFile(original, current) {
+				_ = os.Remove(path)
+			}
+		}
+		// Não remova um arquivo criado aqui se outro escritor já depositou dados.
+		if current, err := os.Lstat(path); err == nil && createdFileInfo != nil && current.Size() == 0 && os.SameFile(createdFileInfo, current) {
+			_ = os.Remove(path)
+		}
+		removeIfSame(marker, markerInfo)
+		removeIfSame(archive, archiveInfo) // Somente se permanecer vazio.
+	}()
 	if os.IsNotExist(statErr) {
 		// Nunca adote um arquivo preexistente que pode conter outros dados.
 		if _, err := os.Lstat(path); err == nil {
@@ -47,10 +74,24 @@ func NewRotatingWriter(path string, maxSize int64, backups int) (*RotatingWriter
 		if err := os.Mkdir(archive, 0o700); err != nil {
 			return nil, err
 		}
-		if err := os.WriteFile(marker, []byte("assistente-log-v1\n"), 0o600); err != nil {
+		created = true
+		archiveInfo, err = os.Lstat(archive)
+		if err != nil {
 			return nil, err
 		}
-		created = true
+		initialMarker, err := os.OpenFile(marker, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+		if err != nil {
+			return nil, err
+		}
+		markerInfo, err = initialMarker.Stat()
+		if err != nil {
+			_ = initialMarker.Close()
+			return nil, err
+		}
+		_, writeErr := initialMarker.WriteString("assistente-log-v1\n")
+		if err := errors.Join(writeErr, initialMarker.Close()); err != nil {
+			return nil, err
+		}
 	} else if statErr != nil {
 		return nil, statErr
 	} else {
@@ -65,6 +106,9 @@ func NewRotatingWriter(path string, maxSize int64, backups int) (*RotatingWriter
 	}
 	lock, err := commandinstance.Acquire(context.Background(), marker)
 	if err != nil {
+		if errors.Is(err, commandinstance.ErrBusy) {
+			created = false
+		}
 		return nil, err
 	}
 	if _, err := os.Lstat(filepath.Join(archive, ".rotation-pending")); err == nil {
@@ -117,6 +161,14 @@ func NewRotatingWriter(path string, maxSize int64, backups int) (*RotatingWriter
 		return nil, err
 	}
 	if created {
+		createdFileInfo = info
+		if afterCreate != nil {
+			if err := afterCreate(); err != nil {
+				_ = file.Close()
+				_ = lock.Close()
+				return nil, err
+			}
+		}
 		if err := writeLogIdentity(path, marker, started); err != nil {
 			_ = file.Close()
 			_ = lock.Close()
@@ -185,7 +237,9 @@ func (w *RotatingWriter) Write(p []byte) (int, error) {
 	}
 	n, err := w.file.Write(p)
 	w.size += int64(n)
-	return n, err
+	cleanupErr := w.cleanupErr
+	w.cleanupErr = nil
+	return n, errors.Join(err, cleanupErr)
 }
 
 func (w *RotatingWriter) rotate() (result error) {
@@ -334,18 +388,27 @@ func (w *RotatingWriter) rotate() (result error) {
 	w.file, w.size = file, 0
 	w.started = started
 	committed = true
+	if w.afterCommit != nil {
+		if err := w.afterCommit(); err != nil {
+			w.cleanupErr = err
+			return nil
+		}
+	}
 	if savedOldest != "" {
 		if err := os.Remove(savedOldest); err != nil {
-			return err
+			w.cleanupErr = err
+			return nil
 		}
 	}
 	for i := w.backups + 1; i <= 100; i++ {
 		if err := os.Remove(filepath.Join(w.archive, strconv.Itoa(i))); err != nil && !os.IsNotExist(err) {
-			return err
+			w.cleanupErr = err
+			return nil
 		}
 	}
 	if err := os.Remove(pending); err != nil {
-		return err
+		w.cleanupErr = err
+		return nil
 	}
 	return nil
 }
