@@ -79,6 +79,9 @@ LangString UserPathError ${LANG_SPANISH} "No se pudo actualizar el PATH del usua
 LangString CLIInUse ${LANG_ENGLISH} "The installer could not replace asst.exe. Close running asst commands and try again."
 LangString CLIInUse ${LANG_PORTUGUESEBR} "O instalador não conseguiu substituir asst.exe. Feche os comandos asst em execução e tente novamente."
 LangString CLIInUse ${LANG_SPANISH} "El instalador no pudo reemplazar asst.exe. Cierre los comandos asst en ejecución e inténtelo de nuevo."
+LangString CLIUninstallBlocked ${LANG_ENGLISH} "Could not remove asst.exe. Close running asst commands and retry uninstalling."
+LangString CLIUninstallBlocked ${LANG_PORTUGUESEBR} "Não foi possível remover asst.exe. Feche os comandos asst em execução e tente desinstalar novamente."
+LangString CLIUninstallBlocked ${LANG_SPANISH} "No se pudo eliminar asst.exe. Cierre los comandos asst en ejecución y vuelva a intentar desinstalar."
 ## The following two statements can be used to sign the installer and the uninstaller. The path to the binaries are provided in %1
 #!uninstfinalize 'signtool --file "%1"'
 #!finalize 'signtool --file "%1"'
@@ -220,6 +223,24 @@ Section
 SectionEnd
 
 Section "uninstall"
+    # Aguarda a CLI antes de limpar PATH ou registro de desinstalação.
+    ${If} ${FileExists} "$INSTDIR\asst.exe"
+        StrCpy $R0 0
+        ${Do}
+            ClearErrors
+            FileOpen $R1 "$INSTDIR\asst.exe" a
+            ${IfNot} ${Errors}
+                FileClose $R1
+                ${ExitDo}
+            ${EndIf}
+            IntOp $R0 $R0 + 1
+            ${If} $R0 > 60
+                MessageBox MB_ICONEXCLAMATION|MB_OK "$(CLIUninstallBlocked)" /SD IDOK
+                Abort
+            ${EndIf}
+            Sleep 500
+        ${Loop}
+    ${EndIf}
     # Limpa somente as entradas registradas por esta instalação, antes de apagar a CLI.
     nsExec::ExecToStack '"$INSTDIR\asst.exe" _installer-path remove'
     Pop $0
@@ -230,6 +251,15 @@ Section "uninstall"
     ${If} $1 != ""
         DetailPrint "$(UserPathCleanupWarning)"
         MessageBox MB_ICONEXCLAMATION|MB_OK "$(UserPathCleanupWarning)" /SD IDOK
+    ${EndIf}
+    # Confere a remoção real: a CLI pode ter sido aberta após a espera.
+    ${If} ${FileExists} "$INSTDIR\asst.exe"
+        ClearErrors
+        Delete "$INSTDIR\asst.exe"
+        ${If} ${Errors}
+            MessageBox MB_ICONEXCLAMATION|MB_OK "$(CLIUninstallBlocked)" /SD IDOK
+            Abort
+        ${EndIf}
     ${EndIf}
     !insertmacro wails.setShellContext
 

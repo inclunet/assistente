@@ -92,7 +92,9 @@ instalação. A conta usada para fornecer credenciais ao UAC não recebe essa en
 O helper interno `asst _installer-path` não inicializa serviços ou banco. Ele
 preserva o tipo e conteúdo do PATH e registra por SID apenas entradas adicionadas
 por esta instalação. Atualizações não duplicam entradas e a desinstalação não
-remove entradas preexistentes. Se um perfil estiver desconectado ou inacessível,
+remove entradas preexistentes. A desinstalação espera a CLI fechar antes da limpeza;
+se a remoção de asst.exe falhar, preserva o desinstalador e seu registro para nova tentativa.
+Se um perfil estiver desconectado ou inacessível,
 a desinstalação avisa que a limpeza desse PATH ficou pendente e continua; não
 carrega nem modifica arquivos de perfil offline.
 

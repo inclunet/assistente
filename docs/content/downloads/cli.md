@@ -27,6 +27,9 @@ Abra um novo terminal após instalar para executar `asst --help` ou
 `assistente .`. `assistente` sem argumentos restaura o último workspace;
 `assistente "C:\Minha pasta"` abre a pasta indicada.
 
+Feche os comandos asst em execução antes de desinstalar. Se a CLI não puder
+ser removida, o instalador pede que você feche esses comandos e tente novamente.
+
 A desinstalação preserva entradas do PATH que já existiam antes da instalação.
 Se a conta estiver desconectada ou seu perfil inacessível, ela avisa que pode
 ser necessário remover manualmente a pasta instalada do PATH dessa conta.
