@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { GetLogSettings, SaveLogSettings } from '@wailsjs/go/wailsapi/Settings';
 import { Button } from '../components/ui/Button';
@@ -6,6 +6,7 @@ import { Checkbox } from '../components/ui/Checkbox';
 import { Input } from '../components/ui/Input';
 import { useAnnouncer } from '../hooks/useAnnouncer';
 import { useContentPageLandmarks } from '../hooks/useContentPageLandmarks';
+import { ActivePanelContext } from '../hooks/useActivePanelShortcut';
 import './LogSettingsPage.css';
 
 interface LogSettings {
@@ -22,20 +23,41 @@ export default function LogSettingsPage() {
   const [settings, setSettings] = useState<LogSettings | null>(null);
   const [overridden, setOverridden] = useState(false);
   const [error, setError] = useState('');
+  const [diagnostic, setDiagnostic] = useState('');
   const [saving, setSaving] = useState(false);
+  const panelActive = useContext(ActivePanelContext);
+  const requestId = useRef(0);
+  const panelActiveRef = useRef(panelActive);
+  const previousDiagnostic = useRef('');
+  panelActiveRef.current = panelActive;
   useContentPageLandmarks({ pageClass: 'log-settings-page' });
 
-  useEffect(() => {
-    let active = true;
-    void GetLogSettings().then((result) => {
-      if (active) {
-        setSettings(result.settings);
-        setOverridden(result.overridden);
-        if (result.error) setError(t('logSettings.startupError', { detail: result.error }));
-      }
-    }).catch(() => { if (active) setError(t('logSettings.loadError')); });
-    return () => { active = false; };
+  const refresh = useCallback(async () => {
+    const id = ++requestId.current;
+    try {
+      const result = await GetLogSettings();
+      if (id !== requestId.current) return;
+      // Uma consulta de diagnóstico nunca apaga as alterações do formulário.
+      setSettings((previous) => previous ?? result.settings);
+      setOverridden(result.overridden);
+      setDiagnostic(result.error ? t('logSettings.startupError', { detail: result.error }) : '');
+    } catch {
+      if (id === requestId.current) setDiagnostic(t('logSettings.loadError'));
+    }
   }, [t]);
+
+  useEffect(() => {
+    if (!panelActive) return;
+    panelActiveRef.current = true;
+    void refresh();
+    const timer = window.setInterval(() => { void refresh(); }, 30000);
+    return () => { panelActiveRef.current = false; requestId.current++; window.clearInterval(timer); };
+  }, [panelActive, refresh]);
+
+  useEffect(() => {
+    if (diagnostic && diagnostic !== previousDiagnostic.current) announce(diagnostic, 'assertive');
+    previousDiagnostic.current = diagnostic;
+  }, [diagnostic, announce]);
 
   const save = async () => {
     if (!settings) return;
@@ -44,6 +66,7 @@ export default function LogSettingsPage() {
     try {
       await SaveLogSettings(settings);
       announce(t('logSettings.saved'));
+      if (panelActiveRef.current) await refresh();
     } catch (cause) {
       const detail = cause instanceof Error ? cause.message : String(cause);
       const message = t('logSettings.saveError', { detail });
@@ -59,7 +82,8 @@ export default function LogSettingsPage() {
       <h1>{t('logSettings.title')}</h1>
       <p>{t('logSettings.description')}</p>
       {overridden && <p>{t('logSettings.overridden')}</p>}
-      {error && <p role="alert">{error}</p>}
+      {error && <p>{error}</p>}
+      {diagnostic && <p>{diagnostic}</p>}
       {settings && <form onSubmit={(event) => { event.preventDefault(); void save(); }}>
         <Checkbox label={t('logSettings.enabled')} checked={settings.enabled}
           onChange={(event) => setSettings({ ...settings, enabled: event.target.checked })} />

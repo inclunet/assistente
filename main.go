@@ -38,6 +38,7 @@ var (
 	// quando não consegue comprovar a drenagem. Não liberar a reserva nesse intervalo.
 	desktopProcessReservation io.Closer
 	resolveDesktopDatabase    = database.ResolvePath
+	logUserDirectory          = configdir.GetHomeDir
 	acquireDesktopInstance    = func(path string, activate func()) (desktopReservation, error) {
 		return desktopinstance.Acquire(path, activate)
 	}
@@ -65,6 +66,24 @@ func main() {
 	os.Exit(run(os.Args))
 }
 
+// Erros fatais anteriores à reserva ainda devem chegar ao destino explícito
+// --log-file. O arquivo é aberto apenas depois da falha, sem disputar o lock
+// de rotação enquanto outra instância tenta se tornar a principal.
+func reportPreReservationFailure(path, message string) {
+	output := io.Writer(os.Stderr)
+	configPath := ""
+	if dir := logUserDirectory(); dir != "" {
+		configPath = filepath.Join(dir, "logging.json")
+	}
+	if path != "" && !logging.ConflictsWithSettings(configPath, path) {
+		if file, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600); err == nil {
+			defer func() { _ = file.Close() }()
+			output = logging.DuplicateTo(os.Stderr, file)
+		}
+	}
+	reportFatalError(output, message)
+}
+
 func run(args []string) (exitCode int) {
 	logPath, remainingArgs, err := logging.ParseLogFileArgs(args[1:])
 	if err != nil {
@@ -77,12 +96,49 @@ func run(args []string) (exitCode int) {
 		return 2
 	}
 
-	home := configdir.GetHomeDir()
-	if home == "" {
-		reportFatalError(os.Stderr, startupLogConfigurationError(errors.New("diretório de usuário indisponível")))
-		return 2
+	originalArgs := os.Args
+	os.Args = append([]string{args[0]}, remainingArgs...)
+	defer func() {
+		os.Args = originalArgs
+	}()
+
+	databasePath, err := resolveDesktopDatabase()
+	if err != nil {
+		reportPreReservationFailure(logPath, startupApplicationError(err))
+		return 1
 	}
-	logManager, err := logging.NewManager(filepath.Join(home, "logging.json"), logPath)
+	activationRequests := make(chan struct{}, 1)
+	instance, err := acquireDesktopInstance(databasePath, func() {
+		select {
+		case activationRequests <- struct{}{}:
+		default:
+		}
+	})
+	if errors.Is(err, desktopinstance.ErrAlreadyRunning) {
+		return 0
+	}
+	if err != nil {
+		reportPreReservationFailure(logPath, startupInstanceError(err))
+		return 1
+	}
+	var runtimeEntered bool
+	defer func() {
+		if runtimeEntered {
+			desktopProcessReservation = instance
+			return
+		}
+		if err := instance.Close(); err != nil {
+			logging.Errorf(context.Background(), "main", "Falha ao liberar reserva desktop: %v", err)
+			exitCode = 1
+		}
+	}()
+	// A reserva precede a abertura do destino para que apenas a instância que
+	// permanecerá ativa retenha o lock da rotação de logs.
+	configPath := ""
+	if dir := logUserDirectory(); dir != "" {
+		configPath = filepath.Join(dir, "logging.json")
+	}
+	logManager, err := logging.NewManager(configPath, logPath)
 	if err != nil {
 		reportFatalError(os.Stderr, startupLogConfigurationError(err))
 		return 2
@@ -108,43 +164,6 @@ func run(args []string) (exitCode int) {
 		return 2
 	}
 	defer slog.SetDefault(previousLogger)
-
-	originalArgs := os.Args
-	os.Args = append([]string{args[0]}, remainingArgs...)
-	defer func() {
-		os.Args = originalArgs
-	}()
-
-	databasePath, err := resolveDesktopDatabase()
-	if err != nil {
-		reportFatalError(errorOutput, startupApplicationError(err))
-		return 1
-	}
-	activationRequests := make(chan struct{}, 1)
-	instance, err := acquireDesktopInstance(databasePath, func() {
-		select {
-		case activationRequests <- struct{}{}:
-		default:
-		}
-	})
-	if errors.Is(err, desktopinstance.ErrAlreadyRunning) {
-		return 0
-	}
-	if err != nil {
-		reportFatalError(errorOutput, startupInstanceError(err))
-		return 1
-	}
-	var runtimeEntered bool
-	defer func() {
-		if runtimeEntered {
-			desktopProcessReservation = instance
-			return
-		}
-		if err := instance.Close(); err != nil {
-			logging.Errorf(context.Background(), "main", "Falha ao liberar reserva desktop: %v", err)
-			exitCode = 1
-		}
-	}()
 	activationReady, stopActivation := startDesktopActivations(activationRequests, activateDesktop)
 	defer stopActivation()
 	a := application.NewApp()

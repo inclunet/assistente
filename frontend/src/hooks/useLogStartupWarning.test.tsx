@@ -53,3 +53,10 @@ it('avisa a nova sessão mesmo em troca direta de usuário', async () => {
   hook.rerender();
   await waitFor(() => expect(addToast).toHaveBeenCalledTimes(2));
 });
+
+it('não interrompe a interface se a ponte lançar erro síncrono', async () => {
+  getSettings.mockImplementation(() => { throw new Error('ponte indisponível'); });
+  renderHook(() => useLogStartupWarning());
+  await waitFor(() => expect(getSettings).toHaveBeenCalled());
+  expect(addToast).not.toHaveBeenCalled();
+});

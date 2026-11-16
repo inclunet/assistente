@@ -15,6 +15,29 @@ func TestDefaultSettingsUsaArquivoDoUsuarioERotacaoDiaria(t *testing.T) {
 	}
 }
 
+func TestManagerRecusaDestinoIgualAoArquivoDeConfiguracao(t *testing.T) {
+	config := filepath.Join(t.TempDir(), "logging.json")
+	m, err := NewManager(config, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if err := m.Close(); err != nil {
+			t.Error(err)
+		}
+	}()
+	settings := Settings{Enabled: true, Path: config, MaxMiB: 1, Backups: 2}
+	if err := m.Save(settings); err == nil {
+		t.Fatal("aceitou sobrescrever o arquivo de configuração")
+	}
+	if _, err := os.Stat(config); !os.IsNotExist(err) {
+		t.Fatalf("arquivo de configuração criado: %v", err)
+	}
+	if _, err := NewManager(config, config); err == nil {
+		t.Fatal("flag aceitou arquivo de configuração")
+	}
+}
+
 func TestManagerSalvaAtivaDesativaERestauraConfiguracao(t *testing.T) {
 	dir := t.TempDir()
 	config := filepath.Join(dir, "config.json")

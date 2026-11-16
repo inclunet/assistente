@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -55,6 +56,9 @@ type Manager struct {
 
 func NewManager(configPath, override string) (*Manager, error) {
 	m := &Manager{config: configPath, settings: DefaultSettings(), override: override}
+	if override != "" && ConflictsWithSettings(configPath, override) {
+		return nil, &FileOpenError{Path: override, Err: errors.New("o arquivo de log coincide com a configuração de logs")}
+	}
 	data, err := os.ReadFile(configPath)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		m.loadErr = err
@@ -74,6 +78,10 @@ func NewManager(configPath, override string) (*Manager, error) {
 			return nil, &FileOpenError{Path: override, Err: err}
 		}
 	} else if m.settings.Enabled {
+		if ConflictsWithSettings(configPath, m.settings.Path) {
+			m.loadErr = errors.New("o arquivo de log coincide com a configuração de logs")
+			return m, nil
+		}
 		var writer *RotatingWriter
 		writer, err = NewRotatingWriter(m.settings.Path, int64(m.settings.MaxMiB)*1024*1024, m.settings.Backups)
 		if err != nil {
@@ -105,6 +113,12 @@ func (m *Manager) Save(settings Settings) error {
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if m.config == "" {
+		return errors.New("diretório de configurações indisponível")
+	}
+	if settings.Enabled && ConflictsWithSettings(m.config, settings.Path) {
+		return errors.New("o arquivo de log coincide com a configuração de logs")
+	}
 	var next io.WriteCloser
 	current, samePath := m.sink.(*RotatingWriter)
 	samePath = samePath && settings.Enabled && current.path == settings.Path && m.override == ""
@@ -152,6 +166,33 @@ func (m *Manager) Save(settings Settings) error {
 		}
 	}
 	return nil
+}
+
+// ConflictsWithSettings identifica caminhos iguais, aliases e hardlinks existentes.
+func ConflictsWithSettings(configPath, logPath string) bool {
+	if configPath == "" || logPath == "" {
+		return false
+	}
+	if a, err := os.Stat(configPath); err == nil {
+		if b, err := os.Stat(logPath); err == nil && os.SameFile(a, b) {
+			return true
+		}
+	}
+	canonical := func(path string) string {
+		abs, err := filepath.Abs(path)
+		if err != nil {
+			return filepath.Clean(path)
+		}
+		if dir, err := filepath.EvalSymlinks(filepath.Dir(abs)); err == nil {
+			abs = filepath.Join(dir, filepath.Base(abs))
+		}
+		return filepath.Clean(abs)
+	}
+	a, b := canonical(configPath), canonical(logPath)
+	if runtime.GOOS == "windows" {
+		return strings.EqualFold(a, b)
+	}
+	return a == b
 }
 
 func writeSettings(path string, data []byte) error {

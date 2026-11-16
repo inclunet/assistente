@@ -10,6 +10,7 @@ arquivo que ainda não exista e escolha o tamanho máximo e quantos arquivos ant
 Por padrão, o caminho é `~/.assistente/assistente.log`, o limite é 50 MiB,
 mantêm-se cinco arquivos anteriores e o intervalo de rotação é de 24 horas.
 A gravação começa desativada. O intervalo pode ser alterado ou desativado com 0.
+Salvar essa configuração global requer uma conta administradora do Assistente.
 Ao atingir o limite ou quando chegar uma gravação após o intervalo, o aplicativo passa a gravar em um novo arquivo e preserva
 os anteriores em uma pasta própria com sufixo `.assistente-archives` junto ao
 arquivo. Os arquivos mais

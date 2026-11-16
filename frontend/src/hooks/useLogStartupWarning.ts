@@ -16,7 +16,7 @@ export function useLogStartupWarning() {
     if (!authenticated || !sessionId) { notifiedSession.current = null; return; }
     let cancelled = false;
     const check = () => {
-      void GetLogSettings().then((result) => {
+      void Promise.resolve().then(GetLogSettings).then((result) => {
         if (cancelled) return;
         if (result.error && notifiedSession.current !== sessionId) addToast(t('logSettings.startupToast'), 'warning', 15000);
         notifiedSession.current = result.error ? sessionId : null;
