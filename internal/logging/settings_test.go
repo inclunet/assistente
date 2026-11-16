@@ -15,6 +15,26 @@ func TestDefaultSettingsUsaArquivoDoUsuarioERotacaoDiaria(t *testing.T) {
 	}
 }
 
+func TestManagerCriaDiretorioDePreferenciasAntesDoLogPadrao(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), ".assistente")
+	m, err := NewManager(filepath.Join(dir, "logging.json"), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if err := m.Close(); err != nil {
+			t.Error(err)
+		}
+	}()
+	settings := Settings{Enabled: true, Path: filepath.Join(dir, "assistente.log"), MaxMiB: 50, Backups: 5, RotateHours: 24}
+	if err := m.Save(settings); err != nil {
+		t.Fatalf("ativar log padrão: %v", err)
+	}
+	if _, err := m.Write([]byte("primeiro registro")); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestManagerRecusaDestinoIgualAoArquivoDeConfiguracao(t *testing.T) {
 	config := filepath.Join(t.TempDir(), "logging.json")
 	m, err := NewManager(config, "")

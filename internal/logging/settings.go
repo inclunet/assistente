@@ -181,6 +181,11 @@ func (m *Manager) Save(settings Settings) error {
 	if settings.Enabled && ConflictsWithSettings(m.config, settings.Path) {
 		return errors.New("o arquivo de log coincide com a configuração de logs")
 	}
+	// O caminho padrão do log fica junto da configuração do usuário. Em uma
+	// instalação portátil esse diretório ainda pode não existir no primeiro uso.
+	if err := os.MkdirAll(filepath.Dir(m.config), 0o700); err != nil {
+		return err
+	}
 	var next io.WriteCloser
 	current, samePath := m.sink.(*RotatingWriter)
 	samePath = samePath && settings.Enabled && current.path == settings.Path && m.override == ""
