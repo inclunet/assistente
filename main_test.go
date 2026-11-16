@@ -10,9 +10,82 @@ import (
 	"testing"
 
 	application "assistente/internal/app"
+	"assistente/internal/desktopinstance"
 
 	"github.com/wailsapp/wails/v2/pkg/options"
 )
+
+func TestRunNaoAbreLogAntesDeReservarInstancia(t *testing.T) {
+	isolateDesktopReservation(t)
+	previous := acquireDesktopInstance
+	t.Cleanup(func() { acquireDesktopInstance = previous })
+	path := filepath.Join(t.TempDir(), "flag.log")
+	acquireDesktopInstance = func(_ string, _ func()) (desktopReservation, error) {
+		if _, err := os.Stat(path); !os.IsNotExist(err) {
+			t.Fatalf("arquivo aberto antes da reserva: %v", err)
+		}
+		return nil, desktopinstance.ErrAlreadyRunning
+	}
+	if code := run([]string{"assistente", "--log-file", path}); code != 0 {
+		t.Fatalf("exit code = %d", code)
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("arquivo criado para instância secundária: %v", err)
+	}
+}
+
+func TestRunGravaFalhasAntesDaReservaNaFlag(t *testing.T) {
+	for _, stage := range []string{"banco", "reserva"} {
+		t.Run(stage, func(t *testing.T) {
+			isolateDesktopReservation(t)
+			previousResolve, previousAcquire, previousNative := resolveDesktopDatabase, acquireDesktopInstance, showNativeFatalError
+			t.Cleanup(func() {
+				resolveDesktopDatabase, acquireDesktopInstance, showNativeFatalError = previousResolve, previousAcquire, previousNative
+			})
+			showNativeFatalError = func(string, string) {}
+			if stage == "banco" {
+				resolveDesktopDatabase = func() (string, error) { return "", errors.New("falha antes da reserva") }
+			} else {
+				acquireDesktopInstance = func(string, func()) (desktopReservation, error) { return nil, errors.New("falha antes da reserva") }
+			}
+			path := filepath.Join(t.TempDir(), "flag.log")
+			if code := run([]string{"assistente", "--log-file", path}); code != 1 {
+				t.Fatalf("exit code = %d", code)
+			}
+			data, err := os.ReadFile(path)
+			if err != nil || !strings.Contains(string(data), "falha antes da reserva") {
+				t.Fatalf("log = %q, erro = %v", data, err)
+			}
+		})
+	}
+}
+
+func TestRunSemDiretorioDoUsuarioContinuaComFlagDeLog(t *testing.T) {
+	isolateDesktopReservation(t)
+	previousDir, previousRun := logUserDirectory, runDesktop
+	t.Cleanup(func() { logUserDirectory, runDesktop = previousDir, previousRun })
+	logUserDirectory = func() string { return "" }
+	runDesktop = func(*options.App) error { return nil }
+	path := filepath.Join(t.TempDir(), "flag.log")
+	if code := run([]string{"assistente", "--log-file", path}); code != 0 {
+		t.Fatalf("exit code = %d", code)
+	}
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("flag não abriu o arquivo: %v", err)
+	}
+}
+
+func TestRunSemDiretorioDoUsuarioContinuaSemLogDeArquivo(t *testing.T) {
+	isolateDesktopReservation(t)
+	previousDir, previousRun := logUserDirectory, runDesktop
+	t.Cleanup(func() { logUserDirectory, runDesktop = previousDir, previousRun })
+	logUserDirectory = func() string { return "" }
+	started := false
+	runDesktop = func(*options.App) error { started = true; return nil }
+	if code := run([]string{"assistente"}); code != 0 || !started {
+		t.Fatalf("exit code = %d, runtime iniciado = %t", code, started)
+	}
+}
 
 func TestRunRemoveFlagPropagaStartupErrorEFechaLog(t *testing.T) {
 	isolateDesktopReservation(t)
@@ -116,6 +189,7 @@ func TestRunPropagaErroDoRunnerEFechaLog(t *testing.T) {
 }
 
 func TestRunReportaArquivoDeLogInacessivelAntesDoWails(t *testing.T) {
+	isolateDesktopReservation(t)
 	previousRunDesktop := runDesktop
 	previousNativeError := showNativeFatalError
 	previousLocaleProvider := startupLocaleProvider

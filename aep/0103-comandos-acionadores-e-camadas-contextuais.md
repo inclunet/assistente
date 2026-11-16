@@ -458,8 +458,8 @@ código numérico quando disponível; texto arbitrário de erros/SQL não é emi
 Um aviso único após três segundos identifica a etapa de uma leitura demorada,
 sem cancelar a chamada ou alterar deadlines. Não observa pressionamentos,
 execuções, argumentos, IDs de sessão, nomes de camadas ou conteúdo digitado.
-Início e mudanças de etapa não emitem linhas separadas. `--log-file` controla
-a gravação em arquivo; não muda guardas, permissões ou disponibilidade.
+Início e mudanças de etapa não emitem linhas separadas. A configuração de logs
+ou `--log-file` controla a gravação em arquivo; não muda guardas, permissões ou disponibilidade.
 Cobertura em `app_command_load_diagnostics_test.go`. Diagnóstico do incidente
 real e validação manual continuam pendentes; não constitui novo aceite do AEP.
 

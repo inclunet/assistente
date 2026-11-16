@@ -6,12 +6,15 @@ import (
 	"embed"
 	"errors"
 	"io"
+	"log"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"runtime"
 
 	"assistente/adapters/wails"
 	application "assistente/internal/app"
+	"assistente/internal/configdir"
 	"assistente/internal/database"
 	"assistente/internal/desktopinstance"
 	"assistente/internal/wailsapi"
@@ -35,6 +38,7 @@ var (
 	// quando não consegue comprovar a drenagem. Não liberar a reserva nesse intervalo.
 	desktopProcessReservation io.Closer
 	resolveDesktopDatabase    = database.ResolvePath
+	logUserDirectory          = configdir.GetHomeDir
 	acquireDesktopInstance    = func(path string, activate func()) (desktopReservation, error) {
 		return desktopinstance.Acquire(path, activate)
 	}
@@ -62,6 +66,24 @@ func main() {
 	os.Exit(run(os.Args))
 }
 
+// Erros fatais anteriores à reserva ainda devem chegar ao destino explícito
+// --log-file. O arquivo é aberto apenas depois da falha, sem disputar o lock
+// de rotação enquanto outra instância tenta se tornar a principal.
+func reportPreReservationFailure(path, message string) {
+	output := io.Writer(os.Stderr)
+	configPath := ""
+	if dir := logUserDirectory(); dir != "" {
+		configPath = filepath.Join(dir, "logging.json")
+	}
+	if path != "" && !logging.ConflictsWithSettings(configPath, path) {
+		if file, err := logging.OpenExplicitLog(path); err == nil {
+			defer func() { _ = file.Close() }()
+			output = logging.DuplicateTo(os.Stderr, file)
+		}
+	}
+	reportFatalError(output, message)
+}
+
 func run(args []string) (exitCode int) {
 	logPath, remainingArgs, err := logging.ParseLogFileArgs(args[1:])
 	if err != nil {
@@ -74,30 +96,6 @@ func run(args []string) (exitCode int) {
 		return 2
 	}
 
-	errorOutput := io.Writer(os.Stderr)
-	if logPath != "" {
-		fileOutput, err := logging.OpenFileOutput(logPath)
-		if err != nil {
-			reportFatalError(os.Stderr, startupLogConfigurationError(err))
-			return 2
-		}
-		database.SetLogOutput(fileOutput.Writer())
-		errorOutput = logging.DuplicateTo(os.Stderr, fileOutput.Writer())
-		defer func() {
-			database.SetLogOutput(nil)
-			if err := fileOutput.Close(); err != nil {
-				reportFatalError(os.Stderr, startupLogCloseError(logPath, err))
-				exitCode = 1
-			}
-		}()
-	}
-	previousLogger := slog.Default()
-	if err := logging.ConfigureToolLedgerLevel(logLevel); err != nil {
-		reportFatalError(errorOutput, startupLogConfigurationError(err))
-		return 2
-	}
-	defer slog.SetDefault(previousLogger)
-
 	originalArgs := os.Args
 	os.Args = append([]string{args[0]}, remainingArgs...)
 	defer func() {
@@ -106,7 +104,7 @@ func run(args []string) (exitCode int) {
 
 	databasePath, err := resolveDesktopDatabase()
 	if err != nil {
-		reportFatalError(errorOutput, startupApplicationError(err))
+		reportPreReservationFailure(logPath, startupApplicationError(err))
 		return 1
 	}
 	activationRequests := make(chan struct{}, 1)
@@ -120,7 +118,7 @@ func run(args []string) (exitCode int) {
 		return 0
 	}
 	if err != nil {
-		reportFatalError(errorOutput, startupInstanceError(err))
+		reportPreReservationFailure(logPath, startupInstanceError(err))
 		return 1
 	}
 	var runtimeEntered bool
@@ -134,6 +132,38 @@ func run(args []string) (exitCode int) {
 			exitCode = 1
 		}
 	}()
+	// A reserva precede a abertura do destino para que apenas a instância que
+	// permanecerá ativa retenha o lock da rotação de logs.
+	configPath := ""
+	if dir := logUserDirectory(); dir != "" {
+		configPath = filepath.Join(dir, "logging.json")
+	}
+	logManager, err := logging.NewManager(configPath, logPath)
+	if err != nil {
+		reportFatalError(os.Stderr, startupLogConfigurationError(err))
+		return 2
+	}
+	previousLogWriter := log.Writer()
+	log.SetOutput(logging.DuplicateTo(previousLogWriter, logManager))
+	if _, _, problem := logManager.Settings(); problem != "" {
+		log.Printf("Falha ao iniciar logs configurados: %s", problem)
+	}
+	database.SetLogOutput(logManager)
+	errorOutput := io.Writer(logging.DuplicateTo(os.Stderr, logManager))
+	defer func() {
+		database.SetLogOutput(nil)
+		log.SetOutput(previousLogWriter)
+		if err := logManager.Close(); err != nil {
+			reportFatalError(os.Stderr, startupLogCloseError(logPath, err))
+			exitCode = 1
+		}
+	}()
+	previousLogger := slog.Default()
+	if err := logging.ConfigureToolLedgerLevel(logLevel); err != nil {
+		reportFatalError(errorOutput, startupLogConfigurationError(err))
+		return 2
+	}
+	defer slog.SetDefault(previousLogger)
 	activationReady, stopActivation := startDesktopActivations(activationRequests, activateDesktop)
 	defer stopActivation()
 	a := application.NewApp()
@@ -161,6 +191,7 @@ func run(args []string) (exitCode int) {
 	credentialsAPI := wailsapi.NewCredentials()
 	application.SetCredentialsAPI(a, credentialsAPI)
 	settingsAPI := wailsapi.NewSettings()
+	wailsapi.AttachLogManager(settingsAPI, logManager)
 	application.SetSettingsAPI(a, settingsAPI)
 	mcpAPI := wailsapi.NewMCP()
 	application.SetMCPAPI(a, mcpAPI)

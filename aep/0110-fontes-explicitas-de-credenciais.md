@@ -242,8 +242,9 @@ seu índice permanecem sincronizados. CI Linux será acompanhado no PR.
 
 Revisão remota do diagnóstico: getters diretos do Manager preservam credential_id
 sem inventar cache_ref (`TestCommandDiagnosticsDirectManagerPreservesCredentialID`).
-A documentação distingue eventos INFO do destino: arquivo exige `--log-file`,
-sem prometer criação automática de assistente.log.
+A documentação distinguia eventos INFO do destino: à época, o arquivo exigia
+`--log-file`. A configuração posterior de logs também permite gravar em arquivo
+por opção do usuário, preservando a coleta desativada como padrão.
 
 ## Evolução: editor compartilhado de provedores (AEP-0114)
 

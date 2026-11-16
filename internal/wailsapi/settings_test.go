@@ -1,6 +1,8 @@
 package wailsapi
 
 import (
+	"assistente/internal/logging"
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
@@ -8,6 +10,29 @@ import (
 	"strings"
 	"testing"
 )
+
+func TestLogSettingsExigeAdminParaSalvar(t *testing.T) {
+	manager, err := logging.NewManager(filepath.Join(t.TempDir(), "logging.json"), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if err := manager.Close(); err != nil {
+			t.Error(err)
+		}
+	}()
+	denied := errors.New("admin necessário")
+	api := NewSettings()
+	api.session = stubSession{ctx: context.Background(), adminErr: denied}
+	AttachLogManager(api, manager)
+	if _, err := api.GetLogSettings(); err != nil {
+		t.Fatal(err)
+	}
+	settings := logging.Settings{MaxMiB: 50, Backups: 5}
+	if err := api.SaveLogSettings(settings); !errors.Is(err, denied) {
+		t.Fatalf("erro = %v", err)
+	}
+}
 
 func TestSettingsNotWired(t *testing.T) {
 	t.Parallel()
