@@ -76,7 +76,7 @@ func reportPreReservationFailure(path, message string) {
 		configPath = filepath.Join(dir, "logging.json")
 	}
 	if path != "" && !logging.ConflictsWithSettings(configPath, path) {
-		if file, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600); err == nil {
+		if file, err := logging.OpenExplicitLog(path); err == nil {
 			defer func() { _ = file.Close() }()
 			output = logging.DuplicateTo(os.Stderr, file)
 		}

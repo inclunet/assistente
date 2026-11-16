@@ -154,6 +154,11 @@ func newRotatingWriter(path string, maxSize int64, backups int, afterCreate func
 		_ = lock.Close()
 		return nil, err
 	}
+	if err := requireSingleLogLink(file); err != nil {
+		_ = file.Close()
+		_ = lock.Close()
+		return nil, err
+	}
 	info, err := file.Stat()
 	if err != nil {
 		_ = file.Close()
@@ -243,6 +248,9 @@ func (w *RotatingWriter) Write(p []byte) (int, error) {
 }
 
 func (w *RotatingWriter) rotate() (result error) {
+	if err := requireSingleLogLink(w.file); err != nil {
+		return err
+	}
 	oldInfo, err := w.file.Stat()
 	if err != nil {
 		return err

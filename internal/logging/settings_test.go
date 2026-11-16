@@ -143,6 +143,115 @@ func TestManagerFlagMantemPrecedencia(t *testing.T) {
 	}
 }
 
+func TestManagerFlagNaoConcorreComArquivoRotacionado(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "app.log")
+	configured, err := NewManager(filepath.Join(dir, "config.json"), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	settings := Settings{Enabled: true, Path: path, MaxMiB: 1, Backups: 2}
+	if err := configured.Save(settings); err != nil {
+		t.Fatal(err)
+	}
+	if override, err := NewManager(filepath.Join(dir, "outra-config.json"), path); err == nil {
+		_ = override.Close()
+		t.Fatal("flag conseguiu abrir arquivo ocupado pelo rotacionador")
+	}
+	if err := configured.Close(); err != nil {
+		t.Fatal(err)
+	}
+	override, err := NewManager(filepath.Join(dir, "outra-config.json"), path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if err := override.Close(); err != nil {
+			t.Error(err)
+		}
+	}()
+	if reopened, err := NewRotatingWriter(path, 4, 1); err == nil {
+		_ = reopened.Close()
+		t.Fatal("rotacionador conseguiu abrir arquivo ocupado pela flag")
+	}
+}
+
+func TestManagerFlagAntesDoRotacionadorNaoPerdeArquivo(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "app.log")
+	override, err := NewManager(filepath.Join(dir, "override.json"), path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if err := override.Close(); err != nil {
+			t.Error(err)
+		}
+	}()
+	if _, err := override.Write([]byte("preservar")); err != nil {
+		t.Fatal(err)
+	}
+	configured, err := NewManager(filepath.Join(dir, "config.json"), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if err := configured.Close(); err != nil {
+			t.Error(err)
+		}
+	}()
+	if err := configured.Save(Settings{Enabled: true, Path: path, MaxMiB: 1, Backups: 2}); err == nil {
+		t.Fatal("arquivo preexistente foi adotado")
+	}
+	got, err := os.ReadFile(path)
+	if err != nil || string(got) != "preservar" {
+		t.Fatalf("arquivo = %q, erro = %v", got, err)
+	}
+}
+
+func TestManagerRecusaFlagPorHardlinkParaArquivoRotacionado(t *testing.T) {
+	dir := t.TempDir()
+	path, alias := filepath.Join(dir, "app.log"), filepath.Join(dir, "alias.log")
+	configured, err := NewManager(filepath.Join(dir, "config.json"), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if err := configured.Close(); err != nil {
+			t.Error(err)
+		}
+	}()
+	if err := configured.Save(Settings{Enabled: true, Path: path, MaxMiB: 1, Backups: 2}); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Link(path, alias); err != nil {
+		t.Skipf("sistema não permite criar hardlink: %v", err)
+	}
+	if other, err := NewManager(filepath.Join(dir, "outra.json"), alias); err == nil {
+		_ = other.Close()
+		t.Fatal("flag aceitou hardlink para destino rotacionado")
+	}
+}
+
+func TestManagerRecusaFlagEmArquivoComHardlinkPreexistente(t *testing.T) {
+	dir := t.TempDir()
+	path, alias := filepath.Join(dir, "app.log"), filepath.Join(dir, "alias.log")
+	if err := os.WriteFile(path, []byte("preservar"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Link(path, alias); err != nil {
+		t.Skipf("sistema não permite criar hardlink: %v", err)
+	}
+	if manager, err := NewManager(filepath.Join(dir, "config.json"), alias); err == nil {
+		_ = manager.Close()
+		t.Fatal("flag aceitou arquivo com hardlink")
+	}
+	got, err := os.ReadFile(path)
+	if err != nil || string(got) != "preservar" {
+		t.Fatalf("arquivo = %q, erro = %v", got, err)
+	}
+}
+
 func TestManagerNaoApagaErroDaFlagAoSalvarPreferencias(t *testing.T) {
 	dir := t.TempDir()
 	m, err := NewManager(filepath.Join(dir, "config.json"), filepath.Join(dir, "flag.log"))

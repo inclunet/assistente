@@ -48,6 +48,9 @@ e avisos do banco de dados.
 Quando `--log-file` é informado, seu destino prevalece durante aquela execução
 e não usa a rotação configurada na interface. A configuração salva volta a
 valer na próxima inicialização sem a opção.
+O mesmo arquivo não pode ser usado simultaneamente pela flag e por uma instância
+que o rotacione. Arquivos com links físicos são recusados para impedir que um
+outro nome contorne essa proteção.
 
 Em desenvolvimento, a saída continua aparecendo no terminal e também é
 gravada no arquivo. O arquivo é fechado quando o aplicativo encerra.

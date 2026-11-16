@@ -1,7 +1,9 @@
 package logging
 
 import (
+	"assistente/internal/commandinstance"
 	"assistente/internal/configdir"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -73,7 +75,7 @@ func NewManager(configPath, override string) (*Manager, error) {
 		m.settings = DefaultSettings()
 	}
 	if override != "" {
-		m.sink, err = os.OpenFile(override, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+		m.sink, err = OpenExplicitLog(override)
 		if err != nil {
 			return nil, &FileOpenError{Path: override, Err: err}
 		}
@@ -92,6 +94,66 @@ func NewManager(configPath, override string) (*Manager, error) {
 		}
 	}
 	return m, nil
+}
+
+type explicitLog struct {
+	file *os.File
+	lock *commandinstance.Lock
+}
+
+func (e *explicitLog) Write(p []byte) (int, error) { return e.file.Write(p) }
+func (e *explicitLog) Close() error {
+	return errors.Join(e.file.Close(), e.lock.Close())
+}
+
+// OpenExplicitLog mantém a compatibilidade append da flag, mas não permite
+// que ela grave simultaneamente no arquivo sob rotação de outra instância.
+func OpenExplicitLog(path string) (io.WriteCloser, error) {
+	lockArchive := func() (*commandinstance.Lock, error) {
+		resolved := path
+		if target, err := filepath.EvalSymlinks(path); err == nil {
+			resolved = target
+		}
+		archive := resolved + ".assistente-archives"
+		info, err := os.Lstat(archive)
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		if err != nil {
+			return nil, err
+		}
+		if !info.IsDir() {
+			return nil, errors.New("diretório de arquivos anteriores inválido")
+		}
+		marker := filepath.Join(archive, ".assistente-log")
+		data, err := os.ReadFile(marker)
+		if err != nil || !strings.HasPrefix(string(data), "assistente-log-v1\n") {
+			return nil, errors.New("diretório de arquivos anteriores indisponível")
+		}
+		return commandinstance.Acquire(context.Background(), marker)
+	}
+	lock, err := lockArchive()
+	if err != nil {
+		return nil, err
+	}
+	file, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+	if err != nil {
+		_ = lock.Close()
+		return nil, err
+	}
+	if err := requireSingleLogLink(file); err != nil {
+		_ = file.Close()
+		_ = lock.Close()
+		return nil, err
+	}
+	if lock == nil {
+		lock, err = lockArchive()
+		if err != nil {
+			_ = file.Close()
+			return nil, err
+		}
+	}
+	return &explicitLog{file: file, lock: lock}, nil
 }
 
 func (m *Manager) Settings() (Settings, bool, string) {

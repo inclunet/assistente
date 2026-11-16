@@ -297,6 +297,33 @@ func TestRotatingWriterNaoDivideRegistroGrande(t *testing.T) {
 	}
 }
 
+func TestRotatingWriterRecusaRotacaoDeArquivoComHardlink(t *testing.T) {
+	dir := t.TempDir()
+	path, alias := filepath.Join(dir, "app.log"), filepath.Join(dir, "alias.log")
+	w, err := NewRotatingWriter(path, 4, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if err := w.Close(); err != nil {
+			t.Error(err)
+		}
+	}()
+	if _, err := w.Write([]byte("aaaa")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Link(path, alias); err != nil {
+		t.Skipf("sistema não permite criar hardlink: %v", err)
+	}
+	if _, err := w.Write([]byte("b")); err == nil {
+		t.Fatal("rotação aceitou arquivo com hardlink")
+	}
+	got, err := os.ReadFile(alias)
+	if err != nil || string(got) != "aaaa" {
+		t.Fatalf("arquivo = %q, erro = %v", got, err)
+	}
+}
+
 func TestRotatingWriterGiraAposIntervaloMesmoSemAtingirLimite(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "app.log")
 	w, err := NewRotatingWriter(path, 100, 2)
