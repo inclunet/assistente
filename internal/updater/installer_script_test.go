@@ -8,8 +8,8 @@ import (
 )
 
 // O instalador NSIS é o outro lado da atualização automática: o updater fecha o
-// app e o script precisa conseguir substituir o executável. Como não há como
-// rodar makensis no CI, estes testes leem o script e cobram as invariantes que
+// app e o script precisa conseguir substituir o executável. Além da compilação
+// com makensis no CI Windows, estes testes cobram as invariantes que
 // já quebraram a atualização em produção.
 
 const caminhoScriptInstalador = "../../build/windows/installer/project.nsi"
@@ -115,5 +115,68 @@ func TestInstaladorDefinePaginaFinal(t *testing.T) {
 		if !defineAtivo(linhas, define) {
 			t.Errorf("!define %s não está ativo (linha própria, fora de comentário)", define)
 		}
+	}
+}
+
+func TestInstaladorAvisosCLIEPathNaoBloqueiamModoSilencioso(t *testing.T) {
+	linhas := linhasEfetivas(t)
+	avisos := 0
+	for _, linha := range linhas {
+		if strings.HasPrefix(linha, "MessageBox ") && (strings.Contains(linha, "$(UserPath") || strings.Contains(linha, "$(CLIInUse)") || strings.Contains(linha, "$(CLIUninstallBlocked)")) {
+			avisos++
+			if !strings.Contains(linha, "/SD IDOK") {
+				t.Errorf("aviso de PATH pode bloquear /S: %s", linha)
+			}
+		}
+	}
+	if avisos != 5 {
+		t.Fatalf("esperados cinco avisos de CLI/PATH, encontrados %d", avisos)
+	}
+	if !contemPrefixo(linhas, "DetailPrint "+`"$(UserPathCleanupWarning)"`) {
+		t.Fatal("limpeza parcial precisa aparecer nos detalhes do desinstalador")
+	}
+}
+
+func TestDesinstaladorPreservaRegistroSeCLINaoPuderSerRemovida(t *testing.T) {
+	linhas := linhasEfetivas(t)
+	inicio, espera, helper, removeCLI, verifica, aborta, removePasta, removeRegistro := -1, -1, -1, -1, -1, -1, -1, -1
+	for i, linha := range linhas {
+		if linha == `Section "uninstall"` {
+			inicio = i
+		}
+		if inicio < 0 {
+			continue
+		}
+		switch {
+		case strings.HasPrefix(linha, `FileOpen $R1 "$INSTDIR\asst.exe"`):
+			espera = i
+		case strings.Contains(linha, "_installer-path remove"):
+			helper = i
+		case linha == `Delete "$INSTDIR\asst.exe"`:
+			removeCLI = i
+		case removeCLI >= 0 && linha == `${If} ${Errors}`:
+			verifica = i
+		case verifica >= 0 && linha == "Abort":
+			aborta = i
+		case linha == "RMDir /r $INSTDIR":
+			removePasta = i
+		case linha == "!insertmacro wails.deleteUninstaller":
+			removeRegistro = i
+		}
+	}
+	if inicio < 0 || espera <= inicio || helper <= espera || removeCLI <= helper ||
+		verifica <= removeCLI || aborta <= verifica || removePasta <= aborta || removeRegistro <= removePasta {
+		t.Fatal("CLI deve fechar antes da limpeza; falha ao removê-la deve abortar antes de apagar o desinstalador/registro")
+	}
+}
+
+func TestInstaladorMantemDiagnosticosDoHelperNosDetalhes(t *testing.T) {
+	for _, line := range linhasEfetivas(t) {
+		if strings.HasPrefix(line, "LangString UserPath") && strings.Contains(line, "$1") {
+			t.Fatal("diagnóstico técnico não traduzido no diálogo")
+		}
+	}
+	if !contemPrefixo(linhasEfetivas(t), `DetailPrint "$1"`) {
+		t.Fatal("diagnóstico deve permanecer nos detalhes do instalador")
 	}
 }

@@ -539,3 +539,39 @@ jobs:
           name: e2e-results
           path: frontend/e2e-results/
           retention-days: 7
+
+  windows-installer:
+    name: Instalador Windows e PATH do usuário
+    needs: scripts
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Diretórios de build isolados
+        shell: pwsh
+        run: |
+          $root = Join-Path $env:GITHUB_WORKSPACE 'build/bin/agent-build'
+          foreach ($name in @('go-work', 'go-cache', 'scratch')) {
+            New-Item -ItemType Directory -Force -Path (Join-Path $root $name) | Out-Null
+          }
+          "GOTMPDIR=$(Join-Path $root 'go-work')" >> $env:GITHUB_ENV
+          "GOCACHE=$(Join-Path $root 'go-cache')" >> $env:GITHUB_ENV
+          foreach ($name in @('TEMP', 'TMP', 'TMPDIR')) {
+            "$name=$(Join-Path $root 'scratch')" >> $env:GITHUB_ENV
+          }
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Testar registro isolado e comando interno
+        shell: pwsh
+        run: |
+          go test ./internal/installpath ./cmd/asst -run 'Test(Entry|ExistingEquivalent|Registry|UnavailableProfile|InstallerPath|StationUserSID)' -count=1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          go build -o build/bin/asst-amd64.exe ./cmd/asst
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Obter compilador NSIS verificado
+        shell: pwsh
+        run: ./.github/scripts/instalar-nsis.ps1
+      - name: Compilar instalador sem executar
+        shell: pwsh
+        run: ./.github/scripts/testar-instalador-windows.ps1 -Makensis (Get-Command makensis.exe).Source
