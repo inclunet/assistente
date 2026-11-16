@@ -18,12 +18,20 @@ export function ClearAllSkills() {
   return window['go']['wailsapi']['Settings']['ClearAllSkills']();
 }
 
+export function GetLogSettings() {
+  return window['go']['wailsapi']['Settings']['GetLogSettings']();
+}
+
 export function GetNativeTTSProviders() {
   return window['go']['wailsapi']['Settings']['GetNativeTTSProviders']();
 }
 
 export function ResetConfig() {
   return window['go']['wailsapi']['Settings']['ResetConfig']();
+}
+
+export function SaveLogSettings(arg1) {
+  return window['go']['wailsapi']['Settings']['SaveLogSettings'](arg1);
 }
 
 export function TestConnection() {

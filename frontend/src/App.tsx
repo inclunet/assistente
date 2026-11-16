@@ -21,6 +21,7 @@ import { useWakeLock } from './hooks/useWakeLock';
 import { usePartialRuntimeInitListener } from './hooks/usePartialRuntimeInitListener';
 import { useLegacyImportSummaryListener } from './hooks/useLegacyImportSummaryListener';
 import { useSubAgentRunEvents } from './hooks/useSubAgentRunEvents';
+import { useLogStartupWarning } from './hooks/useLogStartupWarning';
 import { useUpdateCheckListener } from './hooks/useUpdateCheckListener';
 import { ToastHost } from './components/ui/ToastHost';
 import { useTheme } from './hooks/useTheme';
@@ -107,6 +108,7 @@ function App() {
     // Runs de sub-agente em segundo plano (AEP-0068 F5): mantém a lista viva e
     // anuncia início/fim pelo announcer global único (AEP-0058).
     useSubAgentRunEvents();
+    useLogStartupWarning();
 
     useEffect(() => {
         if (!isAuthenticated && !authLoading) {
