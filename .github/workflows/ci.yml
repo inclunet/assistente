@@ -565,7 +565,7 @@ jobs:
       - name: Testar registro isolado e comando interno
         shell: pwsh
         run: |
-          go test ./internal/installpath ./cmd/asst -run 'Test(Entry|ExistingEquivalent|Registry|UnavailableProfile|InstallerPath)' -count=1
+          go test ./internal/installpath ./cmd/asst -run 'Test(Entry|ExistingEquivalent|Registry|UnavailableProfile|InstallerPath|StationUserSID)' -count=1
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           go build -o build/bin/asst-amd64.exe ./cmd/asst
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

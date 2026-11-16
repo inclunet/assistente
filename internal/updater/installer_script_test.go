@@ -169,3 +169,14 @@ func TestDesinstaladorPreservaRegistroSeCLINaoPuderSerRemovida(t *testing.T) {
 		t.Fatal("CLI deve fechar antes da limpeza; falha ao removê-la deve abortar antes de apagar o desinstalador/registro")
 	}
 }
+
+func TestInstaladorMantemDiagnosticosDoHelperNosDetalhes(t *testing.T) {
+	for _, line := range linhasEfetivas(t) {
+		if strings.HasPrefix(line, "LangString UserPath") && strings.Contains(line, "$1") {
+			t.Fatal("diagnóstico técnico não traduzido no diálogo")
+		}
+	}
+	if !contemPrefixo(linhasEfetivas(t), `DetailPrint "$1"`) {
+		t.Fatal("diagnóstico deve permanecer nos detalhes do instalador")
+	}
+}

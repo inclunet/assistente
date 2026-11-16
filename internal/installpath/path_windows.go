@@ -14,7 +14,7 @@ import (
 	"golang.org/x/sys/windows/registry"
 )
 
-var querySession = windows.NewLazySystemDLL("wtsapi32.dll").NewProc("WTSQuerySessionInformationW")
+var user32 = windows.NewLazySystemDLL("user32.dll")
 
 // CleanupWarning indica limpeza parcial; não impede remover o aplicativo.
 // Os marcadores dos perfis não acessíveis ficam preservados.
@@ -23,50 +23,54 @@ type CleanupWarning struct{ Err error }
 func (w *CleanupWarning) Error() string { return w.Err.Error() }
 func (w *CleanupWarning) Unwrap() error { return w.Err }
 
-// InteractiveUserSID identifica a conta da sessão, não a conta usada pelo UAC.
-// Não há fallback para o administrador se a sessão não puder ser identificada.
+// InteractiveUserSID consulta o usuário associado à estação interativa.
+// Não depende de RDS nem usa o token da conta elevada como fallback.
 func InteractiveUserSID() (string, error) {
 	var session uint32
 	if err := windows.ProcessIdToSessionId(uint32(os.Getpid()), &session); err != nil {
 		return "", err
 	}
 	if session == 0 {
-		return "", errors.New("installer PATH requires an interactive user session")
+		return "", errors.New("interactive session unavailable")
 	}
-	read := func(class uintptr) (string, error) {
-		var buffer *uint16
-		var size uint32
-		ok, _, err := querySession.Call(0, uintptr(session), class, uintptr(unsafe.Pointer(&buffer)), uintptr(unsafe.Pointer(&size)))
-		if ok == 0 {
-			return "", fmt.Errorf("query installer user: %w", err)
-		}
-		defer windows.WTSFreeMemory(uintptr(unsafe.Pointer(buffer)))
-		if buffer == nil || size < 2 {
-			return "", errors.New("empty session identity")
-		}
-		return windows.UTF16PtrToString(buffer), nil
+	station, _, err := user32.NewProc("GetProcessWindowStation").Call()
+	if station == 0 {
+		return "", fmt.Errorf("window station: %w", err)
 	}
-	user, err := read(5) // WTSUserName
-	if err != nil || user == "" {
-		return "", fmt.Errorf("session user unavailable: %v", err)
+	// O handle pertence ao sistema e não deve ser fechado.
+	query := user32.NewProc("GetUserObjectInformationW")
+	var flags struct{ inherit, reserved, flags uint32 }
+	var needed uint32
+	ok, _, err := query.Call(station, 1, uintptr(unsafe.Pointer(&flags)), unsafe.Sizeof(flags), uintptr(unsafe.Pointer(&needed)))
+	if ok == 0 {
+		return "", fmt.Errorf("window station flags: %w", err)
 	}
-	domain, err := read(7) // WTSDomainName
-	if err != nil {
-		return "", err
+	if flags.flags&1 == 0 {
+		return "", errors.New("window station is not interactive")
 	}
-	if domain != "" {
-		user = domain + `\` + user
+	// SECURITY_MAX_SID_SIZE: SID revision/subauthority header + 15 subauthorities.
+	var buffer [68]byte
+	ok, _, err = query.Call(station, 4, uintptr(unsafe.Pointer(&buffer[0])), uintptr(len(buffer)), uintptr(unsafe.Pointer(&needed)))
+	if ok == 0 {
+		return "", fmt.Errorf("window station user: %w", err)
 	}
-	sid, _, kind, err := windows.LookupSID("", user)
-	if err != nil {
-		return "", err
+	return stationUserSID(buffer[:], needed)
+}
+
+func stationUserSID(buffer []byte, length uint32) (string, error) {
+	if length < 8 || int(length) > len(buffer) {
+		return "", errors.New("window station user unavailable")
 	}
-	if kind != windows.SidTypeUser {
-		return "", errors.New("session identity is not a user")
+	// Valida comprimento antes de chamar IsValidSid/GetLengthSid.
+	if expected := 8 + 4*int(buffer[1]); expected != int(length) || buffer[1] > 15 {
+		return "", errors.New("invalid window station SID length")
+	}
+	sid := (*windows.SID)(unsafe.Pointer(&buffer[0]))
+	if !sid.IsValid() {
+		return "", errors.New("invalid window station user")
 	}
 	return sid.String(), nil
 }
-
 func readPath(key registry.Key) (string, uint32, error) {
 	value, kind, err := key.GetStringValue("Path")
 	if errors.Is(err, registry.ErrNotExist) {

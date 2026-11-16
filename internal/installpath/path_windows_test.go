@@ -3,6 +3,8 @@ package installpath
 import (
 	"errors"
 	"fmt"
+	"golang.org/x/sys/windows"
+	"os"
 	"testing"
 	"time"
 
@@ -134,5 +136,37 @@ func TestUnavailableProfileDoesNotBlockOtherCleanup(t *testing.T) {
 	}
 	if _, _, err := owners.GetStringValue(online); !errors.Is(err, registry.ErrNotExist) {
 		t.Fatalf("online marker survived: %v", err)
+	}
+}
+
+func TestStationUserSIDRejectsMissingOrMalformedIdentity(t *testing.T) {
+	valid := []byte{1, 1, 0, 0, 0, 0, 0, 5, 21, 0, 0, 0}
+	if got, err := stationUserSID(valid, uint32(len(valid))); err != nil || got != "S-1-5-21" {
+		t.Fatalf("valid station SID: %q %v", got, err)
+	}
+	for _, value := range []struct {
+		buffer []byte
+		length uint32
+	}{
+		{nil, 0}, {valid, 0}, {valid, 100}, {valid[:8], 8},
+		{[]byte{2, 0, 0, 0, 0, 0, 0, 5}, 8},
+	} {
+		if _, err := stationUserSID(value.buffer, value.length); err == nil {
+			t.Fatal("accepted missing or malformed station user")
+		}
+	}
+}
+
+// Somente leitura; opt-in para uma sessão real, sem tocar no Registro/PATH.
+func TestInteractiveUserSIDReadOnly(t *testing.T) {
+	if os.Getenv("ASSISTENTE_TEST_INTERACTIVE_SID") != "1" {
+		t.Skip("requer sessão interativa")
+	}
+	sid, err := InteractiveUserSID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := windows.StringToSid(sid); err != nil {
+		t.Fatal(err)
 	}
 }

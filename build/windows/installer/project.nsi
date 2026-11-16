@@ -72,9 +72,9 @@ ManifestDPIAware true
 !insertmacro MUI_LANGUAGE "English"
 !insertmacro MUI_LANGUAGE "PortugueseBR"
 !insertmacro MUI_LANGUAGE "Spanish"
-LangString UserPathError ${LANG_ENGLISH} "Could not update the user's PATH. Installation was stopped. Details: $1"
-LangString UserPathError ${LANG_PORTUGUESEBR} "Não foi possível atualizar o PATH do usuário. A instalação foi interrompida. Detalhes: $1"
-LangString UserPathError ${LANG_SPANISH} "No se pudo actualizar el PATH del usuario. La instalación se detuvo. Detalles: $1"
+LangString UserPathError ${LANG_ENGLISH} "Could not update the user's PATH. Installation was stopped. See the installation details."
+LangString UserPathError ${LANG_PORTUGUESEBR} "Não foi possível atualizar o PATH do usuário. A instalação foi interrompida. Consulte os detalhes da instalação."
+LangString UserPathError ${LANG_SPANISH} "No se pudo actualizar el PATH del usuario. La instalación se detuvo. Consulte los detalles de la instalación."
 
 LangString CLIInUse ${LANG_ENGLISH} "The installer could not replace asst.exe. Close running asst commands and try again."
 LangString CLIInUse ${LANG_PORTUGUESEBR} "O instalador não conseguiu substituir asst.exe. Feche os comandos asst em execução e tente novamente."
@@ -91,9 +91,9 @@ OutFile "..\..\bin\${INFO_PROJECTNAME}-${ARCH}-installer.exe" # Name of the inst
 InstallDir "$PROGRAMFILES64\${INFO_COMPANYNAME}\${INFO_PRODUCTNAME}" # Default installing folder ($PROGRAMFILES is Program Files folder).
 ShowInstDetails show # This will always show the installation details.
 
-LangString UserPathCleanupWarning ${LANG_ENGLISH} "The application will be removed, but a PATH entry could not be cleaned. Remove the indicated folder from that account's PATH if needed: $1"
-LangString UserPathCleanupWarning ${LANG_PORTUGUESEBR} "O aplicativo será removido, mas uma entrada do PATH não pôde ser limpa. Se necessário, remova a pasta indicada do PATH dessa conta: $1"
-LangString UserPathCleanupWarning ${LANG_SPANISH} "La aplicación se eliminará, pero no se pudo limpiar una entrada del PATH. Si es necesario, quite la carpeta indicada del PATH de esa cuenta: $1"
+LangString UserPathCleanupWarning ${LANG_ENGLISH} "The application will be removed, but a PATH entry could not be cleaned. See the uninstall details for the affected accounts. Folder: $INSTDIR"
+LangString UserPathCleanupWarning ${LANG_PORTUGUESEBR} "O aplicativo será removido, mas uma entrada do PATH não pôde ser limpa. Consulte os detalhes da desinstalação para identificar as contas afetadas. Pasta: $INSTDIR"
+LangString UserPathCleanupWarning ${LANG_SPANISH} "La aplicación se eliminará, pero no se pudo limpiar una entrada del PATH. Consulte los detalles de desinstalación para identificar las cuentas afectadas. Carpeta: $INSTDIR"
 
 Var SilentMode
 
@@ -217,6 +217,7 @@ Section
     Pop $0
     Pop $1
     ${If} $0 != 0
+        DetailPrint "$1"
         MessageBox MB_ICONEXCLAMATION|MB_OK "$(UserPathError)" /SD IDOK
         Abort
     ${EndIf}
@@ -249,6 +250,7 @@ Section "uninstall"
         StrCpy $1 "$INSTDIR: $1"
     ${EndIf}
     ${If} $1 != ""
+        DetailPrint "$1"
         DetailPrint "$(UserPathCleanupWarning)"
         MessageBox MB_ICONEXCLAMATION|MB_OK "$(UserPathCleanupWarning)" /SD IDOK
     ${EndIf}
