@@ -69,7 +69,12 @@ ManifestDPIAware true
 
 !insertmacro MUI_UNPAGE_INSTFILES # Uinstalling page
 
-!insertmacro MUI_LANGUAGE "English" # Set the Language of the installer
+!insertmacro MUI_LANGUAGE "English"
+!insertmacro MUI_LANGUAGE "PortugueseBR"
+!insertmacro MUI_LANGUAGE "Spanish"
+LangString UserPathError ${LANG_ENGLISH} "Could not update the user's PATH. Installation was stopped. Details: $1"
+LangString UserPathError ${LANG_PORTUGUESEBR} "Não foi possível atualizar o PATH do usuário. A instalação foi interrompida. Detalhes: $1"
+LangString UserPathError ${LANG_SPANISH} "No se pudo actualizar el PATH del usuario. La instalación se detuvo. Detalles: $1"
 
 ## The following two statements can be used to sign the installer and the uninstaller. The path to the binaries are provided in %1
 #!uninstfinalize 'signtool --file "%1"'
@@ -79,6 +84,10 @@ Name "${INFO_PRODUCTNAME}"
 OutFile "..\..\bin\${INFO_PROJECTNAME}-${ARCH}-installer.exe" # Name of the installer's file.
 InstallDir "$PROGRAMFILES64\${INFO_COMPANYNAME}\${INFO_PRODUCTNAME}" # Default installing folder ($PROGRAMFILES is Program Files folder).
 ShowInstDetails show # This will always show the installation details.
+
+LangString UserPathCleanupWarning ${LANG_ENGLISH} "The application will be removed, but a PATH entry could not be cleaned. Remove the indicated folder from that account's PATH if needed: $1"
+LangString UserPathCleanupWarning ${LANG_PORTUGUESEBR} "O aplicativo será removido, mas uma entrada do PATH não pôde ser limpa. Se necessário, remova a pasta indicada do PATH dessa conta: $1"
+LangString UserPathCleanupWarning ${LANG_SPANISH} "La aplicación se eliminará, pero no se pudo limpiar una entrada del PATH. Si es necesario, quite la carpeta indicada del PATH de esa cuenta: $1"
 
 Var SilentMode
 
@@ -148,7 +157,37 @@ Section
         DetailPrint "Aplicativo fechado, continuando instalação..."
     ${EndIf}
 
+    # Também espera a CLI fechar: não substituir asst.exe enquanto estiver em uso.
+    ${If} ${FileExists} "$INSTDIR\asst.exe"
+        StrCpy $R0 0
+        ${Do}
+            ClearErrors
+            FileOpen $R1 "$INSTDIR\asst.exe" a
+            ${IfNot} ${Errors}
+                FileClose $R1
+                ${ExitDo}
+            ${EndIf}
+            IntOp $R0 $R0 + 1
+            ${If} $R0 > 60
+                StrCpy $1 "asst.exe"
+                MessageBox MB_ICONEXCLAMATION|MB_OK "$(UserPathError)"
+                Abort
+            ${EndIf}
+            Sleep 500
+        ${Loop}
+    ${EndIf}
+
     !insertmacro wails.files
+    !ifdef SUPPORTS_AMD64
+        ${If} ${IsNativeAMD64}
+            File /oname=asst.exe "..\..\bin\asst-amd64.exe"
+        ${EndIf}
+    !endif
+    !ifdef SUPPORTS_ARM64
+        ${If} ${IsNativeARM64}
+            File /oname=asst.exe "..\..\bin\asst-arm64.exe"
+        ${EndIf}
+    !endif
 
     CreateShortcut "$SMPROGRAMS\${INFO_PRODUCTNAME}.lnk" "$INSTDIR\${PRODUCT_EXECUTABLE}"
     CreateShortCut "$DESKTOP\${INFO_PRODUCTNAME}.lnk" "$INSTDIR\${PRODUCT_EXECUTABLE}"
@@ -167,9 +206,28 @@ Section
     WriteRegStr HKCR "Directory\Background\shell\OpenAssistente\command" "" '"$INSTDIR\${PRODUCT_EXECUTABLE}" "%V\."'
 
     !insertmacro wails.writeUninstaller
+
+    # A CLI oferece uma operação interna sem inicializar banco ou serviços.
+    nsExec::ExecToStack '"$INSTDIR\asst.exe" _installer-path add'
+    Pop $0
+    Pop $1
+    ${If} $0 != 0
+        MessageBox MB_ICONEXCLAMATION|MB_OK "$(UserPathError)"
+        Abort
+    ${EndIf}
 SectionEnd
 
 Section "uninstall"
+    # Limpa somente as entradas registradas por esta instalação, antes de apagar a CLI.
+    nsExec::ExecToStack '"$INSTDIR\asst.exe" _installer-path remove'
+    Pop $0
+    Pop $1
+    ${If} $0 != 0
+        StrCpy $1 "$INSTDIR: $1"
+    ${EndIf}
+    ${If} $1 != ""
+        MessageBox MB_ICONEXCLAMATION|MB_OK "$(UserPathCleanupWarning)"
+    ${EndIf}
     !insertmacro wails.setShellContext
 
     RMDir /r "$AppData\${PRODUCT_EXECUTABLE}" # Remove the WebView2 DataPath

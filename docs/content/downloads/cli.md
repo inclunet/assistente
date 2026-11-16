@@ -17,7 +17,20 @@ curl -sSL https://raw.githubusercontent.com/inclunet/assistente/main/install.sh 
 
 O script detecta seu sistema e arquitetura automaticamente, baixa o binário da última release, verifica o checksum SHA256 e instala em `/usr/local/bin` (se gravável) ou `~/.local/bin`. Use `INSTALL_DIR=/caminho` para especificar outro diretório.
 
-### Windows (PowerShell)
+### Windows (instalador do aplicativo)
+
+O instalador Windows inclui o aplicativo e a CLI `asst`. Ambos ficam em
+Program Files, e a pasta é adicionada ao PATH apenas da conta que iniciou a
+instalação, mesmo se outra conta autorizar o UAC.
+
+Abra um novo terminal após instalar para executar `asst --help` ou
+`assistente .`. `assistente` sem argumentos restaura o último workspace;
+`assistente "C:\Minha pasta"` abre a pasta indicada.
+
+A desinstalação preserva entradas do PATH que já existiam antes da instalação.
+Se a conta estiver desconectada ou seu perfil inacessível, ela avisa que pode
+ser necessário remover manualmente a pasta instalada do PATH dessa conta.
+### Windows (PowerShell, somente CLI)
 
 ```powershell
 irm https://raw.githubusercontent.com/inclunet/assistente/main/install.ps1 | iex

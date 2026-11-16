@@ -279,3 +279,10 @@ focados nos arquivos `*_test.go` correspondentes. A ajuda é registrada em
 - `adapters/noop/` — implementação noop (testes)
 - `controllers/` — camada de controllers
 - AEP de backend-driven-messaging — contrato de eventos
+
+### Distribuição Windows no instalador desktop
+
+O NSIS inclui a CLI da mesma versão e disponibiliza os comandos no PATH do
+usuário conforme AEP-0029. O comando oculto de manutenção do PATH tem
+`skipInit` e não abre banco nem serviços. Os testes Windows cobrem esse contrato
+e a compilação do pacote; a validação manual de `wails dev` continua pendente.

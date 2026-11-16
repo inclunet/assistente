@@ -81,3 +81,23 @@ flowchart TD
 - [GitHub Releases](https://docs.github.com/en/repositories/releasing-projects-on-github)
 - [go-update](https://github.com/inconshreveable/go-update)
 - [minio/selfupdate](https://github.com/minio/selfupdate)
+
+## Instalador Windows e comandos no terminal
+
+O instalador NSIS mantém a instalação em Program Files com elevação e distribui
+`assistente.exe` e `asst.exe` juntos, com a mesma versão. A pasta instalada é
+acrescentada somente ao PATH da conta da sessão interativa que iniciou a
+instalação. A conta usada para fornecer credenciais ao UAC não recebe essa entrada.
+
+O helper interno `asst _installer-path` não inicializa serviços ou banco. Ele
+preserva o tipo e conteúdo do PATH e registra por SID apenas entradas adicionadas
+por esta instalação. Atualizações não duplicam entradas e a desinstalação não
+remove entradas preexistentes. Se um perfil estiver desconectado ou inacessível,
+a desinstalação avisa que a limpeza desse PATH ficou pendente e continua; não
+carrega nem modifica arquivos de perfil offline.
+
+Evidências: testes de `internal/installpath` com chaves descartáveis do Registro,
+teste de ausência de inicialização em `cmd/asst` e compilação NSIS sem execução
+por `.github/scripts/testar-instalador-windows.ps1`, incluídos no CI Windows.
+A validação manual de instalação com credenciais de outra conta no UAC permanece
+pendente; a compilação do pacote não substitui esse teste.

@@ -34,3 +34,13 @@ if [ "$wails_count" -ne 3 ]; then
 fi
 
 echo "ldflags de versão do release estão corretos"
+
+# O NSIS fica em build/bin e precisa ser obtido depois do build Wails com -clean.
+clean_line=$(grep -n 'wails build .* -clean' "$workflow" | tail -1 | cut -d: -f1)
+nsis_line=$(grep -n 'run: ./.github/scripts/instalar-nsis.ps1' "$workflow" | cut -d: -f1)
+installer_line=$(grep -n 'name: Build installer (Windows)' "$workflow" | cut -d: -f1)
+if [[ -z "$clean_line" || -z "$nsis_line" || -z "$installer_line" ]] ||
+   (( nsis_line <= clean_line || nsis_line >= installer_line )); then
+  echo "O NSIS precisa ser obtido após o build -clean e antes do instalador."
+  exit 1
+fi
