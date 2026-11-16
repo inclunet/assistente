@@ -687,7 +687,26 @@ const ptBR = {
         data: 'Dados',
         'restore-defaults': 'Restaurar Padrões',
         commands: 'Comandos e acionadores',
+        logs: 'Logs',
       },
+    },
+
+    logSettings: {
+      title: 'Logs',
+      description: 'Grave logs em arquivo para diagnóstico. O arquivo pode conter informações de conversas e caminhos.',
+      enabled: 'Gravar logs em arquivo',
+      path: 'Caminho completo de um novo arquivo de log',
+      maxMiB: 'Tamanho máximo por arquivo (MiB)',
+      backups: 'Número de arquivos anteriores mantidos',
+      rotateHours: 'Intervalo de rotação (horas)',
+      rotateHoursHint: 'Use 0 para desativar a rotação por tempo.',
+      save: 'Salvar',
+      saved: 'Configuração de logs salva.',
+      overridden: 'A opção --log-file está em uso nesta execução. A configuração salva será aplicada na próxima inicialização sem essa opção.',
+      loadError: 'Não foi possível carregar a configuração de logs.',
+      startupError: 'Há um problema na configuração ou gravação de logs: {{detail}}',
+      startupToast: 'Há um problema na configuração ou gravação de logs. Abra Configurações → Logs para corrigir.',
+      saveError: 'Não foi possível salvar a configuração de logs: {{detail}}',
     },
 
     commandSettings: {

@@ -686,7 +686,26 @@ const es = {
         data: 'Datos',
         'restore-defaults': 'Restaurar valores predeterminados',
         commands: 'Comandos y activadores',
+        logs: 'Registros',
       },
+    },
+
+    logSettings: {
+      title: 'Registros',
+      description: 'Guarda registros en un archivo para diagnóstico. El archivo puede contener información de conversaciones y rutas.',
+      enabled: 'Guardar registros en un archivo',
+      path: 'Ruta completa de un archivo de registro nuevo',
+      maxMiB: 'Tamaño máximo por archivo (MiB)',
+      backups: 'Número de archivos anteriores conservados',
+      rotateHours: 'Intervalo de rotación (horas)',
+      rotateHoursHint: 'Usa 0 para desactivar la rotación por tiempo.',
+      save: 'Guardar',
+      saved: 'Configuración de registros guardada.',
+      overridden: 'La opción --log-file está activa en esta sesión. La configuración guardada se aplicará al iniciar sin ella.',
+      loadError: 'No se pudo cargar la configuración de registros.',
+      startupError: 'Hay un problema en la configuración o escritura de registros: {{detail}}',
+      startupToast: 'Hay un problema en la configuración o escritura de registros. Abre Configuración → Registros para corregirlo.',
+      saveError: 'No se pudo guardar la configuración de registros: {{detail}}',
     },
 
     commandSettings: {

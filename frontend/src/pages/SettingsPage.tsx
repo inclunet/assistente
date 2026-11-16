@@ -22,6 +22,7 @@ const AppearancePage = lazy(() => import('./AppearancePage'));
 const DataManagementPage = lazy(() => import('./DataManagementPage'));
 const RestoreDefaultsPage = lazy(() => import('./RestoreDefaultsPage'));
 const CommandSettingsPage = lazy(() => import('./CommandSettingsPage'));
+const LogSettingsPage = lazy(() => import('./LogSettingsPage'));
 
 const SETTINGS_TABS = [
   { id: 'providers',        component: ProvidersPage },
@@ -38,6 +39,7 @@ const SETTINGS_TABS = [
   { id: 'data',             component: DataManagementPage },
   { id: 'restore-defaults', component: RestoreDefaultsPage },
   { id: 'commands',           component: CommandSettingsPage },
+  { id: 'logs',               component: LogSettingsPage },
 ] as const;
 
 const DEFAULT_TAB = SETTINGS_TABS[0].id;

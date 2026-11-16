@@ -2,7 +2,9 @@ package wailsapi
 
 import (
 	"assistente/controllers"
+	"assistente/internal/logging"
 	"context"
+	"errors"
 	"sync"
 )
 
@@ -12,6 +14,53 @@ type Settings struct {
 	mu      sync.RWMutex
 	session Session
 	ctrl    *controllers.SettingsController
+	logs    *logging.Manager
+}
+
+// AttachLogManager associa o destino de logs ao bind sem exportar outro método Wails.
+func AttachLogManager(s *Settings, manager *logging.Manager) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.logs = manager
+}
+
+type LogSettings struct {
+	Settings   logging.Settings `json:"settings"`
+	Overridden bool             `json:"overridden"`
+	Error      string           `json:"error"`
+}
+
+func (s *Settings) logDeps() (Session, *logging.Manager, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.session == nil || s.logs == nil {
+		return nil, nil, errors.New("configuração de logs indisponível")
+	}
+	return s.session, s.logs, nil
+}
+
+// GetLogSettings retorna a configuração e a indicação de precedência da flag.
+func (s *Settings) GetLogSettings() (LogSettings, error) {
+	session, manager, err := s.logDeps()
+	if err != nil {
+		return LogSettings{}, err
+	}
+	return WithUser(session, func(context.Context) (LogSettings, error) {
+		settings, overridden, problem := manager.Settings()
+		return LogSettings{Settings: settings, Overridden: overridden, Error: problem}, nil
+	})
+}
+
+// SaveLogSettings altera a política local e seu destino de escrita.
+func (s *Settings) SaveLogSettings(settings logging.Settings) error {
+	session, manager, err := s.logDeps()
+	if err != nil {
+		return err
+	}
+	_, err = WithAdmin(session, func(context.Context) (struct{}, error) {
+		return struct{}{}, manager.Save(settings)
+	})
+	return err
 }
 
 // NewSettings cria o bind vazio; AttachSettings preenche session + controller no startup.

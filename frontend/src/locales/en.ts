@@ -687,7 +687,26 @@ const en = {
         data: 'Data',
         'restore-defaults': 'Restore Defaults',
         commands: 'Commands and triggers',
+        logs: 'Logs',
       },
+    },
+
+    logSettings: {
+      title: 'Logs',
+      description: 'Write logs to a file for diagnostics. The file may contain conversation information and paths.',
+      enabled: 'Write logs to a file',
+      path: 'Full path to a new log file',
+      maxMiB: 'Maximum size per file (MiB)',
+      backups: 'Number of previous files to keep',
+      rotateHours: 'Rotation interval (hours)',
+      rotateHoursHint: 'Use 0 to disable time-based rotation.',
+      save: 'Save',
+      saved: 'Log settings saved.',
+      overridden: 'The --log-file option is active for this session. Saved settings apply next time the app starts without it.',
+      loadError: 'Could not load log settings.',
+      startupError: 'There is a problem with log settings or output: {{detail}}',
+      startupToast: 'There is a problem with log settings or output. Open Settings → Logs to fix it.',
+      saveError: 'Could not save log settings: {{detail}}',
     },
 
     commandSettings: {

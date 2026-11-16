@@ -1,0 +1,19 @@
+.log-settings-page {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 24px;
+  max-width: 960px;
+}
+
+.log-settings-page h1,
+.log-settings-page p {
+  margin: 0;
+}
+
+.log-settings-page form {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 16px;
+}

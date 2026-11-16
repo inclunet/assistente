@@ -6,12 +6,15 @@ import (
 	"embed"
 	"errors"
 	"io"
+	"log"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"runtime"
 
 	"assistente/adapters/wails"
 	application "assistente/internal/app"
+	"assistente/internal/configdir"
 	"assistente/internal/database"
 	"assistente/internal/desktopinstance"
 	"assistente/internal/wailsapi"
@@ -74,23 +77,31 @@ func run(args []string) (exitCode int) {
 		return 2
 	}
 
-	errorOutput := io.Writer(os.Stderr)
-	if logPath != "" {
-		fileOutput, err := logging.OpenFileOutput(logPath)
-		if err != nil {
-			reportFatalError(os.Stderr, startupLogConfigurationError(err))
-			return 2
-		}
-		database.SetLogOutput(fileOutput.Writer())
-		errorOutput = logging.DuplicateTo(os.Stderr, fileOutput.Writer())
-		defer func() {
-			database.SetLogOutput(nil)
-			if err := fileOutput.Close(); err != nil {
-				reportFatalError(os.Stderr, startupLogCloseError(logPath, err))
-				exitCode = 1
-			}
-		}()
+	home := configdir.GetHomeDir()
+	if home == "" {
+		reportFatalError(os.Stderr, startupLogConfigurationError(errors.New("diretório de usuário indisponível")))
+		return 2
 	}
+	logManager, err := logging.NewManager(filepath.Join(home, "logging.json"), logPath)
+	if err != nil {
+		reportFatalError(os.Stderr, startupLogConfigurationError(err))
+		return 2
+	}
+	previousLogWriter := log.Writer()
+	log.SetOutput(logging.DuplicateTo(previousLogWriter, logManager))
+	if _, _, problem := logManager.Settings(); problem != "" {
+		log.Printf("Falha ao iniciar logs configurados: %s", problem)
+	}
+	database.SetLogOutput(logManager)
+	errorOutput := io.Writer(logging.DuplicateTo(os.Stderr, logManager))
+	defer func() {
+		database.SetLogOutput(nil)
+		log.SetOutput(previousLogWriter)
+		if err := logManager.Close(); err != nil {
+			reportFatalError(os.Stderr, startupLogCloseError(logPath, err))
+			exitCode = 1
+		}
+	}()
 	previousLogger := slog.Default()
 	if err := logging.ConfigureToolLedgerLevel(logLevel); err != nil {
 		reportFatalError(errorOutput, startupLogConfigurationError(err))
@@ -161,6 +172,7 @@ func run(args []string) (exitCode int) {
 	credentialsAPI := wailsapi.NewCredentials()
 	application.SetCredentialsAPI(a, credentialsAPI)
 	settingsAPI := wailsapi.NewSettings()
+	wailsapi.AttachLogManager(settingsAPI, logManager)
 	application.SetSettingsAPI(a, settingsAPI)
 	mcpAPI := wailsapi.NewMCP()
 	application.SetMCPAPI(a, mcpAPI)
