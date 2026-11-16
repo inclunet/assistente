@@ -5,7 +5,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 
@@ -281,7 +280,7 @@ func (a *App) initToolRegistry() {
 	profileAccess := a.profileAccessService()
 
 	// Determina diretório de trabalho para as tools de filesystem
-	workDir, err := os.Getwd()
+	workDir, err := a.initialToolWorkDir()
 	if err != nil {
 		logging.Errorf(context.Background(), "app.app-tool-registry", "[Tools] Erro ao obter diretório de trabalho: %v", err)
 		workDir = "."

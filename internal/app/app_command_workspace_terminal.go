@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 
 	"assistente/internal/commandexecution"
 	"assistente/internal/terminal"
@@ -36,17 +35,14 @@ func createTerminalSessionAndCommit(
 	ctx context.Context,
 	tabID string,
 	sessions terminalSessionCreator,
+	workDir string,
 	commit func(context.Context, terminal.SessionInfo, string) (*workspace.Workspace, error),
 ) (result *workspace.Workspace, err error) {
-	if ctx == nil || tabID == "" || sessions == nil || commit == nil {
+	if ctx == nil || tabID == "" || workDir == "" || sessions == nil || commit == nil {
 		return nil, fmt.Errorf("terminal workspace command: invalid dependencies")
 	}
 	if err = ctx.Err(); err != nil {
 		return nil, err
-	}
-	workDir, err := os.Getwd()
-	if err != nil {
-		return nil, fmt.Errorf("terminal workspace command: get cwd: %w", err)
 	}
 	info, err := sessions.CreateInfo("", workDir)
 	if err != nil {
@@ -88,11 +84,12 @@ func (a *App) commitTerminalWorkspaceTab(
 	}
 	// Recusar um alvo já obsoleto antes de iniciar qualquer processo. O CAS
 	// abaixo continua necessário: a criação da sessão pode levar tempo.
+	workDir := p.workspaceMgr.ActivePath()
 	current, err := p.workspaceMgr.CommandSnapshot()
 	if err != nil || current.WorkspaceID != expected.WorkspaceID || current.Version != expected.Version || current.ActiveTabID != expected.ActiveTabID {
 		return nil, commandexecution.ErrStale
 	}
-	return createTerminalSessionAndCommit(ctx, tabID, run.terminalMgr, func(commitCtx context.Context, info terminal.SessionInfo, _ string) (*workspace.Workspace, error) {
+	return createTerminalSessionAndCommit(ctx, tabID, run.terminalMgr, workDir, func(commitCtx context.Context, info terminal.SessionInfo, _ string) (*workspace.Workspace, error) {
 		a.authMu.RLock()
 		defer a.authMu.RUnlock()
 		if a.currentAuthUser == nil || a.currentAuthUser.UserID != p.principal.UserID || a.currentAuthUser.SessionID != p.principal.SessionID || a.workspaceMgr != p.workspaceMgr || a.terminalMgr != run.terminalMgr || a.commandProduct.Load() != p {

@@ -149,6 +149,42 @@ func TestRunRemoveFlagPropagaStartupErrorEFechaLog(t *testing.T) {
 	}
 }
 
+func TestRunWorkspaceArgumentPreservesDatabaseResolutionAndCWD(t *testing.T) {
+	isolateDesktopReservation(t)
+	launcher := t.TempDir()
+	project := t.TempDir()
+	t.Chdir(launcher)
+	previousRun, previousResolve := runDesktop, resolveDesktopDatabase
+	t.Cleanup(func() { runDesktop, resolveDesktopDatabase = previousRun, previousResolve })
+	resolveCalls := 0
+	resolveDesktopDatabase = func() (string, error) {
+		resolveCalls++
+		if cwd, _ := os.Getwd(); cwd != launcher {
+			t.Fatalf("database resolution cwd changed: %q", cwd)
+		}
+		return previousResolve()
+	}
+	runDesktop = func(*options.App) error {
+		if !slices.Equal(os.Args, []string{"assistente", "--debug"}) {
+			t.Fatalf("workspace leaked to Wails: %v", os.Args)
+		}
+		if cwd, _ := os.Getwd(); cwd != launcher {
+			t.Fatalf("runtime cwd changed: %q", cwd)
+		}
+		return nil
+	}
+	logPath := filepath.Join(launcher, "startup.log")
+	if code := run([]string{"assistente", project, "--log-file", logPath, "--debug"}); code != 0 {
+		t.Fatalf("exit = %d", code)
+	}
+	if resolveCalls != 1 {
+		t.Fatalf("database resolved %d times", resolveCalls)
+	}
+	if _, err := os.Stat(logPath); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestRunPropagaErroDoRunnerEFechaLog(t *testing.T) {
 	isolateDesktopReservation(t)
 	previousRunDesktop := runDesktop

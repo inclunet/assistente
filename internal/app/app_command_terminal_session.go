@@ -168,11 +168,12 @@ func (a *App) commitTerminalSessionCreate(ctx context.Context, p *commandProduct
 	if p == nil || run == nil || run.terminalMgr == nil || a.currentTerminalManager() != run.terminalMgr {
 		return nil, commandexecution.ErrStale
 	}
+	workDir := p.workspaceMgr.ActivePath()
 	current, err := p.workspaceMgr.CommandSnapshot()
 	if err != nil || current != expected || expected.Tab.Type != workspace.TabTypeTerminal {
 		return nil, commandexecution.ErrStale
 	}
-	return createTerminalSessionAndCommit(ctx, expected.ActiveTabID, run.terminalMgr, func(commitCtx context.Context, info terminal.SessionInfo, _ string) (*workspace.Workspace, error) {
+	return createTerminalSessionAndCommit(ctx, expected.ActiveTabID, run.terminalMgr, workDir, func(commitCtx context.Context, info terminal.SessionInfo, _ string) (*workspace.Workspace, error) {
 		a.authMu.RLock()
 		defer a.authMu.RUnlock()
 		if a.currentAuthUser == nil || a.currentAuthUser.UserID != p.principal.UserID || a.currentAuthUser.SessionID != p.principal.SessionID || a.workspaceMgr != p.workspaceMgr || a.terminalMgr != run.terminalMgr || a.commandProduct.Load() != p {

@@ -1224,7 +1224,7 @@ de cancelamento de release na dependência; o AEP permanece **In Progress**.
 | [0031](0031-email-refinements-security.md) | Email + Chat Security | 📋 Open |
 | [0032](0032-editor-rico.md) | Editor Rico + Inline Chat | 🚧 In Progress |
 | [0033](0033-mcp-oauth-autodiscovery.md) | MCP OAuth Auto-Discovery; dados descobertos visíveis sem DCR; scopes limitados ao recurso | ✅ Done |
-| [0034](0034-unified-workspace.md) | Unified Workspace | ✅ Done |
+| [0034](0034-unified-workspace.md) | Unified Workspace — abertura posicional e restauração no desktop | ✅ Done |
 | [0035](0035-split-view.md) | Split View | 📝 Draft |
 | [0036](0036-plan-tasklistmanager.md) | Task List Manager Feature | 🚧 In Progress |
 | [0037](0037-sdk-migration-chat-provider.md) | SDK Migration + ChatProvider Interface | 🚧 In Progress |

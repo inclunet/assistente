@@ -341,6 +341,27 @@ App abre em <path>
               └── Se não tem histórico → default
 ```
 
+### Entrada do desktop (16/11/2026)
+
+O argumento posicional é a escolha explícita de pasta: `assistente .` e
+`assistente "caminho"`. Sem argumento, `Initialize("")` restaura o último
+workspace ou cria o padrão na home. O cwd herdado do launcher não escolhe
+workspace. `--workdir` deixa de constar nas chamadas do instalador e é recusado.
+O workspace é inicializado após as migrações existentes e antes dos serviços; sua pasta alimenta o diretório inicial das tools e dos terminais. Isso não redefine a resolução do banco nem muda o cwd do processo. A reserva
+existente continua apenas apresentando uma instância já aberta (AEP-0111).
+Consumidores não desktop, como `asst`, conservam seu comportamento de cwd.
+
+Falha de inicialização do workspace deve alcançar o resultado do startup,
+que já impede autenticação sobre serviços incompletos e reporta o erro.
+Não expor o controller como pronto após uma falha de criação/carregamento.
+
+Evidências automatizadas: `TestWorkspaceStartupRestoresLastWithoutUsingLauncherDirectory`
+(contraprova falha na versão anterior), `TestWorkspaceStartupEmptyDirectoryHasChatAndCommandContext`,
+`TestWorkspaceStartupFirstLaunchUsesHomeDefault`,
+`TestWorkspaceStartupFailureDoesNotExposeController`, `TestWorkspaceStartupFailureStopsStartupBeforeServices` e `TestParseWorkspaceArgs`.
+O teste de pasta vazia gravável já passava antes: não atribui a ele a causa
+histórica da falha de comandos nas máquinas atualizadas. Status permanece **Done**.
+
 ### Identificação
 
 ```yaml
