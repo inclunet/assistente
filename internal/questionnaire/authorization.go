@@ -97,6 +97,7 @@ func (o AuthorizationActions) Parse(resp Response) (AuthorizationChoice, error) 
 	if !ok {
 		return deny, errors.New("resposta de autorização sem ação")
 	}
+	id = strings.TrimSpace(id)
 	found := false
 	for _, action := range o.Actions() {
 		if action.ID == id {

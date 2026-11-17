@@ -15,7 +15,7 @@ func TestPermissionsRequireAuthenticationAndAdmin(t *testing.T) {
 	}
 	repo, _ := authorizationfixture.Open(t, t.TempDir())
 	denied := errors.New("sem sessão")
-	AttachPermissions(api, stubSession{err: denied}, &controllers.PermissionsController{Repository: repo})
+	AttachPermissions(api, stubSession{err: denied, adminErr: denied}, &controllers.PermissionsController{Repository: repo})
 	if _, err := api.GetPermissions(); !errors.Is(err, denied) {
 		t.Fatalf("listagem sem auth: %v", err)
 	}

@@ -176,7 +176,7 @@ func TestNegarComEspacosNoActionIdContinuaNegando(t *testing.T) {
 	if decision.Approve {
 		t.Fatal("deny com espaços foi tratado como autorização")
 	}
-	if decision.Scope != "" {
-		t.Errorf("escopo = %q, quer vazio na negativa", decision.Scope)
+	if decision.Scope != nettrust.ScopeOnce {
+		t.Errorf("escopo = %q, quer negativa pontual", decision.Scope)
 	}
 }

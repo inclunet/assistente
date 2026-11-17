@@ -23,6 +23,7 @@ func TestAuthorizationActionsRejectUnavailableAndHumanLabels(t *testing.T) {
 		{"dir-session", authorization.ScopeSession, "allow", true},
 		{"deny-session", authorization.ScopeSession, "deny", false},
 		{"deny", authorization.ScopeOnce, "deny", false},
+		{"  deny  ", authorization.ScopeOnce, "deny", false},
 	} {
 		choice, err := options.Parse(Response{Answers: map[string]any{AnswerActionID: tc.id}})
 		if err != nil || choice.Scope != tc.scope || choice.Effect != tc.effect || choice.Directory != tc.directory {
