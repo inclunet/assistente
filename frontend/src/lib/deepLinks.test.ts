@@ -787,6 +787,11 @@ describe('executeDeepLink', () => {
   const mockNavigate = vi.fn();
   const deps = { navigate: mockNavigate };
 
+  it.each(['edit', 'new'] as const)('encaminha %s de política para Permissões', async (action) => {
+    await executeDeepLink(action === 'edit' ? { type: 'resource:edit', resource: 'allowlists', resourceId: 'project' } : { type: 'resource:new', resource: 'allowlists' }, deps);
+    expect(mockNavigate).toHaveBeenCalledWith('/settings/permissions');
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
     vi.useRealTimers();

@@ -13,6 +13,7 @@ import { useGridFocus } from '../hooks/useGridFocus';
 import { useGridPageLandmarks } from '../hooks/useGridPageLandmarks';
 import { useUIStore } from '../store/uiStore';
 import { useAuthStore } from '../store/authStore';
+import { useNavigationStore, isResourceEditRequestFresh } from '../store/navigationStore';
 import { LegacyPermissionAssignment } from '../components/permissions/LegacyPermissionAssignment';
 import AllowlistPage from './AllowlistPage';
 import ProfilesPage from './ProfilesPage';
@@ -45,6 +46,11 @@ export default function PermissionsPage() {
   const [status, setStatus] = useState('active');
   const [search, setSearch] = useState('');
   const [editor, setEditor] = useState<'policies' | 'associations' | 'path' | 'migration' | null>(null);
+  const pendingEdit = useNavigationStore((s) => s.pendingEdit);
+  useEffect(() => {
+    // O editor existente consome a solicitação depois de carregar seus dados.
+    if (pendingEdit?.resource === 'allowlists' && isResourceEditRequestFresh(pendingEdit)) setEditor('policies');
+  }, [pendingEdit]);
 
   const load = useCallback(async () => {
     setLoading(true);

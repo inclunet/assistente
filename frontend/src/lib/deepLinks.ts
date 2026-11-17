@@ -513,7 +513,7 @@ export async function executeDeepLink(
         navStore.requestResourceEdit(action.resource, action.resourceId, 'edit');
       }
       const settingsResources = new Set(['providers', 'mcp', 'skills', 'channels', 'credentials', 'allowlists']);
-      const path = settingsResources.has(action.resource) ? `/settings/${action.resource}` : `/${action.resource}`;
+      const path = action.resource === 'allowlists' ? '/settings/permissions' : settingsResources.has(action.resource) ? `/settings/${action.resource}` : `/${action.resource}`;
       deps.navigate(path);
       announce(t('deepLink.announcedEditResource', { id: action.resourceId }));
       break;
@@ -534,7 +534,7 @@ export async function executeDeepLink(
         navStore.requestResourceEdit(action.resource, '', 'new');
       }
       const settingsResources = new Set(['providers', 'mcp', 'skills', 'channels', 'credentials', 'allowlists']);
-      const path = settingsResources.has(action.resource) ? `/settings/${action.resource}` : `/${action.resource}`;
+      const path = action.resource === 'allowlists' ? '/settings/permissions' : settingsResources.has(action.resource) ? `/settings/${action.resource}` : `/${action.resource}`;
       deps.navigate(path);
       announce(t('deepLink.announcedNewResource'));
       break;

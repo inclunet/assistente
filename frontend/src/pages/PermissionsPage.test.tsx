@@ -1,6 +1,7 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor, fireEvent } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent, act } from '@testing-library/react';
 import { axe } from '../test/a11yAxe';
+import { useNavigationStore } from '../store/navigationStore';
 
 const mockGetPermissions = vi.fn();
 const mockAddToast = vi.fn();
@@ -38,7 +39,7 @@ vi.mock('../components/ui/PageLoading', () => ({
   PageLoading: ({ message }: { message: string }) => <div>{message}</div>,
 }));
 
-vi.mock('./AllowlistPage', () => ({ default: () => <div /> }));
+vi.mock('./AllowlistPage', () => ({ default: () => <div>policies-editor</div> }));
 vi.mock('./ProfilesPage', () => ({ default: () => <div /> }));
 vi.mock('../store/authStore', () => ({ useAuthStore: (selector: (state: { user: null }) => unknown) => selector({ user: null }) }));
 import PermissionsPage from './PermissionsPage';
@@ -71,7 +72,15 @@ describe('PermissionsPage — acessibilidade', () => {
 });
 
 describe('PermissionsPage — gestão', () => {
-  beforeEach(() => { vi.clearAllMocks(); mockConfirm.mockResolvedValue(true); mockRevoke.mockResolvedValue(undefined); });
+  beforeEach(() => { vi.clearAllMocks(); useNavigationStore.getState().clearPendingEdit(); mockConfirm.mockResolvedValue(true); mockRevoke.mockResolvedValue(undefined); });
+  it('abre o editor de políticas para o pedido de deep link sem consumi-lo antes do editor', async () => {
+    mockGetPermissions.mockResolvedValue({rules:[],migrationErrors:[]});
+    useNavigationStore.getState().requestResourceEdit('allowlists', 'project-policy', 'edit');
+    render(<PermissionsPage />);
+    await screen.findByText('policies-editor');
+    expect(useNavigationStore.getState().pendingEdit?.id).toBe('project-policy');
+    act(() => useNavigationStore.getState().clearPendingEdit());
+  });
   it('filtra por domínio e escopo sem esconder a identidade do contexto', async () => {
     mockGetPermissions.mockResolvedValue({ rules: [entradaDeWorkspace, { ...entradaDeWorkspace, id:'session-rule', resource:'temporary.internal', scope:'session', scopeKey:'conversation-123' }], migrationErrors:[] });
     render(<PermissionsPage />);
