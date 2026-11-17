@@ -1,6 +1,7 @@
 package llm
 
 import (
+	"assistente/internal/tools/invocationctx"
 	"context"
 	"errors"
 	"fmt"
@@ -91,7 +92,9 @@ func (p *ACPChatProvider) StreamChat(ctx context.Context, messages []Message, pa
 	// se há alguém (AEP-0084 D9). O dono do turno vai junto porque o contexto
 	// do transporte não o carrega, e sem ele a superfície de origem da conversa
 	// não pode ser descoberta sem ler dados de outro usuário (AEP-0052).
+	originWorkspace, _ := invocationctx.Workspace(ctx)
 	endTurn := conv.BeginTurn(acp.TurnOwner{
+		Workspace:   originWorkspace,
 		Interactive: turnHasWatcher(params),
 		ProfileSlug: params.ProfileSlug,
 		UserID:      turnUserID(ctx),

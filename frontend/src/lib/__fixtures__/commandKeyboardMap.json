@@ -928,6 +928,17 @@
               },
               "commandId": "command_settings.create.open",
               "handler": "local_ui"
+            },
+            "allowlists": {
+              "shortcut": {
+                "version": 1,
+                "code": "KeyN",
+                "modifiers": [
+                  "Control"
+                ]
+              },
+              "commandId": "allowlists.create.open",
+              "handler": "local_ui"
             }
           },
           "fallback": {
@@ -1002,6 +1013,7 @@
     }
   ],
   "localPaletteCommands": [
+    "allowlists.create.open",
     "chat.focus.input",
     "chat.focus.messages",
     "chat.history.open",

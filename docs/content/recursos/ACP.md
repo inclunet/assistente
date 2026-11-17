@@ -45,7 +45,7 @@ runbook `docs/operations/acp-compatibility-retirement.md` do repositório.
 
 ## Permissões
 
-Todo `request_permission` do agente vira um questionário na UI (ou mensagem numerada em canais). `Permitir sempre` grava por **classe** (`execute`/`edit`/`read`) no banco do Assistente, vinculada ao usuário e ao perfil. Gerencie em **Configurações → Permissões do Agente**; canais e jobs nunca gravam "sempre".
+Pedidos sem concessão compatível usam o diálogo comum de autorizações. No desktop, os escopos disponíveis são operação, conversa, workspace, perfil e global do usuário. A regra identifica o agente e a classe de ação (`execute`/`edit`/`read`), não o título livre da ferramenta. Gerencie em **Configurações → Permissões**. Canais só oferecem decisão pontual, e jobs sem interlocutor negam.
 
 ## Ferramentas no histórico
 
@@ -79,9 +79,9 @@ pode impedir o registro de uma atividade ainda em andamento.
 
 ### Autorizações locais e revogação
 
-O Assistente guarda a escolha permanente localmente e responde ao agente com
+O Assistente guarda a concessão reutilizável localmente e responde ao agente com
 uma autorização pontual em cada pedido, inclusive no primeiro. Assim, revogar
-em **Configurações → Permissões do Agente** impede novas aprovações automáticas.
+em **Configurações → Permissões** impede novas aprovações automáticas.
 Se o agente não oferecer autorização pontual, o aplicativo não converte uma
 escolha local em autorização permanente no processo externo.
 

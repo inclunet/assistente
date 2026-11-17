@@ -529,24 +529,6 @@ export namespace apidto {
 		}
 	}
 	
-	export class AgentPermissionView {
-	    profileSlug: string;
-	    profileName?: string;
-	    action: string;
-	    grantedAt: string;
-	
-	    static createFrom(source: any = {}) {
-	        return new AgentPermissionView(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.profileSlug = source["profileSlug"];
-	        this.profileName = source["profileName"];
-	        this.action = source["action"];
-	        this.grantedAt = source["grantedAt"];
-	    }
-	}
 	export class AgentSessionCommands {
 	    conversationId: string;
 	    commands: AgentCommand[];
@@ -1584,32 +1566,6 @@ export namespace apidto {
 	        this.authType = source["authType"];
 	    }
 	}
-	export class NetworkAllowlistView {
-	    host: string;
-	    port?: string;
-	    scope: string;
-	    category?: string;
-	    resolvedIps?: string[];
-	    createdBy?: string;
-	    createdAt: string;
-	    reason?: string;
-	
-	    static createFrom(source: any = {}) {
-	        return new NetworkAllowlistView(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.host = source["host"];
-	        this.port = source["port"];
-	        this.scope = source["scope"];
-	        this.category = source["category"];
-	        this.resolvedIps = source["resolvedIps"];
-	        this.createdBy = source["createdBy"];
-	        this.createdAt = source["createdAt"];
-	        this.reason = source["reason"];
-	    }
-	}
 	export class OpenTimelineRequest {
 	    conversationId: string;
 	    scopeParentId?: string;
@@ -1634,32 +1590,6 @@ export namespace apidto {
 	        this.anchorItemId = source["anchorItemId"];
 	        this.direction = source["direction"];
 	        this.limit = source["limit"];
-	    }
-	}
-	export class PathAllowlistView {
-	    path: string;
-	    kind: string;
-	    operation: string;
-	    effect: string;
-	    scope: string;
-	    createdBy?: string;
-	    createdAt: string;
-	    reason?: string;
-	
-	    static createFrom(source: any = {}) {
-	        return new PathAllowlistView(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.path = source["path"];
-	        this.kind = source["kind"];
-	        this.operation = source["operation"];
-	        this.effect = source["effect"];
-	        this.scope = source["scope"];
-	        this.createdBy = source["createdBy"];
-	        this.createdAt = source["createdAt"];
-	        this.reason = source["reason"];
 	    }
 	}
 	export class TimelineWindowPosition {
@@ -4138,6 +4068,25 @@ export namespace app {
 
 }
 
+export namespace authorization {
+	
+	export class LegacyOwnerOption {
+	    id: string;
+	    name: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new LegacyOwnerOption(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	    }
+	}
+
+}
+
 export namespace channels {
 	
 	export class ChannelConfig {
@@ -4997,6 +4946,88 @@ export namespace controllers {
 	        this.connected = source["connected"];
 	        this.contacts = this.convertValues(source["contacts"], contacts.AuthorizedContact);
 	        this.maxContacts = source["maxContacts"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class PermissionDiagnostic {
+	    code: string;
+	    domain: string;
+	    profile: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new PermissionDiagnostic(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.code = source["code"];
+	        this.domain = source["domain"];
+	        this.profile = source["profile"];
+	    }
+	}
+	export class PermissionView {
+	    id: string;
+	    domain: string;
+	    scope: string;
+	    scopeKey: string;
+	    effect: string;
+	    origin: string;
+	    resource: string;
+	    operation: string;
+	    resourceKind: string;
+	    createdAt: string;
+	    revokedAt: string;
+	    expiresAt: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new PermissionView(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.domain = source["domain"];
+	        this.scope = source["scope"];
+	        this.scopeKey = source["scopeKey"];
+	        this.effect = source["effect"];
+	        this.origin = source["origin"];
+	        this.resource = source["resource"];
+	        this.operation = source["operation"];
+	        this.resourceKind = source["resourceKind"];
+	        this.createdAt = source["createdAt"];
+	        this.revokedAt = source["revokedAt"];
+	        this.expiresAt = source["expiresAt"];
+	    }
+	}
+	export class PermissionSnapshot {
+	    rules: PermissionView[];
+	    migrationErrors: PermissionDiagnostic[];
+	
+	    static createFrom(source: any = {}) {
+	        return new PermissionSnapshot(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.rules = this.convertValues(source["rules"], PermissionView);
+	        this.migrationErrors = this.convertValues(source["migrationErrors"], PermissionDiagnostic);
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -9825,6 +9856,54 @@ export namespace wailsapi {
 	        this.settings = this.convertValues(source["settings"], logging.Settings);
 	        this.overridden = source["overridden"];
 	        this.error = source["error"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class PendingPermissionOrigin {
+	    id: string;
+	    domain: string;
+	    source: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new PendingPermissionOrigin(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.domain = source["domain"];
+	        this.source = source["source"];
+	    }
+	}
+	export class PermissionMigration {
+	    origins: PendingPermissionOrigin[];
+	    owners: authorization.LegacyOwnerOption[];
+	
+	    static createFrom(source: any = {}) {
+	        return new PermissionMigration(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.origins = this.convertValues(source["origins"], PendingPermissionOrigin);
+	        this.owners = this.convertValues(source["owners"], authorization.LegacyOwnerOption);
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {

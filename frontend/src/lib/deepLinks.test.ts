@@ -274,11 +274,18 @@ describe('parseDeepLink', () => {
   });
 
   describe('navigate', () => {
+    it.each(['allowlists', 'network-allowlist', 'path-allowlist', 'agent-permissions'])('migra o link histórico de %s para Permissões', async (tab) => {
+      const mockNavigate = vi.fn();
+      const action = parseDeepLink(`assistente://navigate/settings/${tab}`);
+      expect(action).toEqual({ type: 'navigate', route: 'settings/permissions' });
+      await executeDeepLink(action!, { navigate: mockNavigate });
+      expect(mockNavigate).toHaveBeenCalledWith('/settings/permissions');
+    });
     it('faz parse de rotas válidas', () => {
       const validRoutes = [
         'settings', 'settings/providers', 'settings/mcp', 'settings/skills',
         'settings/channels', 'settings/contacts', 'settings/credentials',
-        'settings/allowlists', 'settings/network-allowlist', 'settings/path-allowlist',
+        'settings/permissions',
         'settings/appearance', 'settings/restore-defaults',
         'settings/data',
         'profiles', 'history', 'memories', 'tasklists', 'help', 'about', 'update',
@@ -786,6 +793,11 @@ describe('DEEP_LINK_PREFIX', () => {
 describe('executeDeepLink', () => {
   const mockNavigate = vi.fn();
   const deps = { navigate: mockNavigate };
+
+  it.each(['edit', 'new'] as const)('encaminha %s de política para Permissões', async (action) => {
+    await executeDeepLink(action === 'edit' ? { type: 'resource:edit', resource: 'allowlists', resourceId: 'project' } : { type: 'resource:new', resource: 'allowlists' }, deps);
+    expect(mockNavigate).toHaveBeenCalledWith('/settings/permissions');
+  });
 
   beforeEach(() => {
     vi.clearAllMocks();

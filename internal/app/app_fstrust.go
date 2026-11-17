@@ -1,6 +1,7 @@
 package app
 
 import (
+	"assistente/internal/authorization"
 	"context"
 	"fmt"
 	"strings"
@@ -13,130 +14,8 @@ import (
 // Filesystem Path Trust (allowlist fora do sandbox) — Prompter (AEP-0092)
 // ============================================================================
 
-type fsScopeOption struct {
-	key   string
-	label string
-	scope fstrust.Scope
-}
-
-var fsScopeOptions = []fsScopeOption{
-	{"app.questionnaire.fstrust.scope.once", "Somente esta tentativa", fstrust.ScopeOnce},
-	{"app.questionnaire.fstrust.scope.session", "Durante esta conversa", fstrust.ScopeSession},
-	{"app.questionnaire.fstrust.scope.workspace", "Neste workspace (projeto)", fstrust.ScopeWorkspace},
-	{"app.questionnaire.fstrust.scope.profile", "Neste perfil", fstrust.ScopeProfile},
-	{"app.questionnaire.fstrust.scope.global", "Global (todos os workspaces e perfis)", fstrust.ScopeGlobal},
-}
-
-const (
-	fsActionDenyPrefix         = "deny"
-	fsActionDenyRememberPrefix = "deny-"
-	fsActionDirPrefix          = "dir-"
-)
-
-func fsDecisionActions() []questionnaire.DecisionAction {
-	out := make([]questionnaire.DecisionAction, 0, len(fsScopeOptions)*3)
-	for i, o := range fsScopeOptions {
-		action := questionnaire.DecisionAction{
-			ID:      string(o.scope),
-			Label:   questionnaire.Keyed(o.key, o.label),
-			Variant: "secondary",
-			Primary: i == 0,
-		}
-		// O chord universal representa as três escolhas sem colisão: tentativa,
-		// conversa e persistência neste workspace. Profile/global e pasta pai
-		// continuam com Alt+mnemônico porque coexistem no mesmo alcance temporal.
-		switch o.scope {
-		case fstrust.ScopeOnce:
-			action.Polarity = questionnaire.DecisionPolarityAffirmative
-			action.Scope = questionnaire.DecisionScopeCurrent
-		case fstrust.ScopeSession:
-			action.Polarity = questionnaire.DecisionPolarityAffirmative
-			action.Scope = questionnaire.DecisionScopeConversation
-		case fstrust.ScopeWorkspace:
-			action.Polarity = questionnaire.DecisionPolarityAffirmative
-			action.Scope = questionnaire.DecisionScopePersistent
-		}
-		out = append(out, action)
-	}
-	if len(out) > 0 {
-		out[0].Variant = "primary"
-	}
-	// Ações explícitas para liberar a pasta pai (D-Q1): nunca automáticas.
-	for _, o := range fsScopeOptions {
-		out = append(out, questionnaire.DecisionAction{
-			ID: fsActionDirPrefix + string(o.scope),
-			Label: questionnaire.Keyed(
-				"app.questionnaire.fstrust.scope.dir."+string(o.scope),
-				fmt.Sprintf("Pasta pai — %s", o.label),
-			),
-			Variant: "secondary",
-		})
-	}
-	// Negar e lembrar usa os mesmos escopos duráveis do trust compartilhado.
-	// "once" permanece a ação Negar final; session também é lembrado, mas só em
-	// memória e isolado por conversa.
-	for _, o := range fsScopeOptions[1:] {
-		action := questionnaire.DecisionAction{
-			ID: fsActionDenyRememberPrefix + string(o.scope),
-			Label: questionnaire.Keyed(
-				"app.questionnaire.fstrust.deny."+string(o.scope),
-				fmt.Sprintf("Negar — %s", o.label),
-			),
-			Variant: "danger",
-		}
-		switch o.scope {
-		case fstrust.ScopeSession:
-			action.Polarity = questionnaire.DecisionPolarityNegative
-			action.Scope = questionnaire.DecisionScopeConversation
-		case fstrust.ScopeWorkspace:
-			action.Polarity = questionnaire.DecisionPolarityNegative
-			action.Scope = questionnaire.DecisionScopePersistent
-		}
-		out = append(out, action)
-	}
-	out = append(out, questionnaire.DecisionAction{
-		ID:       fsActionDenyPrefix,
-		Label:    questionnaire.Keyed("app.questionnaire.fstrust.cancel", "Negar"),
-		Variant:  "outline",
-		Polarity: questionnaire.DecisionPolarityNegative,
-		Scope:    questionnaire.DecisionScopeCurrent,
-	})
-	return out
-}
-
-func fsDenyScopeFromActionID(actionID string) (fstrust.Scope, bool) {
-	value := strings.TrimPrefix(strings.TrimSpace(actionID), fsActionDenyRememberPrefix)
-	if value == actionID || value == string(fstrust.ScopeOnce) {
-		return "", false
-	}
-	for _, o := range fsScopeOptions[1:] {
-		if string(o.scope) == value {
-			return o.scope, true
-		}
-	}
-	return "", false
-}
-
-func fsScopeFromActionID(actionID string) (scope fstrust.Scope, kind fstrust.Kind, ok bool) {
-	value := strings.TrimSpace(actionID)
-	if value == "" || value == fsActionDenyPrefix {
-		return "", "", false
-	}
-	kind = fstrust.KindFile
-	if strings.HasPrefix(value, fsActionDirPrefix) {
-		kind = fstrust.KindDir
-		value = strings.TrimPrefix(value, fsActionDirPrefix)
-	}
-	for _, o := range fsScopeOptions {
-		if string(o.scope) == value {
-			return o.scope, kind, true
-		}
-	}
-	return "", "", false
-}
-
 type appFSPrompter struct {
-	qm *questionnaire.Manager
+	ask func(context.Context, questionnaire.RequestPayload) (questionnaire.Response, error)
 }
 
 func pathConfirmationPayload(req fstrust.PromptRequest) questionnaire.RequestPayload {
@@ -168,54 +47,26 @@ func pathConfirmationPayload(req fstrust.PromptRequest) questionnaire.RequestPay
 			"Caminho e detalhes solicitados",
 		),
 		AllowCancel: true,
-		Actions:     fsDecisionActions(),
+		Actions:     (questionnaire.AuthorizationActions{Scopes: req.AvailableScopes, Directory: true, RememberDenial: true, PersistentShortcut: authorization.ScopeWorkspace}).Actions(),
 	}
 }
 
 func (p *appFSPrompter) PromptPathAuthorization(ctx context.Context, req fstrust.PromptRequest) (fstrust.PromptDecision, error) {
-	if p.qm == nil {
+	if p.ask == nil {
 		return fstrust.PromptDecision{}, fmt.Errorf("questionnaire manager não inicializado")
 	}
 
-	resp, err := p.qm.RequestQuestionnaire(ctx, pathConfirmationPayload(req))
+	resp, err := p.ask(ctx, pathConfirmationPayload(req))
 	if err != nil {
 		return fstrust.PromptDecision{}, err
 	}
-	if resp.Cancelled {
-		return fstrust.PromptDecision{Approve: false}, nil
+	choice, err := (questionnaire.AuthorizationActions{Scopes: req.AvailableScopes, Directory: true, RememberDenial: true, PersistentShortcut: authorization.ScopeWorkspace}).Parse(resp)
+	if err != nil {
+		return fstrust.PromptDecision{}, err
 	}
-
-	actionID, ok := questionnaire.DecisionActionID(resp)
-	if !ok {
-		return fstrust.PromptDecision{}, fmt.Errorf("resposta de autorização de path sem ação")
+	kind := fstrust.KindFile
+	if choice.Directory {
+		kind = fstrust.KindDir
 	}
-	actionID = strings.TrimSpace(actionID)
-	if actionID == fsActionDenyPrefix {
-		return fstrust.PromptDecision{
-			Approve: false,
-			Scope:   fstrust.ScopeOnce,
-			Kind:    fstrust.KindFile,
-			Effect:  fstrust.EffectDeny,
-		}, nil
-	}
-	if scope, ok := fsDenyScopeFromActionID(actionID); ok {
-		return fstrust.PromptDecision{
-			Approve: false,
-			Scope:   scope,
-			Kind:    fstrust.KindFile,
-			Effect:  fstrust.EffectDeny,
-		}, nil
-	}
-
-	scope, kind, ok := fsScopeFromActionID(actionID)
-	if !ok {
-		return fstrust.PromptDecision{}, fmt.Errorf("ação de autorização de path inválida: %q", actionID)
-	}
-
-	return fstrust.PromptDecision{
-		Approve: true,
-		Scope:   scope,
-		Kind:    kind,
-		Effect:  fstrust.EffectAllow,
-	}, nil
+	return fstrust.PromptDecision{Approve: choice.Effect == "allow", Scope: choice.Scope, Kind: kind, Effect: fstrust.Effect(choice.Effect)}, nil
 }

@@ -63,7 +63,7 @@ func TestCommandPagePresentationClosedLocalCatalog(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(p.registry.List()) != 155 || len(view.LocalPaletteCommands) != 66 {
+	if len(p.registry.List()) != 156 || len(view.LocalPaletteCommands) != 67 {
 		t.Fatal("catalog counts")
 	}
 	for _, item := range commandProductPagePresentation {
@@ -112,6 +112,41 @@ func TestCommandPagePresentationClosedLocalCatalog(t *testing.T) {
 	for _, id := range []string{"terminal.interrupt", "terminal.session.close", "profiles.delete", "tasklists.delete"} {
 		if isLocalUICommand(id) {
 			t.Fatal("domain effect classified local:", id)
+		}
+	}
+}
+
+func TestCommandPolicyCreationBindingIsScopedAndSuppressible(t *testing.T) {
+	a, decisions := settingsSecurityFixture(t)
+	for _, suppressed := range []bool{true, false} {
+		settingsActivationSecurityConfirmed(t, a, decisions, func() (CommandSettingsMutation, error) {
+			return a.SetDefaultCommandSuppressed("builtin.keyboard.ctrl-n.allowlists.create.open", suppressed)
+		})
+		view, err := a.GetLocalCommandKeyboardMap()
+		if err != nil {
+			t.Fatal(err)
+		}
+		found := false
+		for _, entry := range view.ContextualBindings {
+			if entry.Shortcut.Code != "KeyN" {
+				continue
+			}
+			page, ok := entry.ByPage["settings"]
+			if !ok {
+				continue
+			}
+			binding := page.BySurface["allowlists"]
+			if suppressed {
+				if binding != nil {
+					t.Fatal("binding suprimido ainda ativo")
+				}
+			} else if binding == nil || binding.CommandID != "allowlists.create.open" {
+				t.Fatalf("binding incorreto: %+v", binding)
+			}
+			found = true
+		}
+		if !found {
+			t.Fatal("binding contextual não publicado")
 		}
 	}
 }

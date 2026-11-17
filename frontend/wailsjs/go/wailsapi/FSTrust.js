@@ -5,11 +5,3 @@
 export function AddPathAllowlistEntry(arg1, arg2, arg3, arg4, arg5, arg6) {
   return window['go']['wailsapi']['FSTrust']['AddPathAllowlistEntry'](arg1, arg2, arg3, arg4, arg5, arg6);
 }
-
-export function GetPathAllowlist() {
-  return window['go']['wailsapi']['FSTrust']['GetPathAllowlist']();
-}
-
-export function RemovePathAllowlistEntry(arg1, arg2, arg3, arg4, arg5) {
-  return window['go']['wailsapi']['FSTrust']['RemovePathAllowlistEntry'](arg1, arg2, arg3, arg4, arg5);
-}

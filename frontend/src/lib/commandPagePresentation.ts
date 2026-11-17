@@ -8,6 +8,7 @@ import type { LocalCommandContextLease } from './commandLocalKeyboard';
 export const COMMAND_SETTINGS_CREATE_COMMAND_ID = 'command_settings.create.open';
 
 export const PAGE_PRESENTATION_COMMAND_IDS = [
+	'allowlists.create.open',
   COMMAND_SETTINGS_CREATE_COMMAND_ID,
   'providers.create.open', 'providers.api.create.open', 'providers.acp.create.open', 'providers.chatgpt.create.open',
   'tasklists.create.open', 'tasklists.edit.open', 'tasklists.search.focus',
@@ -24,7 +25,7 @@ export interface PagePresentationOptions {
   root: RefObject<HTMLElement>;
   pathname: string;
   tabId?: string;
-  /** Only the command-settings manager may own this narrow topmost scope. */
+  /** Only explicitly registered managers may own this narrow topmost scope. */
   settingsManager?: boolean;
   allowedCommands: readonly PagePresentationCommandID[];
   readTarget(): unknown;
@@ -48,8 +49,10 @@ function identity(source: Source): string | undefined {
   const modal = getModalRegistrySnapshot();
   const managerRoot = source.root.closest('[data-modal-id]');
   const ownsManager = options.settingsManager === true &&
-    options.pathname === '/settings/commands' &&
-    options.allowedCommands.length === 1 && options.allowedCommands[0] === COMMAND_SETTINGS_CREATE_COMMAND_ID &&
+    options.allowedCommands.length === 1 && (
+      (options.pathname === '/settings/commands' && options.allowedCommands[0] === COMMAND_SETTINGS_CREATE_COMMAND_ID) ||
+      (options.pathname === '/settings/permissions' && options.allowedCommands[0] === 'allowlists.create.open')
+    ) &&
     modal.topID !== null && managerRoot?.getAttribute('data-modal-id') === modal.topID &&
     managerRoot.contains(document.activeElement);
   if (!auth.isAuthenticated || !auth.user || !ws || !options.isCurrent() ||
@@ -65,8 +68,8 @@ function identity(source: Source): string | undefined {
 
 /** A modal scope carries only this presentation command, never backend authority. */
 export function captureCommandSettingsKeyboardContext(readPathname: () => string): LocalCommandContextLease | undefined {
-  const commandID = COMMAND_SETTINGS_CREATE_COMMAND_ID;
   const path = readPathname();
+  const commandID = path === '/settings/permissions' ? 'allowlists.create.open' : COMMAND_SETTINGS_CREATE_COMMAND_ID;
   if (!document.hasFocus() || ReadFocusContext().composition === 'active') return;
   const candidates = [...sources].filter(source => source.options().settingsManager &&
     source.options().pathname === path && identity(source) && source.options().canOpen(commandID));
@@ -77,7 +80,8 @@ export function captureCommandSettingsKeyboardContext(readPathname: () => string
   const profile = ReadProfileContext()?.slug;
   const focus = document.activeElement;
   return {
-    surfaceId: 'command-toolbar', surfaceType: 'toolbar', appPage: 'settings',
+    surfaceId: 'command-toolbar',
+    surfaceType: commandID === 'allowlists.create.open' ? 'allowlists' : 'toolbar', appPage: 'settings',
     ...(profile ? { profile } : {}), allowedCommandIds: [commandID],
     isCurrent: () => sources.has(source) && path === readPathname() &&
       identity(source) === capturedIdentity && source.options().readTarget() === target &&

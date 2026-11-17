@@ -1,5 +1,31 @@
 import { test, expect } from '../fixtures';
 
+test('Permissões abre a associação no editor real de perfis', async ({ page, wails }) => {
+  const profile = {
+    slug: 'default', name: 'Perfil para política', description: '', source: 'workdir',
+    chat: { llm_provider: '', model: '' },
+    voice: {
+      assistant: { enabled: false, provider: 'disabled', voice_id: '', rate: 1, pitch: 1, volume: 1 },
+      user: { enabled: false, provider: 'disabled', voice_id: '', rate: 1, pitch: 1, volume: 1 },
+      system: { enabled: false, provider: 'disabled', voice_id: '', rate: 1, pitch: 1, volume: 1 },
+    },
+    input: { enabled: true, stt_provider: 'webspeech', language: 'pt-BR', feedback_sounds: true, triggers: [] },
+    channels: { response_mode: 'mirror' }, context_providers: {},
+  };
+  await wails.setResponse('GetProfiles', [profile]);
+  await wails.setResponse('ReadProfileCommandTarget', { profile, fingerprint: '0123456789abcdef'.repeat(4) });
+  await wails.setResponse('GetActiveProfileSlug', 'default');
+  await wails.waitForApp();
+  await page.goto('/#/settings/permissions');
+  await page.getByRole('button', { name: /associar políticas a perfis|assign policies to profiles/i }).click();
+  await expect(page).toHaveURL(/#\/profiles$/);
+  const cell = page.locator('[role="gridcell"]').filter({ hasText: 'Perfil para política' }).first();
+  await cell.focus();
+  await cell.press('Enter');
+  await expect(page.locator('.profiles-editor')).toBeVisible();
+  await expect(page.getByRole('button', { name: /cancelar|cancel/i })).toBeVisible();
+});
+
 test.describe('Settings — navegação por abas', () => {
   test('página de settings carrega com abas visíveis', async ({ page, wails }) => {
     await wails.waitForApp();

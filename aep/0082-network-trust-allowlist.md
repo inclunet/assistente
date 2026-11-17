@@ -10,8 +10,9 @@ armazenamento em arquivos e ao plano de implementação futura.
 
 Persistência migrada na primeira implementação do AEP-0117: o banco é a fonte
 canônica, com arquivos apenas para importação idempotente. Gestão e revogação
-existentes usam o mesmo repositório. A orquestração/gestão unificada continua
-pendente no AEP-0117; as proteções específicas deste domínio são mantidas.
+usam o mesmo repositório. A segunda implementação integra o serviço comum e
+Configurações → Permissões, com atribuição administrativa de origens ambíguas.
+As proteções específicas deste domínio são mantidas; validação final no AEP-0117.
 
 ## Resumo
 

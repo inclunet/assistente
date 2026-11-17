@@ -6,6 +6,7 @@ import (
 	"assistente/internal/fstrust"
 	"assistente/internal/nettrust"
 	"assistente/internal/questionnaire"
+	"assistente/internal/shelltrust"
 )
 
 // Fase 4 do AEP-0091: permissões críticas não podem voltar ao híbrido
@@ -52,18 +53,18 @@ func assertDecisionOnlyShape(t *testing.T, nome string, payload questionnaire.Re
 }
 
 func TestPermissoesCriticasUsamSoDecisionDialog(t *testing.T) {
-	assertDecisionOnly(t, "shell", shellConfirmationPayload("echo ok", "C:/tmp"))
+	assertDecisionOnly(t, "shell", shellConfirmationPayload(shelltrust.PromptRequest{Command: "echo ok", Directory: "C:/tmp", AvailableScopes: allAuthorizationScopesForTest()}))
 	assertDecisionOnly(t, "http", httpConfirmationPayload("POST", "https://exemplo/api", `{"a":1}`))
 	// Mesmo builder que PromptNetworkAuthorization envia ao questionnaire —
 	// montar o payload à mão deixaria o prompter livre para regressar.
-	assertDecisionOnly(t, "rede", networkConfirmationPayload(nettrust.PromptRequest{
+	assertDecisionOnly(t, "rede", networkConfirmationPayload(nettrust.PromptRequest{AvailableScopes: allAuthorizationScopesForTest(),
 		Host:     "interno.local",
 		Category: "private",
 		Reason:   "teste",
 	}))
 	// Filesystem tem alternativas de path/pasta que não cabem sem colisão na
 	// família universal; o builder possui teste específico para seus slots.
-	payloadFS := pathConfirmationPayload(fstrust.PromptRequest{
+	payloadFS := pathConfirmationPayload(fstrust.PromptRequest{AvailableScopes: allAuthorizationScopesForTest(),
 		Path: "C:/tmp/contrato.txt", Operation: "write",
 	})
 	assertDecisionOnlyShape(t, "filesystem", payloadFS)

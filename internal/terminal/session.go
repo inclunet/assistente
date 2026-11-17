@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"sync"
@@ -183,7 +184,7 @@ func defaultShell() string {
 
 // shellType retorna o tipo do shell normalizado para uso em markers.
 func shellType(shell string) string {
-	switch shell {
+	switch strings.ToLower(filepath.Base(shell)) {
 	case "powershell.exe", "powershell", "pwsh.exe", "pwsh":
 		return "powershell"
 	default:

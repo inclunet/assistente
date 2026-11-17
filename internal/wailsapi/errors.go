@@ -29,9 +29,6 @@ var ErrProfilesNotWired = errors.New("wailsapi: profiles bind not wired")
 // ErrHotkeysNotWired indica que o bind Hotkeys ainda não recebeu controller/session.
 var ErrHotkeysNotWired = errors.New("wailsapi: hotkeys bind not wired")
 
-// ErrNetTrustNotWired indica que o bind NetTrust ainda não recebeu controller/session.
-var ErrNetTrustNotWired = errors.New("wailsapi: nettrust bind not wired")
-
 // ErrFSTrustNotWired indica que o bind FSTrust ainda não recebeu controller/session.
 var ErrFSTrustNotWired = errors.New("wailsapi: fstrust bind not wired")
 
@@ -122,9 +119,6 @@ var ErrACPWorkDirNotWired = errors.New("wailsapi: acp workdir bind not wired")
 
 // ErrACPInstallNotWired indica que o bind ACPInstall ainda não recebeu session/hooks.
 var ErrACPInstallNotWired = errors.New("wailsapi: acp install bind not wired")
-
-// ErrACPTrustNotWired indica que o bind ACPTrust ainda não recebeu store/session.
-var ErrACPTrustNotWired = errors.New("wailsapi: acp trust bind not wired")
 
 // ErrEditorNotWired indica que o bind Editor ainda não recebeu session/hooks.
 var ErrEditorNotWired = errors.New("wailsapi: editor bind not wired")

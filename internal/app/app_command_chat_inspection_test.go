@@ -18,7 +18,7 @@ func TestCommandChatInspectionLocalPresentation(t *testing.T) {
 		t.Run(tc.id, func(t *testing.T) {
 			a, decisions := settingsSecurityFixture(t)
 			p := a.commandProduct.Load()
-			if len(p.registry.List()) != 155 || commandProductRegistryVersion != "product-v44-app-default-profile" {
+			if len(p.registry.List()) != 156 || commandProductRegistryVersion != "product-v45-command-policy-create" {
 				t.Fatal("catalog/version")
 			}
 			d, ok := p.registry.Lookup(tc.id)
@@ -35,7 +35,7 @@ func TestCommandChatInspectionLocalPresentation(t *testing.T) {
 				t.Fatal(err)
 			}
 			for _, layer := range projection.BuiltinLayers {
-				if layer.ID == commandKeyboardLayerID && len(layer.Defaults) != 69 {
+				if layer.ID == commandKeyboardLayerID && len(layer.Defaults) != 70 {
 					t.Fatal("default count changed")
 				}
 				for _, item := range layer.Defaults {
@@ -45,7 +45,7 @@ func TestCommandChatInspectionLocalPresentation(t *testing.T) {
 				}
 			}
 			view, err := a.GetLocalCommandKeyboardMap()
-			if err != nil || len(view.LocalPaletteCommands) != 66 || !containsString(view.LocalPaletteCommands, tc.id) {
+			if err != nil || len(view.LocalPaletteCommands) != 67 || !containsString(view.LocalPaletteCommands, tc.id) {
 				t.Fatalf("palette: %+v %v", view, err)
 			}
 			layer, _ := settingsActivationSecurityLayerAndRule(t, a, decisions)

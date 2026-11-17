@@ -106,7 +106,7 @@ export function buildWailsMockScript(): string {
     // This admits only local_ui commands; route/focus/context guards remain
     // responsible for deciding whether a presentation is available now.
     localPaletteCommands: [
-      'command_settings.create.open',
+      'allowlists.create.open', 'command_settings.create.open',
       'providers.create.open', 'providers.api.create.open', 'providers.acp.create.open', 'providers.chatgpt.create.open',
       'tasklists.create.open',
       'tasklists.edit.open',
@@ -323,20 +323,10 @@ export function buildWailsMockScript(): string {
         }],
       };
     },
-    GetAgentPermissions: function() {
-      const last = _config.callLog[_config.callLog.length - 1];
-      if (!last || last.scope !== 'wailsapi.ACPTrust') {
-        throw new Error('GetAgentPermissions deve ser chamado via wailsapi.ACPTrust');
-      }
-      return [];
-    },
-    RevokeAgentPermission: function() {
-      const last = _config.callLog[_config.callLog.length - 1];
-      if (!last || last.scope !== 'wailsapi.ACPTrust') {
-        throw new Error('RevokeAgentPermission deve ser chamado via wailsapi.ACPTrust');
-      }
-      return undefined;
-    },
+    GetPermissions: { rules: [], migrationErrors: [] },
+    RevokePermission: undefined,
+    GetPermissionMigration: { origins: [], owners: [] },
+    AssignPermissionOrigin: undefined,
     GetAgentConversationWorkDir: function(conversationId) {
       const last = _config.callLog[_config.callLog.length - 1];
       if (!last || last.scope !== 'wailsapi.ACPWorkDir') {
@@ -809,7 +799,7 @@ export function buildWailsMockScript(): string {
     ListCredentials: [],
     ListExternalSources: [],
     GetAllowlists: [],
-    GetNetworkAllowlist: [],
+
     GetAllTaskLists: [],
     CheckForUpdates: { available: false },
     TestConnection: { success: true },
@@ -1066,7 +1056,7 @@ export function buildWailsMockScript(): string {
       Updater: makeProxy('wailsapi.Updater'),
       Profiles: makeProxy('wailsapi.Profiles'),
       Hotkeys: makeProxy('wailsapi.Hotkeys'),
-      NetTrust: makeProxy('wailsapi.NetTrust'),
+
       FSTrust: makeProxy('wailsapi.FSTrust'),
       Credentials: makeProxy('wailsapi.Credentials'),
       Settings: makeProxy('wailsapi.Settings'),
@@ -1096,7 +1086,7 @@ export function buildWailsMockScript(): string {
       ACPRegistry: makeProxy('wailsapi.ACPRegistry'),
       ACPWorkDir: makeProxy('wailsapi.ACPWorkDir'),
       ACPInstall: makeProxy('wailsapi.ACPInstall'),
-      ACPTrust: makeProxy('wailsapi.ACPTrust'),
+      Permissions: makeProxy('wailsapi.Permissions'),
       Editor: makeProxy('wailsapi.Editor'),
       ExportImport: makeProxy('wailsapi.ExportImport'),
     },

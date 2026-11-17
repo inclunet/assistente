@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"assistente/internal/questionnaire"
+	"assistente/internal/shelltrust"
 )
 
 // Diálogos de decisão crítica das tools: o que a pessoa lê antes de deixar o
@@ -21,7 +22,19 @@ const (
 )
 
 // shellConfirmationPayload monta a confirmação de execução de comando (AEP-0091).
-func shellConfirmationPayload(cmd, workDir string) questionnaire.RequestPayload {
+func shellConfirmationPayload(req shelltrust.PromptRequest) questionnaire.RequestPayload {
+	hint := questionnaire.KeyedWith(
+		"app.questionnaire.shell.workDir",
+		map[string]any{"workDir": req.Directory},
+		fmt.Sprintf("Diretório: %s", req.Directory),
+	)
+	if req.PersistentTerminal {
+		hint = questionnaire.KeyedWith(
+			"app.questionnaire.shell.persistentWorkDir",
+			map[string]any{"workDir": req.Directory},
+			fmt.Sprintf("Terminal persistente. Diretório inicial: %s; o diretório atual pode ter mudado. A autorização vale só para esta execução.", req.Directory),
+		)
+	}
 	return questionnaire.RequestPayload{
 		Kind: questionnaire.KindDecision,
 		Title: questionnaire.Keyed(
@@ -34,34 +47,14 @@ func shellConfirmationPayload(cmd, workDir string) questionnaire.RequestPayload 
 		),
 		// Diretório vai como Hint traduzível (rótulo "Diretório:" localizado);
 		// Body fica só com o comando cru, sem conectivo em pt-BR (AEP-0091).
-		Hint: questionnaire.KeyedWith(
-			"app.questionnaire.shell.workDir",
-			map[string]any{"workDir": workDir},
-			fmt.Sprintf("Diretório: %s", workDir),
-		),
-		Body: cmd,
+		Hint: hint,
+		Body: req.Command,
 		BodyLabel: questionnaire.Keyed(
 			"app.questionnaire.shell.bodyLabel",
 			"Comando solicitado",
 		),
 		AllowCancel: true,
-		Actions: []questionnaire.DecisionAction{
-			{
-				ID:       decisionAllow,
-				Label:    questionnaire.Keyed("app.questionnaire.shell.submit", "Permitir"),
-				Variant:  "primary",
-				Primary:  true,
-				Polarity: questionnaire.DecisionPolarityAffirmative,
-				Scope:    questionnaire.DecisionScopeCurrent,
-			},
-			{
-				ID:       decisionDeny,
-				Label:    questionnaire.Keyed("app.questionnaire.shell.cancel", "Negar"),
-				Variant:  "outline",
-				Polarity: questionnaire.DecisionPolarityNegative,
-				Scope:    questionnaire.DecisionScopeCurrent,
-			},
-		},
+		Actions:     (questionnaire.AuthorizationActions{Scopes: req.AvailableScopes}).Actions(),
 	}
 }
 
@@ -107,14 +100,14 @@ func httpConfirmationPayload(method, url, bodyPreview string) questionnaire.Requ
 	}
 }
 
-// approvedFromShellDecision interpreta a resposta kind=decision do shell.
-func approvedFromShellDecision(resp questionnaire.Response) (bool, error) {
+// approvedFromHTTPDecision valida a confirmação pontual de uma mutação HTTP.
+func approvedFromHTTPDecision(resp questionnaire.Response) (bool, error) {
 	if resp.Cancelled {
 		return false, nil
 	}
 	id, ok := questionnaire.DecisionActionID(resp)
 	if !ok {
-		return false, fmt.Errorf("resposta inválida para aprovação de comando")
+		return false, fmt.Errorf("resposta inválida para aprovação HTTP")
 	}
 	switch id {
 	case decisionAllow:

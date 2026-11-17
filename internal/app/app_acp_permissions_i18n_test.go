@@ -61,7 +61,7 @@ func exigirRotulosDasPerguntas(t *testing.T, payload map[string]any, quer map[st
 func dialogoDePermissao(t *testing.T, pedido acp.PermissionRequest) map[string]any {
 	t.Helper()
 	tela := novaTelaFalsa(func(opcoes []string) string { return opcoes[0] })
-	h := handlerCom(tela, acp.TurnOwner{ConversationID: "c", Interactive: true}, true)
+	h := handlerCom(tela, acp.TurnOwner{UserID: "authorization-test-user", ConversationID: "c", Interactive: true}, true)
 	h.RequestPermission(context.Background(), pedido)
 	return tela.ultimaPergunta(t)
 }
@@ -84,8 +84,8 @@ func TestOPedidoDePermissaoVaiTraduzivelParaATela(t *testing.T) {
 		t.Fatal("sem ações no DecisionDialog")
 	}
 	for _, action := range actions {
-		// Rótulos do agente são Plain (sem chave): traduzir o que vem de fora
-		// exibiria texto de outro lugar do app (AEP-0085).
+		// Rótulos das ações vêm do gerador comum; interpretar texto do agente
+		// como chave exibiria texto de outro lugar do app (AEP-0085).
 		if action.Label.Fallback == "" && action.Label.String() == "" {
 			t.Errorf("ação %q sem rótulo", action.ID)
 		}
@@ -123,7 +123,7 @@ func TestADescricaoDaPermissaoTemUmaChavePorClasseDeAcao(t *testing.T) {
 	// switch_mode não entra na chave com o underscore do protocolo: o conjunto
 	// equivalente do lado da tela (agentPermissions.action.*) nomeia as classes
 	// em camelCase, e duas grafias fariam a mesma classe ter dois nomes.
-	if classe := porChave["app.questionnaire.agentPermission.descriptionAlways.switchMode"]; classe != "switch_mode" {
+	if classe := porChave["app.questionnaire.agentPermission.description.switchMode"]; classe != "switch_mode" {
 		t.Errorf("chaves da descrição = %v, quer switch_mode nomeada como a tela a nomeia", porChave)
 	}
 }
@@ -144,28 +144,20 @@ func TestClasseInventadaPeloAgenteCaiNaChaveGenerica(t *testing.T) {
 	}
 }
 
-// O aviso do "permitir sempre" muda a frase inteira, e não só a acrescenta. As
-// duas moram no mesmo campo, então é a chave que diz de qual delas se trata: com
-// uma chave só, quem traduz mostraria a descrição sem o aviso, e o alcance da
-// autorização — a classe toda, não só o que está na tela — se perderia.
-func TestOAvisoDoSempreTrocaAChaveDaDescricao(t *testing.T) {
-	comSempre, _ := dialogoDePermissao(t, pedidoDeExecucao())["description"].(questionnaire.Text)
-
+// A memória local independe de allow_always remoto: o protocolo continua pontual.
+func TestOAlcanceLocalTemChavePropriaIndependenteDaOpcaoRemota(t *testing.T) {
+	comSempre, _ := dialogoDePermissao(t, pedidoDeExecucao())["hint"].(questionnaire.Text)
 	pedido := pedidoDeExecucao()
-	pedido.Options = []acp.PermissionOption{
-		{ID: "allow-once", Name: "Permitir uma vez", Kind: "allow_once"},
-		{ID: "reject-once", Name: "Negar", Kind: "reject_once"},
+	pedido.Options = []acp.PermissionOption{{ID: "allow-once", Kind: "allow_once"}, {ID: "reject-once", Kind: "reject_once"}}
+	semSempre, _ := dialogoDePermissao(t, pedido)["hint"].(questionnaire.Text)
+	if comSempre.Key != "app.questionnaire.agentPermission.localScope" || semSempre.Key != comSempre.Key {
+		t.Fatalf("alcance local sem chave estável: %+v %+v", comSempre, semSempre)
 	}
-	semSempre, _ := dialogoDePermissao(t, pedido)["description"].(questionnaire.Text)
-
-	if comSempre.Key == semSempre.Key {
-		t.Errorf("chave = %q nas duas, quer distinguir a descrição que fala do sempre", semSempre.Key)
+	if comSempre.Params["agent"] != "agent-test" || comSempre.Params["kind"] != "execute" {
+		t.Fatalf("alcance não identifica agente/classe: %+v", comSempre)
 	}
-	if !strings.Contains(comSempre.Fallback, "permitir sempre") {
-		t.Errorf("texto pronto = %q, quer dizer o que o sempre abrange", comSempre.Fallback)
-	}
-	if strings.Contains(semSempre.Fallback, "permitir sempre") {
-		t.Errorf("texto pronto = %q, fala de uma opção que o agente não ofereceu", semSempre.Fallback)
+	if !strings.Contains(comSempre.Fallback, "escopo escolhido") {
+		t.Fatal("alcance omitido no fallback")
 	}
 }
 
@@ -175,7 +167,7 @@ func TestOAvisoDoSempreTrocaAChaveDaDescricao(t *testing.T) {
 // existisse no locale (AEP-0085).
 func TestORotuloDoAgenteNuncaViraChaveDeTraducao(t *testing.T) {
 	tela := novaTelaFalsa(func(opcoes []string) string { return opcoes[0] })
-	h := handlerCom(tela, acp.TurnOwner{ConversationID: "c", Interactive: true}, true)
+	h := handlerCom(tela, acp.TurnOwner{UserID: "authorization-test-user", ConversationID: "c", Interactive: true}, true)
 
 	h.RequestPermission(context.Background(), pedidoDeExecucao())
 
@@ -184,8 +176,8 @@ func TestORotuloDoAgenteNuncaViraChaveDeTraducao(t *testing.T) {
 		t.Fatal("o diálogo de decisão não trouxe ações")
 	}
 	for _, action := range actions {
-		if action.Label.Key != "" {
-			t.Errorf("ação %+v ganhou chave de tradução: o texto é do agente", action)
+		if !strings.HasPrefix(action.Label.Key, "app.questionnaire.authorization.") {
+			t.Errorf("ação %+v não usa a chave comum controlada pelo aplicativo", action)
 		}
 		if action.Label.Fallback == "" && action.Label.String() == "" {
 			t.Error("ação sem texto: a pessoa escolheria um rótulo em branco")
@@ -197,7 +189,7 @@ func TestORotuloDoAgenteNuncaViraChaveDeTraducao(t *testing.T) {
 // traduzível: é a linha de comando que a pessoa lê antes de autorizar.
 func TestAAcaoPedidaContinuaSendoConteudoDoBloco(t *testing.T) {
 	tela := novaTelaFalsa(func(opcoes []string) string { return opcoes[0] })
-	h := handlerCom(tela, acp.TurnOwner{ConversationID: "c", Interactive: true}, true)
+	h := handlerCom(tela, acp.TurnOwner{UserID: "authorization-test-user", ConversationID: "c", Interactive: true}, true)
 
 	h.RequestPermission(context.Background(), pedidoDeExecucao())
 

@@ -8,7 +8,7 @@ import (
 	"assistente/controllers"
 	"assistente/internal/acp"
 	"assistente/internal/acpregistry"
-	"assistente/internal/acptrust"
+
 	"assistente/internal/apidto"
 	"assistente/internal/chat"
 	"assistente/internal/database"
@@ -20,7 +20,7 @@ import (
 	"assistente/internal/speech"
 	"assistente/internal/subagent"
 	"assistente/internal/terminal"
-	"assistente/internal/testutil/authorizationfixture"
+
 	"assistente/internal/wailsapi"
 )
 
@@ -152,25 +152,6 @@ func TestWireHotkeysAttachesBind(t *testing.T) {
 	}
 }
 
-func TestWireNetTrustAttachesBind(t *testing.T) {
-	t.Parallel()
-	a := &App{
-		profileManager: profiles.NewManager(),
-	}
-	api := wailsapi.NewNetTrust()
-	SetNetTrustAPI(a, api)
-
-	a.wireNetTrust()
-
-	if a.netTrustCtrl == nil {
-		t.Fatal("netTrustCtrl deve ser criado")
-	}
-	_, err := api.GetNetworkAllowlist()
-	if !errors.Is(err, database.ErrUserScopeRequired) {
-		t.Fatalf("sem sessão: want ErrUserScopeRequired, got %v", err)
-	}
-}
-
 func TestWireFSTrustAttachesBind(t *testing.T) {
 	t.Parallel()
 	a := &App{
@@ -184,7 +165,7 @@ func TestWireFSTrustAttachesBind(t *testing.T) {
 	if a.fsTrustCtrl == nil {
 		t.Fatal("fsTrustCtrl deve ser criado")
 	}
-	_, err := api.GetPathAllowlist()
+	err := api.AddPathAllowlistEntry("/tmp/file", "file", "read", "deny", "global", "")
 	if !errors.Is(err, database.ErrUserScopeRequired) {
 		t.Fatalf("sem sessão: want ErrUserScopeRequired, got %v", err)
 	}
@@ -612,20 +593,6 @@ func TestWireACPWorkDirAttachesBind(t *testing.T) {
 	a.wireACPWorkDir()
 
 	_, err := api.GetAgentConversationWorkDir("conversa-1")
-	if !errors.Is(err, database.ErrUserScopeRequired) {
-		t.Fatalf("sem sessão: want ErrUserScopeRequired, got %v", err)
-	}
-}
-
-func TestWireACPTrustAttachesBind(t *testing.T) {
-	t.Parallel()
-	a := &App{acpTrust: acptrust.NewStore(authorizationfixture.Options(t, t.TempDir(), ""))}
-	api := wailsapi.NewACPTrust()
-	SetACPTrustAPI(a, api)
-
-	a.wireACPTrust()
-
-	_, err := api.GetAgentPermissions()
 	if !errors.Is(err, database.ErrUserScopeRequired) {
 		t.Fatalf("sem sessão: want ErrUserScopeRequired, got %v", err)
 	}

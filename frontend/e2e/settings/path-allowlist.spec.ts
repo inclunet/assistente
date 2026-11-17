@@ -1,16 +1,45 @@
 import { test, expect } from '../fixtures';
+import { readFileSync } from 'node:fs';
 
 test.describe('Allowlist de paths — gestão e decisão', () => {
   test.describe.configure({ timeout: 60_000 });
 
+  test('Ctrl+N abre a política no modal proprietário e não atravessa o editor', async ({ page, wails }) => {
+    const wire = JSON.parse(readFileSync(new URL('../../src/lib/__fixtures__/commandKeyboardMap.json', import.meta.url), 'utf8'));
+    await wails.setResponse('GetLocalCommandKeyboardMap', { ...wire, generation: 'policy-e2e', ownerId: 'user-e2e', sessionId: 'session-e2e', workspaceId: 'ws-1' });
+    await wails.setResponse('GetPermissions', { rules: [], migrationErrors: [] });
+    await wails.setResponse('GetAllowlists', []);
+    await wails.waitForApp();
+    await page.goto('/#/settings/permissions');
+    await page.getByRole('button', { name: /command policies|políticas de comandos/i }).click();
+    const manager = page.locator('.allowlist-page');
+    await expect(manager).toBeVisible();
+    const create = manager.locator('.toolbar__button').first();
+    await create.focus();
+    await page.keyboard.press('Control+n');
+    const editor = page.locator('.allowlist-editor');
+    await expect(editor).toBeVisible();
+    const name = editor.locator('input').first();
+    await name.fill('Não perder edição');
+    await page.keyboard.press('Control+n');
+    await expect(name).toHaveValue('Não perder edição');
+    await expect(editor).toHaveCount(1);
+    await page.keyboard.press('Escape');
+    await expect(editor).toHaveCount(0);
+    await expect(manager).toBeVisible();
+    await create.click();
+    await expect(editor).toBeVisible();
+  });
+
   test('cria allow persistente pelo formulário de gestão', async ({ page, wails }) => {
-    await wails.setResponse('GetPathAllowlist', []);
+    await wails.setResponse('GetPermissions', { rules: [], migrationErrors: [] });
     await wails.setResponse('AddPathAllowlistEntry', undefined);
     await wails.waitForApp();
 
     await page.goto('/#/settings');
-    await page.getByRole('tab', { name: /path allowlist|allowlist de paths/i }).click();
-    const form = page.locator('.path-allowlist-page__form');
+    await page.getByRole('tab', { name: /^permissions$|^permissões$/i }).click();
+    await page.getByRole('button', { name: /add file rule|adicionar regra de arquivos/i }).click();
+    const form = page.locator('.permission-path-form');
     await expect(form).toBeVisible({ timeout: 10_000 });
 
     await page.locator('#path-rule-path').fill('C:\\dados\\manual.md');

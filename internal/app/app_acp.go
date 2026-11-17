@@ -44,12 +44,6 @@ func (a *App) initACP() {
 		origin:   a.acpConversationSurface,
 		notices:  func() ports.Emitter { return a.emitter },
 		trust:    func() *acptrust.Store { return a.acpTrust },
-		activeProfile: func() string {
-			if a.profileManager == nil {
-				return ""
-			}
-			return a.profileManager.GetActiveSlug()
-		},
 	}
 	a.acpMgr = acp.NewManager(acp.ManagerConfig{
 		// O banco é buscado a cada uso, não guardado: resetá-lo fecha a conexão

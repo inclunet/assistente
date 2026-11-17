@@ -1,0 +1,4 @@
+.permissions-page { display: flex; flex-direction: column; height: 100%; }
+.permissions-page__content { padding: var(--spacing-lg); overflow: auto; flex: 1; }
+.permissions-page__filters { display: flex; flex-wrap: wrap; gap: var(--spacing-md); margin-block: var(--spacing-md); }
+.permission-path-form { display: flex; flex-direction: column; gap: var(--spacing-md); }

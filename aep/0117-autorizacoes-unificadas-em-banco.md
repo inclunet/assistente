@@ -1,6 +1,6 @@
 # AEP-0117 — Autorizações unificadas em banco
 
-**Status:** In Progress — persistência integrada; orquestração e gestão unificadas pendentes
+**Status:** Done
 
 ## Resumo
 
@@ -38,7 +38,7 @@ de aba/perfil enquanto um diálogo está aberto não muda o destinatário da reg
 O frontend não decide política, identidade, escopo nem persistência.
 
 O serviço resolve política e concessões, produz `allow`, `deny` ou `ask`, obtém
-consentimento quando cabível e retorna motivo, regra aplicada e escopo efetivo.
+consentimento quando cabível e retorna efeito, motivo e escopo efetivo. A gestão identifica as regras por ID para revogação.
 Erros de consulta, identidade ausente ou payload desconhecido não viram `allow`.
 Bloqueios definitivos não apresentam uma opção que prometa contorná-los.
 
@@ -84,7 +84,7 @@ uma concessão válida evita repetir a pergunta, conforme AEP-0082 D8.
 
 Permissões temporárias e persistentes usam a mesma avaliação. Revogar ou mudar
 uma política invalida caches antes de responder sucesso; pedidos ainda pendentes
-reavaliam negativas e identidade antes de liberar. Uma operação já executada
+reavaliam negativas e identidade antes de liberar. As regras persistentes dos escopos aplicáveis são lidas por um SELECT único após preparar todas as origens. Permissões e negativas de filesystem usam esse mesmo snapshot. A leitura é o ponto de linearização; uma revogação posterior não desfaz retroativamente a decisão. Uma operação já executada
 não é desfeita pela revogação, e a UI não promete isso.
 
 ### D4. Modelo e tabelas comuns
@@ -104,6 +104,12 @@ O repositório usa as conexões, transações e migrações versionadas existent
   criação/atualização, revogação e expiração opcional.
 - `authorization_imports`: origem canônica, proprietário, versão/hash importado,
   estado e diagnóstico da migração. Evita reimportar regras revogadas ou apagadas.
+
+Origens administrativas usam versão zero, usuário vazio e AssignedTo como proprietário atribuído. Elas não são marcadores de importação de um usuário; o marcador só nasce na transação que grava as regras. A atribuição exige administrador autenticado e usuário ativo, aceita apenas origens registradas pelo backend e não transfere uma origem já atribuída.
+
+A adoção automática também grava essa titularidade transacionalmente. Marcadores
+de importações anteriores fixam o dono antes de qualquer nova atribuição;
+proprietários conflitantes bloqueiam a adoção.
 
 O seletor tem schema tipado por domínio e versão, validado no backend. JSON no
 banco é representação de structs conhecidos, nunca expressão executável ou
@@ -138,6 +144,16 @@ representar a operação com segurança sem persistir segredos, oferecer somente
 `once`. Pipelines, encadeamentos, redirecionamentos e subprocessos não podem
 ganhar autorização por apenas um fragmento aprovado. Negativas existentes
 continuam prevalecendo sobre concessões de runtime.
+
+O executor recebe o diretório canônico apresentado e recusa mudança de destino
+durante a pergunta. A execução efêmera restabelece esse diretório após a
+inicialização do shell e não executa o comando se a mudança de diretório falhar.
+Antes de avaliar o comando, o wrapper POSIX compara o caminho físico com o
+aprovado; o PowerShell rejeita reparse points introduzidos nesse caminho ou em
+seus ancestrais. No Windows, a resolução anterior à autorização e à execução usa
+o destino físico obtido por handle, inclusive para junctions preexistentes.
+Essa proteção cobre troca de destino durante o startup; não constitui sandbox
+contra mutação contínua do filesystem por outro processo.
 
 **ACP:** recurso é a classe de ação declarada pelo agente e sua identidade
 disponível no backend, nunca um comando inferido do título enviado pelo agente.
@@ -265,7 +281,7 @@ divisão, atualizar este plano sem fragmentar por arquivo ou pacote.
   domínios, conectadas aos fluxos existentes, incluindo gestão/revogação; retirar
   os stores de arquivo substituídos. Entrega útil: decisões existentes passam a
   sobreviver no banco com isolamento e origem preservados.
-- [ ] PR 2, base no PR 1: serviço/orquestração comum, consentimento escopado de
+- [x] PR 2, base no PR 1: serviço/orquestração comum, consentimento escopado de
   shell/ACP quando representável, área unificada de Permissões e remoção das
   interfaces/APIs redundantes. Entrega útil: autorização e gestão consistentes.
 
@@ -307,11 +323,39 @@ são explicitamente enumerados. Nenhum PR é mergeado pelo agente.
 - Erros de carregamento de políticas shell são registrados sem argumentos
   editáveis. A captura de workspace no controller e sua propagação ao envio
   de subagentes estão cobertas sem herdar a tela ativa após a captura.
-- Ainda pendentes: serviço único de decisão,
-  consentimento escopado de shell/ACP, gestão unificada e atribuição explícita
-  de proprietário para origens legadas ambíguas. Até essa atribuição existir,
-  a migração multiusuário/externa falha de modo fechado e informa o motivo.
 - Revisão de origem filesystem: resolução relativa, sandbox, walks e padrões de skills recebem o contexto capturado. O teste TestReadFileMantemWorkspaceDaOrigemDepoisDeTrocarATela executa leitura real após A→B e verifica que canal sem workspace não herda UI/cwd.
+
+### Evidências da segunda implementação
+
+- O gerenciador de políticas licencia somente `allowlists.create.open` no modal
+  proprietário. `Ctrl+N` usa catálogo/binding/resolvedor do AEP-0103, sem listener
+  legado; modal filho, IME, logout, supressão e foco externo recusam a ação.
+  Testes do mapa backend, integração Topbar e E2E do formulário real cobrem
+  abertura por teclado/botão e preservação da edição no modal filho.
+
+- `authorization.Resolve` concentra avaliação, pergunta, revalidação, gravação e degradação explícita para uma operação. Rede, filesystem, shell e ACP o utilizam; `questionnaire.AuthorizationActions` fornece IDs e rótulos comuns.
+- `shelltrust` representa operações reconhecidas sem persistir comandos livres; testes cobrem argumentos secretos/compostos, diretório exato, negativas e conversa limpa durante pergunta. O perfil é capturado antes de aguardar consentimento.
+- Terminais persistentes não consultam nem criam concessões reutilizáveis: o diretório inicial não comprova o diretório após um `cd`. A regressão executa chamadas via `RunCommand`, confirma cada operação e preserva a concessão para execução efêmera.
+- ACP associa novas regras a agente/classe, retorna apenas a opção pontual oferecida e preserva restrição de superfície. Novos testes de falha de gravação e isolamento entre agentes ficam para execução exclusiva no CI remoto.
+- `PermissionsController` e `PermissionsPage` substituem as três telas de grants. Gestão exibe sessões de todas as conversas em memória daquele usuário, regras persistentes e revogadas; políticas e associações reutilizam os editores existentes. APIs, DTOs, bindings, estilos e traduções sem consumidor foram retirados.
+- Origens ambíguas têm atribuição administrativa explícita no mesmo modelo de importações. Testes cobrem usuário não administrador, proprietário inexistente, reassignment e distinção entre atribuição e importação concluída.
+- A regressão de titularidade cobre adoção automática seguida de segunda conta e marcadores anteriores ao registro administrativo, impedindo reatribuição e duplicação de concessões.
+- Revisão remota da interface: recarga preserva o DataGrid e sua restauração por identidade, com fallback para a toolbar após remover a última linha. Associação navega para a rota de perfis, sem contornar guardas de comandos/modal. Regressões de foco e E2E de abertura do editor real passaram.
+- Revisão remota de diretório shell: regressões de troca de symlink durante consentimento, caminho literal com aspas e falha de mudança de diretório. O teste de startup bash com `cd` passou no CI Linux (job 133817079775); o wrapper PowerShell foi exercitado localmente.
+- Diagnósticos de migração usam `PermissionDiagnostic` com código, domínio e perfil, traduzidos nos três idiomas. Detalhes técnicos ficam no log; testes do controller preservam regras conhecidas junto da pendência e verificam os códigos.
+- Avaliação da ressalva final do Copilot: concessões shell exigem forma lexical literal, sem colapsar aspas/escapes entre interpretadores. O wrapper de diretório preserva aliases definidos em linhas anteriores e argumentos literais, com teste Bash que verifica também o status de saída.
+- Compatibilidade POSIX: a avaliação do literal usa espaço inicial em vez de `eval --`, que dash interpreta como comando. A regressão de `/bin/sh` acompanha as de Bash e PowerShell.
+- A regressão POSIX também cobre o prompt sem newline: o marker inicial começa em linha própria para não ser confundido com o prompt. Links históricos das quatro telas substituídas são normalizados para Permissões, preservando referências salvas sem manter interfaces ou stores antigos.
+- Testes de UI cobrem axe, filtros, erro de leitura, pendências e confirmação de revogação. Testes de concorrência cobrem geração de sessão e snapshot consistente dos escopos. Build, vet, golangci-lint, TypeScript e ESLint passaram; Stylelint sem erros. Dez pacotes Go, 174 testes de regressão frontend e dois E2E de arquivos/foco passaram. Revisão independente concluída sem pendências. CI remoto completo aprovado no run 44016935185, incluindo ACP, startup Bash e detector de corrida. Quatro rodadas do Copilot tiveram seus achados corrigidos; a quarta pediu cobertura direta do formulário de atribuição, atendida por três testes de comportamento aprovados e revisados independentemente. A tentativa de excluir ACP na suíte frontend ampla não foi respeitada pelos projetos Vitest e incluiu testes de UI com mocks; não houve execução de agentes nem testes Go ACP. As validações locais seguintes usam arquivos explicitamente selecionados.
+O formulário de atribuição tem testes reais de seletores, IDs enviados, bloqueio durante gravação, sucesso confirmado, falha com retry e cancelamento. A revisão independente foi repetida a cada lote, sem pendências ao publicar. Ordem de merge pelo mantenedor: #1087 → #1088 → #1089; nenhum merge foi realizado pelo agente.
+
+A revisão da troca de diretório no startup acrescentou regressões para o próprio
+diretório e um ancestral. Ambas executam o comando indevidamente com o wrapper
+anterior e o bloqueiam com a correção. PowerShell local também confirmou junction
+preexistente (raiz e filho) e resolução de caminho longo. Build, vet, testes dos
+pacotes terminal/shell e lint passaram; a regressão integrada de startup Bash é
+executada no CI Linux. Revisão independente em três rodadas corrigiu compatibilidade
+de junctions e caminhos longos, encerrando sem pendências.
 
 ## Riscos
 
@@ -329,19 +373,19 @@ são explicitamente enumerados. Nenhum PR é mergeado pelo agente.
 
 ## Critérios de aceitação
 
-- [ ] Rede, shell, FS e ACP persistem no banco atual, sem dual-write/fallback.
-- [ ] Os cinco escopos têm identidade e duração consistentes; escopo indisponível
+- [x] Rede, shell, FS e ACP persistem no banco atual, sem dual-write/fallback.
+- [x] Os cinco escopos têm identidade e duração consistentes; escopo indisponível
   não é oferecido nem convertido em outro mais amplo.
-- [ ] Negativas e barreiras de cada domínio prevalecem; isolamento por usuário,
+- [x] Negativas e barreiras de cada domínio prevalecem; isolamento por usuário,
   perfil, workspace, conversa e superfície é exercitado por testes.
-- [ ] Migração repetida/interrompida, arquivos inválidos, origens homônimas e
+- [x] Migração repetida/interrompida, arquivos inválidos, origens homônimas e
   revogação após importação não perdem negativas nem ampliam autorizações.
-- [ ] Consentimento concorrente, troca de aba/perfil e revogação durante pergunta
+- [x] Consentimento concorrente, troca de aba/perfil e revogação durante pergunta
   não autorizam outro contexto nem ignoram uma negativa recém-criada.
-- [ ] ACP usa o mesmo serviço sem inventar opções, herdar permissão de desktop
+- [x] ACP usa o mesmo serviço sem inventar opções, herdar permissão de desktop
   em canal ou confundir `allow_always` remoto com escopos locais.
-- [ ] Gestão mostra origem/escopo/efeito e revoga pelo mesmo repositório da execução.
-- [ ] Falhas de consulta/gravação têm erro e aviso coerentes, sem sucesso falso.
-- [ ] Código morto e testes exclusivos dos fluxos removidos foram eliminados;
+- [x] Gestão mostra origem/escopo/efeito e revoga pelo mesmo repositório da execução.
+- [x] Falhas de consulta/gravação têm erro e aviso coerentes, sem sucesso falso.
+- [x] Código morto e testes exclusivos dos fluxos removidos foram eliminados;
   cobertura relevante e documentos de usuário acompanham os consumidores migrados.
-- [ ] Checks verdes e reviews resolvidas em cada PR; ACP validado só no CI remoto.
+- [x] Checks verdes e reviews resolvidas em cada PR; validação completa de ACP concluída no CI remoto. A exceção da execução inicial de testes de UI com mocks está registrada acima; nenhuma execução local de agentes ou testes Go ACP ocorreu.

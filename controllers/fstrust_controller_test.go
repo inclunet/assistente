@@ -2,54 +2,14 @@ package controllers
 
 import (
 	"assistente/internal/testutil/authorizationfixture"
-	"assistente/internal/trustscope"
+
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	"assistente/internal/fstrust"
 )
-
-func TestFSTrustGetPathAllowlistNilManager(t *testing.T) {
-	t.Parallel()
-	c := NewFSTrustController(FSTrustControllerConfig{})
-	if got, err := c.GetPathAllowlist(authorizationfixture.Context()); err == nil || got != nil {
-		t.Fatalf("want nil, got %#v", got)
-	}
-}
-
-func TestFSTrustRemoveRequiresPersistentScope(t *testing.T) {
-	t.Parallel()
-	c := NewFSTrustController(FSTrustControllerConfig{
-		FSTrustMgr: fstrust.NewManager(trustscope.Options{}),
-	})
-	err := c.RemovePathAllowlistEntry(authorizationfixture.Context(), "session", "/tmp/a.txt", "file", "read", "allow")
-	if err == nil || !strings.Contains(err.Error(), "escopo inválido") {
-		t.Fatalf("want escopo inválido, got %v", err)
-	}
-}
-
-func TestFSTrustRemoveNilManager(t *testing.T) {
-	t.Parallel()
-	c := NewFSTrustController(FSTrustControllerConfig{})
-	err := c.RemovePathAllowlistEntry(authorizationfixture.Context(), "global", "/tmp/a.txt", "file", "read", "allow")
-	if err == nil || !strings.Contains(err.Error(), "não inicializado") {
-		t.Fatalf("want gerenciador não inicializado, got %v", err)
-	}
-}
-
-func TestFSTrustRemoveInvalidKind(t *testing.T) {
-	t.Parallel()
-	c := NewFSTrustController(FSTrustControllerConfig{
-		FSTrustMgr: fstrust.NewManager(trustscope.Options{}),
-	})
-	err := c.RemovePathAllowlistEntry(authorizationfixture.Context(), "global", "/tmp/a.txt", "weird", "read", "allow")
-	if err == nil || !strings.Contains(err.Error(), "kind inválido") {
-		t.Fatalf("want kind inválido, got %v", err)
-	}
-}
 
 func TestFSTrustAddPathAllowlistEntryDeny(t *testing.T) {
 	t.Parallel()
@@ -65,7 +25,7 @@ func TestFSTrustAddPathAllowlistEntryDeny(t *testing.T) {
 		t.Fatal("session não deveria ser aceito para regra persistente")
 	}
 
-	views, err := c.GetPathAllowlist(authorizationfixture.Context())
+	views, err := mgr.List(authorizationfixture.Context())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -90,7 +50,7 @@ func TestFSTrustAddPathAllowlistEntryAllow(t *testing.T) {
 	if err := c.AddPathAllowlistEntry(authorizationfixture.Context(), path, "file", "read", "maybe", "global", ""); err == nil {
 		t.Fatal("efeito desconhecido não deveria ser aceito")
 	}
-	views, err := c.GetPathAllowlist(authorizationfixture.Context())
+	views, err := mgr.List(authorizationfixture.Context())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -113,7 +73,7 @@ func TestFSTrustAddPathAllowlistEntryTrims(t *testing.T) {
 		t.Fatalf("AddPathAllowlistEntry: %v", err)
 	}
 
-	views, err := c.GetPathAllowlist(authorizationfixture.Context())
+	views, err := mgr.List(authorizationfixture.Context())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -146,7 +106,7 @@ func TestFSTrustAddPathAllowlistEntryExpandsHome(t *testing.T) {
 		t.Fatalf("AddPathAllowlistEntry: %v", err)
 	}
 
-	views, err := c.GetPathAllowlist(authorizationfixture.Context())
+	views, err := mgr.List(authorizationfixture.Context())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -171,48 +131,7 @@ func TestFSTrustAddPathAllowlistEntryRejectsRelative(t *testing.T) {
 	if err := c.AddPathAllowlistEntry(authorizationfixture.Context(), "relativo/segredo.env", "file", "read", "deny", "global", ""); err == nil {
 		t.Fatal("path relativo deveria ser rejeitado")
 	}
-	if entries, err := c.GetPathAllowlist(authorizationfixture.Context()); err != nil || len(entries) != 0 {
+	if entries, err := mgr.List(authorizationfixture.Context()); err != nil || len(entries) != 0 {
 		t.Fatal("nada deveria ter sido persistido para path relativo")
-	}
-}
-
-func TestFSTrustGetPathAllowlistMapsEntry(t *testing.T) {
-	t.Parallel()
-	dir := t.TempDir()
-	mgr := fstrust.NewManager(authorizationfixture.Options(t, dir, dir))
-	path := filepath.Join(dir, "docs", "a.txt")
-	created := time.Date(2026, 8, 17, 12, 0, 0, 0, time.UTC)
-	entry := fstrust.AllowlistEntry{
-		Path:      path,
-		Kind:      fstrust.KindFile,
-		Operation: "read",
-		Effect:    fstrust.EffectAllow,
-		Scope:     fstrust.ScopeGlobal,
-		CreatedBy: "user",
-		CreatedAt: created,
-		Reason:    "teste",
-	}
-	if err := mgr.Add(authorizationfixture.Context(), entry); err != nil {
-		t.Fatalf("Add: %v", err)
-	}
-
-	c := NewFSTrustController(FSTrustControllerConfig{FSTrustMgr: mgr})
-	views, err := c.GetPathAllowlist(authorizationfixture.Context())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(views) != 1 {
-		t.Fatalf("want 1 entrada, got %d", len(views))
-	}
-	v := views[0]
-	if fstrust.NormalizePath(v.Path) != fstrust.NormalizePath(entry.Path) ||
-		v.Kind != string(entry.Kind) ||
-		v.Operation != entry.Operation ||
-		v.Effect != "allow" ||
-		v.Scope != string(entry.Scope) {
-		t.Fatalf("view incompleta: %#v", v)
-	}
-	if v.CreatedAt == "" || v.Reason != "teste" {
-		t.Fatalf("metadados: %#v", v)
 	}
 }

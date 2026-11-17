@@ -576,7 +576,7 @@ func TestAppCommandLifecycleRebuildsEmptyProductThenBootstrapsReady(t *testing.T
 		t.Fatalf("bootstrap após rebuild falhou: %v", err)
 	}
 	snapshot, err := CommandLifecycleSnapshot(app)
-	if err != nil || snapshot.State != commandruntime.StateReady || !snapshot.Published || snapshot.PublishedEntries != 155 {
+	if err != nil || snapshot.State != commandruntime.StateReady || !snapshot.Published || snapshot.PublishedEntries != 156 {
 		t.Fatalf("runtime não ficou ready após rebuild: %+v err=%v", snapshot, err)
 	}
 	if err := ShutdownCommandLifecycle(context.Background(), app); err != nil {

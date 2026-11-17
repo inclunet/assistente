@@ -30,7 +30,9 @@ func (a *App) initMCP() {
 	// Escritores reais dentro do MCP manager seguem usando RequireUserID.
 	a.mcpMgr.SetAuthContextProvider(a.internalBootstrapCtx)
 	if a.netTrustMgr != nil {
-		a.mcpMgr.SetOAuthNetworkAuthorizer(oauthNetworkAuthorizer(nettrust.NewAuthorizer(a.netTrustMgr, &appNetworkPrompter{qm: a.questionnaireMgr})))
+		authorizer := nettrust.NewAuthorizer(a.netTrustMgr, &appNetworkPrompter{ask: a.questionnaireMgr.RequestQuestionnaire})
+		authorizer.PersistenceFailed = a.authorizationPersistenceFailed
+		a.mcpMgr.SetOAuthNetworkAuthorizer(oauthNetworkAuthorizer(authorizer))
 	}
 	if database.DB() != nil {
 		repo := mcpmgr.NewDBRepository(database.DB())

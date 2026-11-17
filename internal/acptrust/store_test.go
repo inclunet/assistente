@@ -1,7 +1,9 @@
 package acptrust
 
 import (
+	"assistente/internal/authorization"
 	"assistente/internal/testutil/authorizationfixture"
+	"context"
 	"os"
 	"path/filepath"
 	"slices"
@@ -27,7 +29,7 @@ func TestLegacyACPDoesNotImportWorkspaceOrGlobalGrants(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if allowed, err := store.Allows(authorizationfixture.Context(), "cursor", "execute"); err != nil || allowed {
+	if allowed, err := allowsForProfile(store, authorizationfixture.Context(), "cursor", "execute"); err != nil || allowed {
 		t.Fatalf("origem ACP inexistente no legado concedeu: %v %v", allowed, err)
 	}
 }
@@ -50,7 +52,7 @@ func TestLegacyACPResolvesOnlyUnambiguousProfileIdentity(t *testing.T) {
 					t.Fatal("origem ambígua ou desconhecida foi importada")
 				}
 				for _, key := range []string{"dev.local", "devlocal"} {
-					if allowed, err := store.Allows(authorizationfixture.Context(), key, "execute"); err == nil || allowed {
+					if allowed, err := allowsForProfile(store, authorizationfixture.Context(), key, "execute"); err == nil || allowed {
 						t.Fatalf("perfil %s recebeu concessão: %v %v", key, allowed, err)
 					}
 				}
@@ -59,10 +61,10 @@ func TestLegacyACPResolvesOnlyUnambiguousProfileIdentity(t *testing.T) {
 			if err != nil || !slices.Equal(profiles, keys) {
 				t.Fatalf("perfil original perdido: %v %v", profiles, err)
 			}
-			if allowed, err := store.Allows(authorizationfixture.Context(), "dev.local", "execute"); err != nil || !allowed {
+			if allowed, err := allowsForProfile(store, authorizationfixture.Context(), "dev.local", "execute"); err != nil || !allowed {
 				t.Fatalf("concessão original perdida: %v %v", allowed, err)
 			}
-			if allowed, _ := store.Allows(authorizationfixture.Context(), "devlocal", "execute"); allowed {
+			if allowed, _ := allowsForProfile(store, authorizationfixture.Context(), "devlocal", "execute"); allowed {
 				t.Fatal("concessão transferida ao alias")
 			}
 		})
@@ -72,13 +74,13 @@ func TestLegacyACPResolvesOnlyUnambiguousProfileIdentity(t *testing.T) {
 func TestOQueFoiAutorizadoParaSempreVoltaNaProximaVez(t *testing.T) {
 	loja, _ := lojaEmDiretorioTemporario(t)
 
-	if allowed, err := loja.Allows(authorizationfixture.Context(), "cursor", "execute"); err != nil || allowed {
+	if allowed, err := allowsForProfile(loja, authorizationfixture.Context(), "cursor", "execute"); err != nil || allowed {
 		t.Fatal("autorizou antes de alguém ter autorizado")
 	}
-	if err := loja.Allow(authorizationfixture.Context(), "cursor", "execute"); err != nil {
+	if err := grantForProfile(loja, authorizationfixture.Context(), "cursor", "execute"); err != nil {
 		t.Fatalf("autorizar: %v", err)
 	}
-	if allowed, err := loja.Allows(authorizationfixture.Context(), "cursor", "execute"); err != nil || !allowed {
+	if allowed, err := allowsForProfile(loja, authorizationfixture.Context(), "cursor", "execute"); err != nil || !allowed {
 		t.Error("a autorização permanente não sobreviveu à gravação")
 	}
 }
@@ -89,11 +91,11 @@ func TestAAutorizacaoDeUmPerfilNaoValeNoOutro(t *testing.T) {
 	// autorizou ali.
 	loja, _ := lojaEmDiretorioTemporario(t)
 
-	if err := loja.Allow(authorizationfixture.Context(), "cursor", "execute"); err != nil {
+	if err := grantForProfile(loja, authorizationfixture.Context(), "cursor", "execute"); err != nil {
 		t.Fatalf("autorizar: %v", err)
 	}
 
-	if allowed, err := loja.Allows(authorizationfixture.Context(), "claude-code", "execute"); err != nil || allowed {
+	if allowed, err := allowsForProfile(loja, authorizationfixture.Context(), "claude-code", "execute"); err != nil || allowed {
 		t.Error("a autorização de um perfil apareceu em outro")
 	}
 }
@@ -101,11 +103,11 @@ func TestAAutorizacaoDeUmPerfilNaoValeNoOutro(t *testing.T) {
 func TestClasseDiferenteContinuaPedindoPermissao(t *testing.T) {
 	loja, _ := lojaEmDiretorioTemporario(t)
 
-	if err := loja.Allow(authorizationfixture.Context(), "cursor", "read"); err != nil {
+	if err := grantForProfile(loja, authorizationfixture.Context(), "cursor", "read"); err != nil {
 		t.Fatalf("autorizar: %v", err)
 	}
 
-	if allowed, err := loja.Allows(authorizationfixture.Context(), "cursor", "execute"); err != nil || allowed {
+	if allowed, err := allowsForProfile(loja, authorizationfixture.Context(), "cursor", "execute"); err != nil || allowed {
 		t.Error("autorizar leitura liberou execução de comando")
 	}
 }
@@ -114,7 +116,7 @@ func TestAutorizarDeNovoNaoDuplicaAEntrada(t *testing.T) {
 	loja, _ := lojaEmDiretorioTemporario(t)
 
 	for i := 0; i < 3; i++ {
-		if err := loja.Allow(authorizationfixture.Context(), "cursor", "edit"); err != nil {
+		if err := grantForProfile(loja, authorizationfixture.Context(), "cursor", "edit"); err != nil {
 			t.Fatalf("autorizar: %v", err)
 		}
 	}
@@ -126,15 +128,15 @@ func TestAutorizarDeNovoNaoDuplicaAEntrada(t *testing.T) {
 
 func TestRevogarFazOAgentePerguntarDeNovo(t *testing.T) {
 	loja, _ := lojaEmDiretorioTemporario(t)
-	if err := loja.Allow(authorizationfixture.Context(), "cursor", "execute"); err != nil {
+	if err := grantForProfile(loja, authorizationfixture.Context(), "cursor", "execute"); err != nil {
 		t.Fatalf("autorizar: %v", err)
 	}
 
-	if err := loja.Revoke(authorizationfixture.Context(), "cursor", "execute"); err != nil {
+	if err := revokeForProfile(loja, authorizationfixture.Context(), "cursor", "execute"); err != nil {
 		t.Fatalf("revogar: %v", err)
 	}
 
-	if allowed, err := loja.Allows(authorizationfixture.Context(), "cursor", "execute"); err != nil || allowed {
+	if allowed, err := allowsForProfile(loja, authorizationfixture.Context(), "cursor", "execute"); err != nil || allowed {
 		t.Error("a ação continuou liberada depois de revogada")
 	}
 }
@@ -142,25 +144,25 @@ func TestRevogarFazOAgentePerguntarDeNovo(t *testing.T) {
 func TestRevogarOQueNinguemAutorizouNaoFingeSucesso(t *testing.T) {
 	loja, _ := lojaEmDiretorioTemporario(t)
 
-	if err := loja.Revoke(authorizationfixture.Context(), "cursor", "execute"); err != ErrEntryNotFound {
-		t.Errorf("erro = %v, quer %v", err, ErrEntryNotFound)
+	if err := revokeForProfile(loja, authorizationfixture.Context(), "cursor", "execute"); err != authorization.ErrNotFound {
+		t.Errorf("erro = %v, quer %v", err, authorization.ErrNotFound)
 	}
 }
 
 func TestClasseEscritaDeOutroJeitoEhAMesmaAutorizacao(t *testing.T) {
 	loja, _ := lojaEmDiretorioTemporario(t)
-	if err := loja.Allow(authorizationfixture.Context(), "cursor", " Execute "); err != nil {
+	if err := grantForProfile(loja, authorizationfixture.Context(), "cursor", " Execute "); err != nil {
 		t.Fatalf("autorizar: %v", err)
 	}
 
-	if allowed, err := loja.Allows(authorizationfixture.Context(), "cursor", "execute"); err != nil || !allowed {
+	if allowed, err := allowsForProfile(loja, authorizationfixture.Context(), "cursor", "execute"); err != nil || !allowed {
 		t.Error("a mesma classe escrita de outro jeito virou outra autorização")
 	}
 }
 
 func TestPerfilComNomePerigosoNaoRecebeAutorizacao(t *testing.T) {
 	loja, _ := lojaEmDiretorioTemporario(t)
-	if err := loja.Allow(authorizationfixture.Context(), "../../fora", "execute"); err == nil {
+	if err := grantForProfile(loja, authorizationfixture.Context(), "../../fora", "execute"); err == nil {
 		t.Fatal("aceitou identidade de perfil inválida")
 	}
 }
@@ -176,10 +178,10 @@ func TestArquivoIlegivelNaoLiberaNemApagaNada(t *testing.T) {
 		t.Fatalf("preparar arquivo: %v", err)
 	}
 
-	if allowed, err := loja.Allows(authorizationfixture.Context(), "cursor", "execute"); err == nil || allowed {
+	if allowed, err := allowsForProfile(loja, authorizationfixture.Context(), "cursor", "execute"); err == nil || allowed {
 		t.Error("arquivo ilegível liberou a ação")
 	}
-	if err := loja.Allow(authorizationfixture.Context(), "cursor", "execute"); err == nil {
+	if err := grantForProfile(loja, authorizationfixture.Context(), "cursor", "execute"); err == nil {
 		t.Error("gravou por cima de um arquivo que não conseguiu ler")
 	}
 	if data, err := os.ReadFile(caminho); err != nil || string(data) != "{isto não é json" {
@@ -191,10 +193,10 @@ func TestQuemRevogaVeTodosOsPerfisQueAutorizaramAlgo(t *testing.T) {
 	// Uma autorização esquecida num perfil que não se usa há meses continua
 	// valendo no dia em que ele voltar.
 	loja, dir := lojaEmDiretorioTemporario(t)
-	if err := loja.Allow(authorizationfixture.Context(), "cursor", "execute"); err != nil {
+	if err := grantForProfile(loja, authorizationfixture.Context(), "cursor", "execute"); err != nil {
 		t.Fatalf("autorizar: %v", err)
 	}
-	if err := loja.Allow(authorizationfixture.Context(), "claude-code", "read"); err != nil {
+	if err := grantForProfile(loja, authorizationfixture.Context(), "claude-code", "read"); err != nil {
 		t.Fatalf("autorizar: %v", err)
 	}
 	// Arquivo alheio no mesmo diretório não vira perfil.
@@ -241,10 +243,38 @@ func TestSemNadaAutorizadoNaoHaPerfilNenhum(t *testing.T) {
 func TestSemPerfilNaoHaOndeGuardarAutorizacao(t *testing.T) {
 	loja, _ := lojaEmDiretorioTemporario(t)
 
-	if allowed, err := loja.Allows(authorizationfixture.Context(), "", "execute"); err == nil || allowed {
+	if allowed, err := allowsForProfile(loja, authorizationfixture.Context(), "", "execute"); err == nil || allowed {
 		t.Error("autorizou sem saber de qual perfil")
 	}
-	if err := loja.Allow(authorizationfixture.Context(), "", "execute"); err == nil {
+	if err := grantForProfile(loja, authorizationfixture.Context(), "", "execute"); err == nil {
 		t.Error("gravou uma autorização sem perfil")
 	}
+}
+
+func grantForProfile(store *Store, ctx context.Context, profile, kind string) error {
+	ctx, err := profileContext(ctx, profile)
+	if err != nil {
+		return err
+	}
+	return store.Grant(ctx, Entry{Kind: kind, AgentID: "agent-test", Scope: authorization.ScopeProfile})
+}
+func allowsForProfile(store *Store, ctx context.Context, profile, kind string) (bool, error) {
+	ctx, err := profileContext(ctx, profile)
+	if err != nil {
+		return false, err
+	}
+	decision, err := store.Match(ctx, Resource{Kind: kind, AgentID: "agent-test"})
+	return decision.Effect == "allow", err
+}
+func revokeForProfile(store *Store, ctx context.Context, profile, kind string) error {
+	rows, err := store.repo.List(ctx, "acp", "profile", profile)
+	if err != nil {
+		return err
+	}
+	for _, row := range rows {
+		if row.Operation == kind {
+			return store.repo.RevokeID(ctx, row.ID)
+		}
+	}
+	return authorization.ErrNotFound
 }

@@ -22,6 +22,19 @@ type InvocationContext struct {
 
 type ctxKey struct{}
 type workspaceKey struct{}
+type persistentShellKey struct{}
+
+// WithPersistentShell marca terminais cujo diretório efetivo pode mudar após cd.
+// Somente o executor define esta propriedade, nunca os dados da interface.
+func WithPersistentShell(ctx context.Context, persistent bool) context.Context {
+	return context.WithValue(ctx, persistentShellKey{}, persistent)
+}
+
+func PersistentShell(ctx context.Context) bool {
+	persistent, _ := ctx.Value(persistentShellKey{}).(bool)
+	return persistent
+}
+
 type maskedInvocationContext struct{}
 
 // WithWorkspace captura no backend a raiz de origem antes de enfileirar o

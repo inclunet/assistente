@@ -48,6 +48,7 @@ import (
 	"assistente/internal/prompt"
 	"assistente/internal/providers"
 	"assistente/internal/questionnaire"
+	"assistente/internal/shelltrust"
 	"assistente/internal/skills"
 	"assistente/internal/slashskill"
 	"assistente/internal/speech"
@@ -95,14 +96,15 @@ type App struct {
 	terminalMgr         *terminal.Manager        // Gerenciador de sessões PTY (pool compartilhado LLM + usuário)
 	questionnaireMgr    *questionnaire.Manager   // Gerenciador de questionários (coleta estruturada)
 	allowlistMgr        *allowlist.Manager       // Gerenciador de allowlists de comandos
-	netTrustMgr         *nettrust.Manager        // Allowlist de rede escopável (anti-SSRF override)
-	fsTrustMgr          *fstrust.Manager         // Allowlist de paths fora do sandbox (AEP-0092)
-	mcpMgr              *mcpmgr.Manager          // Gerenciador de servidores MCP
-	acpMgr              *acp.Manager             // Processos e sessões dos agentes ACP (AEP-0084)
-	acpTrust            *acptrust.Store          // Permissões que o perfil concedeu ao agente para sempre (AEP-0084 D9)
-	acpRegistry         *acpregistry.Service     // Catálogo de agentes do registro oficial do ACP (AEP-0086 D2)
-	llmCatalog          *llmcatalog.Service      // Catálogo público de provedores e modelos (AEP-0115)
-	skillMgr            *skills.Manager          // Gerenciador de skills
+	shellTrustMgr       *shelltrust.Manager
+	netTrustMgr         *nettrust.Manager    // Allowlist de rede escopável (anti-SSRF override)
+	fsTrustMgr          *fstrust.Manager     // Allowlist de paths fora do sandbox (AEP-0092)
+	mcpMgr              *mcpmgr.Manager      // Gerenciador de servidores MCP
+	acpMgr              *acp.Manager         // Processos e sessões dos agentes ACP (AEP-0084)
+	acpTrust            *acptrust.Store      // Permissões que o perfil concedeu ao agente para sempre (AEP-0084 D9)
+	acpRegistry         *acpregistry.Service // Catálogo de agentes do registro oficial do ACP (AEP-0086 D2)
+	llmCatalog          *llmcatalog.Service  // Catálogo público de provedores e modelos (AEP-0115)
+	skillMgr            *skills.Manager      // Gerenciador de skills
 	// acpCatalogSvc é o catálogo do registro ACP: o serviço acima e o instalador
 	// de agentes (AEP-0086). Montado na primeira chamada que precisa dele — ver
 	// acpCatalogServices em app_acp_install.go —, porque o instalador só existe
@@ -269,7 +271,6 @@ type App struct {
 	hotkeyCtrl            *controllers.HotkeysController
 	globalHotkeyOwnership *hotkey.OwnershipBarrier
 	decisionRepeatHotkeys *decisionRepeatHotkeys
-	netTrustCtrl          *controllers.NetTrustController
 	fsTrustCtrl           *controllers.FSTrustController
 
 	// tokensAPI é o bind Wails do domínio tokens (AEP-0088). Criado em main e
@@ -298,11 +299,8 @@ type App struct {
 
 	// hotkeysAPI é o bind Wails do domínio hotkeys (AEP-0088). Criado em main e
 	// wired após NewHotkeysController.
-	hotkeysAPI *wailsapi.Hotkeys
-
-	// netTrustAPI é o bind Wails do domínio nettrust (AEP-0088). Criado em main e
-	// wired após NewNetTrustController.
-	netTrustAPI *wailsapi.NetTrust
+	hotkeysAPI     *wailsapi.Hotkeys
+	permissionsAPI *wailsapi.Permissions
 
 	// fsTrustAPI é o bind Wails do domínio fstrust / path allowlist (AEP-0092).
 	// Criado em main e wired após NewFSTrustController.
@@ -406,7 +404,6 @@ type App struct {
 	acpCommandsAPI *wailsapi.ACPCommands
 
 	// acpProvidersAPI é o bind Wails de detect/test de agentes ACP (AEP-0088).
-	// Criado em main e wired após initACP.
 	acpProvidersAPI *wailsapi.ACPProviders
 
 	// acpOptionsAPI é o bind Wails do domínio acp_options (AEP-0088). Criado
@@ -414,7 +411,6 @@ type App struct {
 	acpOptionsAPI *wailsapi.ACPOptions
 
 	// acpRegistryAPI é o bind Wails do catálogo do registro ACP (AEP-0088).
-	// Criado em main e wired após initACP. Helpers de montagem permanecem no *App.
 	acpRegistryAPI *wailsapi.ACPRegistry
 
 	// acpWorkDirAPI é o bind Wails do domínio acp_workdir (AEP-0088). Criado em
@@ -425,11 +421,7 @@ type App struct {
 	// (AEP-0088). Criado em main; helpers de handshake/progresso/repontar
 	// permanecem no *App e entram via hooks.
 	acpInstallAPI *wailsapi.ACPInstall
-
-	// acpTrustAPI é o bind Wails de autorizações permanentes ACP (AEP-0088).
-	// Criado em main e wired após initACP (reusa acpTrust). Handlers de
 	// permissão em tempo de turno permanecem no *App.
-	acpTrustAPI *wailsapi.ACPTrust
 
 	// editorAPI é o bind Wails do domínio editor (AEP-0088). Criado em main;
 	// watcher, eventos editor:fileChanged e assisted writes permanecem no *App
@@ -570,15 +562,6 @@ func SetHotkeysAPI(a *App, api *wailsapi.Hotkeys) {
 		return
 	}
 	a.hotkeysAPI = api
-}
-
-// SetNetTrustAPI registra o bind Wails de nettrust antes do Run (main.go).
-// Função de pacote (não método) para não entrar na superfície Bind do Wails.
-func SetNetTrustAPI(a *App, api *wailsapi.NetTrust) {
-	if a == nil {
-		return
-	}
-	a.netTrustAPI = api
 }
 
 // SetFSTrustAPI registra o bind Wails de fstrust antes do Run (main.go).
@@ -847,15 +830,6 @@ func SetACPInstallAPI(a *App, api *wailsapi.ACPInstall) {
 		return
 	}
 	a.acpInstallAPI = api
-}
-
-// SetACPTrustAPI registra o bind Wails de acp_trust antes do Run (main.go).
-// Função de pacote (não método) para não entrar na superfície Bind do Wails.
-func SetACPTrustAPI(a *App, api *wailsapi.ACPTrust) {
-	if a == nil {
-		return
-	}
-	a.acpTrustAPI = api
 }
 
 // SetEditorAPI registra o bind Wails de editor antes do Run (main.go).
@@ -1316,8 +1290,8 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 	a.wireTools()
 	a.wireCommandCatalog()
 	a.wireUpdater()
-	a.wireNetTrust()
 	a.wireFSTrust()
+	a.wirePermissions()
 	a.wireCredentials()
 	a.wireMemory()
 	a.wireWelcome()
@@ -1335,7 +1309,6 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 	a.wireLLMCatalog()
 	a.wireACPWorkDir()
 	a.wireACPInstall()
-	a.wireACPTrust()
 	a.wireSignal()
 	a.wireTerminal()
 

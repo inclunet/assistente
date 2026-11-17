@@ -13,7 +13,7 @@ func TestCommandLandmarkLocalPresentationAndDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(p.registry.List()) != 155 || len(view.LocalPaletteCommands) != 66 || commandProductRegistryVersion != "product-v44-app-default-profile" {
+	if len(p.registry.List()) != 156 || len(view.LocalPaletteCommands) != 67 || commandProductRegistryVersion != "product-v45-command-policy-create" {
 		t.Fatal("catalog counts/version")
 	}
 	for _, tc := range []struct {
@@ -56,7 +56,7 @@ func TestCommandLandmarkLocalPresentationAndDefaults(t *testing.T) {
 		if layer.ID != commandKeyboardLayerID {
 			continue
 		}
-		if len(layer.Defaults) != 69 {
+		if len(layer.Defaults) != 70 {
 			t.Fatalf("defaults=%d", len(layer.Defaults))
 		}
 		for _, entry := range layer.Defaults {

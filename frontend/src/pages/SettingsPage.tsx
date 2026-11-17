@@ -6,6 +6,7 @@ import { Tabs, TabList, Tab, TabPanel } from '../components/ui/tabs';
 import { ParentLandmarkProvider } from '../hooks/useLandmarkNavigation';
 import { announce } from '../hooks/useAnnouncer';
 import { ActivePanelContext } from '../hooks/useActivePanelShortcut';
+import { canonicalSettingsRoute } from '../lib/settingsRoutes';
 import './SettingsPage.css';
 
 const ProvidersPage = lazy(() => import('./ProvidersPage'));
@@ -14,10 +15,7 @@ const SkillsPage = lazy(() => import('./SkillsPage'));
 const ChannelsPage = lazy(() => import('./ChannelsPage'));
 const ContactsPage = lazy(() => import('./ContactsPage'));
 const CredentialsPage = lazy(() => import('./CredentialsPage'));
-const AllowlistPage = lazy(() => import('./AllowlistPage'));
-const NetworkAllowlistPage = lazy(() => import('./NetworkAllowlistPage'));
-const PathAllowlistPage = lazy(() => import('./PathAllowlistPage'));
-const AgentPermissionsPage = lazy(() => import('./AgentPermissionsPage'));
+const PermissionsPage = lazy(() => import('./PermissionsPage'));
 const AppearancePage = lazy(() => import('./AppearancePage'));
 const DataManagementPage = lazy(() => import('./DataManagementPage'));
 const RestoreDefaultsPage = lazy(() => import('./RestoreDefaultsPage'));
@@ -31,10 +29,7 @@ const SETTINGS_TABS = [
   { id: 'channels',         component: ChannelsPage },
   { id: 'contacts',         component: ContactsPage },
   { id: 'credentials',      component: CredentialsPage },
-  { id: 'allowlists',       component: AllowlistPage },
-  { id: 'network-allowlist', component: NetworkAllowlistPage },
-  { id: 'path-allowlist',   component: PathAllowlistPage },
-  { id: 'agent-permissions', component: AgentPermissionsPage },
+  { id: 'permissions', component: PermissionsPage },
   { id: 'appearance',       component: AppearancePage },
   { id: 'data',             component: DataManagementPage },
   { id: 'restore-defaults', component: RestoreDefaultsPage },
@@ -51,6 +46,7 @@ const FOCUSABLE_SELECTOR =
   'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
 function resolveTab(param: string | undefined): SettingsTabId {
+  if (param) param = canonicalSettingsRoute(`settings/${param}`).slice('settings/'.length);
   if (param && VALID_TAB_IDS.has(param)) return param as SettingsTabId;
   return DEFAULT_TAB;
 }
@@ -68,6 +64,11 @@ export default function SettingsPage() {
 
   const activeTab = useMemo(() => resolveTab(tab), [tab]);
   activeTabRef.current = activeTab;
+  useEffect(() => {
+    if (tab && canonicalSettingsRoute(`settings/${tab}`) !== `settings/${tab}`) {
+      navigate('/settings/permissions', { replace: true });
+    }
+  }, [tab, navigate]);
 
   const clearPendingShortcutFocus = useCallback(() => {
     pendingShortcutFocusRef.current = null;

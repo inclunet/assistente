@@ -8,6 +8,7 @@ import (
 	"assistente/internal/logging"
 	"assistente/internal/nettrust"
 	"assistente/internal/questionnaire"
+	"assistente/internal/shelltrust"
 	"assistente/internal/terminal"
 	"assistente/internal/trustscope"
 	"context"
@@ -32,47 +33,31 @@ func (a *App) initTerminalAndAllowlists() {
 	a.questionnaireMgr = questionnaire.NewManager(emitEvent)
 	a.allowlistMgr = allowlist.NewManager(allowlist.Options{MayImport: authorization.LocalLegacyOwner})
 
-	// Allowlist de rede (override anti-SSRF escopável). Sem defaults: começa vazia
-	// e só cresce por autorização explícita do usuário.
 	a.netTrustMgr = nettrust.NewManager(trustscope.Options{MayImport: authorization.LocalLegacyOwner})
-	// O escopo "workspace" deve seguir o workspace ATIVO (que muda em runtime sem
-	// alterar o cwd do processo). A closure é avaliada a cada operação, então lê o
-	// workspaceMgr no momento do uso (já inicializado por initWorkspace).
-	a.netTrustMgr.SetWorkspaceDirFunc(func() string {
-		if a.workspaceMgr != nil {
-			if base := a.workspaceMgr.ActivePath(); base != "" {
-				return filepath.Join(base, ".assistente")
-			}
-		}
-		return configdir.GetWorkDir()
-	})
-	// Fallback do slug de perfil ativo: garante que o escopo "profile" persista e
-	// case mesmo quando o invocationctx da chamada não traz ProfileSlug — e de
-	// forma consistente com a API de gestão (NetTrustController.managementContext).
-	a.netTrustMgr.SetActiveProfileSlugFunc(func() string {
-		if a.profileManager != nil {
-			return a.profileManager.GetActiveSlug()
-		}
-		return ""
-	})
-
-	// Allowlist de paths fora do sandbox (AEP-0092): mesmos escopos/resolvedores
-	// que a rede, para workspace ativo e perfil ficarem alinhados.
 	a.fsTrustMgr = fstrust.NewManager(trustscope.Options{MayImport: authorization.LocalLegacyOwner})
-	a.fsTrustMgr.SetWorkspaceDirFunc(func() string {
+	a.shellTrustMgr = shelltrust.NewManager(trustscope.Options{})
+	workspaceDir := func() string {
 		if a.workspaceMgr != nil {
-			if base := a.workspaceMgr.ActivePath(); base != "" {
-				return filepath.Join(base, ".assistente")
+			if root := a.workspaceMgr.ActivePath(); root != "" {
+				return filepath.Join(root, ".assistente")
 			}
 		}
 		return configdir.GetWorkDir()
-	})
-	a.fsTrustMgr.SetActiveProfileSlugFunc(func() string {
+	}
+	profileSlug := func() string {
 		if a.profileManager != nil {
 			return a.profileManager.GetActiveSlug()
 		}
 		return ""
-	})
-
+	}
+	// Os callbacks só resolvem contexto de gestão. Operações capturam a origem
+	// no invocationctx antes de serem enfileiradas e mantêm essa identidade.
+	for _, manager := range []interface {
+		SetWorkspaceDirFunc(func() string)
+		SetActiveProfileSlugFunc(func() string)
+	}{a.netTrustMgr, a.fsTrustMgr, a.shellTrustMgr} {
+		manager.SetWorkspaceDirFunc(workspaceDir)
+		manager.SetActiveProfileSlugFunc(profileSlug)
+	}
 	logging.Infof(context.Background(), "app.app-terminal", "[Terminal] Managers de terminal, questionário e allowlist inicializados")
 }

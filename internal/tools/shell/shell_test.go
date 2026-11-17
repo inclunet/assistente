@@ -322,7 +322,12 @@ func TestRunCommandPreservesOriginalPipelineAndUsesDefaultTimeout(t *testing.T) 
 		ID: "cmd-pipeline", Command: command, Output: "Name\n----\nfile.txt", ExitCode: 0,
 	}}
 	al := &allowlist.Allowlist{AutoApprove: []string{"*"}, DefaultAction: "approve"}
-	rc := NewRunCommand(mgr, nil, func(context.Context) (*allowlist.Allowlist, error) { return al, nil }, ".")
+	rc := NewRunCommand(mgr, func(_ context.Context, presented, _ string) (bool, error) {
+		if presented != command {
+			t.Fatalf("comando da confirmação alterado: %q", presented)
+		}
+		return true, nil
+	}, func(context.Context) (*allowlist.Allowlist, error) { return al, nil }, ".")
 
 	result, err := rc.Execute(context.Background(), json.RawMessage(`{"command":"Get-ChildItem | Select-Object Name | Format-Table"}`))
 	if err != nil || result.IsError {
@@ -788,20 +793,18 @@ func TestConfirmDecisionWithNilCallback(t *testing.T) {
 		DefaultAction: "confirm",
 	}
 
-	// Sem confirmFn (nil) — com DefaultAction="confirm", vai tentar chamar callback
-	// Mas como é nil, deve pular para execução
+	// Sem interlocutor, uma operação que exige confirmação deve ser negada.
 	rc := NewRunCommand(mgr, nil, func(context.Context) (*allowlist.Allowlist, error) { return al, nil }, ".")
 	result, err := rc.Execute(context.Background(), json.RawMessage(`{"command":"test"}`))
 
 	if err != nil {
 		t.Fatalf("esperado nil error, got %v", err)
 	}
-	if result.IsError {
-		t.Fatalf("esperado sucesso com confirmFn=nil, got: %s", result.Content)
+	if !result.IsError {
+		t.Fatalf("esperada recusa sem interlocutor, got: %s", result.Content)
 	}
-	// Deve ter executado mesmo sem callback
-	if mgr.runEphemeralCalls != 1 {
-		t.Errorf("esperado execução mesmo sem confirmFn, got %d calls", mgr.runEphemeralCalls)
+	if mgr.runEphemeralCalls != 0 {
+		t.Errorf("comando executado sem autorização: %d calls", mgr.runEphemeralCalls)
 	}
 }
 

@@ -253,7 +253,7 @@ func TestCommandConversationClearReadinessRequiresControllerAndBinding(t *testin
 	check := func(want bool) {
 		t.Helper()
 		items, err := a.commandCatalogAPI.ListCommands(apidto.CommandCatalogFilter{Source: "palette", Locale: "pt-BR"})
-		if err != nil || len(items) != 155 {
+		if err != nil || len(items) != 156 {
 			t.Fatalf("catalog: %d %v", len(items), err)
 		}
 		for _, item := range items {

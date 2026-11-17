@@ -94,6 +94,37 @@ func TestConsultaEmVooNaoRetornaSessaoInvalidada(t *testing.T) {
 		t.Fatalf("consulta publicou geração encerrada: %+v", match)
 	}
 }
+
+func TestConsultaEmVooNaoRetornaSessaoRevogadaNaGestao(t *testing.T) {
+	dir := t.TempDir()
+	repo, db := authorizationfixture.Open(t, dir)
+	m := nettrust.NewManager(trustscope.Options{Repository: repo, HomeDir: func() string { return dir }, WorkDir: func() string { return "" }})
+	ctx := invocationctx.With(authorizationfixture.Context(), invocationctx.InvocationContext{ConversationID: "conversation"})
+	if err := m.Add(ctx, nettrust.AllowlistEntry{Host: "session.internal", Scope: nettrust.ScopeSession}); err != nil {
+		t.Fatal(err)
+	}
+	rows, err := m.SessionRules(ctx)
+	if err != nil || len(rows) != 1 {
+		t.Fatalf("sessões: %v %v", rows, err)
+	}
+	revoked := false
+	if err := db.Callback().Query().Before("gorm:query").Register("test:revoke-session", func(tx *gorm.DB) {
+		if !revoked && tx.Statement.Table == "authorization_rules" {
+			revoked = true
+			if err := m.RevokeSession(ctx, rows[0].ID); err != nil {
+				t.Error(err)
+			}
+		}
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if match := m.Match(ctx, "session.internal", "443"); !revoked || match.Err == nil || match.Allowed {
+		t.Fatalf("consulta publicou concessão revogada: %+v", match)
+	}
+	if match := m.Match(ctx, "session.internal", "443"); match.Err != nil || match.Allowed {
+		t.Fatalf("nova consulta: %+v", match)
+	}
+}
 func TestNetworkUpgradePreservesFileAndDoesNotResurrectRevocation(t *testing.T) {
 	dir := t.TempDir()
 	source := filepath.Join(dir, "network-allowlist", "global.json")

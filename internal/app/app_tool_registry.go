@@ -19,6 +19,7 @@ import (
 	"assistente/internal/profileaccess"
 	"assistente/internal/profiles"
 	"assistente/internal/questionnaire"
+	"assistente/internal/shelltrust"
 	"assistente/internal/tasklist"
 	"assistente/internal/tools"
 	commandtool "assistente/internal/tools/command"
@@ -314,7 +315,10 @@ func (a *App) initToolRegistry() {
 		return workDir
 	})
 	if a.fsTrustMgr != nil {
-		filesystem.SetPathAuthorizer(fstrust.NewAuthorizer(a.fsTrustMgr, &appFSPrompter{qm: a.questionnaireMgr}))
+		fsAuthorizer := fstrust.NewAuthorizer(a.fsTrustMgr, &appFSPrompter{ask: a.askOperationAuthorization})
+		fsAuthorizer.PersistenceFailed = a.authorizationPersistenceFailed
+		fsAuthorizer.ScopeFilter = a.authorizationScopes
+		filesystem.SetPathAuthorizer(fsAuthorizer)
 	}
 
 	// Authorizer anti-SSRF: liga a allowlist de rede escopável (netTrustMgr) ao
@@ -323,7 +327,9 @@ func (a *App) initToolRegistry() {
 	// de hard-deny seco. nil-safe: sem manager, as tools mantêm o bloqueio padrão.
 	var netAuthorizer *nettrust.Authorizer
 	if a.netTrustMgr != nil {
-		netAuthorizer = nettrust.NewAuthorizer(a.netTrustMgr, &appNetworkPrompter{qm: a.questionnaireMgr})
+		netAuthorizer = nettrust.NewAuthorizer(a.netTrustMgr, &appNetworkPrompter{ask: a.askOperationAuthorization})
+		netAuthorizer.PersistenceFailed = a.authorizationPersistenceFailed
+		netAuthorizer.ScopeFilter = a.authorizationScopes
 	}
 
 	// Registra ferramentas web (credMgr já foi inicializado antes)
@@ -356,7 +362,7 @@ func (a *App) initToolRegistry() {
 		if err != nil {
 			return false, err
 		}
-		return approvedFromShellDecision(resp)
+		return approvedFromHTTPDecision(resp)
 	})
 	a.toolRegistry.MustRegister(httpReqTool)
 
@@ -370,16 +376,6 @@ func (a *App) initToolRegistry() {
 	a.toolRegistry.MustRegister(feedReadTool)
 
 	// Registra ferramenta de shell (run_command)
-	confirmFn := func(ctx context.Context, cmd, wd string) (bool, error) {
-		if a.questionnaireMgr == nil {
-			return false, fmt.Errorf("questionnaire manager não inicializado")
-		}
-		resp, err := a.questionnaireMgr.RequestQuestionnaire(ctx, shellConfirmationPayload(cmd, wd))
-		if err != nil {
-			return false, err
-		}
-		return approvedFromShellDecision(resp)
-	}
 	getAllowlistFn := func(ctx context.Context) (*allowlist.Allowlist, error) {
 		if err := a.allowlistMgr.EnsureDefaults(ctx); err != nil {
 			return nil, err
@@ -404,6 +400,25 @@ func (a *App) initToolRegistry() {
 		ctx = invocationctx.With(ctx, inv)
 		return a.allowlistMgr.Get(ctx, policy)
 	}
+	surfaceForOperation := func(ctx context.Context) questionnaire.Surface {
+		inv, _ := invocationctx.Get(ctx)
+		return resolveProfileAccessSurface(ctx, inv.Source, inv.ConversationID, database.GetConversationInfoWithContext)
+	}
+	shellAuthorizer := &shelltrust.Authorizer{
+		PersistenceFailed: a.authorizationPersistenceFailed,
+		Manager:           a.shellTrustMgr,
+		Policy:            getAllowlistFn,
+		PersistentAllowed: func(ctx context.Context) bool { return surfaceForOperation(ctx).AllowsPersistentAuthorization() },
+		Prompt: func(ctx context.Context, req shelltrust.PromptRequest) (shelltrust.PromptDecision, error) {
+			response, err := a.questionnaireRouter().Ask(ctx, surfaceForOperation(ctx), shellConfirmationPayload(req))
+			if err != nil {
+				return shelltrust.PromptDecision{}, err
+			}
+			choice, err := (questionnaire.AuthorizationActions{Scopes: req.AvailableScopes}).Parse(response)
+			return shelltrust.PromptDecision{Approve: choice.Effect == "allow", Scope: choice.Scope}, err
+		},
+	}
+	confirmFn := shellAuthorizer.Authorize
 	a.toolRegistry.MustRegister(shell.NewRunCommand(a.terminalMgr, confirmFn, getAllowlistFn, workDir))
 	a.toolRegistry.MustRegister(shell.NewTerminalSession(a.terminalMgr, workDir))
 

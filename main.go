@@ -191,8 +191,8 @@ func run(args []string) (exitCode int) {
 	application.SetProfilesAPI(a, profilesAPI)
 	hotkeysAPI := wailsapi.NewHotkeys()
 	application.SetHotkeysAPI(a, hotkeysAPI)
-	netTrustAPI := wailsapi.NewNetTrust()
-	application.SetNetTrustAPI(a, netTrustAPI)
+	permissionsAPI := wailsapi.NewPermissions()
+	application.SetPermissionsAPI(a, permissionsAPI)
 	fsTrustAPI := wailsapi.NewFSTrust()
 	application.SetFSTrustAPI(a, fsTrustAPI)
 	credentialsAPI := wailsapi.NewCredentials()
@@ -252,8 +252,6 @@ func run(args []string) (exitCode int) {
 	application.SetACPWorkDirAPI(a, acpWorkDirAPI)
 	acpInstallAPI := wailsapi.NewACPInstall()
 	application.SetACPInstallAPI(a, acpInstallAPI)
-	acpTrustAPI := wailsapi.NewACPTrust()
-	application.SetACPTrustAPI(a, acpTrustAPI)
 	editorAPI := wailsapi.NewEditor()
 	application.SetEditorAPI(a, editorAPI)
 	exportImportAPI := wailsapi.NewExportImport()
@@ -294,7 +292,7 @@ func run(args []string) (exitCode int) {
 			updaterAPI,
 			profilesAPI,
 			hotkeysAPI,
-			netTrustAPI,
+			permissionsAPI,
 			fsTrustAPI,
 			credentialsAPI,
 			conversationsAPI,
@@ -324,7 +322,6 @@ func run(args []string) (exitCode int) {
 			acpRegistryAPI,
 			acpWorkDirAPI,
 			acpInstallAPI,
-			acpTrustAPI,
 			editorAPI,
 			exportImportAPI,
 		},

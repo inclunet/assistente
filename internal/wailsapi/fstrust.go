@@ -2,7 +2,7 @@ package wailsapi
 
 import (
 	"assistente/controllers"
-	"assistente/internal/apidto"
+
 	"context"
 	"sync"
 )
@@ -39,29 +39,6 @@ func (f *FSTrust) deps() (Session, *controllers.FSTrustController, error) {
 		return nil, nil, ErrFSTrustNotWired
 	}
 	return f.session, f.ctrl, nil
-}
-
-// GetPathAllowlist lista as entradas de allowlist de path.
-func (f *FSTrust) GetPathAllowlist() ([]apidto.PathAllowlistView, error) {
-	session, ctrl, err := f.deps()
-	if err != nil {
-		return nil, err
-	}
-	return WithUser(session, func(ctx context.Context) ([]apidto.PathAllowlistView, error) {
-		return ctrl.GetPathAllowlist(ctx)
-	})
-}
-
-// RemovePathAllowlistEntry remove uma entrada persistida por (scope, path, kind, operation, effect).
-func (f *FSTrust) RemovePathAllowlistEntry(scope, path, kind, operation, effect string) error {
-	session, ctrl, err := f.deps()
-	if err != nil {
-		return err
-	}
-	_, err = WithUser(session, func(ctx context.Context) (struct{}, error) {
-		return struct{}{}, ctrl.RemovePathAllowlistEntry(ctx, scope, path, kind, operation, effect)
-	})
-	return err
 }
 
 // AddPathAllowlistEntry cria uma regra persistente allow ou deny.

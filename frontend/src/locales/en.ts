@@ -1,5 +1,64 @@
 const en = {
   translation: {
+permissions: {
+diagnostic: { owner_pending: '{{domain}} ({{profile}}): the legacy source needs an owner. Use Assign legacy sources with an administrator account.', source_unavailable: '{{domain}} ({{profile}}): authorizations could not be loaded. See the logs for details.', profiles: 'Profiles', noProfile: 'no specific profile' },
+associations: 'Assign policies to profiles',
+resourceKind: 'Resource type', expiresAt: 'Expires at',
+assign: 'Assign legacy sources', assigned: 'Owner assigned. Import will run in that user context.', assignmentFailed: 'Could not assign the source.', assignmentHelp: 'Choose a known source and its owner. Assignment is exclusive: this action cannot transfer it and does not grant its rules to other users.', owner: 'Owner', choose: 'Select',
+notSaved: 'The decision applies only to this operation: it could not be remembered. You will need to decide again next time.',
+  "title": "Permissions",
+  "description": "Your rules in the current database. Listed session permissions belong to conversations in memory and end when cleared or restarted.",
+  "acpLimit": "ACP authorizes agent action classes, not native tools. Old authorizations already remembered by an agent must also be revoked in its own settings.",
+  "domainLabel": "Domain",
+  "scopeLabel": "Scope",
+  "originLabel": "Origin",
+  "effectLabel": "Effect",
+  "resource": "Resource",
+  "operation": "Operation",
+  "context": "Profile, workspace or conversation",
+  "createdAt": "Granted at",
+  "revokedAt": "Revoked at",
+  "statusLabel": "Status",
+  "all": "All",
+  "revoke": "Revoke rule",
+  "reload": "Refresh",
+  "policies": "Command policies",
+  "addPath": "Add file rule",
+  "search": "Search resource, context or date",
+  "loading": "Loading permissions…",
+  "loadFailed": "Could not load permissions. Existing rules remain in effect.",
+  "incomplete": "Some legacy sources are pending. This list may be incomplete; operations depending on those sources remain blocked.",
+  "revoked": "Rule revoked.",
+  "revokeFailed": "Could not revoke the rule. Refresh the list and try again.",
+  "confirmRevoke": "Revoke authorization for {{resource}}, in scope {{scope}} ({{scopeName}})?",
+  "confirmDenyRemoval": "Remove the prohibition on {{resource}}, in scope {{scope}} ({{scopeName}})? This may allow previously blocked operations.",
+  "legacyAgent": "Legacy rule without agent identity",
+  "domain": {
+    "network": "Network",
+    "filesystem": "Files",
+    "shell": "Shell",
+    "acp": "ACP agents"
+  },
+  "scope": {
+    "session": "Conversation (temporary)",
+    "workspace": "Workspace",
+    "profile": "Profile",
+    "global": "User global"
+  },
+  "origin": {
+    "consent": "Consent",
+    "migration": "Migration"
+  },
+  "effect": {
+    "allow": "Allow",
+    "deny": "Deny",
+    "ask": "Ask"
+  },
+  "status": {
+    "active": "Active",
+    "revoked": "Revoked"
+  }
+},
  chatgpt: {
     providerSettings: "Provider settings",
     providerName: "Provider name",
@@ -683,6 +742,7 @@ const en = {
         allowlists: 'Allow Lists',
         'network-allowlist': 'Network Allowlist',
         'path-allowlist': 'Path Allowlist',
+        permissions: 'Permissions',
         'agent-permissions': 'Agent Permissions',
         appearance: 'Appearance',
         data: 'Data',
@@ -1102,22 +1162,6 @@ const en = {
     },
 
     agentPermissions: {
-      title: 'Agent Permissions',
-      loading: 'Loading permissions...',
-      toolbarLabel: 'Agent permissions toolbar',
-      gridLabel: 'Standing agent permissions',
-      description: 'Actions you allowed a coding agent to take without asking again. The permission covers every action of that class in the profile, until you revoke it here.',
-      empty: 'No standing permissions. The agent asks before every action.',
-      loadFailedBody: 'Could not load the permissions. Any that exist are still in effect — reload to try again.',
-      columns: {
-        profile: 'Profile',
-        action: 'Allowed action',
-        grantedAt: 'Granted on',
-      },
-      actions: {
-        revoke: 'Revoke',
-        reload: 'Reload',
-      },
       action: {
         read: 'Read files',
         edit: 'Edit files',
@@ -1131,83 +1175,9 @@ const en = {
         other: 'Actions with no declared class',
         unknown: 'Actions of a class this app does not recognize',
       },
-      confirm: {
-        title: 'Revoke permission',
-        message: 'Revoke "{{action}}" in profile {{profile}}? The agent will ask again before every action of that class.',
-      },
-      toast: { revoked: 'Permission revoked' },
-      announce: { revoked: 'Permission revoked: {{action}} in profile {{profile}}.' },
-      error: {
-        loadFailed: 'Error loading agent permissions',
-        revokeFailed: 'Error revoking permission',
-        notFound: 'This permission no longer exists. The list has been refreshed.',
-      },
-    },
-
-    networkAllowlist: {
-      title: 'Network Allowlist',
-      loading: 'Loading network allowlist...',
-      toolbarLabel: 'Network allowlist toolbar',
-      gridLabel: 'Hosts allowed in the network allowlist',
-      description: 'Hosts that resolve to internal/private addresses and that you allowed the assistant to reach, despite the anti-SSRF policy. Each entry stays in effect until you remove it here.',
-      sessionNote: 'This list covers only the current workspace, the active profile, and the global scope. Request-only, conversation-only, or other-profile authorizations are not shown here — ephemeral ones expire on their own; other profiles’ entries still apply when that profile is active.',
-      empty: 'No allowed hosts. Every internal destination stays blocked until you allow it.',
-      loadFailedBody: 'Could not load the network allowlist. Any authorization that exists is still in effect — reload to try again.',
-      defaultPorts: 'Default (80 and 443)',
-      columns: {
-        host: 'Host',
-        port: 'Port',
-        scope: 'Scope',
-        category: 'Block category',
-        resolvedIps: 'Resolved IPs',
-        createdBy: 'Allowed by',
-        createdAt: 'Allowed on',
-        reason: 'Note',
-      },
-      scope: {
-        session: 'This conversation',
-        workspace: 'This workspace',
-        profile: 'This profile',
-        global: 'Global',
-        unknown: 'A scope this app does not recognize',
-      },
-      actions: {
-        remove: 'Remove',
-        reload: 'Reload',
-      },
-      confirm: {
-        title: 'Remove network authorization',
-        message: 'Remove the authorization for {{host}} ({{scope}})? The assistant will block that destination again and ask for consent.',
-      },
-      toast: { removed: 'Network authorization removed' },
-      announce: { removed: 'Network authorization removed: {{host}} ({{scope}}).' },
-      error: {
-        loadFailed: 'Error loading the network allowlist',
-        removeFailed: 'Error removing the network authorization',
-        reloadAfterRemoveFailed:
-          'The authorization was removed, but the list could not be refreshed. Reload to confirm.',
-      },
     },
 
     pathAllowlist: {
-      title: 'Path Allowlist',
-      loading: 'Loading path allowlist...',
-      toolbarLabel: 'Path allowlist toolbar',
-      gridLabel: 'Paths allowed outside the sandbox',
-      description: 'Manage permissions and denials by path and operation. Denials take precedence over permissions in every scope.',
-      sessionNote: 'This list covers only the current workspace, the active profile, and the global scope. Attempt-only, conversation-only, or other-profile authorizations are not shown here — ephemeral ones expire on their own; other profiles’ entries still apply when that profile is active.',
-      empty: 'No persistent path rules. Every access outside the sandbox still asks for consent.',
-      loadFailedBody: 'Could not load the path allowlist. Any authorization that exists is still in effect — reload to try again.',
-      columns: {
-        path: 'Path',
-        effect: 'Effect',
-        kind: 'Kind',
-        operation: 'Operation',
-        scope: 'Scope',
-        createdBy: 'Allowed by',
-        createdAt: 'Allowed on',
-        reason: 'Note',
-      },
       effect: {
         allow: 'Allow',
         deny: 'Deny',
@@ -1238,27 +1208,11 @@ const en = {
         pathRequired: 'Enter the rule path',
         operationRequired: 'Enter the rule operation',
       },
-      actions: {
-        remove: 'Remove',
-        reload: 'Reload',
-      },
-      confirm: {
-        title: 'Remove path authorization',
-        message: 'Remove the authorization for {{path}} ({{scope}})? The assistant will ask for consent again for that path and operation.',
-        denyTitle: 'Remove path denial',
-        denyMessage: 'Remove the denial for {{path}} ({{scope}})? The assistant will allow that path and operation again according to the other rules.',
-      },
       toast: {
         removed: 'Path authorization removed',
         denyRemoved: 'Path denial removed',
         allowAdded: 'Path permission added',
         denyAdded: 'Path denial added',
-      },
-      announce: {
-        removed: 'Path authorization removed: {{path}} ({{scope}}).',
-        denyRemoved: 'Path denial removed: {{path}} ({{scope}}).',
-        allowAdded: 'Path permission added: {{path}}.',
-        denyAdded: 'Path denial added: {{path}}.',
       },
       error: {
         loadFailed: 'Error loading the path allowlist',
@@ -4895,7 +4849,7 @@ const en = {
         permissionNoWatcher: 'The agent asked permission to {{action}} in this conversation, but there was no one to answer. The action was denied.',
         permissionTimeout: 'The agent asked permission to {{action}} and no one answered in time. The action was denied.',
         permissionUnavailable: 'The agent asked permission to {{action}}, but the app could not present the request. The action was denied.',
-        permissionAlwaysAllowed: 'Standing permission created in this profile: {{actionClass}}. The agent will no longer ask before those actions; to revoke it, open Settings and go to Agent Permissions.',
+        permissionAlwaysAllowed: 'Permission remembered in the selected scope: {{actionClass}}. To check its scope or revoke it, open Settings and go to Permissions.',
         permissionAlwaysNotSaved: 'The standing permission could not be saved: {{actionClass}}. This action was allowed, but the agent will ask again next time.',
         questionNoWatcher: 'The agent stopped to ask something in this conversation, but there was no one to answer. It went on without your answer.',
         questionTimeout: 'The agent asked a question and no one answered in time. It went on without your answer.',
@@ -4934,11 +4888,29 @@ const en = {
         closedTimeout: 'Time to answer ran out; the dialog closed without an answer.',
         // Dialogs built by the backend (AEP-0085). The payload carries the
         // ready-made pt-BR text as fallback; these keys are its translation.
+        authorization: {
+          'once': 'Only this operation',
+          'session': 'During this conversation',
+          'workspace': 'In this workspace',
+          'profile': 'In this profile',
+          'global': 'All my workspaces and profiles',
+          'dir-once': 'Parent folder — Only this operation',
+          'dir-session': 'Parent folder — During this conversation',
+          'dir-workspace': 'Parent folder — In this workspace',
+          'dir-profile': 'Parent folder — In this profile',
+          'dir-global': 'Parent folder — All my workspaces and profiles',
+          'deny-session': 'Deny — During this conversation',
+          'deny-workspace': 'Deny — In this workspace',
+          'deny-profile': 'Deny — In this profile',
+          'deny-global': 'Deny — All my workspaces and profiles',
+          deny: 'Deny',
+        },
         shell: {
           title: 'Confirm command execution',
           description: 'The assistant wants to run:\n\n{{command}}\n\nin: {{workDir}}',
           prompt: 'Allow running this command?',
           workDir: 'Directory: {{workDir}}',
+          persistentWorkDir: 'Persistent terminal. Initial directory: {{workDir}}; the current directory may have changed. Authorization applies only to this execution.',
           bodyLabel: 'Requested command',
           submit: 'Allow',
           cancel: 'Deny',
@@ -5002,41 +4974,15 @@ const en = {
           scopePrompt: 'For how long should this host be authorized?',
           reasonPrompt: 'Note (optional)',
           reasonPlaceholder: 'E.g.: internal workflow API',
-          scope: {
-            once: 'This request only',
-            session: 'For this conversation',
-            workspace: 'In this workspace (project)',
-            profile: 'In this profile',
-            global: 'Global (all workspaces and profiles)',
-          },
         },
         fstrust: {
           title: 'Authorize access to a path outside the workspace',
           description: 'The assistant requested the "{{operation}}" operation on a path outside the active workspace and ~/.assistente. Allow the path or parent folder, deny this attempt, or remember the denial in the selected scope.',
           bodyLabel: 'Requested path and details',
           cancel: 'Deny',
-          deny: {
-            session: 'Deny for this conversation',
-            workspace: 'Deny in this workspace (project)',
-            profile: 'Deny in this profile',
-            global: 'Deny globally (all workspaces and profiles)',
-          },
-          scope: {
-            once: 'This attempt only',
-            session: 'For this conversation',
-            workspace: 'In this workspace (project)',
-            profile: 'In this profile',
-            global: 'Global (all workspaces and profiles)',
-            dir: {
-              once: 'Parent folder — this attempt only',
-              session: 'Parent folder — for this conversation',
-              workspace: 'Parent folder — in this workspace (project)',
-              profile: 'Parent folder — in this profile',
-              global: 'Parent folder — global (all workspaces and profiles)',
-            },
-          },
         },
         agentPermission: {
+          localScope: 'Agent: {{agent}}. Remembering applies to the entire {{kind}} class in the chosen scope until revoked. It does not authorize native app tools.',
           title: 'The agent is asking for permission',
           submit: 'Confirm',
           cancel: 'Deny',
@@ -5059,21 +5005,6 @@ const en = {
             fetch: 'The agent wants to fetch something from the network. Check what it is asking for before deciding.',
             switchMode: 'The agent wants to switch working mode. Check what it is asking for before deciding.',
             other: 'The agent wants to run an action on your machine. Check what it is asking for before deciding.',
-          },
-          // The same sentence plus the "always allow" warning, used only when
-          // the agent offered that option. The warning states the reach of the
-          // permission: it covers the whole class, not just what is on screen.
-          descriptionAlways: {
-            read: 'The agent wants to read a file on your machine. Check what it is asking for before deciding. If you choose to always allow, this profile will stop asking about every file read, until you revoke it.',
-            edit: 'The agent wants to edit a file on your machine. Check what it is asking for before deciding. If you choose to always allow, this profile will stop asking about every file edit, until you revoke it.',
-            delete: 'The agent wants to delete a file on your machine. Check what it is asking for before deciding. If you choose to always allow, this profile will stop asking about every file deletion, until you revoke it.',
-            move: 'The agent wants to move a file on your machine. Check what it is asking for before deciding. If you choose to always allow, this profile will stop asking about every file move, until you revoke it.',
-            search: 'The agent wants to run a search on your machine. Check what it is asking for before deciding. If you choose to always allow, this profile will stop asking about every search, until you revoke it.',
-            execute: 'The agent wants to run a command on your machine. Check what it is asking for before deciding. If you choose to always allow, this profile will stop asking about every command the agent wants to run, until you revoke it.',
-            think: 'The agent wants to record a line of reasoning. Check what it is asking for before deciding. If you choose to always allow, this profile will stop asking about every recorded line of reasoning, until you revoke it.',
-            fetch: 'The agent wants to fetch something from the network. Check what it is asking for before deciding. If you choose to always allow, this profile will stop asking about every network fetch, until you revoke it.',
-            switchMode: 'The agent wants to switch working mode. Check what it is asking for before deciding. If you choose to always allow, this profile will stop asking about every mode switch, until you revoke it.',
-            other: 'The agent wants to run an action on your machine. Check what it is asking for before deciding. If you choose to always allow, this profile will stop asking about any action the agent leaves unclassified, until you revoke it.',
           },
         },
         agentQuestion: {

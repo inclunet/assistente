@@ -51,8 +51,10 @@ func (m *CommandMarker) WrapCommand(command, shellType string) string {
 // wrapBash gera comando wrapped para bash/sh/zsh.
 func (m *CommandMarker) wrapBash(command string) string {
 	// printf em vez de echo para evitar problemas com \n
+	// A quebra inicial separa o marker de prompts sem newline (por exemplo sh),
+	// inclusive quando o comando foi enviado antes de o shell exibir o prompt.
 	return fmt.Sprintf(
-		"printf '%%s\\n' '%s'; %s; printf '%%s%%s\\n' '%s' $?",
+		"printf '\\n%%s\\n' '%s'; %s; printf '%%s%%s\\n' '%s' $?",
 		m.startTag, command, m.endTag,
 	)
 }

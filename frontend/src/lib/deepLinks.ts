@@ -1,4 +1,5 @@
 import type { NavigateFunction } from 'react-router-dom';
+import { canonicalSettingsRoute } from './settingsRoutes';
 import { useChatStore } from '../store/chatStore';
 import { useWorkspaceStore, type WorkspaceTab } from '../store/workspaceStore';
 import { useEditorStore } from '../store/editorStore';
@@ -47,7 +48,7 @@ export type DeepLinkAction =
 const VALID_ROUTES = new Set([
   '', 'settings', 'settings/providers', 'settings/mcp', 'settings/skills',
   'settings/channels', 'settings/contacts', 'settings/credentials',
-  'settings/allowlists', 'settings/network-allowlist', 'settings/path-allowlist',
+  'settings/permissions',
   'settings/appearance', 'settings/restore-defaults',
   'settings/data',
   'profiles', 'history', 'memories', 'tasklists', 'help', 'about', 'update',
@@ -123,9 +124,7 @@ const ROUTE_I18N_KEYS: Record<string, string> = {
   'settings/channels': 'menu.channels',
   'settings/contacts': 'settingsPage.tabs.contacts',
   'settings/credentials': 'menu.credentials',
-  'settings/allowlists': 'menu.allowlists',
-  'settings/network-allowlist': 'settingsPage.tabs.network-allowlist',
-  'settings/path-allowlist': 'settingsPage.tabs.path-allowlist',
+  'settings/permissions': 'settingsPage.tabs.permissions',
   'settings/appearance': 'appearance.pageTitle',
   'settings/restore-defaults': 'menu.restoreDefaults',
   'settings/data': 'settingsPage.tabs.data',
@@ -190,7 +189,7 @@ export function parseDeepLink(uri: string): DeepLinkAction | null {
     }
 
     if (resource === 'navigate') {
-      const route = segments.slice(1).join('/');
+      const route = canonicalSettingsRoute(segments.slice(1).join('/'));
       if (!VALID_ROUTES.has(route)) return null;
       return { type: 'navigate', route };
     }
@@ -275,7 +274,7 @@ export function buildDeepLink(action: DeepLinkAction): string {
     }
 
     case 'navigate':
-      return `${DEEP_LINK_PREFIX}navigate/${action.route}`;
+      return `${DEEP_LINK_PREFIX}navigate/${canonicalSettingsRoute(action.route)}`;
 
     case 'resource:edit': {
       if (!isValidResourceTab(action.resource, action.tab)) {
@@ -333,7 +332,7 @@ export function getDeepLinkLabel(action: DeepLinkAction): string {
     case 'conversation:send':
       return t('deepLink.sendMessage', { id: action.conversationId });
     case 'navigate': {
-      const key = ROUTE_I18N_KEYS[action.route];
+      const key = ROUTE_I18N_KEYS[canonicalSettingsRoute(action.route)];
       const label = key ? t(key) : action.route;
       return t('deepLink.navigateTo', { page: label });
     }
@@ -493,9 +492,10 @@ export async function executeDeepLink(
     }
 
     case 'navigate': {
-      const path = action.route ? `/${action.route}` : '/';
+      const route = canonicalSettingsRoute(action.route);
+      const path = route ? `/${route}` : '/';
       deps.navigate(path);
-      const key = ROUTE_I18N_KEYS[action.route];
+      const key = ROUTE_I18N_KEYS[route];
       const label = key ? t(key) : action.route;
       announce(t('deepLink.announcedNavigate', { page: label }));
       break;
@@ -515,7 +515,7 @@ export async function executeDeepLink(
         navStore.requestResourceEdit(action.resource, action.resourceId, 'edit');
       }
       const settingsResources = new Set(['providers', 'mcp', 'skills', 'channels', 'credentials', 'allowlists']);
-      const path = settingsResources.has(action.resource) ? `/settings/${action.resource}` : `/${action.resource}`;
+      const path = action.resource === 'allowlists' ? '/settings/permissions' : settingsResources.has(action.resource) ? `/settings/${action.resource}` : `/${action.resource}`;
       deps.navigate(path);
       announce(t('deepLink.announcedEditResource', { id: action.resourceId }));
       break;
@@ -536,7 +536,7 @@ export async function executeDeepLink(
         navStore.requestResourceEdit(action.resource, '', 'new');
       }
       const settingsResources = new Set(['providers', 'mcp', 'skills', 'channels', 'credentials', 'allowlists']);
-      const path = settingsResources.has(action.resource) ? `/settings/${action.resource}` : `/${action.resource}`;
+      const path = action.resource === 'allowlists' ? '/settings/permissions' : settingsResources.has(action.resource) ? `/settings/${action.resource}` : `/${action.resource}`;
       deps.navigate(path);
       announce(t('deepLink.announcedNewResource'));
       break;

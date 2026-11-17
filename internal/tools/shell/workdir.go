@@ -1,6 +1,7 @@
 package shell
 
 import (
+	"assistente/internal/terminal"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -57,7 +58,7 @@ func canonicalizeProjectPath(path string) (string, error) {
 	missing := make([]string, 0, 2)
 	current := filepath.Clean(absolute)
 	for {
-		resolved, resolveErr := filepath.EvalSymlinks(current)
+		resolved, resolveErr := terminal.ResolveDirectoryPath(current)
 		if resolveErr == nil {
 			for i := len(missing) - 1; i >= 0; i-- {
 				resolved = filepath.Join(resolved, missing[i])

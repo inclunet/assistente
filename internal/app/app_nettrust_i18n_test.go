@@ -28,7 +28,7 @@ func dialogoDeRede(t *testing.T, req nettrust.PromptRequest, escolha string) (ma
 		}()
 	})
 
-	prompter := &appNetworkPrompter{qm: mgr}
+	prompter := &appNetworkPrompter{ask: mgr.RequestQuestionnaire}
 	decision, err := prompter.PromptNetworkAuthorization(context.Background(), req)
 	if err != nil {
 		t.Fatalf("erro inesperado ao pedir autorização: %v", err)
@@ -41,7 +41,7 @@ func dialogoDeRede(t *testing.T, req nettrust.PromptRequest, escolha string) (ma
 
 func TestAutorizacaoDeRedeVaiTraduzivelParaATela(t *testing.T) {
 	payload, _ := dialogoDeRede(t,
-		nettrust.PromptRequest{Host: "interno.local", Category: "private", Reason: "webhook"},
+		nettrust.PromptRequest{AvailableScopes: allAuthorizationScopesForTest(), Host: "interno.local", Category: "private", Reason: "webhook"},
 		string(nettrust.ScopeOnce),
 	)
 
@@ -80,27 +80,27 @@ func TestAutorizacaoDeRedeVaiTraduzivelParaATela(t *testing.T) {
 
 func TestOEscopoEscolhidoContinuaSendoParseadoDepoisDaTraducao(t *testing.T) {
 	// Os ids das ações são os escopos estáveis; labels traduzem sem afetar o parse.
-	for _, action := range networkDecisionActions() {
+	for _, action := range networkConfirmationPayload(nettrust.PromptRequest{AvailableScopes: allAuthorizationScopesForTest()}).Actions {
 		if action.ID == decisionDeny {
 			continue
 		}
 		if action.Label.Key == "" {
 			t.Errorf("ação %+v sem chave: o escopo continuaria só em português", action)
 		}
-		escopo, ok := scopeFromActionID(action.ID)
-		if !ok {
+		choice, err := (questionnaire.AuthorizationActions{Scopes: allAuthorizationScopesForTest()}).Parse(questionnaire.Response{Answers: map[string]any{questionnaire.AnswerActionID: action.ID}})
+		if err != nil {
 			t.Errorf("o id da ação %q não volta a um escopo", action.ID)
 			continue
 		}
-		if string(escopo) != action.ID {
-			t.Errorf("escopo = %q, quer %q", escopo, action.ID)
+		if string(choice.Scope) != action.ID {
+			t.Errorf("escopo = %q, quer %q", choice.Scope, action.ID)
 		}
 	}
 }
 
 func TestODialogoDestacaOHostQueOSkillDeclarou(t *testing.T) {
 	payload, _ := dialogoDeRede(t,
-		nettrust.PromptRequest{
+		nettrust.PromptRequest{AvailableScopes: allAuthorizationScopesForTest(),
 			Host:                "api.nu.workflows.dev",
 			Category:            "cgnat",
 			SkillSlug:           "workflows-api",
@@ -137,7 +137,7 @@ func TestODialogoDestacaOHostQueOSkillDeclarou(t *testing.T) {
 
 func TestODialogoNaoDestacaHostQuandoNenhumCasa(t *testing.T) {
 	payload, _ := dialogoDeRede(t,
-		nettrust.PromptRequest{
+		nettrust.PromptRequest{AvailableScopes: allAuthorizationScopesForTest(),
 			Host:                "api.nu.workflows.dev",
 			Category:            "cgnat",
 			SkillSlug:           "workflows-api",
@@ -154,7 +154,7 @@ func TestODialogoNaoDestacaHostQuandoNenhumCasa(t *testing.T) {
 
 func TestADecisaoDeRedeSegueOEscopoQueAPessoaEscolheu(t *testing.T) {
 	_, decision := dialogoDeRede(t,
-		nettrust.PromptRequest{Host: "interno.local", Category: "private"},
+		nettrust.PromptRequest{AvailableScopes: allAuthorizationScopesForTest(), Host: "interno.local", Category: "private"},
 		string(nettrust.ScopeSession),
 	)
 
@@ -170,13 +170,13 @@ func TestADecisaoDeRedeSegueOEscopoQueAPessoaEscolheu(t *testing.T) {
 // depois de DecisionActionID, antes do atalho decisionDeny.
 func TestNegarComEspacosNoActionIdContinuaNegando(t *testing.T) {
 	_, decision := dialogoDeRede(t,
-		nettrust.PromptRequest{Host: "interno.local", Category: "private"},
+		nettrust.PromptRequest{AvailableScopes: allAuthorizationScopesForTest(), Host: "interno.local", Category: "private"},
 		"  deny  ",
 	)
 	if decision.Approve {
 		t.Fatal("deny com espaços foi tratado como autorização")
 	}
-	if decision.Scope != "" {
-		t.Errorf("escopo = %q, quer vazio na negativa", decision.Scope)
+	if decision.Scope != nettrust.ScopeOnce {
+		t.Errorf("escopo = %q, quer negativa pontual", decision.Scope)
 	}
 }

@@ -14,6 +14,7 @@ import (
 	"assistente/internal/commandpolicy"
 	"assistente/internal/terminal"
 	"assistente/internal/tools"
+	"assistente/internal/tools/invocationctx"
 )
 
 const (
@@ -204,6 +205,14 @@ func (rc *RunCommand) Execute(ctx context.Context, args json.RawMessage) (tools.
 	// summarizePolicyReasons (sem repetir args do comando).
 	commandSummary := redactCommandForLog(a.Command, policyResult)
 	logPolicyDecision(ctx, logging.Logger(ctx, "tools.shell.run-command"), commandSummary, policyResult)
+	originalWorkDir := workDir
+	if decision == allowlist.DecisionConfirm && !a.Persistent && a.TerminalID == "" {
+		resolved, err := canonicalizeProjectPath(workDir)
+		if err != nil {
+			return tools.ToolResult{Content: "Não foi possível resolver o diretório para autorização.", IsError: true}, nil
+		}
+		workDir = resolved
+	}
 
 	switch decision {
 	case allowlist.DecisionDeny:
@@ -220,27 +229,36 @@ func (rc *RunCommand) Execute(ctx context.Context, args json.RawMessage) (tools.
 		}, nil
 
 	case allowlist.DecisionConfirm:
-		if rc.confirmFn != nil {
-			// confirmFn recebe o comando bruto: o usuario precisa ver tudo na
-			// UI local para decidir, e esse caminho nao vai para o LLM.
-			approved, err := rc.confirmFn(ctx, a.Command, workDir)
-			if err != nil {
-				return tools.ToolResult{
-					Content: fmt.Sprintf("Erro ao solicitar confirmação: %v", err),
-					IsError: true,
-				}, nil
-			}
-			if !approved {
-				// Mesmo motivo do deny acima: a string vai para o LLM, nao
-				// repetimos o comando bruto aqui.
-				return tools.ToolResult{
-					Content: fmt.Sprintf("Comando negado pelo usuário: %s", commandSummary),
-					IsError: true,
-				}, nil
-			}
+		if rc.confirmFn == nil {
+			return tools.ToolResult{Content: "Comando requer autorização, mas não há interlocutor disponível.", IsError: true}, nil
+		}
+		// confirmFn recebe o comando bruto: o usuario precisa ver tudo na
+		// UI local para decidir, e esse caminho nao vai para o LLM.
+		ctx = invocationctx.WithPersistentShell(ctx, a.Persistent || a.TerminalID != "")
+		approved, err := rc.confirmFn(ctx, a.Command, workDir)
+		if err != nil {
+			return tools.ToolResult{
+				Content: fmt.Sprintf("Erro ao solicitar confirmação: %v", err),
+				IsError: true,
+			}, nil
+		}
+		if !approved {
+			// Mesmo motivo do deny acima: a string vai para o LLM, nao
+			// repetimos o comando bruto aqui.
+			return tools.ToolResult{
+				Content: fmt.Sprintf("Comando negado pelo usuário: %s", commandSummary),
+				IsError: true,
+			}, nil
 		}
 	}
 
+	if decision == allowlist.DecisionConfirm && !a.Persistent && a.TerminalID == "" {
+		current, err := canonicalizeProjectPath(originalWorkDir)
+		target, targetErr := canonicalizeProjectPath(workDir)
+		if err != nil || targetErr != nil || current != workDir || target != workDir {
+			return tools.ToolResult{Content: "O diretório mudou durante a autorização; solicite novamente.", IsError: true}, nil
+		}
+	}
 	var sessionID string
 	var entry *terminal.HistoryEntry
 	var err error

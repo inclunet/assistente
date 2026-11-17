@@ -24,12 +24,13 @@ var ErrEntryNotFound = errors.New("autorização permanente não encontrada")
 const subdir = "acp-permissions"
 
 type Entry struct {
+	AgentID   string           `json:"agent_id,omitempty"`
 	Kind      string           `json:"kind"`
 	GrantedAt time.Time        `json:"granted_at"`
 	Scope     trustscope.Scope `json:"scope,omitempty"`
 }
 type Store struct {
-	core     *trustscope.Manager[Entry, string]
+	core     *trustscope.Manager[Entry, Resource]
 	repo     *authorization.Repository
 	home     func() string
 	profiles func() ([]string, error)
@@ -43,7 +44,7 @@ func NewStore(options trustscope.Options) *Store {
 		options.HomeDir = configdir.GetHomeDir
 	}
 	store := &Store{repo: options.Repository, home: options.HomeDir, profiles: options.LegacyProfiles}
-	cfg := trustscope.Config[Entry, string]{Domain: "acp", Subdir: subdir, NotFoundError: ErrEntryNotFound,
+	cfg := trustscope.Config[Entry, Resource]{Domain: "acp", Subdir: subdir, NotFoundError: ErrEntryNotFound,
 		LegacyScopes: []trustscope.Scope{trustscope.ScopeProfile},
 		ValidateLegacyProfile: func(key, legacyKey string) error {
 			resolved, err := store.legacyProfile(legacyKey)
@@ -54,7 +55,7 @@ func NewStore(options trustscope.Options) *Store {
 				return errors.New("origem legada ACP pertence a outro perfil")
 			}
 			return nil
-		}, Adapter: trustscope.Adapter[Entry, string]{
+		}, Adapter: trustscope.Adapter[Entry, Resource]{
 			Scope: func(e Entry) trustscope.Scope { return e.Scope },
 			Normalize: func(e Entry) (Entry, error) {
 				e.Kind = normalizeKind(e.Kind)
@@ -69,10 +70,17 @@ func NewStore(options trustscope.Options) *Store {
 				}
 				return e, nil
 			},
-			Key:       func(e Entry) string { return e.Kind },
-			Matches:   func(e Entry, q string) bool { return e.Kind == normalizeKind(q) },
-			SameKey:   func(e Entry, q string) bool { return e.Kind == normalizeKind(q) },
-			Identity:  func(e Entry) string { return e.Kind },
+			Key: func(e Entry) Resource { return Resource{Kind: e.Kind, AgentID: e.AgentID} },
+			Matches: func(e Entry, q Resource) bool {
+				return e.Kind == normalizeKind(q.Kind) && (e.AgentID == "" || e.AgentID == q.AgentID)
+			},
+			SameKey: func(e Entry, q Resource) bool { return e.Kind == normalizeKind(q.Kind) && e.AgentID == q.AgentID },
+			Identity: func(e Entry) string {
+				if e.AgentID == "" {
+					return e.Kind
+				}
+				return e.AgentID + "\x00" + e.Kind
+			},
 			Effect:    func(Entry) string { return "allow" },
 			Operation: func(e Entry) string { return e.Kind },
 		}}
@@ -121,34 +129,12 @@ func profileContext(ctx context.Context, profile string) (context.Context, error
 	inv.ProfileSlug = profile
 	return invocationctx.With(ctx, inv), nil
 }
-func (s *Store) Allows(ctx context.Context, profile, kind string) (bool, error) {
-	ctx, err := profileContext(ctx, profile)
-	if err != nil {
-		return false, err
-	}
-	match := s.core.Find(ctx, normalizeKind(kind))
-	return match.Found, match.Err
-}
-func (s *Store) Allow(ctx context.Context, profile, kind string) error {
-	ctx, err := profileContext(ctx, profile)
-	if err != nil {
-		return err
-	}
-	return s.core.Add(ctx, Entry{Kind: kind, Scope: trustscope.ScopeProfile})
-}
 func (s *Store) List(ctx context.Context, profile string) ([]Entry, error) {
 	ctx, err := profileContext(ctx, profile)
 	if err != nil {
 		return nil, err
 	}
 	return s.core.List(ctx)
-}
-func (s *Store) Revoke(ctx context.Context, profile, kind string) error {
-	ctx, err := profileContext(ctx, profile)
-	if err != nil {
-		return err
-	}
-	return s.core.Remove(ctx, trustscope.ScopeProfile, normalizeKind(kind))
 }
 func (s *Store) Profiles(ctx context.Context) ([]string, error) {
 	keys, err := s.repo.ScopeKeys(ctx, "acp", "profile")
@@ -218,3 +204,32 @@ func ProfileKey(slug string) string {
 	}
 	return slug
 }
+
+// Resource vem da identidade do provider e da classe do protocolo, nunca do
+// título livre enviado pelo agente. AgentID vazio só existe na migração legada.
+type Resource struct {
+	Kind    string
+	AgentID string
+}
+
+func (s *Store) Capture(ctx context.Context) context.Context { return s.core.Capture(ctx) }
+func (s *Store) AvailableScopes(ctx context.Context) ([]authorization.Scope, error) {
+	return s.core.AvailableScopes(ctx)
+}
+func (s *Store) Match(ctx context.Context, resource Resource) (authorization.Decision, error) {
+	match := s.core.Find(ctx, resource)
+	if match.Err != nil {
+		return authorization.Decision{}, match.Err
+	}
+	if match.Found {
+		return authorization.Decision{Effect: "allow", Scope: match.Scope}, nil
+	}
+	return authorization.Decision{Effect: "ask"}, nil
+}
+func (s *Store) Grant(ctx context.Context, entry Entry) error {
+	if strings.TrimSpace(entry.AgentID) == "" {
+		return errors.New("identidade do agente ausente")
+	}
+	return s.core.Add(ctx, entry)
+}
+func (s *Store) ClearSession(conversationID string) { s.core.ClearSession(conversationID) }
