@@ -4909,6 +4909,7 @@ notSaved: 'The decision applies only to this operation: it could not be remember
           description: 'The assistant wants to run:\n\n{{command}}\n\nin: {{workDir}}',
           prompt: 'Allow running this command?',
           workDir: 'Directory: {{workDir}}',
+          persistentWorkDir: 'Persistent terminal. Initial directory: {{workDir}}; the current directory may have changed. Authorization applies only to this execution.',
           bodyLabel: 'Requested command',
           submit: 'Allow',
           cancel: 'Deny',

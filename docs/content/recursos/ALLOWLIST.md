@@ -50,6 +50,10 @@ exata e o diretório exibidos. Comandos livres, argumentos não reconhecidos,
 pipelines e redirecionamentos oferecem somente aprovação pontual. Uma
 proibição da política continua prevalecendo.
 
+Terminais persistentes podem mudar de diretório durante a sessão. Quando a
+política exige confirmação, a autorização vale apenas para aquela execução;
+o diálogo identifica o diretório inicial, sem tratá-lo como diretório atual.
+
 **ACP:** a regra identifica o agente e a classe de ação, como leitura, edição
 ou execução. Não significa que o Assistente inspecionou os comandos internos
 do agente. A autorização não libera ferramentas nativas do aplicativo.
@@ -77,3 +81,5 @@ Em ambientes com múltiplos usuários ou autenticação externa, um administrado
 usa **Atribuir origens legadas**, escolhe uma origem conhecida e seu proprietário.
 A atribuição é exclusiva; o primeiro login não recebe as regras automaticamente.
 O usuário escolhido importa a origem ao utilizá-la novamente.
+A adoção automática também fixa o proprietário da origem. Criar outra conta
+depois não transfere nem duplica as permissões já importadas.

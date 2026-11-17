@@ -23,6 +23,18 @@ const (
 
 // shellConfirmationPayload monta a confirmação de execução de comando (AEP-0091).
 func shellConfirmationPayload(req shelltrust.PromptRequest) questionnaire.RequestPayload {
+	hint := questionnaire.KeyedWith(
+		"app.questionnaire.shell.workDir",
+		map[string]any{"workDir": req.Directory},
+		fmt.Sprintf("Diretório: %s", req.Directory),
+	)
+	if req.PersistentTerminal {
+		hint = questionnaire.KeyedWith(
+			"app.questionnaire.shell.persistentWorkDir",
+			map[string]any{"workDir": req.Directory},
+			fmt.Sprintf("Terminal persistente. Diretório inicial: %s; o diretório atual pode ter mudado. A autorização vale só para esta execução.", req.Directory),
+		)
+	}
 	return questionnaire.RequestPayload{
 		Kind: questionnaire.KindDecision,
 		Title: questionnaire.Keyed(
@@ -35,11 +47,7 @@ func shellConfirmationPayload(req shelltrust.PromptRequest) questionnaire.Reques
 		),
 		// Diretório vai como Hint traduzível (rótulo "Diretório:" localizado);
 		// Body fica só com o comando cru, sem conectivo em pt-BR (AEP-0091).
-		Hint: questionnaire.KeyedWith(
-			"app.questionnaire.shell.workDir",
-			map[string]any{"workDir": req.Directory},
-			fmt.Sprintf("Diretório: %s", req.Directory),
-		),
+		Hint: hint,
 		Body: req.Command,
 		BodyLabel: questionnaire.Keyed(
 			"app.questionnaire.shell.bodyLabel",

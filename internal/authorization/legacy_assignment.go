@@ -34,25 +34,66 @@ func (r *Repository) AuthorizeLegacyImport(ctx context.Context, domain, source s
 	if err != nil {
 		return false, err
 	}
-	var origin database.AuthorizationImport
-	err = db.Where("user_id = '' AND domain = ? AND source = ? AND version = 0", domain, source).First(&origin).Error
-	if err == nil {
-		if origin.AssignedTo == "" {
-			return false, ErrLegacyOwnerPending
-		}
-		return origin.AssignedTo == user, nil
-	}
-	if !errors.Is(err, gorm.ErrRecordNotFound) {
+	var assigned string
+	err = database.WithSQLiteBusyRetry(ctx, "authorization.claim_origin", func() error {
+		return db.Transaction(func(tx *gorm.DB) error {
+			owner, err := importedOwner(tx, domain, source)
+			if err != nil {
+				return err
+			}
+			var origin database.AuthorizationImport
+			err = tx.Where("user_id = '' AND domain = ? AND source = ? AND version = 0", domain, source).First(&origin).Error
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				assigned = owner
+				if assigned == "" && localOwner {
+					assigned = user
+				}
+				origin = database.AuthorizationImport{Domain: domain, Source: source, Version: 0, AssignedTo: assigned}
+				if err := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&origin).Error; err != nil {
+					return err
+				}
+				origin = database.AuthorizationImport{}
+				if err := tx.Where("user_id = '' AND domain = ? AND source = ? AND version = 0", domain, source).First(&origin).Error; err != nil {
+					return err
+				}
+			} else if err != nil {
+				return err
+			}
+			if owner != "" && origin.AssignedTo != "" && origin.AssignedTo != owner {
+				return errors.New("origem legada tem proprietários conflitantes")
+			}
+			if origin.AssignedTo == "" && owner != "" {
+				if err := tx.Model(&origin).Update("assigned_to", owner).Error; err != nil {
+					return err
+				}
+				origin.AssignedTo = owner
+			}
+			assigned = origin.AssignedTo
+			return nil
+		})
+	})
+	if err != nil {
 		return false, err
 	}
-	if localOwner {
-		return true, nil
+	if assigned == "" {
+		return false, ErrLegacyOwnerPending
 	}
-	origin = database.AuthorizationImport{Domain: domain, Source: source, Version: 0}
-	if err := db.Clauses(clause.OnConflict{DoNothing: true}).Create(&origin).Error; err != nil {
-		return false, err
+	return assigned == user, nil
+}
+
+// Marcadores anteriores ao registro administrativo também fixam o dono.
+func importedOwner(tx *gorm.DB, domain, source string) (string, error) {
+	var owners []string
+	if err := tx.Model(&database.AuthorizationImport{}).Where("domain = ? AND source = ? AND version > 0 AND user_id <> ''", domain, source).Distinct("user_id").Limit(2).Pluck("user_id", &owners).Error; err != nil {
+		return "", err
 	}
-	return false, ErrLegacyOwnerPending
+	if len(owners) > 1 {
+		return "", errors.New("origem legada importada por mais de um usuário")
+	}
+	if len(owners) == 1 {
+		return owners[0], nil
+	}
+	return "", nil
 }
 
 func (r *Repository) requireAdmin(ctx context.Context) (*gorm.DB, error) {
@@ -87,6 +128,20 @@ func (r *Repository) AssignOrigin(ctx context.Context, id, userID string) error 
 	}
 	return database.WithSQLiteBusyRetry(ctx, "authorization.assign_origin", func() error {
 		return db.Transaction(func(tx *gorm.DB) error {
+			var origin database.AuthorizationImport
+			if err := tx.Where("id = ? AND user_id = '' AND version = 0 AND (assigned_to = '' OR assigned_to IS NULL)", id).First(&origin).Error; err != nil {
+				if errors.Is(err, gorm.ErrRecordNotFound) {
+					return ErrNotFound
+				}
+				return err
+			}
+			owner, err := importedOwner(tx, origin.Domain, origin.Source)
+			if err != nil {
+				return err
+			}
+			if owner != "" && owner != userID {
+				return errors.New("origem legada já pertence a outro usuário")
+			}
 			var count int64
 			if err := tx.Model(&database.User{}).Where("id = ? AND is_active = ?", userID, true).Count(&count).Error; err != nil {
 				return err

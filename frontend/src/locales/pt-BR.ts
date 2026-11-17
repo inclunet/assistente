@@ -4911,6 +4911,7 @@ notSaved: 'A decisão vale somente para esta operação: não foi possível lemb
           description: 'O assistente quer executar:\n\n{{command}}\n\nem: {{workDir}}',
           prompt: 'Permitir a execução deste comando?',
           workDir: 'Diretório: {{workDir}}',
+          persistentWorkDir: 'Terminal persistente. Diretório inicial: {{workDir}}; o diretório atual pode ter mudado. A autorização vale só para esta execução.',
           bodyLabel: 'Comando solicitado',
           submit: 'Permitir',
           cancel: 'Negar',

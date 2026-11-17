@@ -107,6 +107,10 @@ O repositório usa as conexões, transações e migrações versionadas existent
 
 Origens administrativas usam versão zero, usuário vazio e AssignedTo como proprietário atribuído. Elas não são marcadores de importação de um usuário; o marcador só nasce na transação que grava as regras. A atribuição exige administrador autenticado e usuário ativo, aceita apenas origens registradas pelo backend e não transfere uma origem já atribuída.
 
+A adoção automática também grava essa titularidade transacionalmente. Marcadores
+de importações anteriores fixam o dono antes de qualquer nova atribuição;
+proprietários conflitantes bloqueiam a adoção.
+
 O seletor tem schema tipado por domínio e versão, validado no backend. JSON no
 banco é representação de structs conhecidos, nunca expressão executável ou
 objeto arbitrário do frontend. Campos comuns de consulta ficam em colunas;
@@ -300,9 +304,11 @@ são explicitamente enumerados. Nenhum PR é mergeado pelo agente.
 
 - `authorization.Resolve` concentra avaliação, pergunta, revalidação, gravação e degradação explícita para uma operação. Rede, filesystem, shell e ACP o utilizam; `questionnaire.AuthorizationActions` fornece IDs e rótulos comuns.
 - `shelltrust` representa operações reconhecidas sem persistir comandos livres; testes cobrem argumentos secretos/compostos, diretório exato, negativas e conversa limpa durante pergunta. O perfil é capturado antes de aguardar consentimento.
+- Terminais persistentes não consultam nem criam concessões reutilizáveis: o diretório inicial não comprova o diretório após um `cd`. A regressão executa chamadas via `RunCommand`, confirma cada operação e preserva a concessão para execução efêmera.
 - ACP associa novas regras a agente/classe, retorna apenas a opção pontual oferecida e preserva restrição de superfície. Novos testes de falha de gravação e isolamento entre agentes ficam para execução exclusiva no CI remoto.
 - `PermissionsController` e `PermissionsPage` substituem as três telas de grants. Gestão exibe sessões de todas as conversas em memória daquele usuário, regras persistentes e revogadas; políticas e associações reutilizam os editores existentes. APIs, DTOs, bindings, estilos e traduções sem consumidor foram retirados.
 - Origens ambíguas têm atribuição administrativa explícita no mesmo modelo de importações. Testes cobrem usuário não administrador, proprietário inexistente, reassignment e distinção entre atribuição e importação concluída.
+- A regressão de titularidade cobre adoção automática seguida de segunda conta e marcadores anteriores ao registro administrativo, impedindo reatribuição e duplicação de concessões.
 - Testes de UI cobrem axe, filtros, erro de leitura, pendências e confirmação de revogação. Testes de concorrência cobrem geração de sessão e snapshot consistente dos escopos. Build, vet, golangci-lint, TypeScript e ESLint passaram; Stylelint sem erros. Dez pacotes Go, 174 testes de regressão frontend e dois E2E de arquivos/foco passaram. Revisão independente concluída sem pendências. CI remoto ainda pendente. A tentativa de excluir ACP na suíte frontend ampla não foi respeitada pelos projetos Vitest e incluiu testes de UI com mocks; não houve execução de agentes nem testes Go ACP. As validações locais seguintes usam arquivos explicitamente selecionados.
 ## Riscos
 

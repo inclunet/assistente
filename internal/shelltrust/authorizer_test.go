@@ -25,6 +25,27 @@ func TestLimparConversaInvalidaConfirmacaoDeComandoLivre(t *testing.T) {
 	}
 }
 
+func TestPersistentTerminalRejectsForgedReusableConsent(t *testing.T) {
+	dir := t.TempDir()
+	m := NewManager(authorizationfixture.Options(t, dir, dir))
+	a := Authorizer{Manager: m, PersistentAllowed: func(context.Context) bool { return true },
+		Policy: func(context.Context) (*allowlist.Allowlist, error) {
+			return &allowlist.Allowlist{DefaultAction: "confirm"}, nil
+		},
+		Prompt: func(context.Context, PromptRequest) (PromptDecision, error) {
+			return PromptDecision{Approve: true, Scope: authorization.ScopeGlobal}, nil
+		},
+	}
+	ctx := invocationctx.WithPersistentShell(authorizationfixture.Context(), true)
+	if allowed, err := a.Authorize(ctx, "git push", dir); err == nil || allowed {
+		t.Fatalf("aceitou alcance não oferecido: %v %v", allowed, err)
+	}
+	selector, _ := Represent("git push", dir)
+	if match := m.Find(ctx, selector); match.Err != nil || match.Found {
+		t.Fatalf("gravou concessão indevida: %+v", match)
+	}
+}
+
 func TestPolicyAndGrantKeepOriginProfileDuringPrompt(t *testing.T) {
 	dir := t.TempDir()
 	m := NewManager(authorizationfixture.Options(t, dir, dir))

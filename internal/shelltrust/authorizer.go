@@ -8,12 +8,14 @@ import (
 	"assistente/internal/authorization"
 	"assistente/internal/commandpolicy"
 	"assistente/internal/logging"
+	"assistente/internal/tools/invocationctx"
 )
 
 type PromptRequest struct {
-	Command         string
-	Directory       string
-	AvailableScopes []authorization.Scope
+	PersistentTerminal bool
+	Command            string
+	Directory          string
+	AvailableScopes    []authorization.Scope
 }
 type PromptDecision struct {
 	Approve bool
@@ -32,6 +34,8 @@ func (a *Authorizer) Authorize(ctx context.Context, command, directory string) (
 		ctx = a.Manager.Capture(ctx)
 	}
 	selector, reusable := Represent(command, directory)
+	persistent := invocationctx.PersistentShell(ctx)
+	reusable = reusable && !persistent
 	scopes := []authorization.Scope{authorization.ScopeOnce}
 	if reusable && a.Manager != nil && a.PersistentAllowed != nil && a.PersistentAllowed(ctx) {
 		var err error
@@ -87,7 +91,7 @@ func (a *Authorizer) Authorize(ctx context.Context, command, directory string) (
 	}
 	if a.Prompt != nil {
 		flow.Ask = func(ctx context.Context) (authorization.Consent[Entry], error) {
-			choice, err := a.Prompt(ctx, PromptRequest{Command: command, Directory: directory, AvailableScopes: scopes})
+			choice, err := a.Prompt(ctx, PromptRequest{Command: command, Directory: directory, AvailableScopes: scopes, PersistentTerminal: persistent})
 			if err != nil {
 				return authorization.Consent[Entry]{}, err
 			}

@@ -14,6 +14,7 @@ import (
 	"assistente/internal/commandpolicy"
 	"assistente/internal/terminal"
 	"assistente/internal/tools"
+	"assistente/internal/tools/invocationctx"
 )
 
 const (
@@ -225,6 +226,7 @@ func (rc *RunCommand) Execute(ctx context.Context, args json.RawMessage) (tools.
 		}
 		// confirmFn recebe o comando bruto: o usuario precisa ver tudo na
 		// UI local para decidir, e esse caminho nao vai para o LLM.
+		ctx = invocationctx.WithPersistentShell(ctx, a.Persistent || a.TerminalID != "")
 		approved, err := rc.confirmFn(ctx, a.Command, workDir)
 		if err != nil {
 			return tools.ToolResult{

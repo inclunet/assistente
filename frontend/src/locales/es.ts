@@ -4913,6 +4913,7 @@ notSaved: 'La decisión vale solo para esta operación: no se pudo recordar. Ser
           description: 'El asistente quiere ejecutar:\n\n{{command}}\n\nen: {{workDir}}',
           prompt: '¿Permitir la ejecución de este comando?',
           workDir: 'Directorio: {{workDir}}',
+          persistentWorkDir: 'Terminal persistente. Directorio inicial: {{workDir}}; el directorio actual puede haber cambiado. La autorización solo se aplica a esta ejecución.',
           bodyLabel: 'Comando solicitado',
           submit: 'Permitir',
           cancel: 'Denegar',
