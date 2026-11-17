@@ -1,269 +1,374 @@
 package allowlist
 
 import (
-	"assistente/internal/logging"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
+	"sort"
 	"strings"
+	"sync"
 
+	"assistente/internal/authorization"
 	"assistente/internal/configdir"
+	"assistente/internal/database"
+	"assistente/internal/tools/invocationctx"
 )
 
-const (
-	// resolverSubdir é o subdiretório dentro de .assistente/ para allowlists
-	resolverSubdir = "allowlists"
+const resolverSubdir = "allowlists"
+const defaultSlug = "padrao"
 
-	// defaultSlug é o slug da allowlist padrão
-	defaultSlug = "padrao"
-)
-
-// Manager gerencia o CRUD de allowlists usando o configdir.Resolver.
-// Allowlists são armazenadas em .assistente/allowlists/<slug>.json.
 type Manager struct {
-	resolver *configdir.Resolver
+	mu        sync.Mutex
+	repo      *authorization.Repository
+	paths     func() []string
+	home      func() string
+	mayImport func(context.Context) bool
+}
+type Options struct {
+	Repository *authorization.Repository
+	Paths      func() []string
+	HomeDir    func() string
+	MayImport  func(context.Context) bool
 }
 
-// NewManager cria um novo gerenciador de allowlists.
-func NewManager() *Manager {
-	return &Manager{
-		resolver: configdir.NewResolver(resolverSubdir),
+func NewManager(options Options) *Manager {
+	if options.Repository == nil {
+		options.Repository = authorization.NewRepository(database.DB)
 	}
+	if options.Paths == nil {
+		options.Paths = configdir.NewResolver(resolverSubdir).GetSearchPaths
+	}
+	if options.HomeDir == nil {
+		options.HomeDir = configdir.NewResolver(resolverSubdir).GetHomeDir
+	}
+	return &Manager{repo: options.Repository, paths: options.Paths, home: options.HomeDir, mayImport: options.MayImport}
 }
 
-// List retorna informações resumidas de todas as allowlists disponíveis.
-func (m *Manager) List() ([]AllowlistInfo, error) {
-	files, err := m.resolver.List()
-	if err != nil {
-		return nil, fmt.Errorf("erro ao listar allowlists: %w", err)
-	}
+type policySelector struct {
+	Kind    string       `json:"kind"`
+	Pattern string       `json:"pattern,omitempty"`
+	Rule    *CommandRule `json:"rule,omitempty"`
+}
 
-	result := make([]AllowlistInfo, 0, len(files))
-	for _, f := range files {
-		al, err := m.loadFromFile(f.Filename)
+func policyRules(al *Allowlist) ([]database.AuthorizationRule, error) {
+	if err := al.Validate(); err != nil {
+		return nil, err
+	}
+	var rows []database.AuthorizationRule
+	add := func(selector policySelector, effect string) error {
+		data, err := json.Marshal(selector)
 		if err != nil {
-			logging.Errorf(context.Background(), "allowlist.manager", "[Allowlist] Erro ao carregar %s: %v", f.Filename, err)
-			continue
+			return err
 		}
-
-		result = append(result, AllowlistInfo{
-			Slug:        f.Name,
-			Name:        al.Name,
-			Description: al.Description,
-			RuleCount:   len(al.AutoApprove) + len(al.AlwaysDeny) + len(al.CommandRules),
-		})
-	}
-
-	return result, nil
-}
-
-// Get carrega uma allowlist pelo slug.
-func (m *Manager) Get(slug string) (*Allowlist, error) {
-	filename := slug + ".json"
-	al, err := m.loadFromFile(filename)
-	if err != nil {
-		return nil, fmt.Errorf("allowlist '%s' não encontrada: %w", slug, err)
-	}
-	return al, nil
-}
-
-// Create cria uma nova allowlist.
-func (m *Manager) Create(al *Allowlist) (string, error) {
-	if al.Name == "" {
-		return "", fmt.Errorf("nome da allowlist é obrigatório")
-	}
-
-	slug := slugify(al.Name)
-	if m.resolver.Exists(slug + ".json") {
-		return "", fmt.Errorf("allowlist '%s' já existe", slug)
-	}
-
-	if err := m.save(slug, al); err != nil {
-		return "", err
-	}
-
-	logging.Infof(context.Background(), "allowlist.manager", "[Allowlist] Criada: %s (%s)", al.Name, slug)
-	return slug, nil
-}
-
-// Update atualiza uma allowlist existente.
-func (m *Manager) Update(slug string, al *Allowlist) error {
-	filename := slug + ".json"
-	if !m.resolver.Exists(filename) {
-		return fmt.Errorf("allowlist '%s' não encontrada", slug)
-	}
-
-	if err := m.save(slug, al); err != nil {
-		return err
-	}
-
-	logging.Infof(context.Background(), "allowlist.manager", "[Allowlist] Atualizada: %s", slug)
-	return nil
-}
-
-// Delete remove uma allowlist.
-func (m *Manager) Delete(slug string) error {
-	filename := slug + ".json"
-	if err := m.resolver.Delete(filename); err != nil {
-		return fmt.Errorf("erro ao excluir allowlist '%s': %w", slug, err)
-	}
-
-	logging.Infof(context.Background(), "allowlist.manager", "[Allowlist] Excluída: %s", slug)
-	return nil
-}
-
-// EnsureDefaults garante a allowlist padrao no boot.
-//
-// Comportamento:
-//   - Se o diretorio de allowlists esta vazio, cria padrao.json a partir de
-//     DefaultAllowlist().
-//   - Se ja ha allowlists no disco, nao sobrescreve nada — apenas executa o
-//     migrador idempotente para mesclar novas CommandRules em padrao.json
-//     quando o usuario ainda nao tem regras estruturadas para um determinado
-//     programa (ex.: usuarios pre-AEP-0060 nao perdem o beneficio das regras
-//     default de kubectl ao atualizar).
-func (m *Manager) EnsureDefaults() error {
-	files, err := m.resolver.List()
-	if err != nil {
-		// Diretório pode não existir ainda — tenta criar
-		if err := m.resolver.EnsureHomeDir(); err != nil {
-			return fmt.Errorf("erro ao criar diretório de allowlists: %w", err)
-		}
-		files, err = m.resolver.List()
-		if err != nil {
-			return fmt.Errorf("erro ao listar allowlists: %w", err)
-		}
-	}
-
-	if len(files) > 0 {
-		return m.migrateDefaultRules()
-	}
-
-	al := DefaultAllowlist()
-	if err := m.save(defaultSlug, al); err != nil {
-		return fmt.Errorf("erro ao criar allowlist padrão: %w", err)
-	}
-
-	logging.Infof(context.Background(), "allowlist.manager", "[Allowlist] Allowlist padrão criada: %s", defaultSlug)
-	return nil
-}
-
-// migrateDefaultRules mescla CommandRules de DefaultAllowlist() em padrao.json
-// para programas que o usuario ainda nao customizou.
-//
-// E idempotente: se padrao.json ja contem qualquer regra para "kubectl", nao
-// tocamos em nenhuma regra de "kubectl" — respeitamos a customizacao mesmo
-// que ela cubra so um subcomando. So adicionamos regras de programas
-// totalmente ausentes em al.CommandRules.
-//
-// Custo: a funcao sempre executa Exists + loadFromFile (leitura + unmarshal)
-// para descobrir se ha programas ausentes; o que evitamos quando nada precisa
-// ser feito e a escrita no disco (e a re-validacao via save). Em outras
-// palavras, runs subsequentes sao "no-write" mas nao "no-I/O".
-//
-// Falhas aqui sao logadas mas nao bloqueiam o boot do app: a feature nova fica
-// indisponivel para o usuario (igual a hoje), mas o sistema sobe normal.
-func (m *Manager) migrateDefaultRules() error {
-	filename := defaultSlug + ".json"
-	if !m.resolver.Exists(filename) {
+		rows = append(rows, database.AuthorizationRule{Selector: string(data), SelectorVersion: 1, Effect: effect})
 		return nil
 	}
-
-	al, err := m.loadFromFile(filename)
-	if err != nil {
-		logging.Errorf(context.Background(), "allowlist.manager", "[Allowlist] Migracao pulada: erro ao ler %s: %v", filename, err)
-		return nil
+	for _, pattern := range al.AutoApprove {
+		if err := add(policySelector{Kind: "pattern", Pattern: pattern}, "allow"); err != nil {
+			return nil, err
+		}
 	}
-
-	existingPrograms := make(map[string]struct{}, len(al.CommandRules))
+	for _, pattern := range al.AlwaysDeny {
+		if err := add(policySelector{Kind: "pattern", Pattern: pattern}, "deny"); err != nil {
+			return nil, err
+		}
+	}
 	for _, rule := range al.CommandRules {
-		key := strings.ToLower(strings.TrimSpace(rule.Program))
-		if key == "" {
+		effect := strings.ToLower(strings.TrimSpace(rule.Decision))
+		if effect == "approve" {
+			effect = "allow"
+		}
+		if effect == "confirm" {
+			effect = "ask"
+		}
+		if err := add(policySelector{Kind: "structured", Rule: &rule}, effect); err != nil {
+			return nil, err
+		}
+	}
+	return rows, nil
+}
+func policyFor(slug, source string, al *Allowlist) database.AuthorizationPolicy {
+	effect := "ask"
+	if strings.EqualFold(strings.TrimSpace(al.DefaultAction), "deny") {
+		effect = "deny"
+	}
+	return database.AuthorizationPolicy{Domain: "shell", Slug: slug, Source: source, Name: al.Name, Description: al.Description, DefaultEffect: effect}
+}
+func (m *Manager) prepare(ctx context.Context) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, dir := range m.paths() {
+		marker := "directory:" + filepath.Clean(dir)
+		done, err := m.repo.Imported(ctx, "shell", marker)
+		if err != nil {
+			return err
+		}
+		if done {
 			continue
 		}
-		existingPrograms[key] = struct{}{}
-	}
-
-	defaults := DefaultAllowlist().CommandRules
-	var added []CommandRule
-	addedPrograms := make(map[string]struct{})
-	for _, rule := range defaults {
-		key := strings.ToLower(strings.TrimSpace(rule.Program))
-		if key == "" {
-			continue
+		entries, err := os.ReadDir(dir)
+		if err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
 		}
-		if _, ok := existingPrograms[key]; ok {
-			continue
+		var importedNames []string
+		for _, entry := range entries {
+			if entry.IsDir() || filepath.Ext(entry.Name()) != ".json" {
+				continue
+			}
+			importedNames = append(importedNames, entry.Name())
+			source := filepath.Join(dir, entry.Name())
+			done, err := m.repo.Imported(ctx, "shell", source)
+			if err != nil {
+				return err
+			}
+			if done {
+				continue
+			}
+			if m.mayImport == nil || !m.mayImport(ctx) {
+				return errors.New("políticas legadas aguardam atribuição de proprietário")
+			}
+			data, err := os.ReadFile(source)
+			if err != nil {
+				return err
+			}
+			var al Allowlist
+			if err := json.Unmarshal(data, &al); err != nil {
+				return err
+			}
+			if entry.Name() == defaultSlug+".json" {
+				mergeDefaultRules(&al)
+			}
+			rows, err := policyRules(&al)
+			if err != nil {
+				return err
+			}
+			digest := sha256.Sum256(data)
+			policy := policyFor(strings.TrimSuffix(entry.Name(), ".json"), dir, &al)
+			if err := m.repo.ImportPolicy(ctx, source, fmt.Sprintf("%x", digest), policy, rows, func() error {
+				current, err := os.ReadFile(source)
+				if err != nil {
+					return err
+				}
+				if sha256.Sum256(current) != digest {
+					return errors.New("política alterada durante importação")
+				}
+				return nil
+			}); err != nil {
+				return err
+			}
 		}
-		added = append(added, rule)
-		addedPrograms[key] = struct{}{}
+		if err := m.repo.Import(ctx, "shell", marker, "directory-v1", nil, func() error {
+			current, err := os.ReadDir(dir)
+			if err != nil && !errors.Is(err, os.ErrNotExist) {
+				return err
+			}
+			var names []string
+			for _, entry := range current {
+				if !entry.IsDir() && filepath.Ext(entry.Name()) == ".json" {
+					names = append(names, entry.Name())
+				}
+			}
+			if strings.Join(names, "\x00") != strings.Join(importedNames, "\x00") {
+				return errors.New("origens de políticas alteradas durante importação")
+			}
+			return nil
+		}); err != nil {
+			return err
+		}
 	}
-
-	if len(added) == 0 {
-		return nil
-	}
-
-	al.CommandRules = append(al.CommandRules, added...)
-	if err := m.save(defaultSlug, al); err != nil {
-		// Nao falhamos o boot: logamos e seguimos como antes.
-		logging.Errorf(context.Background(), "allowlist.manager", "[Allowlist] Migracao falhou ao salvar %s: %v", filename, err)
-		return nil
-	}
-
-	programs := make([]string, 0, len(addedPrograms))
-	for p := range addedPrograms {
-		programs = append(programs, p)
-	}
-	logging.Infof(context.Background(), "allowlist.manager", "[Allowlist] Migracao mesclou %d regra(s) estruturada(s) para programa(s): %s", len(added), strings.Join(programs, ", "))
 	return nil
 }
 
-// GetSearchPaths retorna os caminhos onde allowlists são buscadas.
-func (m *Manager) GetSearchPaths() []string {
-	return m.resolver.GetSearchPaths()
+// Preserva a evolução de defaults já aplicada pelo boot anterior à migração,
+// sem substituir programas que o usuário já personalizou (AEP-0060).
+func mergeDefaultRules(al *Allowlist) {
+	existing := map[string]bool{}
+	for _, rule := range al.CommandRules {
+		existing[strings.ToLower(strings.TrimSpace(rule.Program))] = true
+	}
+	for _, rule := range DefaultAllowlist().CommandRules {
+		if !existing[strings.ToLower(strings.TrimSpace(rule.Program))] {
+			al.CommandRules = append(al.CommandRules, rule)
+		}
+	}
 }
-
-// loadFromFile carrega uma allowlist de um arquivo.
-func (m *Manager) loadFromFile(filename string) (*Allowlist, error) {
-	data, _, err := m.resolver.Read(filename)
+func (m *Manager) policies(ctx context.Context) ([]database.AuthorizationPolicy, error) {
+	if err := m.prepare(ctx); err != nil {
+		return nil, err
+	}
+	rows, err := m.repo.Policies(ctx, "shell")
 	if err != nil {
 		return nil, err
 	}
-
-	var al Allowlist
-	if err := json.Unmarshal(data, &al); err != nil {
-		return nil, fmt.Errorf("erro ao parsear %s: %w", filename, err)
+	bySlug := map[string]database.AuthorizationPolicy{}
+	// Preserva a prioridade exe -> home -> workspace sem fundir homônimos.
+	for _, path := range m.paths() {
+		for _, row := range rows {
+			if filepath.Clean(row.Source) == filepath.Clean(path) {
+				bySlug[row.Slug] = row
+			}
+		}
 	}
-
-	return &al, nil
+	out := make([]database.AuthorizationPolicy, 0, len(bySlug))
+	for _, row := range bySlug {
+		out = append(out, row)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Slug < out[j].Slug })
+	return out, nil
 }
-
-// save serializa e salva uma allowlist.
-//
-// Antes de serializar, valida a allowlist com Allowlist.Validate(). Isso
-// rejeita decisoes desconhecidas, regras sem programa e wildcards "*" fora
-// da ultima posicao em Subcommands/Args. O fail-fast aqui complementa o
-// fail-closed em runtime (parseRuleDecision/matchSequence) — o problema
-// e detectado na origem (UI ou edicao manual) ao inves de virar uma
-// confirmacao silenciosa que engana o autor da regra.
-func (m *Manager) save(slug string, al *Allowlist) error {
+func (m *Manager) List(ctx context.Context) ([]AllowlistInfo, error) {
+	if err := m.EnsureDefaults(ctx); err != nil {
+		return nil, err
+	}
+	rows, err := m.policies(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]AllowlistInfo, 0, len(rows))
+	for _, row := range rows {
+		current, rules, err := m.repo.PolicySnapshot(ctx, row.ID)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, AllowlistInfo{Slug: current.Slug, Name: current.Name, Description: current.Description, RuleCount: len(rules)})
+	}
+	return out, nil
+}
+func (m *Manager) selected(ctx context.Context, slug string) (database.AuthorizationPolicy, error) {
+	if err := configdir.ValidateFilename(slug + ".json"); err != nil {
+		return database.AuthorizationPolicy{}, err
+	}
+	rows, err := m.policies(ctx)
+	if err != nil {
+		return database.AuthorizationPolicy{}, err
+	}
+	for _, row := range rows {
+		if row.Slug == slug {
+			return row, nil
+		}
+	}
+	return database.AuthorizationPolicy{}, authorization.ErrNotFound
+}
+func (m *Manager) Get(ctx context.Context, slug string) (*Allowlist, error) {
+	if err := m.EnsureDefaults(ctx); err != nil {
+		return nil, err
+	}
+	row, err := m.selected(ctx, slug)
+	if err != nil {
+		return nil, err
+	}
+	row, rules, err := m.repo.PolicySnapshot(ctx, row.ID)
+	if err != nil {
+		return nil, err
+	}
+	al := &Allowlist{Name: row.Name, Description: row.Description, DefaultAction: "confirm"}
+	if row.DefaultEffect == "deny" {
+		al.DefaultAction = "deny"
+	}
+	for _, rule := range rules {
+		var selector policySelector
+		if rule.SelectorVersion != 1 {
+			return nil, errors.New("versão de política desconhecida")
+		}
+		if err := json.Unmarshal([]byte(rule.Selector), &selector); err != nil {
+			return nil, err
+		}
+		switch selector.Kind {
+		case "pattern":
+			switch rule.Effect {
+			case "allow":
+				al.AutoApprove = append(al.AutoApprove, selector.Pattern)
+			case "deny":
+				al.AlwaysDeny = append(al.AlwaysDeny, selector.Pattern)
+			default:
+				return nil, errors.New("efeito de padrão inválido")
+			}
+		case "structured":
+			if selector.Rule == nil {
+				return nil, errors.New("regra estruturada vazia")
+			}
+			al.CommandRules = append(al.CommandRules, *selector.Rule)
+		default:
+			return nil, errors.New("seletor de política desconhecido")
+		}
+	}
 	if err := al.Validate(); err != nil {
+		return nil, err
+	}
+	if inv, ok := invocationctx.Get(ctx); ok && inv.ProfileSlug != "" {
+		if err := m.repo.BindPolicy(ctx, row.ID, inv.ProfileSlug); err != nil {
+			return nil, err
+		}
+	}
+	return al, nil
+}
+func (m *Manager) Create(ctx context.Context, al *Allowlist) (string, error) {
+	if strings.TrimSpace(al.Name) == "" {
+		return "", errors.New("nome da política obrigatório")
+	}
+	slug := slugify(al.Name)
+	if _, err := m.selected(ctx, slug); err == nil {
+		return "", errors.New("política já existe")
+	} else if !errors.Is(err, authorization.ErrNotFound) {
+		return "", err
+	}
+	source := m.home()
+	if source == "" {
+		return "", errors.New("origem da política indisponível")
+	}
+	// Novas políticas pertencem à configuração do usuário, como o Create anterior.
+	rules, err := policyRules(al)
+	if err != nil {
+		return "", err
+	}
+	return slug, m.repo.CreatePolicy(ctx, policyFor(slug, source, al), rules)
+}
+func (m *Manager) Update(ctx context.Context, slug string, al *Allowlist) error {
+	row, err := m.selected(ctx, slug)
+	if err != nil {
 		return err
 	}
-
-	data, err := json.MarshalIndent(al, "", "  ")
+	rules, err := policyRules(al)
 	if err != nil {
-		return fmt.Errorf("erro ao serializar allowlist: %w", err)
+		return err
 	}
-
-	filename := slug + ".json"
-
-	// Tenta Write (atualizar arquivo existente) primeiro, senão Create
-	if m.resolver.Exists(filename) {
-		return m.resolver.Write(filename, data)
+	return m.repo.SavePolicy(ctx, policyFor(slug, row.Source, al), rules)
+}
+func (m *Manager) Delete(ctx context.Context, slug string) error {
+	row, err := m.selected(ctx, slug)
+	if err != nil {
+		return err
 	}
-
-	return m.resolver.Create(filename, data)
+	return m.repo.DeletePolicy(ctx, row.ID)
+}
+func (m *Manager) EnsureDefaults(ctx context.Context) error {
+	rows, err := m.policies(ctx)
+	if err != nil {
+		return err
+	}
+	done, err := m.repo.Imported(ctx, "shell", "builtin:padrao")
+	if err != nil || done {
+		return err
+	}
+	for _, row := range rows {
+		if row.Slug == defaultSlug {
+			return m.repo.Import(ctx, "shell", "builtin:padrao", "v1", nil, func() error { return nil })
+		}
+	}
+	source := m.home()
+	if source == "" {
+		return errors.New("origem da política indisponível")
+	}
+	al := DefaultAllowlist()
+	rules, err := policyRules(al)
+	if err != nil {
+		return err
+	}
+	return m.repo.ImportPolicy(ctx, "builtin:padrao", "v1", policyFor(defaultSlug, source, al), rules, func() error { return nil })
 }
 
 // DefaultAllowlist retorna a allowlist padrão com comandos comuns de desenvolvimento.

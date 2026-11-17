@@ -58,13 +58,20 @@ func NewAuthorizer(mgr *Manager, prompt Prompter) *Authorizer {
 // explícito → persiste no escopo escolhido e libera. Sempre devolve os IPs
 // resolvidos do destino como trust por-request (nunca a faixa inteira).
 func (a *Authorizer) Authorize(ctx context.Context, dest httpclient.BlockedDestination) ([]net.IP, bool, error) {
+	if a.mgr != nil {
+		ctx = a.mgr.Capture(ctx)
+	}
 	host := dest.Host
 	port := dest.Port
 
 	// 1) Allowlist existente. mgr pode ser nil se o authorizer foi mal
 	// inicializado; nesse caso não há allowlist para consultar (nem persistir).
 	if a.mgr != nil {
-		if decision := a.mgr.Match(ctx, host, port); decision.Allowed {
+		decision := a.mgr.Match(ctx, host, port)
+		if decision.Err != nil {
+			return nil, false, decision.Err
+		}
+		if decision.Allowed {
 			// Proteção contra DNS rebinding: uma entrada é por HOST, mas os IPs
 			// resolvidos podem ter mudado desde a autorização. Se o DNS passou a
 			// apontar para uma categoria MAIS sensível (ex.: era CGNAT e agora
@@ -114,6 +121,13 @@ func (a *Authorizer) Authorize(ctx context.Context, dest httpclient.BlockedDesti
 		logging.Infof(ctx, "nettrust.authorizer", "[NetTrust] autorização negada: host=%s", host)
 		return nil, false, nil
 	}
+	// O diálogo pode ter ficado aberto durante limpeza da conversa ou falha
+	// da origem. Uma resposta atrasada não contorna a validação do contexto.
+	if a.mgr != nil {
+		if current := a.mgr.Match(ctx, host, port); current.Err != nil {
+			return nil, false, current.Err
+		}
+	}
 
 	scope := decision.Scope
 	if !ValidScope(scope) {
@@ -150,6 +164,9 @@ func (a *Authorizer) Authorize(ctx context.Context, dest httpclient.BlockedDesti
 				Reason:      decision.Reason,
 			}
 			if err := a.mgr.Add(ctx, entry); err != nil {
+				if current := a.mgr.Match(ctx, host, port); current.Err != nil {
+					return nil, false, current.Err
+				}
 				// Falha ao persistir não deve abortar o acesso já autorizado nesta
 				// request: logamos e seguimos como ScopeOnce.
 				logging.Errorf(ctx, "nettrust.authorizer",

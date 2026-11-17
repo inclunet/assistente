@@ -55,8 +55,11 @@ const (
 	// AEP-0116: o loop remove três formatos [Agent] de exclusão, gravação de
 	// intermediária e resultado sem ledger; falhas usam terminais canônicos e
 	// diagnósticos sem prefixo legado. Nenhum logging.Printf foi introduzido.
-	expectedLegacyFormatCount  = 708
-	expectedLegacyFormatDigest = "ec9c9a8f17663719af839f735f7770a921763bdd6914fbacd1443e2a480f1123"
+	// AEP-0117: os stores JSON de autorizações e o bootstrap antecipado de
+	// allowlists foram removidos. Falhas de consulta agora são propagadas pelo
+	// repositório; o inventário perde dez formatos legados no corte.
+	expectedLegacyFormatCount  = 698
+	expectedLegacyFormatDigest = "624fe2367cf38b5fc0cbb0ca074cb542e98133a0871f66376943a91fcc2eb780"
 )
 
 // TestLegacyLoggingInventory mantém reproduzível o inventário da issue #675.

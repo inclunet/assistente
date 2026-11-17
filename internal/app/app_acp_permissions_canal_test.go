@@ -12,6 +12,7 @@ import (
 	"assistente/internal/core/ports"
 	"assistente/internal/database"
 	"assistente/internal/questionnaire"
+	"assistente/internal/testutil/authorizationfixture"
 )
 
 // canalFalso é a conversa de canal do outro lado: guarda o diálogo que chegou e
@@ -90,7 +91,12 @@ func handlerDeCanal(tela *telaFalsa, canal *canalFalso) *acpRequestHandler {
 		return questionnaire.ChannelSurface(owner.ConversationID, "telegram", "contato-1")
 	}
 	h.surfaces = questionnaire.NewRouter(
-		h.questionnaireManager,
+		func() *questionnaire.Manager {
+			if tela == nil {
+				return nil
+			}
+			return tela.manager
+		},
 		func() questionnaire.ChannelAsker { return canal },
 	)
 	return h
@@ -188,7 +194,7 @@ func TestRespostaDoCanalComOpcaoNaoOferecidaNaoAutoriza(t *testing.T) {
 	if out.OptionID != "" {
 		t.Errorf("decisão = %q, quer nenhuma", out.OptionID)
 	}
-	if store.Allows("perfil-do-canal", "execute") {
+	if allowed, err := store.Allows(database.WithUserID(context.Background(), "dono-1"), "perfil-do-canal", "execute"); err != nil || allowed {
 		t.Error("gravou autorização permanente a partir de uma resposta de canal")
 	}
 }
@@ -205,7 +211,7 @@ func TestAutorizacaoParaSempreNaoEhGravadaForaDoDesktop(t *testing.T) {
 	h.rememberAlways(context.Background(), acp.TurnOwner{ConversationID: "conversa-1"},
 		superficie, "perfil-do-canal", "execute", "execute, chamada \"call-1\"")
 
-	if store.Allows("perfil-do-canal", "execute") {
+	if allowed, err := store.Allows(database.WithUserID(context.Background(), "dono-1"), "perfil-do-canal", "execute"); err != nil || allowed {
 		t.Error("a autorização permanente foi gravada a partir de um canal")
 	}
 	if aviso := avisoNaConversa(t, avisos); aviso.Kind != ports.ChatNoticeKindPermissionAlwaysNotSaved {
@@ -217,15 +223,15 @@ func TestAutorizacaoParaSempreContinuaValendoNaTela(t *testing.T) {
 	// A trava é da superfície, e não do mecanismo: na tela o "sempre" segue
 	// sendo guardado como antes.
 	tela := novaTelaFalsa(func(opcoes []string) string { return opcoes[1] })
-	h := handlerCom(tela, acp.TurnOwner{ConversationID: "conversa-1", ProfileSlug: "perfil-1", Interactive: true}, true)
+	h := handlerCom(tela, acp.TurnOwner{UserID: "authorization-test-user", ConversationID: "conversa-1", ProfileSlug: "perfil-1", Interactive: true}, true)
 	store := lembrandoAutorizacoes(t, h, "perfil-1")
 
 	out := h.RequestPermission(context.Background(), pedidoDeExecucao())
 
-	if out.OptionID != "allow-always" {
-		t.Fatalf("decisão = %q, quer a autorização permanente", out.OptionID)
+	if out.OptionID != "allow-once" {
+		t.Fatalf("decisão = %q, quer resposta pontual com autorização guardada localmente", out.OptionID)
 	}
-	if !store.Allows("perfil-1", "execute") {
+	if allowed, err := store.Allows(authorizationfixture.Context(), "perfil-1", "execute"); err != nil || !allowed {
 		t.Error("a tela deixou de guardar o que a pessoa autorizou para sempre")
 	}
 }
@@ -234,8 +240,8 @@ func TestAutorizacaoPermanenteNaoEhConsultadaForaDoDesktop(t *testing.T) {
 	// Senão um canal remoto colheria o sim que alguém deu na tela (AEP-0084 D9).
 	canal := &canalFalso{escolhe: func(opcoes []string) string { return opcoes[len(opcoes)-1] }}
 	h := handlerDeCanal(nil, canal)
-	store := acptrust.NewStoreWithDir(t.TempDir())
-	if err := store.Allow("perfil-do-canal", "execute"); err != nil {
+	store := acptrust.NewStore(authorizationfixture.Options(t, t.TempDir(), ""))
+	if err := store.Allow(database.WithUserID(context.Background(), "dono-1"), "perfil-do-canal", "execute"); err != nil {
 		t.Fatalf("erro ao preparar a autorização: %v", err)
 	}
 	h.trust = func() *acptrust.Store { return store }

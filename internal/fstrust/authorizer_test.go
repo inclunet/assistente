@@ -1,6 +1,7 @@
 package fstrust
 
 import (
+	"assistente/internal/testutil/authorizationfixture"
 	"context"
 	"errors"
 	"os"
@@ -51,8 +52,8 @@ func TestAuthorizer_DenyByResolvedPathBlocksAlias(t *testing.T) {
 		t.Skipf("symlink indisponível neste ambiente: %v", err)
 	}
 
-	m := NewManagerWithDirs(dir, dir)
-	ctx := context.Background()
+	m := NewManager(authorizationfixture.Options(t, dir, dir))
+	ctx := authorizationfixture.Context()
 	// Deny gravado no destino real (como o controller passa a fazer).
 	resolved, err := ResolvePath(realFile)
 	if err != nil {
@@ -82,8 +83,8 @@ func TestAuthorizer_DenyByResolvedPathBlocksAlias(t *testing.T) {
 
 func TestAuthorizer_MatchSkipsPrompt(t *testing.T) {
 	dir := t.TempDir()
-	m := NewManagerWithDirs(dir, dir)
-	ctx := context.Background()
+	m := NewManager(authorizationfixture.Options(t, dir, dir))
+	ctx := authorizationfixture.Context()
 	file := filepath.Join(dir, "a.txt")
 	_ = m.Add(ctx, AllowlistEntry{Path: file, Kind: KindFile, Operation: "read", Scope: ScopeGlobal})
 
@@ -100,8 +101,8 @@ func TestAuthorizer_MatchSkipsPrompt(t *testing.T) {
 
 func TestAuthorizer_PromptApproveOnce(t *testing.T) {
 	dir := t.TempDir()
-	m := NewManagerWithDirs(dir, dir)
-	ctx := context.Background()
+	m := NewManager(authorizationfixture.Options(t, dir, dir))
+	ctx := authorizationfixture.Context()
 	file := filepath.Join(dir, "a.txt")
 	if err := os.WriteFile(file, []byte("x"), 0o644); err != nil {
 		t.Fatal(err)
@@ -123,8 +124,8 @@ func TestAuthorizer_PromptApproveOnce(t *testing.T) {
 
 func TestAuthorizer_PromptDeny(t *testing.T) {
 	dir := t.TempDir()
-	m := NewManagerWithDirs(dir, dir)
-	ctx := context.Background()
+	m := NewManager(authorizationfixture.Options(t, dir, dir))
+	ctx := authorizationfixture.Context()
 	file := filepath.Join(dir, "a.txt")
 
 	prompt := &spyPrompter{decision: PromptDecision{Approve: false}}
@@ -156,8 +157,8 @@ func TestAuthorizer_PromptDeny(t *testing.T) {
 
 func TestAuthorizer_PromptDenyRememberPersists(t *testing.T) {
 	dir := t.TempDir()
-	m := NewManagerWithDirs(dir, dir)
-	ctx := context.Background()
+	m := NewManager(authorizationfixture.Options(t, dir, dir))
+	ctx := authorizationfixture.Context()
 	file := filepath.Join(dir, "a.txt")
 	prompt := &spyPrompter{decision: PromptDecision{
 		Approve: false,
@@ -186,7 +187,7 @@ func TestAuthorizer_PromptDenyRememberPersists(t *testing.T) {
 
 func TestAuthorizer_PromptDenySessionIsIsolatedByConversation(t *testing.T) {
 	dir := t.TempDir()
-	m := NewManagerWithDirs(dir, dir)
+	m := NewManager(authorizationfixture.Options(t, dir, dir))
 	file := filepath.Join(dir, "a.txt")
 	ctxA := ctxWith("conversa-a", "")
 	ctxB := ctxWith("conversa-b", "")
@@ -210,8 +211,8 @@ func TestAuthorizer_PromptDenySessionIsIsolatedByConversation(t *testing.T) {
 
 func TestAuthorizer_ApproveDirPersistsParent(t *testing.T) {
 	dir := t.TempDir()
-	m := NewManagerWithDirs(dir, dir)
-	ctx := context.Background()
+	m := NewManager(authorizationfixture.Options(t, dir, dir))
+	ctx := authorizationfixture.Context()
 
 	docs := filepath.Join(dir, "docs")
 	if err := os.MkdirAll(docs, 0o755); err != nil {
@@ -241,11 +242,11 @@ func TestAuthorizer_ApproveDirPersistsParent(t *testing.T) {
 
 func TestAuthorizer_NoPrompter(t *testing.T) {
 	dir := t.TempDir()
-	m := NewManagerWithDirs(dir, dir)
+	m := NewManager(authorizationfixture.Options(t, dir, dir))
 	auth := NewAuthorizer(m, nil)
 	file := filepath.Join(dir, "a.txt")
 
-	err := auth.Authorize(context.Background(), file, "read")
+	err := auth.Authorize(authorizationfixture.Context(), file, "read")
 	if err == nil {
 		t.Fatal("sem prompter deveria falhar")
 	}
@@ -266,13 +267,13 @@ func TestAuthorizer_NoPrompter(t *testing.T) {
 
 func TestAuthorizer_DenyLinksManagementUI(t *testing.T) {
 	dir := t.TempDir()
-	m := NewManagerWithDirs(dir, dir)
+	m := NewManager(authorizationfixture.Options(t, dir, dir))
 	auth := NewAuthorizer(m, &spyPrompter{
 		decision: PromptDecision{Approve: false},
 	})
 	file := filepath.Join(dir, "a.txt")
 
-	err := auth.Authorize(context.Background(), file, "read")
+	err := auth.Authorize(authorizationfixture.Context(), file, "read")
 	if err == nil {
 		t.Fatal("negação deveria falhar")
 	}
@@ -303,12 +304,12 @@ func TestAuthorizer_NewFileThroughSymlinkKeepsPersistentMatch(t *testing.T) {
 	requested := filepath.Join(link, "new.txt")
 	resolved := filepath.Join(realParent, "new.txt")
 
-	m := NewManagerWithDirs(home, home)
+	m := NewManager(authorizationfixture.Options(t, home, home))
 	prompt := &spyPrompter{
 		decision: PromptDecision{Approve: true, Scope: ScopeGlobal, Kind: KindFile},
 	}
 	auth := NewAuthorizer(m, prompt)
-	ctx := context.Background()
+	ctx := authorizationfixture.Context()
 
 	// Primeira tentativa: o arquivo ainda não existe. A autorização deve ser
 	// persistida pelo ancestral resolvido (realParent/new.txt), não pelo link.
@@ -350,12 +351,12 @@ func TestAuthorizer_DanglingFinalSymlinkPersistsRealTarget(t *testing.T) {
 		t.Fatalf("symlink pendurado: %v", err)
 	}
 
-	m := NewManagerWithDirs(home, home)
+	m := NewManager(authorizationfixture.Options(t, home, home))
 	prompt := &spyPrompter{
 		decision: PromptDecision{Approve: true, Scope: ScopeGlobal, Kind: KindFile},
 	}
 	auth := NewAuthorizer(m, prompt)
-	ctx := context.Background()
+	ctx := authorizationfixture.Context()
 
 	if err := auth.Authorize(ctx, link, "write"); err != nil {
 		t.Fatalf("autorizar symlink pendurado: %v", err)

@@ -29,12 +29,42 @@ As autorizações de rede e arquivos usam os mesmos escopos: uma tentativa,
 conversa, perfil, workspace ou global. As regras continuam separadas por
 domínio e são consultadas da mais específica para a mais ampla.
 
-Regras de conversa ficam isoladas por conversa e são apagadas ao encerrá-la.
-Regras de perfil só valem com aquele perfil ativo; regras de workspace ficam
-no projeto; regras globais valem em todos. Falhas ao ler ou salvar uma regra
-nunca concedem acesso.
+Regras de conversa ficam em memória, isoladas por usuário e conversa, e são
+apagadas ao limpar a conversa ou reiniciar o aplicativo. Regras de perfil
+valem para o perfil que executa a operação; regras de workspace valem para
+sua pasta de origem. Trocar de workspace durante uma resposta não transfere
+suas autorizações para a nova pasta. O escopo global vale para o mesmo usuário
+no banco aberto pelo aplicativo.
 
-Atualizações do app preservam as allowlists existentes em
-`.assistente/network-allowlist/` e `.assistente/path-allowlist/`. Se um arquivo
-de configuração estiver inválido ou ilegível, ele não concede acesso e não é
-sobrescrito automaticamente.
+## Armazenamento e atualização
+
+As autorizações persistentes de rede, arquivos, comandos shell e agentes ACP
+ficam no banco já utilizado pelo Assistente. A atualização não muda a escolha
+do banco. Continue usando as telas de configuração para editar e revogar regras.
+
+Ao criar ou editar uma política de comandos shell, gravações concorrentes do
+chat podem ocupar o banco brevemente. O aplicativo repete automaticamente a
+transação dentro do limite de espera; metadados e regras são salvos juntos.
+Se a contenção persistir, a operação retorna erro sem salvar uma política parcial.
+
+Na primeira utilização, o aplicativo importa os arquivos antigos de
+`network-allowlist`, `path-allowlist`, `allowlists` e `acp-permissions`.
+Os arquivos permanecem como cópia de recuperação, mas deixam de ser consultados
+após a importação. Editá-los depois disso não altera as permissões do aplicativo.
+Uma regra revogada no banco não reaparece a partir dessas cópias.
+
+Para ACP, a migração aceita somente os arquivos antigos por perfil. Arquivos
+de workspace ou globais não concedem permissões ACP automaticamente. Se o nome
+antigo corresponder a mais de um perfil, ou a nenhum perfil existente, a origem
+fica bloqueada até sua identidade ser corrigida. O aplicativo não atribui a
+permissão a um perfil diferente por semelhança do nome.
+
+Arquivo inválido ou ilegível interrompe a autorização daquele domínio até a
+origem ser corrigida. A importação automática exige uma instalação local com
+um único usuário identificável; configurações antigas de ambientes com vários
+usuários ou autenticação externa precisam de atribuição explícita de proprietário,
+ainda pendente nesta etapa da migração. Não há atribuição ao primeiro login.
+
+Falhas de consulta bloqueiam a operação. Se uma aprovação explícita não puder
+ser salva, ela pode valer apenas para aquela tentativa; o log registra a falha
+e a próxima operação volta a exigir consentimento.

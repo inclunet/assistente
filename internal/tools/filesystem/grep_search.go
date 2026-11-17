@@ -199,7 +199,7 @@ func (t *GrepSearch) Execute(ctx context.Context, args json.RawMessage) (tools.T
 		basePath = "."
 	}
 
-	fullBase, err := t.resolvePath(basePath)
+	fullBase, err := resolveFilePath(ctx, basePath, t.workDir)
 	if err != nil {
 		return tools.ToolResult{Content: err.Error(), IsError: true}, nil
 	}
@@ -236,7 +236,7 @@ func (t *GrepSearch) Execute(ctx context.Context, args json.RawMessage) (tools.T
 		if truncated {
 			cause = grepTruncatedMatches
 		}
-		result := t.formatResults(a.Pattern, basePath, matches, boolInt(searched), cause, maxResults)
+		result := t.formatResults(ctx, a.Pattern, basePath, matches, boolInt(searched), cause, maxResults)
 		t.appendSearchStats(&result, stats)
 		return result, nil
 	}
@@ -273,7 +273,7 @@ func (t *GrepSearch) Execute(ctx context.Context, args json.RawMessage) (tools.T
 		// Link apontando para fora do sandbox: não vazar conteúdo externo.
 		// Vem antes do skill para a omissão ser silenciosa (AEP-0092 D-Q7) e
 		// para não avaliar allowlist de caminho que já será descartado.
-		if walkEntryEscapesSandbox(path, d.Type(), t.workDir) {
+		if walkEntryEscapesSandbox(ctx, path, d.Type(), t.workDir) {
 			return nil
 		}
 
@@ -379,7 +379,7 @@ func (t *GrepSearch) Execute(ctx context.Context, args json.RawMessage) (tools.T
 		return result, nil
 	}
 
-	result := t.formatResults(a.Pattern, basePath, allMatches, filesScanned, truncation, maxResults)
+	result := t.formatResults(ctx, a.Pattern, basePath, allMatches, filesScanned, truncation, maxResults)
 	t.appendSearchStats(&result, stats)
 	return result, nil
 }
@@ -595,7 +595,7 @@ func searchLines(
 }
 
 // formatResults formata os resultados de busca para exibição.
-func (t *GrepSearch) formatResults(pattern, basePath string, matches []grepMatch, filesScanned int, truncation grepTruncation, maxResults int) tools.ToolResult {
+func (t *GrepSearch) formatResults(ctx context.Context, pattern, basePath string, matches []grepMatch, filesScanned int, truncation grepTruncation, maxResults int) tools.ToolResult {
 	// Agrupa matches por arquivo
 	type fileGroup struct {
 		file       string
@@ -652,7 +652,7 @@ func (t *GrepSearch) formatResults(pattern, basePath string, matches []grepMatch
 			"files_matched": len(groups),
 			"files_scanned": filesScanned,
 			"truncated":     truncation != grepTruncatedNone,
-			tools.SearchResultPresentationMetadataKey: t.searchResultPresentation(basePath, matches, matchCount, truncation != grepTruncatedNone),
+			tools.SearchResultPresentationMetadataKey: t.searchResultPresentation(ctx, basePath, matches, matchCount, truncation != grepTruncatedNone),
 		},
 	}
 	if truncation != grepTruncatedNone {
@@ -667,8 +667,8 @@ func (t *GrepSearch) formatResults(pattern, basePath string, matches []grepMatch
 	return result
 }
 
-func (t *GrepSearch) searchResultPresentation(basePath string, matches []grepMatch, total int, truncated bool) tools.SearchResultPresentation {
-	fullBase, err := t.resolvePath(basePath)
+func (t *GrepSearch) searchResultPresentation(ctx context.Context, basePath string, matches []grepMatch, total int, truncated bool) tools.SearchResultPresentation {
+	fullBase, err := resolveFilePath(ctx, basePath, t.workDir)
 	if err != nil {
 		fullBase = t.workDir
 	}
@@ -754,10 +754,6 @@ func boolInt(value bool) int {
 		return 1
 	}
 	return 0
-}
-
-func (t *GrepSearch) resolvePath(path string) (string, error) {
-	return resolveFilePath(path, t.workDir)
 }
 
 // matchIncludePattern verifica se um nome de arquivo casa com um padrão de inclusão.

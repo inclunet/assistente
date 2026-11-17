@@ -25,6 +25,22 @@ func TestRunCommand_RejectsMissingCommand(t *testing.T) {
 	}
 }
 
+func TestPolicyLoadFailureDoesNotLogEditableValues(t *testing.T) {
+	var output bytes.Buffer
+	previous := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&output, nil)))
+	t.Cleanup(func() { slog.SetDefault(previous) })
+	rc := NewRunCommand(nil, nil, func(context.Context) (*allowlist.Allowlist, error) {
+		return nil, fmt.Errorf("argumento inválido: secret-token")
+	}, ".")
+	if result := rc.evaluateCommand(context.Background(), "git status"); result.Decision != allowlist.DecisionDeny {
+		t.Fatalf("falha não bloqueou: %+v", result)
+	}
+	if output.Len() == 0 || strings.Contains(output.String(), "secret-token") {
+		t.Fatalf("log ausente ou com segredo: %s", output.String())
+	}
+}
+
 func TestRunCommand_InvalidJSON(t *testing.T) {
 	rc := NewRunCommand(nil, nil, nil, ".")
 
@@ -37,6 +53,17 @@ func TestRunCommand_InvalidJSON(t *testing.T) {
 	}
 }
 
+func TestFalhaDeLeituraNaoViraConfirmacaoOuExecucao(t *testing.T) {
+	rc := NewRunCommand(nil, func(context.Context, string, string) (bool, error) {
+		t.Fatal("consulta de política falhou, não deve pedir aprovação")
+		return true, nil
+	}, func(context.Context) (*allowlist.Allowlist, error) { return nil, fmt.Errorf("banco indisponível") }, ".")
+	result, err := rc.Execute(context.Background(), json.RawMessage(`{"command":"git status"}`))
+	if err != nil || !result.IsError {
+		t.Fatalf("não bloqueou: %+v, %v", result, err)
+	}
+}
+
 func TestRunCommand_DeniedByAllowlist(t *testing.T) {
 	al := &allowlist.Allowlist{
 		AlwaysDeny:    []string{"rm *"},
@@ -44,7 +71,7 @@ func TestRunCommand_DeniedByAllowlist(t *testing.T) {
 		DefaultAction: "confirm",
 	}
 
-	rc := NewRunCommand(nil, nil, func() *allowlist.Allowlist { return al }, ".")
+	rc := NewRunCommand(nil, nil, func(context.Context) (*allowlist.Allowlist, error) { return al, nil }, ".")
 
 	result, err := rc.Execute(context.Background(), json.RawMessage(`{"command":"rm -rf /"}`))
 	if err != nil {
@@ -62,7 +89,7 @@ func TestRunCommand_DeniesCompoundCommandWithDeniedAtom(t *testing.T) {
 		DefaultAction: "confirm",
 	}
 
-	rc := NewRunCommand(nil, nil, func() *allowlist.Allowlist { return al }, ".")
+	rc := NewRunCommand(nil, nil, func(context.Context) (*allowlist.Allowlist, error) { return al, nil }, ".")
 
 	result, err := rc.Execute(context.Background(), json.RawMessage(`{"command":"git status && rm -rf dist"}`))
 	if err != nil {
@@ -79,9 +106,9 @@ func TestRunCommand_CompoundAllowedAtomsApprove(t *testing.T) {
 		DefaultAction: "confirm",
 	}
 
-	rc := NewRunCommand(nil, nil, func() *allowlist.Allowlist { return al }, ".")
+	rc := NewRunCommand(nil, nil, func(context.Context) (*allowlist.Allowlist, error) { return al, nil }, ".")
 
-	result := rc.evaluateCommand("git status && git diff")
+	result := rc.evaluateCommand(context.Background(), "git status && git diff")
 	if result.Decision != allowlist.DecisionApprove {
 		t.Fatalf("decision = %s, want approve; reasons=%v", result.Decision, result.Reasons)
 	}
@@ -97,7 +124,7 @@ func TestRunCommand_RedirectForcesConfirmation(t *testing.T) {
 		return false, nil
 	}
 
-	rc := NewRunCommand(nil, confirmFn, func() *allowlist.Allowlist { return al }, ".")
+	rc := NewRunCommand(nil, confirmFn, func(context.Context) (*allowlist.Allowlist, error) { return al, nil }, ".")
 
 	result, err := rc.Execute(context.Background(), json.RawMessage(`{"command":"echo ok > out.txt"}`))
 	if err != nil {
@@ -241,7 +268,7 @@ func TestRunCommand_DenyContentDoesNotLeakRawCommand(t *testing.T) {
 		DefaultAction: "confirm",
 	}
 
-	rc := NewRunCommand(nil, nil, func() *allowlist.Allowlist { return al }, ".")
+	rc := NewRunCommand(nil, nil, func(context.Context) (*allowlist.Allowlist, error) { return al, nil }, ".")
 
 	command := `psql -h db -U admin -W hunter2-supersecret`
 	result, err := rc.Execute(context.Background(), json.RawMessage(`{"command":"`+command+`"}`))
@@ -273,7 +300,7 @@ func TestRunCommand_DenyContentDoesNotLeakAllowlistPattern(t *testing.T) {
 		DefaultAction: "confirm",
 	}
 
-	rc := NewRunCommand(nil, nil, func() *allowlist.Allowlist { return al }, ".")
+	rc := NewRunCommand(nil, nil, func(context.Context) (*allowlist.Allowlist, error) { return al, nil }, ".")
 
 	command := `curl https://internal.prod.corp/admin-secret-token`
 	result, err := rc.Execute(context.Background(), json.RawMessage(`{"command":"`+command+`"}`))
@@ -311,7 +338,7 @@ func TestRunCommand_EnvInlineDoesNotLeakInContent(t *testing.T) {
 		return false, nil
 	}
 
-	rc := NewRunCommand(nil, confirmFn, func() *allowlist.Allowlist { return al }, ".")
+	rc := NewRunCommand(nil, confirmFn, func(context.Context) (*allowlist.Allowlist, error) { return al, nil }, ".")
 
 	command := `TOKEN=supersecret git status`
 	result, err := rc.Execute(context.Background(), json.RawMessage(`{"command":"`+command+`"}`))
@@ -349,7 +376,7 @@ func TestRunCommand_DenyContentDoesNotLeakStructuredRuleDescription(t *testing.T
 		},
 	}
 
-	rc := NewRunCommand(nil, nil, func() *allowlist.Allowlist { return al }, ".")
+	rc := NewRunCommand(nil, nil, func(context.Context) (*allowlist.Allowlist, error) { return al, nil }, ".")
 
 	command := `psql -h db-prod-internal.corp.example -U app`
 	result, err := rc.Execute(context.Background(), json.RawMessage(`{"command":"`+command+`"}`))
@@ -380,7 +407,7 @@ func TestRunCommand_ConfirmRejectedContentDoesNotLeakRawCommand(t *testing.T) {
 		return false, nil
 	}
 
-	rc := NewRunCommand(nil, confirmFn, func() *allowlist.Allowlist { return al }, ".")
+	rc := NewRunCommand(nil, confirmFn, func(context.Context) (*allowlist.Allowlist, error) { return al, nil }, ".")
 
 	command := `curl -H 'Authorization: Bearer secret-bearer-token' https://api`
 	result, err := rc.Execute(context.Background(), json.RawMessage(`{"command":"`+command+`"}`))
@@ -405,7 +432,7 @@ func TestRunCommand_ConfirmRejected(t *testing.T) {
 		return false, nil
 	}
 
-	rc := NewRunCommand(nil, confirmFn, func() *allowlist.Allowlist { return al }, ".")
+	rc := NewRunCommand(nil, confirmFn, func(context.Context) (*allowlist.Allowlist, error) { return al, nil }, ".")
 
 	result, err := rc.Execute(context.Background(), json.RawMessage(`{"command":"echo test"}`))
 	if err != nil {

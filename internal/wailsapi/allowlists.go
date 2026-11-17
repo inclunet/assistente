@@ -60,7 +60,7 @@ func (a *Allowlists) GetAllowlists() ([]allowlist.AllowlistInfo, error) {
 		return nil, err
 	}
 	return WithUser(session, func(ctx context.Context) ([]allowlist.AllowlistInfo, error) {
-		return ctrl.GetAllowlists()
+		return ctrl.GetAllowlists(ctx)
 	})
 }
 
@@ -71,7 +71,7 @@ func (a *Allowlists) GetAllowlist(slug string) (*allowlist.Allowlist, error) {
 		return nil, err
 	}
 	return WithUser(session, func(ctx context.Context) (*allowlist.Allowlist, error) {
-		return ctrl.GetAllowlist(slug)
+		return ctrl.GetAllowlist(ctx, slug)
 	})
 }
 
@@ -82,7 +82,7 @@ func (a *Allowlists) CreateAllowlist(al allowlist.Allowlist) (string, error) {
 		return "", err
 	}
 	return WithUser(session, func(ctx context.Context) (string, error) {
-		return ctrl.CreateAllowlist(al)
+		return ctrl.CreateAllowlist(ctx, al)
 	})
 }
 
@@ -93,7 +93,7 @@ func (a *Allowlists) UpdateAllowlist(slug string, al allowlist.Allowlist) error 
 		return err
 	}
 	_, err = WithUser(session, func(ctx context.Context) (struct{}, error) {
-		return struct{}{}, ctrl.UpdateAllowlist(slug, al)
+		return struct{}{}, ctrl.UpdateAllowlist(ctx, slug, al)
 	})
 	return err
 }
@@ -105,18 +105,7 @@ func (a *Allowlists) DeleteAllowlist(slug string) error {
 		return err
 	}
 	_, err = WithUser(session, func(ctx context.Context) (struct{}, error) {
-		return struct{}{}, ctrl.DeleteAllowlist(slug)
+		return struct{}{}, ctrl.DeleteAllowlist(ctx, slug)
 	})
 	return err
-}
-
-// GetAllowlistSearchPaths retorna os caminhos de busca de allowlists.
-func (a *Allowlists) GetAllowlistSearchPaths() ([]string, error) {
-	session, ctrl, err := a.deps()
-	if err != nil {
-		return nil, err
-	}
-	return WithUser(session, func(ctx context.Context) ([]string, error) {
-		return ctrl.GetAllowlistSearchPaths(), nil
-	})
 }

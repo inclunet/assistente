@@ -61,7 +61,7 @@ func (t *MakeDirectory) Execute(ctx context.Context, args json.RawMessage) (tool
 		parents = *a.Parents
 	}
 
-	fullPath, err := resolveFilePath(p, t.workDir)
+	fullPath, err := resolveFilePath(ctx, p, t.workDir)
 	if err != nil {
 		return tools.ToolResult{Content: err.Error(), IsError: true}, nil
 	}

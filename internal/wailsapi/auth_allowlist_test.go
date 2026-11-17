@@ -37,7 +37,6 @@ func TestAllowlistsMethodsNotOnUnauthAllowlist(t *testing.T) {
 		"CreateAllowlist",
 		"UpdateAllowlist",
 		"DeleteAllowlist",
-		"GetAllowlistSearchPaths",
 	} {
 		if slices.Contains(UnauthenticatedAppMethods, name) {
 			t.Fatalf("%s é autenticado via Allowlists/WithUser; não pertence à allowlist", name)

@@ -15,6 +15,7 @@ import (
 	"assistente/internal/speech"
 	"assistente/internal/subagent"
 	"assistente/internal/tools"
+	"assistente/internal/tools/invocationctx"
 	"context"
 
 	"github.com/google/uuid"
@@ -36,6 +37,7 @@ type ChatControllerConfig struct {
 	ResponseNotifier  *messaging.ResponseNotifier
 	OnSpeechRequest   func(conversationID string, messageID string, role, text, origin, profileSlug string, interrupt bool)
 	OpenEditorPaths   func() []string
+	WorkspacePath     func() string
 }
 
 type sendMessageExecutor interface {
@@ -52,6 +54,7 @@ type ChatController struct {
 	responseNotifier *messaging.ResponseNotifier
 	sendMsgUC        sendMessageExecutor
 	loadedToolStore  *tools.LoadedToolStore
+	workspacePath    func() string
 }
 
 // NewChatController cria um ChatController com todas as suas dependências.
@@ -64,6 +67,7 @@ func NewChatController(cfg ChatControllerConfig) *ChatController {
 		msgGateway:       cfg.MsgGateway,
 		responseNotifier: cfg.ResponseNotifier,
 		loadedToolStore:  loadedToolStore,
+		workspacePath:    cfg.WorkspacePath,
 		sendMsgUC: usecases.NewSendMessageUseCase(usecases.SendMessageConfig{
 			ChatInteractor:    cfg.ChatInteractor,
 			ToolRegistry:      cfg.ToolRegistry,
@@ -84,6 +88,7 @@ func NewChatController(cfg ChatControllerConfig) *ChatController {
 // SendMessage é o ponto de entrada para mensagens originadas pelo frontend Wails.
 // Registra o bridge canal↔Wails antes de delegar para o Use Case.
 func (c *ChatController) SendMessage(ctx context.Context, conversationID string, userContent, userMedia string, params llm.ChatParams) (string, error) {
+	ctx = c.captureWorkspace(ctx)
 	bridgeTrace := ""
 	if conversationID != "" && c.msgGateway != nil && c.responseNotifier != nil {
 		bridgeTrace = c.registerChannelBridge(ctx, conversationID)
@@ -110,6 +115,7 @@ func (c *ChatController) SendMessage(ctx context.Context, conversationID string,
 
 // RetryMessage reexecuta o turno a partir de uma mensagem já persistida, sem duplicar a mensagem do usuário.
 func (c *ChatController) RetryMessage(ctx context.Context, conversationID string, messageID string, params llm.ChatParams) (string, error) {
+	ctx = c.captureWorkspace(ctx)
 	bridgeTrace := ""
 	if conversationID != "" && c.msgGateway != nil && c.responseNotifier != nil {
 		bridgeTrace = c.registerChannelBridge(ctx, conversationID)
@@ -134,6 +140,7 @@ func (c *ChatController) RetryMessage(ctx context.Context, conversationID string
 
 // SendMessageFromChannel é chamado pelo Gateway de mensageria (Telegram, Signal, etc.).
 func (c *ChatController) SendMessageFromChannel(ctx context.Context, conversationID string, content, media string, params llm.ChatParams, source string) (string, error) {
+	ctx = invocationctx.WithWorkspace(ctx, "")
 	return c.sendMsgUC.Execute(usecases.SendMessageRequest{
 		Ctx:            ctx,
 		ConversationID: conversationID,
@@ -142,6 +149,14 @@ func (c *ChatController) SendMessageFromChannel(ctx context.Context, conversatio
 		Params:         params,
 		Source:         source,
 	})
+}
+
+func (c *ChatController) captureWorkspace(ctx context.Context) context.Context {
+	root := ""
+	if c.workspacePath != nil {
+		root = c.workspacePath()
+	}
+	return invocationctx.WithWorkspace(ctx, root)
 }
 
 // SendForSubagent dispara um envio de sub-agente (AEP-0068) pela MESMA

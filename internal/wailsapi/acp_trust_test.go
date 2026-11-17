@@ -1,11 +1,11 @@
 package wailsapi
 
 import (
-	"context"
 	"errors"
 	"testing"
 
 	"assistente/internal/acptrust"
+	"assistente/internal/testutil/authorizationfixture"
 )
 
 func TestACPTrustNotWired(t *testing.T) {
@@ -26,8 +26,8 @@ func TestACPTrustNotWired(t *testing.T) {
 func TestACPTrustSemAuthNaoListaNemRevoga(t *testing.T) {
 	t.Parallel()
 	semAuth := errors.New("sessão não autenticada")
-	store := acptrust.NewStoreWithDir(t.TempDir())
-	if err := store.Allow("cursor", "execute"); err != nil {
+	store := acptrust.NewStore(authorizationfixture.Options(t, t.TempDir(), ""))
+	if err := store.Allow(authorizationfixture.Context(), "cursor", "execute"); err != nil {
 		t.Fatalf("autorizar: %v", err)
 	}
 	api := NewACPTrust()
@@ -47,16 +47,16 @@ func TestACPTrustSemAuthNaoListaNemRevoga(t *testing.T) {
 	if err := api.RevokeAgentPermission("cursor", "execute"); !errors.Is(err, semAuth) {
 		t.Fatalf("RevokeAgentPermission: erro = %v, quer o da sessão", err)
 	}
-	if !store.Allows("cursor", "execute") {
+	if allowed, err := store.Allows(authorizationfixture.Context(), "cursor", "execute"); err != nil || !allowed {
 		t.Error("revogou a autorização sem contexto autenticado")
 	}
 }
 
 func trustAPI(tb testing.TB, names map[string]string) (*ACPTrust, *acptrust.Store) {
 	tb.Helper()
-	store := acptrust.NewStoreWithDir(tb.TempDir())
+	store := acptrust.NewStore(authorizationfixture.Options(tb, tb.TempDir(), ""))
 	api := NewACPTrust()
-	AttachACPTrust(api, stubSession{ctx: context.Background()}, store, func() map[string]string {
+	AttachACPTrust(api, stubSession{ctx: authorizationfixture.Context()}, store, func() map[string]string {
 		return names
 	})
 	return api, store
@@ -65,10 +65,10 @@ func trustAPI(tb testing.TB, names map[string]string) (*ACPTrust, *acptrust.Stor
 func TestATelaMostraOQueCadaPerfilAutorizou(t *testing.T) {
 	t.Parallel()
 	api, store := trustAPI(t, nil)
-	if err := store.Allow("cursor", "execute"); err != nil {
+	if err := store.Allow(authorizationfixture.Context(), "cursor", "execute"); err != nil {
 		t.Fatalf("autorizar: %v", err)
 	}
-	if err := store.Allow("claude-code", "read"); err != nil {
+	if err := store.Allow(authorizationfixture.Context(), "claude-code", "read"); err != nil {
 		t.Fatalf("autorizar: %v", err)
 	}
 
@@ -94,7 +94,7 @@ func TestATelaMostraOQueCadaPerfilAutorizou(t *testing.T) {
 func TestClasseQueOAppNaoConheceAindaPodeSerRevogada(t *testing.T) {
 	t.Parallel()
 	api, store := trustAPI(t, nil)
-	if err := store.Allow("cursor", "classe-nova"); err != nil {
+	if err := store.Allow(authorizationfixture.Context(), "cursor", "classe-nova"); err != nil {
 		t.Fatalf("autorizar: %v", err)
 	}
 
@@ -121,7 +121,7 @@ func TestClasseQueOAppNaoConheceAindaPodeSerRevogada(t *testing.T) {
 func TestPerfilApagadoAindaAparecePeloSlug(t *testing.T) {
 	t.Parallel()
 	api, store := trustAPI(t, nil)
-	if err := store.Allow("perfil-que-nao-existe-mais", "execute"); err != nil {
+	if err := store.Allow(authorizationfixture.Context(), "perfil-que-nao-existe-mais", "execute"); err != nil {
 		t.Fatalf("autorizar: %v", err)
 	}
 
@@ -144,7 +144,7 @@ func TestPerfilApagadoAindaAparecePeloSlug(t *testing.T) {
 func TestRevogarTiraAAutorizacaoDaLista(t *testing.T) {
 	t.Parallel()
 	api, store := trustAPI(t, nil)
-	if err := store.Allow("cursor", "execute"); err != nil {
+	if err := store.Allow(authorizationfixture.Context(), "cursor", "execute"); err != nil {
 		t.Fatalf("autorizar: %v", err)
 	}
 
@@ -159,7 +159,7 @@ func TestRevogarTiraAAutorizacaoDaLista(t *testing.T) {
 	if len(lista) != 0 {
 		t.Errorf("autorizações na tela = %+v, quer nenhuma", lista)
 	}
-	if store.Allows("cursor", "execute") {
+	if allowed, err := store.Allows(authorizationfixture.Context(), "cursor", "execute"); err != nil || allowed {
 		t.Error("o agente continua autorizado depois da revogação")
 	}
 }
@@ -203,7 +203,7 @@ func TestSemAutorizacaoNenhumaATelaAbreVazia(t *testing.T) {
 func TestACPTrustAuthError(t *testing.T) {
 	t.Parallel()
 	wantErr := errors.New("sem sessão")
-	store := acptrust.NewStoreWithDir(t.TempDir())
+	store := acptrust.NewStore(authorizationfixture.Options(t, t.TempDir(), ""))
 	api := NewACPTrust()
 	AttachACPTrust(api, stubSession{err: wantErr}, store, nil)
 

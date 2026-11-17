@@ -122,7 +122,7 @@ func (t *ReadFile) Execute(ctx context.Context, args json.RawMessage) (tools.Too
 	}
 
 	// Resolve caminho
-	fullPath, err := t.resolvePath(a.Path)
+	fullPath, err := resolveFilePath(ctx, a.Path, t.workDir)
 	if err != nil {
 		return tools.ToolResult{Content: err.Error(), IsError: true}, nil
 	}
@@ -405,7 +405,3 @@ func rawReadTooManyLines(lines, limit int) tools.ToolResult {
 	}
 }
 
-// resolvePath converte caminho relativo para absoluto usando workDir
-func (t *ReadFile) resolvePath(path string) (string, error) {
-	return resolveFilePath(path, t.workDir)
-}

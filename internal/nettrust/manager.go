@@ -27,13 +27,14 @@ type Manager struct {
 
 func managerConfig() trustscope.Config[AllowlistEntry, entryQuery] {
 	return trustscope.Config[AllowlistEntry, entryQuery]{
+		Domain:        "network",
 		Subdir:        subdir,
-		LogComponent:  "nettrust.manager",
-		LogPrefix:     "[NetTrust]",
-		DomainLabel:   "rede",
 		NotFoundError: ErrEntryNotFound,
 		Adapter: trustscope.Adapter[AllowlistEntry, entryQuery]{
-			Scope: func(entry AllowlistEntry) trustscope.Scope { return entry.Scope },
+			Identity:  func(e AllowlistEntry) string { return e.Host + "\x00" + e.Port },
+			Effect:    func(AllowlistEntry) string { return "allow" },
+			Operation: func(AllowlistEntry) string { return "connect" },
+			Scope:     func(entry AllowlistEntry) trustscope.Scope { return entry.Scope },
 			Normalize: func(entry AllowlistEntry) (AllowlistEntry, error) {
 				entry.Host = normalizeHost(entry.Host)
 				if entry.Host == "" {
@@ -63,13 +64,8 @@ func queryFor(host, port string) entryQuery {
 }
 
 // NewManager cria um Manager usando os diretórios canônicos.
-func NewManager() *Manager {
-	return &Manager{core: trustscope.NewManager(managerConfig())}
-}
-
-// NewManagerWithDirs cria um Manager com diretórios fixos para testes.
-func NewManagerWithDirs(homeDir, workDir string) *Manager {
-	return &Manager{core: trustscope.NewManagerWithDirs(managerConfig(), homeDir, workDir)}
+func NewManager(options trustscope.Options) *Manager {
+	return &Manager{core: trustscope.NewManager(managerConfig(), options)}
 }
 
 func (m *Manager) SetActiveProfileSlugFunc(f func() string) {
@@ -86,14 +82,14 @@ func (m *Manager) ClearSession(conversationID string) {
 
 func (m *Manager) Match(ctx context.Context, host, port string) NetworkTrustDecision {
 	match := m.core.Find(ctx, queryFor(host, port))
-	return NetworkTrustDecision{Allowed: match.Found, Scope: match.Scope, Entry: match.Entry}
+	return NetworkTrustDecision{Allowed: match.Found, Scope: match.Scope, Entry: match.Entry, Err: match.Err}
 }
 
 func (m *Manager) Add(ctx context.Context, entry AllowlistEntry) error {
 	return m.core.Add(ctx, entry)
 }
 
-func (m *Manager) List(ctx context.Context) []AllowlistEntry {
+func (m *Manager) List(ctx context.Context) ([]AllowlistEntry, error) {
 	return m.core.List(ctx)
 }
 
@@ -101,7 +97,4 @@ func (m *Manager) Remove(ctx context.Context, scope Scope, host, port string) er
 	return m.core.Remove(ctx, scope, queryFor(host, port))
 }
 
-// workspacePath é mantido para os testes de compatibilidade do consumidor.
-func (m *Manager) workspacePath() string {
-	return m.core.WorkspacePath()
-}
+func (m *Manager) Capture(ctx context.Context) context.Context { return m.core.Capture(ctx) }

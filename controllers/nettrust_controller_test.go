@@ -1,7 +1,8 @@
 package controllers
 
 import (
-	"context"
+	"assistente/internal/testutil/authorizationfixture"
+	"assistente/internal/trustscope"
 	"strings"
 	"testing"
 	"time"
@@ -12,7 +13,7 @@ import (
 func TestNetTrustGetNetworkAllowlistNilManager(t *testing.T) {
 	t.Parallel()
 	c := NewNetTrustController(NetTrustControllerConfig{})
-	if got := c.GetNetworkAllowlist(context.Background()); got != nil {
+	if got, err := c.GetNetworkAllowlist(authorizationfixture.Context()); err == nil || got != nil {
 		t.Fatalf("want nil, got %#v", got)
 	}
 }
@@ -20,9 +21,9 @@ func TestNetTrustGetNetworkAllowlistNilManager(t *testing.T) {
 func TestNetTrustRemoveRequiresPersistentScope(t *testing.T) {
 	t.Parallel()
 	c := NewNetTrustController(NetTrustControllerConfig{
-		NetTrustMgr: nettrust.NewManager(),
+		NetTrustMgr: nettrust.NewManager(trustscope.Options{}),
 	})
-	err := c.RemoveNetworkAllowlistEntry(context.Background(), "session", "example.local", "")
+	err := c.RemoveNetworkAllowlistEntry(authorizationfixture.Context(), "session", "example.local", "")
 	if err == nil || !strings.Contains(err.Error(), "escopo inválido") {
 		t.Fatalf("want escopo inválido, got %v", err)
 	}
@@ -31,7 +32,7 @@ func TestNetTrustRemoveRequiresPersistentScope(t *testing.T) {
 func TestNetTrustRemoveNilManager(t *testing.T) {
 	t.Parallel()
 	c := NewNetTrustController(NetTrustControllerConfig{})
-	err := c.RemoveNetworkAllowlistEntry(context.Background(), "global", "example.local", "")
+	err := c.RemoveNetworkAllowlistEntry(authorizationfixture.Context(), "global", "example.local", "")
 	if err == nil || !strings.Contains(err.Error(), "não inicializado") {
 		t.Fatalf("want gerenciador não inicializado, got %v", err)
 	}
@@ -40,7 +41,7 @@ func TestNetTrustRemoveNilManager(t *testing.T) {
 func TestNetTrustGetNetworkAllowlistMapsEntry(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
-	mgr := nettrust.NewManagerWithDirs(dir, dir)
+	mgr := nettrust.NewManager(authorizationfixture.Options(t, dir, dir))
 	created := time.Date(2026, 8, 13, 12, 0, 0, 0, time.UTC)
 	entry := nettrust.AllowlistEntry{
 		Host:        "api.internal.example",
@@ -52,12 +53,15 @@ func TestNetTrustGetNetworkAllowlistMapsEntry(t *testing.T) {
 		CreatedAt:   created,
 		Reason:      "teste",
 	}
-	if err := mgr.Add(context.Background(), entry); err != nil {
+	if err := mgr.Add(authorizationfixture.Context(), entry); err != nil {
 		t.Fatalf("Add: %v", err)
 	}
 
 	c := NewNetTrustController(NetTrustControllerConfig{NetTrustMgr: mgr})
-	views := c.GetNetworkAllowlist(context.Background())
+	views, err := c.GetNetworkAllowlist(authorizationfixture.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
 	if len(views) != 1 {
 		t.Fatalf("want 1 entrada, got %d", len(views))
 	}

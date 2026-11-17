@@ -62,7 +62,7 @@ func (t *DeleteFile) Execute(ctx context.Context, args json.RawMessage) (tools.T
 		missingOk = *a.MissingOk
 	}
 
-	fullPath, err := resolveFilePath(p, t.workDir)
+	fullPath, err := resolveFilePath(ctx, p, t.workDir)
 	if err != nil {
 		return tools.ToolResult{Content: err.Error(), IsError: true}, nil
 	}
@@ -90,7 +90,7 @@ func (t *DeleteFile) Execute(ctx context.Context, args json.RawMessage) (tools.T
 	}
 
 	return tools.ToolResult{
-		Content: fmt.Sprintf("Removido: %s", p),
+		Content:  fmt.Sprintf("Removido: %s", p),
 		Metadata: map[string]any{"path": p, "bytes": bytes},
 	}, nil
 }

@@ -1,6 +1,6 @@
 # AEP-0117 — Autorizações unificadas em banco
 
-**Status:** In Progress — contrato definido; migração e integração pendentes
+**Status:** In Progress — persistência integrada; orquestração e gestão unificadas pendentes
 
 ## Resumo
 
@@ -261,7 +261,7 @@ micro-PRs de infraestrutura sem consumidor. Se o inventário exigir ajustar essa
 divisão, atualizar este plano sem fragmentar por arquivo ou pacote.
 
 - [x] PR documental: contrato, escopos, banco, ACP, migração e limites definidos.
-- [ ] PR 1, base no PR documental: persistência unificada e migração dos quatro
+- [x] PR 1, base no PR documental: persistência unificada e migração dos quatro
   domínios, conectadas aos fluxos existentes, incluindo gestão/revogação; retirar
   os stores de arquivo substituídos. Entrega útil: decisões existentes passam a
   sobreviver no banco com isolamento e origem preservados.
@@ -272,6 +272,46 @@ divisão, atualizar este plano sem fragmentar por arquivo ou pacote.
 Cada PR atualiza este status, o índice e os AEPs afetados com evidências. Durante
 a transição, adaptadores migrados não voltam aos arquivos; os ainda pendentes
 são explicitamente enumerados. Nenhum PR é mergeado pelo agente.
+
+### Evidências da primeira implementação
+
+- `internal/authorization` e os modelos `AuthorizationRule`,
+  `AuthorizationPolicy`, `AuthorizationPolicyBinding` e `AuthorizationImport`
+  usam o banco aberto e exigem identidade de usuário. Importação, marcador e
+  substituição de política são transacionais.
+- `trustscope`, `allowlist` e `acptrust` substituem os escritores JSON; os
+  leitores antigos existem apenas na fronteira de importação. As telas atuais
+  consultam e revogam pelo banco. Bindings Wails foram regenerados para remover
+  a consulta de caminhos de arquivos, sem consumidores de UI.
+- Testes de `authorization`, `trustscope`, `nettrust`, `fstrust`, `allowlist` e
+  `tools/shell` cobrem rollback, revogação, usuário, arquivo inválido, escopos,
+  negativas e erros de consulta. O controller captura o workspace antes de
+  enfileirar envio/retry; testes cobrem operação de A com interface já em B e
+  canais sem herança do workspace desktop.
+- ACP preserva a decisão local e devolve `allow_once`, incluindo a primeira
+  resposta. Seus testes foram adaptados para contexto autenticado e banco
+  isolado; execução exclusivamente no CI remoto.
+- CI remoto do PR #1088 concluído com sucesso no run `44004637706`, incluindo ACP e detector de corrida. Revisão independente local concluída sem pendências; achado remoto sobre criação concorrente de vínculo corrigido com regressão que reproduz SQLITE_BUSY antes do fix e passa após reexecutar a transação inteira.
+- Correção complementar do PR #1088: `SavePolicy` também repete a transação
+  inteira após contenção SQLite. `TestConcurrentSavePolicyRetriesWholeTransaction`
+  reproduz `SQLITE_BUSY` antes da correção na criação e edição concorrentes e
+  verifica revisão, unicidade e coerência entre metadados e regras após o retry.
+- Revisão complementar de isolamento: o contexto capturado rejeita troca de
+  usuário e a revogação persistente revalida a geração sob o mesmo lock da
+  gravação. Criação de política rejeita duplicatas na transação; a existência
+  de outra política não impede criar `padrao`, sem ressuscitá-la após exclusão.
+- Migração ACP lê somente o escopo legado de perfil. O nome sanitizado do
+  arquivo é cruzado com o catálogo real: perfil ausente ou colisão permanece
+  bloqueado, sem inventar aliases. Arquivos já importados continuam apenas como
+  recuperação. Regressões ACP são executadas exclusivamente no CI remoto.
+- Erros de carregamento de políticas shell são registrados sem argumentos
+  editáveis. A captura de workspace no controller e sua propagação ao envio
+  de subagentes estão cobertas sem herdar a tela ativa após a captura.
+- Ainda pendentes: serviço único de decisão,
+  consentimento escopado de shell/ACP, gestão unificada e atribuição explícita
+  de proprietário para origens legadas ambíguas. Até essa atribuição existir,
+  a migração multiusuário/externa falha de modo fechado e informa o motivo.
+- Revisão de origem filesystem: resolução relativa, sandbox, walks e padrões de skills recebem o contexto capturado. O teste TestReadFileMantemWorkspaceDaOrigemDepoisDeTrocarATela executa leitura real após A→B e verifica que canal sem workspace não herda UI/cwd.
 
 ## Riscos
 

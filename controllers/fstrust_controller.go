@@ -53,11 +53,14 @@ func (c *FSTrustController) managementContext(ctx context.Context) context.Conte
 // GetPathAllowlist lista as entradas de allowlist de path (workspace, global e
 // perfil ativo). Escopos efêmeros (once/session) não aparecem — a API de gestão
 // não injeta ConversationID.
-func (c *FSTrustController) GetPathAllowlist(ctx context.Context) []apidto.PathAllowlistView {
+func (c *FSTrustController) GetPathAllowlist(ctx context.Context) ([]apidto.PathAllowlistView, error) {
 	if c.fsTrustMgr == nil {
-		return nil
+		return nil, fmt.Errorf("gerenciador de autorizações de arquivos não inicializado")
 	}
-	entries := c.fsTrustMgr.List(c.managementContext(ctx))
+	entries, err := c.fsTrustMgr.List(c.managementContext(ctx))
+	if err != nil {
+		return nil, err
+	}
 	views := make([]apidto.PathAllowlistView, 0, len(entries))
 	for _, e := range entries {
 		views = append(views, apidto.PathAllowlistView{
@@ -71,7 +74,7 @@ func (c *FSTrustController) GetPathAllowlist(ctx context.Context) []apidto.PathA
 			Reason:    e.Reason,
 		})
 	}
-	return views
+	return views, nil
 }
 
 // AddPathAllowlistEntry cria uma regra persistente pela UI de gestão. Allow e

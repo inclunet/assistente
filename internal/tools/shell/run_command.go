@@ -33,7 +33,7 @@ type ConfirmFunc func(ctx context.Context, command, workDir string) (bool, error
 
 // GetAllowlistFunc é a função que retorna a allowlist ativa do perfil.
 // Retorna nil se nenhuma allowlist está configurada.
-type GetAllowlistFunc func() *allowlist.Allowlist
+type GetAllowlistFunc func(context.Context) (*allowlist.Allowlist, error)
 
 // SessionManager é a interface para gerenciar sessões PTY.
 // Permite mockar o Manager para testes.
@@ -195,7 +195,7 @@ func (rc *RunCommand) Execute(ctx context.Context, args json.RawMessage) (tools.
 	}
 
 	// Avalia o comando contra a politica (allowlist + parser conservador)
-	policyResult := rc.evaluateCommand(a.Command)
+	policyResult := rc.evaluateCommand(ctx, a.Command)
 	decision := policyResult.Decision
 	// Nunca logamos a string crua de a.Command: ela pode conter tokens em
 	// flags (-W, --token=) ou env inline. Em vez disso, derivamos um resumo
@@ -447,12 +447,16 @@ func logPolicyDecision(
 // como redirecionamentos, pipes e substituicao de comando) e agregacao de
 // decisoes (deny/confirm/approve) consultando a allowlist ativa do perfil.
 // Quando nao ha allowlist configurada, o resultado e sempre confirm.
-func (rc *RunCommand) evaluateCommand(command string) commandpolicy.EvaluationResult {
+func (rc *RunCommand) evaluateCommand(ctx context.Context, command string) commandpolicy.EvaluationResult {
 	if rc.getAllowlistFn == nil {
 		return commandpolicy.Evaluate(command, nil)
 	}
 
-	al := rc.getAllowlistFn()
+	al, err := rc.getAllowlistFn(ctx)
+	if err != nil {
+		logging.Errorf(ctx, "tools.shell.run-command", "Política de autorização shell indisponível")
+		return commandpolicy.EvaluationResult{Decision: allowlist.DecisionDeny, Parse: commandpolicy.Parse(command), Reasons: []string{"política de autorização indisponível"}}
+	}
 	return commandpolicy.Evaluate(command, al)
 }
 

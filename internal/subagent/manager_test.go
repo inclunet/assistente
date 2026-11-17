@@ -15,6 +15,7 @@ import (
 	"assistente/internal/database"
 	"assistente/internal/eventctx"
 	"assistente/internal/messaging"
+	"assistente/internal/tools/invocationctx"
 
 	"assistente/internal/sqlite"
 	"gorm.io/gorm"
@@ -1195,19 +1196,25 @@ func TestManagerAppendsRunIDToProvenanceBeforeSend(t *testing.T) {
 
 	var sentProv eventctx.Provenance
 	var sentOK bool
+	var sentWorkspace string
 	mgr := NewManager(ManagerConfig{Repo: repo, Notifier: notifier, Send: func(sctx context.Context, p SendParams) (string, error) {
 		sentProv, sentOK = eventctx.From(sctx)
+		sentWorkspace, _ = invocationctx.Workspace(sctx)
 		go notifier.Notify(p.ConversationID, "ok", "m")
 		return p.ConversationID, nil
 	}})
 
 	jobCtx := eventctx.With(ctx, eventctx.Provenance{Source: "job", ChainID: "chain-1", ChainHistory: []string{"job-a"}})
+	jobCtx = invocationctx.WithWorkspace(jobCtx, "workspace-origem")
 	res, err := mgr.Run(jobCtx, RunParams{Prompt: "tarefa"})
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
 	if !sentOK {
 		t.Fatal("ctx de envio deveria carregar proveniência (eventctx)")
+	}
+	if sentWorkspace != "workspace-origem" {
+		t.Fatalf("subagente perdeu workspace capturado: %q", sentWorkspace)
 	}
 	if len(sentProv.ChainHistory) != 2 {
 		t.Fatalf("cadeia deveria crescer de 1 para 2 ao enviar; veio %v", sentProv.ChainHistory)

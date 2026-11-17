@@ -49,11 +49,14 @@ func (c *NetTrustController) managementContext(ctx context.Context) context.Cont
 
 // GetNetworkAllowlist lista as entradas de allowlist de rede (workspace, global e
 // perfil ativo).
-func (c *NetTrustController) GetNetworkAllowlist(ctx context.Context) []apidto.NetworkAllowlistView {
+func (c *NetTrustController) GetNetworkAllowlist(ctx context.Context) ([]apidto.NetworkAllowlistView, error) {
 	if c.netTrustMgr == nil {
-		return nil
+		return nil, fmt.Errorf("gerenciador de autorizações de rede não inicializado")
 	}
-	entries := c.netTrustMgr.List(c.managementContext(ctx))
+	entries, err := c.netTrustMgr.List(c.managementContext(ctx))
+	if err != nil {
+		return nil, err
+	}
 	views := make([]apidto.NetworkAllowlistView, 0, len(entries))
 	for _, e := range entries {
 		views = append(views, apidto.NetworkAllowlistView{
@@ -67,7 +70,7 @@ func (c *NetTrustController) GetNetworkAllowlist(ctx context.Context) []apidto.N
 			Reason:      e.Reason,
 		})
 	}
-	return views
+	return views, nil
 }
 
 // RemoveNetworkAllowlistEntry remove uma entrada persistida por (scope, host, port).

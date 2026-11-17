@@ -127,6 +127,7 @@ func (e AllowlistEntry) Matches(absPath, operation string) bool {
 
 // Decision é o resultado de uma consulta de autorização de path.
 type Decision struct {
+	Err      error
 	Allowed  bool
 	Scope    Scope
 	Entry    *AllowlistEntry
@@ -137,6 +138,7 @@ type Decision struct {
 // um campo Allowed: uma proibição encontrada é sempre um bloqueio. Matched evita
 // a armadilha de interpretar Allowed=false como "liberado".
 type DenyMatch struct {
+	Err     error
 	Matched bool
 	Scope   Scope
 	Entry   *AllowlistEntry

@@ -1,12 +1,14 @@
 package nettrust
 
 import (
+	"assistente/internal/testutil/authorizationfixture"
 	"context"
 	"net"
 	"testing"
 
 	"assistente/internal/tools"
 	httpclient "assistente/internal/tools/http"
+	"assistente/internal/tools/invocationctx"
 )
 
 type spyPrompter struct {
@@ -14,12 +16,29 @@ type spyPrompter struct {
 	decision PromptDecision
 	err      error
 	lastReq  PromptRequest
+	onPrompt func()
 }
 
 func (s *spyPrompter) PromptNetworkAuthorization(_ context.Context, req PromptRequest) (PromptDecision, error) {
 	s.called++
 	s.lastReq = req
+	if s.onPrompt != nil {
+		s.onPrompt()
+	}
 	return s.decision, s.err
+}
+
+func TestRespostaAtrasadaNaoAutorizaConversaLimpa(t *testing.T) {
+	for _, scope := range []Scope{ScopeOnce, ScopeSession, ScopeGlobal} {
+		t.Run(string(scope), func(t *testing.T) {
+			m := NewManager(authorizationfixture.Options(t, t.TempDir(), ""))
+			ctx := invocationctx.With(authorizationfixture.Context(), invocationctx.InvocationContext{ConversationID: "conversa"})
+			prompt := &spyPrompter{decision: PromptDecision{Approve: true, Scope: scope}, onPrompt: func() { m.ClearSession("conversa") }}
+			if _, allowed, err := NewAuthorizer(m, prompt).Authorize(ctx, blockedDest()); err == nil || allowed {
+				t.Fatalf("autorização atrasada: allowed=%v err=%v", allowed, err)
+			}
+		})
+	}
 }
 
 func blockedDest() httpclient.BlockedDestination {
@@ -35,8 +54,8 @@ func blockedDest() httpclient.BlockedDestination {
 
 func TestAuthorizer_AllowlistMatch_NoPrompt(t *testing.T) {
 	dir := t.TempDir()
-	m := NewManagerWithDirs(dir, dir)
-	ctx := context.Background()
+	m := NewManager(authorizationfixture.Options(t, dir, dir))
+	ctx := authorizationfixture.Context()
 	_ = m.Add(ctx, AllowlistEntry{Host: "api.nu.workflows.dev", Port: "443", Scope: ScopeGlobal})
 
 	prompt := &spyPrompter{}
@@ -56,8 +75,8 @@ func TestAuthorizer_AllowlistMatch_NoPrompt(t *testing.T) {
 
 func TestAuthorizer_PromptApprove_PersistsAndAllows(t *testing.T) {
 	dir := t.TempDir()
-	m := NewManagerWithDirs(dir, dir)
-	ctx := context.Background()
+	m := NewManager(authorizationfixture.Options(t, dir, dir))
+	ctx := authorizationfixture.Context()
 
 	prompt := &spyPrompter{decision: PromptDecision{Approve: true, Scope: ScopeGlobal, Reason: "API interna"}}
 	auth := NewAuthorizer(m, prompt)
@@ -84,8 +103,8 @@ func TestAuthorizer_PromptApprove_PersistsAndAllows(t *testing.T) {
 
 func TestAuthorizer_PromptOnceDoesNotPersist(t *testing.T) {
 	dir := t.TempDir()
-	m := NewManagerWithDirs(dir, dir)
-	ctx := context.Background()
+	m := NewManager(authorizationfixture.Options(t, dir, dir))
+	ctx := authorizationfixture.Context()
 
 	prompt := &spyPrompter{decision: PromptDecision{Approve: true, Scope: ScopeOnce}}
 	auth := NewAuthorizer(m, prompt)
@@ -104,8 +123,8 @@ func TestAuthorizer_PromptOnceDoesNotPersist(t *testing.T) {
 // para lá — deve exigir novo consentimento (prompt).
 func TestAuthorizer_AllowlistMatch_CategoryEscalationReprompts(t *testing.T) {
 	dir := t.TempDir()
-	m := NewManagerWithDirs(dir, dir)
-	ctx := context.Background()
+	m := NewManager(authorizationfixture.Options(t, dir, dir))
+	ctx := authorizationfixture.Context()
 	_ = m.Add(ctx, AllowlistEntry{
 		Host:     "api.nu.workflows.dev",
 		Port:     "443",
@@ -142,8 +161,8 @@ func TestAuthorizer_AllowlistMatch_CategoryEscalationReprompts(t *testing.T) {
 // pela allowlist, sem novo prompt.
 func TestAuthorizer_AllowlistMatch_SameCategoryRotationAllowed(t *testing.T) {
 	dir := t.TempDir()
-	m := NewManagerWithDirs(dir, dir)
-	ctx := context.Background()
+	m := NewManager(authorizationfixture.Options(t, dir, dir))
+	ctx := authorizationfixture.Context()
 	_ = m.Add(ctx, AllowlistEntry{
 		Host:     "api.nu.workflows.dev",
 		Port:     "443",
@@ -170,8 +189,8 @@ func TestAuthorizer_AllowlistMatch_SameCategoryRotationAllowed(t *testing.T) {
 // (Port vazio), valendo para qualquer porta default depois.
 func TestAuthorizer_ImplicitPortPersistsHostLevel(t *testing.T) {
 	dir := t.TempDir()
-	m := NewManagerWithDirs(dir, dir)
-	ctx := context.Background()
+	m := NewManager(authorizationfixture.Options(t, dir, dir))
+	ctx := authorizationfixture.Context()
 	prompt := &spyPrompter{decision: PromptDecision{Approve: true, Scope: ScopeGlobal}}
 	auth := NewAuthorizer(m, prompt)
 
@@ -200,8 +219,8 @@ func TestAuthorizer_ImplicitPortPersistsHostLevel(t *testing.T) {
 // Porta explícita na URL deve ser persistida e restringir a autorização.
 func TestAuthorizer_ExplicitPortPersisted(t *testing.T) {
 	dir := t.TempDir()
-	m := NewManagerWithDirs(dir, dir)
-	ctx := context.Background()
+	m := NewManager(authorizationfixture.Options(t, dir, dir))
+	ctx := authorizationfixture.Context()
 	prompt := &spyPrompter{decision: PromptDecision{Approve: true, Scope: ScopeGlobal}}
 	auth := NewAuthorizer(m, prompt)
 
@@ -226,7 +245,7 @@ func TestAuthorizer_NilManagerPersistentScopeDegrades(t *testing.T) {
 	prompt := &spyPrompter{decision: PromptDecision{Approve: true, Scope: ScopeGlobal}}
 	auth := NewAuthorizer(nil, prompt)
 
-	ips, ok, err := auth.Authorize(context.Background(), blockedDest())
+	ips, ok, err := auth.Authorize(authorizationfixture.Context(), blockedDest())
 	if err != nil {
 		t.Fatalf("não deveria retornar erro: %v", err)
 	}
@@ -239,8 +258,8 @@ func TestAuthorizer_NilManagerPersistentScopeDegrades(t *testing.T) {
 // Sem isso, quem decide precisa comparar o destino com a lista de hosts na mão.
 func TestAuthorizer_PromptTrazHostDoSkillQueCasa(t *testing.T) {
 	dir := t.TempDir()
-	m := NewManagerWithDirs(dir, dir)
-	ctx := tools.WithExecutionContext(context.Background(), tools.ExecutionContext{
+	m := NewManager(authorizationfixture.Options(t, dir, dir))
+	ctx := tools.WithExecutionContext(authorizationfixture.Context(), tools.ExecutionContext{
 		InvokedSkillSlug:   "workflows-api",
 		NetworkAllowedHost: []string{"outra.coisa.dev", "*.nu.workflows.dev"},
 	})
@@ -260,8 +279,8 @@ func TestAuthorizer_PromptTrazHostDoSkillQueCasa(t *testing.T) {
 // que o skill não declarou empurraria a pessoa a aprovar o que não devia.
 func TestAuthorizer_PromptSemDestaqueQuandoNenhumHostCasa(t *testing.T) {
 	dir := t.TempDir()
-	m := NewManagerWithDirs(dir, dir)
-	ctx := tools.WithExecutionContext(context.Background(), tools.ExecutionContext{
+	m := NewManager(authorizationfixture.Options(t, dir, dir))
+	ctx := tools.WithExecutionContext(authorizationfixture.Context(), tools.ExecutionContext{
 		InvokedSkillSlug: "workflows-api",
 		// Wildcard não casa o apex, e o outro host é de outro domínio.
 		NetworkAllowedHost: []string{"*.api.nu.workflows.dev", "outra.coisa.dev"},
@@ -284,8 +303,8 @@ func TestAuthorizer_PromptSemDestaqueQuandoNenhumHostCasa(t *testing.T) {
 // Casar o host do skill NÃO dispensa o consentimento (AEP-0082 D5).
 func TestAuthorizer_HostDoSkillNaoDispensaConsentimento(t *testing.T) {
 	dir := t.TempDir()
-	m := NewManagerWithDirs(dir, dir)
-	ctx := tools.WithExecutionContext(context.Background(), tools.ExecutionContext{
+	m := NewManager(authorizationfixture.Options(t, dir, dir))
+	ctx := tools.WithExecutionContext(authorizationfixture.Context(), tools.ExecutionContext{
 		InvokedSkillSlug:   "workflows-api",
 		NetworkAllowedHost: []string{"api.nu.workflows.dev"},
 	})
@@ -307,8 +326,8 @@ func TestAuthorizer_HostDoSkillNaoDispensaConsentimento(t *testing.T) {
 
 func TestAuthorizer_PromptDeny(t *testing.T) {
 	dir := t.TempDir()
-	m := NewManagerWithDirs(dir, dir)
-	ctx := context.Background()
+	m := NewManager(authorizationfixture.Options(t, dir, dir))
+	ctx := authorizationfixture.Context()
 
 	prompt := &spyPrompter{decision: PromptDecision{Approve: false}}
 	auth := NewAuthorizer(m, prompt)

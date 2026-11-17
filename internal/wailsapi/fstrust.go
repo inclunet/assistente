@@ -48,7 +48,7 @@ func (f *FSTrust) GetPathAllowlist() ([]apidto.PathAllowlistView, error) {
 		return nil, err
 	}
 	return WithUser(session, func(ctx context.Context) ([]apidto.PathAllowlistView, error) {
-		return ctrl.GetPathAllowlist(ctx), nil
+		return ctrl.GetPathAllowlist(ctx)
 	})
 }
 

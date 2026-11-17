@@ -1,332 +1,220 @@
-// Package acptrust guarda as autorizações permanentes que uma pessoa concede a
-// um agente de código (AEP-0084 D9).
-//
-// Quando o agente pede permissão, ele oferece "permitir sempre" junto com
-// "permitir uma vez". Escolher "sempre" só faz sentido se alguém lembrar disso
-// depois — e o lugar de lembrar é o perfil, que é onde o agente está
-// configurado. Cada perfil tem seu arquivo, como as allowlists de rede.
-//
-// A autorização vale por classe de ação (`execute`, `edit`, `read`…), e não
-// pelo texto do pedido: o título que o agente manda é a linha de comando
-// literal e muda a cada chamada, então guardar por texto nunca casaria de novo
-// — e casar por pedaço de comando seria pior ainda, porque um prefixo idêntico
-// não diz nada sobre o que vem depois dele.
+// Package acptrust adapta as classes de ação ACP ao repositório comum.
 package acptrust
 
 import (
-	"encoding/json"
+	"context"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
+	"sort"
 	"strings"
-	"sync"
 	"time"
 
+	"assistente/internal/authorization"
 	"assistente/internal/configdir"
+	"assistente/internal/database"
+	"assistente/internal/tools/invocationctx"
+	"assistente/internal/trustscope"
 )
 
-// ErrEntryNotFound diz que não havia o que revogar. A interface não deve
-// relatar revogação bem sucedida nesse caso.
 var ErrEntryNotFound = errors.New("autorização permanente não encontrada")
 
-// subdir é onde os arquivos ficam dentro de .assistente/. Separado das
-// allowlists de rede e de comando, que têm formato e propósito próprios.
 const subdir = "acp-permissions"
 
-// Cada perfil tem seu arquivo, nomeado como os da allowlist de rede.
-const (
-	profilePrefix = "profile-"
-	profileSuffix = ".json"
-)
-
-// storeFile é o formato em disco.
-type storeFile struct {
-	Version int     `json:"version"`
-	Entries []Entry `json:"entries"`
-}
-
-// Entry é uma classe de ação que o perfil autoriza sem perguntar de novo.
 type Entry struct {
-	// Kind é a classe da ação, já normalizada pelo conjunto do protocolo.
-	Kind string `json:"kind"`
-	// GrantedAt é quando a pessoa autorizou. Serve para ela reconhecer a
-	// autorização na hora de revogar.
-	GrantedAt time.Time `json:"granted_at"`
+	Kind      string           `json:"kind"`
+	GrantedAt time.Time        `json:"granted_at"`
+	Scope     trustscope.Scope `json:"scope,omitempty"`
 }
-
-// Store lê e grava as autorizações por perfil.
 type Store struct {
-	// mu serializa o acesso ao disco: gravar é ler-modificar-escrever, e duas
-	// autorizações concorrentes perderiam uma delas sem exclusão mútua.
-	mu      sync.RWMutex
-	homeDir func() string
-	now     func() time.Time
+	core     *trustscope.Manager[Entry, string]
+	repo     *authorization.Repository
+	home     func() string
+	profiles func() ([]string, error)
 }
 
-// NewStore usa o diretório canônico do configdir.
-func NewStore() *Store {
-	return &Store{homeDir: configdir.GetHomeDir, now: time.Now}
-}
-
-// NewStoreWithDir fixa o diretório base (testes).
-func NewStoreWithDir(homeDir string) *Store {
-	return &Store{homeDir: func() string { return homeDir }, now: time.Now}
-}
-
-// Allows diz se este perfil já autorizou esta classe de ação para sempre.
-//
-// Erro de leitura responde "não autoriza": diante de um arquivo ilegível, a
-// única resposta segura é perguntar de novo, e não liberar uma ação na máquina
-// de alguém por causa de um disco com problema.
-func (s *Store) Allows(profileSlug, kind string) bool {
-	kind = normalizeKind(kind)
-	if s == nil || kind == "" {
-		return false
+func NewStore(options trustscope.Options) *Store {
+	if options.Repository == nil {
+		options.Repository = authorization.NewRepository(database.DB)
 	}
-	path := s.profilePath(profileSlug)
-	if path == "" {
-		return false
+	if options.HomeDir == nil {
+		options.HomeDir = configdir.GetHomeDir
 	}
-
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	entries, err := loadFile(path)
-	if err != nil {
-		return false
-	}
-	for _, entry := range entries {
-		if normalizeKind(entry.Kind) == kind {
-			return true
-		}
-	}
-	return false
-}
-
-// Allow registra a autorização permanente. Repetir a mesma classe atualiza a
-// data em vez de duplicar a entrada.
-func (s *Store) Allow(profileSlug, kind string) error {
-	kind = normalizeKind(kind)
-	if s == nil {
-		return errors.New("sem armazenamento de autorizações do agente")
-	}
-	if kind == "" {
-		return errors.New("classe de ação vazia")
-	}
-	path := s.profilePath(profileSlug)
-	if path == "" {
-		return fmt.Errorf("perfil inválido para autorização permanente: %q", profileSlug)
-	}
-
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	entries, err := loadFile(path)
-	if err != nil {
-		// Não gravar por cima de um arquivo ilegível: apagaria autorizações
-		// que ainda estão lá por causa de uma falha passageira.
-		return fmt.Errorf("não foi possível ler as autorizações antes de gravar: %w", err)
-	}
-	return saveFile(path, upsert(entries, Entry{Kind: kind, GrantedAt: s.now()}))
-}
-
-// List devolve o que este perfil autoriza sem perguntar, para quem quiser ver
-// ou revogar.
-func (s *Store) List(profileSlug string) []Entry {
-	if s == nil {
-		return nil
-	}
-	path := s.profilePath(profileSlug)
-	if path == "" {
-		return nil
-	}
-
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	entries, err := loadFile(path)
-	if err != nil {
-		return nil
-	}
-	return entries
-}
-
-// Profiles diz quais perfis têm alguma autorização guardada. Quem revoga
-// precisa ver tudo o que já autorizou, e não só o do perfil aberto agora: uma
-// autorização esquecida num perfil que não se usa há meses continua valendo no
-// dia em que ele voltar.
-func (s *Store) Profiles() []string {
-	if s == nil || s.homeDir == nil {
-		return nil
-	}
-	home := s.homeDir()
-	if home == "" {
-		return nil
-	}
-
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	entries, err := os.ReadDir(filepath.Join(home, subdir))
-	if err != nil {
-		return nil
-	}
-	var out []string
-	for _, entry := range entries {
-		name := entry.Name()
-		if entry.IsDir() || !strings.HasPrefix(name, profilePrefix) || !strings.HasSuffix(name, profileSuffix) {
-			continue
-		}
-		slug := strings.TrimSuffix(strings.TrimPrefix(name, profilePrefix), profileSuffix)
-		if slug == "" {
-			continue
-		}
-		out = append(out, slug)
-	}
-	return out
-}
-
-// Revoke tira a autorização permanente daquela classe.
-func (s *Store) Revoke(profileSlug, kind string) error {
-	kind = normalizeKind(kind)
-	if s == nil {
-		return errors.New("sem armazenamento de autorizações do agente")
-	}
-	path := s.profilePath(profileSlug)
-	if path == "" || kind == "" {
-		return ErrEntryNotFound
-	}
-
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	entries, err := loadFile(path)
-	if err != nil {
-		return fmt.Errorf("não foi possível ler as autorizações antes de revogar: %w", err)
-	}
-	remaining, removed := without(entries, kind)
-	if !removed {
-		return ErrEntryNotFound
-	}
-	return saveFile(path, remaining)
-}
-
-func (s *Store) profilePath(profileSlug string) string {
-	slug := sanitizeSlug(profileSlug)
-	if slug == "" || s.homeDir == nil {
-		return ""
-	}
-	home := s.homeDir()
-	if home == "" {
-		return ""
-	}
-	return filepath.Join(home, subdir, profilePrefix+slug+profileSuffix)
-}
-
-// loadFile distingue arquivo ausente (nada autorizado, sem erro) de arquivo
-// ilegível (erro), porque gravar em cima do segundo perderia dados.
-func loadFile(path string) ([]Entry, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return nil, nil
-		}
-		return nil, fmt.Errorf("erro ao ler autorizações do agente em %s: %w", path, err)
-	}
-	var sf storeFile
-	if err := json.Unmarshal(data, &sf); err != nil {
-		return nil, fmt.Errorf("autorizações do agente inválidas em %s: %w", path, err)
-	}
-	return sf.Entries, nil
-}
-
-func saveFile(path string, entries []Entry) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return fmt.Errorf("erro ao criar diretório de autorizações do agente: %w", err)
-	}
-	data, err := json.MarshalIndent(storeFile{Version: 1, Entries: entries}, "", "  ")
-	if err != nil {
-		return fmt.Errorf("erro ao serializar autorizações do agente: %w", err)
-	}
-	// Escrita atômica: quem estiver lendo nunca vê um arquivo pela metade.
-	tmp, err := os.CreateTemp(filepath.Dir(path), ".acp-permissions-*.tmp")
-	if err != nil {
-		return fmt.Errorf("erro ao criar arquivo temporário de autorizações: %w", err)
-	}
-	tmpName := tmp.Name()
-	if _, err := tmp.Write(data); err != nil {
-		_ = tmp.Close()
-		_ = os.Remove(tmpName)
-		return fmt.Errorf("erro ao gravar autorizações do agente: %w", err)
-	}
-	if err := tmp.Close(); err != nil {
-		_ = os.Remove(tmpName)
-		return fmt.Errorf("erro ao finalizar autorizações do agente: %w", err)
-	}
-	if err := replaceFile(tmpName, path); err != nil {
-		_ = os.Remove(tmpName)
-		return fmt.Errorf("erro ao substituir autorizações do agente: %w", err)
-	}
-	return nil
-}
-
-// replaceFile renomeia por cima do destino, repetindo em caso de falha
-// passageira. No Windows, antivírus e indexador seguram o arquivo por um
-// instante e o rename falha por acesso negado; em POSIX isso não acontece.
-func replaceFile(tmpName, path string) error {
-	const attempts = 5
-	var err error
-	for i := 0; i < attempts; i++ {
-		if err = os.Rename(tmpName, path); err == nil {
+	store := &Store{repo: options.Repository, home: options.HomeDir, profiles: options.LegacyProfiles}
+	cfg := trustscope.Config[Entry, string]{Domain: "acp", Subdir: subdir, NotFoundError: ErrEntryNotFound,
+		LegacyScopes: []trustscope.Scope{trustscope.ScopeProfile},
+		ValidateLegacyProfile: func(key, legacyKey string) error {
+			resolved, err := store.legacyProfile(legacyKey)
+			if err != nil {
+				return err
+			}
+			if resolved != key {
+				return errors.New("origem legada ACP pertence a outro perfil")
+			}
 			return nil
-		}
-		time.Sleep(time.Duration(i+1) * 10 * time.Millisecond)
-	}
-	return err
+		}, Adapter: trustscope.Adapter[Entry, string]{
+			Scope: func(e Entry) trustscope.Scope { return e.Scope },
+			Normalize: func(e Entry) (Entry, error) {
+				e.Kind = normalizeKind(e.Kind)
+				if e.Kind == "" {
+					return e, errors.New("classe de ação vazia")
+				}
+				if e.Scope == "" {
+					e.Scope = trustscope.ScopeProfile
+				}
+				if e.GrantedAt.IsZero() {
+					e.GrantedAt = time.Now().UTC()
+				}
+				return e, nil
+			},
+			Key:       func(e Entry) string { return e.Kind },
+			Matches:   func(e Entry, q string) bool { return e.Kind == normalizeKind(q) },
+			SameKey:   func(e Entry, q string) bool { return e.Kind == normalizeKind(q) },
+			Identity:  func(e Entry) string { return e.Kind },
+			Effect:    func(Entry) string { return "allow" },
+			Operation: func(e Entry) string { return e.Kind },
+		}}
+	store.core = trustscope.NewManager(cfg, options)
+	return store
 }
 
-func upsert(entries []Entry, entry Entry) []Entry {
-	for i := range entries {
-		if normalizeKind(entries[i].Kind) == entry.Kind {
-			entries[i] = entry
-			return entries
-		}
+// A sanitização antiga não é invertível: somente o catálogo real pode
+// identificar um arquivo, e colisões permanecem bloqueadas.
+func (s *Store) legacyProfile(legacyKey string) (string, error) {
+	if s.profiles == nil {
+		return "", errors.New("catálogo de perfis indisponível para migração ACP")
 	}
-	return append(entries, entry)
-}
-
-func without(entries []Entry, kind string) ([]Entry, bool) {
-	out := make([]Entry, 0, len(entries))
-	removed := false
-	for _, entry := range entries {
-		if !removed && normalizeKind(entry.Kind) == kind {
-			removed = true
+	keys, err := s.profiles()
+	if err != nil {
+		return "", err
+	}
+	resolved := ""
+	for _, key := range keys {
+		key = ProfileKey(key)
+		encoded := strings.Map(func(r rune) rune {
+			if r >= 'a' && r <= 'z' || r >= '0' && r <= '9' || r == '-' || r == '_' {
+				return r
+			}
+			return -1
+		}, key)
+		if encoded != legacyKey {
 			continue
 		}
-		out = append(out, entry)
-	}
-	return out, removed
-}
-
-func normalizeKind(kind string) string {
-	return strings.ToLower(strings.TrimSpace(kind))
-}
-
-// ProfileKey é o slug como as autorizações o guardam. Quem cruza esta lista com
-// os perfis do app precisa comparar pela mesma forma: o slug vira nome de
-// arquivo aqui, e um perfil escrito com maiúsculas não casaria com o arquivo
-// que ele mesmo criou.
-func ProfileKey(slug string) string {
-	return sanitizeSlug(slug)
-}
-
-// sanitizeSlug tira separadores de caminho do slug: ele vira nome de arquivo, e
-// um slug com ".." apontaria para fora do diretório.
-func sanitizeSlug(slug string) string {
-	slug = strings.TrimSpace(strings.ToLower(slug))
-	slug = strings.ReplaceAll(slug, "..", "")
-	return strings.Map(func(r rune) rune {
-		switch {
-		case r >= 'a' && r <= 'z', r >= '0' && r <= '9', r == '-', r == '_':
-			return r
-		default:
-			return -1
+		if resolved != "" && resolved != key {
+			return "", errors.New("origem legada ACP com identidade de perfil ambígua")
 		}
-	}, slug)
+		resolved = key
+	}
+	if resolved == "" {
+		return "", errors.New("origem legada ACP sem perfil identificável")
+	}
+	return resolved, nil
+}
+func profileContext(ctx context.Context, profile string) (context.Context, error) {
+	profile = ProfileKey(profile)
+	if profile == "" {
+		return nil, errors.New("perfil inválido para autorização do agente")
+	}
+	inv, _ := invocationctx.Get(ctx)
+	inv.ProfileSlug = profile
+	return invocationctx.With(ctx, inv), nil
+}
+func (s *Store) Allows(ctx context.Context, profile, kind string) (bool, error) {
+	ctx, err := profileContext(ctx, profile)
+	if err != nil {
+		return false, err
+	}
+	match := s.core.Find(ctx, normalizeKind(kind))
+	return match.Found, match.Err
+}
+func (s *Store) Allow(ctx context.Context, profile, kind string) error {
+	ctx, err := profileContext(ctx, profile)
+	if err != nil {
+		return err
+	}
+	return s.core.Add(ctx, Entry{Kind: kind, Scope: trustscope.ScopeProfile})
+}
+func (s *Store) List(ctx context.Context, profile string) ([]Entry, error) {
+	ctx, err := profileContext(ctx, profile)
+	if err != nil {
+		return nil, err
+	}
+	return s.core.List(ctx)
+}
+func (s *Store) Revoke(ctx context.Context, profile, kind string) error {
+	ctx, err := profileContext(ctx, profile)
+	if err != nil {
+		return err
+	}
+	return s.core.Remove(ctx, trustscope.ScopeProfile, normalizeKind(kind))
+}
+func (s *Store) Profiles(ctx context.Context) ([]string, error) {
+	keys, err := s.repo.ScopeKeys(ctx, "acp", "profile")
+	if err != nil {
+		return nil, err
+	}
+	seen := map[string]bool{}
+	for _, key := range keys {
+		seen[key] = true
+	}
+	if home := s.home(); home != "" {
+		entries, err := os.ReadDir(filepath.Join(home, subdir))
+		if err != nil && !errors.Is(err, os.ErrNotExist) {
+			return nil, err
+		}
+		for _, entry := range entries {
+			name := entry.Name()
+			if entry.IsDir() || !strings.HasPrefix(name, "profile-") || !strings.HasSuffix(name, ".json") {
+				continue
+			}
+			// Uma cópia já consumida não depende mais do catálogo atual.
+			source, err := filepath.Abs(filepath.Join(home, subdir, name))
+			if err != nil {
+				return nil, err
+			}
+			if resolved, err := filepath.EvalSymlinks(source); err == nil {
+				source = resolved
+			}
+			if runtime.GOOS == "windows" {
+				source = strings.ToLower(source)
+			}
+			imported, err := s.repo.Imported(ctx, "acp", source)
+			if err != nil {
+				return nil, err
+			}
+			if imported {
+				continue
+			}
+			legacyKey := strings.TrimSuffix(strings.TrimPrefix(name, "profile-"), ".json")
+			if legacyKey == "" || ProfileKey(legacyKey) != legacyKey {
+				return nil, fmt.Errorf("origem legada ACP inválida: %s", name)
+			}
+			slug, err := s.legacyProfile(legacyKey)
+			if err != nil {
+				return nil, err
+			}
+			// O core importa uma vez; depois só consulta o banco, mesmo que o
+			// arquivo continue no diretório como recuperação.
+			if _, err := s.List(ctx, slug); err != nil {
+				return nil, err
+			}
+			seen[slug] = true
+		}
+	}
+	out := make([]string, 0, len(seen))
+	for key := range seen {
+		out = append(out, key)
+	}
+	sort.Strings(out)
+	return out, nil
+}
+func normalizeKind(kind string) string { return strings.ToLower(strings.TrimSpace(kind)) }
+func ProfileKey(slug string) string {
+	slug = strings.TrimSpace(strings.ToLower(slug))
+	if slug == "" || configdir.ValidateFilename(slug+".json") != nil {
+		return ""
+	}
+	return slug
 }

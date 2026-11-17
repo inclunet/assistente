@@ -118,12 +118,14 @@ func handlerDeExtensao(tela *telaDeExtensao, owner acp.TurnOwner, temTurno bool)
 	h := &acpRequestHandler{
 		owner: func(string) (acp.TurnOwner, bool) { return owner, temTurno },
 	}
-	if tela != nil {
-		h.questions = func() *questionnaire.Manager { return tela.manager }
-	}
 	// O questionário é lido na hora do uso, como em produção: teste que troca a
 	// tela depois de montar o handler continua valendo.
-	h.surfaces = questionnaire.NewRouter(h.questionnaireManager, nil)
+	h.surfaces = questionnaire.NewRouter(func() *questionnaire.Manager {
+		if tela == nil {
+			return nil
+		}
+		return tela.manager
+	}, nil)
 	return h
 }
 
@@ -288,7 +290,7 @@ func TestPrazoEstouradoNaPerguntaVoltaComoPulada(t *testing.T) {
 	// "skipped", e o agente leria o outro como decisão de verdade.
 	mudo := questionnaire.NewManager(func(string, any) {})
 	h := handlerDeExtensao(nil, acp.TurnOwner{ConversationID: "conversa-1", Interactive: true}, true)
-	h.questions = func() *questionnaire.Manager { return mudo }
+	h.surfaces = questionnaire.NewRouter(func() *questionnaire.Manager { return mudo }, nil)
 	avisos := escutandoAvisos(h)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
@@ -307,7 +309,7 @@ func TestPrazoEstouradoNaPerguntaVoltaComoPulada(t *testing.T) {
 func TestPrazoEstouradoNoPlanoVoltaComoRecusado(t *testing.T) {
 	mudo := questionnaire.NewManager(func(string, any) {})
 	h := handlerDeExtensao(nil, acp.TurnOwner{ConversationID: "conversa-1", Interactive: true}, true)
-	h.questions = func() *questionnaire.Manager { return mudo }
+	h.surfaces = questionnaire.NewRouter(func() *questionnaire.Manager { return mudo }, nil)
 	avisos := escutandoAvisos(h)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
@@ -328,7 +330,7 @@ func TestPerguntaSemRespostaNaoPenduraOAgente(t *testing.T) {
 	// assim, senão o agente fica esperando até o teto do transporte.
 	mudo := questionnaire.NewManager(func(string, any) {})
 	h := handlerDeExtensao(nil, acp.TurnOwner{ConversationID: "c", Interactive: true}, true)
-	h.questions = func() *questionnaire.Manager { return mudo }
+	h.surfaces = questionnaire.NewRouter(func() *questionnaire.Manager { return mudo }, nil)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()

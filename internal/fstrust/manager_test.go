@@ -1,6 +1,7 @@
 package fstrust
 
 import (
+	"assistente/internal/testutil/authorizationfixture"
 	"context"
 	"fmt"
 	"path/filepath"
@@ -11,7 +12,7 @@ import (
 )
 
 func ctxWith(convID, profileSlug string) context.Context {
-	return invocationctx.With(context.Background(), invocationctx.InvocationContext{
+	return invocationctx.With(authorizationfixture.Context(), invocationctx.InvocationContext{
 		ConversationID: convID,
 		ProfileSlug:    profileSlug,
 	})
@@ -19,8 +20,8 @@ func ctxWith(convID, profileSlug string) context.Context {
 
 func TestManager_MatchFileExactAndOperation(t *testing.T) {
 	dir := t.TempDir()
-	m := NewManagerWithDirs(dir, dir)
-	ctx := context.Background()
+	m := NewManager(authorizationfixture.Options(t, dir, dir))
+	ctx := authorizationfixture.Context()
 
 	file := filepath.Join(dir, "docs", "a.txt")
 	if err := m.Add(ctx, AllowlistEntry{
@@ -43,8 +44,8 @@ func TestManager_MatchFileExactAndOperation(t *testing.T) {
 
 func TestManager_FileGrantDoesNotMatchSiblingOrParentList(t *testing.T) {
 	dir := t.TempDir()
-	m := NewManagerWithDirs(dir, dir)
-	ctx := context.Background()
+	m := NewManager(authorizationfixture.Options(t, dir, dir))
+	ctx := authorizationfixture.Context()
 
 	docs := filepath.Join(dir, "docs")
 	file := filepath.Join(docs, "a.txt")
@@ -72,8 +73,8 @@ func TestManager_FileGrantDoesNotMatchSiblingOrParentList(t *testing.T) {
 
 func TestManager_DirGrantMatchesChildrenSameOperationOnly(t *testing.T) {
 	dir := t.TempDir()
-	m := NewManagerWithDirs(dir, dir)
-	ctx := context.Background()
+	m := NewManager(authorizationfixture.Options(t, dir, dir))
+	ctx := authorizationfixture.Context()
 
 	docs := filepath.Join(dir, "docs")
 	child := filepath.Join(docs, "nested", "a.txt")
@@ -104,7 +105,7 @@ func TestManager_DirGrantMatchesChildrenSameOperationOnly(t *testing.T) {
 
 func TestManager_ClearSession(t *testing.T) {
 	home := t.TempDir()
-	m := NewManagerWithDirs(home, home)
+	m := NewManager(authorizationfixture.Options(t, home, home))
 	ctx := ctxWith("conv-1", "")
 	file := filepath.Join(home, "secret.txt")
 
@@ -130,8 +131,8 @@ func TestManager_ClearSession(t *testing.T) {
 func TestManager_WorkspacePersistenceRoundtrip(t *testing.T) {
 	home := t.TempDir()
 	ws := t.TempDir()
-	m := NewManagerWithDirs(home, ws)
-	ctx := context.Background()
+	m := NewManager(authorizationfixture.Options(t, home, ws))
+	ctx := authorizationfixture.Context()
 
 	file := filepath.Join(ws, "notes.md")
 	if err := m.Add(ctx, AllowlistEntry{
@@ -143,7 +144,7 @@ func TestManager_WorkspacePersistenceRoundtrip(t *testing.T) {
 		t.Fatalf("Add workspace: %v", err)
 	}
 
-	m2 := NewManagerWithDirs(home, ws)
+	m2 := NewManager(authorizationfixture.Options(t, home, ws))
 	d := m2.Match(ctx, file, "edit")
 	if !d.Allowed || d.Scope != ScopeWorkspace {
 		t.Fatalf("esperado match workspace persistido, got %+v", d)
@@ -155,8 +156,8 @@ func TestManager_WorkspacePersistenceRoundtrip(t *testing.T) {
 
 func TestManager_Remove(t *testing.T) {
 	dir := t.TempDir()
-	m := NewManagerWithDirs(dir, dir)
-	ctx := context.Background()
+	m := NewManager(authorizationfixture.Options(t, dir, dir))
+	ctx := authorizationfixture.Context()
 	file := filepath.Join(dir, "a.txt")
 
 	_ = m.Add(ctx, AllowlistEntry{Path: file, Kind: KindFile, Operation: "read", Scope: ScopeGlobal})
@@ -173,8 +174,8 @@ func TestManager_Remove(t *testing.T) {
 
 func TestManager_PersistentReadsAndWritesAreSynchronized(t *testing.T) {
 	dir := t.TempDir()
-	m := NewManagerWithDirs(dir, dir)
-	ctx := context.Background()
+	m := NewManager(authorizationfixture.Options(t, dir, dir))
+	ctx := authorizationfixture.Context()
 
 	const entries = 20
 	errs := make(chan error, entries)
@@ -194,7 +195,9 @@ func TestManager_PersistentReadsAndWritesAreSynchronized(t *testing.T) {
 		}()
 		go func() {
 			defer wg.Done()
-			_ = m.List(ctx)
+			if _, err := m.List(ctx); err != nil {
+				t.Errorf("List concorrente: %v", err)
+			}
 			_ = m.Match(ctx, filepath.Join(dir, "files", fmt.Sprintf("%d.txt", i)), "read")
 		}()
 	}
@@ -206,7 +209,11 @@ func TestManager_PersistentReadsAndWritesAreSynchronized(t *testing.T) {
 			t.Fatalf("Add concorrente: %v", err)
 		}
 	}
-	if got := len(m.List(ctx)); got != entries {
+	listed, err := m.List(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := len(listed); got != entries {
 		t.Fatalf("listagem final perdeu entradas: got %d, want %d", got, entries)
 	}
 }

@@ -35,7 +35,8 @@ func (d Decision) String() string {
 }
 
 // Allowlist define um conjunto de regras para controle de acesso a comandos.
-// Armazenada como arquivo JSON em .assistente/allowlists/<slug>.json.
+// Persistida nas tabelas comuns de autorização; JSON é apenas formato legado
+// de importação e contrato de edição.
 type Allowlist struct {
 	// Name é o nome amigável da allowlist (ex: "Desenvolvimento")
 	Name string `json:"name"`

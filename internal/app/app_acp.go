@@ -9,11 +9,13 @@ import (
 	"assistente/internal/acp"
 	"assistente/internal/acpregistry"
 	"assistente/internal/acptrust"
+	"assistente/internal/authorization"
 	"assistente/internal/core/ports"
 	"assistente/internal/credentials"
 	"assistente/internal/database"
 	"assistente/internal/logging"
 	"assistente/internal/questionnaire"
+	"assistente/internal/trustscope"
 )
 
 // initACP cria o serviço que é dono dos processos e das sessões dos agentes de
@@ -25,14 +27,23 @@ func (a *App) initACP() {
 	// agente chega antes disso, porque o primeiro processo só sobe no primeiro
 	// turno.
 	if a.acpTrust == nil {
-		a.acpTrust = acptrust.NewStore()
+		a.acpTrust = acptrust.NewStore(trustscope.Options{MayImport: authorization.LocalLegacyOwner, LegacyProfiles: func() ([]string, error) {
+			if a.profileManager == nil {
+				return nil, errors.New("catálogo de perfis indisponível")
+			}
+			rows, err := a.profileManager.List()
+			keys := make([]string, 0, len(rows))
+			for _, row := range rows {
+				keys = append(keys, row.Slug)
+			}
+			return keys, err
+		}})
 	}
 	handler := &acpRequestHandler{
-		questions: func() *questionnaire.Manager { return a.questionnaireMgr },
-		surfaces:  a.questionnaireRouter(),
-		origin:    a.acpConversationSurface,
-		notices:   func() ports.Emitter { return a.emitter },
-		trust:     func() *acptrust.Store { return a.acpTrust },
+		surfaces: a.questionnaireRouter(),
+		origin:   a.acpConversationSurface,
+		notices:  func() ports.Emitter { return a.emitter },
+		trust:    func() *acptrust.Store { return a.acpTrust },
 		activeProfile: func() string {
 			if a.profileManager == nil {
 				return ""

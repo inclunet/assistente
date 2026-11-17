@@ -58,7 +58,12 @@ func handlerDeExtensaoNoCanal(tela *telaDeExtensao, canal *canalDeExtensao) *acp
 		return questionnaire.ChannelSurface(owner.ConversationID, "telegram", "contato-1")
 	}
 	h.surfaces = questionnaire.NewRouter(
-		h.questionnaireManager,
+		func() *questionnaire.Manager {
+			if tela == nil {
+				return nil
+			}
+			return tela.manager
+		},
 		func() questionnaire.ChannelAsker { return canal },
 	)
 	return h
