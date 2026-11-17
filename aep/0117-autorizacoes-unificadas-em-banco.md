@@ -1,6 +1,6 @@
 # AEP-0117 — Autorizações unificadas em banco
 
-**Status:** In Progress — implementação integrada; validação e reviews finais pendentes
+**Status:** Done
 
 ## Resumo
 
@@ -275,7 +275,7 @@ divisão, atualizar este plano sem fragmentar por arquivo ou pacote.
   domínios, conectadas aos fluxos existentes, incluindo gestão/revogação; retirar
   os stores de arquivo substituídos. Entrega útil: decisões existentes passam a
   sobreviver no banco com isolamento e origem preservados.
-- [ ] PR 2, base no PR 1: serviço/orquestração comum, consentimento escopado de
+- [x] PR 2, base no PR 1: serviço/orquestração comum, consentimento escopado de
   shell/ACP quando representável, área unificada de Permissões e remoção das
   interfaces/APIs redundantes. Entrega útil: autorização e gestão consistentes.
 
@@ -314,9 +314,11 @@ são explicitamente enumerados. Nenhum PR é mergeado pelo agente.
 - Origens ambíguas têm atribuição administrativa explícita no mesmo modelo de importações. Testes cobrem usuário não administrador, proprietário inexistente, reassignment e distinção entre atribuição e importação concluída.
 - A regressão de titularidade cobre adoção automática seguida de segunda conta e marcadores anteriores ao registro administrativo, impedindo reatribuição e duplicação de concessões.
 - Revisão remota da interface: recarga preserva o DataGrid e sua restauração por identidade, com fallback para a toolbar após remover a última linha. Associação navega para a rota de perfis, sem contornar guardas de comandos/modal. Regressões de foco e E2E de abertura do editor real passaram.
-- Revisão remota de diretório shell: regressões de troca de symlink durante consentimento, caminho literal com aspas e falha de mudança de diretório. O teste de startup bash com `cd` roda no CI Linux; o wrapper PowerShell foi exercitado localmente.
+- Revisão remota de diretório shell: regressões de troca de symlink durante consentimento, caminho literal com aspas e falha de mudança de diretório. O teste de startup bash com `cd` passou no CI Linux (job 133817079775); o wrapper PowerShell foi exercitado localmente.
 - Diagnósticos de migração usam `PermissionDiagnostic` com código, domínio e perfil, traduzidos nos três idiomas. Detalhes técnicos ficam no log; testes do controller preservam regras conhecidas junto da pendência e verificam os códigos.
-- Testes de UI cobrem axe, filtros, erro de leitura, pendências e confirmação de revogação. Testes de concorrência cobrem geração de sessão e snapshot consistente dos escopos. Build, vet, golangci-lint, TypeScript e ESLint passaram; Stylelint sem erros. Dez pacotes Go, 174 testes de regressão frontend e dois E2E de arquivos/foco passaram. Revisão independente concluída sem pendências. CI remoto ainda pendente. A tentativa de excluir ACP na suíte frontend ampla não foi respeitada pelos projetos Vitest e incluiu testes de UI com mocks; não houve execução de agentes nem testes Go ACP. As validações locais seguintes usam arquivos explicitamente selecionados.
+- Testes de UI cobrem axe, filtros, erro de leitura, pendências e confirmação de revogação. Testes de concorrência cobrem geração de sessão e snapshot consistente dos escopos. Build, vet, golangci-lint, TypeScript e ESLint passaram; Stylelint sem erros. Dez pacotes Go, 174 testes de regressão frontend e dois E2E de arquivos/foco passaram. Revisão independente concluída sem pendências. CI remoto completo aprovado no run 44016935185, incluindo ACP, startup Bash e detector de corrida. Quatro rodadas do Copilot tiveram seus achados corrigidos; a quarta pediu cobertura direta do formulário de atribuição, atendida por três testes de comportamento aprovados e revisados independentemente. A tentativa de excluir ACP na suíte frontend ampla não foi respeitada pelos projetos Vitest e incluiu testes de UI com mocks; não houve execução de agentes nem testes Go ACP. As validações locais seguintes usam arquivos explicitamente selecionados.
+O formulário de atribuição tem testes reais de seletores, IDs enviados, bloqueio durante gravação, sucesso confirmado, falha com retry e cancelamento. A revisão independente foi repetida a cada lote, sem pendências ao publicar. Ordem de merge pelo mantenedor: #1087 → #1088 → #1089; nenhum merge foi realizado pelo agente.
+
 ## Riscos
 
 - Ampliar permissões ao normalizar comandos ou migrar documentos homônimos:
@@ -333,19 +335,19 @@ são explicitamente enumerados. Nenhum PR é mergeado pelo agente.
 
 ## Critérios de aceitação
 
-- [ ] Rede, shell, FS e ACP persistem no banco atual, sem dual-write/fallback.
-- [ ] Os cinco escopos têm identidade e duração consistentes; escopo indisponível
+- [x] Rede, shell, FS e ACP persistem no banco atual, sem dual-write/fallback.
+- [x] Os cinco escopos têm identidade e duração consistentes; escopo indisponível
   não é oferecido nem convertido em outro mais amplo.
-- [ ] Negativas e barreiras de cada domínio prevalecem; isolamento por usuário,
+- [x] Negativas e barreiras de cada domínio prevalecem; isolamento por usuário,
   perfil, workspace, conversa e superfície é exercitado por testes.
-- [ ] Migração repetida/interrompida, arquivos inválidos, origens homônimas e
+- [x] Migração repetida/interrompida, arquivos inválidos, origens homônimas e
   revogação após importação não perdem negativas nem ampliam autorizações.
-- [ ] Consentimento concorrente, troca de aba/perfil e revogação durante pergunta
+- [x] Consentimento concorrente, troca de aba/perfil e revogação durante pergunta
   não autorizam outro contexto nem ignoram uma negativa recém-criada.
-- [ ] ACP usa o mesmo serviço sem inventar opções, herdar permissão de desktop
+- [x] ACP usa o mesmo serviço sem inventar opções, herdar permissão de desktop
   em canal ou confundir `allow_always` remoto com escopos locais.
-- [ ] Gestão mostra origem/escopo/efeito e revoga pelo mesmo repositório da execução.
-- [ ] Falhas de consulta/gravação têm erro e aviso coerentes, sem sucesso falso.
-- [ ] Código morto e testes exclusivos dos fluxos removidos foram eliminados;
+- [x] Gestão mostra origem/escopo/efeito e revoga pelo mesmo repositório da execução.
+- [x] Falhas de consulta/gravação têm erro e aviso coerentes, sem sucesso falso.
+- [x] Código morto e testes exclusivos dos fluxos removidos foram eliminados;
   cobertura relevante e documentos de usuário acompanham os consumidores migrados.
-- [ ] Checks verdes e reviews resolvidas em cada PR; ACP validado só no CI remoto.
+- [x] Checks verdes e reviews resolvidas em cada PR; validação completa de ACP concluída no CI remoto. A exceção da execução inicial de testes de UI com mocks está registrada acima; nenhuma execução local de agentes ou testes Go ACP ocorreu.
