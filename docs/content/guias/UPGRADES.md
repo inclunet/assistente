@@ -8,6 +8,12 @@ weight: 25
 Você pode atualizar diretamente de qualquer versão publicada do Assistente
 para a versão mais recente. Não é necessário instalar versões intermediárias.
 
+No Windows, a atualização pelo aviso do aplicativo executa o instalador em
+modo silencioso e reabre o Assistente ao concluir com sucesso. A configuração
+do PATH usa a conta da sessão interativa, inclusive quando outra conta autoriza
+o UAC. Se o instalador não concluir, a reabertura automática não acontece;
+abrir pelo atalho permite verificar a versão efetivamente instalada.
+
 ## Antes de atualizar
 
 1. Feche o Assistente.

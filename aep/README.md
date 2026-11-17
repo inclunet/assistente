@@ -1219,7 +1219,7 @@ de cancelamento de release na dependência; o AEP permanece **In Progress**.
 | [0026](0026-credential-fixes.md) | Correções no Sistema de Credenciais | ✅ Done |
 | [0027](0027-profiles-refactor.md) | Refatoração ProfilesPage | 🚧 In Progress |
 | [0028](0028-componentization.md) | Componentização Frontend | 🚧 In Progress |
-| [0029](0029-auto-update.md) | Sistema de Auto-Update | 🚧 In Progress — instalador inclui CLI e PATH por usuário; teste manual de UAC com outra conta pendente |
+| [0029](0029-auto-update.md) | Sistema de Auto-Update | 🚧 In Progress — instalador inclui CLI e PATH por usuário, com distinção entre SID de conta e logon; teste manual de UAC com outra conta pendente |
 | [0030](0030-email-system.md) | Sistema de Email | 📋 Open |
 | [0031](0031-email-refinements-security.md) | Email + Chat Security | 📋 Open |
 | [0032](0032-editor-rico.md) | Editor Rico + Inline Chat | 🚧 In Progress |

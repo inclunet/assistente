@@ -87,8 +87,17 @@ flowchart TD
 O instalador NSIS mantém a instalação em Program Files com elevação e distribui
 `assistente.exe` e `asst.exe` juntos, com a mesma versão. A pasta instalada é
 acrescentada somente ao PATH da conta da sessão interativa que iniciou a
-instalação, identificada pelo SID associado à estação interativa visível (User32),
-sem depender do serviço de Área de Trabalho Remota. A conta usada para fornecer credenciais ao UAC não recebe essa entrada.
+instalação, identificada pelo SID da conta no token do shell interativo (User32).
+O SID de logon da estação (`S-1-5-5-X-Y`) identifica a sessão, não a conta em
+HKEY_USERS: ele deve corresponder ao grupo de logon do token do shell, cuja
+sessão também deve coincidir com a do instalador. Somente então o SID da conta
+é usado para acessar o ambiente. Não há dependência do serviço de Área de
+Trabalho Remota nem fallback para a conta elevada. A conta usada para fornecer
+credenciais ao UAC não recebe essa entrada.
+Se a consulta ao shell for negada por pertencer a outra conta, o helper isolado
+habilita `SeDebugPrivilege` somente para obter o handle de consulta e restaura o
+estado anterior antes de ler o token. Sem esse privilégio disponível, falha
+explicitamente; nunca seleciona o ambiente da conta elevada como alternativa.
 
 O helper interno `asst _installer-path` não inicializa serviços ou banco. Ele
 preserva o tipo e conteúdo do PATH e registra por SID apenas entradas adicionadas
@@ -103,6 +112,12 @@ Evidências: testes de `internal/installpath` com chaves descartáveis do Regist
 teste de ausência de inicialização em `cmd/asst` e compilação NSIS sem execução
 por `.github/scripts/testar-instalador-windows.ps1`, incluídos no CI Windows.
 A consulta User32 foi exercitada em sessão Windows real pelo teste opt-in
-TestInteractiveUserSIDReadOnly, somente leitura; isso não cobre elevação com outra conta.
+TestInteractiveUserSIDReadOnly, somente leitura, incluindo abertura da chave de
+ambiente em HKEY_USERS. TestAccountSIDForStation cobre a distinção entre conta e
+logon e rejeita identidades de outra sessão de logon. Essa correção evita abortar
+a atualização ao acessar uma chave inexistente e permite alcançar a reabertura
+automática já prevista pelo instalador; isso não cobre elevação com outra conta.
+TestTokenPrivilegeRestoredAfterQuery verifica habilitação, restauração após
+sucesso/erro e recusa de privilégio ausente usando uma cópia descartável de token.
 A validação manual de instalação com credenciais de outra conta no UAC permanece
 pendente; a compilação do pacote não substitui esse teste.
