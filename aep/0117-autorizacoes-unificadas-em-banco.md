@@ -292,6 +292,10 @@ são explicitamente enumerados. Nenhum PR é mergeado pelo agente.
   resposta. Seus testes foram adaptados para contexto autenticado e banco
   isolado; execução exclusivamente no CI remoto.
 - CI remoto do PR #1088 concluído com sucesso no run `44004637706`, incluindo ACP e detector de corrida. Revisão independente local concluída sem pendências; achado remoto sobre criação concorrente de vínculo corrigido com regressão que reproduz SQLITE_BUSY antes do fix e passa após reexecutar a transação inteira.
+- Correção complementar do PR #1088: `SavePolicy` também repete a transação
+  inteira após contenção SQLite. `TestConcurrentSavePolicyRetriesWholeTransaction`
+  reproduz `SQLITE_BUSY` antes da correção na criação e edição concorrentes e
+  verifica revisão, unicidade e coerência entre metadados e regras após o retry.
 - Ainda pendentes: serviço único de decisão,
   consentimento escopado de shell/ACP, gestão unificada e atribuição explícita
   de proprietário para origens legadas ambíguas. Até essa atribuição existir,

@@ -72,7 +72,9 @@ func (r *Repository) SavePolicy(ctx context.Context, policy database.Authorizati
 	if err != nil {
 		return err
 	}
-	return db.Transaction(func(tx *gorm.DB) error { return savePolicy(tx, user, policy, rules) })
+	return database.WithSQLiteBusyRetry(ctx, "authorization.save_policy", func() error {
+		return db.Transaction(func(tx *gorm.DB) error { return savePolicy(tx, user, policy, rules) })
+	})
 }
 func savePolicy(tx *gorm.DB, user string, policy database.AuthorizationPolicy, rules []database.AuthorizationRule) error {
 	if policy.Domain != "shell" || policy.Slug == "" || policy.Source == "" {

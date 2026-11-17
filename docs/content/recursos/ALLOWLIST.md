@@ -42,6 +42,11 @@ As autorizações persistentes de rede, arquivos, comandos shell e agentes ACP
 ficam no banco já utilizado pelo Assistente. A atualização não muda a escolha
 do banco. Continue usando as telas de configuração para editar e revogar regras.
 
+Ao criar ou editar uma política de comandos shell, gravações concorrentes do
+chat podem ocupar o banco brevemente. O aplicativo repete automaticamente a
+transação dentro do limite de espera; metadados e regras são salvos juntos.
+Se a contenção persistir, a operação retorna erro sem salvar uma política parcial.
+
 Na primeira utilização, o aplicativo importa os arquivos antigos de
 `network-allowlist`, `path-allowlist`, `allowlists` e `acp-permissions`.
 Os arquivos permanecem como cópia de recuperação, mas deixam de ser consultados
