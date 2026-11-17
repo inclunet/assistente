@@ -53,6 +53,12 @@ Os arquivos permanecem como cópia de recuperação, mas deixam de ser consultad
 após a importação. Editá-los depois disso não altera as permissões do aplicativo.
 Uma regra revogada no banco não reaparece a partir dessas cópias.
 
+Para ACP, a migração aceita somente os arquivos antigos por perfil. Arquivos
+de workspace ou globais não concedem permissões ACP automaticamente. Se o nome
+antigo corresponder a mais de um perfil, ou a nenhum perfil existente, a origem
+fica bloqueada até sua identidade ser corrigida. O aplicativo não atribui a
+permissão a um perfil diferente por semelhança do nome.
+
 Arquivo inválido ou ilegível interrompe a autorização daquele domínio até a
 origem ser corrigida. A importação automática exige uma instalação local com
 um único usuário identificável; configurações antigas de ambientes com vários

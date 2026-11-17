@@ -25,6 +25,22 @@ func TestRunCommand_RejectsMissingCommand(t *testing.T) {
 	}
 }
 
+func TestPolicyLoadFailureDoesNotLogEditableValues(t *testing.T) {
+	var output bytes.Buffer
+	previous := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&output, nil)))
+	t.Cleanup(func() { slog.SetDefault(previous) })
+	rc := NewRunCommand(nil, nil, func(context.Context) (*allowlist.Allowlist, error) {
+		return nil, fmt.Errorf("argumento inválido: secret-token")
+	}, ".")
+	if result := rc.evaluateCommand(context.Background(), "git status"); result.Decision != allowlist.DecisionDeny {
+		t.Fatalf("falha não bloqueou: %+v", result)
+	}
+	if output.Len() == 0 || strings.Contains(output.String(), "secret-token") {
+		t.Fatalf("log ausente ou com segredo: %s", output.String())
+	}
+}
+
 func TestRunCommand_InvalidJSON(t *testing.T) {
 	rc := NewRunCommand(nil, nil, nil, ".")
 

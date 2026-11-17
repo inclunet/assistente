@@ -325,7 +325,7 @@ func (m *Manager) Create(ctx context.Context, al *Allowlist) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return slug, m.repo.SavePolicy(ctx, policyFor(slug, source, al), rules)
+	return slug, m.repo.CreatePolicy(ctx, policyFor(slug, source, al), rules)
 }
 func (m *Manager) Update(ctx context.Context, slug string, al *Allowlist) error {
 	row, err := m.selected(ctx, slug)
@@ -354,8 +354,10 @@ func (m *Manager) EnsureDefaults(ctx context.Context) error {
 	if err != nil || done {
 		return err
 	}
-	if len(rows) > 0 {
-		return m.repo.Import(ctx, "shell", "builtin:padrao", "v1", nil, func() error { return nil })
+	for _, row := range rows {
+		if row.Slug == defaultSlug {
+			return m.repo.Import(ctx, "shell", "builtin:padrao", "v1", nil, func() error { return nil })
+		}
 	}
 	source := m.home()
 	if source == "" {

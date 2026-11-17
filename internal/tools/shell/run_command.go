@@ -454,7 +454,7 @@ func (rc *RunCommand) evaluateCommand(ctx context.Context, command string) comma
 
 	al, err := rc.getAllowlistFn(ctx)
 	if err != nil {
-		logging.Errorf(ctx, "tools.shell.run-command", "Política de autorização shell indisponível: %v", err)
+		logging.Errorf(ctx, "tools.shell.run-command", "Política de autorização shell indisponível")
 		return commandpolicy.EvaluationResult{Decision: allowlist.DecisionDeny, Parse: commandpolicy.Parse(command), Reasons: []string{"política de autorização indisponível"}}
 	}
 	return commandpolicy.Evaluate(command, al)

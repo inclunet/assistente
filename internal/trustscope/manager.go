@@ -29,19 +29,22 @@ type Adapter[E any, Q any] struct {
 	Operation func(E) string
 }
 type Config[E any, Q any] struct {
-	Domain        string
-	Subdir        string
-	NotFoundError error
-	Adapter       Adapter[E, Q]
+	Domain                string
+	Subdir                string
+	NotFoundError         error
+	Adapter               Adapter[E, Q]
+	LegacyScopes          []Scope
+	ValidateLegacyProfile func(string, string) error
 }
 
 // Options permite injetar o repositório e as fontes legadas sem criar stores
 // alternativos. HomeDir/WorkDir são usados apenas pela importação.
 type Options struct {
-	Repository *authorization.Repository
-	HomeDir    func() string
-	WorkDir    func() string
-	MayImport  func(context.Context) bool
+	Repository     *authorization.Repository
+	HomeDir        func() string
+	WorkDir        func() string
+	MayImport      func(context.Context) bool
+	LegacyProfiles func() ([]string, error)
 }
 type Match[E any] struct {
 	Found bool
@@ -144,6 +147,13 @@ func canonicalPath(path string) string {
 }
 func (m *Manager[E, Q]) identity(ctx context.Context) (identity, error) {
 	id := m.Capture(ctx).Value(identityKey{m}).(identity)
+	user, err := database.RequireUserID(ctx)
+	if err != nil {
+		return id, err
+	}
+	if id.User != user {
+		return id, errors.New("usuário alterado durante autorização")
+	}
 	if id.User == "" {
 		return id, database.ErrUserScopeRequired
 	}
@@ -341,6 +351,11 @@ func (m *Manager[E, Q]) Remove(ctx context.Context, scope Scope, query Q) error 
 	}
 	for _, entry := range entries {
 		if m.config.Adapter.Scope(entry) == scope && m.config.Adapter.SameKey(entry, query) {
+			m.mu.RLock()
+			defer m.mu.RUnlock()
+			if id.Conversation != "" && m.generation[sessionKey{id.User, id.Conversation}] != id.Generation {
+				return errors.New("conversa alterada durante autorização")
+			}
 			err := m.options.Repository.Revoke(ctx, m.config.Domain, string(scope), key, m.config.Adapter.Identity(entry))
 			if errors.Is(err, authorization.ErrNotFound) {
 				return m.config.NotFoundError
@@ -354,6 +369,15 @@ func (m *Manager[E, Q]) Remove(ctx context.Context, scope Scope, query Q) error 
 // importLegacy é a única leitura de arquivo: o marcador transacional impede
 // fallback/reimportação depois que o banco passa a ser a fonte canônica.
 func (m *Manager[E, Q]) importLegacy(ctx context.Context, scope Scope, key string) error {
+	if m.config.LegacyScopes != nil {
+		allowed := false
+		for _, candidate := range m.config.LegacyScopes {
+			allowed = allowed || candidate == scope
+		}
+		if !allowed {
+			return nil
+		}
+	}
 	m.importMu.Lock()
 	defer m.importMu.Unlock()
 	m.mu.RLock()
@@ -412,6 +436,12 @@ func (m *Manager[E, Q]) importLegacy(ctx context.Context, scope Scope, key strin
 		Entries []E `json:"entries"`
 	}
 	if !missing {
+		if scope == ScopeProfile && m.config.ValidateLegacyProfile != nil {
+			legacyKey := strings.TrimSuffix(strings.TrimPrefix(filepath.Base(source), "profile-"), ".json")
+			if err := m.config.ValidateLegacyProfile(key, legacyKey); err != nil {
+				return err
+			}
+		}
 		if permit == nil || !permit(ctx) {
 			return errors.New("autorizações legadas aguardam atribuição de proprietário")
 		}

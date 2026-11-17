@@ -664,7 +664,7 @@ func TestOIdentificadorVoltaAoAgenteComoEleOMandou(t *testing.T) {
 }
 
 func TestSemOpcaoPontualNaoConcedeSempreNoAgente(t *testing.T) {
-	tela := novaTelaFalsa(func(opcoes []string) string { t.Fatal("não deve oferecer autorização permanente remota"); return "" })
+	tela := novaTelaFalsa(func(opcoes []string) string { return "" })
 	h := handlerCom(tela, acp.TurnOwner{UserID: "authorization-test-user", ConversationID: "c", Interactive: true, ProfileSlug: "cursor"}, true)
 	store := lembrandoAutorizacoes(t, h, "cursor")
 	pedido := pedidoDeExecucao()
@@ -674,6 +674,9 @@ func TestSemOpcaoPontualNaoConcedeSempreNoAgente(t *testing.T) {
 	}
 	if allowed, err := store.Allows(authorizationfixture.Context(), "cursor", "execute"); err != nil || allowed {
 		t.Fatalf("gravou permissão sem decisão: %v, %v", allowed, err)
+	}
+	if tela.quantasPerguntas() != 0 {
+		t.Fatal("não deve oferecer autorização permanente remota")
 	}
 }
 

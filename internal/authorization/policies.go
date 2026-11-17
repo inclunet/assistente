@@ -76,7 +76,32 @@ func (r *Repository) SavePolicy(ctx context.Context, policy database.Authorizati
 		return db.Transaction(func(tx *gorm.DB) error { return savePolicy(tx, user, policy, rules) })
 	})
 }
+
+// CreatePolicy rejeita duplicatas atomicamente, inclusive entre chamadas concorrentes.
+func (r *Repository) CreatePolicy(ctx context.Context, policy database.AuthorizationPolicy, rules []database.AuthorizationRule) error {
+	db, user, err := r.query(ctx)
+	if err != nil {
+		return err
+	}
+	return database.WithSQLiteBusyRetry(ctx, "authorization.create_policy", func() error {
+		return db.Transaction(func(tx *gorm.DB) error {
+			var count int64
+			if err := tx.Model(&database.AuthorizationPolicy{}).Where("user_id = ? AND domain = ? AND slug = ?", user, policy.Domain, policy.Slug).Count(&count).Error; err != nil {
+				return err
+			}
+			if count != 0 {
+				return errors.New("política já existe")
+			}
+			return writePolicy(tx, user, policy, rules, true)
+		})
+	})
+}
+
 func savePolicy(tx *gorm.DB, user string, policy database.AuthorizationPolicy, rules []database.AuthorizationRule) error {
+	return writePolicy(tx, user, policy, rules, false)
+}
+
+func writePolicy(tx *gorm.DB, user string, policy database.AuthorizationPolicy, rules []database.AuthorizationRule, createOnly bool) error {
 	if policy.Domain != "shell" || policy.Slug == "" || policy.Source == "" {
 		return errors.New("política inválida")
 	}
@@ -84,24 +109,34 @@ func savePolicy(tx *gorm.DB, user string, policy database.AuthorizationPolicy, r
 		return errors.New("efeito padrão inválido")
 	}
 	policy.UserID = user
-	var current database.AuthorizationPolicy
-	err := tx.Where("user_id = ? AND domain = ? AND slug = ? AND source = ?", user, policy.Domain, policy.Slug, policy.Source).First(&current).Error
-	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
-		return err
-	}
-	if err == nil {
-		policy.ID = current.ID
-		policy.CreatedAt = current.CreatedAt
-		policy.Revision = current.Revision + 1
-	} else {
+	if createOnly {
 		policy.ID = ""
 		policy.Revision = 1
-	}
-	if err := tx.Save(&policy).Error; err != nil {
-		return err
-	}
-	if err := tx.Where("user_id = ? AND policy_id = ?", user, policy.ID).Delete(&database.AuthorizationRule{}).Error; err != nil {
-		return err
+		// INSERT, nunca upsert: a restrição única também arbitra concorrência
+		// nos bancos com READ COMMITTED, sem substituir a política vencedora.
+		if err := tx.Create(&policy).Error; err != nil {
+			return err
+		}
+	} else {
+		var current database.AuthorizationPolicy
+		err := tx.Where("user_id = ? AND domain = ? AND slug = ? AND source = ?", user, policy.Domain, policy.Slug, policy.Source).First(&current).Error
+		if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+			return err
+		}
+		if err == nil {
+			policy.ID = current.ID
+			policy.CreatedAt = current.CreatedAt
+			policy.Revision = current.Revision + 1
+		} else {
+			policy.ID = ""
+			policy.Revision = 1
+		}
+		if err := tx.Save(&policy).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("user_id = ? AND policy_id = ?", user, policy.ID).Delete(&database.AuthorizationRule{}).Error; err != nil {
+			return err
+		}
 	}
 	for i, rule := range rules {
 		rule.ID = ""

@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -12,6 +13,60 @@ func lojaEmDiretorioTemporario(t *testing.T) (*Store, string) {
 	t.Helper()
 	dir := t.TempDir()
 	return NewStore(authorizationfixture.Options(t, dir, "")), dir
+}
+
+func TestLegacyACPDoesNotImportWorkspaceOrGlobalGrants(t *testing.T) {
+	dir := t.TempDir()
+	store := NewStore(authorizationfixture.Options(t, dir, dir))
+	for _, scope := range []string{"workspace", "global"} {
+		path := filepath.Join(dir, subdir, scope+".json")
+		if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(`{"version":1,"entries":[{"kind":"execute","scope":"`+scope+`"}]}`), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if allowed, err := store.Allows(authorizationfixture.Context(), "cursor", "execute"); err != nil || allowed {
+		t.Fatalf("origem ACP inexistente no legado concedeu: %v %v", allowed, err)
+	}
+}
+
+func TestLegacyACPResolvesOnlyUnambiguousProfileIdentity(t *testing.T) {
+	for _, keys := range [][]string{{"dev.local"}, {"dev.local", "devlocal"}, {}} {
+		t.Run(strings.Join(keys, ","), func(t *testing.T) {
+			store, dir := lojaEmDiretorioTemporario(t)
+			store.profiles = func() ([]string, error) { return keys, nil }
+			path := filepath.Join(dir, subdir, "profile-devlocal.json")
+			if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(path, []byte(`{"version":1,"entries":[{"kind":"execute"}]}`), 0600); err != nil {
+				t.Fatal(err)
+			}
+			profiles, err := store.Profiles(authorizationfixture.Context())
+			if len(keys) != 1 {
+				if err == nil {
+					t.Fatal("origem ambígua ou desconhecida foi importada")
+				}
+				for _, key := range []string{"dev.local", "devlocal"} {
+					if allowed, err := store.Allows(authorizationfixture.Context(), key, "execute"); err == nil || allowed {
+						t.Fatalf("perfil %s recebeu concessão: %v %v", key, allowed, err)
+					}
+				}
+				return
+			}
+			if err != nil || !slices.Equal(profiles, keys) {
+				t.Fatalf("perfil original perdido: %v %v", profiles, err)
+			}
+			if allowed, err := store.Allows(authorizationfixture.Context(), "dev.local", "execute"); err != nil || !allowed {
+				t.Fatalf("concessão original perdida: %v %v", allowed, err)
+			}
+			if allowed, _ := store.Allows(authorizationfixture.Context(), "devlocal", "execute"); allowed {
+				t.Fatal("concessão transferida ao alias")
+			}
+		})
+	}
 }
 
 func TestOQueFoiAutorizadoParaSempreVoltaNaProximaVez(t *testing.T) {
