@@ -39,7 +39,7 @@ export function buildVoiceAccessibilityOriginFromTab(tab: WorkspaceTab, workspac
     surfaceId: tab.id,
     conversationId: tab.conversationId,
     surfaceType: tab.type,
-    profileSlug: (tab.profileOverride?.slug as string | undefined) ?? workspace?.profile ?? null,
+    profileSlug: (tab.profileOverride?.slug as string | undefined) ?? workspace?.defaultProfile ?? null,
     title: tab.title,
   };
 }

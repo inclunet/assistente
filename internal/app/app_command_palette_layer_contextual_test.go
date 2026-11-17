@@ -51,9 +51,8 @@ func TestContextualPaletteLayerProfileABABeforeClaim(t *testing.T) {
 				// snapshot comparison protected through the claim can reject it.
 				occurrence.valid = func() bool {
 					current := p.localKeyboardContextCurrent(proof)
-					if f.a.workspaceMgr.SetProfile("other") != nil || f.a.workspaceMgr.SetProfile("dev") != nil {
-						return false
-					}
+					f.a.workspaceMgr.SetDefaultProfile("other")
+					f.a.workspaceMgr.SetDefaultProfile("dev")
 					return current
 				}
 			}
@@ -69,10 +68,9 @@ func TestContextualPaletteLayerProfileABABeforeClaim(t *testing.T) {
 				if scenario != "profile-ABA" {
 					return nil
 				}
-				if err := f.a.workspaceMgr.SetProfile("other"); err != nil {
-					return err
-				}
-				return f.a.workspaceMgr.SetProfile("dev")
+				f.a.workspaceMgr.SetDefaultProfile("other")
+				f.a.workspaceMgr.SetDefaultProfile("dev")
+				return nil
 			})
 			if err != nil {
 				t.Fatal(err)
@@ -109,9 +107,7 @@ func newContextualLayerPaletteFixture(t *testing.T) contextualLayerPaletteFixtur
 	for _, id := range []string{commandLayerActivateID, commandLayerToggleID, commandLayerBackID} {
 		assertContextualLayerReady(t, a, id, false)
 	}
-	if err := a.workspaceMgr.SetProfile("dev"); err != nil {
-		t.Fatal(err)
-	}
+	a.workspaceMgr.SetDefaultProfile("dev")
 	snapshot, err := a.workspaceMgr.CommandSnapshot()
 	if err != nil {
 		t.Fatal(err)

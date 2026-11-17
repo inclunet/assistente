@@ -70,12 +70,12 @@ type TabsState struct {
 
 // Workspace é o container principal de abas mistas.
 type Workspace struct {
-	ID        string    `json:"id" yaml:"id"`
-	Name      string    `json:"name" yaml:"name"`
-	Profile   string    `json:"profile,omitempty" yaml:"profile,omitempty"`
-	CreatedAt time.Time `json:"created_at" yaml:"created_at"`
-	LastUsed  time.Time `json:"last_used" yaml:"last_used"`
-	Tabs      TabsState `json:"tabs" yaml:"tabs"`
+	ID             string    `json:"id" yaml:"id"`
+	Name           string    `json:"name" yaml:"name"`
+	DefaultProfile string    `json:"default_profile,omitempty" yaml:"-"`
+	CreatedAt      time.Time `json:"created_at" yaml:"created_at"`
+	LastUsed       time.Time `json:"last_used" yaml:"last_used"`
+	Tabs           TabsState `json:"tabs" yaml:"tabs"`
 
 	// SnapshotEpoch e SnapshotSequence são metadados transitórios de transporte.
 	// Nunca pertencem ao estado persistido do workspace nem à versão semântica
@@ -103,7 +103,6 @@ type WorkspaceInfo struct {
 	ID       string `json:"id"`
 	Name     string `json:"name"`
 	Path     string `json:"path"`
-	Profile  string `json:"profile"`
 	TabCount int    `json:"tab_count"`
 	IsActive bool   `json:"is_active"`
 }

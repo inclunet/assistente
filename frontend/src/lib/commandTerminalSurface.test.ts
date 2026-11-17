@@ -8,7 +8,7 @@ const tab: WorkspaceTab = {
   state: { sessionId: 'session-1' },
 };
 const workspace: WorkspaceData = {
-  id: 'workspace-1', name: 'Workspace', activeTabId: tab.id, tabs: [tab], profile: 'default',
+  id: 'workspace-1', name: 'Workspace', activeTabId: tab.id, tabs: [tab], defaultProfile: 'default',
 };
 const session = {
   id: 'session-1', name: 'Shell', cwd: '/tmp', state: 'running', shell: 'sh',

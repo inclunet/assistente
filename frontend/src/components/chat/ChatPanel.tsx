@@ -35,7 +35,7 @@ function profileSlugFrom(value: unknown): string | undefined {
 
 export function useEffectiveProfileSlug(tabId?: string, overrideProfileSlug?: string): string | undefined {
   const workspaceTabs = useWorkspaceStore((s) => s.workspace?.tabs);
-  const workspaceProfile = useWorkspaceStore((s) => s.workspace?.profile);
+  const workspaceProfile = useWorkspaceStore((s) => s.workspace?.defaultProfile);
   const surfaceTab = tabId
     ? workspaceTabs?.find((tab) => tab.id === tabId)
     : undefined;

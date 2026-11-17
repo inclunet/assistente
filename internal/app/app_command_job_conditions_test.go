@@ -72,9 +72,7 @@ func TestCommandJobLayerUsesOnlyEnabledOwnedUserLayer(t *testing.T) {
 
 func TestCommandJobConditionUsesAuthoritativeProfileAndRejectsUnknownOrInvalid(t *testing.T) {
 	a := commandMaintenanceAppFixture(t)
-	if err := a.workspaceMgr.SetProfile("profile-fixture"); err != nil {
-		t.Fatal(err)
-	}
+	a.workspaceMgr.SetDefaultProfile("profile-fixture")
 	owner := commandactivation.Owner{Scope: commandactivation.Scope{UserID: a.currentUserID, WorkspaceID: func() *string { id := a.workspaceMgr.Active().ID; return &id }()}, AuthContextID: a.currentAuthUser.SessionID}
 	db := database.DB()
 

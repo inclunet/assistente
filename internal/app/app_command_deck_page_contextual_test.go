@@ -20,9 +20,7 @@ func configurePageDeckCommand(t *testing.T, a *App, id, surface string) string {
 	if err := commandautomation.Migrate(context.Background(), database.DB()); err != nil {
 		t.Fatal(err)
 	}
-	if err := a.workspaceMgr.SetProfile("dev"); err != nil {
-		t.Fatal(err)
-	}
+	a.workspaceMgr.SetDefaultProfile("dev")
 	config := contextualCommandConfigFixture{}
 	layerID, _ := config.layer(t, "Physical page "+id, "always")
 	appPage := surface
@@ -328,12 +326,8 @@ func TestContextualDeckPageRejectsInvalidOffers(t *testing.T) {
 				p.keyboardMap.view.ValidUntil = time.Now().Add(-time.Second).UnixMilli()
 				p.keyboardMu.Unlock()
 			case "profile-ABA":
-				if err := a.workspaceMgr.SetProfile("other"); err != nil {
-					t.Fatal(err)
-				}
-				if err := a.workspaceMgr.SetProfile("dev"); err != nil {
-					t.Fatal(err)
-				}
+				a.workspaceMgr.SetDefaultProfile("other")
+				a.workspaceMgr.SetDefaultProfile("dev")
 			case "disconnect":
 				controller.reset("test-deck")
 			case "workspace-ingress":
@@ -415,9 +409,8 @@ func TestContextualDeckPageTargetAndSourceGuards(t *testing.T) {
 				case "disconnect-before-commit":
 					controller.reset("test-deck")
 				case "ABA-before-commit":
-					if err = a.workspaceMgr.SetProfile("other"); err == nil {
-						err = a.workspaceMgr.SetProfile("dev")
-					}
+					a.workspaceMgr.SetDefaultProfile("other")
+					a.workspaceMgr.SetDefaultProfile("dev")
 				}
 				if err != nil {
 					t.Fatal(err)

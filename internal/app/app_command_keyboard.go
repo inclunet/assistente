@@ -532,7 +532,7 @@ func localKeyboardEffectiveProfile(snapshot workspace.CommandSnapshot) string {
 	if snapshot.Tab.ProfileOverrideSlug != "" {
 		return snapshot.Tab.ProfileOverrideSlug
 	}
-	return snapshot.WorkspaceProfile
+	return snapshot.DefaultProfile
 }
 
 func localKeyboardProfileRequired(configuration *commandbindings.Configuration, identity string) bool {

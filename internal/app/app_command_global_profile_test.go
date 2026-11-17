@@ -12,9 +12,7 @@ func globalProfileFixture(t *testing.T) (*App, commandGlobalBinding, *commandbin
 	t.Helper()
 	a, binding := globalVoiceExecutionFixture(t)
 	p := a.commandProduct.Load()
-	if err := a.workspaceMgr.SetProfile("profile-a"); err != nil {
-		t.Fatal(err)
-	}
+	a.workspaceMgr.SetDefaultProfile("profile-a")
 	configuration, err := commandbindings.NewConfiguration([]commandbindings.Default{{Version: "1", Fingerprint: binding.Fingerprint, Candidate: commandbindings.Candidate{ID: binding.ID, Trigger: binding.Identity, CommandID: binding.CommandID, ArgumentsKey: string(binding.Arguments), ExecutionScopeKey: "global", Scope: commandbindings.Application, Enabled: true, LayerActive: true, Condition: commandbindings.Facts{commandbindings.Profile: "profile-a"}}}}, nil, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -30,9 +28,7 @@ func globalProfileFixture(t *testing.T) (*App, commandGlobalBinding, *commandbin
 func TestCommandGlobalProfileMismatchDoesNotRebuildConfiguration(t *testing.T) {
 	a, binding, configuration := globalProfileFixture(t)
 	p := a.commandProduct.Load()
-	if err := a.workspaceMgr.SetProfile("profile-b"); err != nil {
-		t.Fatal(err)
-	}
+	a.workspaceMgr.SetDefaultProfile("profile-b")
 	if occurrence, err := p.prepareGlobalOccurrence(context.Background(), binding, func() bool { return true }); err == nil || occurrence != nil {
 		t.Fatalf("wrong profile admitted: %+v %v", occurrence, err)
 	}
@@ -40,9 +36,7 @@ func TestCommandGlobalProfileMismatchDoesNotRebuildConfiguration(t *testing.T) {
 	if err != nil || current != configuration {
 		t.Fatalf("false condition rebuilt configuration: %v", err)
 	}
-	if err := a.workspaceMgr.SetProfile("profile-a"); err != nil {
-		t.Fatal(err)
-	}
+	a.workspaceMgr.SetDefaultProfile("profile-a")
 	if occurrence, err := p.prepareGlobalOccurrence(context.Background(), binding, func() bool { return true }); err != nil || occurrence == nil || occurrence.originVersion == "" {
 		t.Fatalf("matching profile not admitted: %+v %v", occurrence, err)
 	}
@@ -51,12 +45,8 @@ func TestCommandGlobalProfileMismatchDoesNotRebuildConfiguration(t *testing.T) {
 func TestCommandGlobalProfileABAReturnDoesNotRevivePreparedOccurrence(t *testing.T) {
 	a, binding, _ := globalProfileFixture(t)
 	reservation := reserveGlobalVoiceForTest(t, a, binding, func() bool { return true })
-	if err := a.workspaceMgr.SetProfile("profile-b"); err != nil {
-		t.Fatal(err)
-	}
-	if err := a.workspaceMgr.SetProfile("profile-a"); err != nil {
-		t.Fatal(err)
-	}
+	a.workspaceMgr.SetDefaultProfile("profile-b")
+	a.workspaceMgr.SetDefaultProfile("profile-a")
 	if _, err := a.TakeGlobalVoiceCommand(reservation.Ticket); err == nil {
 		t.Fatal("A-B-A revived the physical occurrence")
 	}

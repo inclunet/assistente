@@ -11,7 +11,7 @@ import type { WorkspaceTab } from '../../store/workspaceStore';
 const state = vi.hoisted(() => {
   const listeners = new Set<() => void>();
   const workspace = {
-    id: 'workspace-a', name: 'Workspace', profile: 'focused', activeTabId: 'tab-tasklist',
+    id: 'workspace-a', name: 'Workspace', defaultProfile: 'focused', activeTabId: 'tab-tasklist',
     tabs: [
       { id: 'tab-tasklist', type: 'tasklist', title: 'Tasks', position: 0 },
       { id: 'tab-chat', type: 'chat', title: 'Chat', position: 1 },

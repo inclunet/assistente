@@ -3,7 +3,7 @@ const MAX_UINT64 = '18446744073709551615';
 export interface WorkspaceSnapshotPayload {
   id: string;
   name: string;
-  profile?: string;
+  default_profile?: string;
   snapshot_epoch?: unknown;
   snapshot_sequence?: unknown;
   tabs?: {

@@ -78,7 +78,6 @@ func (b *Builder) BuildTemplateData(activeProfile *profiles.Profile, params llm.
 		if ws := b.Workspace.Active(); ws != nil {
 			data.WorkspaceID = ws.ID
 			data.WorkspaceName = ws.Name
-			data.WorkspaceProfile = ws.Profile
 			data.TabCount = len(ws.Tabs.Items)
 			data.Tabs = make([]TabInfo, 0, len(ws.Tabs.Items))
 			for idx := range ws.Tabs.Items {

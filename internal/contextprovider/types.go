@@ -48,7 +48,6 @@ type BuildRequest struct {
 	WorkspaceID         string
 	ProjectID           string
 	WorkspaceName       string
-	WorkspaceProfile    string
 	TabCount            int
 	ActiveTabTitle      string
 	ActiveTabType       string

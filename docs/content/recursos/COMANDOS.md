@@ -272,7 +272,7 @@ falhar, passo e mensagem anunciada. Os itens básicos não exigem hardware
 físico, dados reais ou credenciais; o teste físico do Stream Deck é opcional.
 
 - [ ] **Paleta e teclado:** abra o workspace de teste, escreva `rascunho de
-  teste` no campo de mensagem e pressione **Ctrl+K**. Esperado: a busca abre e
+  teste` no campo de mensagem e pressione **Ctrl+Shift+P**. Esperado: a busca abre e
   o rascunho permanece intacto. Use **Seta para baixo** e **Seta para cima**;
   o destaque avança/recua uma opção por tecla, o foco permanece na busca e o
   NVDA anuncia a opção destacada. Busque **Listar workspaces**, pressione
@@ -865,7 +865,7 @@ Validação manual deste lote, em **lista descartável**, com tarefas de teste:
 
 ## Comandos padrão
 
-Abra o botão **Comandos** na barra superior ou pressione **Ctrl+K**, inclusive
+Abra o botão **Comandos** na barra superior ou pressione **Ctrl+Shift+P**, inclusive
 no campo de mensagem e em campos de texto nativos, sem alterar seu rascunho.
 Modais, composição IME e atalhos próprios de Monaco/contenteditable continuam
 protegidos. A lista não depende de criar uma camada pessoal nem
@@ -883,7 +883,7 @@ executados. Enter executa a opção disponível destacada; Escape fecha o picker
 
 Para conferir a correção da paleta:
 
-- [ ] Escreva um rascunho no campo de mensagem e pressione **Ctrl+K**:
+- [ ] Escreva um rascunho no campo de mensagem e pressione **Ctrl+Shift+P**:
   a busca abre e o rascunho permanece intacto.
 - [ ] Percorra opções com **Seta para baixo/cima**, como no picker de modelos:
   uma opção por pressionamento, sem mudar o foco para botões da lista.
@@ -905,7 +905,7 @@ binding daquele comando, quando há configuração correspondente. Ela não grav
 argumentos da execução. Se o comando não tiver binding localizado, a página
 informa que não encontrou uma configuração para ele.
 
-- [ ] Abra a paleta com **Ctrl+K**, selecione um comando e confira se o atalho
+- [ ] Abra a paleta com **Ctrl+Shift+P**, selecione um comando e confira se o atalho
   efetivo aparece quando existe. Resultado: ________.
 - [ ] Marque e desmarque **Favoritar** no item selecionado; confira o estado
   anunciado e que favoritos aparecem primeiro. Resultado: ________.
@@ -942,7 +942,7 @@ ad hoc; não associe uma ferramenta a atalho de teclado ou Stream Deck.
 
 Checklist manual curto, usando uma ferramenta compatível e dados sintéticos:
 
-- [ ] Abra **Comandos** com **Ctrl+K**, pesquise pelo nome amigável e confira
+- [ ] Abra **Comandos** com **Ctrl+Shift+P**, pesquise pelo nome amigável e confira
   que a janela exibe a descrição/schema disponível sem expor um ID técnico.
   Resultado: ________.
 - [ ] Em `arguments_json`, tente JSON sintaticamente inválido. Esperado: a
@@ -1134,7 +1134,7 @@ Roteiro para executar após a validação automática do lote:
 - [ ] Na aba de chat, escreva um rascunho e teste Ctrl+M, Escape, Ctrl+H,
   Escape, Ctrl+P, Escape. Cada combinação abre apenas o picker correspondente;
   o rascunho permanece intacto. Resultado: ____.
-- [ ] Abra Ctrl+K e procure cada um dos três comandos. Execute-os por Enter:
+- [ ] Abra Ctrl+Shift+P e procure cada um dos três comandos. Execute-os por Enter:
   deve abrir o picker do chat ativo, não outro chat. Resultado: ____.
 - [ ] Em uma aba de editor, abra o chat contextual com Ctrl+Shift+I. No campo
   de mensagem desse modal, repita Ctrl+M/H/P. Resultado: ____.
@@ -1264,7 +1264,7 @@ o aceite manual do novo terminal permanece pendente.
 
 Roteiro manual pendente:
 
-- [ ] No workspace, pressione **Ctrl+K**, escolha **Criar aba de terminal** e
+- [ ] No workspace, pressione **Ctrl+Shift+P**, escolha **Criar aba de terminal** e
   confirme uma nova sessão.
 - [ ] Configure uma tecla pessoal e uma tecla do Stream Deck para o mesmo
   comando; cada invocação deve criar uma nova sessão.
@@ -1397,7 +1397,7 @@ valendo; não há fallback para o tratamento antigo se o mapa estiver indisponí
 Alt+Backspace fora de campos editáveis continua impedindo o retorno nativo
 do WebView, inclusive com modal aberto, sem navegar por trás do modal.
 
-**Ctrl+K**, **Alt+E** e **Alt+I** agora pertencem ao mapa efetivo, sem um
+**Ctrl+Shift+P**, **Alt+E** e **Alt+I** agora pertencem ao mapa efetivo, sem um
 listener legado executando por fora. **F1** também usa o mapa efetivo e abre
 Ajuda. Pode ser suprimido, restaurado ou substituído por um atalho pessoal.
 Somente abrir Ajuda pelo teclado conserva a exceção durante modais; associar
@@ -1719,7 +1719,7 @@ automaticamente. A tela informa o recorte operacional.
 Os comandos **Abrir paleta de comandos**, **Abrir exportação de dados** e
 **Abrir importação de dados** podem ser associados ao teclado local e ao
 Stream Deck. São ações de apresentação: não gravam uma invocação por tecla.
-Os padrões são **Ctrl+K**, **Alt+E** e **Alt+I**, respectivamente. Podem ser
+Os padrões são **Ctrl+Shift+P**, **Alt+E** e **Alt+I**, respectivamente. Podem ser
 suprimidos ou substituídos por uma camada pessoal; sem o binding efetivo não
 há execução pelo atalho antigo. O botão da paleta continua acessível.
 
@@ -1729,13 +1729,13 @@ seção de exportação; não gera nem baixa um arquivo automaticamente.
 
 Teste este lote junto dos cenários de Ctrl+N abaixo:
 
-- [ ] Ctrl+K abre a paleta pelo picker compartilhado, inclusive no campo de
+- [ ] Ctrl+Shift+P abre a paleta pelo picker compartilhado, inclusive no campo de
   mensagem, sem alterar o rascunho. Setas e Enter selecionam normalmente.
 - [ ] Alt+E abre Dados na exportação sem gerar arquivo. Alt+I abre a seleção
   de arquivo; cancelar não importa dados.
-- [ ] Suprimir o padrão Ctrl+K: a tecla deixa de abrir a paleta, mas seu botão
+- [ ] Suprimir o padrão Ctrl+Shift+P: a tecla deixa de abrir a paleta, mas seu botão
   continua funcionando. Restaurar recupera o atalho.
-- [ ] Em camada pessoal ativa, associar Ctrl+K a Abrir histórico: a tecla
+- [ ] Em camada pessoal ativa, associar Ctrl+Shift+P a Abrir histórico: a tecla
   abre somente Histórico. Desativar a camada recupera a paleta padrão.
 - [ ] Associar uma tecla do Stream Deck a Abrir paleta de comandos e outra
   a Abrir exportação de dados: cada tecla executa apenas a ação configurada.
@@ -1975,7 +1975,7 @@ No editor rico, a paleta oferece **Definir link**, **Inserir tabela**,
 **Inserir bloco de código**, **Inserir diagrama Mermaid**, **Próxima célula**
 e **Célula anterior**. Não há novas teclas padrão para essas ações: é possível
 atribuir atalhos ou teclas do Stream Deck nas configurações de comandos.
-Ctrl+K continua abrindo a paleta, inclusive dentro do editor.
+Ctrl+Shift+P continua abrindo a paleta, inclusive dentro do editor.
 
 Definir link usa o formulário compartilhado: com texto selecionado, aplica
 o vínculo à seleção; com o cursor dentro de um link, altera seu endereço;
@@ -1995,7 +1995,7 @@ incluir endereço do link, texto ou conteúdo do documento no registro.
 
 ### Validação manual acumulada — inserções e células
 
-- [ ] Selecionar texto, abrir Ctrl+K e executar Definir link; preencher
+- [ ] Selecionar texto, abrir Ctrl+Shift+P e executar Definir link; preencher
   `https://example.com` e conferir que apenas o texto selecionado recebeu link.
 - [ ] Posicionar o cursor dentro do link e repetir Definir link com outro
   endereço; conferir que o texto não foi duplicado. Cancelar uma terceira
@@ -2274,7 +2274,7 @@ lote e a geração oficial dos bindings permanecem pendentes.
 - [ ] Reabrir a edição, alterar o texto e pressionar **Ctrl+Enter**. Conferir
   que salvou sem enviar uma nova mensagem. Resultado: __________.
 - [ ] Reabrir, alterar o texto e usar **Salvar edição da mensagem** pela
-  paleta (**Ctrl+K**). Repetir com teclado configurado e Stream Deck.
+  paleta (**Ctrl+Shift+P**). Repetir com teclado configurado e Stream Deck.
   Resultado: __________.
 - [ ] Manter Ctrl+Enter pressionado e conferir que não produz salvamentos
   repetidos. Cancelar outra edição e conferir texto original intacto.
@@ -2332,7 +2332,7 @@ O lote93 não representa a conclusão integral da migração de comandos.
 ## Editar e remover diagramas Mermaid
 
 Selecione um bloco Mermaid no editor Markdown ou rico, ou foque seu bloco
-no preview editável. Na paleta (**Ctrl+K**), procure **Editar diagrama Mermaid**
+no preview editável. Na paleta (**Ctrl+Shift+P**), procure **Editar diagrama Mermaid**
 (`editor.mermaid.open`). Os botões e gestos existentes do diagrama abrem o
 mesmo editor. Abrir não gera um registro de alteração no histórico.
 
@@ -2397,7 +2397,7 @@ conteúdo. A ordem depende da tela; regiões indisponíveis são puladas.
 Essas duas teclas passam pelo mapa em **Comandos e acionadores** e podem
 ser personalizadas. Manter a tecla pressionada não repete a navegação.
 
-Na paleta (**Ctrl+K**), procure **Próxima região**
+Na paleta (**Ctrl+Shift+P**), procure **Próxima região**
 (`navigation.landmark.next`), **Região anterior**
 (`navigation.landmark.previous`) ou **Região padrão**
 (`navigation.landmark.default`). Também podem ser associados ao Stream Deck.
@@ -2422,7 +2422,7 @@ navegação. A paleta não abre atrás de modais.
   Resultado: __________.
 - [ ] Repetir em **Histórico**, **Configurações** e **Ajuda**: mover uma única
   região por acionamento, sem salto duplo. Resultado: __________.
-- [ ] Partindo do conteúdo, abrir a paleta por **Ctrl+K** e executar
+- [ ] Partindo do conteúdo, abrir a paleta por **Ctrl+Shift+P** e executar
   **Próxima região**. Repetir clicando no botão da paleta: a referência deve
   continuar sendo a região original, não o campo de busca. Resultado: __________.
 - [ ] Associar os três comandos a teclas pessoais ou ao Stream Deck e conferir
@@ -2458,7 +2458,7 @@ associá-las a combinações próprias ou a teclas do Stream Deck em
 gestos locais dos componentes, não atalhos globais que capturam texto digitado.
 
 Para ações de uma mensagem, primeiro coloque o foco nela e depois abra a
-paleta por **Ctrl+K** ou pelo botão. A busca guarda a mensagem de origem;
+paleta por **Ctrl+Shift+P** ou pelo botão. A busca guarda a mensagem de origem;
 não escolhe a última mensagem nem muda de alvo se a conversa for trocada.
 As ações ficam indisponíveis quando não há mensagem apta. Chats em modais
 só operam enquanto aquele modal é o mais alto; diálogos de decisão e leitura
@@ -2474,7 +2474,7 @@ substituída durante o carregamento, o resultado antigo não desloca seu foco.
 
 ### Validação manual acumulada — apresentação do chat
 
-- [ ] Em um chat, abrir **Ctrl+K**, buscar **Focar mensagens** e executar.
+- [ ] Em um chat, abrir **Ctrl+Shift+P**, buscar **Focar mensagens** e executar.
   Repetir com **Focar campo de mensagem**. Conferir foco/anúncio com NVDA,
   incluindo uma conversa vazia. Resultado: __________.
 - [ ] Focar uma mensagem, abrir a paleta pelo teclado e executar
@@ -2545,7 +2545,7 @@ uma tarefa real de trabalho):
 - [ ] No terminal PowerShell, executar `Start-Sleep -Seconds 60` e pressionar
   Ctrl+C sem seleção. Esperado: voltar ao prompt sem fechar sessão/aba.
   Resultado: ________.
-- [ ] Repetir com o botão de interrupção e depois com **Ctrl+K → Interromper
+- [ ] Repetir com o botão de interrupção e depois com **Ctrl+Shift+P → Interromper
   comando do terminal**. Esperado: o mesmo terminal é interrompido.
   Resultado: ________.
 - [ ] Associar a ação a uma tecla pessoal e a uma tecla do Stream Deck.
@@ -2584,7 +2584,7 @@ Validação acumulada de listas, com dados descartáveis:
   Resultado: ________.
 - [ ] Editar ambos os campos e salvar. Confirmar que a mesma lista foi alterada,
   sem criar outra. Resultado: ________.
-- [ ] Selecionar uma lista, abrir Ctrl+K e executar **Duplicar lista selecionada**.
+- [ ] Selecionar uma lista, abrir Ctrl+Shift+P e executar **Duplicar lista selecionada**.
   Conferir nova lista com configurações, sem tarefas copiadas. Resultado: ________.
 - [ ] Executar **Excluir lista selecionada**, cancelar e confirmar que ela
   permanece. Repetir e confirmar a exclusão. Resultado: ________.
@@ -2949,7 +2949,7 @@ atualização não deve repetir a ação nem anunciar falha após um sucesso.
 Desabilitar uma camada impede novas ativações, mas não impede encerrar uma
 ativação manual anterior pelos controles de desativação.
 - [ ] Configure **Ativar camada** na paleta, limitado a uma aba escolhida
-  pelo nome. Abra **Ctrl+K** nessa aba e execute. Confira a camada ativa.
+  pelo nome. Abra **Ctrl+Shift+P** nessa aba e execute. Confira a camada ativa.
   Resultado: ________.
 - [ ] Configure **Alternar camada**, execute duas vezes reabrindo a paleta
   entre as seleções e confira ativação/desativação. Resultado: ________.
@@ -2962,7 +2962,7 @@ ativação manual anterior pelos controles de desativação.
 ### Paleta contextual nas páginas de listas e perfis
 
 Duplicar, excluir e limpar listas; duplicar, excluir e ativar perfis aceitam
-condições de foco do aplicativo, tipo de tela e perfil. Abra **Ctrl+K** a
+condições de foco do aplicativo, tipo de tela e perfil. Abra **Ctrl+Shift+P** a
 partir da página com o item de teste selecionado. A ação opera nesse item,
 não na aba que ficou aberta em segundo plano. Duplicar e limpar também
 funcionam na lista aberta como aba do workspace.
@@ -2973,7 +2973,7 @@ suporte contextual; a paleta não se abre sobre esses formulários.
 
 - [ ] Em uma camada de teste ativa, configure **Duplicar lista** na paleta
   com condição do tipo de tela de listas. Selecione uma lista descartável,
-  abra **Ctrl+K** e execute. Confira a cópia. Resultado: ________.
+  abra **Ctrl+Shift+P** e execute. Confira a cópia. Resultado: ________.
 - [ ] Configure **Excluir lista** ou **Limpar lista** e cancele a confirmação:
   os dados devem permanecer. Repita confirmando apenas sobre dados de teste.
   Resultado: ________.
@@ -2987,7 +2987,7 @@ suporte contextual; a paleta não se abre sobre esses formulários.
 Roteiro acumulado, usando uma camada de teste ativa:
 
 - [ ] Crie um acionador de paleta para criar uma aba de chat, condicionado
-  à aba atual escolhida pelo nome. Abra a paleta com **Ctrl+K** nessa aba e
+  à aba atual escolhida pelo nome. Abra a paleta com **Ctrl+Shift+P** nessa aba e
   execute a ação: deve criar exatamente uma aba. Resultado: ________.
 - [ ] Abra a paleta em outra aba: essa seleção condicionada não deve ficar
   disponível. Volte à aba de origem e repita com condição de perfil,
@@ -3006,7 +3006,7 @@ Use conversas e arquivos de teste:
 
 - [ ] Configure uma ação de mensagem, como **Alternar fixação da mensagem**,
   na paleta, com condição da aba de chat escolhida pelo nome. Selecione uma
-  mensagem e abra **Ctrl+K**; execute e confira a alteração uma vez.
+  mensagem e abra **Ctrl+Shift+P**; execute e confira a alteração uma vez.
   Repita em outra aba: a seleção condicionada deve ficar indisponível.
   Resultado: ________.
 - [ ] Configure a limpeza de conversa na paleta em uma conversa descartável.
@@ -3014,7 +3014,7 @@ Use conversas e arquivos de teste:
   permaneceu; só confirme exclusões que você realmente queira fazer.
   Resultado: ________.
 - [ ] No editor, condicione uma ação de formatação à aba e ao perfil.
-  Abra **Ctrl+K**, execute e confira o texto. Com outro perfil, a ação
+  Abra **Ctrl+Shift+P**, execute e confira o texto. Com outro perfil, a ação
   condicionada não deve executar. Resultado: ________.
 - [ ] Configure **Salvar cópia** na paleta e escolha um arquivo novo de teste.
   A ida ao diálogo nativo e a volta à mesma aba devem funcionar; recusar a

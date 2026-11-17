@@ -12,7 +12,7 @@ import (
 func TestContextualDeckPageFactsDoNotBorrowBackgroundSurface(t *testing.T) {
 	proof := &localCommandKeyboardContextProof{
 		observed: LocalCommandKeyboardContext{SurfaceType: "profiles", Profile: "override"},
-		snapshot: workspace.CommandSnapshot{WorkspaceProfile: "workspace", Tab: workspace.CommandTabSnapshot{ID: "background-chat", Type: workspace.TabTypeChat, ProfileOverrideSlug: "override"}},
+		snapshot: workspace.CommandSnapshot{DefaultProfile: "workspace", Tab: workspace.CommandTabSnapshot{ID: "background-chat", Type: workspace.TabTypeChat, ProfileOverrideSlug: "override"}},
 	}
 	origin, err := deckPageCommandFacts(proof, []commandbindings.Field{commandbindings.AppFocused, commandbindings.SurfaceType, commandbindings.Profile})
 	if err != nil || origin.facts[commandbindings.SurfaceType] != "profiles" || origin.facts[commandbindings.Profile] != "override" {

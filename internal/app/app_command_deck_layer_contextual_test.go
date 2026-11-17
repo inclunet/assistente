@@ -187,12 +187,8 @@ func TestContextualDeckLayerRejectsInvalidOffers(t *testing.T) {
 			case "disconnect":
 				c.reset("test-deck")
 			case "ABA":
-				if err := f.a.workspaceMgr.SetProfile("other"); err != nil {
-					t.Fatal(err)
-				}
-				if err := f.a.workspaceMgr.SetProfile("dev"); err != nil {
-					t.Fatal(err)
-				}
+				f.a.workspaceMgr.SetDefaultProfile("other")
+				f.a.workspaceMgr.SetDefaultProfile("dev")
 			case "wrong-profile":
 				observed.Profile = "other"
 			case "wrong-surface":
@@ -263,9 +259,8 @@ func TestContextualDeckLayerClaimRechecksProfileABA(t *testing.T) {
 			if scenario == "ABA-after-validation" {
 				occurrence.valid = func() bool {
 					current := p.localKeyboardContextCurrent(proof)
-					if f.a.workspaceMgr.SetProfile("other") != nil || f.a.workspaceMgr.SetProfile("dev") != nil {
-						return false
-					}
+					f.a.workspaceMgr.SetDefaultProfile("other")
+					f.a.workspaceMgr.SetDefaultProfile("dev")
 					return current
 				}
 			}
@@ -296,10 +291,9 @@ func TestContextualDeckLayerClaimRechecksProfileABA(t *testing.T) {
 				if err != nil || scenario != "ABA-before-claim" {
 					return err
 				}
-				if err = f.a.workspaceMgr.SetProfile("other"); err != nil {
-					return err
-				}
-				return f.a.workspaceMgr.SetProfile("dev")
+				f.a.workspaceMgr.SetDefaultProfile("other")
+				f.a.workspaceMgr.SetDefaultProfile("dev")
+				return nil
 			})
 			if err != nil {
 				t.Fatal(err)

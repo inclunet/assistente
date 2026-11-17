@@ -224,6 +224,7 @@ func (a *App) wireUpdater() {
 
 // wireProfiles monta o ProfilesController e associa o bind Wails (AEP-0088).
 func (a *App) wireProfiles() {
+	a.syncWorkspaceDefaultProfile()
 	a.profilesCtrl = controllers.NewProfilesController(controllers.ProfilesControllerConfig{
 		ProfileMgr:       a.profileManager,
 		Emitter:          a.emitter,

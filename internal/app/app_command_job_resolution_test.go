@@ -145,9 +145,7 @@ func TestCommandJobClaimRefreshesPaletteResolutionAfterRuntimeTerminal(t *testin
 
 func TestCommandJobConditionGuardRefreshesPaletteResolution(t *testing.T) {
 	a := commandJobPublicationApp(t)
-	if err := a.workspaceMgr.SetProfile("job-required-profile"); err != nil {
-		t.Fatal(err)
-	}
+	a.workspaceMgr.SetDefaultProfile("job-required-profile")
 	control := startCommandJobWithCondition(t, a, `{"version":1,"clauses":[{"field":"profile","op":"eq","value":"job-required-profile"}]}`)
 	runID := <-control.RunID
 	claim, _ := waitLiveClaimAndLease(t, runID)
@@ -163,9 +161,7 @@ func TestCommandJobConditionGuardRefreshesPaletteResolution(t *testing.T) {
 	if suppressed.Status != commandledger.Suppressed || suppressed.Envelope.CommandID != nil {
 		t.Fatalf("condição satisfeita não projetou suppress: status=%s command=%v", suppressed.Status, suppressed.Envelope.CommandID)
 	}
-	if err := a.workspaceMgr.SetProfile("different-profile"); err != nil {
-		t.Fatal(err)
-	}
+	a.workspaceMgr.SetDefaultProfile("different-profile")
 	control.Release()
 	if result, err := control.Join(); err != nil || result == nil || result.Status != jobs.RunStatusCompleted {
 		t.Fatalf("job condicionado não encerrou: result=%+v err=%v", result, err)

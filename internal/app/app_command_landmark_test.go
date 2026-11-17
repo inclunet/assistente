@@ -13,7 +13,7 @@ func TestCommandLandmarkLocalPresentationAndDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(p.registry.List()) != 155 || len(view.LocalPaletteCommands) != 66 || commandProductRegistryVersion != "product-v43-provider-creation" {
+	if len(p.registry.List()) != 155 || len(view.LocalPaletteCommands) != 66 || commandProductRegistryVersion != "product-v44-app-default-profile" {
 		t.Fatal("catalog counts/version")
 	}
 	for _, tc := range []struct {

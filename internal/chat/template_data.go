@@ -17,14 +17,13 @@ type TemplateData struct {
 	ConversationID                   string
 
 	// Workspace context
-	WorkspaceID      string
-	ProjectID        string
-	WorkspaceName    string
-	WorkspaceProfile string
-	ActiveTabTitle   string
-	ActiveTabType    string
-	Tabs             []TabInfo
-	TabCount         int
+	WorkspaceID    string
+	ProjectID      string
+	WorkspaceName  string
+	ActiveTabTitle string
+	ActiveTabType  string
+	Tabs           []TabInfo
+	TabCount       int
 
 	// Surface contém o contrato derivado da superfície que originou o envio.
 	Surface *SurfaceInfo

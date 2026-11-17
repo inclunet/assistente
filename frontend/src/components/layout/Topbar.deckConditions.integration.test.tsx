@@ -10,7 +10,7 @@ const state = vi.hoisted(() => ({
   listCatalog: vi.fn(),
   deck: new Map<string, (payload?: unknown) => void>(),
   auth: { isAuthenticated: true, user: { userId: 'user-a', sessionId: 'session-a' } },
-  workspace: { workspace: { id: 'workspace-a', profile: 'focused', activeTabId: 'tab-a', tabs: [{ id: 'tab-a', type: 'chat' }] }, workspaces: [] },
+  workspace: { workspace: { id: 'workspace-a', defaultProfile: 'focused', activeTabId: 'tab-a', tabs: [{ id: 'tab-a', type: 'chat' }] }, workspaces: [] },
   pathname: '/',
   announce: vi.fn(),
   navigate: vi.fn(),
@@ -63,7 +63,7 @@ describe('Topbar — StreamDeck conditions', () => {
     state.deckPagePresentation.publish.mockClear();
     state.deckPagePresentation.clear.mockClear();
     state.auth.user = { userId: 'user-a', sessionId: 'session-a' };
-    state.workspace.workspace = { id: 'workspace-a', profile: 'focused', activeTabId: 'tab-a', tabs: [{ id: 'tab-a', type: 'chat' }] };
+    state.workspace.workspace = { id: 'workspace-a', defaultProfile: 'focused', activeTabId: 'tab-a', tabs: [{ id: 'tab-a', type: 'chat' }] };
     vi.spyOn(document, 'hasFocus').mockReturnValue(true);
     state.loadMap.mockResolvedValue({ generation: 'deck-map', ownerId: 'user-a', sessionId: 'session-a', workspaceId: 'workspace-a', bindings: [], localPaletteCommands: [] });
     state.listCatalog.mockResolvedValue([{ id: 'navigation.palette.open', name: 'Palette', available: true }]);

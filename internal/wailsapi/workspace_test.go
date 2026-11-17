@@ -33,9 +33,6 @@ func TestWorkspaceNotWired(t *testing.T) {
 	if err := api.DeleteWorkspace("id"); !errors.Is(err, ErrWorkspaceNotWired) {
 		t.Fatalf("DeleteWorkspace: got %v", err)
 	}
-	if err := api.SetWorkspaceProfile("p"); !errors.Is(err, ErrWorkspaceNotWired) {
-		t.Fatalf("SetWorkspaceProfile: got %v", err)
-	}
 	if err := api.SaveWorkspace(); !errors.Is(err, ErrWorkspaceNotWired) {
 		t.Fatalf("SaveWorkspace: got %v", err)
 	}
@@ -110,9 +107,6 @@ func TestWorkspaceUsesWithUserNotRequireAuth(t *testing.T) {
 		}},
 		{"DeleteWorkspace", func() error {
 			return api.DeleteWorkspace("id")
-		}},
-		{"SetWorkspaceProfile", func() error {
-			return api.SetWorkspaceProfile("p")
 		}},
 		{"SaveWorkspace", func() error {
 			return api.SaveWorkspace()

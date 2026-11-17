@@ -90,7 +90,7 @@ describe('ChatPanel', () => {
       workspace: {
         id: 'ws-1',
         name: 'Workspace',
-        profile: 'workspace-profile',
+        defaultProfile: 'workspace-profile',
         tabs: [{
           id: 'tab-chat',
           type: 'chat',

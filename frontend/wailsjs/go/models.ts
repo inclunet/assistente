@@ -2889,7 +2889,6 @@ export namespace app {
 	export class CommandWorkspaceMetadata {
 	    id: string;
 	    name: string;
-	    profile: string;
 	    tab_count: number;
 	    is_active: boolean;
 	
@@ -2901,7 +2900,6 @@ export namespace app {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.id = source["id"];
 	        this.name = source["name"];
-	        this.profile = source["profile"];
 	        this.tab_count = source["tab_count"];
 	        this.is_active = source["is_active"];
 	    }
@@ -9933,7 +9931,7 @@ export namespace workspace {
 	export class Workspace {
 	    id: string;
 	    name: string;
-	    profile?: string;
+	    default_profile?: string;
 	    // Go type: time
 	    created_at: any;
 	    // Go type: time
@@ -9950,7 +9948,7 @@ export namespace workspace {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.id = source["id"];
 	        this.name = source["name"];
-	        this.profile = source["profile"];
+	        this.default_profile = source["default_profile"];
 	        this.created_at = this.convertValues(source["created_at"], null);
 	        this.last_used = this.convertValues(source["last_used"], null);
 	        this.tabs = this.convertValues(source["tabs"], TabsState);
@@ -9980,7 +9978,6 @@ export namespace workspace {
 	    id: string;
 	    name: string;
 	    path: string;
-	    profile: string;
 	    tab_count: number;
 	    is_active: boolean;
 	
@@ -9993,7 +9990,6 @@ export namespace workspace {
 	        this.id = source["id"];
 	        this.name = source["name"];
 	        this.path = source["path"];
-	        this.profile = source["profile"];
 	        this.tab_count = source["tab_count"];
 	        this.is_active = source["is_active"];
 	    }

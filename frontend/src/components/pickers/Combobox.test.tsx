@@ -265,7 +265,7 @@ describe('Combobox - allowFreeInput', () => {
     });
   });
 
-  it('expõe o atalho, anuncia uma vez, foca a busca e restaura o trigger no Escape', async () => {
+  it('expõe o atalho e a opção ativa, foca a busca e restaura o trigger no Escape', async () => {
     const onAnnounce = vi.fn();
     const user = userEvent.setup();
     const { container } = render(
@@ -285,8 +285,8 @@ describe('Combobox - allowFreeInput', () => {
     await user.click(trigger);
 
     await waitFor(() => expect(screen.getByRole('combobox')).toHaveFocus());
-    expect(onAnnounce).toHaveBeenCalledOnce();
-    expect(onAnnounce).toHaveBeenCalledWith('GPT-4, 1 common.of 3');
+    expect(onAnnounce).not.toHaveBeenCalled();
+    expect(screen.getByRole('combobox')).toHaveAttribute('aria-activedescendant', screen.getByRole('option', { name: 'GPT-4' }).id);
     expect(await axe(container)).toHaveNoViolations();
 
     await user.keyboard('{Escape}');
@@ -588,4 +588,23 @@ it('distingue nome catalogado e ID manual com o mesmo texto', async () => {
  expect(options[1]).toHaveTextContent('pickers.combobox.manualValue');
  await user.keyboard('{Enter}');
  expect(onSelect).toHaveBeenCalledWith('v1', expect.objectContaining({value:'v1'}));
+});
+
+it('expõe ajuda e estado pela opção ativa sem repetir o texto no anunciador', async () => {
+  const user = userEvent.setup();
+  const label = 'Enviar mensagem. Envia o texto. Indisponível nesta tela.';
+  render(<Combobox label="Comandos" selected="" onSelect={vi.fn()} items={[
+    { value: 'send', label: 'Enviar mensagem', accessibleLabel: label, disabled: true },
+    { value: 'settings', label: 'Configurações' },
+  ]} />);
+  announceMock.mockClear();
+  await user.click(screen.getByRole('button', { name: /Comandos/ }));
+  const input = screen.getByRole('combobox');
+  await waitFor(() => expect(input).toHaveFocus());
+  const option = screen.getByRole('option', { name: label });
+  expect(input).toHaveAttribute('aria-activedescendant', option.id);
+  expect(option).toHaveAttribute('aria-disabled', 'true');
+  await user.keyboard('{ArrowDown}{ArrowUp}');
+  expect(input).toHaveAttribute('aria-activedescendant', option.id);
+  expect(announceMock).not.toHaveBeenCalled();
 });

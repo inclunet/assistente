@@ -11,7 +11,7 @@ vi.mock('@wailsjs/go/wailsapi/Workspace', () => ({
   GetActiveWorkspace: ports.get, ListWorkspaces: ports.list, SetActiveWorkspaceTab: ports.activate,
   SwitchWorkspace: ports.switch, AddWorkspaceTab: ports.add,
   CreateWorkspace: vi.fn(), RenameWorkspace: vi.fn(), DeleteWorkspace: vi.fn(),
-  SetWorkspaceProfile: vi.fn(), RemoveWorkspaceTab: vi.fn(), UpdateWorkspaceTab: vi.fn(),
+ RemoveWorkspaceTab: vi.fn(), UpdateWorkspaceTab: vi.fn(),
   ReorderWorkspaceTabs: vi.fn(), MoveWorkspaceTabTo: vi.fn(), ExportWorkspace: vi.fn(), ImportWorkspace: vi.fn(),
 }));
 vi.mock('@wailsjs/runtime/runtime', () => ({
@@ -176,4 +176,18 @@ describe('snapshots produtivos e requisições concorrentes', () => {
     expect(ports.activate.mock.calls).toEqual([['a', 'two']]);
     expect(useWorkspaceStore.getState().workspace?.activeTabId).toBe('one');
   });
+});
+
+it('aplica o padrão do app pelo evento versionado e recusa publicação atrasada', async () => {
+  await start();
+  const base = snapshot(3);
+  const updated = { ...base, default_profile: 'new-default', tabs: { ...base.tabs,
+    items: base.tabs.items.map(tab => ({ ...tab, profile_override: { slug: 'conversation-profile' } })),
+  } };
+  ports.events.get('workspace:default_profile_changed')?.(updated);
+  expect(useWorkspaceStore.getState().workspace?.defaultProfile).toBe('new-default');
+  expect(useWorkspaceStore.getState().workspace?.tabs[0].profileOverride).toEqual({ slug: 'conversation-profile' });
+  ports.events.get('workspace:default_profile_changed')?.({ ...snapshot(2), default_profile: 'old-default' });
+  expect(useWorkspaceStore.getState().workspace?.defaultProfile).toBe('new-default');
+  expect(useWorkspaceStore.getState().workspace?.tabs[0].profileOverride).toEqual({ slug: 'conversation-profile' });
 });

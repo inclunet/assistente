@@ -30,7 +30,7 @@ const chatStoreListeners: Array<(state: ChatStoreListenerState) => void> = [];
 const workspaceStoreState = {
   workspace: {
     id: 'workspace-a',
-    profile: 'workspace-profile',
+    defaultProfile: 'workspace-profile',
     activeTabId: 'chat-tab',
     tabs: [{ id: 'chat-tab', type: 'chat' as const, conversationId, title: 'Conversa', position: 0 }],
   },
@@ -283,7 +283,7 @@ describe('ChatPage', () => {
     chatStoreListeners.splice(0);
     workspaceStoreState.workspace = {
       id: 'workspace-a',
-      profile: 'workspace-profile',
+      defaultProfile: 'workspace-profile',
       activeTabId: 'chat-tab',
       tabs: [{ id: 'chat-tab', type: 'chat' as const, conversationId, title: 'Conversa', position: 0 }],
     };

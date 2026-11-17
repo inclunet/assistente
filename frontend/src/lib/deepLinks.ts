@@ -409,7 +409,7 @@ export async function executeDeepLink(
   ) => {
     const profileSlug = profileSlugOverride
       || (tab.profileOverride?.slug as string | undefined)
-      || wsStore.workspace?.profile
+      || wsStore.workspace?.defaultProfile
       || undefined;
     const identity = createChatSurfaceIdentity({
       conversationId,

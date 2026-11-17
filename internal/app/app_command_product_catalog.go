@@ -13,7 +13,7 @@ const (
 	// recebido ou derivado de um cliente.
 	commandProductWorkspaceListID = "workspace.list"
 	commandProductShortcutsShowID = "help.shortcuts.show"
-	commandProductRegistryVersion = "product-v43-provider-creation"
+	commandProductRegistryVersion = "product-v44-app-default-profile"
 )
 
 // CommandWorkspaceMetadata é deliberadamente menor que workspace.WorkspaceInfo:
@@ -21,7 +21,6 @@ const (
 type CommandWorkspaceMetadata struct {
 	ID       string `json:"id"`
 	Name     string `json:"name"`
-	Profile  string `json:"profile"`
 	TabCount int    `json:"tab_count"`
 	IsActive bool   `json:"is_active"`
 }
@@ -57,11 +56,10 @@ func (a *App) commandProductCatalog() (*commandcatalog.Registry, map[string]comm
 						Properties: map[string]commandcatalog.Schema{
 							"id":        {Type: commandcatalog.SchemaString},
 							"name":      {Type: commandcatalog.SchemaString},
-							"profile":   {Type: commandcatalog.SchemaString},
 							"tab_count": {Type: commandcatalog.SchemaInteger},
 							"is_active": {Type: commandcatalog.SchemaBoolean},
 						},
-						Required: []string{"id", "name", "profile", "tab_count", "is_active"},
+						Required: []string{"id", "name", "tab_count", "is_active"},
 					},
 				},
 			},

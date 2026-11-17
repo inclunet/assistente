@@ -175,7 +175,7 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
   const voiceOriginRef = useRef(voiceOrigin);
 
   const tabProfileSlug = panelTab.profileOverride?.slug as string | undefined;
-  const effectiveProfileSlug = tabProfileSlug || workspace?.profile || '';
+  const effectiveProfileSlug = tabProfileSlug || workspace?.defaultProfile || '';
 
   const historyPickerRef = useRef<HistoryPickerRef>(null);
   const profilePickerRef = useRef<ProfilePickerRef>(null);

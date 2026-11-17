@@ -117,7 +117,7 @@ describe('trusted command context session', () => {
       id: 'workspace-a',
       name: 'A',
       activeTabId: 'tab-a',
-      profile: 'workspace-profile',
+      defaultProfile: 'workspace-profile',
       tabs: [
         {
           id: 'tab-a',
@@ -136,7 +136,7 @@ describe('trusted command context session', () => {
       id: 'workspace-a',
       name: 'A',
       activeTabId: null,
-      profile: 'workspace-profile',
+      defaultProfile: 'workspace-profile',
       tabs: [],
     } as never;
     expect(ReadProfileContext()?.slug).toBe('workspace-profile');

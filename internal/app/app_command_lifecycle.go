@@ -301,6 +301,7 @@ func (a *App) bootstrapCommandLifecycleAfterAuthLocked(ctx context.Context, resu
 	if authErr != nil || result == nil || !a.authResultStillCurrent(result) {
 		return authErr
 	}
+	a.syncWorkspaceDefaultProfile()
 	if _, ok := loadCommandLifecycle(a); !ok || a.commandProduct.Load() != nil {
 		if err := a.ensureCommandLifecycleMountedForCurrentUser(ctx); err != nil {
 			logging.Warnf(context.Background(), "app.app", "ciclo de vida de comandos não montado após autenticação: %v", err)

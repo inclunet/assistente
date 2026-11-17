@@ -65,7 +65,7 @@ const state = vi.hoisted(() => ({
 
 const auth = { isAuthenticated: true, user: { userId: 'user-a', sessionId: 'session-a', role: 'user' } };
 const workspace = {
-  id: 'workspace-a', name: 'Workspace', profile: '', activeTabId: 'tab-a',
+  id: 'workspace-a', name: 'Workspace', defaultProfile: '', activeTabId: 'tab-a',
   tabs: [{ id: 'tab-a', type: 'chat' as const, conversationId: 'conversation-a' }],
 };
 

@@ -90,7 +90,7 @@ beforeEach(() => {
   doc.mode = 'view';
   useAuthStore.setState({ isAuthenticated: true, user: { userId: 'u', sessionId: 's', role: 'user' } });
   useEditorStore.setState({ ownerUserId: 'u', documents: { doc } });
-  useWorkspaceStore.setState({ workspace: { id: 'ws', name: 'Workspace', profile: 'focused', activeTabId: 'doc', tabs: [{ id: 'doc', type: 'editor', title: 'Diagram', position: 0 }] } });
+  useWorkspaceStore.setState({ workspace: { id: 'ws', name: 'Workspace', defaultProfile: 'focused', activeTabId: 'doc', tabs: [{ id: 'doc', type: 'editor', title: 'Diagram', position: 0 }] } });
   Object.values(api).forEach(spy => spy.mockReset());
   api.BeginContextualDeckUICommand.mockImplementation(async () => reservation()); api.TakeUICommand.mockImplementation(async () => handoff());
   api.GetUICommandResult.mockResolvedValue({ invocationId: 'invocation', status: 'succeeded' });
@@ -189,7 +189,7 @@ it.each(['blur-aba', 'ime-aba', 'provider', 'profile-aba', 'map', 'deadline'])('
     if (mode === 'blur-aba') { fireEvent(window, new FocusEvent('blur')); fireEvent(window, new FocusEvent('focus')); }
     if (mode === 'ime-aba') { fireEvent.compositionStart(block); fireEvent.compositionEnd(block); }
     if (mode === 'provider') unregister?.();
-    if (mode === 'profile-aba') { const ws = useWorkspaceStore.getState().workspace!; useWorkspaceStore.setState({ workspace: { ...ws, profile: 'other' } }); useWorkspaceStore.setState({ workspace: ws }); }
+    if (mode === 'profile-aba') { const ws = useWorkspaceStore.getState().workspace!; useWorkspaceStore.setState({ workspace: { ...ws, defaultProfile: 'other' } }); useWorkspaceStore.setState({ workspace: ws }); }
     if (mode === 'map') state.events.get('command:keyboard-map-changed')?.();
     if (mode === 'deadline') vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 300001);
   });

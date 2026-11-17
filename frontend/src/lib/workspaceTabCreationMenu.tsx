@@ -1,4 +1,4 @@
-import { createContext, useContext, useMemo, useRef, type ReactNode } from 'react';
+import { createContext, useContext, useMemo, useRef, useState, type ReactNode } from 'react';
 
 export type WorkspaceTabCreationMenuOrigin = 'keyboard' | 'toolbar' | 'palette';
 
@@ -52,6 +52,9 @@ export interface WorkspaceTabCreationMenuActions {
 }
 
 export interface WorkspaceTabCreationMenuContextValue {
+  registerWorkspaceList(open: (trigger: HTMLElement) => void): () => void;
+  openWorkspaceList(trigger: HTMLElement): void;
+  setWorkspaceListOpen(open: boolean): void;
   registerHost(host: WorkspaceTabCreationMenuHost): () => void;
   registerActions(actions: WorkspaceTabCreationMenuActions): () => void;
   requestOpen(): void;
@@ -67,12 +70,21 @@ export interface WorkspaceTabCreationMenuContextValue {
   completeWorkspaceCreate(restoreFocus: () => void): boolean;
 }
 
+const WorkspaceListOpenContext = createContext(false);
 const WorkspaceTabCreationMenuContext = createContext<WorkspaceTabCreationMenuContextValue | null>(null);
 
 export function WorkspaceTabCreationMenuProvider({ children }: { children: ReactNode }) {
+  const listRef = useRef<((trigger: HTMLElement) => void) | null>(null);
+  const [workspaceListOpen, setWorkspaceListOpen] = useState(false);
   const hostRef = useRef<WorkspaceTabCreationMenuHost | null>(null);
   const actionsRef = useRef<WorkspaceTabCreationMenuActions | null>(null);
   const value = useMemo<WorkspaceTabCreationMenuContextValue>(() => ({
+    setWorkspaceListOpen,
+    registerWorkspaceList: (open) => {
+      listRef.current = open;
+      return () => { if (listRef.current === open) listRef.current = null; };
+    },
+    openWorkspaceList: (trigger) => listRef.current?.(trigger),
     registerHost: (host) => {
       hostRef.current = host;
       return () => {
@@ -109,7 +121,7 @@ export function WorkspaceTabCreationMenuProvider({ children }: { children: React
 
   return (
     <WorkspaceTabCreationMenuContext.Provider value={value}>
-      {children}
+      <WorkspaceListOpenContext.Provider value={workspaceListOpen}>{children}</WorkspaceListOpenContext.Provider>
     </WorkspaceTabCreationMenuContext.Provider>
   );
 }
@@ -117,4 +129,8 @@ export function WorkspaceTabCreationMenuProvider({ children }: { children: React
 /** Standalone Topbar/toolbar mounts have no host and remain inert. */
 export function useWorkspaceTabCreationMenu(): WorkspaceTabCreationMenuContextValue | null {
   return useContext(WorkspaceTabCreationMenuContext);
+}
+
+export function useWorkspaceListOpen(): boolean {
+  return useContext(WorkspaceListOpenContext);
 }

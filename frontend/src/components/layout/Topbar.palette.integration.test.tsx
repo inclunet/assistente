@@ -280,7 +280,7 @@ beforeEach(() => {
   state.auth.user = { userId: 'user-a', sessionId: 'session-a' };
   deckEvents.clear();
   state.loadMap.mockResolvedValue({ generation: 'g-default', bindings: [{
-    shortcut: { version: 1, code: 'KeyK', modifiers: ['Control'] },
+    shortcut: { version: 1, code: 'KeyP', modifiers: ['Control', 'Shift'] },
     commandId: 'navigation.palette.open', handler: 'local_ui',
   }, {
     shortcut: { version: 1, code: 'F1', modifiers: [] },
@@ -796,40 +796,6 @@ describe('Criação de abas — Topbar, Toolbar e Menu reais', () => {
     expect(state.announce).toHaveBeenCalledWith('workspace.announce.workspaceCreatedCommand');
   });
 
-  it('seleciona Novo workspace no Menu real e mantém o handoff após fechar e restaurar foco', async () => {
-    const user = userEvent.setup();
-    vi.spyOn(document, 'hasFocus').mockReturnValue(true);
-    state.beginUICommand.mockResolvedValue({ ticket: 'menu-workspace-ticket', invocationId: 'menu-workspace-inv', commandId: 'workspace.create' });
-    state.takeUICommand.mockResolvedValue({
-      ticket: 'menu-workspace-ticket', invocationId: 'menu-workspace-inv', commandId: 'workspace.create', handoffId: 'menu-workspace-handoff',
-    });
-    state.getUICommandResult.mockResolvedValue({ invocationId: 'menu-workspace-inv', status: 'succeeded' });
-    state.commitBackendCommand.mockResolvedValue(undefined);
-    const root = document.createElement('div');
-    root.className = 'workspace-layout';
-    document.body.appendChild(root);
-    const view = render(<div className="workspace-layout"><Topbar /></div>);
-    try {
-      await waitFor(() => expect(state.loadMap).toHaveBeenCalled());
-      const picker = screen.getByRole('button', { name: 'workspace.workspaceList' });
-      picker.focus();
-      fireEvent.contextMenu(picker, { clientX: 12, clientY: 12 });
-      const menu = await screen.findByRole('menu', { name: 'workspace.workspaceOptions' });
-      await user.click(await within(menu).findByRole('menuitem', { name: /workspace\.newWorkspace/ }));
-
-      await waitFor(() => expect(state.commitBackendCommand)
-        .toHaveBeenCalledExactlyOnceWith('menu-workspace-ticket', 'menu-workspace-handoff'));
-      expect(state.cancelUICommand).not.toHaveBeenCalled();
-      expect(state.workspace.createWorkspace).not.toHaveBeenCalled();
-      expect(state.workspace.switchWorkspace).not.toHaveBeenCalled();
-      expect(state.announce).toHaveBeenCalledWith('workspace.announce.workspaceCreatedCommand');
-      expect(screen.queryByRole('menu', { name: 'workspace.workspaceOptions' })).not.toBeInTheDocument();
-    } finally {
-      view.unmount();
-      root.remove();
-    }
-  });
-
   it('seleciona Novo workspace no WorkspaceToolbar real e mantém o handoff após fechar o menu', async () => {
     const user = userEvent.setup();
     vi.spyOn(document, 'hasFocus').mockReturnValue(true);
@@ -955,7 +921,25 @@ describe('Criação de abas — Topbar, Toolbar e Menu reais', () => {
     return view;
   }
 
-  it.each(['toolbar', 'topbar'].flatMap(surface => ['rename', 'dismiss', 'import', 'navigate'].map(action => ({ surface, action }))))('opções do workspace respeitam o destino do foco: $surface/$action', async ({ surface, action }) => {
+  it('lista workspaces na toolbar do workspace, navega por setas e restaura foco', async () => {
+    const user = userEvent.setup();
+    const view = await mountCreation();
+    try {
+      const toolbar = screen.getByRole('toolbar', { name: 'workspace.toolbarLabel' });
+      const trigger = within(toolbar).getByRole('button', { name: 'workspace.workspaceList' });
+      expect(within(screen.getByRole('toolbar', { name: 'landmarks.topbar' })).queryByRole('button', { name: 'workspace.workspaceList' })).not.toBeInTheDocument();
+      trigger.focus();
+      await user.keyboard('{Home}');
+      expect(within(toolbar).getByRole('button', { name: 'workspace.newTab, Ctrl+N' })).toHaveFocus();
+      await user.keyboard('{End}{Enter}');
+      expect(trigger).toHaveAttribute('aria-expanded', 'true');
+      expect(screen.getByRole('menu', { name: 'workspace.workspaceList' })).toBeInTheDocument();
+      await user.keyboard('{Escape}');
+      expect(trigger).toHaveFocus();
+      expect(trigger).toHaveAttribute('aria-expanded', 'false');
+    } finally { view.unmount(); }
+  });
+  it.each(['rename', 'dismiss', 'import', 'navigate'])('opções do workspace respeitam o destino do foco: %s', async (action) => {
     const view = await mountCreation(action === 'navigate');
     const frames: FrameRequestCallback[] = [];
     const requestFrame = vi.spyOn(window, 'requestAnimationFrame').mockImplementation(callback => {
@@ -963,11 +947,10 @@ describe('Criação de abas — Topbar, Toolbar e Menu reais', () => {
       return frames.length;
     });
     try {
-      const trigger = screen.getByRole('button', { name: surface === 'toolbar' ? 'workspace.workspaceOptions' : 'workspace.workspaceList' });
+      const trigger = screen.getByRole('button', { name: 'workspace.workspaceOptions' });
       const destination = screen.getByRole('button', { name: 'commandPalette.title' });
       vi.mocked(restoreDefaultFocus).mockImplementation(() => { destination.focus(); return true; });
-      if (surface === 'toolbar') fireEvent.click(trigger);
-      else fireEvent.contextMenu(trigger);
+      fireEvent.click(trigger);
       const menu = screen.getByRole('menu', { name: 'workspace.workspaceOptions' });
       if (action === 'dismiss') fireEvent.keyDown(document.activeElement!, { key: 'Escape' });
       else fireEvent.click(within(menu).getByRole('menuitem', { name: action === 'rename' ? /workspace.rename/ : /workspace.import/ }));
@@ -1331,7 +1314,7 @@ describe('Topbar palette — integração real do Combobox compartilhado', () =>
     try {
       await act(async () => { await Promise.resolve(); });
       source.focus();
-      await user.keyboard('{Control>}k{/Control}');
+      await user.keyboard('{Control>}{Shift>}p{/Shift}{/Control}');
       const search = await screen.findByRole('combobox', { name: /commandPalette.shortTitle/ });
       await waitFor(() => expect(search).toHaveFocus());
       if (mode === 'removed') source.remove();
@@ -1362,7 +1345,7 @@ describe('Topbar palette — integração real do Combobox compartilhado', () =>
     vi.spyOn(document, 'hasFocus').mockReturnValue(true);
     const originalWorkspace = state.workspace.workspace;
     state.workspace.workspace = { id: 'workspace-a', name: 'Workspace', activeTabId: 'tab-a', tabs: [{ id: 'tab-a', type: 'chat' }] };
-    Object.assign(state.workspace.workspace, { profile: 'dev' });
+    Object.assign(state.workspace.workspace, { defaultProfile: 'dev' });
     paletteContextScope = createCommandContextScope(undefined, locationState.pathname);
     const root = document.createElement('div');
     const source = document.createElement('textarea');
@@ -1372,7 +1355,7 @@ describe('Topbar palette — integração real do Combobox compartilhado', () =>
       surfaceId: 'tab-a', surfaceType: 'chat', snapshotVersion: 'chat-v1',
     }));
     state.loadMap.mockResolvedValue({ generation: 'conditional-palette', ownerId: 'user-a', sessionId: 'session-a', workspaceId: 'workspace-a',
-      bindings: [{ shortcut: { version: 1, code: 'KeyK', modifiers: ['Control'] }, commandId: 'navigation.palette.open', handler: 'local_ui' }],
+      bindings: [{ shortcut: { version: 1, code: 'KeyP', modifiers: ['Control', 'Shift'] }, commandId: 'navigation.palette.open', handler: 'local_ui' }],
       localPaletteCommands: ['navigation.palette.open'], localPaletteConditions: [mode.startsWith('profile-') && mode !== 'profile-aba' ? {
         commandId: 'navigation.settings.open', bySurface: {}, fallback: false,
         byProfile: { [mode === 'profile-match' ? 'dev' : 'other']: {
@@ -1388,7 +1371,7 @@ describe('Topbar palette — integração real do Combobox compartilhado', () =>
     try {
       await act(async () => { await Promise.resolve(); });
       source.focus();
-      await user.keyboard('{Control>}k{/Control}');
+      await user.keyboard('{Control>}{Shift>}p{/Shift}{/Control}');
       const search = await screen.findByRole('combobox', { name: /commandPalette.shortTitle/ });
       await user.type(search, 'Configurações');
       const option = await screen.findByRole('option', { name: /Configurações/ });
@@ -1397,10 +1380,10 @@ describe('Topbar palette — integração real do Combobox compartilhado', () =>
       if (mode === 'aba' || mode === 'profile-aba') {
         act(() => {
           if (mode === 'aba') state.workspace.workspace.activeTabId = 'tab-b';
-          else Object.assign(state.workspace.workspace, { profile: 'other' });
+          else Object.assign(state.workspace.workspace, { defaultProfile: 'other' });
           state.workspaceListeners.forEach(listener => listener());
           state.workspace.workspace.activeTabId = 'tab-a';
-          Object.assign(state.workspace.workspace, { profile: 'dev' });
+          Object.assign(state.workspace.workspace, { defaultProfile: 'dev' });
           state.workspaceListeners.forEach(listener => listener());
         });
       }
@@ -1429,7 +1412,7 @@ describe('Topbar palette — integração real do Combobox compartilhado', () =>
       id: 'workspace-a', name: 'Workspace', activeTabId: 'tab-a',
       tabs: [{ id: 'tab-a', type: 'chat' }, { id: 'tab-b', type: 'editor' }],
     };
-    Object.assign(state.workspace.workspace, { profile: 'dev' });
+    Object.assign(state.workspace.workspace, { defaultProfile: 'dev' });
     state.workspace.setActiveTab.mockImplementation((tabId: string) => {
       state.workspace.workspace.activeTabId = tabId;
       state.workspaceListeners.forEach(listener => listener());
@@ -1438,7 +1421,7 @@ describe('Topbar palette — integração real do Combobox compartilhado', () =>
     const goToArguments = { workspace_id: 'workspace-a', target_mode: 'specific', tab_id: 'tab-b' };
     state.loadMap.mockResolvedValue({
       generation: 'conditional-go-to', ownerId: 'user-a', sessionId: 'session-a', workspaceId: 'workspace-a',
-      bindings: [{ shortcut: { version: 1, code: 'KeyK', modifiers: ['Control'] }, commandId: 'navigation.palette.open', handler: 'local_ui' }],
+      bindings: [{ shortcut: { version: 1, code: 'KeyP', modifiers: ['Control', 'Shift'] }, commandId: 'navigation.palette.open', handler: 'local_ui' }],
       localPaletteCommands: ['navigation.palette.open'],
       localPaletteConditions: [byPage ? {
         commandId: 'workspace.tab.go_to', bySurface: {}, fallback: false,
@@ -1476,7 +1459,7 @@ describe('Topbar palette — integração real do Combobox compartilhado', () =>
       const source = screen.getByRole('textbox', { name: 'Aba atual' });
       act(() => source.focus());
       await waitFor(() => expect(paletteContextScope?.surfaceForElement(source)).toBe('tab-a'));
-      await user.keyboard('{Control>}k{/Control}');
+      await user.keyboard('{Control>}{Shift>}p{/Shift}{/Control}');
       const search = await screen.findByRole('combobox', { name: /commandPalette.shortTitle/ });
       await user.type(search, 'Ir para aba');
       const option = await screen.findByRole('option', { name: /Ir para aba/ });
@@ -1486,7 +1469,7 @@ describe('Topbar palette — integração real do Combobox compartilhado', () =>
         const loadsBeforeRefresh = state.loadMap.mock.calls.length;
         state.loadMap.mockResolvedValue({
           generation: 'conditional-go-to-stale', ownerId: 'user-a', sessionId: 'session-a', workspaceId: 'workspace-a',
-          bindings: [{ shortcut: { version: 1, code: 'KeyK', modifiers: ['Control'] }, commandId: 'navigation.palette.open', handler: 'local_ui' }],
+          bindings: [{ shortcut: { version: 1, code: 'KeyP', modifiers: ['Control', 'Shift'] }, commandId: 'navigation.palette.open', handler: 'local_ui' }],
           localPaletteCommands: ['navigation.palette.open'],
           localPaletteConditions: [{ commandId: 'workspace.tab.go_to', bySurface: { chat: false }, fallback: false }],
         });
@@ -1697,6 +1680,21 @@ describe('Topbar palette — integração real do Combobox compartilhado', () =>
     }
   });
 
+  it('explica que comandos do chat estão indisponíveis na tela de configurações', async () => {
+    const user = userEvent.setup();
+    vi.spyOn(document, 'hasFocus').mockReturnValue(true);
+    locationState.pathname = '/settings';
+    listCommandCatalog.mockResolvedValueOnce([{
+      id: 'chat.message.send', name: 'Enviar mensagem', description: 'Enviar o texto do chat', available: true,
+    }]);
+    render(<Topbar />);
+    await user.click(screen.getByRole('button', { name: 'commandPalette.title' }));
+    const option = await screen.findByRole('option', { name: /Enviar mensagem/ });
+    expect(option).toHaveAttribute('aria-disabled', 'true');
+    expect(option).toHaveAccessibleName(expect.stringContaining('commandPalette.unavailableOnScreen'));
+    await user.keyboard('{Enter}');
+    expect(beginUICommand).not.toHaveBeenCalled();
+  });
   it('permite descobrir indisponíveis sem executá-los e executa só a opção seguinte', async () => {
     const user = userEvent.setup();
     vi.spyOn(document, 'hasFocus').mockReturnValue(true);
@@ -1721,7 +1719,7 @@ describe('Topbar palette — integração real do Combobox compartilhado', () =>
     expect(beginUICommand).not.toHaveBeenCalled();
   });
 
-  it.each(['input', 'textarea'] as const)('Ctrl+K abre a paleta de %s e percorre cada comando sem saltos', async (tag) => {
+  it.each(['input', 'textarea'] as const)('Ctrl+Shift+P abre a paleta de %s e percorre cada comando sem saltos', async (tag) => {
     const user = userEvent.setup();
     vi.spyOn(document, 'hasFocus').mockReturnValue(true);
     const source = document.createElement(tag);
@@ -1730,7 +1728,7 @@ describe('Topbar palette — integração real do Combobox compartilhado', () =>
     const view = render(<Topbar />);
     try {
       source.focus();
-      await user.keyboard('{Control>}k{/Control}');
+      await user.keyboard('{Control>}{Shift>}p{/Shift}{/Control}');
       const list = await screen.findByRole('listbox', { name: /commandPalette.shortTitle/ });
       const search = screen.getByRole('combobox', { name: /commandPalette.shortTitle/ });
       await waitFor(() => expect(search).toHaveFocus());
@@ -1800,7 +1798,7 @@ describe('Topbar palette — integração real do Combobox compartilhado', () =>
     listCommandCatalog.mockResolvedValueOnce([...catalog, chatCommand]);
     state.loadMap.mockResolvedValue({
       generation: 'g-chat-picker', ownerId: 'user-a', sessionId: 'session-a', workspaceId: 'workspace-a',
-      bindings: [{ shortcut: { version: 1, code: 'KeyK', modifiers: ['Control'] }, commandId: 'navigation.palette.open', handler: 'local_ui' }],
+      bindings: [{ shortcut: { version: 1, code: 'KeyP', modifiers: ['Control', 'Shift'] }, commandId: 'navigation.palette.open', handler: 'local_ui' }],
       localPaletteCommands: [...catalog.map(item => item.id), 'workspace.chat.open'],
     });
     beginUICommand.mockResolvedValue({ ticket: 'chat-picker-ticket', invocationId: 'chat-picker-inv', commandId: 'workspace.chat.open' });
@@ -2019,13 +2017,13 @@ describe('Topbar palette — integração real do Combobox compartilhado', () =>
     }
   });
 
-  it('usa o Ctrl+K explícito do mapa e mantém o botão como abertura independente', async () => {
+  it('usa o Ctrl+Shift+P explícito do mapa e mantém o botão como abertura independente', async () => {
     const user = userEvent.setup();
     vi.spyOn(document, 'hasFocus').mockReturnValue(true);
     state.loadMap.mockResolvedValue({
       generation: 'g-remapped', ownerId: 'user-a', sessionId: 'session-a', workspaceId: 'workspace-a',
       bindings: [{
-        shortcut: { version: 1, code: 'KeyK', modifiers: ['Control'] },
+        shortcut: { version: 1, code: 'KeyP', modifiers: ['Control', 'Shift'] },
         commandId: 'navigation.menu.open', handler: 'local_ui',
       }],
       localPaletteCommands: catalog.map(item => item.id),
@@ -2033,7 +2031,7 @@ describe('Topbar palette — integração real do Combobox compartilhado', () =>
     render(<Topbar />);
     const button = screen.getByRole('button', { name: 'commandPalette.title' });
     button.focus();
-    await user.keyboard('{Control>}k{/Control}');
+    await user.keyboard('{Control>}{Shift>}p{/Shift}{/Control}');
     expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
     expect(screen.getByRole('menu', { name: /^menu\.navLabelPlain/ })).toBeVisible();
     expect(beginUICommand).not.toHaveBeenCalled();
@@ -2043,7 +2041,7 @@ describe('Topbar palette — integração real do Combobox compartilhado', () =>
     await screen.findByRole('listbox', { name: /commandPalette.shortTitle/ });
   });
 
-  it('suprime Ctrl+K sem binding, mas o botão ainda abre a paleta', async () => {
+  it('suprime Ctrl+Shift+P sem binding, mas o botão ainda abre a paleta', async () => {
     const user = userEvent.setup();
     vi.spyOn(document, 'hasFocus').mockReturnValue(true);
     state.loadMap.mockResolvedValue({
@@ -2053,7 +2051,7 @@ describe('Topbar palette — integração real do Combobox compartilhado', () =>
     render(<Topbar />);
     const button = screen.getByRole('button', { name: 'commandPalette.title' });
     button.focus();
-    await user.keyboard('{Control>}k{/Control}');
+    await user.keyboard('{Control>}{Shift>}p{/Shift}{/Control}');
     expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
     expect(state.beginLocalCommandUIKey).not.toHaveBeenCalled();
     expect(beginUICommand).not.toHaveBeenCalled();

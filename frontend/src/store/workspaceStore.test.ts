@@ -12,7 +12,7 @@ vi.mock('@wailsjs/go/wailsapi/Workspace', () => ({
   SwitchWorkspace: vi.fn(),
   RenameWorkspace: vi.fn(),
   DeleteWorkspace: vi.fn(),
-  SetWorkspaceProfile: vi.fn(),
+
   AddWorkspaceTab: vi.fn(),
   RemoveWorkspaceTab: vi.fn(),
   SetActiveWorkspaceTab: vi.fn(),
@@ -123,8 +123,8 @@ describe('eventos de workspace', () => {
   it('workspace:created atualiza somente a lista, sem ativar o workspace recebido', async () => {
     const activeBefore = useWorkspaceStore.getState().workspace;
     const listed = [
-      { id: 'ws-1', name: 'Test', path: '', profile: '', tab_count: 1, is_active: true },
-      { id: 'ws-new', name: 'Novo', path: '', profile: '', tab_count: 1, is_active: false },
+      { id: 'ws-1', name: 'Test', path: '', tab_count: 1, is_active: true },
+      { id: 'ws-new', name: 'Novo', path: '', tab_count: 1, is_active: false },
     ];
     mockedListWorkspaces.mockResolvedValueOnce(listed);
     const cleanup = useWorkspaceStore.getState().setupEventListeners();
@@ -205,7 +205,7 @@ describe('eventos de workspace', () => {
       workspace: {
         id: 'ws-1',
         name: 'Workspace',
-        profile: 'geral',
+        default_profile: 'geral',
         tabs: {
           active: 'tab-1',
           items: [{

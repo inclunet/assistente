@@ -192,14 +192,14 @@ describe('commandBackendExecution', () => {
   });
   it.each([
     { kind: 'workspace.list', workspaces: [], path: 'private' },
-    { kind: 'workspace.list', workspaces: [{ id: 'a', name: 'A', profile: '', tab_count: 0, is_active: true, path: 'private' }] },
+    { kind: 'workspace.list', workspaces: [{ id: 'a', name: 'A', tab_count: 0, is_active: true, path: 'private' }] },
     { kind: 'workspace.list', workspaces: [
-      { id: 'a', name: 'A', profile: '', tab_count: 0, is_active: false },
-      { id: 'a', name: 'B', profile: '', tab_count: 0, is_active: false },
+      { id: 'a', name: 'A', tab_count: 0, is_active: false },
+      { id: 'a', name: 'B', tab_count: 0, is_active: false },
     ] },
     { kind: 'workspace.list', workspaces: [
-      { id: 'a', name: 'A', profile: '', tab_count: 0, is_active: true },
-      { id: 'b', name: 'B', profile: '', tab_count: 0, is_active: true },
+      { id: 'a', name: 'A', tab_count: 0, is_active: true },
+      { id: 'b', name: 'B', tab_count: 0, is_active: true },
     ] },
     null,
     { kind: 'different.command', workspaces: [] },

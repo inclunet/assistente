@@ -159,3 +159,12 @@ Pendente para próxima evolução:
 ## Evolução AEP-0110
 
 O contrato atual de fontes está em [AEP-0110](0110-fontes-explicitas-de-credenciais.md). Referências históricas por prefixo foram substituídas por source explícita, sem migração automática. AuthModeNone remove qualquer Authorization.
+
+## Revisão de 2026-11-16 — remoção do perfil de workspace
+
+Status: Done. A decisão de aplicação confirmada e feedback de erro permanece
+vigente para o perfil da conversa/aba. O seletor e o setter globais do workspace
+foram removidos por decisão de produto. O fallback passa a ser exclusivamente
+o perfil padrão do aplicativo; `default_profile` no snapshot é projeção de
+runtime, não um segundo padrão persistido. A resolução do provider e os testes
+de override por conversa permanecem em `internal/chat/interactor_test.go`.

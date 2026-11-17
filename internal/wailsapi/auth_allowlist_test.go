@@ -664,7 +664,6 @@ func TestWorkspaceMethodsNotOnUnauthAllowlist(t *testing.T) {
 		"SwitchWorkspace",
 		"RenameWorkspace",
 		"DeleteWorkspace",
-		"SetWorkspaceProfile",
 		"SaveWorkspace",
 		"AddWorkspaceTab",
 		"RemoveWorkspaceTab",

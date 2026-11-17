@@ -5708,3 +5708,27 @@ assíncrona após mudar de rota usa a identidade de rota da fixture. Isso não a
 
 Se a troca de workspace falhar, o foco retorna ao painel de origem somente se
 a origem continuar ativa e não houver nova navegação, modal ou mudança de sessão.
+
+## Revisão de 2026-11-16 — paleta e perfil padrão
+
+Status: In Progress; os aceites pendentes do AEP permanecem pendentes.
+
+- O binding padrão de `navigation.palette.open` é **Ctrl+Shift+P**. Ctrl+K
+  deixa de ser padrão. A resolução, supressão e personalização continuam pelo
+  catálogo; não existe listener especial para abrir a paleta.
+- O perfil contextual vem do override da aba ou do padrão do aplicativo.
+  O perfil global do workspace e sua API de alteração foram removidos.
+  A projeção transitória `default_profile` participa do snapshot/CAS, mantendo
+  invalidação de contexto inclusive na sequência A→B→A.
+- Na paleta, comandos de chat fora do workspace explicam a indisponibilidade
+  na tela atual. A opção ativa é anunciada via `aria-activedescendant`, sem
+  duplicar nome, ajuda e estado em uma live region. Busca sem resultados
+  continua sendo anunciada.
+- A lista de workspaces fica na toolbar do workspace. O executor e o controle
+  de sessão continuam compartilhados com os comandos da paleta.
+
+Evidências: `internal/app/app_command_keyboard_defaults_test.go`,
+`internal/workspace/command_snapshot_authority_test.go`,
+`frontend/src/components/layout/Topbar.palette.integration.test.tsx` e
+`frontend/src/components/pickers/Combobox.test.tsx`. A validação auditiva final
+com NVDA permanece manual; testes DOM não simulam o sintetizador do NVDA.
