@@ -165,7 +165,7 @@ func (m *Manager) RunEphemeral(ctx context.Context, workDir, command string, tim
 	if err != nil {
 		return nil, err
 	}
-	workDir, err = filepath.EvalSymlinks(absolute)
+	workDir, err = ResolveDirectoryPath(absolute)
 	if err != nil {
 		return nil, err
 	}

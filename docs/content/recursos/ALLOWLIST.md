@@ -63,7 +63,9 @@ confundir interpretações diferentes entre shells com a operação lembrada.
 O diretório apresentado é resolvido antes da autorização e conferido novamente
 antes da execução. Se o destino mudar enquanto você decide, o comando é
 recusado. Em execuções efêmeras, o aplicativo restabelece esse diretório depois
-dos scripts de inicialização do shell.
+dos scripts de inicialização do shell e recusa a execução se eles substituírem
+o caminho aprovado por um link para outro destino. Junctions que já existiam
+no Windows são resolvidas antes da autorização, preservando seu uso normal.
 
 Terminais persistentes podem mudar de diretório durante a sessão. Quando a
 política exige confirmação, a autorização vale apenas para aquela execução;

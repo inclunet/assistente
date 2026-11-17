@@ -148,6 +148,12 @@ continuam prevalecendo sobre concessões de runtime.
 O executor recebe o diretório canônico apresentado e recusa mudança de destino
 durante a pergunta. A execução efêmera restabelece esse diretório após a
 inicialização do shell e não executa o comando se a mudança de diretório falhar.
+Antes de avaliar o comando, o wrapper POSIX compara o caminho físico com o
+aprovado; o PowerShell rejeita reparse points introduzidos nesse caminho ou em
+seus ancestrais. No Windows, a resolução anterior à autorização e à execução usa
+o destino físico obtido por handle, inclusive para junctions preexistentes.
+Essa proteção cobre troca de destino durante o startup; não constitui sandbox
+contra mutação contínua do filesystem por outro processo.
 
 **ACP:** recurso é a classe de ação declarada pelo agente e sua identidade
 disponível no backend, nunca um comando inferido do título enviado pelo agente.
@@ -342,6 +348,14 @@ são explicitamente enumerados. Nenhum PR é mergeado pelo agente.
 - A regressão POSIX também cobre o prompt sem newline: o marker inicial começa em linha própria para não ser confundido com o prompt. Links históricos das quatro telas substituídas são normalizados para Permissões, preservando referências salvas sem manter interfaces ou stores antigos.
 - Testes de UI cobrem axe, filtros, erro de leitura, pendências e confirmação de revogação. Testes de concorrência cobrem geração de sessão e snapshot consistente dos escopos. Build, vet, golangci-lint, TypeScript e ESLint passaram; Stylelint sem erros. Dez pacotes Go, 174 testes de regressão frontend e dois E2E de arquivos/foco passaram. Revisão independente concluída sem pendências. CI remoto completo aprovado no run 44016935185, incluindo ACP, startup Bash e detector de corrida. Quatro rodadas do Copilot tiveram seus achados corrigidos; a quarta pediu cobertura direta do formulário de atribuição, atendida por três testes de comportamento aprovados e revisados independentemente. A tentativa de excluir ACP na suíte frontend ampla não foi respeitada pelos projetos Vitest e incluiu testes de UI com mocks; não houve execução de agentes nem testes Go ACP. As validações locais seguintes usam arquivos explicitamente selecionados.
 O formulário de atribuição tem testes reais de seletores, IDs enviados, bloqueio durante gravação, sucesso confirmado, falha com retry e cancelamento. A revisão independente foi repetida a cada lote, sem pendências ao publicar. Ordem de merge pelo mantenedor: #1087 → #1088 → #1089; nenhum merge foi realizado pelo agente.
+
+A revisão da troca de diretório no startup acrescentou regressões para o próprio
+diretório e um ancestral. Ambas executam o comando indevidamente com o wrapper
+anterior e o bloqueiam com a correção. PowerShell local também confirmou junction
+preexistente (raiz e filho) e resolução de caminho longo. Build, vet, testes dos
+pacotes terminal/shell e lint passaram; a regressão integrada de startup Bash é
+executada no CI Linux. Revisão independente em três rodadas corrigiu compatibilidade
+de junctions e caminhos longos, encerrando sem pendências.
 
 ## Riscos
 
