@@ -5,6 +5,9 @@ weight: 11
 
 # Permissões
 
+Links antigos de gerenciamento de rede, arquivos, comandos e ACP gravados no
+histórico abrem esta tela unificada. As telas anteriores não são mantidas.
+
 Em **Configurações → Permissões**, consulte as autorizações de rede, arquivos,
 comandos shell e agentes ACP. A lista mostra recurso, operação, efeito, origem,
 escopo, contexto e datas. Filtre por domínio, escopo, origem, efeito ou estado;

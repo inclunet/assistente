@@ -96,6 +96,13 @@ describe('SettingsPage', () => {
 
     expect(screen.getByRole('tab', { name: 'Provedores LLM' })).toHaveAttribute('aria-selected', 'true');
   });
+  it.each(['allowlists', 'network-allowlist', 'path-allowlist', 'agent-permissions'])('redireciona a URL histórica %s para a tela substituta', async (tab) => {
+    mockTab = tab;
+    render(<SettingsPage />);
+    expect(screen.getByRole('tab', { name: 'Permissões' })).toHaveAttribute('aria-selected', 'true');
+    await screen.findByTestId('permissions-default');
+    expect(mockNavigate).toHaveBeenCalledWith('/settings/permissions', { replace: true });
+  });
 
   it('possui tablist acessível com aria-label', () => {
     render(<SettingsPage />);

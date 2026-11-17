@@ -1,4 +1,5 @@
 import type { NavigateFunction } from 'react-router-dom';
+import { canonicalSettingsRoute } from './settingsRoutes';
 import { useChatStore } from '../store/chatStore';
 import { useWorkspaceStore, type WorkspaceTab } from '../store/workspaceStore';
 import { useEditorStore } from '../store/editorStore';
@@ -188,7 +189,7 @@ export function parseDeepLink(uri: string): DeepLinkAction | null {
     }
 
     if (resource === 'navigate') {
-      const route = segments.slice(1).join('/');
+      const route = canonicalSettingsRoute(segments.slice(1).join('/'));
       if (!VALID_ROUTES.has(route)) return null;
       return { type: 'navigate', route };
     }
@@ -273,7 +274,7 @@ export function buildDeepLink(action: DeepLinkAction): string {
     }
 
     case 'navigate':
-      return `${DEEP_LINK_PREFIX}navigate/${action.route}`;
+      return `${DEEP_LINK_PREFIX}navigate/${canonicalSettingsRoute(action.route)}`;
 
     case 'resource:edit': {
       if (!isValidResourceTab(action.resource, action.tab)) {
@@ -331,7 +332,7 @@ export function getDeepLinkLabel(action: DeepLinkAction): string {
     case 'conversation:send':
       return t('deepLink.sendMessage', { id: action.conversationId });
     case 'navigate': {
-      const key = ROUTE_I18N_KEYS[action.route];
+      const key = ROUTE_I18N_KEYS[canonicalSettingsRoute(action.route)];
       const label = key ? t(key) : action.route;
       return t('deepLink.navigateTo', { page: label });
     }
@@ -491,9 +492,10 @@ export async function executeDeepLink(
     }
 
     case 'navigate': {
-      const path = action.route ? `/${action.route}` : '/';
+      const route = canonicalSettingsRoute(action.route);
+      const path = route ? `/${route}` : '/';
       deps.navigate(path);
-      const key = ROUTE_I18N_KEYS[action.route];
+      const key = ROUTE_I18N_KEYS[route];
       const label = key ? t(key) : action.route;
       announce(t('deepLink.announcedNavigate', { page: label }));
       break;

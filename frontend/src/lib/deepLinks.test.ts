@@ -274,6 +274,13 @@ describe('parseDeepLink', () => {
   });
 
   describe('navigate', () => {
+    it.each(['allowlists', 'network-allowlist', 'path-allowlist', 'agent-permissions'])('migra o link histórico de %s para Permissões', async (tab) => {
+      const mockNavigate = vi.fn();
+      const action = parseDeepLink(`assistente://navigate/settings/${tab}`);
+      expect(action).toEqual({ type: 'navigate', route: 'settings/permissions' });
+      await executeDeepLink(action!, { navigate: mockNavigate });
+      expect(mockNavigate).toHaveBeenCalledWith('/settings/permissions');
+    });
     it('faz parse de rotas válidas', () => {
       const validRoutes = [
         'settings', 'settings/providers', 'settings/mcp', 'settings/skills',

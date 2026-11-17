@@ -6,6 +6,7 @@ import { Tabs, TabList, Tab, TabPanel } from '../components/ui/tabs';
 import { ParentLandmarkProvider } from '../hooks/useLandmarkNavigation';
 import { announce } from '../hooks/useAnnouncer';
 import { ActivePanelContext } from '../hooks/useActivePanelShortcut';
+import { canonicalSettingsRoute } from '../lib/settingsRoutes';
 import './SettingsPage.css';
 
 const ProvidersPage = lazy(() => import('./ProvidersPage'));
@@ -45,6 +46,7 @@ const FOCUSABLE_SELECTOR =
   'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
 function resolveTab(param: string | undefined): SettingsTabId {
+  if (param) param = canonicalSettingsRoute(`settings/${param}`).slice('settings/'.length);
   if (param && VALID_TAB_IDS.has(param)) return param as SettingsTabId;
   return DEFAULT_TAB;
 }
@@ -62,6 +64,11 @@ export default function SettingsPage() {
 
   const activeTab = useMemo(() => resolveTab(tab), [tab]);
   activeTabRef.current = activeTab;
+  useEffect(() => {
+    if (tab && canonicalSettingsRoute(`settings/${tab}`) !== `settings/${tab}`) {
+      navigate('/settings/permissions', { replace: true });
+    }
+  }, [tab, navigate]);
 
   const clearPendingShortcutFocus = useCallback(() => {
     pendingShortcutFocusRef.current = null;
