@@ -78,6 +78,11 @@ As autorizações persistentes ficam no banco já utilizado pelo Assistente.
 Esta mudança não altera a escolha do banco. A lista de sessões mostra as
 conversas temporárias conhecidas no processo, sem salvar essas concessões.
 
+Ao criar ou editar uma política de comandos shell, gravações concorrentes do
+chat podem ocupar o banco brevemente. O aplicativo repete automaticamente a
+transação dentro do limite de espera; metadados e regras são salvos juntos.
+Se a contenção persistir, a operação retorna erro sem salvar uma política parcial.
+
 Na primeira utilização, o aplicativo importa os arquivos antigos de
 `network-allowlist`, `path-allowlist`, `allowlists` e `acp-permissions`.
 Eles permanecem como recuperação, mas deixam de ser uma configuração ativa.
