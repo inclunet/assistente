@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { GetPermissions, RevokePermission } from '@wailsjs/go/wailsapi/Permissions';
 import { controllers } from '../../wailsjs/go/models';
@@ -16,7 +17,6 @@ import { useAuthStore } from '../store/authStore';
 import { useNavigationStore, isResourceEditRequestFresh } from '../store/navigationStore';
 import { LegacyPermissionAssignment } from '../components/permissions/LegacyPermissionAssignment';
 import AllowlistPage from './AllowlistPage';
-import ProfilesPage from './ProfilesPage';
 import { PathPermissionForm } from '../components/permissions/PathPermissionForm';
 import './PermissionsPage.css';
 
@@ -28,6 +28,8 @@ const effects = ['allow', 'deny', 'ask'];
 
 export default function PermissionsPage() {
   const { t, i18n } = useTranslation();
+  const navigate = useNavigate();
+  const policiesButton = useRef<HTMLButtonElement>(null);
   const addToast = useUIStore((s) => s.addToast);
   const isAdmin = useAuthStore((s) => s.user?.role === 'admin');
   const confirm = useConfirm();
@@ -37,6 +39,7 @@ export default function PermissionsPage() {
   const [rows, setRows] = useState<Permission[]>([]);
   const [errors, setErrors] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
+  const [hasSnapshot, setHasSnapshot] = useState(false);
   const [failed, setFailed] = useState(false);
   const [focused, setFocused] = useState<Permission | null>(null);
   const [domain, setDomain] = useState('');
@@ -45,7 +48,7 @@ export default function PermissionsPage() {
   const [effect, setEffect] = useState('');
   const [status, setStatus] = useState('active');
   const [search, setSearch] = useState('');
-  const [editor, setEditor] = useState<'policies' | 'associations' | 'path' | 'migration' | null>(null);
+  const [editor, setEditor] = useState<'policies' | 'path' | 'migration' | null>(null);
   const pendingEdit = useNavigationStore((s) => s.pendingEdit);
   useEffect(() => {
     // O editor existente consome a solicitação depois de carregar seus dados.
@@ -54,10 +57,10 @@ export default function PermissionsPage() {
 
   const load = useCallback(async () => {
     setLoading(true);
-    setFocused(null);
     try {
       const snapshot = await GetPermissions();
       setRows(snapshot.rules ?? []);
+      setHasSnapshot(true);
       setErrors(snapshot.migrationErrors ?? []);
       if (snapshot.migrationErrors?.length) announce(t('permissions.incomplete'));
       setFailed(false);
@@ -86,7 +89,6 @@ export default function PermissionsPage() {
     try {
       await RevokePermission(row.id);
       setRows((current) => current.filter((item) => item.id !== row.id));
-      setFocused(null);
       addToast(t('permissions.revoked'), 'success');
       await load();
     } catch { addToast(t('permissions.revokeFailed'), 'error'); }
@@ -115,8 +117,8 @@ export default function PermissionsPage() {
       actions={[
         { key: 'revoke', label: t('permissions.revoke'), disabled: !focused || !!focused.revokedAt || loading, onClick: () => focused && void revoke(focused), variant: 'danger' },
         { key: 'reload', label: t('permissions.reload'), disabled: loading, onClick: () => void load() },
-        { key: 'policies', label: t('permissions.policies'), onClick: () => setEditor('policies') },
-        { key: 'associations', label: t('permissions.associations'), onClick: () => setEditor('associations') },
+        { key: 'policies', label: t('permissions.policies'), buttonRef: policiesButton, onClick: () => setEditor('policies') },
+        { key: 'associations', label: t('permissions.associations'), onClick: () => navigate('/profiles') },
         { key: 'path', label: t('permissions.addPath'), onClick: () => setEditor('path') },
         ...(isAdmin ? [{ key: 'migration', label: t('permissions.assign'), onClick: () => setEditor('migration') }] : []),
       ]} />
@@ -131,13 +133,15 @@ export default function PermissionsPage() {
         <Select id="permission-status" label={t('permissions.statusLabel')} value={status} options={options(['active', 'revoked'], 'status')} onChange={(e) => setStatus(e.target.value)} />
       </div>
       {errors.length > 0 && <div><p>{t('permissions.incomplete')}</p><ul>{errors.map((error, index) => <li key={`${index}:${error}`}>{error}</li>)}</ul></div>}
-      {loading ? <PageLoading message={t('permissions.loading')} /> : failed ? <p>{t('permissions.loadFailed')}</p> :
+      {failed && <p>{t('permissions.loadFailed')}</p>}
+      {!hasSnapshot ? loading && <PageLoading message={t('permissions.loading')} /> :
         <DataGrid items={visible} columns={columns} label={t('permissions.title')} getItemId={(row) => row.id}
           onGridReady={handleGridReady} onFocusChange={setFocused} autoFocusOnMount={false}
+          onEmptyFocus={() => { policiesButton.current?.focus(); return document.activeElement === policiesButton.current; }}
           getRowActions={(row) => row.revokedAt ? [] : [{ id: 'revoke', label: t('permissions.revoke'), danger: true, onClick: () => void revoke(row) }]} />}
     </div>
-    <Modal isOpen={editor !== null} onClose={closeEditor} title={t(editor === 'policies' ? 'permissions.policies' : editor === 'associations' ? 'permissions.associations' : editor === 'migration' ? 'permissions.assign' : 'permissions.addPath')}>
-      {editor === 'policies' ? <AllowlistPage /> : editor === 'associations' ? <ProfilesPage /> : editor === 'path' ? <PathPermissionForm onSaved={closeEditor} onCancel={closeEditor} /> : editor === 'migration' ? <LegacyPermissionAssignment onSaved={closeEditor} onCancel={closeEditor} /> : null}
+    <Modal isOpen={editor !== null} onClose={closeEditor} title={t(editor === 'policies' ? 'permissions.policies' : editor === 'migration' ? 'permissions.assign' : 'permissions.addPath')}>
+      {editor === 'policies' ? <AllowlistPage /> : editor === 'path' ? <PathPermissionForm onSaved={closeEditor} onCancel={closeEditor} /> : editor === 'migration' ? <LegacyPermissionAssignment onSaved={closeEditor} onCancel={closeEditor} /> : null}
     </Modal>
   </div>;
 }

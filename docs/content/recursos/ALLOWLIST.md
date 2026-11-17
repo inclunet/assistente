@@ -11,6 +11,8 @@ escopo, contexto e datas. Filtre por domínio, escopo, origem, efeito ou estado;
 a busca também encontra recursos, contextos e datas. Use **Revogar regra** para
 remover uma autorização. Remover uma proibição exige confirmação específica,
 pois pode permitir operações anteriormente bloqueadas.
+Após revogar pelo grid, o foco continua na próxima linha disponível; quando
+a lista fica vazia, volta para **Políticas de comandos** na toolbar.
 
 ## Escopos
 
@@ -43,7 +45,7 @@ cadastre regras persistentes com caminho, arquivo/pasta, operação e efeito.
 Uma autorização de leitura não permite escrita.
 
 **Shell:** **Políticas de comandos** abre o editor dos conjuntos reutilizáveis.
-**Associar políticas a perfis** abre os perfis; edite a política de comandos
+**Associar políticas a perfis** navega para a página de perfis; edite a política de comandos
 usada pelo perfil. Os mesmos conjuntos podem atender vários perfis. Nos pedidos
 de execução, comandos simples reconhecidos podem ser lembrados para a operação
 exata e o diretório exibidos. Comandos livres, argumentos não reconhecidos,
