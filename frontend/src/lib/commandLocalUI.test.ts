@@ -3,7 +3,8 @@ import { LOCAL_UI_COMMAND_IDS, isLocalUICommand } from './commandLocalUI';
 
 describe('local_ui command projection', () => {
   it('mantém a allowlist fechada de navegação e efeitos locais', () => {
-    expect(LOCAL_UI_COMMAND_IDS).toHaveLength(67);
+    expect(LOCAL_UI_COMMAND_IDS).toHaveLength(68);
+    expect(isLocalUICommand('allowlists.create.open')).toBe(true);
     for (const id of ['providers.create.open', 'providers.chatgpt.create.open', 'providers.acp.create.open', 'providers.api.create.open']) {
       expect(isLocalUICommand(id)).toBe(true);
     }
