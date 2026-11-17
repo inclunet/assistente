@@ -261,7 +261,7 @@ micro-PRs de infraestrutura sem consumidor. Se o inventário exigir ajustar essa
 divisão, atualizar este plano sem fragmentar por arquivo ou pacote.
 
 - [x] PR documental: contrato, escopos, banco, ACP, migração e limites definidos.
-- [ ] PR 1, base no PR documental: persistência unificada e migração dos quatro
+- [x] PR 1, base no PR documental: persistência unificada e migração dos quatro
   domínios, conectadas aos fluxos existentes, incluindo gestão/revogação; retirar
   os stores de arquivo substituídos. Entrega útil: decisões existentes passam a
   sobreviver no banco com isolamento e origem preservados.
@@ -291,7 +291,8 @@ são explicitamente enumerados. Nenhum PR é mergeado pelo agente.
 - ACP preserva a decisão local e devolve `allow_once`, incluindo a primeira
   resposta. Seus testes foram adaptados para contexto autenticado e banco
   isolado; execução exclusivamente no CI remoto.
-- Ainda pendentes: revisão/CI desta implementação, serviço único de decisão,
+- CI remoto do PR #1088 concluído com sucesso no run `44004637706`, incluindo ACP e detector de corrida. Revisão independente local concluída sem pendências; achado remoto sobre criação concorrente de vínculo corrigido com regressão que reproduz SQLITE_BUSY antes do fix e passa após reexecutar a transação inteira.
+- Ainda pendentes: serviço único de decisão,
   consentimento escopado de shell/ACP, gestão unificada e atribuição explícita
   de proprietário para origens legadas ambíguas. Até essa atribuição existir,
   a migração multiusuário/externa falha de modo fechado e informa o motivo.
