@@ -239,18 +239,18 @@ func TestAuthorizer_ExplicitPortPersisted(t *testing.T) {
 	}
 }
 
-// Com mgr=nil, aprovar um escopo persistente não deve entrar em pânico nem
-// tentar persistir: a liberação vale só para esta request (degrada para once).
-func TestAuthorizer_NilManagerPersistentScopeDegrades(t *testing.T) {
+// Sem store, o backend só oferece once. Uma resposta com escopo que não foi
+// oferecido é rejeitada, em vez de aparentar uma concessão mais ampla.
+func TestAuthorizer_NilManagerRejectsUnavailableScope(t *testing.T) {
 	prompt := &spyPrompter{decision: PromptDecision{Approve: true, Scope: ScopeGlobal}}
 	auth := NewAuthorizer(nil, prompt)
 
 	ips, ok, err := auth.Authorize(authorizationfixture.Context(), blockedDest())
-	if err != nil {
-		t.Fatalf("não deveria retornar erro: %v", err)
+	if err == nil || ok || len(ips) != 0 {
+		t.Fatalf("aceitou escopo indisponível: %v, %v, %v", ips, ok, err)
 	}
-	if !ok || len(ips) == 0 {
-		t.Fatal("deveria liberar a request corrente mesmo sem manager")
+	if len(prompt.lastReq.AvailableScopes) != 1 || prompt.lastReq.AvailableScopes[0] != ScopeOnce {
+		t.Fatalf("ofereceu escopos sem store: %v", prompt.lastReq.AvailableScopes)
 	}
 }
 

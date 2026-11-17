@@ -175,6 +175,12 @@ function App() {
         // Aviso sobre o turno (ex.: anexo que o provedor não recebe). É global
         // de propósito: o controller de streaming vive só entre o envio e o
         // chat:done, e o aviso pode chegar antes de ele estar de pé.
+        unsubs.push(EventsOn('authorization:notice', (data: unknown) => {
+            const notice = data as { domain?: string };
+            if (notice && ['network', 'filesystem', 'shell', 'acp'].includes(notice.domain ?? '')) {
+                addToast(t('permissions.notSaved'), 'warning', 10000);
+            }
+        }));
         unsubs.push(EventsOn('chat:notice', (data: unknown) => {
             const notice = data as ChatNoticeEvent;
             const message = chatNoticeMessage(t, notice);

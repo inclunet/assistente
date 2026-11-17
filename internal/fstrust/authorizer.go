@@ -1,6 +1,7 @@
 package fstrust
 
 import (
+	"assistente/internal/authorization"
 	"context"
 	"errors"
 	"fmt"
@@ -15,10 +16,11 @@ import (
 // PromptRequest é o pedido de consentimento quando um path fora do sandbox não
 // está em nenhuma allowlist.
 type PromptRequest struct {
-	Path         string // path solicitado (antes ou além da resolução de symlink)
-	Operation    string
-	ResolvedPath string // após EvalSymlinks quando possível; igual a Path se falhar
-	SkillSlug    string
+	AvailableScopes []Scope
+	Path            string // path solicitado (antes ou além da resolução de symlink)
+	Operation       string
+	ResolvedPath    string // após EvalSymlinks quando possível; igual a Path se falhar
+	SkillSlug       string
 }
 
 // PromptDecision é a resposta do usuário ao pedido de autorização.
@@ -41,8 +43,10 @@ type Prompter interface {
 
 // Authorizer conecta o Manager (allowlist) ao Prompter (consentimento).
 type Authorizer struct {
-	mgr    *Manager
-	prompt Prompter
+	ScopeFilter       func(context.Context, []Scope) []Scope
+	PersistenceFailed func(context.Context, authorization.Request, error)
+	mgr               *Manager
+	prompt            Prompter
 }
 
 // NewAuthorizer cria o authorizer. prompt pode ser nil (só allowlist, sem UI).
@@ -60,140 +64,103 @@ func (a *Authorizer) Authorize(ctx context.Context, absPath, operation string) e
 	if requested == "" {
 		return fmt.Errorf("path vazio não pode ser autorizado")
 	}
-
 	resolved, err := resolveSymlinks(requested)
 	if err != nil {
 		return fmt.Errorf("não foi possível resolver o destino real de %s: %w", requested, err)
 	}
-
-	// 0) Denylist tem precedência absoluta (mesmo fora do sandbox). Usa o path
-	// já resolvido acima para não repetir resolveSymlinks (I/O por componente).
-	if err := a.deniedResolved(ctx, requested, resolved, operation); err != nil {
-		return err
-	}
-
-	// 1) Allowlist existente (sempre no path resolvido).
-	if a.mgr != nil {
-		decision := a.mgr.Match(ctx, resolved, operation)
-		if decision.Err != nil {
-			return decision.Err
-		}
-		if decision.Allowed {
-			logging.Infof(ctx, "fstrust.authorizer",
-				"[FsTrust] match em allowlist: path=%s op=%s escopo=%s",
-				resolved, operation, decision.Scope)
-			return nil
-		}
-	}
-
-	// 2) Consentimento explícito
-	if a.prompt == nil {
-		tools.RecordSecuritySignal(ctx, tools.SecuritySignal{Version: 1, Domain: "filesystem", Outcome: "blocked", Source: "no_prompter", Operation: operation})
-		return newDeniedPathError(requested, operation, "sem prompter de consentimento", false)
-	}
-
 	skillSlug := skillSlugFrom(ctx)
-	req := PromptRequest{
-		Path:         requested,
-		Operation:    operation,
-		ResolvedPath: resolved,
-		SkillSlug:    skillSlug,
-	}
-
-	logging.Infof(ctx, "fstrust.authorizer",
-		"[FsTrust] solicitando autorização: path=%s resolved=%s op=%s skill=%s",
-		requested, resolved, operation, skillSlug)
-
-	decision, err := a.prompt.PromptPathAuthorization(ctx, req)
-	if err != nil {
-		return fmt.Errorf("falha ao solicitar autorização de path %s (%s): %w", requested, operation, err)
-	}
-	if !decision.Approve {
-		scope := decision.Scope
-		if !ValidScope(scope) {
-			scope = ScopeOnce
+	scopes := []Scope{ScopeOnce}
+	if a.mgr != nil {
+		scopes, err = a.mgr.AvailableScopes(ctx)
+		if err != nil {
+			return err
 		}
-		if NormalizedEffect(decision.Effect) == EffectDeny && a.mgr != nil && scope != ScopeOnce {
-			kind := decision.Kind
+	}
+	prompted := false
+	if a.ScopeFilter != nil {
+		scopes = a.ScopeFilter(ctx, scopes)
+	}
+	flow := authorization.Flow[AllowlistEntry]{
+		Evaluate: func(ctx context.Context) (authorization.Decision, error) {
+			if a.mgr != nil {
+				entries, err := a.mgr.List(ctx)
+				if err != nil {
+					return authorization.Decision{}, err
+				}
+				result := authorization.Decision{Effect: "ask"}
+				for _, entry := range entries {
+					if !entry.Matches(resolved, operation) {
+						continue
+					}
+					if NormalizedEffect(entry.Effect) == EffectDeny {
+						return authorization.Decision{}, deniedEntry(ctx, requested, resolved, operation, entry.Scope)
+					}
+					if result.Effect == "ask" {
+						result = authorization.Decision{Effect: "allow", Scope: entry.Scope}
+					}
+				}
+				return result, nil
+			}
+			return authorization.Decision{Effect: "ask"}, nil
+		},
+		PersistenceFailed: func(ctx context.Context, req authorization.Request, err error) {
+			if a.PersistenceFailed != nil {
+				a.PersistenceFailed(ctx, req, err)
+			}
+			logging.Errorf(ctx, "fstrust.authorizer", "[FsTrust] falha ao lembrar decisão path=%s op=%s: %v — válida somente nesta tentativa", resolved, operation, err)
+		},
+	}
+	if a.mgr != nil {
+		flow.Remember = func(ctx context.Context, choice authorization.Consent[AllowlistEntry]) error {
+			return a.mgr.Add(ctx, choice.Value)
+		}
+	}
+	if a.prompt != nil {
+		flow.Ask = func(ctx context.Context) (authorization.Consent[AllowlistEntry], error) {
+			prompted = true
+			choice, err := a.prompt.PromptPathAuthorization(ctx, PromptRequest{AvailableScopes: scopes, Path: requested, Operation: operation, ResolvedPath: resolved, SkillSlug: skillSlug})
+			if err != nil {
+				return authorization.Consent[AllowlistEntry]{}, fmt.Errorf("falha ao solicitar autorização de path %s (%s): %w", requested, operation, err)
+			}
+			scope := choice.Scope
+			if !ValidScope(scope) {
+				scope = ScopeOnce
+			}
+			kind := choice.Kind
 			if !ValidKind(kind) {
 				kind = KindFile
 			}
-			entryPath := resolved
+			effect := EffectAllow
+			if !choice.Approve {
+				effect = EffectDeny
+				if NormalizedEffect(choice.Effect) != EffectDeny {
+					scope = ScopeOnce
+				}
+			}
+			path := resolved
 			if kind == KindDir {
-				entryPath = dirGrantRoot(resolved)
+				path = dirGrantRoot(resolved)
 			}
-			if err := a.mgr.Add(ctx, AllowlistEntry{
-				Path:      entryPath,
-				Kind:      kind,
-				Operation: operation,
-				Effect:    EffectDeny,
-				Scope:     scope,
-				CreatedBy: creatorFor(skillSlug),
-			}); err != nil {
-				// Fail-closed: a falha em lembrar nunca libera a tentativa.
-				logging.Errorf(ctx, "fstrust.authorizer",
-					"[FsTrust] falha ao persistir deny (escopo %s) para path=%s: %v",
-					scope, entryPath, err)
-			}
+			entry := AllowlistEntry{Path: path, Kind: kind, Operation: operation, Effect: effect, Scope: scope, CreatedBy: creatorFor(skillSlug)}
+			return authorization.Consent[AllowlistEntry]{Effect: string(effect), Scope: scope, Value: entry}, nil
 		}
-		logging.Infof(ctx, "fstrust.authorizer",
-			"[FsTrust] autorização negada: path=%s op=%s escopo=%s", requested, operation, scope)
-		tools.RecordSecuritySignal(ctx, tools.SecuritySignal{Version: 1, Domain: "filesystem", Outcome: "blocked", Source: "user", Scope: string(scope), Operation: operation})
-		return newDeniedPathError(requested, operation, "autorização negada pelo usuário", true)
 	}
-
-	// Reavalia após a espera: uma nova negação ou conversa limpa invalida
-	// o consentimento pendente, inclusive quando foi escolhida a opção once.
-	if err := a.deniedResolved(ctx, requested, resolved, operation); err != nil {
+	result, err := authorization.Resolve(ctx, authorization.Request{Domain: "filesystem", Operation: operation, Resource: resolved, AvailableScopes: scopes}, flow)
+	if err != nil {
 		return err
 	}
-	scope := decision.Scope
-	if !ValidScope(scope) {
-		scope = ScopeOnce
-	}
-	kind := decision.Kind
-	if !ValidKind(kind) {
-		kind = KindFile
-	}
-
-	entryPath := resolved
-	if kind == KindDir {
-		entryPath = dirGrantRoot(resolved)
-	}
-
-	if a.mgr != nil && scope != ScopeOnce {
-		entry := AllowlistEntry{
-			Path:      entryPath,
-			Kind:      kind,
-			Operation: operation,
-			Effect:    EffectAllow,
-			Scope:     scope,
-			CreatedBy: creatorFor(skillSlug),
+	if result.Effect != "allow" {
+		reason, source := "autorização negada pelo usuário", "user"
+		if !prompted {
+			reason, source = "sem prompter de consentimento", "no_prompter"
 		}
-		if err := a.mgr.Add(ctx, entry); err != nil {
-			if currentErr := a.deniedResolved(ctx, requested, resolved, operation); currentErr != nil {
-				return currentErr
-			}
-			logging.Errorf(ctx, "fstrust.authorizer",
-				"[FsTrust] falha ao persistir allowlist (escopo %s) para path=%s: %v — liberando apenas esta tentativa (once)",
-				scope, entryPath, err)
-		}
-	} else if a.mgr != nil && scope == ScopeOnce {
-		// once: Add é no-op; a tentativa corrente já está liberada pelo return nil.
-		_ = a.mgr.Add(ctx, AllowlistEntry{
-			Path:      entryPath,
-			Kind:      kind,
-			Operation: operation,
-			Effect:    EffectAllow,
-			Scope:     ScopeOnce,
-			CreatedBy: creatorFor(skillSlug),
-		})
+		tools.RecordSecuritySignal(ctx, tools.SecuritySignal{Version: 1, Domain: "filesystem", Outcome: "blocked", Source: source, Scope: string(result.Scope), Operation: operation})
+		return newDeniedPathError(requested, operation, reason, prompted)
 	}
-
-	logging.Infof(ctx, "fstrust.authorizer",
-		"[FsTrust] autorização concedida: path=%s kind=%s op=%s escopo=%s",
-		entryPath, kind, operation, scope)
-	tools.RecordSecuritySignal(ctx, tools.SecuritySignal{Version: 1, Domain: "filesystem", Outcome: "approved", Source: "user", Scope: string(scope), Operation: operation})
+	if prompted {
+		tools.RecordSecuritySignal(ctx, tools.SecuritySignal{Version: 1, Domain: "filesystem", Outcome: "approved", Source: "user", Scope: string(result.Scope), Operation: operation})
+	}
+	logging.Infof(ctx, "fstrust.authorizer", "[FsTrust] autorização concedida: path=%s op=%s escopo=%s", resolved, operation, result.Scope)
 	return nil
 }
 
@@ -242,11 +209,15 @@ func (a *Authorizer) deniedResolved(ctx context.Context, requested, resolved, op
 	if !decision.Matched {
 		return nil
 	}
+	return deniedEntry(ctx, requested, resolved, operation, decision.Scope)
+}
+
+func deniedEntry(ctx context.Context, requested, resolved, operation string, scope Scope) error {
 	logging.Infof(ctx, "fstrust.authorizer",
 		"[FsTrust] bloqueado por denylist: path=%s op=%s escopo=%s",
-		resolved, operation, decision.Scope)
-	tools.RecordSecuritySignal(ctx, tools.SecuritySignal{Version: 1, Domain: "filesystem", Outcome: "blocked", Source: "denylist", Scope: string(decision.Scope), Operation: operation})
-	return newDeniedPathError(requested, operation, fmt.Sprintf("bloqueado pela denylist (escopo %s)", decision.Scope), false)
+		resolved, operation, scope)
+	tools.RecordSecuritySignal(ctx, tools.SecuritySignal{Version: 1, Domain: "filesystem", Outcome: "blocked", Source: "denylist", Scope: string(scope), Operation: operation})
+	return newDeniedPathError(requested, operation, fmt.Sprintf("bloqueado pela denylist (escopo %s)", scope), false)
 }
 
 // ResolvePath devolve o destino real (symlinks resolvidos) e normalizado de um

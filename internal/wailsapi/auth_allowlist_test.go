@@ -443,14 +443,14 @@ func TestACPWorkDirMethodsNotOnUnauthAllowlist(t *testing.T) {
 	}
 }
 
-func TestACPTrustMethodsNotOnUnauthAllowlist(t *testing.T) {
+func TestPermissionsMethodsNotOnUnauthAllowlist(t *testing.T) {
 	t.Parallel()
 	for _, name := range []string{
-		"GetAgentPermissions",
-		"RevokeAgentPermission",
+		"GetPermissions",
+		"RevokePermission",
 	} {
 		if slices.Contains(UnauthenticatedAppMethods, name) {
-			t.Fatalf("%s é autenticado via ACPTrust/WithUser; não pertence à allowlist", name)
+			t.Fatalf("%s é autenticado via Permissions/WithUser; não pertence à allowlist", name)
 		}
 	}
 }

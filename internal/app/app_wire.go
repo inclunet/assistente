@@ -271,17 +271,6 @@ func (a *App) wireHotkeys() {
 	}
 }
 
-// wireNetTrust monta o NetTrustController e associa o bind Wails (AEP-0088).
-func (a *App) wireNetTrust() {
-	a.netTrustCtrl = controllers.NewNetTrustController(controllers.NetTrustControllerConfig{
-		NetTrustMgr: a.netTrustMgr,
-		ProfileMgr:  a.profileManager,
-	})
-	if a.netTrustAPI != nil {
-		wailsapi.AttachNetTrust(a.netTrustAPI, wailsSession{app: a}, a.netTrustCtrl)
-	}
-}
-
 // wireFSTrust monta o FSTrustController e associa o bind Wails (AEP-0092).
 func (a *App) wireFSTrust() {
 	a.fsTrustCtrl = controllers.NewFSTrustController(controllers.FSTrustControllerConfig{
@@ -637,13 +626,5 @@ func (a *App) wireACPInstall() {
 			RepointProviders:         a.repointACPProviders,
 			RemoveSupersededVersions: a.removeSupersededVersions,
 		})
-	}
-}
-
-// wireACPTrust associa o bind Wails de autorizações permanentes ACP (AEP-0088).
-// Handlers de permissão em tempo de turno (app_acp_permissions.go) permanecem no App.
-func (a *App) wireACPTrust() {
-	if a.acpTrustAPI != nil {
-		wailsapi.AttachACPTrust(a.acpTrustAPI, wailsSession{app: a}, a.acpTrust, a.profileNames)
 	}
 }

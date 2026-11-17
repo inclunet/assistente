@@ -1,6 +1,6 @@
 # AEP-0117 — Autorizações unificadas em banco
 
-**Status:** In Progress — persistência integrada; orquestração e gestão unificadas pendentes
+**Status:** In Progress — implementação integrada; validação e reviews finais pendentes
 
 ## Resumo
 
@@ -38,7 +38,7 @@ de aba/perfil enquanto um diálogo está aberto não muda o destinatário da reg
 O frontend não decide política, identidade, escopo nem persistência.
 
 O serviço resolve política e concessões, produz `allow`, `deny` ou `ask`, obtém
-consentimento quando cabível e retorna motivo, regra aplicada e escopo efetivo.
+consentimento quando cabível e retorna efeito, motivo e escopo efetivo. A gestão identifica as regras por ID para revogação.
 Erros de consulta, identidade ausente ou payload desconhecido não viram `allow`.
 Bloqueios definitivos não apresentam uma opção que prometa contorná-los.
 
@@ -84,7 +84,7 @@ uma concessão válida evita repetir a pergunta, conforme AEP-0082 D8.
 
 Permissões temporárias e persistentes usam a mesma avaliação. Revogar ou mudar
 uma política invalida caches antes de responder sucesso; pedidos ainda pendentes
-reavaliam negativas e identidade antes de liberar. Uma operação já executada
+reavaliam negativas e identidade antes de liberar. As regras persistentes dos escopos aplicáveis são lidas por um SELECT único após preparar todas as origens. Permissões e negativas de filesystem usam esse mesmo snapshot. A leitura é o ponto de linearização; uma revogação posterior não desfaz retroativamente a decisão. Uma operação já executada
 não é desfeita pela revogação, e a UI não promete isso.
 
 ### D4. Modelo e tabelas comuns
@@ -104,6 +104,8 @@ O repositório usa as conexões, transações e migrações versionadas existent
   criação/atualização, revogação e expiração opcional.
 - `authorization_imports`: origem canônica, proprietário, versão/hash importado,
   estado e diagnóstico da migração. Evita reimportar regras revogadas ou apagadas.
+
+Origens administrativas usam versão zero, usuário vazio e AssignedTo como proprietário atribuído. Elas não são marcadores de importação de um usuário; o marcador só nasce na transação que grava as regras. A atribuição exige administrador autenticado e usuário ativo, aceita apenas origens registradas pelo backend e não transfere uma origem já atribuída.
 
 O seletor tem schema tipado por domínio e versão, validado no backend. JSON no
 banco é representação de structs conhecidos, nunca expressão executável ou
@@ -292,12 +294,16 @@ são explicitamente enumerados. Nenhum PR é mergeado pelo agente.
   resposta. Seus testes foram adaptados para contexto autenticado e banco
   isolado; execução exclusivamente no CI remoto.
 - CI remoto do PR #1088 concluído com sucesso no run `44004637706`, incluindo ACP e detector de corrida. Revisão independente local concluída sem pendências; achado remoto sobre criação concorrente de vínculo corrigido com regressão que reproduz SQLITE_BUSY antes do fix e passa após reexecutar a transação inteira.
-- Ainda pendentes: serviço único de decisão,
-  consentimento escopado de shell/ACP, gestão unificada e atribuição explícita
-  de proprietário para origens legadas ambíguas. Até essa atribuição existir,
-  a migração multiusuário/externa falha de modo fechado e informa o motivo.
 - Revisão de origem filesystem: resolução relativa, sandbox, walks e padrões de skills recebem o contexto capturado. O teste TestReadFileMantemWorkspaceDaOrigemDepoisDeTrocarATela executa leitura real após A→B e verifica que canal sem workspace não herda UI/cwd.
 
+### Evidências da segunda implementação
+
+- `authorization.Resolve` concentra avaliação, pergunta, revalidação, gravação e degradação explícita para uma operação. Rede, filesystem, shell e ACP o utilizam; `questionnaire.AuthorizationActions` fornece IDs e rótulos comuns.
+- `shelltrust` representa operações reconhecidas sem persistir comandos livres; testes cobrem argumentos secretos/compostos, diretório exato, negativas e conversa limpa durante pergunta. O perfil é capturado antes de aguardar consentimento.
+- ACP associa novas regras a agente/classe, retorna apenas a opção pontual oferecida e preserva restrição de superfície. Novos testes de falha de gravação e isolamento entre agentes ficam para execução exclusiva no CI remoto.
+- `PermissionsController` e `PermissionsPage` substituem as três telas de grants. Gestão exibe sessões de todas as conversas em memória daquele usuário, regras persistentes e revogadas; políticas e associações reutilizam os editores existentes. APIs, DTOs, bindings, estilos e traduções sem consumidor foram retirados.
+- Origens ambíguas têm atribuição administrativa explícita no mesmo modelo de importações. Testes cobrem usuário não administrador, proprietário inexistente, reassignment e distinção entre atribuição e importação concluída.
+- Testes de UI cobrem axe, filtros, erro de leitura, pendências e confirmação de revogação. Testes de concorrência cobrem geração de sessão e snapshot consistente dos escopos. Build, vet, golangci-lint, TypeScript e ESLint passaram; Stylelint sem erros. Dez pacotes Go, 174 testes de regressão frontend e dois E2E de arquivos/foco passaram. Revisão independente concluída sem pendências. CI remoto ainda pendente. A tentativa de excluir ACP na suíte frontend ampla não foi respeitada pelos projetos Vitest e incluiu testes de UI com mocks; não houve execução de agentes nem testes Go ACP. As validações locais seguintes usam arquivos explicitamente selecionados.
 ## Riscos
 
 - Ampliar permissões ao normalizar comandos ou migrar documentos homônimos:

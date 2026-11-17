@@ -128,8 +128,12 @@ func (m *Manager) prepare(ctx context.Context) error {
 			if done {
 				continue
 			}
-			if m.mayImport == nil || !m.mayImport(ctx) {
-				return errors.New("políticas legadas aguardam atribuição de proprietário")
+			allowed, err := m.repo.AuthorizeLegacyImport(ctx, "shell", source, m.mayImport != nil && m.mayImport(ctx))
+			if err != nil {
+				return err
+			}
+			if !allowed {
+				continue
 			}
 			data, err := os.ReadFile(source)
 			if err != nil {

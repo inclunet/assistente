@@ -106,6 +106,11 @@ func (m *Manager[E, Q]) Capture(ctx context.Context) context.Context {
 		id.Profile = profile()
 	}
 	id.Profile = strings.ToLower(strings.TrimSpace(id.Profile))
+	// O perfil resolvido também acompanha outros avaliadores da mesma decisão
+	// (por exemplo a política shell), não só o store que capturou a identidade.
+	inv, _ := invocationctx.Get(ctx)
+	inv.ProfileSlug = id.Profile
+	ctx = invocationctx.With(ctx, inv)
 	if root, captured := invocationctx.Workspace(ctx); captured {
 		if root != "" {
 			id.Workspace = canonicalPath(filepath.Join(root, ".assistente"))
@@ -182,6 +187,26 @@ func scopeKey(id identity, scope Scope) (string, error) {
 	}
 	return "", fmt.Errorf("identidade indisponível para escopo %s", scope)
 }
+
+// AvailableScopes é calculado sobre a origem capturada, nunca sobre rótulos
+// ou escolhas vindos da interface. A superfície ainda pode restringir a lista.
+func (m *Manager[E, Q]) AvailableScopes(ctx context.Context) ([]Scope, error) {
+	id, err := m.identity(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := []Scope{ScopeOnce}
+	if id.Conversation != "" {
+		out = append(out, ScopeSession)
+	}
+	if id.Workspace != "" {
+		out = append(out, ScopeWorkspace)
+	}
+	if id.Profile != "" {
+		out = append(out, ScopeProfile)
+	}
+	return append(out, ScopeGlobal), nil
+}
 func (m *Manager[E, Q]) Find(ctx context.Context, query Q) Match[E] {
 	entries, err := m.List(ctx)
 	if err != nil {
@@ -203,6 +228,7 @@ func (m *Manager[E, Q]) List(ctx context.Context) ([]E, error) {
 	m.mu.RLock()
 	out := append([]E(nil), m.session[sessionKey{id.User, id.Conversation}]...)
 	m.mu.RUnlock()
+	keys := make(map[string]string)
 	for _, scope := range []Scope{ScopeProfile, ScopeWorkspace, ScopeGlobal} {
 		key, err := scopeKey(id, scope)
 		if err != nil {
@@ -211,30 +237,31 @@ func (m *Manager[E, Q]) List(ctx context.Context) ([]E, error) {
 		if err := m.importLegacy(ctx, scope, key); err != nil {
 			return nil, err
 		}
-		rows, err := m.options.Repository.List(ctx, m.config.Domain, string(scope), key)
+		keys[string(scope)] = key
+	}
+	rows, err := m.options.Repository.ListScopes(ctx, m.config.Domain, keys)
+	if err != nil {
+		return nil, err
+	}
+	for _, row := range rows {
+		var entry E
+		if row.SelectorVersion != 1 {
+			return nil, errors.New("versão de autorização desconhecida")
+		}
+		if err := json.Unmarshal([]byte(row.Selector), &entry); err != nil {
+			return nil, err
+		}
+		entry, err = m.config.Adapter.Normalize(entry)
 		if err != nil {
 			return nil, err
 		}
-		for _, row := range rows {
-			var entry E
-			if row.SelectorVersion != 1 {
-				return nil, errors.New("versão de autorização desconhecida")
-			}
-			if err := json.Unmarshal([]byte(row.Selector), &entry); err != nil {
-				return nil, err
-			}
-			entry, err = m.config.Adapter.Normalize(entry)
-			if err != nil {
-				return nil, err
-			}
-			if m.config.Adapter.Scope(entry) != scope {
-				return nil, errors.New("escopo divergente na autorização")
-			}
-			if m.config.Adapter.Effect(entry) != row.Effect || m.config.Adapter.Operation(entry) != row.Operation || m.config.Adapter.Identity(entry) != row.SelectorKey {
-				return nil, errors.New("seletor divergente na autorização")
-			}
-			out = append(out, entry)
+		if string(m.config.Adapter.Scope(entry)) != row.Scope {
+			return nil, errors.New("escopo divergente na autorização")
 		}
+		if m.config.Adapter.Effect(entry) != row.Effect || m.config.Adapter.Operation(entry) != row.Operation || m.config.Adapter.Identity(entry) != row.SelectorKey {
+			return nil, errors.New("seletor divergente na autorização")
+		}
+		out = append(out, entry)
 	}
 	// Uma limpeza pode ocorrer enquanto o banco é consultado. Não publique
 	// concessões copiadas de uma geração encerrada durante esse I/O.
@@ -326,6 +353,7 @@ func (m *Manager[E, Q]) Remove(ctx context.Context, scope Scope, query Q) error 
 		for i, entry := range entries {
 			if m.config.Adapter.SameKey(entry, query) {
 				m.session[key] = append(entries[:i:i], entries[i+1:]...)
+				m.generation[key]++
 				return nil
 			}
 		}
@@ -354,6 +382,9 @@ func (m *Manager[E, Q]) Remove(ctx context.Context, scope Scope, query Q) error 
 // importLegacy é a única leitura de arquivo: o marcador transacional impede
 // fallback/reimportação depois que o banco passa a ser a fonte canônica.
 func (m *Manager[E, Q]) importLegacy(ctx context.Context, scope Scope, key string) error {
+	if m.config.Subdir == "" {
+		return nil
+	}
 	m.importMu.Lock()
 	defer m.importMu.Unlock()
 	m.mu.RLock()
@@ -412,8 +443,12 @@ func (m *Manager[E, Q]) importLegacy(ctx context.Context, scope Scope, key strin
 		Entries []E `json:"entries"`
 	}
 	if !missing {
-		if permit == nil || !permit(ctx) {
-			return errors.New("autorizações legadas aguardam atribuição de proprietário")
+		allowed, err := m.options.Repository.AuthorizeLegacyImport(ctx, m.config.Domain, source, permit != nil && permit(ctx))
+		if err != nil {
+			return err
+		}
+		if !allowed {
+			return nil
 		}
 		if err := json.Unmarshal(data, &legacy); err != nil {
 			return fmt.Errorf("autorizações legadas inválidas: %w", err)

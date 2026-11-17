@@ -24,6 +24,8 @@ type AuthorizationRule struct {
 
 // AuthorizationImport impede que arquivos antigos ressuscitem regras revogadas.
 type AuthorizationImport struct {
+	// AssignedTo só é usado em origens administrativas (versão zero).
+	AssignedTo string `gorm:"not null;default:''" json:"assignedTo"`
 	UUIDModel
 	UserID  string `gorm:"not null;uniqueIndex:idx_authorization_import,priority:1"`
 	Domain  string `gorm:"not null;uniqueIndex:idx_authorization_import,priority:2"`

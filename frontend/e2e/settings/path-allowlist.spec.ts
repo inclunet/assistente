@@ -4,13 +4,14 @@ test.describe('Allowlist de paths — gestão e decisão', () => {
   test.describe.configure({ timeout: 60_000 });
 
   test('cria allow persistente pelo formulário de gestão', async ({ page, wails }) => {
-    await wails.setResponse('GetPathAllowlist', []);
+    await wails.setResponse('GetPermissions', { rules: [], migrationErrors: [] });
     await wails.setResponse('AddPathAllowlistEntry', undefined);
     await wails.waitForApp();
 
     await page.goto('/#/settings');
-    await page.getByRole('tab', { name: /path allowlist|allowlist de paths/i }).click();
-    const form = page.locator('.path-allowlist-page__form');
+    await page.getByRole('tab', { name: /^permissions$|^permissões$/i }).click();
+    await page.getByRole('button', { name: /add file rule|adicionar regra de arquivos/i }).click();
+    const form = page.locator('.permission-path-form');
     await expect(form).toBeVisible({ timeout: 10_000 });
 
     await page.locator('#path-rule-path').fill('C:\\dados\\manual.md');

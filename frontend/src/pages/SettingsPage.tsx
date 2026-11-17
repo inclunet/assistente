@@ -14,10 +14,7 @@ const SkillsPage = lazy(() => import('./SkillsPage'));
 const ChannelsPage = lazy(() => import('./ChannelsPage'));
 const ContactsPage = lazy(() => import('./ContactsPage'));
 const CredentialsPage = lazy(() => import('./CredentialsPage'));
-const AllowlistPage = lazy(() => import('./AllowlistPage'));
-const NetworkAllowlistPage = lazy(() => import('./NetworkAllowlistPage'));
-const PathAllowlistPage = lazy(() => import('./PathAllowlistPage'));
-const AgentPermissionsPage = lazy(() => import('./AgentPermissionsPage'));
+const PermissionsPage = lazy(() => import('./PermissionsPage'));
 const AppearancePage = lazy(() => import('./AppearancePage'));
 const DataManagementPage = lazy(() => import('./DataManagementPage'));
 const RestoreDefaultsPage = lazy(() => import('./RestoreDefaultsPage'));
@@ -31,10 +28,7 @@ const SETTINGS_TABS = [
   { id: 'channels',         component: ChannelsPage },
   { id: 'contacts',         component: ContactsPage },
   { id: 'credentials',      component: CredentialsPage },
-  { id: 'allowlists',       component: AllowlistPage },
-  { id: 'network-allowlist', component: NetworkAllowlistPage },
-  { id: 'path-allowlist',   component: PathAllowlistPage },
-  { id: 'agent-permissions', component: AgentPermissionsPage },
+  { id: 'permissions', component: PermissionsPage },
   { id: 'appearance',       component: AppearancePage },
   { id: 'data',             component: DataManagementPage },
   { id: 'restore-defaults', component: RestoreDefaultsPage },

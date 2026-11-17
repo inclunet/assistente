@@ -27,6 +27,10 @@ type Manager struct {
 	core *trustscope.Manager[AllowlistEntry, entryQuery]
 }
 
+func (m *Manager) AvailableScopes(ctx context.Context) ([]Scope, error) {
+	return m.core.AvailableScopes(ctx)
+}
+
 func managerConfig() trustscope.Config[AllowlistEntry, entryQuery] {
 	return trustscope.Config[AllowlistEntry, entryQuery]{
 		Domain:        "filesystem",

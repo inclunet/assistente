@@ -98,7 +98,7 @@ func joinIPs(ips []net.IP) string {
 // mensagem de bloqueio como link Markdown: quem lê a conversa consegue ir
 // direto revisar o que já está autorizado (e revogar), em vez de caçar a tela
 // nas configurações.
-const NetworkAllowlistDeepLink = "assistente://navigate/settings/network-allowlist"
+const NetworkAllowlistDeepLink = "assistente://navigate/settings/permissions"
 
 // defaultBlockSuggestions são as ações sugeridas quando não há autorização.
 var defaultBlockSuggestions = []string{

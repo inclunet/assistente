@@ -8,6 +8,9 @@ import "strings"
 // quem aquela sessão está respondendo, a camada que decide não teria como
 // perguntar nem como saber se há alguém para perguntar (AEP-0084 D9).
 type TurnOwner struct {
+	// Origem capturada antes do turno; não acompanha a interface ativa.
+	Workspace string
+	AgentID   string
 	// ConversationID é a conversa do app que pediu este turno.
 	ConversationID string
 
@@ -50,6 +53,7 @@ func (c *Conversation) BeginTurn(owner TurnOwner) (end func()) {
 		return func() {}
 	}
 	owner.ConversationID = c.id
+	owner.AgentID = providerID
 	token := c.manager.setTurnOwner(sessionID, providerID, owner)
 	return func() { c.manager.clearTurnOwner(sessionID, token) }
 }

@@ -1,6 +1,7 @@
 package app
 
 import (
+	"assistente/internal/authorization"
 	"context"
 	"fmt"
 	"strings"
@@ -13,74 +14,11 @@ import (
 // Network Trust (allowlist anti-SSRF escopável) — Prompter
 // ============================================================================
 
-// scopeOption associa a chave de tradução ao Scope correspondente. A ordem
-// define a apresentação (do mais efêmero ao mais amplo). O id da ação no
-// DecisionDialog é o próprio Scope (AEP-0091) — sem prefixo "session — …".
-type scopeOption struct {
-	key   string
-	label string
-	scope nettrust.Scope
-}
-
-var networkScopeOptions = []scopeOption{
-	{"app.questionnaire.network.scope.once", "Somente esta requisição", nettrust.ScopeOnce},
-	{"app.questionnaire.network.scope.session", "Durante esta conversa", nettrust.ScopeSession},
-	{"app.questionnaire.network.scope.workspace", "Neste workspace (projeto)", nettrust.ScopeWorkspace},
-	{"app.questionnaire.network.scope.profile", "Neste perfil", nettrust.ScopeProfile},
-	{"app.questionnaire.network.scope.global", "Global (todos os workspaces e perfis)", nettrust.ScopeGlobal},
-}
-
-func networkDecisionActions() []questionnaire.DecisionAction {
-	out := make([]questionnaire.DecisionAction, 0, len(networkScopeOptions)+1)
-	for i, o := range networkScopeOptions {
-		action := questionnaire.DecisionAction{
-			ID:       string(o.scope),
-			Label:    questionnaire.Keyed(o.key, o.label),
-			Variant:  "secondary",
-			Primary:  i == 0,
-			Polarity: questionnaire.DecisionPolarityAffirmative,
-		}
-		switch o.scope {
-		case nettrust.ScopeOnce:
-			action.Scope = questionnaire.DecisionScopeCurrent
-		case nettrust.ScopeSession:
-			action.Scope = questionnaire.DecisionScopeConversation
-		case nettrust.ScopeGlobal:
-			action.Scope = questionnaire.DecisionScopeGlobal
-		}
-		// Workspace e perfil continuam sem chord: coexistem com global e os
-		// três são persistentes, portanto disputariam Ctrl+Shift+Enter.
-		out = append(out, action)
-	}
-	if len(out) > 0 {
-		out[0].Variant = "primary"
-	}
-	out = append(out, questionnaire.DecisionAction{
-		ID:       decisionDeny,
-		Label:    questionnaire.Keyed("app.questionnaire.network.cancel", "Negar"),
-		Variant:  "outline",
-		Polarity: questionnaire.DecisionPolarityNegative,
-		Scope:    questionnaire.DecisionScopeCurrent,
-	})
-	return out
-}
-
-// scopeFromActionID resolve o Scope pelo id da ação do DecisionDialog.
-func scopeFromActionID(actionID string) (nettrust.Scope, bool) {
-	value := strings.TrimSpace(actionID)
-	for _, o := range networkScopeOptions {
-		if string(o.scope) == value {
-			return o.scope, true
-		}
-	}
-	return "", false
-}
-
 // appNetworkPrompter implementa nettrust.Prompter usando o questionnaire manager,
 // reutilizando exatamente o mesmo mecanismo de consentimento já usado para
 // operações destrutivas de HTTP e execução de comandos shell.
 type appNetworkPrompter struct {
-	qm *questionnaire.Manager
+	ask func(context.Context, questionnaire.RequestPayload) (questionnaire.Response, error)
 }
 
 func networkConfirmationPayload(req nettrust.PromptRequest) questionnaire.RequestPayload {
@@ -131,38 +69,22 @@ func networkConfirmationPayload(req nettrust.PromptRequest) questionnaire.Reques
 			"Detalhes do destino",
 		),
 		AllowCancel: true,
-		Actions:     networkDecisionActions(),
+		Actions:     (questionnaire.AuthorizationActions{Scopes: req.AvailableScopes, PersistentShortcut: authorization.ScopeGlobal}).Actions(),
 	}
 }
 
 func (p *appNetworkPrompter) PromptNetworkAuthorization(ctx context.Context, req nettrust.PromptRequest) (nettrust.PromptDecision, error) {
-	if p.qm == nil {
+	if p.ask == nil {
 		return nettrust.PromptDecision{}, fmt.Errorf("questionnaire manager não inicializado")
 	}
 
-	resp, err := p.qm.RequestQuestionnaire(ctx, networkConfirmationPayload(req))
+	resp, err := p.ask(ctx, networkConfirmationPayload(req))
 	if err != nil {
 		return nettrust.PromptDecision{}, err
 	}
-	if resp.Cancelled {
-		return nettrust.PromptDecision{Approve: false}, nil
+	choice, err := (questionnaire.AuthorizationActions{Scopes: req.AvailableScopes, PersistentShortcut: authorization.ScopeGlobal}).Parse(resp)
+	if err != nil {
+		return nettrust.PromptDecision{}, err
 	}
-
-	actionID, ok := questionnaire.DecisionActionID(resp)
-	if !ok {
-		return nettrust.PromptDecision{}, fmt.Errorf("resposta de autorização de rede sem ação")
-	}
-	actionID = strings.TrimSpace(actionID)
-	if actionID == decisionDeny {
-		return nettrust.PromptDecision{Approve: false}, nil
-	}
-
-	scope, ok := scopeFromActionID(actionID)
-	if !ok {
-		return nettrust.PromptDecision{}, fmt.Errorf("escopo de autorização inválido: %q", actionID)
-	}
-
-	// Observação livre saiu com o DecisionDialog (só botões). Reason vazio
-	// até haver campo opcional sem voltar ao híbrido rádio+texto (AEP-0091).
-	return nettrust.PromptDecision{Approve: true, Scope: scope}, nil
+	return nettrust.PromptDecision{Approve: choice.Effect == "allow", Scope: choice.Scope}, nil
 }

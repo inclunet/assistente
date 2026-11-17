@@ -34,6 +34,12 @@ func (a *App) resetLoadedToolsForConversation(conversationID string) {
 // novo consentimento.
 func (a *App) resetConversationScopedState(ctx context.Context, conversationID string) {
 	a.resetLoadedToolsForConversation(conversationID)
+	if a != nil && a.acpTrust != nil {
+		a.acpTrust.ClearSession(conversationID)
+	}
+	if a != nil && a.shellTrustMgr != nil {
+		a.shellTrustMgr.ClearSession(conversationID)
+	}
 	if a != nil && a.netTrustMgr != nil {
 		a.netTrustMgr.ClearSession(conversationID)
 	}

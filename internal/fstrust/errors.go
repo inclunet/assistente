@@ -9,7 +9,7 @@ import (
 // mensagem de negação como link Markdown: quem lê a conversa consegue ir
 // direto revisar o que já está autorizado (e revogar), em vez de caçar a tela
 // nas configurações (AEP-0092 D6 / Fase 1b).
-const PathAllowlistDeepLink = "assistente://navigate/settings/path-allowlist"
+const PathAllowlistDeepLink = "assistente://navigate/settings/permissions"
 
 // DeniedPathError é o erro acionável devolvido quando um path fora do sandbox
 // não foi autorizado (usuário negou ou não há prompter). Expõe path, operação

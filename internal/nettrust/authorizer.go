@@ -1,6 +1,7 @@
 package nettrust
 
 import (
+	"assistente/internal/authorization"
 	"context"
 	"net"
 
@@ -12,6 +13,7 @@ import (
 // PromptRequest é o pedido de consentimento apresentado ao usuário quando um
 // destino barrado por anti-SSRF não está em nenhuma allowlist.
 type PromptRequest struct {
+	AvailableScopes     []Scope
 	Host                string
 	Port                string
 	URL                 string
@@ -44,8 +46,10 @@ type Prompter interface {
 // Authorizer conecta o Manager (allowlist) ao Prompter (consentimento) e
 // implementa httpclient.NetworkAuthorizer, sendo instalado no Client HTTP.
 type Authorizer struct {
-	mgr    *Manager
-	prompt Prompter
+	ScopeFilter       func(context.Context, []Scope) []Scope
+	PersistenceFailed func(context.Context, authorization.Request, error)
+	mgr               *Manager
+	prompt            Prompter
 }
 
 // NewAuthorizer cria o authorizer. prompt pode ser nil (só allowlist, sem UI).
@@ -61,124 +65,73 @@ func (a *Authorizer) Authorize(ctx context.Context, dest httpclient.BlockedDesti
 	if a.mgr != nil {
 		ctx = a.mgr.Capture(ctx)
 	}
-	host := dest.Host
-	port := dest.Port
-
-	// 1) Allowlist existente. mgr pode ser nil se o authorizer foi mal
-	// inicializado; nesse caso não há allowlist para consultar (nem persistir).
-	if a.mgr != nil {
-		decision := a.mgr.Match(ctx, host, port)
-		if decision.Err != nil {
-			return nil, false, decision.Err
-		}
-		if decision.Allowed {
-			// Proteção contra DNS rebinding: uma entrada é por HOST, mas os IPs
-			// resolvidos podem ter mudado desde a autorização. Se o DNS passou a
-			// apontar para uma categoria MAIS sensível (ex.: era CGNAT e agora
-			// resolve para o endpoint de metadados/loopback), não liberamos
-			// silenciosamente — caímos para novo consentimento explícito.
-			if !categoryEscalated(dest, decision.Entry) {
-				logging.Infof(ctx, "nettrust.authorizer",
-					"[NetTrust] match em allowlist: host=%s port=%s escopo=%s categoria=%s ips=%v",
-					host, port, decision.Scope, dest.Category, ipsToStrings(dest.IPs))
-				return dest.IPs, true, nil
-			}
-			logging.Infof(ctx, "nettrust.authorizer",
-				"[NetTrust] allowlist ignorada por escalonamento de categoria via DNS: host=%s escopo=%s categoria_atual=%s ips=%v — exigindo novo consentimento",
-				host, decision.Scope, dest.Category, ipsToStrings(dest.IPs))
-		}
-	}
-
-	// 2) Consentimento explícito
-	if a.prompt == nil {
-		logging.Infof(ctx, "nettrust.authorizer",
-			"[NetTrust] bloqueio sem authorizer interativo: host=%s categoria=%s", host, dest.Category)
-		return nil, false, nil
-	}
-
 	skillSlug, suggested := skillNetworkHints(ctx)
-	req := PromptRequest{
-		Host:                host,
-		Port:                port,
-		URL:                 dest.URL,
-		IPs:                 ipsToStrings(dest.IPs),
-		Category:            string(dest.Category),
-		Reason:              dest.Reason,
-		SkillSlug:           skillSlug,
-		SkillSuggestedHosts: suggested,
-		SkillHostMatch:      matchingSuggestedHost(suggested, host),
+	scopes := []Scope{ScopeOnce}
+	if a.mgr != nil {
+		var err error
+		scopes, err = a.mgr.AvailableScopes(ctx)
+		if err != nil {
+			return nil, false, err
+		}
 	}
-
-	logging.Infof(ctx, "nettrust.authorizer",
-		"[NetTrust] solicitando autorização: host=%s port=%s categoria=%s ips=%v skill=%s",
-		host, port, dest.Category, req.IPs, skillSlug)
-
-	decision, err := a.prompt.PromptNetworkAuthorization(ctx, req)
+	if a.ScopeFilter != nil {
+		scopes = a.ScopeFilter(ctx, scopes)
+	}
+	flow := authorization.Flow[AllowlistEntry]{
+		Evaluate: func(ctx context.Context) (authorization.Decision, error) {
+			if a.mgr != nil {
+				match := a.mgr.Match(ctx, dest.Host, dest.Port)
+				if match.Err != nil {
+					return authorization.Decision{}, match.Err
+				}
+				if match.Allowed && !categoryEscalated(dest, match.Entry) {
+					return authorization.Decision{Effect: "allow", Scope: match.Scope, Reason: "concessão compatível com o destino resolvido"}, nil
+				}
+			}
+			return authorization.Decision{Effect: "ask"}, nil
+		},
+		PersistenceFailed: func(ctx context.Context, req authorization.Request, err error) {
+			if a.PersistenceFailed != nil {
+				a.PersistenceFailed(ctx, req, err)
+			}
+			logging.Errorf(ctx, "nettrust.authorizer", "[NetTrust] falha ao lembrar autorização host=%s: %v — válida somente nesta tentativa", dest.Host, err)
+		},
+	}
+	if a.mgr != nil {
+		flow.Remember = func(ctx context.Context, choice authorization.Consent[AllowlistEntry]) error {
+			return a.mgr.Add(ctx, choice.Value)
+		}
+	}
+	if a.prompt != nil {
+		flow.Ask = func(ctx context.Context) (authorization.Consent[AllowlistEntry], error) {
+			req := PromptRequest{AvailableScopes: scopes, Host: dest.Host, Port: dest.Port, URL: dest.URL, IPs: ipsToStrings(dest.IPs), Category: string(dest.Category), Reason: dest.Reason, SkillSlug: skillSlug, SkillSuggestedHosts: suggested, SkillHostMatch: matchingSuggestedHost(suggested, dest.Host)}
+			decision, err := a.prompt.PromptNetworkAuthorization(ctx, req)
+			if err != nil {
+				return authorization.Consent[AllowlistEntry]{}, err
+			}
+			if !decision.Approve {
+				return authorization.Consent[AllowlistEntry]{Effect: "deny", Scope: "once"}, nil
+			}
+			scope := decision.Scope
+			if !ValidScope(scope) {
+				scope = ScopeOnce
+			}
+			port := ""
+			if dest.PortExplicit {
+				port = dest.Port
+			}
+			entry := AllowlistEntry{Host: dest.Host, Port: port, Scope: scope, Category: string(dest.Category), ResolvedIPs: ipsToStrings(dest.IPs), CreatedBy: creatorFor(skillSlug), Reason: decision.Reason}
+			return authorization.Consent[AllowlistEntry]{Effect: "allow", Scope: scope, Value: entry}, nil
+		}
+	}
+	result, err := authorization.Resolve(ctx, authorization.Request{Domain: "network", Operation: "connect", Resource: dest.Host, AvailableScopes: scopes}, flow)
 	if err != nil {
 		return nil, false, err
 	}
-	if !decision.Approve {
-		logging.Infof(ctx, "nettrust.authorizer", "[NetTrust] autorização negada: host=%s", host)
+	if result.Effect != "allow" {
 		return nil, false, nil
 	}
-	// O diálogo pode ter ficado aberto durante limpeza da conversa ou falha
-	// da origem. Uma resposta atrasada não contorna a validação do contexto.
-	if a.mgr != nil {
-		if current := a.mgr.Match(ctx, host, port); current.Err != nil {
-			return nil, false, current.Err
-		}
-	}
-
-	scope := decision.Scope
-	if !ValidScope(scope) {
-		scope = ScopeOnce
-	}
-
-	// effectiveScope reflete o que de fato aconteceu: se a entrada não puder ser
-	// persistida, a liberação vale só para esta request (degrada para once) — o
-	// log não deve afirmar que foi salva num escopo persistente.
-	effectiveScope := scope
-	if scope != ScopeOnce {
-		if a.mgr == nil {
-			// Sem manager não há onde persistir: mantém a auditabilidade correta.
-			logging.Errorf(ctx, "nettrust.authorizer",
-				"[NetTrust] sem manager para persistir allowlist (escopo %s) para host=%s — liberando apenas esta request (once)",
-				scope, host)
-			effectiveScope = ScopeOnce
-		} else {
-			// A autorização é por HOST: só gravamos a porta quando ela veio
-			// EXPLÍCITA na URL. Porta derivada do scheme (443/80) não deve tornar
-			// a entrada específica de porta — senão o mesmo host via http vs https
-			// (ou outra porta default) voltaria a ser bloqueado/promptado.
-			entryPort := ""
-			if dest.PortExplicit {
-				entryPort = port
-			}
-			entry := AllowlistEntry{
-				Host:        host,
-				Port:        entryPort,
-				Scope:       scope,
-				Category:    string(dest.Category),
-				ResolvedIPs: ipsToStrings(dest.IPs),
-				CreatedBy:   creatorFor(skillSlug),
-				Reason:      decision.Reason,
-			}
-			if err := a.mgr.Add(ctx, entry); err != nil {
-				if current := a.mgr.Match(ctx, host, port); current.Err != nil {
-					return nil, false, current.Err
-				}
-				// Falha ao persistir não deve abortar o acesso já autorizado nesta
-				// request: logamos e seguimos como ScopeOnce.
-				logging.Errorf(ctx, "nettrust.authorizer",
-					"[NetTrust] falha ao persistir allowlist (escopo %s) para host=%s: %v — liberando apenas esta request (once)",
-					scope, host, err)
-				effectiveScope = ScopeOnce
-			}
-		}
-	}
-
-	logging.Infof(ctx, "nettrust.authorizer",
-		"[NetTrust] autorização concedida: host=%s escopo=%s ips=%v", host, effectiveScope, req.IPs)
+	logging.Infof(ctx, "nettrust.authorizer", "[NetTrust] autorização concedida: host=%s escopo=%s ips=%v", dest.Host, result.Scope, ipsToStrings(dest.IPs))
 	return dest.IPs, true, nil
 }
 

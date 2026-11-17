@@ -1,5 +1,63 @@
 const ptBR = {
   translation: {
+permissions: {
+associations: 'Associar políticas a perfis',
+resourceKind: 'Tipo de recurso', expiresAt: 'Expira em',
+assign: 'Atribuir origens legadas', assigned: 'Proprietário atribuído. A importação ocorrerá no contexto desse usuário.', assignmentFailed: 'Não foi possível atribuir a origem.', assignmentHelp: 'Escolha a origem conhecida e seu proprietário. A atribuição é exclusiva: não pode ser transferida por esta ação e não concede as regras aos demais usuários.', owner: 'Proprietário', choose: 'Selecione',
+notSaved: 'A decisão vale somente para esta operação: não foi possível lembrá-la. Na próxima tentativa será necessário decidir novamente.',
+  "title": "Permissões",
+  "description": "Regras do seu usuário no banco atual. As permissões de sessão listadas pertencem às conversas em memória e terminam ao limpar ou reiniciar.",
+  "acpLimit": "ACP autoriza classes de ação do agente, não ferramentas nativas. Autorizações antigas já memorizadas pelo agente devem ser revogadas também na configuração dele.",
+  "domainLabel": "Domínio",
+  "scopeLabel": "Escopo",
+  "originLabel": "Origem",
+  "effectLabel": "Efeito",
+  "resource": "Recurso",
+  "operation": "Operação",
+  "context": "Perfil, workspace ou conversa",
+  "createdAt": "Concedida em",
+  "revokedAt": "Revogada em",
+  "statusLabel": "Estado",
+  "all": "Todos",
+  "revoke": "Revogar regra",
+  "reload": "Atualizar",
+  "policies": "Políticas de comandos",
+  "addPath": "Adicionar regra de arquivos",
+  "search": "Buscar recurso, contexto ou data",
+  "loading": "Carregando permissões…",
+  "loadFailed": "Não foi possível carregar as permissões. As regras existentes continuam valendo.",
+  "incomplete": "Há origens legadas pendentes. A listagem pode estar incompleta; operações que dependem dessas origens permanecem bloqueadas.",
+  "revoked": "Regra revogada.",
+  "revokeFailed": "Não foi possível revogar a regra. Atualize a lista e tente novamente.",
+  "confirmRevoke": "Revogar a autorização para {{resource}}, no escopo {{scope}} ({{scopeName}})?",
+  "confirmDenyRemoval": "Remover a proibição de {{resource}}, no escopo {{scope}} ({{scopeName}})? Isso pode permitir operações antes bloqueadas.",
+  "legacyAgent": "Regra legada sem identidade de agente",
+  "domain": {
+    "network": "Rede",
+    "filesystem": "Arquivos",
+    "shell": "Shell",
+    "acp": "Agentes ACP"
+  },
+  "scope": {
+    "session": "Conversa (temporária)",
+    "workspace": "Workspace",
+    "profile": "Perfil",
+    "global": "Global do usuário"
+  },
+  "origin": {
+    "consent": "Consentimento",
+    "migration": "Migração"
+  },
+  "effect": {
+    "allow": "Permitir",
+    "deny": "Negar",
+    "ask": "Perguntar"
+  },
+  "status": {
+    "active": "Ativas",
+    "revoked": "Revogadas"
+  }
+},
  chatgpt: {
     providerSettings: "Configuração do provedor",
     providerName: "Nome do provedor",
@@ -683,6 +741,7 @@ const ptBR = {
         allowlists: 'Allow Lists',
         'network-allowlist': 'Allowlist de Rede',
         'path-allowlist': 'Allowlist de Paths',
+        permissions: 'Permissões',
         'agent-permissions': 'Autorizações do Agente',
         appearance: 'Aparência',
         data: 'Dados',
@@ -1103,22 +1162,6 @@ const ptBR = {
     },
 
     agentPermissions: {
-      title: 'Autorizações do Agente',
-      loading: 'Carregando autorizações...',
-      toolbarLabel: 'Barra de ferramentas de autorizações do agente',
-      gridLabel: 'Autorizações permanentes do agente',
-      description: 'Ações que você autorizou um agente de código a fazer sem perguntar de novo. A autorização vale para todas as ações daquela classe no perfil, até você revogá-la aqui.',
-      empty: 'Nenhuma autorização permanente. O agente pergunta antes de cada ação.',
-      loadFailedBody: 'Não foi possível carregar as autorizações. As que existirem continuam valendo — recarregue para tentar de novo.',
-      columns: {
-        profile: 'Perfil',
-        action: 'Ação autorizada',
-        grantedAt: 'Autorizada em',
-      },
-      actions: {
-        revoke: 'Revogar',
-        reload: 'Recarregar',
-      },
       action: {
         read: 'Ler arquivos',
         edit: 'Editar arquivos',
@@ -1132,83 +1175,9 @@ const ptBR = {
         other: 'Ações sem classe declarada',
         unknown: 'Ações de uma classe que este app não reconhece',
       },
-      confirm: {
-        title: 'Revogar autorização',
-        message: 'Revogar "{{action}}" no perfil {{profile}}? O agente volta a pedir permissão antes de cada ação dessa classe.',
-      },
-      toast: { revoked: 'Autorização revogada' },
-      announce: { revoked: 'Autorização revogada: {{action}} no perfil {{profile}}.' },
-      error: {
-        loadFailed: 'Erro ao carregar as autorizações do agente',
-        revokeFailed: 'Erro ao revogar a autorização',
-        notFound: 'Essa autorização não existe mais. A lista foi atualizada.',
-      },
-    },
-
-    networkAllowlist: {
-      title: 'Allowlist de Rede',
-      loading: 'Carregando allowlist de rede...',
-      toolbarLabel: 'Barra de ferramentas da allowlist de rede',
-      gridLabel: 'Hosts autorizados na allowlist de rede',
-      description: 'Hosts que resolvem para endereços internos/privados e que você autorizou o assistente a acessar, apesar da política anti-SSRF. Cada entrada vale até ser removida aqui.',
-      sessionNote: 'Esta lista cobre só o workspace atual, o perfil ativo e o escopo global. Autorizações só da requisição, só da conversa ou de outros perfis não aparecem aqui — as efêmeras expiram sozinhas; as de outros perfis continuam valendo quando aquele perfil estiver ativo.',
-      empty: 'Nenhum host autorizado. Todo destino interno continua bloqueado até você autorizar.',
-      loadFailedBody: 'Não foi possível carregar a allowlist de rede. As autorizações que existirem continuam valendo — recarregue para tentar de novo.',
-      defaultPorts: 'Padrão (80 e 443)',
-      columns: {
-        host: 'Host',
-        port: 'Porta',
-        scope: 'Escopo',
-        category: 'Categoria do bloqueio',
-        resolvedIps: 'IPs resolvidos',
-        createdBy: 'Autorizada por',
-        createdAt: 'Autorizada em',
-        reason: 'Observação',
-      },
-      scope: {
-        session: 'Esta conversa',
-        workspace: 'Este workspace',
-        profile: 'Este perfil',
-        global: 'Global',
-        unknown: 'Escopo que este app não reconhece',
-      },
-      actions: {
-        remove: 'Remover',
-        reload: 'Recarregar',
-      },
-      confirm: {
-        title: 'Remover autorização de rede',
-        message: 'Remover a autorização de {{host}} ({{scope}})? O assistente volta a bloquear esse destino e a pedir consentimento.',
-      },
-      toast: { removed: 'Autorização de rede removida' },
-      announce: { removed: 'Autorização de rede removida: {{host}} ({{scope}}).' },
-      error: {
-        loadFailed: 'Erro ao carregar a allowlist de rede',
-        removeFailed: 'Erro ao remover a autorização de rede',
-        reloadAfterRemoveFailed:
-          'A autorização foi removida, mas a lista não pôde ser atualizada. Recarregue para confirmar.',
-      },
     },
 
     pathAllowlist: {
-      title: 'Allowlist de Paths',
-      loading: 'Carregando allowlist de paths...',
-      toolbarLabel: 'Barra de ferramentas da allowlist de paths',
-      gridLabel: 'Paths autorizados fora do sandbox',
-      description: 'Gerencie permissões e proibições por path e operação. Proibições prevalecem sobre permissões em qualquer escopo.',
-      sessionNote: 'Esta lista cobre só o workspace atual, o perfil ativo e o escopo global. Autorizações só da tentativa, só da conversa ou de outros perfis não aparecem aqui — as efêmeras expiram sozinhas; as de outros perfis continuam valendo quando aquele perfil estiver ativo.',
-      empty: 'Nenhuma regra de path persistente. Todo acesso fora do sandbox continua pedindo consentimento.',
-      loadFailedBody: 'Não foi possível carregar a allowlist de paths. As autorizações que existirem continuam valendo — recarregue para tentar de novo.',
-      columns: {
-        path: 'Path',
-        effect: 'Efeito',
-        kind: 'Tipo',
-        operation: 'Operação',
-        scope: 'Escopo',
-        createdBy: 'Autorizada por',
-        createdAt: 'Autorizada em',
-        reason: 'Observação',
-      },
       effect: {
         allow: 'Permitir',
         deny: 'Proibir',
@@ -1239,27 +1208,11 @@ const ptBR = {
         pathRequired: 'Informe o path da regra',
         operationRequired: 'Informe a operação da regra',
       },
-      actions: {
-        remove: 'Remover',
-        reload: 'Recarregar',
-      },
-      confirm: {
-        title: 'Remover autorização de path',
-        message: 'Remover a autorização de {{path}} ({{scope}})? O assistente volta a pedir consentimento para esse path e operação.',
-        denyTitle: 'Remover proibição de path',
-        denyMessage: 'Remover a proibição de {{path}} ({{scope}})? O assistente volta a permitir esse path e operação conforme as demais regras.',
-      },
       toast: {
         removed: 'Autorização de path removida',
         denyRemoved: 'Proibição de path removida',
         allowAdded: 'Permissão de path adicionada',
         denyAdded: 'Proibição de path adicionada',
-      },
-      announce: {
-        removed: 'Autorização de path removida: {{path}} ({{scope}}).',
-        denyRemoved: 'Proibição de path removida: {{path}} ({{scope}}).',
-        allowAdded: 'Permissão de path adicionada: {{path}}.',
-        denyAdded: 'Proibição de path adicionada: {{path}}.',
       },
       error: {
         loadFailed: 'Erro ao carregar a allowlist de paths',
@@ -4897,7 +4850,7 @@ const ptBR = {
         permissionNoWatcher: 'O agente pediu permissão para {{action}} nesta conversa, mas não havia ninguém para responder. A ação foi negada.',
         permissionTimeout: 'O agente pediu permissão para {{action}} e ninguém respondeu a tempo. A ação foi negada.',
         permissionUnavailable: 'O agente pediu permissão para {{action}}, mas o app não conseguiu apresentar o pedido. A ação foi negada.',
-        permissionAlwaysAllowed: 'Autorização permanente criada neste perfil: {{actionClass}}. O agente não vai mais perguntar antes dessas ações; para revogar, abra Configurações e vá em Autorizações do Agente.',
+        permissionAlwaysAllowed: 'Autorização lembrada no escopo escolhido: {{actionClass}}. Para consultar o alcance ou revogar, abra Configurações e vá em Permissões.',
         permissionAlwaysNotSaved: 'A autorização permanente não pôde ser guardada: {{actionClass}}. A ação desta vez foi permitida, mas na próxima o agente vai perguntar de novo.',
         questionNoWatcher: 'O agente parou para perguntar algo nesta conversa, mas não havia ninguém para responder. Ele seguiu sem a sua resposta.',
         questionTimeout: 'O agente fez uma pergunta e ninguém respondeu a tempo. Ele seguiu sem a sua resposta.',
@@ -4936,6 +4889,23 @@ const ptBR = {
         closedTimeout: 'O prazo para responder acabou; o diálogo foi fechado sem resposta.',
         // Diálogos que o backend monta (AEP-0085). O texto pronto vem no
         // payload como fallback; estas chaves são a versão traduzida dele.
+        authorization: {
+          'once': 'Somente esta operação',
+          'session': 'Durante esta conversa',
+          'workspace': 'Neste workspace',
+          'profile': 'Neste perfil',
+          'global': 'Todos os meus workspaces e perfis',
+          'dir-once': 'Pasta pai — Somente esta operação',
+          'dir-session': 'Pasta pai — Durante esta conversa',
+          'dir-workspace': 'Pasta pai — Neste workspace',
+          'dir-profile': 'Pasta pai — Neste perfil',
+          'dir-global': 'Pasta pai — Todos os meus workspaces e perfis',
+          'deny-session': 'Negar — Durante esta conversa',
+          'deny-workspace': 'Negar — Neste workspace',
+          'deny-profile': 'Negar — Neste perfil',
+          'deny-global': 'Negar — Todos os meus workspaces e perfis',
+          deny: 'Negar',
+        },
         shell: {
           title: 'Confirmar execução de comando',
           description: 'O assistente quer executar:\n\n{{command}}\n\nem: {{workDir}}',
@@ -5004,41 +4974,15 @@ const ptBR = {
           scopePrompt: 'Por quanto tempo autorizar este host?',
           reasonPrompt: 'Observação (opcional)',
           reasonPlaceholder: 'Ex.: API interna de workflows',
-          scope: {
-            once: 'Somente esta requisição',
-            session: 'Durante esta conversa',
-            workspace: 'Neste workspace (projeto)',
-            profile: 'Neste perfil',
-            global: 'Global (todos os workspaces e perfis)',
-          },
         },
         fstrust: {
           title: 'Autorizar acesso a caminho fora do workspace',
           description: 'O assistente pediu a operação "{{operation}}" em um caminho fora do workspace ativo e de ~/.assistente. Permita o path ou a pasta pai, negue esta tentativa ou lembre a negação no escopo escolhido.',
           bodyLabel: 'Caminho e detalhes solicitados',
           cancel: 'Negar',
-          deny: {
-            session: 'Negar durante esta conversa',
-            workspace: 'Negar neste workspace (projeto)',
-            profile: 'Negar neste perfil',
-            global: 'Negar globalmente (todos os workspaces e perfis)',
-          },
-          scope: {
-            once: 'Somente esta tentativa',
-            session: 'Durante esta conversa',
-            workspace: 'Neste workspace (projeto)',
-            profile: 'Neste perfil',
-            global: 'Global (todos os workspaces e perfis)',
-            dir: {
-              once: 'Pasta pai — somente esta tentativa',
-              session: 'Pasta pai — durante esta conversa',
-              workspace: 'Pasta pai — neste workspace (projeto)',
-              profile: 'Pasta pai — neste perfil',
-              global: 'Pasta pai — global (todos os workspaces e perfis)',
-            },
-          },
         },
         agentPermission: {
+          localScope: 'Agente: {{agent}}. Ao lembrar, a autorização vale para toda a classe {{kind}} no escopo escolhido, até revogar. Não autoriza ferramentas nativas do aplicativo.',
           title: 'O agente pede permissão',
           submit: 'Confirmar',
           cancel: 'Negar',
@@ -5061,21 +5005,6 @@ const ptBR = {
             fetch: 'O agente quer buscar algo na rede. Confira o que ele pede antes de decidir.',
             switchMode: 'O agente quer mudar de modo de trabalho. Confira o que ele pede antes de decidir.',
             other: 'O agente quer executar uma ação na sua máquina. Confira o que ele pede antes de decidir.',
-          },
-          // A mesma frase com o aviso do "permitir sempre", usada só quando o
-          // agente ofereceu essa opção. O aviso diz o alcance da autorização —
-          // ela vale para a classe inteira, não só para o que está na tela.
-          descriptionAlways: {
-            read: 'O agente quer ler um arquivo na sua máquina. Confira o que ele pede antes de decidir. Se escolher permitir sempre, este perfil passa a autorizar sem perguntar toda leitura de arquivo, até você revogar.',
-            edit: 'O agente quer editar um arquivo na sua máquina. Confira o que ele pede antes de decidir. Se escolher permitir sempre, este perfil passa a autorizar sem perguntar toda edição de arquivo, até você revogar.',
-            delete: 'O agente quer apagar um arquivo na sua máquina. Confira o que ele pede antes de decidir. Se escolher permitir sempre, este perfil passa a autorizar sem perguntar toda exclusão de arquivo, até você revogar.',
-            move: 'O agente quer mover um arquivo na sua máquina. Confira o que ele pede antes de decidir. Se escolher permitir sempre, este perfil passa a autorizar sem perguntar toda movimentação de arquivo, até você revogar.',
-            search: 'O agente quer fazer uma busca na sua máquina. Confira o que ele pede antes de decidir. Se escolher permitir sempre, este perfil passa a autorizar sem perguntar toda busca, até você revogar.',
-            execute: 'O agente quer executar um comando na sua máquina. Confira o que ele pede antes de decidir. Se escolher permitir sempre, este perfil passa a autorizar sem perguntar todo comando que o agente queira executar, até você revogar.',
-            think: 'O agente quer registrar um raciocínio. Confira o que ele pede antes de decidir. Se escolher permitir sempre, este perfil passa a autorizar sem perguntar todo raciocínio registrado, até você revogar.',
-            fetch: 'O agente quer buscar algo na rede. Confira o que ele pede antes de decidir. Se escolher permitir sempre, este perfil passa a autorizar sem perguntar toda busca na rede, até você revogar.',
-            switchMode: 'O agente quer mudar de modo de trabalho. Confira o que ele pede antes de decidir. Se escolher permitir sempre, este perfil passa a autorizar sem perguntar toda mudança de modo, até você revogar.',
-            other: 'O agente quer executar uma ação na sua máquina. Confira o que ele pede antes de decidir. Se escolher permitir sempre, este perfil passa a autorizar sem perguntar qualquer ação que o agente não classifique, até você revogar.',
           },
         },
         agentQuestion: {

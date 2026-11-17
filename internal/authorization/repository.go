@@ -99,13 +99,25 @@ func upsert(db *gorm.DB, rule *database.AuthorizationRule) error {
 // List devolve somente regras ativas do usuário/contexto solicitado. Erros
 // retornam ao chamador; lista vazia não é substituto para falha de leitura.
 func (r *Repository) List(ctx context.Context, domain, scope, key string) ([]database.AuthorizationRule, error) {
+	return r.ListScopes(ctx, domain, map[string]string{scope: key})
+}
+
+// ListScopes lê allows e denies dos contextos aplicáveis em um único snapshot.
+// Uma revogação posterior ao SELECT não desfaz uma operação já autorizada.
+func (r *Repository) ListScopes(ctx context.Context, domain string, scopes map[string]string) ([]database.AuthorizationRule, error) {
 	db, user, err := r.query(ctx)
 	if err != nil {
 		return nil, err
 	}
 	var rules []database.AuthorizationRule
-	err = db.Where("user_id = ? AND domain = ? AND scope = ? AND scope_key = ? AND revoked_at IS NULL", user, domain, scope, key).
-		Where("expires_at IS NULL OR expires_at > ?", time.Now().UTC()).Order("id").Find(&rules).Error
+	conditions := db.Where("1 = 0")
+	for _, scope := range []string{"profile", "workspace", "global"} {
+		if key, ok := scopes[scope]; ok {
+			conditions = conditions.Or("scope = ? AND scope_key = ?", scope, key)
+		}
+	}
+	err = db.Where("user_id = ? AND domain = ? AND revoked_at IS NULL", user, domain).Where(conditions).
+		Where("expires_at IS NULL OR expires_at > ?", time.Now().UTC()).Order("CASE scope WHEN 'profile' THEN 0 WHEN 'workspace' THEN 1 ELSE 2 END, id").Find(&rules).Error
 	return rules, err
 }
 

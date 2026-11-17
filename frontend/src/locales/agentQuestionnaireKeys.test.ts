@@ -35,7 +35,7 @@ const permissionKeys = [
   'bodyLabel',
   'choicePrompt',
   ...actionClasses.map((classe) => `description.${classe}`),
-  ...actionClasses.map((classe) => `descriptionAlways.${classe}`),
+  'localScope',
 ].map((sufixo) => `app.questionnaire.agentPermission.${sufixo}`);
 
 const questionKeys = [
@@ -124,11 +124,6 @@ const networkKeys = [
   'scopePrompt',
   'reasonPrompt',
   'reasonPlaceholder',
-  'scope.once',
-  'scope.session',
-  'scope.workspace',
-  'scope.profile',
-  'scope.global',
 ].map((sufixo) => `app.questionnaire.network.${sufixo}`);
 
 const fstrustKeys = [
@@ -136,20 +131,6 @@ const fstrustKeys = [
   'description',
   'bodyLabel',
   'cancel',
-  'deny.session',
-  'deny.workspace',
-  'deny.profile',
-  'deny.global',
-  'scope.once',
-  'scope.session',
-  'scope.workspace',
-  'scope.profile',
-  'scope.global',
-  'scope.dir.once',
-  'scope.dir.session',
-  'scope.dir.workspace',
-  'scope.dir.profile',
-  'scope.dir.global',
 ].map((sufixo) => `app.questionnaire.fstrust.${sufixo}`);
 
 const welcomeKeys = [
@@ -213,6 +194,7 @@ function getLocaleValue(locale: unknown, key: string): unknown {
 describe('chaves dos diálogos que o backend monta', () => {
   const keys = [
     ...permissionKeys,
+    ...['once','session','workspace','profile','global','dir-once','dir-session','dir-workspace','dir-profile','dir-global','deny-session','deny-workspace','deny-profile','deny-global','deny'].map((id) => 'app.questionnaire.authorization.' + id),
     ...questionKeys,
     ...planKeys,
     ...editConfirmationKeys,

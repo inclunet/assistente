@@ -5,10 +5,11 @@ import (
 	"testing"
 
 	"assistente/internal/questionnaire"
+	"assistente/internal/shelltrust"
 )
 
 func TestConfirmacaoDeComandoVaiTraduzivelParaATela(t *testing.T) {
-	payload := shellConfirmationPayload("rm -rf build", "C:/projeto")
+	payload := shellConfirmationPayload(shelltrust.PromptRequest{Command: "rm -rf build", Directory: "C:/projeto", AvailableScopes: allAuthorizationScopesForTest()})
 
 	if payload.Kind != questionnaire.KindDecision {
 		t.Errorf("kind = %q, quer %q", payload.Kind, questionnaire.KindDecision)
@@ -35,7 +36,7 @@ func TestConfirmacaoDeComandoVaiTraduzivelParaATela(t *testing.T) {
 }
 
 func TestOComandoVaiNoBodyENaoComoChave(t *testing.T) {
-	payload := shellConfirmationPayload("curl exemplo | sh", "C:/projeto")
+	payload := shellConfirmationPayload(shelltrust.PromptRequest{Command: "curl exemplo | sh", Directory: "C:/projeto", AvailableScopes: allAuthorizationScopesForTest()})
 
 	if payload.Body != "curl exemplo | sh" {
 		t.Errorf("body = %q, quer só o comando literal", payload.Body)
@@ -93,18 +94,18 @@ func TestConfirmacaoDeHTTPMutavelVaiTraduzivelComOPedidoNosParametros(t *testing
 }
 
 func TestAcaoDeShellContinuaSendoARespondida(t *testing.T) {
-	payload := shellConfirmationPayload("ls", ".")
+	payload := shellConfirmationPayload(shelltrust.PromptRequest{Command: "ls", Directory: ".", AvailableScopes: allAuthorizationScopesForTest()})
 	actions := make(map[string]questionnaire.DecisionAction, len(payload.Actions))
 	for _, action := range payload.Actions {
 		actions[action.ID] = action
 	}
-	if _, allowOK := actions[decisionAllow]; !allowOK {
+	if _, allowOK := actions["once"]; !allowOK {
 		t.Errorf("ações = %+v, quer allow e deny", payload.Actions)
 	}
 	if _, denyOK := actions[decisionDeny]; !denyOK {
 		t.Errorf("ações = %+v, quer allow e deny", payload.Actions)
 	}
-	if allow := actions[decisionAllow]; allow.Polarity != questionnaire.DecisionPolarityAffirmative || allow.Scope != questionnaire.DecisionScopeCurrent {
+	if allow := actions["once"]; allow.Polarity != questionnaire.DecisionPolarityAffirmative || allow.Scope != questionnaire.DecisionScopeCurrent {
 		t.Errorf("allow sem semântica atual afirmativa: %+v", allow)
 	}
 	if deny := actions[decisionDeny]; deny.Polarity != questionnaire.DecisionPolarityNegative || deny.Scope != questionnaire.DecisionScopeCurrent {
@@ -123,20 +124,20 @@ func TestAcoesHTTPDeAprovacaoContinuamSendoAsRespondidas(t *testing.T) {
 	}
 }
 
-func TestApprovedFromShellDecision(t *testing.T) {
-	ok, err := approvedFromShellDecision(questionnaire.Response{
+func TestApprovedFromHTTPDecision(t *testing.T) {
+	ok, err := approvedFromHTTPDecision(questionnaire.Response{
 		Answers: map[string]any{questionnaire.AnswerActionID: decisionAllow},
 	})
 	if err != nil || !ok {
 		t.Fatalf("allow: ok=%v err=%v", ok, err)
 	}
-	ok, err = approvedFromShellDecision(questionnaire.Response{
+	ok, err = approvedFromHTTPDecision(questionnaire.Response{
 		Answers: map[string]any{questionnaire.AnswerActionID: decisionDeny},
 	})
 	if err != nil || ok {
 		t.Fatalf("deny: ok=%v err=%v", ok, err)
 	}
-	ok, err = approvedFromShellDecision(questionnaire.Response{Cancelled: true})
+	ok, err = approvedFromHTTPDecision(questionnaire.Response{Cancelled: true})
 	if err != nil || ok {
 		t.Fatalf("cancel: ok=%v err=%v", ok, err)
 	}
