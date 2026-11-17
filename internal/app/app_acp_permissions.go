@@ -107,7 +107,7 @@ func (h *acpRequestHandler) RequestPermission(ctx context.Context, req acp.Permi
 		// o sim que alguém deu na tela (AEP-0084 D9).
 		allowed, err := h.alreadyAllowed(ctx, profile, kind)
 		if err != nil {
-			logging.Warnf(ctx, acpPermissionComponent, "[ACP] consulta de autorização falhou: %v", err)
+			logging.Warnf(ctx, acpPermissionComponent, "Consulta de autorização ACP falhou: %v", err)
 			h.notifyConversation(owner, ports.ChatNoticeKindPermissionUnavailable, req.ToolCall.Kind)
 			return acp.PermissionOutcome{}
 		}

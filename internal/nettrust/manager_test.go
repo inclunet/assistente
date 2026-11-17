@@ -324,8 +324,12 @@ func TestManager_ConcurrentAddMatchNoRace(t *testing.T) {
 				return
 			}
 			// Leituras concorrentes durante as escritas de outras goroutines.
-			m.Match(ctx, host, "")
-			m.List(ctx)
+			if match := m.Match(ctx, host, ""); match.Err != nil || !match.Allowed {
+				t.Errorf("Match concorrente: %+v", match)
+			}
+			if _, err := m.List(ctx); err != nil {
+				t.Errorf("List concorrente: %v", err)
+			}
 		}(i)
 	}
 	wg.Wait()

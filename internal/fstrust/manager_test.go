@@ -195,7 +195,9 @@ func TestManager_PersistentReadsAndWritesAreSynchronized(t *testing.T) {
 		}()
 		go func() {
 			defer wg.Done()
-			_, _ = m.List(ctx)
+			if _, err := m.List(ctx); err != nil {
+				t.Errorf("List concorrente: %v", err)
+			}
 			_ = m.Match(ctx, filepath.Join(dir, "files", fmt.Sprintf("%d.txt", i)), "read")
 		}()
 	}
