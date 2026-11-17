@@ -2,6 +2,15 @@
 
 Status: In Progress — evidências e aceites pendentes conforme os registros abaixo
 
+**Políticas de comandos em Permissões (17/11/2026):** `allowlists.create.open`
+apresenta o formulário pelo catálogo local; seu binding padrão `Ctrl+N` é
+contextual à superfície `allowlists` em configurações. O registro de apresentação
+exige o modal proprietário topmost e licencia apenas esse comando, recusando
+modal filho, composição IME, contexto inválido e binding suprimido. O hook
+legado de teclado foi removido desta página. Mapa backend, fixture compartilhada,
+integração Topbar e E2E do formulário real validam o percurso. O status geral
+continua **In Progress**, sem promover os demais aceites pendentes.
+
 **Mapa após troca de workspace (16/11/2026):** a publicação da configuração
 antecede a prontidão do runtime. Depois de reconstruir e habilitar o lifecycle,
 a troca emite nova notificação para que a interface obtenha o mapa operacional.

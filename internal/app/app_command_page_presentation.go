@@ -4,6 +4,7 @@ import "assistente/internal/commandcatalog"
 
 // These commands only present existing controls; process and CRUD effects are excluded.
 var commandProductPagePresentation = []commandUINavigation{
+	{id: "allowlists.create.open", route: "ui/allowlists/create/open", uiAction: true, ptName: "Nova política de comandos", ptDesc: "Abrir criação de política no gerenciador ativo", enName: "New command policy", enDesc: "Open policy creation in the active manager", esName: "Nueva política de comandos", esDesc: "Abrir creación de política en el gestor activo"},
 	{id: "providers.create.open", route: "ui/providers/create/open", uiAction: true, ptName: "Novo provedor", ptDesc: "Novo provedor", enName: "New provider", enDesc: "New provider", esName: "Nuevo proveedor", esDesc: "Nuevo proveedor"},
 	{id: "providers.api.create.open", route: "ui/providers/api/create/open", uiAction: true, ptName: "Provedor API", ptDesc: "Provedor API", enName: "API provider", enDesc: "API provider", esName: "Proveedor API", esDesc: "Proveedor API"},
 	{id: "providers.acp.create.open", route: "ui/providers/acp/create/open", uiAction: true, ptName: "Serviço ACP", ptDesc: "Serviço ACP", enName: "ACP service", enDesc: "ACP service", esName: "Servicio ACP", esDesc: "Servicio ACP"},

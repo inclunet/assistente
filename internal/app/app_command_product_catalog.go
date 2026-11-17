@@ -13,7 +13,7 @@ const (
 	// recebido ou derivado de um cliente.
 	commandProductWorkspaceListID = "workspace.list"
 	commandProductShortcutsShowID = "help.shortcuts.show"
-	commandProductRegistryVersion = "product-v44-app-default-profile"
+	commandProductRegistryVersion = "product-v45-command-policy-create"
 )
 
 // CommandWorkspaceMetadata é deliberadamente menor que workspace.WorkspaceInfo:

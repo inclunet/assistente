@@ -22,7 +22,7 @@ func TestCommandChatNavigationLocalPresentation(t *testing.T) {
 			key := LocalCommandShortcut{Version: 1, Code: "KeyJ", Modifiers: []string{"Control", "Shift"}}
 			a, view := localKeyboardRepeatFixture(t, localKeyboardRepeatBinding{tc.id, key})
 			p := a.commandProduct.Load()
-			if len(p.registry.List()) != 155 || len(view.LocalPaletteCommands) != 66 || commandProductRegistryVersion != "product-v44-app-default-profile" {
+			if len(p.registry.List()) != 156 || len(view.LocalPaletteCommands) != 67 || commandProductRegistryVersion != "product-v45-command-policy-create" {
 				t.Fatal("counts/version")
 			}
 			d, ok := p.registry.Lookup(tc.id)

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   CopyOutlined,
@@ -30,7 +30,8 @@ import { useEditableList } from '../hooks/useEditableList';
 import { useAnnouncer } from '../hooks/useAnnouncer';
 import { useUIStore } from '../store/uiStore';
 import { useResourceEditRequest } from '../hooks/useResourceEditRequest';
-import { useActivePanelNewShortcut } from '../hooks/useActivePanelShortcut';
+import { usePagePresentationCommands } from '../lib/commandPagePresentation';
+import { useCommandShortcutHint } from '../lib/commandShortcutHints';
 import './AllowlistPage.css';
 
 type AllowlistInfo = allowlist.AllowlistInfo;
@@ -61,6 +62,8 @@ const buildAllowlistRow = (data: Partial<AllowlistRow> = {}): AllowlistRow => Ob
 ) as AllowlistRow;
 
 export default function AllowlistPage() {
+  const commandRoot = useRef<HTMLDivElement>(null);
+  const newShortcut = useCommandShortcutHint('allowlists.create.open', 'allowlists', 'settings');
   const { t } = useTranslation();
   const { handleGridReady } = useGridFocus();
   useGridPageLandmarks({ pageClass: 'allowlist-page' });
@@ -167,7 +170,18 @@ export default function AllowlistPage() {
     ready: !crud.loading && crud.items.length > 0,
   });
 
-  useActivePanelNewShortcut(crud.openNew);
+  const { request: requestPresentation } = usePagePresentationCommands({
+    root: commandRoot, pathname: '/settings/permissions', settingsManager: true,
+    allowedCommands: ['allowlists.create.open'],
+    readTarget: () => crud.items,
+    isCurrent: () => !crud.loading && !crud.editingItem && !crud.saving,
+    canOpen: (id) => id === 'allowlists.create.open' && !crud.loading && !crud.editingItem && !crud.saving,
+    open: (id) => {
+      if (id !== 'allowlists.create.open' || crud.loading || crud.editingItem || crud.saving) return false;
+      crud.openNew();
+      return true;
+    },
+  });
 
   const handleEdit = useCallback(
     async (row: AllowlistRow) => {
@@ -280,7 +294,7 @@ export default function AllowlistPage() {
   }
 
   return (
-    <div className="allowlist-page">
+    <div ref={commandRoot} className="allowlist-page">
       <Toolbar
         left={<h1 className="page-toolbar__title">{t('allowlist.pageTitle')}</h1>}
         ariaLabel={t('allowlist.aria.toolbar')}
@@ -289,8 +303,8 @@ export default function AllowlistPage() {
             key: 'new',
             label: t('allowlist.buttons.new'),
             icon: <PlusOutlined />,
-            onClick: crud.openNew,
-            shortcut: 'Ctrl+N',
+            onClick: () => requestPresentation('allowlists.create.open'),
+            shortcut: newShortcut,
             variant: 'primary',
           },
           {

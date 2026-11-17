@@ -17,6 +17,10 @@ pois pode permitir operações anteriormente bloqueadas.
 Após revogar pelo grid, o foco continua na próxima linha disponível; quando
 a lista fica vazia, volta para **Políticas de comandos** na toolbar.
 
+Dentro de **Políticas de comandos**, use **Nova** ou o atalho padrão `Ctrl+N`
+para abrir a criação de uma política. O atalho respeita sua configuração de
+comandos e não abre outro formulário enquanto você já está editando uma política.
+
 ## Escopos
 
 Os diálogos oferecem somente os escopos disponíveis para a operação:

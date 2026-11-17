@@ -28,6 +28,7 @@ const ids = [
 ] as const satisfies readonly PagePresentationCommandID[];
 const palettePreferencesKey = 'assistente.command-palette.v1.user-a.workspace-a';
 const shortcuts: Record<PagePresentationCommandID, string> = {
+  'allowlists.create.open': 'Ctrl+N',
   'command_settings.create.open': 'Ctrl+N',
   'providers.create.open': 'Ctrl+N',
   'providers.api.create.open': '',
@@ -162,7 +163,9 @@ vi.mock('../../lib/commandLocalKeyboardWails', () => ({
           fallbackToSequences: true,
           ...(state.pathname === '/settings' || state.pathname.startsWith('/settings/') ? { bySurface: {}, fallbackToSequences: false, byPage: { settings: {
             shortcut: { version: 1, code: 'KeyN', modifiers: ['Control'] },
-            bySurface: { providers: state.settingsSuppressed ? null : {
+            bySurface: { allowlists: state.settingsSuppressed ? null : {
+              shortcut: { version: 1, code: 'KeyN', modifiers: ['Control'] }, commandId: 'allowlists.create.open', handler: 'local_ui',
+            }, providers: state.settingsSuppressed ? null : {
               shortcut: { version: 1, code: 'KeyN', modifiers: ['Control'] }, commandId: 'providers.create.open', handler: 'local_ui',
             }, toolbar: state.settingsSuppressed ? null : {
               shortcut: { version: 1, code: 'KeyN', modifiers: ['Control'] },
@@ -216,11 +219,11 @@ function PresentationSurface({ api }: SurfaceProps) {
 }
 
 let surfaceApi: SurfaceProps['api'];
-function SettingsManagerSurface({ manager = true }: { manager?: boolean }) {
+function SettingsManagerSurface({ manager = true, policy = false }: { manager?: boolean; policy?: boolean }) {
   const root = useRef<HTMLDivElement>(null);
   usePagePresentationCommands({
-    root, pathname: '/settings/commands', settingsManager: manager,
-    allowedCommands: [COMMAND_SETTINGS_CREATE_COMMAND_ID],
+    root, pathname: policy ? '/settings/permissions' : '/settings/commands', settingsManager: manager,
+    allowedCommands: [policy ? 'allowlists.create.open' : COMMAND_SETTINGS_CREATE_COMMAND_ID],
     readTarget: () => 'layer-a:bindings', isCurrent: () => !state.presentationUnavailable,
     canOpen: () => !state.presentationUnavailable,
     open: (id) => { state.actions.push(id); return true; },
@@ -316,6 +319,30 @@ describe('Topbar + registry real de apresentação contextual', () => {
       unregisterOpenModal('settings-manager-test');
     }
   });
+
+  it.each(['allowed', 'suppressed', 'child-modal', 'ime', 'logout', 'outside', 'unavailable'] as const)(
+    'Ctrl+N das políticas respeita mapa e ownership (%s)', async reason => {
+      state.pathname = '/settings/permissions';
+      state.settingsSuppressed = reason === 'suppressed';
+      render(<><Topbar /><SettingsManagerSurface policy /></>);
+      await waitFor(() => expect(state.mapReady).toBe(true));
+      registerOpenModal('settings-manager-test');
+      const row = screen.getByRole('button', { name: 'Manager row' }); row.focus();
+      const outside = document.createElement('button'); document.body.append(outside);
+      if (reason === 'outside') outside.focus();
+      if (reason === 'child-modal') registerOpenModal('settings-child-test');
+      if (reason === 'logout') auth.isAuthenticated = false;
+      if (reason === 'unavailable') state.presentationUnavailable = true;
+      try {
+        fireEvent.keyDown(document.activeElement!, { key: 'n', code: 'KeyN', ctrlKey: true, isComposing: reason === 'ime' });
+        expect(state.actions).toEqual(reason === 'allowed' ? ['allowlists.create.open'] : []);
+        noTransport();
+      } finally {
+        fireEvent.keyUp(row, { key: 'n', code: 'KeyN', ctrlKey: true });
+        unregisterOpenModal('settings-child-test'); unregisterOpenModal('settings-manager-test'); outside.remove();
+      }
+    },
+  );
 
   it.each(['allowed', 'page', 'header', 'outside', 'remapped', 'remapped-header', 'remapped-outside',
     'suppressed', 'child-modal', 'ime', 'repeat', 'unavailable', 'logout'] as const)(
