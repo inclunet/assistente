@@ -1,13 +1,16 @@
 package installpath
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
-	"golang.org/x/sys/windows"
 	"os"
+	"strings"
 	"testing"
 	"time"
+	"unsafe"
 
+	"golang.org/x/sys/windows"
 	"golang.org/x/sys/windows/registry"
 )
 
@@ -168,5 +171,112 @@ func TestInteractiveUserSIDReadOnly(t *testing.T) {
 	}
 	if _, err := windows.StringToSid(sid); err != nil {
 		t.Fatal(err)
+	}
+	if strings.HasPrefix(sid, "S-1-5-5-") {
+		t.Fatal("returned logon SID instead of account SID")
+	}
+	key, err := registry.OpenKey(registry.USERS, sid+`\Environment`, registry.QUERY_VALUE)
+	if err != nil {
+		t.Fatalf("account environment unavailable: %v", err)
+	}
+	_ = key.Close()
+}
+
+func TestAccountSIDForStation(t *testing.T) {
+	user, err := windows.StringToSid("S-1-5-21-1-2-3-1001")
+	if err != nil {
+		t.Fatal(err)
+	}
+	logon, err := windows.StringToSid("S-1-5-5-100-200")
+	if err != nil {
+		t.Fatal(err)
+	}
+	group := windows.SIDAndAttributes{Sid: logon, Attributes: windows.SE_GROUP_LOGON_ID}
+	for _, tc := range []struct {
+		name    string
+		user    *windows.SID
+		groups  []windows.SIDAndAttributes
+		station string
+		want    bool
+	}{
+		{"account of matching logon", user, []windows.SIDAndAttributes{group}, logon.String(), true},
+		{"missing account", nil, []windows.SIDAndAttributes{group}, logon.String(), false},
+		{"logon is not account", logon, []windows.SIDAndAttributes{group}, logon.String(), false},
+		{"missing groups", user, nil, logon.String(), false},
+		{"different logon", user, []windows.SIDAndAttributes{group}, "S-1-5-5-100-201", false},
+		{"ordinary group", user, []windows.SIDAndAttributes{{Sid: logon}}, logon.String(), false},
+		{"missing group SID", user, []windows.SIDAndAttributes{{Attributes: windows.SE_GROUP_LOGON_ID}}, logon.String(), false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := accountSIDForStation(tc.user, tc.groups, tc.station)
+			if tc.want {
+				if err != nil || got != user.String() {
+					t.Fatalf("account = %q, error = %v", got, err)
+				}
+			} else if err == nil || got != "" {
+				t.Fatalf("accepted invalid identity: %q, %v", got, err)
+			}
+		})
+	}
+}
+
+func TestTokenPrivilegeRestoredAfterQuery(t *testing.T) {
+	var original, token windows.Token
+	if err := windows.OpenProcessToken(windows.CurrentProcess(), windows.TOKEN_DUPLICATE|windows.TOKEN_QUERY, &original); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = original.Close() }()
+	if err := windows.DuplicateTokenEx(original, windows.TOKEN_QUERY|windows.TOKEN_ADJUST_PRIVILEGES, nil, windows.SecurityImpersonation, windows.TokenImpersonation, &token); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = token.Close() }()
+	// Modifica somente uma cópia não aplicada a nenhum processo/thread.
+	state := windows.Tokenprivileges{PrivilegeCount: 1}
+	name, _ := windows.UTF16PtrFromString("SeChangeNotifyPrivilege")
+	if err := windows.LookupPrivilegeValue(nil, name, &state.Privileges[0].Luid); err != nil {
+		t.Fatal(err)
+	}
+	if err := windows.AdjustTokenPrivileges(token, false, &state, 0, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	read := func() []byte {
+		t.Helper()
+		var needed uint32
+		_ = windows.GetTokenInformation(token, windows.TokenPrivileges, nil, 0, &needed)
+		buffer := make([]byte, needed)
+		if err := windows.GetTokenInformation(token, windows.TokenPrivileges, &buffer[0], needed, &needed); err != nil {
+			t.Fatal(err)
+		}
+		return buffer
+	}
+	before := read()
+	for _, failure := range []error{nil, errors.New("query denied")} {
+		called := false
+		err := withTokenPrivilege(token, "SeChangeNotifyPrivilege", func() error {
+			called = true
+			buffer := read()
+			actual := (*windows.Tokenprivileges)(unsafe.Pointer(&buffer[0]))
+			for _, entry := range actual.AllPrivileges() {
+				if entry.Luid == state.Privileges[0].Luid && entry.Attributes&windows.SE_PRIVILEGE_ENABLED != 0 {
+					return failure
+				}
+			}
+			t.Error("query ran without enabled privilege")
+			return failure
+		})
+		if !called || !errors.Is(err, failure) {
+			t.Fatalf("query result: called=%v error=%v", called, err)
+		}
+		if !bytes.Equal(before, read()) {
+			t.Fatal("privilege state not restored")
+		}
+	}
+	// Privilégio removido da cópia não pode ser concedido pela função.
+	state.Privileges[0].Attributes = windows.SE_PRIVILEGE_REMOVED
+	if err := windows.AdjustTokenPrivileges(token, false, &state, 0, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := withTokenPrivilege(token, "SeChangeNotifyPrivilege", func() error { t.Error("query ran with unavailable privilege"); return nil }); !errors.Is(err, windows.ERROR_NOT_ALL_ASSIGNED) {
+		t.Fatalf("missing privilege: %v", err)
 	}
 }

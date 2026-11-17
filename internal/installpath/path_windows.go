@@ -23,7 +23,7 @@ type CleanupWarning struct{ Err error }
 func (w *CleanupWarning) Error() string { return w.Err.Error() }
 func (w *CleanupWarning) Unwrap() error { return w.Err }
 
-// InteractiveUserSID consulta o usuário associado à estação interativa.
+// InteractiveUserSID resolve a conta dona do shell da estação interativa.
 // Não depende de RDS nem usa o token da conta elevada como fallback.
 func InteractiveUserSID() (string, error) {
 	var session uint32
@@ -54,7 +54,11 @@ func InteractiveUserSID() (string, error) {
 	if ok == 0 {
 		return "", fmt.Errorf("window station user: %w", err)
 	}
-	return stationUserSID(buffer[:], needed)
+	logonSID, err := stationUserSID(buffer[:], needed)
+	if err != nil {
+		return "", err
+	}
+	return shellAccountSID(logonSID, session)
 }
 
 func stationUserSID(buffer []byte, length uint32) (string, error) {
@@ -224,4 +228,130 @@ func updateUsers(owners registry.Key, users []string, directory string, remove b
 		return &CleanupWarning{Err: errors.Join(warnings...)}
 	}
 	return nil
+}
+
+// UOI_USER_SID identifica o logon (S-1-5-5-X-Y), não a conta em HKEY_USERS.
+// Consulta somente o token do shell desta sessão, sem usar o usuário elevado
+// do instalador. O grupo de logon deve corresponder à estação interativa.
+func shellAccountSID(logonSID string, session uint32) (string, error) {
+	window, _, _ := user32.NewProc("GetShellWindow").Call()
+	if window == 0 {
+		return "", errors.New("interactive shell unavailable")
+	}
+	var pid uint32
+	thread, _, err := user32.NewProc("GetWindowThreadProcessId").Call(window, uintptr(unsafe.Pointer(&pid)))
+	if thread == 0 || pid == 0 {
+		return "", fmt.Errorf("interactive shell process: %w", err)
+	}
+	token, err := shellQueryToken(pid)
+	if err != nil {
+		return "", fmt.Errorf("interactive shell token: %w", err)
+	}
+	defer func() { _ = token.Close() }()
+	var tokenSession, returned uint32
+	if err := windows.GetTokenInformation(token, windows.TokenSessionId, (*byte)(unsafe.Pointer(&tokenSession)), uint32(unsafe.Sizeof(tokenSession)), &returned); err != nil {
+		return "", fmt.Errorf("interactive shell session: %w", err)
+	}
+	if returned != uint32(unsafe.Sizeof(tokenSession)) || session == 0 || tokenSession != session {
+		return "", errors.New("interactive shell belongs to another session")
+	}
+	user, err := token.GetTokenUser()
+	if err != nil {
+		return "", fmt.Errorf("interactive shell user: %w", err)
+	}
+	groups, err := token.GetTokenGroups()
+	if err != nil {
+		return "", fmt.Errorf("interactive shell groups: %w", err)
+	}
+	return accountSIDForStation(user.User.Sid, groups.AllGroups(), logonSID)
+}
+
+func openQueryToken(pid uint32) (windows.Token, error) {
+	process, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION, false, pid)
+	if err != nil {
+		return 0, err
+	}
+	defer func() { _ = windows.CloseHandle(process) }()
+	var token windows.Token
+	err = windows.OpenProcessToken(process, windows.TOKEN_QUERY, &token)
+	return token, err
+}
+
+// O helper é um processo exclusivo do instalador, sem serviços do aplicativo.
+// Se outra conta autorizou o UAC, habilita temporariamente SeDebugPrivilege
+// apenas para abrir o handle de consulta e restaura o estado antes de usá-lo.
+func shellQueryToken(pid uint32) (windows.Token, error) {
+	token, err := openQueryToken(pid)
+	if !errors.Is(err, windows.ERROR_ACCESS_DENIED) {
+		return token, err
+	}
+	var own windows.Token
+	if err := windows.OpenProcessToken(windows.CurrentProcess(), windows.TOKEN_QUERY|windows.TOKEN_ADJUST_PRIVILEGES, &own); err != nil {
+		return 0, err
+	}
+	defer func() { _ = own.Close() }()
+	err = withTokenPrivilege(own, "SeDebugPrivilege", func() error {
+		var openErr error
+		token, openErr = openQueryToken(pid)
+		return openErr
+	})
+	if err != nil && token != 0 {
+		_ = token.Close()
+		token = 0
+	}
+	return token, err
+}
+
+func withTokenPrivilege(token windows.Token, name string, action func() error) (err error) {
+	privilege, err := windows.UTF16PtrFromString(name)
+	if err != nil {
+		return err
+	}
+	state := windows.Tokenprivileges{PrivilegeCount: 1}
+	if err := windows.LookupPrivilegeValue(nil, privilege, &state.Privileges[0].Luid); err != nil {
+		return err
+	}
+	state.Privileges[0].Attributes = windows.SE_PRIVILEGE_ENABLED
+	var previous windows.Tokenprivileges
+	var size uint32
+	if err := windows.AdjustTokenPrivileges(token, false, &state, uint32(unsafe.Sizeof(previous)), &previous, &size); err != nil {
+		return err
+	}
+	defer func() {
+		err = errors.Join(err, windows.AdjustTokenPrivileges(token, false, &previous, 0, nil, nil))
+	}()
+	// AdjustTokenPrivileges pode retornar sucesso sem atribuir um privilégio
+	// ausente do token. Confira o estado efetivo antes de executar a consulta.
+	var needed uint32
+	queryErr := windows.GetTokenInformation(token, windows.TokenPrivileges, nil, 0, &needed)
+	if !errors.Is(queryErr, windows.ERROR_INSUFFICIENT_BUFFER) {
+		return fmt.Errorf("query token privileges: %w", queryErr)
+	}
+	buffer := make([]byte, needed)
+	if err := windows.GetTokenInformation(token, windows.TokenPrivileges, &buffer[0], needed, &needed); err != nil {
+		return err
+	}
+	actual := (*windows.Tokenprivileges)(unsafe.Pointer(&buffer[0]))
+	for _, entry := range actual.AllPrivileges() {
+		if entry.Luid == state.Privileges[0].Luid && entry.Attributes&windows.SE_PRIVILEGE_ENABLED != 0 {
+			return action()
+		}
+	}
+	return fmt.Errorf("%s unavailable: %w", name, windows.ERROR_NOT_ALL_ASSIGNED)
+}
+
+func accountSIDForStation(user *windows.SID, groups []windows.SIDAndAttributes, logonSID string) (string, error) {
+	if user == nil || !user.IsValid() {
+		return "", errors.New("invalid interactive account SID")
+	}
+	account := user.String()
+	if strings.HasPrefix(account, "S-1-5-5-") {
+		return "", errors.New("logon SID is not an account SID")
+	}
+	for _, group := range groups {
+		if group.Attributes&windows.SE_GROUP_LOGON_ID == windows.SE_GROUP_LOGON_ID && group.Sid != nil && group.Sid.IsValid() && group.Sid.String() == logonSID {
+			return account, nil
+		}
+	}
+	return "", errors.New("interactive shell logon does not match window station")
 }
