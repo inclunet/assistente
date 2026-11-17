@@ -87,3 +87,19 @@ func TestEphemeralPreservesMultilineAliasesAndLiteralArguments(t *testing.T) {
 		t.Fatalf("alias ou argumento literal alterado: %s", entry.Output)
 	}
 }
+
+func TestEphemeralSupportsPOSIXShell(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("regressão /bin/sh executada no CI Linux")
+	}
+	sh, err := exec.LookPath("sh")
+	if err != nil {
+		t.Skip("sh indisponível")
+	}
+	config := DefaultManagerConfig()
+	config.DefaultShell = sh
+	entry, err := NewManager(config, nil).RunEphemeral(context.Background(), t.TempDir(), "printf '%s\\n' 'posix literal $(echo unexpected)'", 5*time.Second, "test")
+	if err != nil || entry.ExitCode != 0 || !strings.Contains(entry.Output, "posix literal $(echo unexpected)") {
+		t.Fatalf("execução POSIX: %+v %v", entry, err)
+	}
+}

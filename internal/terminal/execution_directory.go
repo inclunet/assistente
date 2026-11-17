@@ -18,6 +18,8 @@ func commandInDirectory(command, directory, shell string) string {
 	path := strings.ReplaceAll(directory, "'", "'\"'\"'")
 	// eval recebe um único literal, sem expansão antecipada. Isso mantém a
 	// leitura por linhas do shell, inclusive alias definido na linha anterior.
-	script := strings.ReplaceAll(command, "'", "'\"'\"'")
-	return fmt.Sprintf("if command cd -- '%s'; then command eval -- '%s'; else false; fi", path, script)
+	// Espaço inicial evita opções de eval sem depender de "--", que dash
+	// interpreta como nome de comando em vez de delimitador de opções.
+	script := " " + strings.ReplaceAll(command, "'", "'\"'\"'")
+	return fmt.Sprintf("if command cd -- '%s'; then command eval '%s'; else false; fi", path, script)
 }
