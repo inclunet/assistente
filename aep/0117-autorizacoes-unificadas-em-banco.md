@@ -198,6 +198,19 @@ mantém a origem pendente, diagnosticada e sem concessão implícita; não imped
 inicialização do chat/comandos, mas bloqueia operações dependentes da política
 que não pôde ser carregada. Não marcar arquivo inválido como importado.
 
+O corte de cada domínio remove seus escritores legados antes de disponibilizar
+seus consumidores: o binário novo nunca instancia o store antigo para escrita.
+Um gate exclusivo por conjunto de origem serializa snapshot, importação e
+publicação do estado pronto; chamadas concorrentes aguardam esse gate ou falham
+com diagnóstico, sem escrever JSON nem observar um conjunto parcialmente pronto.
+Revalidar o conteúdo da origem antes do commit detecta edição durante o snapshot
+e aborta a importação, preservando-a pendente. Executar versões antigas em
+paralelo sobre a mesma configuração durante o upgrade não é suportado; a
+exclusividade de instância do desktop continua obrigatória. Escritas externas
+depois do corte são edição de backup, não alterações de política ativa, e exigem
+importação explícita. A implementação testa a concorrência entre todos os
+escritores suportados, incluindo CLI e integrações no processo novo.
+
 Importar os JSONs de rede/FS, documentos de shell e autorizações ACP, preservando
 escopos, efeitos, datas e variantes de resolução home/workspace. Documentos shell
 que compartilham slug mas diferem por origem não podem ser fundidos. Regras ACP
@@ -212,7 +225,13 @@ atribuição administrativa explícita. Workspace ainda não conhecido é import
 na primeira abertura autenticada, antes de autorizar suas operações. Não varrer
 discos externos nem trocar o banco para procurar arquivos.
 
-Após sucesso, consultas e mutações usam exclusivamente o banco. Arquivos legados
+O conjunto aplicável é capturado por operação: rede/FS incluem global, perfil
+efetivo e workspace; shell inclui a política selecionada e suas variantes de
+origem; ACP inclui as regras da identidade/perfil a que o pedido pertence.
+Somente após todas essas origens serem importadas (ou registradas como ausentes)
+o consumidor pode usar o conjunto exclusivamente no banco. Enquanto houver
+origem aplicável pendente, consultas e mutações dependentes falham fechado,
+inclusive se outra origem já possuir um `allow`. Arquivos legados
 permanecem como fonte de recuperação, sem exclusão automática e sem leitura de
 fallback; o marcador impede ressuscitar uma autorização revogada. Nova importação
 de arquivo modificado requer ação explícita, com prévia/validação. Não manter
