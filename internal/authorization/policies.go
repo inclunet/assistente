@@ -42,24 +42,26 @@ func (r *Repository) BindPolicy(ctx context.Context, id, profile string) error {
 	if err != nil {
 		return err
 	}
-	return db.Transaction(func(tx *gorm.DB) error {
-		var count int64
-		if err := tx.Model(&database.AuthorizationPolicy{}).Where("id = ? AND user_id = ?", id, user).Count(&count).Error; err != nil {
-			return err
-		}
-		if count != 1 {
-			return ErrNotFound
-		}
-		// Associação reflete a seleção efetiva do perfil sem duplicar regras.
-		var existing database.AuthorizationPolicyBinding
-		err := tx.Where("user_id = ? AND policy_id = ? AND scope = ? AND scope_key = ?", user, id, "profile", profile).First(&existing).Error
-		if err == nil {
-			return nil
-		}
-		if !errors.Is(err, gorm.ErrRecordNotFound) {
-			return err
-		}
-		return tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&database.AuthorizationPolicyBinding{UserID: user, PolicyID: id, Scope: "profile", ScopeKey: profile}).Error
+	return database.WithSQLiteBusyRetry(ctx, "authorization.bind_policy", func() error {
+		return db.Transaction(func(tx *gorm.DB) error {
+			var count int64
+			if err := tx.Model(&database.AuthorizationPolicy{}).Where("id = ? AND user_id = ?", id, user).Count(&count).Error; err != nil {
+				return err
+			}
+			if count != 1 {
+				return ErrNotFound
+			}
+			// Associação reflete a seleção efetiva do perfil sem duplicar regras.
+			var existing database.AuthorizationPolicyBinding
+			err := tx.Where("user_id = ? AND policy_id = ? AND scope = ? AND scope_key = ?", user, id, "profile", profile).First(&existing).Error
+			if err == nil {
+				return nil
+			}
+			if !errors.Is(err, gorm.ErrRecordNotFound) {
+				return err
+			}
+			return tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&database.AuthorizationPolicyBinding{UserID: user, PolicyID: id, Scope: "profile", ScopeKey: profile}).Error
+		})
 	})
 }
 
