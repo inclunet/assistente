@@ -554,6 +554,11 @@ replay definidos nesta auditoria.
 
 ### D9. Permissões passam pelo `questionnaire`, com allowlist por perfil
 
+Evolução aprovada: [AEP-0117](0117-autorizacoes-unificadas-em-banco.md) inclui ACP
+no armazenamento e serviço comuns de autorização. A migração substituirá os
+arquivos abaixo, preservando opções do protocolo, isolamento de superfícies e
+identificação por classe. Até o corte, o contrato implementado abaixo permanece.
+
 `session/request_permission` e os métodos bloqueantes do Cursor
 (`cursor/ask_question`, `cursor/create_plan`) são traduzidos para o
 `questionnaire` manager — o mesmo mecanismo já usado por shell, HTTP mutável e

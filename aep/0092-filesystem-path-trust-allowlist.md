@@ -2,6 +2,11 @@
 
 **Status:** ✅ Done — Fase 1 + 1b + 2
 
+Evolução aprovada: [AEP-0117](0117-autorizacoes-unificadas-em-banco.md) migra a
+persistência para o banco e unifica autorização/gestão com rede, shell e ACP.
+As proteções de caminhos e operações deste AEP permanecem obrigatórias. O store
+em arquivos só deixa de vigorar quando seu consumidor for migrado no novo AEP.
+
 ## Resumo
 
 As tools de filesystem (`read_file`, `write_file`, `edit_file`, `grep_search`,

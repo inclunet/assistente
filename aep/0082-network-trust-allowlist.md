@@ -2,6 +2,12 @@
 
 **Status:** Done — critérios entregues em `internal/nettrust`, integração HTTP/Wails e UI
 
+Evolução aprovada: [AEP-0117](0117-autorizacoes-unificadas-em-banco.md) define a
+migração da persistência para o banco e a integração de shell, rede, FS e ACP.
+Até o corte de cada consumidor, a implementação descrita aqui permanece vigente;
+a nova entrega preserva as proteções de transporte e substitui D4/D8 quanto ao
+armazenamento em arquivos e ao plano de implementação futura.
+
 ## Resumo
 
 As tools de rede (`http_request`, `web_fetch`, `feed_read`) bloqueiam destinos que
