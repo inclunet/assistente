@@ -19,7 +19,7 @@ const chatTab: WorkspaceTab = {
 const workspace: WorkspaceData = {
   id: 'workspace-1',
   name: 'Workspace',
-  profile: 'perfil-workspace',
+  defaultProfile: 'perfil-workspace',
   tabs: [chatTab],
   activeTabId: 'tab-chat',
 };

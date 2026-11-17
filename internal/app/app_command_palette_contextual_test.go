@@ -10,9 +10,7 @@ import (
 func contextualPaletteFixture(t *testing.T) (*App, LocalCommandKeyboardMap, LocalCommandKeyboardContext) {
 	t.Helper()
 	a, decisions := contextualKeyboardChatFixture(t)
-	if err := a.workspaceMgr.SetProfile("dev"); err != nil {
-		t.Fatal(err)
-	}
+	a.workspaceMgr.SetDefaultProfile("dev")
 	observed := contextualKeyboardContext(t, a)
 	observed.Profile = "dev"
 	layer := settingsContractApply(t, a, decisions, CommandSettingsMutationRequest{Scope: CommandSettingsScopeGlobal, Operation: "layer_create", Layer: &CommandSettingsLayerInput{Name: "Paleta de trabalho", Enabled: true}})
@@ -112,12 +110,8 @@ func TestContextualPaletteWorkspaceRejectsProfileABAAtTakeAndCommit(t *testing.T
 			if phase == "commit" {
 				handoffID = takeUICommandFor(t, a, reservation.Ticket, commandWorkspaceTabChatCreateID).HandoffID
 			}
-			if err := a.workspaceMgr.SetProfile("other"); err != nil {
-				t.Fatal(err)
-			}
-			if err := a.workspaceMgr.SetProfile("dev"); err != nil {
-				t.Fatal(err)
-			}
+			a.workspaceMgr.SetDefaultProfile("other")
+			a.workspaceMgr.SetDefaultProfile("dev")
 			if phase == "take" {
 				if _, err := a.TakeUICommand(reservation.Ticket); err == nil {
 					t.Fatal("profile A-B-A accepted at Take")

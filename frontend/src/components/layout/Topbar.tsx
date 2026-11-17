@@ -22,8 +22,6 @@ import { useUIStore } from '../../store/uiStore';
 import { isModalOpen } from '../ui/Modal';
 import { useShallow } from 'zustand/shallow';
 import { MenuButton, type MenuItem as MenuButtonItem, type MenuButtonRef } from './MenuButton';
-import { ConnectionStatusIndicator } from './ConnectionStatusIndicator';
-import { ChatTimelineRecoveryPendingButton } from '../chat/ChatTimelineRecoveryPendingButton';
 import { Menu, type MenuItem } from '../menu';
 import { Combobox, type ComboboxDismissReason, type ComboboxItem } from '../pickers/Combobox';
 import { KeyboardShortcutsHelp } from '../ui/KeyboardShortcutsHelp';
@@ -114,7 +112,6 @@ import { useWorkspaceTabCreationMenu, type WorkspaceTabCreationIntent } from '..
 import { EventsOn } from '@wailsjs/runtime/runtime';
 import {
   ArrowLeftOutlined,
-  FolderOutlined,
   HistoryOutlined,
   ReadOutlined,
   CheckSquareOutlined,
@@ -123,12 +120,7 @@ import {
   SettingOutlined,
   QuestionCircleOutlined,
   InfoCircleOutlined,
-  PlusOutlined,
-  EditOutlined,
-  ExportOutlined,
-  ImportOutlined,
   CheckOutlined,
-  DownOutlined,
   KeyOutlined,
 } from '@ant-design/icons';
 import './Topbar.css';
@@ -246,8 +238,8 @@ export function Topbar() {
   const creationPresentationRef = useRef({ locale: i18n.language, t, announce });
   creationPresentationRef.current = { locale: i18n.language, t, announce };
   const addToast = useUIStore((s) => s.addToast);
-  const { workspace, workspaces, switchWorkspace, renameWorkspace } = useWorkspaceStore(
-    useShallow((s) => ({ workspace: s.workspace, workspaces: s.workspaces, switchWorkspace: s.switchWorkspace, renameWorkspace: s.renameWorkspace }))
+  const { workspace, workspaces, switchWorkspace } = useWorkspaceStore(
+    useShallow((s) => ({ workspace: s.workspace, workspaces: s.workspaces, switchWorkspace: s.switchWorkspace }))
   );
   const shortcutsHelpOpen = useShortcutsHelpStore((s) => s.isOpen);
   const shortcutSurface = pathname === '/' ? workspace?.tabs.find(tab => tab.id === workspace.activeTabId)?.type
@@ -503,9 +495,7 @@ export function Topbar() {
     });
   }, [palettePreferencesKey]);
   commandPaletteOpenRef.current = commandPaletteOpen;
-  const pickerButtonRef = useRef<HTMLButtonElement>(null);
   const workspacePickerTriggerRef = useRef<HTMLElement | null>(null);
-  const renameInputRef = useRef<HTMLInputElement>(null);
   const commandNavigationHandlers = useMemo(() => {
     const handlers = new Map(createCommandNavigationHandlers(navigate));
     handlers.set('navigation.menu.open', () => {
@@ -1533,8 +1523,6 @@ export function Topbar() {
     }
   }, [prepareWorkspaceMutationTarget]);
 
-  const [isRenaming, setIsRenaming] = useState(false);
-  const [renameValue, setRenameValue] = useState('');
   const [commandCatalogLoading, setCommandCatalogLoading] = useState(false);
 
   const intentIsCurrent = useCallback((intent: PendingCommandIntent) => {
@@ -3392,32 +3380,6 @@ export function Topbar() {
   }, [openPicker]);
   openWorkspacePickerRef.current = openWorkspacePicker;
 
-  // --- Context menu (right-click) on picker button ---
-  const {
-    menu: ctxMenu,
-    openAtPoint: openCtx,
-    closeMenu: closeCtx,
-    onSelectItem: onCtxSelect,
-  } = useAnchoredContextMenu({
-    onAfterSelect: () => {
-      const intent = pendingCommandExecutionRef.current;
-      const target = pendingWorkspaceCreateTargetRef.current;
-      if (intent?.commandID === WORKSPACE_CREATE_COMMAND_ID) {
-        if (!target || !commandPickerMountedRef.current || isModalOpen() || !target.isCurrent()) {
-          target?.dispose();
-          pendingWorkspaceCreateTargetRef.current = null;
-          pendingCommandExecutionRef.current = null;
-          return;
-        }
-        pickerButtonRef.current?.focus();
-        executePendingCommandRef.current?.();
-        return;
-      }
-      scheduleDefaultFocusRestore();
-    },
-    onAfterDismiss: () => pickerButtonRef.current?.focus(),
-  });
-
   const handleCommandPaletteSelect = useCallback((value: string) => {
     const item = commandPaletteMenuItemsRef.current.find((candidate) => candidate.id === value);
     if (!item || item.disabled || item.separator) return;
@@ -3511,45 +3473,6 @@ export function Topbar() {
     setCommandPaletteOpen(false);
   };
 
-  const handleExportWorkspace = useCallback(async () => {
-    try {
-      const yaml = await useWorkspaceStore.getState().exportWorkspace();
-      const blob = new Blob([yaml], { type: 'application/x-yaml' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `workspace-${workspace?.name?.replace(/\s+/g, '-').toLowerCase() || 'export'}.yaml`;
-      a.click();
-      URL.revokeObjectURL(url);
-      announce(t('workspace.exported'));
-    } catch (error) {
-      logger.error('[Topbar] Export error:', error);
-    }
-  }, [workspace?.name, announce, t]);
-
-  const handleImportWorkspace = useCallback(async () => {
-    try {
-      const input = document.createElement('input');
-      input.type = 'file';
-      input.accept = '.yaml,.yml';
-      input.onchange = async () => {
-        const file = input.files?.[0];
-        if (!file) return;
-        const text = await file.text();
-        await useWorkspaceStore.getState().importWorkspace(text);
-      };
-      input.click();
-    } catch (error) {
-      logger.error('[Topbar] Import error:', error);
-    }
-  }, []);
-
-  const startRename = useCallback(() => {
-    if (!workspace) return;
-    setIsRenaming(true);
-    setRenameValue(workspace.name);
-  }, [workspace]);
-
   const queueWorkspaceCreateCommand = useCallback(() => {
     const auth = useAuthStore.getState();
     const currentWorkspace = useWorkspaceStore.getState().workspace;
@@ -3579,36 +3502,14 @@ export function Topbar() {
     }));
   }, [workspaces, selectWorkspace, t]);
 
-  const ctxMenuItems = useMemo((): MenuItem[] => [
-    {
-      id: 'new-workspace',
-      label: t('workspace.newWorkspace'),
-      icon: <PlusOutlined />,
-      shortcut: shortcutHint(WORKSPACE_CREATE_COMMAND_ID),
-      action: queueWorkspaceCreateCommand,
-    },
-    {
-      id: 'rename-workspace',
-      label: t('workspace.rename'),
-      icon: <EditOutlined />,
-      shortcut: 'F2',
-      action: startRename,
-    },
-    { id: 'sep-1', separator: true },
-    {
-      id: 'export-workspace',
-      label: t('workspace.export'),
-      icon: <ExportOutlined />,
-      action: handleExportWorkspace,
-    },
-    {
-      id: 'import-workspace',
-      label: t('workspace.import'),
-      icon: <ImportOutlined />,
-      action: handleImportWorkspace,
-    },
-  ], [t, queueWorkspaceCreateCommand, startRename, handleExportWorkspace, handleImportWorkspace, shortcutHint]);
+  useEffect(() => tabCreationMenu?.registerWorkspaceList((trigger) => {
+    if (pickerMenu.visible) { closePicker(); return; }
+    openWorkspacePicker(trigger, t('workspace.workspaceList'), pickerItems);
+  }), [tabCreationMenu, pickerMenu.visible, closePicker, openWorkspacePicker, pickerItems, t]);
 
+  useEffect(() => {
+    tabCreationMenu?.setWorkspaceListOpen(pickerMenu.visible);
+  }, [tabCreationMenu, pickerMenu.visible]);
   const commandCatalogItemsToMenuItems = useCallback((items: apidto.CommandCatalogItem[]): MenuItem[] => {
     if (items.length === 0) {
       return [{
@@ -3650,7 +3551,13 @@ export function Topbar() {
       const isToolExecution = isCommandToolExecutionID(item.id);
       const genericDecisionAllowed = item.decision === 'none' || (isToolExecution && item.decision === 'interactive');
       const genericExecutable = !hasSpecializedHandler && ['read', 'write', 'destructive'].includes(item.effect) && genericDecisionAllowed && item.allowedSources?.includes('palette');
-      const unavailableReason = !contextualAvailable || !tabNavigationAvailable || !mutationAvailable
+      const chatCommand = isChatPickerCommand(item.id) || isChatMessagingCommand(item.id) ||
+        isChatNavigationCommand(item.id) || item.id === CHAT_CLEAR_COMMAND;
+      const unavailableOnScreen = chatCommand && localPaletteSourceRef.current?.appPage !== undefined &&
+        localPaletteSourceRef.current.appPage !== 'workspace';
+      const unavailableReason = unavailableOnScreen
+        ? t('commandPalette.unavailableOnScreen')
+        : !contextualAvailable || !tabNavigationAvailable || !mutationAvailable
         ? t('commandPalette.unavailable')
         : item.readinessReason || item.availabilityReason || t('commandPalette.unavailable');
       const effectiveShortcut = shortcutHint(item.id);
@@ -3955,53 +3862,6 @@ export function Topbar() {
     handleOpenCommandPicker();
   }, [handleOpenCommandPicker]);
 
-  const handleOpenPicker = useCallback(() => {
-    if (pickerMenu.visible) { closePicker(); return; }
-    if (pickerButtonRef.current) {
-      openWorkspacePicker(pickerButtonRef.current, t('workspace.workspaceList'), pickerItems);
-    }
-  }, [pickerMenu.visible, closePicker, openWorkspacePicker, pickerItems, t]);
-
-  const handlePickerContextMenu = useCallback((e: React.MouseEvent) => {
-    e.preventDefault();
-    openCtx(e.clientX, e.clientY, t('workspace.workspaceOptions'), ctxMenuItems);
-  }, [openCtx, t, ctxMenuItems]);
-
-  const handlePickerKeyDown = useCallback((e: React.KeyboardEvent) => {
-    if (e.key === 'F2') {
-      e.preventDefault();
-      startRename();
-    }
-  }, [startRename]);
-
-  // --- Rename ---
-  useEffect(() => {
-    if (isRenaming) {
-      renameInputRef.current?.focus();
-      renameInputRef.current?.select();
-    }
-  }, [isRenaming]);
-
-  const handleConfirmRename = useCallback(async () => {
-    const trimmed = renameValue.trim();
-    if (trimmed && trimmed !== workspace?.name) {
-      await renameWorkspace(trimmed);
-      announce(`${t('workspace.renamed')}: ${trimmed}`);
-    }
-    setIsRenaming(false);
-  }, [renameValue, workspace?.name, renameWorkspace, announce, t]);
-
-  const handleRenameKeyDown = useCallback((e: React.KeyboardEvent) => {
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      handleConfirmRename();
-    } else if (e.key === 'Escape') {
-      e.preventDefault();
-      setIsRenaming(false);
-      pickerButtonRef.current?.focus();
-    }
-  }, [handleConfirmRename]);
-
   const currentPage = ROUTE_IDS[resolvedPath] || 'workspace';
 
   const mainMenuItems: MenuButtonItem[] = useMemo(() => [
@@ -4133,8 +3993,6 @@ export function Topbar() {
             tabIndex={-1}
             onAfterSelect={openCommandPickerAfterMainMenuSelect}
           />
-          <ConnectionStatusIndicator />
-          <ChatTimelineRecoveryPendingButton />
           <Combobox
             icon={<ThunderboltOutlined />}
             label={t('commandPalette.shortTitle')}
@@ -4198,48 +4056,7 @@ export function Topbar() {
 
         <h1 className="topbar__title">{pageTitle}</h1>
 
-        <div className="topbar__right">
-          {isWorkspaceRoute ? (
-            isRenaming ? (
-              <input
-                ref={renameInputRef}
-                className="topbar__rename-input"
-                value={renameValue}
-                onChange={(e) => setRenameValue(e.target.value)}
-                onKeyDown={handleRenameKeyDown}
-                onBlur={() => void handleConfirmRename()}
-                aria-label={t('workspace.renamePlaceholder')}
-              />
-            ) : (
-              <button
-                ref={pickerButtonRef}
-                className="topbar__picker"
-                onClick={handleOpenPicker}
-                onContextMenu={handlePickerContextMenu}
-                onKeyDown={handlePickerKeyDown}
-                onDoubleClick={startRename}
-                aria-expanded={pickerMenu.visible}
-                aria-label={t('workspace.workspaceList')}
-                tabIndex={-1}
-              >
-                <span className="topbar__picker-icon" aria-hidden="true"><FolderOutlined /></span>
-                <span className="topbar__picker-name">{workspace?.name || 'Workspace'}</span>
-                <span className="topbar__picker-arrow" aria-hidden="true"><DownOutlined /></span>
-              </button>
-            )
-          ) : (
-            <button
-              className="topbar__back"
-              onClick={() => navigate('/')}
-              aria-label={[t('menu.backToWorkspace'), shortcutHint('navigation.workspace.open')].filter(Boolean).join(' — ')}
-              title={[t('menu.backToWorkspace'), shortcutHint('navigation.workspace.open')].filter(Boolean).join(' — ')}
-              tabIndex={-1}
-            >
-              <ArrowLeftOutlined aria-hidden="true" />
-              <span>{t('menu.backToWorkspace')}</span>
-            </button>
-          )}
-        </div>
+
         </div>
       </header>
 
@@ -4256,16 +4073,7 @@ export function Topbar() {
         onSelect={onPickerSelect}
       />
 
-      <Menu
-        items={ctxMenu.items}
-        x={ctxMenu.x}
-        y={ctxMenu.y}
-        visible={ctxMenu.visible}
-        ariaLabel={ctxMenu.ariaLabel || t('workspace.workspaceOptions')}
-        restoreFocusOnClose={false}
-        onClose={closeCtx}
-        onSelect={onCtxSelect}
-      />
+
 
       <KeyboardShortcutsHelp isOpen={shortcutsHelpOpen} onClose={closeShortcutsHelp} surfaceType={shortcutSurface} />
     </>

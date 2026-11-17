@@ -15,7 +15,7 @@ import { readChatCommandSurface, type ChatCommandExecutionStatus } from '../lib/
 export default function ChatPage() {
   const { t } = useTranslation();
   const { tab } = useWorkspacePanel();
-  const wsProfile = useWorkspaceStore((s) => s.workspace?.profile);
+  const wsProfile = useWorkspaceStore((s) => s.workspace?.defaultProfile);
   const updateTab = useWorkspaceStore((s) => s.updateTab);
   const conversationId = tab?.type === 'chat' ? tab.conversationId : undefined;
   const tabProfileSlug = tab?.type === 'chat'

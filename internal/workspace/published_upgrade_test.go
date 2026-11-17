@@ -66,7 +66,7 @@ func assertPublishedWorkspaceMigrated(t *testing.T, workspace *Workspace, versio
 	t.Helper()
 	if workspace == nil ||
 		workspace.ID != "ws-fixture-"+version ||
-		workspace.Profile != "programacao" ||
+		workspace.DefaultProfile != "" ||
 		workspace.Tabs.Active != "tab-editor" ||
 		len(workspace.Tabs.Items) != 4 {
 		t.Fatalf("workspace %s não preservado: %+v", version, workspace)

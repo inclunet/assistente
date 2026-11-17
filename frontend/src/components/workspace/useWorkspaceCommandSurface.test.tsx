@@ -20,7 +20,7 @@ const tab: WorkspaceTab = {
 };
 const workspaceState = vi.hoisted(() => ({
   workspace: {
-    id: 'workspace-a', name: 'Workspace A', profile: 'default', tabs: [], activeTabId: 'tab-a',
+    id: 'workspace-a', name: 'Workspace A', defaultProfile: 'default', tabs: [], activeTabId: 'tab-a',
   } as WorkspaceData,
   listeners: new Set<() => void>(),
   activeSubscriptions: 0,
@@ -170,7 +170,7 @@ function resetStores() {
   authState.listeners.clear();
   authState.activeSubscriptions = 0;
   workspaceState.workspace = {
-    id: 'workspace-a', name: 'Workspace A', profile: 'default', tabs: [tab], activeTabId: 'tab-a',
+    id: 'workspace-a', name: 'Workspace A', defaultProfile: 'default', tabs: [tab], activeTabId: 'tab-a',
   };
   workspaceState.listeners.clear();
   workspaceState.activeSubscriptions = 0;
@@ -302,9 +302,9 @@ describe('useWorkspaceCommandSurface', () => {
     expect(oldToken).toBeDefined();
 
     act(() => {
-      workspaceState.workspace = { ...workspaceState.workspace, profile: 'profile-b' };
+      workspaceState.workspace = { ...workspaceState.workspace, defaultProfile: 'profile-b' };
       sourceListeners.forEach((invalidate) => invalidate());
-      workspaceState.workspace = { ...workspaceState.workspace, profile: 'default' };
+      workspaceState.workspace = { ...workspaceState.workspace, defaultProfile: 'default' };
     });
 
     expect(guard.commit(oldToken as object, () => undefined)).toBe(false);

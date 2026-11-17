@@ -24,9 +24,7 @@ func contextualPaletteFileFixture(t *testing.T, commandID string) (editorFileCom
 	if err := a.workspaceMgr.SetActiveTab(tabID); err != nil {
 		t.Fatal(err)
 	}
-	if err := a.workspaceMgr.SetProfile("dev"); err != nil {
-		t.Fatal(err)
-	}
+	a.workspaceMgr.SetDefaultProfile("dev")
 	layer := settingsContractApply(t, a, decisions, CommandSettingsMutationRequest{Scope: CommandSettingsScopeGlobal, Operation: "layer_create", Layer: &CommandSettingsLayerInput{Name: "Arquivos contextuais", Enabled: true}})
 	settingsContractApply(t, a, decisions, CommandSettingsMutationRequest{Scope: CommandSettingsScopeGlobal, Operation: "binding_create", Binding: &CommandSettingsBindingInput{
 		LayerID: layer.ID, CommandID: commandID, TriggerType: "palette", TriggerSpec: `{"version":1,"selection":"` + commandID + `"}`, Effect: "execute", Enabled: true,
@@ -108,12 +106,8 @@ func TestContextualPaletteFileNativeContinuationRejectsStale(t *testing.T) {
 			f.a.ResetLocalCommandKeyboard(view.Generation)
 			switch transition {
 			case "profile-aba":
-				if err := f.a.workspaceMgr.SetProfile("other"); err != nil {
-					t.Fatal(err)
-				}
-				if err := f.a.workspaceMgr.SetProfile("dev"); err != nil {
-					t.Fatal(err)
-				}
+				f.a.workspaceMgr.SetDefaultProfile("other")
+				f.a.workspaceMgr.SetDefaultProfile("dev")
 			case "vault":
 				if err := f.a.commandHost.SetVaultUnlocked(f.ctx, false); err != nil {
 					t.Fatal(err)

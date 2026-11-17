@@ -40,9 +40,10 @@ func isValidUUIDv7(s string) bool {
 
 // Manager gerencia workspaces: CRUD, persistência YAML e índice global.
 type Manager struct {
-	mu                    sync.RWMutex
+	mu sync.RWMutex
 	snapshotState
 	active                *Workspace
+	defaultProfile        string // projeção em memória do padrão do aplicativo; nunca persistida no workspace
 	activePath            string // diretório base do workspace ativo (contém .assistente/)
 	homeDir               string // ~/.assistente/
 	activeMigrationFailed bool   // true se o workspace ativo falhou ao salvar migração
@@ -53,7 +54,7 @@ type Manager struct {
 // homeDir é o diretório ~/.assistente/ (onde ficam workspaces avulsos e o índice).
 func NewManager(homeDir string) *Manager {
 	return &Manager{
-		homeDir:        homeDir,
+		homeDir:       homeDir,
 		snapshotState: snapshotState{snapshotEpoch: newSnapshotEpoch()},
 	}
 }
@@ -237,7 +238,6 @@ func (m *Manager) List() ([]WorkspaceInfo, error) {
 		// Tenta carregar mais detalhes
 		wsPath := filepath.Join(entry.Path, assistenteDir, workspaceFile)
 		if ws, err := m.loadWorkspaceFile(wsPath); err == nil || errors.Is(err, ErrMigrationSaveFailed) {
-			info.Profile = ws.Profile
 			info.TabCount = len(ws.Tabs.Items)
 		}
 
@@ -362,21 +362,17 @@ func (m *Manager) Delete(workspaceID string) error {
 	return nil
 }
 
-// SetProfile define o perfil base do workspace ativo.
-func (m *Manager) SetProfile(profileSlug string) error {
+// SetDefaultProfile publica a projeção do padrão do aplicativo.
+// Não altera workspace.yaml nem depende de haver workspace ativo.
+func (m *Manager) SetDefaultProfile(profileSlug string) bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-
-	if m.active == nil {
-		return fmt.Errorf("no active workspace")
-	}
-
-	semanticChanged := m.active.Profile != profileSlug
-	m.active.Profile = profileSlug
-	if semanticChanged {
+	if m.defaultProfile != profileSlug {
+		m.defaultProfile = profileSlug
 		m.commandMutationEpochLocked()
+		return true
 	}
-	return m.saveWorkspace(m.active, m.activePath)
+	return false
 }
 
 // === Tab operations ===
@@ -866,7 +862,6 @@ func (m *Manager) ImportWorkspace(data []byte) (*Workspace, error) {
 
 	// Gera novos IDs
 	ws := m.newWorkspaceBase(imported.Name)
-	ws.Profile = imported.Profile
 
 	for _, tab := range imported.Tabs.Items {
 		newTab := Tab{

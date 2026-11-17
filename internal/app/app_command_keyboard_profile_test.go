@@ -77,16 +77,14 @@ func TestContextualProfileOnlyProjetaAsQuatroSuperficiesWorkspace(t *testing.T) 
 
 func TestCommandKeyboardProfileAPIRrealBindingRegraMapaEExecucaoBackend(t *testing.T) {
 	a, decisions := contextualKeyboardChatFixture(t)
-	if err := a.workspaceMgr.SetProfile("workspace-profile"); err != nil {
-		t.Fatal(err)
-	}
+	a.workspaceMgr.SetDefaultProfile("workspace-profile")
 	observed := contextualKeyboardContext(t, a)
 	if err := a.workspaceMgr.UpdateTab(observed.SurfaceID, map[string]any{"profile_override": map[string]any{"slug": "profile-a"}}); err != nil {
 		t.Fatal(err)
 	}
 	observed.Profile = "profile-a"
 	proof, err := a.captureLocalKeyboardContext(observed)
-	if err != nil || proof == nil || proof.snapshot.WorkspaceProfile != "workspace-profile" || proof.snapshot.Tab.ProfileOverrideSlug != "profile-a" || localKeyboardEffectiveProfile(proof.snapshot) != "profile-a" {
+	if err != nil || proof == nil || proof.snapshot.DefaultProfile != "workspace-profile" || proof.snapshot.Tab.ProfileOverrideSlug != "profile-a" || localKeyboardEffectiveProfile(proof.snapshot) != "profile-a" {
 		t.Fatalf("override canônico não venceu perfil do workspace: proof=%+v err=%v", proof, err)
 	}
 	layer := settingsContractApply(t, a, decisions, CommandSettingsMutationRequest{Scope: CommandSettingsScopeGlobal, Operation: "layer_create", Layer: &CommandSettingsLayerInput{Name: "Perfil teclado", Enabled: true}})
@@ -124,9 +122,7 @@ func TestCommandKeyboardProfileAPIRrealBindingRegraMapaEExecucaoBackend(t *testi
 
 func TestCommandKeyboardProfileBeginCommitAndABAAfterReservation(t *testing.T) {
 	a, decisions := contextualKeyboardChatFixture(t)
-	if err := a.workspaceMgr.SetProfile("profile-a"); err != nil {
-		t.Fatal(err)
-	}
+	a.workspaceMgr.SetDefaultProfile("profile-a")
 	observed := contextualKeyboardContext(t, a)
 	observed.Profile = "profile-a"
 	layer := settingsContractApply(t, a, decisions, CommandSettingsMutationRequest{Scope: CommandSettingsScopeGlobal, Operation: "layer_create", Layer: &CommandSettingsLayerInput{Name: "Perfil UI", Enabled: true}})
@@ -161,12 +157,8 @@ func TestCommandKeyboardProfileBeginCommitAndABAAfterReservation(t *testing.T) {
 	if err != nil || reservation == nil {
 		t.Fatalf("segunda reserva profile recusada: %+v %v", reservation, err)
 	}
-	if err := a.workspaceMgr.SetProfile("profile-b"); err != nil {
-		t.Fatal(err)
-	}
-	if err := a.workspaceMgr.SetProfile("profile-a"); err != nil {
-		t.Fatal(err)
-	}
+	a.workspaceMgr.SetDefaultProfile("profile-b")
+	a.workspaceMgr.SetDefaultProfile("profile-a")
 	if _, err := a.TakeUICommand(reservation.Ticket); err == nil {
 		t.Fatal("A-B-A revalidou reserva contextual de perfil")
 	}

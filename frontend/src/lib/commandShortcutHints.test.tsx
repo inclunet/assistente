@@ -9,7 +9,7 @@ vi.mock('../store/authStore', () => ({ useAuthStore: (selector: (state: unknown)
   isAuthenticated: identity.authenticated, user: { userId: identity.userId, sessionId: identity.sessionId },
 }) }));
 vi.mock('../store/workspaceStore', () => {
-  const state = () => ({ workspace: { id: identity.workspaceId, profile: identity.profile, activeTabId: identity.activeTabId,
+  const state = () => ({ workspace: { id: identity.workspaceId, defaultProfile: identity.profile, activeTabId: identity.activeTabId,
     tabs: [{ id: identity.activeTabId, type: 'chat', profileOverride: { slug: identity.override } }] } });
   return { useWorkspaceStore: Object.assign((selector: (value: unknown) => unknown) => selector(state()), { getState: state }) };
 });

@@ -29,7 +29,7 @@ import { CHAT_NAVIGATION_COMMAND_IDS, registerChatNavigationSurface, requestChat
 
 const auth = { isAuthenticated: true, user: { userId: 'user-a', sessionId: 'session-a', role: 'user' } };
 const workspace = {
-  id: 'workspace-a', name: 'Workspace', profile: '', activeTabId: 'chat-tab',
+  id: 'workspace-a', name: 'Workspace', defaultProfile: '', activeTabId: 'chat-tab',
   tabs: [{ id: 'chat-tab', type: 'chat' as const, conversationId: 'conversation-a' }],
 };
 

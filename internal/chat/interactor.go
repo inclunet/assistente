@@ -153,7 +153,7 @@ func (i *Interactor) isAgentTitle(conversationID, title string) bool {
 	return i.agentTitles[conversationID] == title
 }
 
-func (i *Interactor) resolveWorkspaceProfileSlug(conversationID string, params ChatParams) string {
+func (i *Interactor) resolveTabProfileSlug(conversationID string, params ChatParams) string {
 	if i.workspace == nil {
 		return ""
 	}
@@ -171,7 +171,7 @@ func (i *Interactor) resolveWorkspaceProfileSlug(conversationID string, params C
 			return slug
 		}
 	}
-	return strings.TrimSpace(ws.Profile)
+	return "" // sem override da aba, o turno usa o perfil padrão do aplicativo
 }
 
 func profileSlugFromWorkspaceTab(tab *workspace.Tab) string {
@@ -305,7 +305,7 @@ func (i *Interactor) PrepareContext(ctx context.Context, req PrepareContextReque
 	profileIsAuthoritative := resolvedProfileSlug != "" &&
 		(req.Source == "wails" || req.Source == "subagent")
 	if resolvedProfileSlug == "" && req.Source == "wails" {
-		resolvedProfileSlug = i.resolveWorkspaceProfileSlug(req.ConversationID, req.Params)
+		resolvedProfileSlug = i.resolveTabProfileSlug(req.ConversationID, req.Params)
 		req.Params.ProfileSlug = resolvedProfileSlug
 		profileIsAuthoritative = resolvedProfileSlug != ""
 	}
@@ -1106,7 +1106,6 @@ func (i *Interactor) buildDynamicContext(ctx context.Context, data TemplateData,
 		WorkspaceID:                      data.WorkspaceID,
 		ProjectID:                        data.ProjectID,
 		WorkspaceName:                    data.WorkspaceName,
-		WorkspaceProfile:                 data.WorkspaceProfile,
 		TabCount:                         data.TabCount,
 		ActiveTabTitle:                   data.ActiveTabTitle,
 		ActiveTabType:                    data.ActiveTabType,

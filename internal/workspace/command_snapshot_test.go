@@ -17,7 +17,7 @@ func TestWithCommandSnapshotKeepsSnapshotAndBlocksWriter(t *testing.T) {
 	entered := make(chan struct{})
 	release := make(chan struct{})
 	mismatch := make(chan bool, 1)
-	writerDone := make(chan error, 1)
+	writerDone := make(chan bool, 1)
 	callbackErr := errors.New("callback failed")
 	callbackDone := make(chan error, 1)
 	go func() {
@@ -38,10 +38,10 @@ func TestWithCommandSnapshotKeepsSnapshotAndBlocksWriter(t *testing.T) {
 		t.Fatal("snapshot mudou durante callback")
 	}
 
-	go func() { writerDone <- manager.SetProfile("profile-b") }()
+	go func() { writerDone <- manager.SetDefaultProfile("profile-b") }()
 	select {
-	case err := <-writerDone:
-		t.Fatalf("SetProfile atravessou read lock: %v", err)
+	case changed := <-writerDone:
+		t.Fatalf("SetDefaultProfile atravessou read lock: %v", changed)
 	case <-time.After(50 * time.Millisecond):
 	}
 	close(release)
@@ -52,9 +52,9 @@ func TestWithCommandSnapshotKeepsSnapshotAndBlocksWriter(t *testing.T) {
 		t.Fatal("snapshot deixou de ser estável")
 	}
 	select {
-	case err := <-writerDone:
-		if err != nil {
-			t.Fatalf("SetProfile após release: %v", err)
+	case changed := <-writerDone:
+		if !changed {
+			t.Fatal("SetDefaultProfile não aplicou alteração após release")
 		}
 	case <-time.After(time.Second):
 		t.Fatal("writer não foi liberado")
@@ -76,9 +76,7 @@ func TestWithCommandSnapshotCancellationAndNilInputsRelease(t *testing.T) {
 	}); err == nil {
 		t.Fatal("erro do callback foi perdido")
 	}
-	if err := manager.SetProfile("profile-b"); err != nil {
-		t.Fatalf("read lock não foi liberado: %v", err)
-	}
+	manager.SetDefaultProfile("profile-b")
 
 	if err := (*Manager)(nil).WithCommandSnapshot(context.Background(), func(CommandSnapshot) error { return nil }); !errors.Is(err, ErrCommandSnapshotNilManager) {
 		t.Fatalf("manager nil=%v", err)

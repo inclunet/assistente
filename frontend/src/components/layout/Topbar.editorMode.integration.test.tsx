@@ -90,7 +90,7 @@ vi.mock('react-router-dom', async (importOriginal) => {
 
 const auth = { isAuthenticated: true, user: { userId: 'user-a', sessionId: 'session-a', role: 'user' } };
 const workspace = {
-  id: 'workspace-a', name: 'Workspace', profile: '', activeTabId: 'editor-tab',
+  id: 'workspace-a', name: 'Workspace', defaultProfile: '', activeTabId: 'editor-tab',
   tabs: [{ id: 'editor-tab', type: 'editor' as const }],
 };
 

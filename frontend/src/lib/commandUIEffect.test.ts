@@ -14,7 +14,7 @@ const stores = vi.hoisted(() => {
       workspace: {
         id: 'workspace-a',
         name: 'A',
-        profile: 'profile-a',
+        defaultProfile: 'profile-a',
         tabs: [
           { id: 'tab-a', type: 'editor', title: 'A', position: 0 },
           { id: 'tab-b', type: 'editor', title: 'B', position: 1 },
@@ -70,7 +70,7 @@ afterEach(() => {
   stores.workspace.workspace = {
     id: 'workspace-a',
     name: 'A',
-    profile: 'profile-a',
+    defaultProfile: 'profile-a',
     tabs: [
       { id: 'tab-a', type: 'editor', title: 'A', position: 0 },
       { id: 'tab-b', type: 'editor', title: 'B', position: 1 },
@@ -287,7 +287,7 @@ describe('command UI effect guard', () => {
     expect(guard.commit(token!, effect)).toBe(false);
 
     token = guard.capture();
-    stores.workspace.workspace = { ...stores.workspace.workspace, profile: 'profile-b' };
+    stores.workspace.workspace = { ...stores.workspace.workspace, defaultProfile: 'profile-b' };
     expect(guard.commit(token!, effect)).toBe(false);
 
     token = guard.capture();
@@ -309,7 +309,7 @@ describe('command UI effect guard', () => {
     let getterCalls = 0;
     disposeSurface = session.registerSurfaceContext('surface-a', () => {
       getterCalls += 1;
-      stores.workspace.workspace = { ...stores.workspace.workspace, profile: 'profile-reentrant' };
+      stores.workspace.workspace = { ...stores.workspace.workspace, defaultProfile: 'profile-reentrant' };
       stores.notify(stores.workspaceListeners);
       return { surfaceType: 'editor', surfaceId: 'surface-a', snapshotVersion: 'surface-a-v1' };
     });
@@ -357,7 +357,7 @@ describe('command UI effect guard', () => {
     focusButton();
     stores.workspace.workspace = {
       ...stores.workspace.workspace,
-      profile: '',
+      defaultProfile: '',
       activeTabId: 'tab-a',
       tabs: [
         { id: 'tab-a', type: 'editor', title: 'A', position: 0 },
@@ -414,7 +414,7 @@ describe('command UI effect guard', () => {
     const unregister = session.registerSurfaceContext('surface-a', () => {
       getterCalls += 1;
       if (getterCalls === 2) {
-        stores.workspace.workspace = { ...stores.workspace.workspace, profile: 'profile-during-commit' };
+        stores.workspace.workspace = { ...stores.workspace.workspace, defaultProfile: 'profile-during-commit' };
         stores.notify(stores.workspaceListeners);
       }
       return { surfaceType: 'editor', surfaceId: 'surface-a', snapshotVersion: 'surface-a-v1' };

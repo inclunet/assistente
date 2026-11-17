@@ -171,7 +171,7 @@ const backendExecutionState = vi.hoisted(() => ({
   dispose: vi.fn(),
 }));
 const workspaceState = vi.hoisted(() => ({
-  workspace: { id: 'workspace-a', name: 'Test Workspace', profile: '', activeTabId: 'tab-a', tabs: [{ id: 'tab-a', type: 'chat' as const }] as Array<{ id: string; type: 'chat'; profileOverride?: Record<string, unknown> }> },
+  workspace: { id: 'workspace-a', name: 'Test Workspace', defaultProfile: '', activeTabId: 'tab-a', tabs: [{ id: 'tab-a', type: 'chat' as const }] as Array<{ id: string; type: 'chat'; profileOverride?: Record<string, unknown> }> },
   workspaces: [] as Array<{ id: string; name: string; is_active: boolean; tab_count: number }>,
   switchWorkspace: vi.fn(async () => {}),
   setActiveTab: vi.fn((tabId: string) => {
@@ -350,7 +350,7 @@ afterEach(() => {
   authState.isAuthenticated = true;
   authState.user = { userId: 'user-a', sessionId: 'session-a', role: 'user' };
   authState.listeners.clear();
-  workspaceState.workspace = { id: 'workspace-a', name: 'Test Workspace', profile: '', activeTabId: 'tab-a', tabs: [{ id: 'tab-a', type: 'chat' as const }] };
+  workspaceState.workspace = { id: 'workspace-a', name: 'Test Workspace', defaultProfile: '', activeTabId: 'tab-a', tabs: [{ id: 'tab-a', type: 'chat' as const }] };
   workspaceState.listeners.clear();
   workspacePanelState.current = true;
   workspaceChatState.canPrepare.mockReset().mockReturnValue(true);
@@ -608,7 +608,7 @@ describe('Topbar — integração dos comandos de picker com o mapa efetivo', ()
 });
 
 function changeKeyboardProfile(profile: string) {
-  workspaceState.workspace = { ...workspaceState.workspace, profile };
+  workspaceState.workspace = { ...workspaceState.workspace, defaultProfile: profile };
   workspaceState.listeners.forEach(listener => listener());
 }
 
@@ -616,7 +616,7 @@ describe('Topbar teclado local — controller e guard reais', () => {
 
   it.each([1, 2] as const)('perfil efetivo seleciona navegação local v%s sem backend ou rebuild', async (version) => {
     locationState.pathname = '/';
-    workspaceState.workspace.profile = 'profile-a';
+    workspaceState.workspace.defaultProfile = 'profile-a';
     vi.spyOn(document, 'hasFocus').mockReturnValue(true);
     const shortcut: import('../../lib/commandShortcut').CommandKeyboardTrigger = version === 1
       ? { version: 1, code: 'KeyY', modifiers: ['Control', 'Shift'] }
@@ -666,7 +666,7 @@ describe('Topbar teclado local — controller e guard reais', () => {
 
   it('sequência por perfil não sobrevive à transição A-B-A entre etapas', async () => {
     locationState.pathname = '/';
-    workspaceState.workspace.profile = 'profile-a';
+    workspaceState.workspace.defaultProfile = 'profile-a';
     vi.spyOn(document, 'hasFocus').mockReturnValue(true);
     const shortcut: import('../../lib/commandShortcut').CommandKeyboardTrigger = {
       version: 2, steps: [{ code: 'KeyY', modifiers: ['Control', 'Shift'] }, { code: 'KeyL', modifiers: [] }],
@@ -732,7 +732,7 @@ describe('Topbar teclado local — controller e guard reais', () => {
   const output: BackendCommandExecutionResult = {
     invocationId: 'keyboard-invocation', status: 'succeeded',
     output: { kind: 'workspace.list', workspaces: [
-      { id: 'workspace-b', name: 'Workspace B', profile: '', tab_count: 2, is_active: false },
+      { id: 'workspace-b', name: 'Workspace B', tab_count: 2, is_active: false },
     ] },
   };
 
@@ -1225,7 +1225,7 @@ describe('Topbar', () => {
   });
 
   it.each(['stable', 'different', 'aba'] as const)('revalida perfil antes do commit contextual: %s', async (change) => {
-    workspaceState.workspace.profile = 'profile-a';
+    workspaceState.workspace.defaultProfile = 'profile-a';
     const { view, root } = await mountCreationIntegration({ sourceGetter: () => ({ surfaceType: 'chat', surfaceId: 'tab-a', snapshotVersion: 'chat-v1' }) });
     let release!: (response: import('../../lib/commandUIExecution').UICommandTakeResponse) => void;
     executionState.port.takeUICommand.mockImplementationOnce(() => new Promise(resolve => { release = resolve; }));
@@ -1322,50 +1322,6 @@ describe('Topbar', () => {
       await waitFor(() => expect(executionState.port.beginUICommand).toHaveBeenCalled());
       expect(keyboardState.beginUI).not.toHaveBeenCalled();
       expect(executionState.port.beginUICommand).toHaveBeenCalledWith('workspace.tab.editor.create');
-    } finally {
-      view.unmount();
-      root.remove();
-    }
-  });
-
-  it('cria workspace uma vez pelo menu contextual do picker, sem bypass do store nem troca de workspace', async () => {
-    locationState.pathname = '/';
-    vi.spyOn(document, 'hasFocus').mockReturnValue(true);
-    executionState.port.beginUICommand.mockResolvedValue({
-      ticket: 'workspace-menu-ticket', invocationId: 'workspace-menu-inv', commandId: 'workspace.create',
-    });
-    executionState.port.takeUICommand.mockResolvedValue({
-      ticket: 'workspace-menu-ticket', invocationId: 'workspace-menu-inv', commandId: 'workspace.create',
-      handoffId: 'workspace-menu-handoff',
-    });
-    executionState.port.getUICommandResult.mockResolvedValue({ invocationId: 'workspace-menu-inv', status: 'succeeded' });
-    const root = document.createElement('div');
-    root.className = 'workspace-layout';
-    document.body.appendChild(root);
-    const view = render(<CommandContextProvider><Topbar /></CommandContextProvider>);
-    try {
-      await waitFor(() => expect(keyboardState.loadMap).toHaveBeenCalled());
-      const picker = screen.getByRole('button', { name: 'workspace.workspaceList' });
-      picker.focus();
-      await act(async () => {
-        fireEvent.contextMenu(picker, { clientX: 24, clientY: 16 });
-      });
-      expect(contextMenuState.openAtPoint).toHaveBeenCalledOnce();
-      const item = contextMenuState.items.find((candidate) => candidate.id === 'new-workspace');
-      expect(item?.action).toBeDefined();
-
-      await act(async () => {
-        item?.action?.();
-        // O hook real fecha o menu e só então entrega onAfterSelect; o mock
-        // precisa preservar essa ordem para não validar um atalho síncrono.
-        contextMenuState.afterSelect?.();
-      });
-      await waitFor(() => expect(executionState.port.commitBackendCommand)
-        .toHaveBeenCalledExactlyOnceWith('workspace-menu-ticket', 'workspace-menu-handoff'));
-      expect(executionState.port.beginUICommand).toHaveBeenCalledExactlyOnceWith('workspace.create');
-      expect(workspaceState.createWorkspace).not.toHaveBeenCalled();
-      expect(workspaceState.switchWorkspace).not.toHaveBeenCalled();
-      expect(keyboardState.beginUI).not.toHaveBeenCalled();
     } finally {
       view.unmount();
       root.remove();
@@ -1567,10 +1523,11 @@ describe('Topbar', () => {
     expect(items).not.toContain('language');
   });
 
-  it('mostra botão voltar em sub-rota', () => {
+  it('mantém voltar ao workspace no menu principal em sub-rota', () => {
     render(<Topbar />);
 
-    const backButton = screen.getByRole('button', { name: 'menu.backToWorkspace' });
+    expect(screen.queryByRole('button', { name: 'menu.backToWorkspace' })).not.toBeInTheDocument();
+    const backButton = screen.getByTestId('main-menu-back-to-workspace');
     expect(backButton).toBeInTheDocument();
 
     fireEvent.click(backButton);
@@ -3284,7 +3241,7 @@ describe('Topbar', () => {
     const user = userEvent.setup();
     backendExecutionState.execute.mockImplementationOnce((_commandID: string, apply: (output: unknown) => undefined) => {
       apply({ kind: 'workspace.list', workspaces: [
-        { id: 'workspace-b', name: 'Workspace B', profile: 'default', tab_count: 2, is_active: false },
+        { id: 'workspace-b', name: 'Workspace B', tab_count: 2, is_active: false },
       ] });
       return Promise.resolve({
         execution: { invocationId: 'inv-workspace-1', status: 'succeeded' }, presented: true, reason: 'presented',
@@ -3323,7 +3280,7 @@ describe('Topbar', () => {
     backendExecutionState.execute.mockImplementation((_commandID: string, apply: (output: unknown) => undefined) => {
       applies.push(apply);
       apply({ kind: 'workspace.list', workspaces: [
-        { id: applies.length === 1 ? 'workspace-old' : 'workspace-new', name: applies.length === 1 ? 'Old' : 'New', profile: 'default', tab_count: 1, is_active: false },
+        { id: applies.length === 1 ? 'workspace-old' : 'workspace-new', name: applies.length === 1 ? 'Old' : 'New', tab_count: 1, is_active: false },
       ] });
       return Promise.resolve({
         execution: { invocationId: `inv-${applies.length}`, status: 'succeeded' }, presented: true, reason: 'presented',

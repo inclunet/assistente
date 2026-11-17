@@ -138,7 +138,7 @@ func (a *App) commandJobCondition(ctx context.Context, tx *gorm.DB, owner comman
 	facts := commandbindings.Facts{}
 	profile := snapshot.Tab.ProfileOverrideSlug
 	if profile == "" {
-		profile = snapshot.WorkspaceProfile
+		profile = snapshot.DefaultProfile
 	}
 	if profile != "" {
 		facts[commandbindings.Profile] = profile

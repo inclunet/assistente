@@ -1030,7 +1030,7 @@ func TestBuildTemplateData_NilProfile_NoToolCalling(t *testing.T) {
 
 func TestBuildTemplateData_WithWorkspace_FillsTabInfo(t *testing.T) {
 	ws := &workspace.Workspace{
-		Name: "Meu Workspace", Profile: "developer",
+		Name: "Meu Workspace",
 		Tabs: workspace.TabsState{
 			Active: "tab-2",
 			Items: []workspace.Tab{

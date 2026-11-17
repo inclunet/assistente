@@ -23,6 +23,7 @@ func (m *Manager) cloneActiveSnapshotLocked(source *Workspace) *Workspace {
 	}
 
 	cloned := cloneWorkspace(source)
+	cloned.DefaultProfile = m.defaultProfile
 	// Mesmo que um caller forneça um clone previamente carimbado, o estado de
 	// transporte da nova publicação começa limpo e nunca contamina m.active.
 	cloned.SnapshotEpoch = ""

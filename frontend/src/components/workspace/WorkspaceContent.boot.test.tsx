@@ -12,7 +12,7 @@ vi.mock('@wailsjs/go/wailsapi/Workspace', () => ({
   SwitchWorkspace: vi.fn(),
   RenameWorkspace: vi.fn(),
   DeleteWorkspace: vi.fn(),
-  SetWorkspaceProfile: vi.fn(),
+
   AddWorkspaceTab: vi.fn(),
   RemoveWorkspaceTab: vi.fn(),
   SetActiveWorkspaceTab: vi.fn(),

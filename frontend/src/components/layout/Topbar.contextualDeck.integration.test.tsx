@@ -15,7 +15,7 @@ const state = vi.hoisted(() => ({
   surfaceVersion: 'v1',
   navigate: vi.fn(), announce: vi.fn(),
   auth: { isAuthenticated: true, user: { userId: 'user-a', sessionId: 'session-a' } },
-  workspace: { workspace: { id: 'workspace-a', profile: 'focused', activeTabId: 'tab-a', tabs: [{ id: 'tab-a', type: 'chat' }] }, workspaces: [] },
+  workspace: { workspace: { id: 'workspace-a', defaultProfile: 'focused', activeTabId: 'tab-a', tabs: [{ id: 'tab-a', type: 'chat' }] }, workspaces: [] },
   terminal: { sessions: [{ id: 'pty-a', state: 'running' }], historyBySession: { 'pty-a': [{ id: 'command-a', output: '', endedAt: '' }] }, activeEntryBySession: { 'pty-a': 'command-a' }, loadSessions: vi.fn(async () => undefined) },
 }));
 vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key, i18n: { language: 'pt-BR' } }) }));
@@ -45,8 +45,8 @@ let commandId = 'workspace.tab.chat.create';
 function reservation(id = commandId) { return { ticket: 'ticket', invocationId: 'invocation', commandId: id }; }
 function handoff() { return { ...reservation(), handoffId: 'handoff' }; }
 function profileABA() {
-  state.workspace.workspace.profile = 'other'; state.listeners.forEach(fn => fn());
-  state.workspace.workspace.profile = 'focused'; state.listeners.forEach(fn => fn());
+  state.workspace.workspace.defaultProfile = 'other'; state.listeners.forEach(fn => fn());
+  state.workspace.workspace.defaultProfile = 'focused'; state.listeners.forEach(fn => fn());
 }
 function Source({ type, registered }: { type: string; registered: boolean }) {
   const scope = useCommandContextScope(); const root = useRef<HTMLDivElement>(null);
@@ -69,7 +69,7 @@ describe('Topbar physical contextual Deck offers — real providers and ports', 
     state.events.clear(); state.listeners.clear(); state.navigate.mockClear(); state.announce.mockClear();
     state.surfaceVersion = 'v1';
     state.auth = { isAuthenticated: true, user: { userId: 'user-a', sessionId: 'session-a' } };
-    state.workspace.workspace = { id: 'workspace-a', profile: 'focused', activeTabId: 'tab-a', tabs: [{ id: 'tab-a', type: 'chat' }] };
+    state.workspace.workspace = { id: 'workspace-a', defaultProfile: 'focused', activeTabId: 'tab-a', tabs: [{ id: 'tab-a', type: 'chat' }] };
     commandId = 'workspace.tab.chat.create';
     Object.values(api).forEach(fn => fn.mockReset()); Object.values(files).forEach(fn => fn.mockReset());
     api.BeginContextualDeckUICommand.mockImplementation(async () => reservation());

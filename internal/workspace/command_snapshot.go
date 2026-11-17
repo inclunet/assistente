@@ -34,13 +34,13 @@ const maxCommandSnapshotIdentifierLength = 4096
 // principal da sessão ativa ao montar o contexto do comando; não se deve
 // inferir ou acrescentar essa identidade a partir do workspace.
 type CommandSnapshot struct {
-	WorkspaceID      string             `json:"workspace_id"`
-	ActiveTabID      string             `json:"active_tab_id"`
-	Tab              CommandTabSnapshot `json:"tab"`
-	WorkspaceProfile string             `json:"workspace_profile,omitempty"`
-	StateVersion     string             `json:"state_version"`
-	Fingerprint      string             `json:"fingerprint"`
-	Version          string             `json:"version"`
+	WorkspaceID    string             `json:"workspace_id"`
+	ActiveTabID    string             `json:"active_tab_id"`
+	Tab            CommandTabSnapshot `json:"tab"`
+	DefaultProfile string             `json:"default_profile,omitempty"`
+	StateVersion   string             `json:"state_version"`
+	Fingerprint    string             `json:"fingerprint"`
+	Version        string             `json:"version"`
 }
 
 // CommandTabSnapshot contém somente a identidade e a configuração semântica
@@ -53,10 +53,10 @@ type CommandTabSnapshot struct {
 }
 
 type commandSnapshotSemantic struct {
-	WorkspaceID      string               `json:"workspace_id"`
-	ActiveTabID      string               `json:"active_tab_id"`
-	WorkspaceProfile string               `json:"workspace_profile,omitempty"`
-	Tabs             []commandTabSemantic `json:"tabs"`
+	WorkspaceID    string               `json:"workspace_id"`
+	ActiveTabID    string               `json:"active_tab_id"`
+	DefaultProfile string               `json:"default_profile,omitempty"`
+	Tabs           []commandTabSemantic `json:"tabs"`
 }
 
 type commandTabSemantic struct {
@@ -178,10 +178,10 @@ func (m *Manager) commandSnapshotLocked() (CommandSnapshot, error) {
 	}
 
 	semantic := commandSnapshotSemantic{
-		WorkspaceID:      m.active.ID,
-		ActiveTabID:      activeTabID,
-		WorkspaceProfile: m.active.Profile,
-		Tabs:             semanticTabs,
+		WorkspaceID:    m.active.ID,
+		ActiveTabID:    activeTabID,
+		DefaultProfile: m.defaultProfile,
+		Tabs:           semanticTabs,
 	}
 
 	canonical, err := commandjson.Marshal(semantic)
@@ -192,13 +192,13 @@ func (m *Manager) commandSnapshotLocked() (CommandSnapshot, error) {
 	fingerprintText := hex.EncodeToString(fingerprint[:])
 
 	return CommandSnapshot{
-		WorkspaceID:      semantic.WorkspaceID,
-		ActiveTabID:      semantic.ActiveTabID,
-		Tab:              activeTab,
-		WorkspaceProfile: semantic.WorkspaceProfile,
-		StateVersion:     activeStateVersion,
-		Fingerprint:      fingerprintText,
-		Version:          fmt.Sprintf("command-snapshot:v1:%s:%d", fingerprintText, m.commandEpoch),
+		WorkspaceID:    semantic.WorkspaceID,
+		ActiveTabID:    semantic.ActiveTabID,
+		Tab:            activeTab,
+		DefaultProfile: semantic.DefaultProfile,
+		StateVersion:   activeStateVersion,
+		Fingerprint:    fingerprintText,
+		Version:        fmt.Sprintf("command-snapshot:v1:%s:%d", fingerprintText, m.commandEpoch),
 	}, nil
 }
 

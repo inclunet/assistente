@@ -155,15 +155,6 @@ export const Combobox = ({
         announceGlobally(msg, priority);
     }, [announceGlobally, onAnnounce]);
 
-    const announceHighlight = useCallback((index: number, list: ComboboxItem[]) => {
-        if (index >= 0 && list[index]) {
-            const item = list[index];
-            const optionLabel = item.accessibleLabel ||
-                `${item.label}${item.sublabel ? `, ${item.sublabel}` : ''}`;
-            announceMessage(`${optionLabel}, ${index + 1} ${t('common.of')} ${list.length}`);
-        }
-    }, [announceMessage, t]);
-
     const scrollToOption = useCallback((index: number) => {
         const option = document.getElementById(`${uniqueId}-option-${index}`);
         if (option && typeof option.scrollIntoView === 'function') {
@@ -387,10 +378,9 @@ export const Combobox = ({
         }
     }, [isOpen]);
 
-    // Anunciar quando highlightIndex mudar
+    // O leitor anuncia a opção por aria-activedescendant; aqui apenas rolamos a lista.
     useEffect(() => {
         if (isOpen) {
-            announceHighlight(highlightIndex, filteredItems);
             scrollToOption(highlightIndex);
         }
     }, [highlightIndex, isOpen]);

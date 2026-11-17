@@ -1224,7 +1224,7 @@ de cancelamento de release na dependência; o AEP permanece **In Progress**.
 | [0031](0031-email-refinements-security.md) | Email + Chat Security | 📋 Open |
 | [0032](0032-editor-rico.md) | Editor Rico + Inline Chat | 🚧 In Progress |
 | [0033](0033-mcp-oauth-autodiscovery.md) | MCP OAuth Auto-Discovery; dados descobertos visíveis sem DCR; scopes limitados ao recurso | ✅ Done |
-| [0034](0034-unified-workspace.md) | Unified Workspace — abertura posicional e restauração no desktop | ✅ Done |
+| [0034](0034-unified-workspace.md) | Unified Workspace — perfil padrão do app e ações na toolbar do workspace | ✅ Done |
 | [0035](0035-split-view.md) | Split View | 📝 Draft |
 | [0036](0036-plan-tasklistmanager.md) | Task List Manager Feature | 🚧 In Progress |
 | [0037](0037-sdk-migration-chat-provider.md) | SDK Migration + ChatProvider Interface | 🚧 In Progress |
@@ -1250,7 +1250,7 @@ de cancelamento de release na dependência; o AEP permanece **In Progress**.
 | [0059](0059-long-conversation-performance.md) | Performance de Conversas Longas | 🚧 In Progress — janela, timeline, detalhes lazy, contagem indexada e memoização da lista entregues; demais conteúdos pesados seguem pendentes |
 | [0060](0060-command-policy-parser.md) | Parser e Política de Comandos | ✅ Done |
 | [0061](0061-credential-loss-incident-and-defenses.md) | Incidente de Perda de Credenciais e Defesas | ✔️ Accepted |
-| [0062](0062-profile-application-and-local-provider-auth.md) | Aplicação de Perfil e Auth de Provider Local | ✅ Done |
+| [0062](0062-profile-application-and-local-provider-auth.md) | Aplicação de Perfil por conversa/aba, padrão do app e Auth de Provider Local | ✅ Done |
 | [0063](0063-tool-invocations-and-common-executor.md) | Tool Invocations e Executor Comum | ✅ Done |
 | [0064](0064-streaming-recovery-explicito.md) | Recuperação explícita de resposta interrompida (continuação) e cancelamento de geração | ✅ Done — recuperação, retry ancorado e persistência terminal sob contenção |
 | [0065](0065-llm-rate-limiting.md) | Rate Limiting nas Chamadas ao Provedor LLM | ✅ Done |
@@ -1292,7 +1292,7 @@ de cancelamento de release na dependência; o AEP permanece **In Progress**.
 | [0100](0100-progresso-unificado-por-conversa.md) | Progresso unificado por conversa | ✅ Done |
 | [0101](0101-profiles-descobríveis-e-delegacao-autorizada.md) | Profiles descobríveis, delegação autorizada e grants específicos de jobs | ✅ Done |
 | [0102](0102-resultados-grandes-de-tools.md) | Resultados grandes de tools | ✅ Done |
-| [0103](0103-comandos-acionadores-e-camadas-contextuais.md) | Comandos, acionadores e camadas contextuais (picker aguarda troca assíncrona e recupera foco na falha; transição de rota comprovada; mapa de teclado notificado após prontidão na troca de workspace; aceites pendentes preservados) | 🚧 In Progress |
+| [0103](0103-comandos-acionadores-e-camadas-contextuais.md) | Comandos, acionadores e camadas contextuais (paleta Ctrl+Shift+P sem anúncio duplicado; picker aguarda troca assíncrona e recupera foco na falha; transição de rota comprovada; mapa de teclado notificado após prontidão na troca de workspace; aceites pendentes preservados) | 🚧 In Progress |
 | [0104](0104-tool-invocations-como-ledger-canonico.md) | Tool invocations como ledger canônico; correção de vínculos remanescentes e índices de histórico | In Progress — ledger concluído; isolamento por execução do chat em implementação (AEP-0116) |
 | [0105](0105-reautorizacao-oauth-mcp-nativo.md) | Reautorização OAuth interativa para MCP nativo | 🚧 In Progress — recuperação interativa implementada; confirmação com servidor real e NVDA pendente; legado exige migração explícita |
 | [0106](0106-contencao-do-pipeline-de-jobs.md) | Contenção do pipeline de jobs (limite de concorrência + cache por slug) | 🚧 In Progress |

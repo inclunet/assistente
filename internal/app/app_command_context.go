@@ -75,7 +75,7 @@ func (p *commandProductRuntime) commandOriginFactsWithDevice(ctx context.Context
 	if containsOriginField(required, commandbindings.Profile) {
 		profile := snapshot.Tab.ProfileOverrideSlug
 		if profile == "" {
-			profile = snapshot.WorkspaceProfile
+			profile = snapshot.DefaultProfile
 		}
 		if profile == "" {
 			return commandOriginContext{}, commandexecution.ErrDenied
@@ -275,7 +275,7 @@ func (p *commandWorkspaceProvider) Snapshot(ctx context.Context, scope commandco
 	case "workspace", "active_tab":
 		version = snapshot.Version
 	case "profile":
-		if snapshot.WorkspaceProfile == "" && snapshot.Tab.ProfileOverrideSlug == "" {
+		if snapshot.DefaultProfile == "" && snapshot.Tab.ProfileOverrideSlug == "" {
 			return commandcontext.OwnedSnapshot{}, commandcontext.ErrProviderUnavailable
 		}
 		version = snapshot.Version

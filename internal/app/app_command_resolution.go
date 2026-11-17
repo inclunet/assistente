@@ -56,7 +56,7 @@ var commandKeyboardDefaultSpecs = []commandKeyboardDefaultSpec{
 	{ID: "builtin.keyboard.alt-p.navigation.profiles.open", Code: "KeyP", CommandID: "navigation.profiles.open"},
 	{ID: "builtin.keyboard.alt-backspace.navigation.workspace.open", Code: "Backspace", CommandID: "navigation.workspace.open"},
 	{ID: "builtin.keyboard.alt-m.navigation.menu.open", Code: "KeyM", CommandID: "navigation.menu.open"},
-	{ID: "builtin.keyboard.ctrl-k.navigation.palette.open", Code: "KeyK", CommandID: "navigation.palette.open", Prefix: "Control+"},
+	{ID: "builtin.keyboard.ctrl-shift-p.navigation.palette.open", Code: "KeyP", CommandID: "navigation.palette.open", Prefix: "Control+Shift+"},
 	{ID: "builtin.keyboard.alt-e.navigation.data.export.open", Code: "KeyE", CommandID: "navigation.data.export.open"},
 	{ID: "builtin.keyboard.alt-i.navigation.data.import.open", Code: "KeyI", CommandID: "navigation.data.import.open"},
 	{ID: "builtin.keyboard.ctrl-t.workspace.tab.chat.create", Code: "KeyT", CommandID: commandWorkspaceTabChatCreateID, Prefix: "Control+"},

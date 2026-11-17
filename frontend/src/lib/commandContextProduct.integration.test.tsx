@@ -26,7 +26,7 @@ function workspace(id: string, activeTabId: string | null = 'tab-a'): WorkspaceD
   return {
     id,
     name: id,
-    profile: 'profile-a',
+    defaultProfile: 'profile-a',
     tabs: [tabA, tabB],
     activeTabId,
   };

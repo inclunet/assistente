@@ -15,9 +15,7 @@ func commandSnapshotManager(t *testing.T) *Manager {
 	if err := manager.Initialize(filepath.Join(root, "workspace")); err != nil {
 		t.Fatalf("Initialize: %v", err)
 	}
-	if err := manager.SetProfile("profile-a"); err != nil {
-		t.Fatalf("SetProfile: %v", err)
-	}
+	manager.SetDefaultProfile("profile-a")
 	active := manager.Active()
 	if active == nil || active.ActiveTab() == nil {
 		t.Fatal("fixture sem workspace/aba ativa")
@@ -48,9 +46,7 @@ func TestCommandSnapshotAuthoritativoObservaABADeAbaEPerfil(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("mutar aba para B: %v", err)
 	}
-	if err := manager.SetProfile("profile-b"); err != nil {
-		t.Fatalf("mutar profile para B: %v", err)
-	}
+	manager.SetDefaultProfile("profile-b")
 	changed, err := manager.CommandSnapshot()
 	if err != nil {
 		t.Fatalf("snapshot B: %v", err)
@@ -66,9 +62,7 @@ func TestCommandSnapshotAuthoritativoObservaABADeAbaEPerfil(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("reverter aba para A: %v", err)
 	}
-	if err := manager.SetProfile("profile-a"); err != nil {
-		t.Fatalf("reverter profile para A: %v", err)
-	}
+	manager.SetDefaultProfile("profile-a")
 	reverted, err := manager.CommandSnapshot()
 	if err != nil {
 		t.Fatalf("snapshot A restaurado: %v", err)
@@ -89,9 +83,7 @@ func TestCommandSnapshotAuthoritativoObservaABADoWorkspaceEIgnoraApresentacaoENo
 	if err := manager.Rename("nome-apresentação"); err != nil {
 		t.Fatalf("Rename: %v", err)
 	}
-	if err := manager.SetProfile("profile-a"); err != nil {
-		t.Fatalf("SetProfile no-op: %v", err)
-	}
+	manager.SetDefaultProfile("profile-a")
 	if err := manager.Save(); err != nil {
 		t.Fatalf("Save: %v", err)
 	}
@@ -110,9 +102,7 @@ func TestCommandSnapshotAuthoritativoObservaABADoWorkspaceEIgnoraApresentacaoENo
 	if _, err := manager.Switch(other.ID); err != nil {
 		t.Fatalf("Switch para B: %v", err)
 	}
-	if err := manager.SetProfile("profile-b"); err != nil {
-		t.Fatalf("profile do workspace B: %v", err)
-	}
+
 	workspaceB, err := manager.CommandSnapshot()
 	if err != nil {
 		t.Fatalf("snapshot workspace B: %v", err)
@@ -141,7 +131,7 @@ func TestCommandSnapshotAguardaLockEObservaMutacaoAtomica(t *testing.T) {
 	}
 
 	manager.mu.Lock()
-	manager.active.Profile = "profile-b"
+	manager.defaultProfile = "profile-b"
 	manager.active.Tabs.Items[0].State = map[string]any{"semantic": "b"}
 	result := make(chan CommandSnapshot, 1)
 	go func() {
@@ -160,7 +150,7 @@ func TestCommandSnapshotAguardaLockEObservaMutacaoAtomica(t *testing.T) {
 
 	select {
 	case snapshot := <-result:
-		if snapshot.Version == base.Version || snapshot.WorkspaceProfile != "profile-b" {
+		if snapshot.Version == base.Version || snapshot.DefaultProfile != "profile-b" {
 			t.Fatalf("snapshot não observou estado atômico: base=%#v atual=%#v", base, snapshot)
 		}
 	case <-time.After(time.Second):
@@ -280,7 +270,7 @@ func TestManagerLeiturasDeActiveESwitchNaoExibemAliasMutavel(t *testing.T) {
 	}
 
 	active := manager.Active()
-	active.Profile = "caller-profile"
+	active.DefaultProfile = "caller-profile"
 	active.Tabs.Items[0].State = map[string]any{"caller": "mutated"}
 	got, err := manager.CommandSnapshot()
 	if err != nil {
@@ -297,14 +287,14 @@ func TestManagerLeiturasDeActiveESwitchNaoExibemAliasMutavel(t *testing.T) {
 	if switched, err := manager.Switch(other.ID); err != nil {
 		t.Fatalf("Switch: %v", err)
 	} else {
-		switched.Profile = "caller-profile"
+		switched.DefaultProfile = "caller-profile"
 		switched.Tabs.Items[0].State = map[string]any{"caller": "mutated"}
 	}
 	got, err = manager.CommandSnapshot()
 	if err != nil {
 		t.Fatalf("snapshot após mutação do retorno de Switch: %v", err)
 	}
-	if got.WorkspaceProfile == "caller-profile" || got.Fingerprint == base.Fingerprint {
+	if got.DefaultProfile == "caller-profile" || got.Fingerprint == base.Fingerprint {
 		t.Fatalf("Switch expôs alias ou não mudou workspace: base=%#v atual=%#v", base, got)
 	}
 }

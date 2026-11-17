@@ -18,9 +18,7 @@ func configurePagePaletteCommand(t *testing.T, a *App, id, surface string, extra
 	if err := commandautomation.Migrate(context.Background(), database.DB()); err != nil {
 		t.Fatal(err)
 	}
-	if err := a.workspaceMgr.SetProfile("dev"); err != nil {
-		t.Fatal(err)
-	}
+	a.workspaceMgr.SetDefaultProfile("dev")
 	config := contextualCommandConfigFixture{}
 	layerID, _ := config.layer(t, "Page "+id, "always")
 	clauses := append([]CommandSettingsConditionClause{{Field: "app.focused", Value: true}, {Field: "surface.type", Value: surface}, {Field: "profile", Value: "dev"}}, extra...)
@@ -200,12 +198,8 @@ func TestContextualPagePaletteTaskRefusesStaleAndForeignTargets(t *testing.T) {
 				return
 			}
 			if scenario == "ABA-before-take" {
-				if err = a.workspaceMgr.SetProfile("other"); err != nil {
-					t.Fatal(err)
-				}
-				if err = a.workspaceMgr.SetProfile("dev"); err != nil {
-					t.Fatal(err)
-				}
+				a.workspaceMgr.SetDefaultProfile("other")
+				a.workspaceMgr.SetDefaultProfile("dev")
 				if _, err = a.TakeUICommand(r.Ticket); err == nil {
 					t.Fatal("ABA handed off")
 				}
@@ -216,9 +210,8 @@ func TestContextualPagePaletteTaskRefusesStaleAndForeignTargets(t *testing.T) {
 			case "fingerprint-commit":
 				err = database.UpdateTaskListWithContext(ctx, list.ID, "Concurrent", "")
 			case "profile-ABA":
-				if err = a.workspaceMgr.SetProfile("other"); err == nil {
-					err = a.workspaceMgr.SetProfile("dev")
-				}
+				a.workspaceMgr.SetDefaultProfile("other")
+				a.workspaceMgr.SetDefaultProfile("dev")
 			case "map":
 				err = a.resetCommandLifecycleIfConfigured(context.Background(), "page-test-stale")
 			case "cancel":
