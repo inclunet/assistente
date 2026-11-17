@@ -28,9 +28,7 @@ func surfacePaletteFixture(t *testing.T, kind workspace.TabType) (*App, <-chan m
 // Configure through the same confirmed settings API used by the application.
 func configureSurfacePaletteCommand(t *testing.T, a *App, events <-chan map[string]any, commandID string) (LocalCommandKeyboardMap, LocalCommandKeyboardContext) {
 	t.Helper()
-	if err := a.workspaceMgr.SetProfile("dev"); err != nil {
-		t.Fatal(err)
-	}
+	a.workspaceMgr.SetDefaultProfile("dev")
 	snapshot, err := a.workspaceMgr.CommandSnapshot()
 	if err != nil {
 		t.Fatal(err)
@@ -157,12 +155,8 @@ func TestContextualPaletteSurfacesAuditedEditorOldIngressAndABA(t *testing.T) {
 				t.Fatal(err)
 			}
 			if phase == "before-take" {
-				if err := a.workspaceMgr.SetProfile("other"); err != nil {
-					t.Fatal(err)
-				}
-				if err := a.workspaceMgr.SetProfile("dev"); err != nil {
-					t.Fatal(err)
-				}
+				a.workspaceMgr.SetDefaultProfile("other")
+				a.workspaceMgr.SetDefaultProfile("dev")
 				if _, err := a.TakeUICommand(r.Ticket); err == nil {
 					t.Fatal("ABA delivered audited handoff")
 				}
@@ -203,12 +197,8 @@ func TestContextualPaletteSurfacesDestructiveDecisionAndCommitABA(t *testing.T) 
 					t.Fatal("UI bypassed destructive commit")
 				}
 				if phase == "commit-aba" {
-					if err := a.workspaceMgr.SetProfile("other"); err != nil {
-						t.Fatal(err)
-					}
-					if err := a.workspaceMgr.SetProfile("dev"); err != nil {
-						t.Fatal(err)
-					}
+					a.workspaceMgr.SetDefaultProfile("other")
+					a.workspaceMgr.SetDefaultProfile("dev")
 				}
 				err := a.CommitWorkspaceTabCommand(r.Ticket, h.HandoffID)
 				if (err == nil) != (phase == "confirm") {
@@ -245,12 +235,8 @@ func TestContextualPaletteSurfacesTerminalPreparationAndStaleCommit(t *testing.T
 	if len(a.terminalMgr.List()) != 0 {
 		t.Fatal("Begin/Take started terminal")
 	}
-	if err := a.workspaceMgr.SetProfile("other"); err != nil {
-		t.Fatal(err)
-	}
-	if err := a.workspaceMgr.SetProfile("dev"); err != nil {
-		t.Fatal(err)
-	}
+	a.workspaceMgr.SetDefaultProfile("other")
+	a.workspaceMgr.SetDefaultProfile("dev")
 	if err := a.CommitWorkspaceTabCommand(r.Ticket, h.HandoffID); err == nil {
 		t.Fatal("stale terminal commit admitted")
 	}

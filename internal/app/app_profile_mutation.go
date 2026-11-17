@@ -9,6 +9,7 @@ import (
 	"assistente/internal/commandsecurity"
 	"assistente/internal/commandui"
 	"assistente/internal/database"
+	"assistente/internal/logging"
 	"assistente/internal/profiles"
 	"assistente/internal/workspace"
 )
@@ -140,6 +141,7 @@ func (a *App) coordinateProfileMutation(ctx context.Context, mutation *profiles.
 	}
 	result, commitErr := a.profileAccessService().CommitProfileMutation(ctx, mutation)
 	if commitErr == nil {
+		a.syncWorkspaceDefaultProfile()
 		if err := publish(result); err != nil {
 			commitErr = errors.Join(profiles.ErrCommandMutationOutcomeUnknown, err)
 		}
@@ -214,4 +216,20 @@ func (a *App) rebuildAfterProfileCommand(p *commandProductRuntime, run *commandU
 		return
 	}
 	a.bootstrapCommandLifecycleAfterAuth(ctx, &owner, nil)
+}
+
+// syncWorkspaceDefaultProfile publica apenas a projeção do padrão do app.
+// O workspace não possui configuração persistida de perfil.
+func (a *App) syncWorkspaceDefaultProfile() {
+	if a.workspaceMgr == nil || a.profileManager == nil {
+		return
+	}
+	_, slug, _, err := a.profileManager.ReadActiveCommandTarget()
+	if err != nil {
+		logging.Warnf(context.Background(), "app.profiles", "Falha ao atualizar projeção do perfil padrão: %v", err)
+		return
+	}
+	if a.workspaceMgr.SetDefaultProfile(slug) && a.emitter != nil {
+		a.emitter.Emit("workspace:default_profile_changed", a.workspaceMgr.Active())
+	}
 }

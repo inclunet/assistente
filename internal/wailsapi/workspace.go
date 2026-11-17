@@ -115,18 +115,6 @@ func (api *Workspace) DeleteWorkspace(workspaceID string) error {
 	return err
 }
 
-// SetWorkspaceProfile associa um perfil ao workspace ativo.
-func (api *Workspace) SetWorkspaceProfile(profileSlug string) error {
-	session, ctrl, err := api.deps()
-	if err != nil {
-		return err
-	}
-	_, err = WithUser(session, func(ctx context.Context) (struct{}, error) {
-		return struct{}{}, ctrl.SetWorkspaceProfile(profileSlug)
-	})
-	return err
-}
-
 // SaveWorkspace persiste o workspace ativo.
 func (api *Workspace) SaveWorkspace() error {
 	session, ctrl, err := api.deps()

@@ -18,9 +18,7 @@ const deckProfileTrigger = "streamdeck.key:test-deck:key:0"
 
 func deckProfileConfiguration(t *testing.T, a *App, commandID string) (*commandProductRuntime, *commandbindings.Configuration) {
 	t.Helper()
-	if err := a.workspaceMgr.SetProfile("profile-a"); err != nil {
-		t.Fatal(err)
-	}
+	a.workspaceMgr.SetDefaultProfile("profile-a")
 	p := a.commandProduct.Load()
 	configuration, err := commandbindings.NewConfiguration(nil, nil, []commandbindings.Candidate{{
 		ID:                "deck-profile-binding",
@@ -79,16 +77,12 @@ func TestCommandDeckControllerInputProfileABAAcceptsWithoutRebuild(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := a.workspaceMgr.SetProfile("profile-b"); err != nil {
-		t.Fatal(err)
-	}
+	a.workspaceMgr.SetDefaultProfile("profile-b")
 	if _, err := press(); err == nil {
 		t.Fatal("press B resolveu binding sem rebuild")
 	}
 	release()
-	if err := a.workspaceMgr.SetProfile("profile-a"); err != nil {
-		t.Fatal(err)
-	}
+	a.workspaceMgr.SetDefaultProfile("profile-a")
 	last, err := press()
 	if err != nil || last == "" || last == first {
 		t.Fatalf("press A após B não criou nova reserva: first=%q last=%q err=%v", first, last, err)
@@ -136,12 +130,8 @@ func TestCommandDeckReservationProfileABADoesNotTakeAndStampMissingRejects(t *te
 	if err != nil {
 		t.Fatalf("reserva com stamp válida recusada: %v", err)
 	}
-	if err := a.workspaceMgr.SetProfile("profile-b"); err != nil {
-		t.Fatal(err)
-	}
-	if err := a.workspaceMgr.SetProfile("profile-a"); err != nil {
-		t.Fatal(err)
-	}
+	a.workspaceMgr.SetDefaultProfile("profile-b")
+	a.workspaceMgr.SetDefaultProfile("profile-a")
 	if _, err := a.TakeUICommand(reservation.Ticket); err == nil {
 		t.Fatal("A-B-A entre reserva e Take foi aceito")
 	}
@@ -164,9 +154,7 @@ func (profileDeckDiscoveryDriver) Open(context.Context, commanddeck.PhysicalDevi
 func TestCommandDeckDiscoveryProfileFalseKeepsOnlyPotentialDevice(t *testing.T) {
 	a := deckConfiguredFixture(t)
 	p, _ := deckProfileConfiguration(t, a, "navigation.settings.open")
-	if err := a.workspaceMgr.SetProfile("profile-b"); err != nil {
-		t.Fatal(err)
-	}
+	a.workspaceMgr.SetDefaultProfile("profile-b")
 	identities, _, err := p.deckTriggerMap(context.Background())
 	if err != nil {
 		t.Fatal(err)
@@ -186,9 +174,7 @@ func TestCommandDeckDiscoveryProfileFalseKeepsOnlyPotentialDevice(t *testing.T) 
 func TestCommandDeckProfileRefreshesFrameWithoutReopeningPhysicalConnection(t *testing.T) {
 	a := deckConfiguredFixture(t)
 	p, _ := deckProfileConfiguration(t, a, commandWorkspaceTabCloseID)
-	if err := a.workspaceMgr.SetProfile("profile-b"); err != nil {
-		t.Fatal(err)
-	}
+	a.workspaceMgr.SetDefaultProfile("profile-b")
 	driver := &appDeckDriver{opened: make(chan *appDeckHandle, 4)}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -210,9 +196,7 @@ func TestCommandDeckProfileRefreshesFrameWithoutReopeningPhysicalConnection(t *t
 	default:
 	}
 
-	if err := a.workspaceMgr.SetProfile("profile-a"); err != nil {
-		t.Fatal(err)
-	}
+	a.workspaceMgr.SetDefaultProfile("profile-a")
 	populated := false
 	deadline := time.After(5 * time.Second)
 	for !populated {
@@ -233,9 +217,7 @@ func TestCommandDeckProfileRefreshesFrameWithoutReopeningPhysicalConnection(t *t
 	default:
 	}
 
-	if err := a.workspaceMgr.SetProfile("profile-b"); err != nil {
-		t.Fatal(err)
-	}
+	a.workspaceMgr.SetDefaultProfile("profile-b")
 	cleared := false
 	deadline = time.After(5 * time.Second)
 	for !cleared {

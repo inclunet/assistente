@@ -6,7 +6,6 @@ import { isCommandLayerAction } from './commandLayerActions';
 export interface WorkspaceListItem {
   readonly id: string;
   readonly name: string;
-  readonly profile: string;
   readonly tab_count: number;
   readonly is_active: boolean;
 }
@@ -62,10 +61,10 @@ function validExecution(value: unknown): value is BackendCommandExecutionResult 
 
 function validWorkspace(value: unknown): value is WorkspaceListItem {
   if (!value || typeof value !== 'object') return false;
-  if (Object.keys(value).some((key) => !['id', 'name', 'profile', 'tab_count', 'is_active'].includes(key))) return false;
+  if (Object.keys(value).some((key) => !['id', 'name', 'tab_count', 'is_active'].includes(key))) return false;
   const item = value as Partial<WorkspaceListItem>;
   const tabCount = item.tab_count;
-  return validText(item.id) && validText(item.name) && typeof item.profile === 'string' && item.profile.length <= 4096 &&
+  return validText(item.id) && validText(item.name) &&
     Number.isSafeInteger(tabCount) && typeof tabCount === 'number' && tabCount >= 0 && typeof item.is_active === 'boolean';
 }
 

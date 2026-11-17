@@ -21,9 +21,7 @@ func TestCommandCatalogRefreshesStaleWorkspaceProjection(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := a.workspaceMgr.SetProfile("palette-projection-regression"); err != nil {
-		t.Fatal(err)
-	}
+	a.workspaceMgr.SetDefaultProfile("palette-projection-regression")
 	if _, err := p.host.Snapshot(context.Background(), p.principal); !errors.Is(err, commandexecution.ErrStale) {
 		t.Fatalf("mudança real não invalidou a projeção: %v", err)
 	}
@@ -91,9 +89,7 @@ func TestCommandCatalogProjectionRefreshDoesNotUnlockVault(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := a.workspaceMgr.SetProfile("locked-palette-projection"); err != nil {
-		t.Fatal(err)
-	}
+	a.workspaceMgr.SetDefaultProfile("locked-palette-projection")
 	if err := p.host.SetVaultUnlocked(context.Background(), false); err != nil {
 		t.Fatal(err)
 	}

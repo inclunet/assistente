@@ -1,3 +1,5 @@
+import { ConnectionStatusIndicator } from '../layout/ConnectionStatusIndicator';
+import { ChatTimelineRecoveryPendingButton } from '../chat/ChatTimelineRecoveryPendingButton';
 import { logger } from '../../utils/logger';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -13,14 +15,10 @@ import { useWorkspaceStore } from '../../store/workspaceStore';
 import { useShallow } from 'zustand/shallow';
 import { Toolbar, ToolbarButton, ToolbarSeparator } from '../ui/Toolbar';
 import { Menu, type MenuItem } from '../menu';
-import { ProfilePicker } from '../pickers/ProfilePicker';
 import { useAnchoredContextMenu } from '../../hooks/useAnchoredContextMenu';
 import { useAnnouncer } from '../../hooks/useAnnouncer';
 import { scheduleDefaultFocusRestore } from '../../lib/deferredDefaultFocus';
-import { restoreDefaultFocus } from '../../hooks/useDefaultFocus';
-import { isModalOpen } from '../ui/Modal';
-import { useUIStore } from '../../store/uiStore';
-import { useWorkspaceTabCreationMenu, type WorkspaceTabCreationMenuRequest } from '../../lib/workspaceTabCreationMenu';
+import { useWorkspaceTabCreationMenu, useWorkspaceListOpen, type WorkspaceTabCreationMenuRequest } from '../../lib/workspaceTabCreationMenu';
 import { useCommandSequencePrefixHint, useCommandShortcutHints } from '../../lib/commandShortcutHints';
 import { WORKSPACE_TAB_CREATE_COMMAND_IDS } from '../../lib/commandContextualBackendExecution';
 import './WorkspaceToolbar.css';
@@ -29,9 +27,8 @@ export function WorkspaceToolbar() {
   const { t } = useTranslation();
   const shortcutHint = useCommandShortcutHints();
   const { announce } = useAnnouncer();
-  const addToast = useUIStore((s) => s.addToast);
-  const { workspace, setProfile, renameWorkspace } = useWorkspaceStore(
-    useShallow((s) => ({ workspace: s.workspace, setProfile: s.setProfile, renameWorkspace: s.renameWorkspace }))
+  const { workspace, renameWorkspace } = useWorkspaceStore(
+    useShallow((s) => ({ workspace: s.workspace, renameWorkspace: s.renameWorkspace }))
   );
   const newTabShortcut = useCommandSequencePrefixHint(WORKSPACE_TAB_CREATE_COMMAND_IDS, workspace?.tabs.find(tab => tab.id === workspace.activeTabId)?.type);
 
@@ -39,8 +36,8 @@ export function WorkspaceToolbar() {
   const newTabSelectionInProgressRef = useRef(false);
   const wsMenuButtonRef = useRef<HTMLButtonElement>(null);
   const renameInputRef = useRef<HTMLInputElement>(null);
-  const profileContainerRef = useRef<HTMLDivElement>(null);
   const tabCreationMenu = useWorkspaceTabCreationMenu();
+  const workspaceListOpen = useWorkspaceListOpen();
 
   const [isRenaming, setIsRenaming] = useState(false);
   const [renameValue, setRenameValue] = useState('');
@@ -223,42 +220,25 @@ export function WorkspaceToolbar() {
     closeNewTab();
   }, [closeNewTab, tabCreationMenu]);
 
-  // --- Profile ---
-  const handleProfileChange = useCallback(async (slug: string) => {
-    try {
-      await setProfile(slug);
-      announce(`${t('workspace.profileChanged')}: ${slug}`);
-    } catch (error) {
-      logger.error('[WorkspaceToolbar] Erro ao trocar perfil do workspace:', error);
-      addToast(
-        t('chat.profileChangeError'),
-        'error'
-      );
-    }
-  }, [setProfile, announce, t, addToast]);
-
-  // Ctrl+Shift+P opens workspace profile picker
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.ctrlKey && e.shiftKey && e.key === 'P') {
-        e.preventDefault();
-        // Não age na UI de fundo enquanto um modal está aberto (ex.: painel de atalhos).
-        if (isModalOpen()) return;
-        const btn = profileContainerRef.current?.querySelector('button.picker-button') as HTMLElement;
-        btn?.click();
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, []);
 
   return (
     <>
       <Toolbar
         ariaLabel={t('workspace.toolbarLabel')}
         className="workspace-toolbar"
+        right={
+          <ToolbarButton
+            label={t('workspace.workspaceList')}
+            icon={<FolderOutlined />}
+            onClick={(event) => tabCreationMenu?.openWorkspaceList(event.currentTarget)}
+            aria-haspopup="menu"
+            aria-expanded={workspaceListOpen}
+          />
+        }
         left={
           <>
+            <ConnectionStatusIndicator />
+            <ChatTimelineRecoveryPendingButton />
             <ToolbarButton
               ref={newTabButtonRef}
               label={t('workspace.newTab')}
@@ -292,20 +272,6 @@ export function WorkspaceToolbar() {
               />
             )}
           </>
-        }
-        right={
-          <div ref={profileContainerRef}>
-            <ProfilePicker
-              value={workspace?.profile || ''}
-              variant="toolbar"
-              label={t('workspace.profileLabel')}
-              description={t('workspace.profileDescription')}
-              icon=""
-              onChange={handleProfileChange}
-              onAnnounce={announce}
-              onAfterSelect={() => restoreDefaultFocus()}
-            />
-          </div>
         }
       />
 

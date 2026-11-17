@@ -53,7 +53,7 @@ func (a *App) startWorkspaceList(ctx context.Context, invocation commandexecutio
 		if listErr == nil {
 			result := workspaceListResult{Workspaces: make([]CommandWorkspaceMetadata, 0, len(infos))}
 			for _, info := range infos {
-				result.Workspaces = append(result.Workspaces, CommandWorkspaceMetadata{ID: info.ID, Name: info.Name, Profile: info.Profile, TabCount: info.TabCount, IsActive: info.IsActive})
+				result.Workspaces = append(result.Workspaces, CommandWorkspaceMetadata{ID: info.ID, Name: info.Name, TabCount: info.TabCount, IsActive: info.IsActive})
 			}
 			payload, marshalErr := json.Marshal(result)
 			if marshalErr != nil {

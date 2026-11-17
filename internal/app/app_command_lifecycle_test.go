@@ -317,9 +317,7 @@ func appLifecycleProductMountFixture(t *testing.T) (*App, CommandLifecycleMountI
 	if err := workspaceManager.Initialize(filepath.Join(t.TempDir(), "workspace")); err != nil {
 		t.Fatal(err)
 	}
-	if err := workspaceManager.SetProfile("lifecycle-profile"); err != nil {
-		t.Fatal(err)
-	}
+	workspaceManager.SetDefaultProfile("lifecycle-profile")
 	if err := workspaceManager.AddTab(workspace.Tab{ID: "tab-lifecycle", Type: workspace.TabTypeEditor, State: map[string]any{"version": float64(1)}}); err != nil {
 		t.Fatal(err)
 	}

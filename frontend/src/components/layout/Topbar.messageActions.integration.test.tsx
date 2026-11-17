@@ -40,7 +40,7 @@ const paletteOptionName = (id: string, unavailable = false) =>
 const isUI = (id: string) => id !== 'chat.message.pin.toggle' && id !== 'chat.message.delete';
 const auth = { isAuthenticated: true, user: { userId: 'user-a', sessionId: 'session-a', role: 'user' } };
 const workspace = {
-  id: 'workspace-a', name: 'Workspace', profile: '', activeTabId: 'chat-tab',
+  id: 'workspace-a', name: 'Workspace', defaultProfile: '', activeTabId: 'chat-tab',
   tabs: [{ id: 'chat-tab', type: 'chat' as const, conversationId: 'conversation-a' }],
 };
 

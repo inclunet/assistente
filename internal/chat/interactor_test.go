@@ -783,9 +783,9 @@ func TestPrepareContext_ResolvePerfilDoWorkspaceQuandoParamsNaoTrazemSlug(t *tes
 		ConvRepo:   noopConvRepo{},
 		ProfileMgr: profileMgr,
 		Workspace: staticWorkspaceProvider{ws: &workspace.Workspace{
-			ID:      "ws-1",
-			Name:    "Workspace",
-			Profile: activeSlug,
+			ID:             "ws-1",
+			Name:           "Workspace",
+			DefaultProfile: activeSlug,
 			Tabs: workspace.TabsState{
 				Active: "tab-chat",
 				Items: []workspace.Tab{

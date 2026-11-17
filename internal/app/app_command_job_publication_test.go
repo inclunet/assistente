@@ -73,15 +73,11 @@ func TestCommandJobSourceSurvivesRealConfigurationRebuild(t *testing.T) {
 
 func TestCommandJobLiveClaimEndsWhenAuthoritativeProfileChanges(t *testing.T) {
 	a := commandJobPublicationApp(t)
-	if err := a.workspaceMgr.SetProfile("job-required-profile"); err != nil {
-		t.Fatal(err)
-	}
+	a.workspaceMgr.SetDefaultProfile("job-required-profile")
 	control := startCommandJobWithCondition(t, a, `{"version":1,"clauses":[{"field":"profile","op":"eq","value":"job-required-profile"}]}`)
 	runID := <-control.RunID
 	claim, _ := waitLiveClaimAndLease(t, runID)
-	if err := a.workspaceMgr.SetProfile("different-profile"); err != nil {
-		t.Fatal(err)
-	}
+	a.workspaceMgr.SetDefaultProfile("different-profile")
 	deadline := time.Now().Add(8 * time.Second)
 	for {
 		var current commandactivation.Claim

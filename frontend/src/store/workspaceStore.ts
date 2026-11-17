@@ -8,7 +8,6 @@ import {
   SwitchWorkspace,
   RenameWorkspace,
   DeleteWorkspace,
-  SetWorkspaceProfile,
   AddWorkspaceTab,
   RemoveWorkspaceTab,
   UpdateWorkspaceTab,
@@ -59,7 +58,7 @@ export interface WorkspaceTab {
 export interface WorkspaceData {
   id: string;
   name: string;
-  profile?: string;
+  defaultProfile?: string;
   tabs: WorkspaceTab[];
   activeTabId: string | null;
 }
@@ -77,7 +76,7 @@ interface BackendWorkspaceTabPayload {
 export interface BackendWorkspacePayload extends WorkspaceSnapshotPayload {
   id: string;
   name: string;
-  profile?: string;
+  default_profile?: string;
   tabs?: {
     items?: BackendWorkspaceTabPayload[];
     active?: string;
@@ -114,7 +113,7 @@ function backendWorkspaceToFrontend(bws: BackendWorkspacePayload): WorkspaceData
   return {
     id: bws.id,
     name: bws.name,
-    profile: bws.profile,
+    defaultProfile: bws.default_profile,
     tabs,
     activeTabId: bws.tabs?.active || null,
   };
@@ -146,7 +145,6 @@ interface WorkspaceStore {
   switchWorkspace: (workspaceId: string) => Promise<void>;
   renameWorkspace: (newName: string) => Promise<void>;
   deleteWorkspace: (workspaceId: string) => Promise<void>;
-  setProfile: (profileSlug: string) => Promise<void>;
   refreshWorkspaceList: () => Promise<void>;
 
   // Tab management
@@ -447,6 +445,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()((set, get) => {
     const unsubs: Array<() => void> = [];
     listenersReady = true;
 
+    unsubs.push(EventsOn('workspace:default_profile_changed', (bws: unknown) => { applyWorkspaceSnapshot(bws); }));
     unsubs.push(EventsOn('workspace:switched', (bws: unknown) => {
       applyWorkspaceSnapshot(bws);
     }));
@@ -567,12 +566,6 @@ export const useWorkspaceStore = create<WorkspaceStore>()((set, get) => {
     announce(i18next.t('workspace.announce.workspaceRemoved'));
   },
 
-  setProfile: async (profileSlug) => {
-    await SetWorkspaceProfile(profileSlug);
-    set(state => ({
-      workspace: state.workspace ? { ...state.workspace, profile: profileSlug } : null,
-    }));
-  },
 
   refreshWorkspaceList: async () => {
     try {

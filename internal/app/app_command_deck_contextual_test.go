@@ -158,9 +158,7 @@ func newContextualDeckTestFixture(t *testing.T, kind workspace.TabType, id strin
 	t.Helper()
 	a, decisions, cid := surfacePaletteFixture(t, kind)
 	a.chatCtrl = controllers.NewChatController(controllers.ChatControllerConfig{})
-	if err := a.workspaceMgr.SetProfile("dev"); err != nil {
-		t.Fatal(err)
-	}
+	a.workspaceMgr.SetDefaultProfile("dev")
 	snapshot, err := a.workspaceMgr.CommandSnapshot()
 	if err != nil {
 		t.Fatal(err)
@@ -343,12 +341,8 @@ func TestContextualDeckOfferRejectsStaleAndForgedAdmission(t *testing.T) {
 			case "disconnect":
 				f.controller.reset("test-deck")
 			case "ABA":
-				if err := f.a.workspaceMgr.SetProfile("other"); err != nil {
-					t.Fatal(err)
-				}
-				if err := f.a.workspaceMgr.SetProfile("dev"); err != nil {
-					t.Fatal(err)
-				}
+				f.a.workspaceMgr.SetDefaultProfile("other")
+				f.a.workspaceMgr.SetDefaultProfile("dev")
 			case "wrong-type":
 				observed.SurfaceType = "editor"
 			case "wrong-id":
@@ -484,12 +478,8 @@ func TestContextualDeckContextChangeBeforeTakeAndCommit(t *testing.T) {
 			if phase == "commit" {
 				handoff = takeUICommandFor(t, f.a, r.Ticket, r.CommandID).HandoffID
 			}
-			if err = f.a.workspaceMgr.SetProfile("other"); err != nil {
-				t.Fatal(err)
-			}
-			if err = f.a.workspaceMgr.SetProfile("dev"); err != nil {
-				t.Fatal(err)
-			}
+			f.a.workspaceMgr.SetDefaultProfile("other")
+			f.a.workspaceMgr.SetDefaultProfile("dev")
 			if phase == "take" {
 				_, err = f.a.TakeUICommand(r.Ticket)
 			} else {

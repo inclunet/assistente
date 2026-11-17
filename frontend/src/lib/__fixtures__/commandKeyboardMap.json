@@ -400,17 +400,6 @@
     {
       "shortcut": {
         "version": 1,
-        "code": "KeyK",
-        "modifiers": [
-          "Control"
-        ]
-      },
-      "commandId": "navigation.palette.open",
-      "handler": "local_ui"
-    },
-    {
-      "shortcut": {
-        "version": 1,
         "code": "KeyL",
         "modifiers": [
           "Control"
@@ -642,6 +631,18 @@
       },
       "commandId": "workspace.create",
       "handler": "contextual"
+    },
+    {
+      "shortcut": {
+        "version": 1,
+        "code": "KeyP",
+        "modifiers": [
+          "Control",
+          "Shift"
+        ]
+      },
+      "commandId": "navigation.palette.open",
+      "handler": "local_ui"
     },
     {
       "shortcut": {

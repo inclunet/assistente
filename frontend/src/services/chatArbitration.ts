@@ -54,7 +54,7 @@ export function getChatConversationVoiceOrigin(
     sessionKey: origin?.sessionKey ?? (tab?.id ? `${tab.id}:${conversationId}` : `conversation:${conversationId}`),
     conversationId,
     surfaceType: origin?.surfaceType ?? tab?.type ?? 'page',
-    profileSlug: (tab?.profileOverride?.slug as string | undefined) ?? workspace?.profile ?? null,
+    profileSlug: (tab?.profileOverride?.slug as string | undefined) ?? workspace?.defaultProfile ?? null,
     title: getChatConversationLabel(conversationId, fallbackTitle, origin),
   };
 }

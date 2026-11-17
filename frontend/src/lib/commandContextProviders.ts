@@ -420,7 +420,7 @@ export function ReadProfileContext(): ProfileContext | null {
     ? workspace.tabs.find((tab) => tab.id === workspace.activeTabId)
     : undefined;
   const override = activeTab?.profileOverride?.slug;
-  const slug = profileSlug(override) ?? profileSlug(workspace.profile);
+  const slug = profileSlug(override) ?? profileSlug(workspace.defaultProfile);
   if (!slug) return null;
   const source = `${workspace.id}\u0000${workspace.activeTabId ?? ''}\u0000${slug}`;
   return Object.freeze({

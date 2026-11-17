@@ -1,8 +1,11 @@
 package app
 
 import (
+	"assistente/internal/workspace"
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"assistente/internal/commandexecution"
@@ -159,5 +162,78 @@ func TestProfileMutationAppPublicationFailureKeepsCommittedFile(t *testing.T) {
 	}
 	if _, _, err := a.commandHost.UserConfiguration(ctx, a.currentUserID); !errors.Is(err, commandexecution.ErrHostUserNotPublished) {
 		t.Fatalf("failure restored old map: %v", err)
+	}
+}
+
+func TestDefaultProfileSyncThroughWiringAndActivation(t *testing.T) {
+	a, ctx, create := profileMutationAppFixture(t)
+	if a.workspaceMgr == nil {
+		t.Fatal("fixture sem workspace")
+	}
+	var published []*workspace.Workspace
+	a.emitter = commandOSBootstrapEmitter(func(name string, data any) {
+		if name == "workspace:default_profile_changed" {
+			published = append(published, data.(*workspace.Workspace))
+		}
+	})
+	a.wireProfiles()
+	initial := a.workspaceMgr.Active()
+	if initial.DefaultProfile == "" || initial.DefaultProfile != a.profileManager.GetActiveSlug() || len(published) != 1 {
+		t.Fatalf("bootstrap não publicou padrão: snapshot=%+v eventos=%d", initial, len(published))
+	}
+	tab := initial.Tabs.Active
+	if err := a.workspaceMgr.UpdateTab(tab, map[string]any{"profile_override": map[string]any{"slug": "conversation-profile"}}); err != nil {
+		t.Fatal(err)
+	}
+	slug, err := a.commitProfileMutation(ctx, create, func(string) error { return nil })
+	if err != nil {
+		t.Fatal(err)
+	}
+	fingerprint, err := a.profileManager.CommandMutationSnapshot(slug)
+	if err != nil {
+		t.Fatal(err)
+	}
+	activation, err := a.profileManager.PrepareCommandMutation(profiles.CommandMutationActivate, slug, nil, fingerprint)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.commitProfileMutation(ctx, activation, func(string) error { return nil }); err != nil {
+		t.Fatal(err)
+	}
+	active := a.workspaceMgr.Active()
+	if active.DefaultProfile != slug || active.ActiveTab().ProfileOverride["slug"] != "conversation-profile" {
+		t.Fatalf("ativação não sincronizou padrão ou apagou override: %+v", active)
+	}
+	if len(published) != 2 || published[1].DefaultProfile != slug {
+		t.Fatalf("eventos inesperados: %+v", published)
+	}
+	a.syncWorkspaceDefaultProfile()
+	if len(published) != 2 {
+		t.Fatal("sincronização sem mudança repetiu evento")
+	}
+}
+
+func TestDefaultProfileSyncKeepsProjectionOnReadFailure(t *testing.T) {
+	a, _, _ := profileMutationAppFixture(t)
+	a.wireProfiles()
+	initial := a.workspaceMgr.Active().DefaultProfile
+	journal := filepath.Join(configdir.NewResolver("profiles").GetHomeDir(), ".profile-mutation.journal")
+	if err := os.MkdirAll(filepath.Dir(journal), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(journal, []byte("invalid journal"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, _, err := a.profileManager.ReadActiveCommandTarget(); err == nil {
+		t.Fatal("fixture não provocou erro de leitura")
+	}
+	a.emitter = commandOSBootstrapEmitter(func(name string, _ any) {
+		if name == "workspace:default_profile_changed" {
+			t.Error("falha de leitura publicou mudança")
+		}
+	})
+	a.syncWorkspaceDefaultProfile()
+	if a.workspaceMgr.Active().DefaultProfile != initial {
+		t.Fatal("falha de leitura apagou projeção válida")
 	}
 }

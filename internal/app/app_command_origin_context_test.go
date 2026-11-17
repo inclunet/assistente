@@ -28,12 +28,8 @@ func TestCommandOriginFactsCompoePerfilDoProviderRealNasTresOrigens(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := manager.SetProfile("profile-b"); err != nil {
-		t.Fatal(err)
-	}
-	if err := manager.SetProfile("workspace-profile"); err != nil {
-		t.Fatal(err)
-	}
+	manager.SetDefaultProfile("profile-b")
+	manager.SetDefaultProfile("workspace-profile")
 	after, err := p.commandOriginFacts(context.Background(), commandcatalog.Palette, required)
 	if err != nil {
 		t.Fatal(err)

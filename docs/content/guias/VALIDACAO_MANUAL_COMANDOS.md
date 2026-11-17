@@ -183,8 +183,8 @@ as 48 saídas R são outros denominadores; não recebem aceite por equivalência
 5. Abra **Alt+M → Configurações → Comandos e acionadores**. Prepare duas abas
    de chat e uma de editor no workspace de teste. Use os comandos dos casos
    WS01/WS02 se precisar. O nome de um comando citado abaixo é o termo para
-   procurar em **Ctrl+K**; **não digite o ID técnico no campo de mensagem**.
-   No Monaco, use o botão **Comandos** se Ctrl+K pertencer ao editor.
+   procurar em **Ctrl+Shift+P**; **não digite o ID técnico no campo de mensagem**.
+   No Monaco, use o botão **Comandos** se Ctrl+Shift+P pertencer ao editor.
 6. Prepare uma camada `Validação AEP` e depois uma `Validação AEP controle`
    conforme CF01/CF05. Faça CF01–CF05 antes dos casos de configuração avançada.
    As combinações sugeridas só devem ser usadas se estiverem livres. Registre
@@ -240,7 +240,7 @@ convites, serial de equipamento, mensagens pessoais ou logs sem sanitização.
   Resultado/anúncio: ________.
 
 - [ ] **UI02 — Paleta, busca e foco.** No campo de mensagem, escreva um
-  rascunho sintético e pressione **Ctrl+K**. Percorra itens com setas, busque
+  rascunho sintético e pressione **Ctrl+Shift+P**. Percorra itens com setas, busque
   **Listar workspaces**, execute com Enter e feche o picker com Escape sem
   trocar de workspace. Repita abrindo pelo botão Comandos. Busque um termo
   inexistente e depois apague-o. Esperado: itens executáveis quando o contexto
@@ -264,7 +264,7 @@ convites, serial de equipamento, mensagens pessoais ou logs sem sanitização.
   de mensagem. Teste **F1** (Ajuda), **Alt+E** (Exportar dados) e **Alt+I**
   fora do editor (Importar dados), cancelando sem importar. Pela paleta, abra
   **Sobre** e a ajuda de atalhos. Com um formulário modal aberto, tente Alt+C,
-  Ctrl+K e Alt+Backspace: não navegam por trás; F1 conserva a exceção de Ajuda.
+  Ctrl+Shift+P e Alt+Backspace: não navegam por trás; F1 conserva a exceção de Ajuda.
   Manter F1 pressionado não repete. Não generalize a exceção do campo de mensagem
   para todo editor/controle editável; Alt+I no editor é ED01.
   Repita Alt+C → Alt+J → Alt+H → Alt+W sem clicar entre as páginas nem

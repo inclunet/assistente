@@ -100,13 +100,6 @@ func (c *WorkspaceController) DeleteWorkspace(workspaceID string) error {
 	return nil
 }
 
-func (c *WorkspaceController) SetWorkspaceProfile(profileSlug string) error {
-	if c.workspaceMgr == nil {
-		return fmt.Errorf("workspace manager not initialized")
-	}
-	return c.workspaceMgr.SetProfile(profileSlug)
-}
-
 func (c *WorkspaceController) SaveWorkspace() error {
 	if c.workspaceMgr == nil {
 		return fmt.Errorf("workspace manager not initialized")

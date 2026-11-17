@@ -130,12 +130,8 @@ func TestContextualDeckMermaidRejectsInvalidOffers(t *testing.T) {
 			case "wrong-editor-id":
 				observed.SurfaceID = "foreign-editor"
 			case "profile-ABA":
-				if err := f.a.workspaceMgr.SetProfile("other"); err != nil {
-					t.Fatal(err)
-				}
-				if err := f.a.workspaceMgr.SetProfile("dev"); err != nil {
-					t.Fatal(err)
-				}
+				f.a.workspaceMgr.SetDefaultProfile("other")
+				f.a.workspaceMgr.SetDefaultProfile("dev")
 			case "disconnect":
 				f.controller.reset("test-deck")
 			case "page-ingress":
@@ -202,12 +198,8 @@ func TestContextualDeckMermaidRevalidatesBeforeTake(t *testing.T) {
 				case "disconnect":
 					f.controller.reset("test-deck")
 				case "profile-ABA":
-					if err := f.a.workspaceMgr.SetProfile("other"); err != nil {
-						t.Fatal(err)
-					}
-					if err := f.a.workspaceMgr.SetProfile("dev"); err != nil {
-						t.Fatal(err)
-					}
+					f.a.workspaceMgr.SetDefaultProfile("other")
+					f.a.workspaceMgr.SetDefaultProfile("dev")
 				case "changed-editor":
 					if err := f.a.workspaceMgr.AddTab(workspace.Tab{ID: "another-mermaid-editor", Type: workspace.TabTypeEditor}); err != nil {
 						t.Fatal(err)

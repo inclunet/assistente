@@ -8,7 +8,7 @@ import (
 )
 
 func TestWorkspaceVisualCommandFactsAppPage(t *testing.T) {
-	snapshot := workspace.CommandSnapshot{Version: "version", WorkspaceProfile: "dev", Tab: workspace.CommandTabSnapshot{ID: "background", Type: workspace.TabTypeChat}}
+	snapshot := workspace.CommandSnapshot{Version: "version", DefaultProfile: "dev", Tab: workspace.CommandTabSnapshot{ID: "background", Type: workspace.TabTypeChat}}
 	for _, tc := range []struct {
 		name, page, surface, id  string
 		route, requireID, denied bool

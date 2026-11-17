@@ -32,9 +32,7 @@ func newCommandWorkspaceProviderFixture(t *testing.T) (*App, auth.LocalSessionPr
 	if err := manager.Initialize(filepath.Join(root, "workspace")); err != nil {
 		t.Fatalf("Initialize workspace fixture: %v", err)
 	}
-	if err := manager.SetProfile("workspace-profile"); err != nil {
-		t.Fatalf("SetProfile fixture: %v", err)
-	}
+	manager.SetDefaultProfile("workspace-profile")
 	if err := manager.AddTab(workspace.Tab{
 		ID:   "tab-real",
 		Type: workspace.TabTypeEditor,

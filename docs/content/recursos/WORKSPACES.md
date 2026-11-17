@@ -15,7 +15,7 @@ Um workspace é um container que agrupa:
 - **Abas de editor** — arquivos abertos
 - **Abas de terminal** — sessões de terminal
 - **Listas de tarefas** — tarefas do projeto
-- **Perfil override** — cada workspace pode usar um perfil de interação diferente
+- **Perfil por conversa/aba** — usa o perfil padrão do aplicativo, com seleção específica quando necessário
 
 ## Abertura pelo executável
 
@@ -75,7 +75,7 @@ de foco, aba, workspace ou sessão durante essa consulta, a resposta antiga é
 descartada: ela não deve abrir o menu no novo contexto. Acione o botão novamente
 para consultar no contexto atual. O botão sinaliza quando está carregando.
 Escape cancela a abertura pendente. Use o botão da barra ou a opção no menu
-principal; Ctrl+K também abre o picker fora de campos de edição, quando não
+principal; Ctrl+Shift+P também abre a paleta em campos de edição, quando não
 há modal nem composição de texto em andamento.
 
 O comando **Mostrar atalhos de teclado** (`help.shortcuts.show`) já pode ser
@@ -88,13 +88,13 @@ a opção de ajuda no menu mantêm seus caminhos atuais.
 
 ### Usar a paleta para navegar pelo aplicativo
 
-O botão **Comandos**, junto ao seletor de workspace na barra compartilhada,
+O botão **Comandos**, na barra superior do aplicativo,
 permite abrir Workspace, Histórico, Memórias, Listas de tarefas, Jobs, Perfis,
 Configurações, Ajuda e Sobre. Esses comandos abrem as telas existentes; não
 criam, apagam ou alteram seus dados. A paleta também mantém **Listar workspaces**
 e **Mostrar atalhos de teclado**.
 
-1. Abra **Comandos** pelo botão ou por **Ctrl+K**, fora de um campo de edição.
+1. Abra **Comandos** pelo botão ou por **Ctrl+Shift+P**, inclusive em um campo de edição.
 2. Digite parte do nome, descrição, categoria ou alias do comando.
 3. Use as setas para selecionar e **Enter** para executar. **Escape** fecha
    sem executar e devolve o foco ao botão.
@@ -170,14 +170,13 @@ a preparação visual anterior é descartada. Abra a paleta novamente na página
 atual. Isso também vale para mudanças de parâmetros da página; uma resposta
 atrasada não deve abrir a ajuda ou um picker na nova navegação.
 
-Ao usar Ctrl+K fora de um campo editável em um painel de chat, editor,
+Ao usar Ctrl+Shift+P em um painel de chat, editor,
 terminal ou tarefas, a consulta da paleta também acompanha o contexto desse
 painel. Se o recurso mudar ou deixar de estar disponível durante a consulta,
 a resposta antiga não abre a paleta. Você pode tentar novamente após a
-mudança ou usar o botão na barra compartilhada. Ctrl+K em campos editáveis
-continua reservado ao próprio campo.
+mudança ou usar o botão na barra superior. O atalho também funciona em campos editáveis, preservando o rascunho.
 
-## Perfil por Workspace
+## Comandos por workspace
 
 Ao trocar de workspace, o catálogo de comandos é reconstruído com a
 configuração do destino. Comandos visuais ainda pendentes do workspace
@@ -187,10 +186,19 @@ fica indisponível em vez de usar as configurações anteriores. Após resolver
 a falha, selecionar novamente o workspace tenta reconstruir o catálogo.
 Essa reconstrução não acontece na troca comum de abas (Ctrl+Tab).
 
-Cada workspace pode ter um perfil de interação override, que define:
+## Barras e perfil padrão
 
-- Instruções de sistema customizadas
-- Modelo e provedor preferido
-- Parâmetros de geração (temperatura, etc.)
+A barra superior reúne o menu principal, a paleta de comandos e o título.
+A lista de workspaces fica na barra do workspace, junto das ações de abas e
+opções do workspace. Use as setas na toolbar, Enter para abrir a lista e
+Escape para fechar e retornar ao botão.
 
-Isso permite, por exemplo, usar GPT-4o para trabalho e Claude para projetos pessoais, alternando apenas o workspace.
+Não existe mais um perfil global do workspace. O perfil definido como padrão
+em **Perfis** é usado quando a conversa/aba não tem um perfil próprio. A seleção
+individual continua disponível; trocar de workspace não troca o padrão do app.
+Configurações antigas de perfil global no arquivo do workspace são ignoradas.
+
+**Ctrl+Shift+P** é o atalho padrão da paleta, inclusive em campos de texto.
+Comandos de chat indisponíveis em Configurações explicam que é necessário voltar
+ao chat. O leitor de telas recebe a opção ativa, sua ajuda e seu estado pelo
+controle da lista, sem repetir esse mesmo texto em um anúncio separado.

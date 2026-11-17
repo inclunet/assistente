@@ -36,7 +36,7 @@ func TestExecutePaletteCommandWorkspaceListReturnsEphemeralOutput(t *testing.T) 
 		t.Fatal("output workspace.list perdeu o tipo de metadados público")
 	}
 	workspace := result.Output.Workspaces[0]
-	if workspace.ID != active.ID || workspace.Name != active.Name || workspace.Profile == "" || workspace.TabCount != len(active.Tabs.Items) || !workspace.IsActive {
+	if workspace.ID != active.ID || workspace.Name != active.Name || workspace.TabCount != len(active.Tabs.Items) || !workspace.IsActive {
 		t.Fatalf("metadados do workspace incompletos: %+v", workspace)
 	}
 	serializedOutput, err := json.Marshal(result.Output)
@@ -117,13 +117,13 @@ func TestCommandProductOutputRejectsInvalidRawResult(t *testing.T) {
 		json.RawMessage(`{}`),
 		json.RawMessage(`{"kind":"workspace.list"}`),
 		json.RawMessage(`{"kind":"other.command","workspaces":[]}`),
-		json.RawMessage(`{"kind":"workspace.list","workspaces":[{"id":"","name":"x","profile":"p","tab_count":1,"is_active":true}]}`),
+		json.RawMessage(`{"kind":"workspace.list","workspaces":[{"id":"","name":"x","tab_count":1,"is_active":true}]}`),
 		json.RawMessage(`not-json`),
 		json.RawMessage(`{"workspaces":null}`),
-		json.RawMessage(`{"workspaces":[{"id":"","name":"x","profile":"p","tab_count":1,"is_active":true}]}`),
-		json.RawMessage(`{"workspaces":[{"id":"a","name":"x","profile":"p","tab_count":-1,"is_active":true}]}`),
-		json.RawMessage(`{"workspaces":[{"id":"a","name":"x","profile":"p","tab_count":1,"is_active":true,"path":"private"}]}`),
-		json.RawMessage(`{"workspaces":[{"id":"a","name":"x","profile":"p","tab_count":1,"is_active":false},{"id":"a","name":"y","profile":"p","tab_count":1,"is_active":false}]}`),
+		json.RawMessage(`{"workspaces":[{"id":"","name":"x","tab_count":1,"is_active":true}]}`),
+		json.RawMessage(`{"workspaces":[{"id":"a","name":"x","tab_count":-1,"is_active":true}]}`),
+		json.RawMessage(`{"workspaces":[{"id":"a","name":"x","tab_count":1,"is_active":true,"path":"private"}]}`),
+		json.RawMessage(`{"workspaces":[{"id":"a","name":"x","tab_count":1,"is_active":false},{"id":"a","name":"y","tab_count":1,"is_active":false}]}`),
 	} {
 		if output, err := commandProductOutput(definition, raw); err == nil || output != nil {
 			t.Fatalf("raw inválido aceito: err=%v output-nil=%v", err, output == nil)

@@ -58,13 +58,13 @@ export const VoiceButton: React.FC<VoiceButtonProps> = ({
   const lastAnnouncedInterimRef = useRef('');
   const hotkeyToggleRef = useRef<(bringToFront: boolean) => void>();
 
-  // Cascata de perfil: tab.profileOverride.slug → workspace.profile → null (global)
+  // Cascata de perfil: tab.profileOverride.slug → workspace.defaultProfile → null (global)
   const workspace = useWorkspaceStore((s) => s.workspace);
   const { tab: panelTab, isActive: isPanelActive } = useWorkspacePanel();
   const tabProfileSlug = panelTab?.type === 'chat'
     ? (panelTab.profileOverride?.slug as string | undefined)
     : undefined;
-  const effectiveProfileSlug = tabProfileSlug || workspace?.profile || null;
+  const effectiveProfileSlug = tabProfileSlug || workspace?.defaultProfile || null;
   const voiceOrigin = useMemo(
     () => (panelTab ? buildVoiceAccessibilityOriginFromTab(panelTab, workspace) : undefined),
     [panelTab, workspace],

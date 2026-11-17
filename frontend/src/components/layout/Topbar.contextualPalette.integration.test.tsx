@@ -17,7 +17,7 @@ const state = vi.hoisted(() => ({
   loadMap: vi.fn(), listCatalog: vi.fn(), navigate: vi.fn(), announce: vi.fn(), listeners: new Set<() => void>(),
   events: new Map<string, (payload?: unknown) => void>(),
   auth: { isAuthenticated: true, user: { userId: 'user-a', sessionId: 'session-a' } },
-  workspace: { workspace: { id: 'workspace-a', profile: 'focused', activeTabId: 'tab-a', tabs: [{ id: 'tab-a', type: 'chat' }] }, workspaces: [], reconcileActiveSelection: vi.fn(async () => true) },
+  workspace: { workspace: { id: 'workspace-a', defaultProfile: 'focused', activeTabId: 'tab-a', tabs: [{ id: 'tab-a', type: 'chat' }] }, workspaces: [], reconcileActiveSelection: vi.fn(async () => true) },
   terminal: { sessions: [{ id: 'pty-a', state: 'running' }], historyBySession: { 'pty-a': [{ id: 'command-a', output: '', endedAt: '' }] }, activeEntryBySession: { 'pty-a': 'command-a' }, loadSessions: vi.fn(async () => undefined) },
 }));
 vi.mock('../../lib/commandGlobalOwnershipWails', () => ({ acquireGlobalCommandOwnership: () => ({ isReady: () => true, owns: () => false, dispose: () => {}, ready: Promise.resolve() }) }));
@@ -58,7 +58,7 @@ function Source({ registered = true, surfaceType = 'chat' }: { registered?: bool
   return <div ref={root}><textarea data-testid="source" /></div>;
 }
 function changeProfile(profile: string) {
-  state.workspace.workspace.profile = profile;
+  state.workspace.workspace.defaultProfile = profile;
   state.listeners.forEach(listener => listener());
 }
 function deferred<T>() {
@@ -73,7 +73,7 @@ describe('Topbar — paleta contextual durável pela bridge real', () => {
     state.listeners.clear(); state.events.clear();
     state.auth.isAuthenticated = true;
     state.auth.user = { userId: 'user-a', sessionId: 'session-a' };
-    state.workspace.workspace = { id: 'workspace-a', profile: 'focused', activeTabId: 'tab-a', tabs: [{ id: 'tab-a', type: 'chat' }] };
+    state.workspace.workspace = { id: 'workspace-a', defaultProfile: 'focused', activeTabId: 'tab-a', tabs: [{ id: 'tab-a', type: 'chat' }] };
     vi.spyOn(document, 'hasFocus').mockReturnValue(true);
     Object.values(api).forEach(spy => spy.mockReset());
     api.BeginUICommand.mockResolvedValue(reservation);
@@ -391,7 +391,7 @@ describe('Topbar — paleta contextual durável pela bridge real', () => {
 
   it.each(['profile', 'surface-id', 'malformed', 'missing-provider'])('indisponibilidade canônica: %s não admite comando', async mode => {
     const map = await state.loadMap();
-    if (mode === 'profile') state.workspace.workspace.profile = 'other';
+    if (mode === 'profile') state.workspace.workspace.defaultProfile = 'other';
     if (mode === 'surface-id') map.contextualPaletteConditions[0].byProfile.focused.bySurfaceId.chat = { 'tab-b': true };
     if (mode === 'malformed') map.contextualPaletteConditions[0].byProfile.focused.bySurface.chat = 'true';
     if (mode === 'missing-provider') map.contextualPaletteConditions = [{ commandId, bySurface: {}, fallback: true }];

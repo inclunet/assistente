@@ -96,9 +96,7 @@ func TestCommandFactBusRealObservaProfileEAbaSemNotificacao(t *testing.T) {
 		mutate func(*testing.T, *workspace.Manager)
 	}{
 		{name: "profile", fact: "profile", mutate: func(t *testing.T, m *workspace.Manager) {
-			if err := m.SetProfile("profile-after"); err != nil {
-				t.Fatalf("SetProfile: %v", err)
-			}
+			m.SetDefaultProfile("profile-after")
 		}},
 		{name: "active tab", fact: "active_tab", mutate: func(t *testing.T, m *workspace.Manager) {
 			if err := m.UpdateTab("tab-real", map[string]any{"state": map[string]any{"version": float64(4)}}); err != nil {
@@ -183,12 +181,8 @@ func TestCommandFactBusRealRejeitaProvasStaleNasSequenciasABA(t *testing.T) {
 			t.Fatalf("Capture profile A: %v", err)
 		}
 
-		if err := manager.SetProfile("profile-b"); err != nil {
-			t.Fatalf("SetProfile B: %v", err)
-		}
-		if err := manager.SetProfile("workspace-profile"); err != nil {
-			t.Fatalf("SetProfile A: %v", err)
-		}
+		manager.SetDefaultProfile("profile-b")
+		manager.SetDefaultProfile("workspace-profile")
 
 		if err := bus.Revalidate(context.Background(), scope, policy, oldProof, time.Now().UTC()); !errors.Is(err, commandcontext.ErrVersionMismatch) {
 			t.Fatalf("prova profile A após A-B-A = %v, want ErrVersionMismatch", err)

@@ -393,7 +393,6 @@ workspaces:
 ```yaml
 id: "ws-d4e5f6"
 name: "Dev Assistente"
-profile: programacao
 created_at: "2026-03-20T10:00:00Z"
 last_used: "2026-03-20T14:30:00Z"
 
@@ -443,14 +442,14 @@ tabs:
 ### Cascata
 
 ```
-Workspace Profile (base)
+Perfil padrão do aplicativo (base)
   └── Tab Override (opcional, por aba)
 ```
 
-O workspace define um perfil base (modelo LLM, skills, comportamento). Cada aba pode sobrescrever campos específicos.
+O aplicativo define o perfil padrão (modelo LLM, skills, comportamento). Cada aba pode sobrescrever campos específicos. O workspace não persiste nem seleciona perfil próprio.
 
 **Exemplo:**
-- Workspace "Dev" → perfil `programacao`, modelo `claude-sonnet-4`
+- Padrão do aplicativo → perfil `programacao`, modelo `claude-sonnet-4`
 - Aba "Chat rápido" → override: modelo `claude-haiku`
 
 ## Notificações
@@ -507,3 +506,18 @@ O contexto é rastreável de ponta a ponta — ticket → tasklist → conversa 
 - Templates de workspace (on-call, dev, etc.)
 - Vinculação automática conversa ↔ ticket
 - Dashboard de workspaces (visão geral de todos)
+
+## Revisão: padrão do aplicativo e organização das barras (2026-11-16)
+
+Status: Done (contrato original preservado; revisão implementada neste recorte).
+
+O seletor global de perfil do workspace foi removido, incluindo seu setter e
+campo YAML. `default_profile` é apenas projeção transitória do padrão do app no
+snapshot versionado; não é uma configuração do workspace. Overrides por aba
+permanecem prioritários. A lista de workspaces fica na toolbar do workspace,
+com menu acessível e restauração de foco. A paleta usa Ctrl+Shift+P pelo catálogo
+(AEP-0103), sem listener paralelo.
+
+Evidências: `internal/workspace/command_snapshot_authority_test.go`,
+`frontend/src/components/layout/Topbar.palette.integration.test.tsx` e
+`frontend/src/components/pickers/Combobox.test.tsx`.

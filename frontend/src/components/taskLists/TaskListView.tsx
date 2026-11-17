@@ -89,7 +89,7 @@ export default function TaskListView({ taskListId }: TaskListViewProps) {
   const requestConfirm = useConfirm();
 
   const { tab: panelTab, isActive } = useWorkspacePanel();
-  const wsProfile = useWorkspaceStore((s) => s.workspace?.profile);
+  const wsProfile = useWorkspaceStore((s) => s.workspace?.defaultProfile);
   const tabProfileSlug = panelTab?.type === 'tasklist'
     ? (panelTab.profileOverride?.slug as string | undefined)
     : undefined;

@@ -116,7 +116,7 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
   const createDocument = useEditorStore((s) => s.createDocument);
   const setDocMarkdown = useEditorStore((s) => s.setDocMarkdown);
   const addWorkspaceTab = useWorkspaceStore((s) => s.addTab);
-  const wsProfile = useWorkspaceStore((s) => s.workspace?.profile);
+  const wsProfile = useWorkspaceStore((s) => s.workspace?.defaultProfile);
 
   const isWsInitialized = useWorkspaceStore((s) => s.isInitialized);
 

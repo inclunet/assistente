@@ -17,7 +17,7 @@ const state = vi.hoisted(() => ({
   loadMap: vi.fn(), catalog: vi.fn(), navigate: vi.fn(), announce: vi.fn(), readRequest: vi.fn(), succeeded: vi.fn(),
   listeners: new Set<() => void>(), events: new Map<string, (payload?: unknown) => void>(),
   auth: { isAuthenticated: true, user: { userId: 'user-a', sessionId: 'session-a' } },
-  workspace: { workspace: { id: 'workspace-a', profile: 'focused', activeTabId: 'tab-a', tabs: [{ id: 'tab-a', type: 'tasklist' }] }, workspaces: [] },
+  workspace: { workspace: { id: 'workspace-a', defaultProfile: 'focused', activeTabId: 'tab-a', tabs: [{ id: 'tab-a', type: 'tasklist' }] }, workspaces: [] },
   taskLists: new Map<string, TaskListWithWorkflow>(), fetchLists: vi.fn(async () => []), loadList: vi.fn(), addToast: vi.fn(),
 }));
 vi.mock('react-i18next', () => ({ initReactI18next: { type: '3rdParty', init: () => {} }, useTranslation: () => ({ t: (key: string) => key, i18n: { language: 'pt-BR' } }) }));
@@ -72,8 +72,8 @@ function WorkspacePage({ rootVersion = 0 }: { rootVersion?: number }) {
 }
 function view(rootVersion = 0) { return <CommandContextProvider><Topbar /><WorkspacePage rootVersion={rootVersion} /></CommandContextProvider>; }
 function changeProfile() {
-  state.workspace.workspace.profile = 'other'; state.listeners.forEach(fn => fn());
-  state.workspace.workspace.profile = 'focused'; state.listeners.forEach(fn => fn());
+  state.workspace.workspace.defaultProfile = 'other'; state.listeners.forEach(fn => fn());
+  state.workspace.workspace.defaultProfile = 'focused'; state.listeners.forEach(fn => fn());
 }
 function setupProjection(surfaceType = state.commandId.startsWith('profiles.') ? 'profiles' : 'tasklists') {
   state.loadMap.mockResolvedValue({ generation: 'page-map', ownerId: 'user-a', sessionId: 'session-a', workspaceId: 'workspace-a',
@@ -111,7 +111,7 @@ describe('Page palette — production hook/provider, executor and Wails port', (
   beforeEach(() => {
     state.commandId = 'tasklists.duplicate'; state.pathname = '/tasklists'; state.targetRevision = 0;
     state.auth.isAuthenticated = true; state.auth.user = { userId: 'user-a', sessionId: 'session-a' };
-    state.workspace.workspace.profile = 'focused'; state.workspace.workspace.activeTabId = 'tab-a';
+    state.workspace.workspace.defaultProfile = 'focused'; state.workspace.workspace.activeTabId = 'tab-a';
     state.listeners.clear(); state.events.clear(); state.succeeded.mockReset();
     state.fetchLists.mockClear(); state.addToast.mockClear(); state.announce.mockClear();
     Object.values(api).forEach(spy => spy.mockReset());
@@ -440,7 +440,7 @@ describe('Page palette — production hook/provider, executor and Wails port', (
     if (kind === 'surface-id') map.contextualPaletteConditions[0].bySurfaceId = {};
     if (kind === 'nested-surface-id') map.contextualPaletteConditions[0].byProfile.focused.bySurfaceId = {};
     if (kind === 'wrong-domain') map.contextualPaletteConditions[0].byProfile.focused.bySurface = { profiles: true };
-    if (kind === 'profile') state.workspace.workspace.profile = 'other';
+    if (kind === 'profile') state.workspace.workspace.defaultProfile = 'other';
     state.loadMap.mockResolvedValue(map);
     const { rendered, user, option } = await open();
     try {
