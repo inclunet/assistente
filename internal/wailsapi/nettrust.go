@@ -48,7 +48,7 @@ func (n *NetTrust) GetNetworkAllowlist() ([]apidto.NetworkAllowlistView, error) 
 		return nil, err
 	}
 	return WithUser(session, func(ctx context.Context) ([]apidto.NetworkAllowlistView, error) {
-		return ctrl.GetNetworkAllowlist(ctx), nil
+		return ctrl.GetNetworkAllowlist(ctx)
 	})
 }
 

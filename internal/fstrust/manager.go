@@ -29,13 +29,16 @@ type Manager struct {
 
 func managerConfig() trustscope.Config[AllowlistEntry, entryQuery] {
 	return trustscope.Config[AllowlistEntry, entryQuery]{
+		Domain:        "filesystem",
 		Subdir:        subdir,
-		LogComponent:  "fstrust.manager",
-		LogPrefix:     "[FsTrust]",
-		DomainLabel:   "path",
 		NotFoundError: ErrEntryNotFound,
 		Adapter: trustscope.Adapter[AllowlistEntry, entryQuery]{
-			Scope: func(entry AllowlistEntry) trustscope.Scope { return entry.Scope },
+			Identity: func(e AllowlistEntry) string {
+				return strings.Join([]string{e.Path, string(e.Kind), e.Operation, string(NormalizedEffect(e.Effect))}, "\x00")
+			},
+			Effect:    func(e AllowlistEntry) string { return string(NormalizedEffect(e.Effect)) },
+			Operation: func(e AllowlistEntry) string { return e.Operation },
+			Scope:     func(entry AllowlistEntry) trustscope.Scope { return entry.Scope },
 			Normalize: func(entry AllowlistEntry) (AllowlistEntry, error) {
 				entry.Path = NormalizePath(entry.Path)
 				if entry.Path == "" {
@@ -83,13 +86,8 @@ func queryFor(path string, kind Kind, operation string, effect Effect) entryQuer
 }
 
 // NewManager cria um Manager usando os diretórios canônicos.
-func NewManager() *Manager {
-	return &Manager{core: trustscope.NewManager(managerConfig())}
-}
-
-// NewManagerWithDirs cria um Manager com diretórios fixos para testes.
-func NewManagerWithDirs(homeDir, workDir string) *Manager {
-	return &Manager{core: trustscope.NewManagerWithDirs(managerConfig(), homeDir, workDir)}
+func NewManager(options trustscope.Options) *Manager {
+	return &Manager{core: trustscope.NewManager(managerConfig(), options)}
 }
 
 func (m *Manager) SetActiveProfileSlugFunc(f func() string) {
@@ -107,20 +105,20 @@ func (m *Manager) ClearSession(conversationID string) {
 // Match procura uma autorização na ordem canônica dos escopos.
 func (m *Manager) Match(ctx context.Context, absPath, operation string) Decision {
 	match := m.core.Find(ctx, queryFor(absPath, "", operation, EffectAllow))
-	return Decision{Allowed: match.Found, Scope: match.Scope, Entry: match.Entry}
+	return Decision{Allowed: match.Found, Scope: match.Scope, Entry: match.Entry, Err: match.Err}
 }
 
 // MatchDeny procura uma proibição com precedência sobre qualquer allow.
 func (m *Manager) MatchDeny(ctx context.Context, absPath, operation string) DenyMatch {
 	match := m.core.Find(ctx, queryFor(absPath, "", operation, EffectDeny))
-	return DenyMatch{Matched: match.Found, Scope: match.Scope, Entry: match.Entry}
+	return DenyMatch{Matched: match.Found, Scope: match.Scope, Entry: match.Entry, Err: match.Err}
 }
 
 func (m *Manager) Add(ctx context.Context, entry AllowlistEntry) error {
 	return m.core.Add(ctx, entry)
 }
 
-func (m *Manager) List(ctx context.Context) []AllowlistEntry {
+func (m *Manager) List(ctx context.Context) ([]AllowlistEntry, error) {
 	return m.core.List(ctx)
 }
 
@@ -130,3 +128,5 @@ func (m *Manager) Remove(ctx context.Context, scope Scope, path string, kind Kin
 	}
 	return m.core.Remove(ctx, scope, queryFor(path, kind, operation, effect))
 }
+
+func (m *Manager) Capture(ctx context.Context) context.Context { return m.core.Capture(ctx) }

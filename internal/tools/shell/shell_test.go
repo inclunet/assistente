@@ -55,7 +55,7 @@ func TestDeniedByAllowlist(t *testing.T) {
 		DefaultAction: "confirm",
 	}
 
-	rc := NewRunCommand(nil, nil, func() *allowlist.Allowlist { return al }, ".")
+	rc := NewRunCommand(nil, nil, func(context.Context) (*allowlist.Allowlist, error) { return al, nil }, ".")
 
 	result, err := rc.Execute(context.Background(), json.RawMessage(`{"command":"rm -rf /"}`))
 	if err != nil {
@@ -77,7 +77,7 @@ func TestConfirmRejected(t *testing.T) {
 		return false, nil // reject
 	}
 
-	rc := NewRunCommand(nil, confirmFn, func() *allowlist.Allowlist { return al }, ".")
+	rc := NewRunCommand(nil, confirmFn, func(context.Context) (*allowlist.Allowlist, error) { return al, nil }, ".")
 
 	result, err := rc.Execute(context.Background(), json.RawMessage(`{"command":"echo test"}`))
 	if err != nil {
@@ -293,7 +293,7 @@ func TestSuccessfulExecution(t *testing.T) {
 		DefaultAction: "deny",
 	}
 
-	rc := NewRunCommand(mgr, nil, func() *allowlist.Allowlist { return al }, ".")
+	rc := NewRunCommand(mgr, nil, func(context.Context) (*allowlist.Allowlist, error) { return al, nil }, ".")
 	result, err := rc.Execute(context.Background(), json.RawMessage(`{"command":"echo hello"}`))
 
 	if err != nil {
@@ -322,7 +322,7 @@ func TestRunCommandPreservesOriginalPipelineAndUsesDefaultTimeout(t *testing.T) 
 		ID: "cmd-pipeline", Command: command, Output: "Name\n----\nfile.txt", ExitCode: 0,
 	}}
 	al := &allowlist.Allowlist{AutoApprove: []string{"*"}, DefaultAction: "approve"}
-	rc := NewRunCommand(mgr, nil, func() *allowlist.Allowlist { return al }, ".")
+	rc := NewRunCommand(mgr, nil, func(context.Context) (*allowlist.Allowlist, error) { return al, nil }, ".")
 
 	result, err := rc.Execute(context.Background(), json.RawMessage(`{"command":"Get-ChildItem | Select-Object Name | Format-Table"}`))
 	if err != nil || result.IsError {
@@ -344,7 +344,7 @@ func TestPersistentFlagKeepsSession(t *testing.T) {
 		fakeEntry: &terminal.HistoryEntry{ID: "cmd-1", Output: "ok\n", ExitCode: 0},
 	}
 	al := &allowlist.Allowlist{AutoApprove: []string{"echo *"}, DefaultAction: "deny"}
-	rc := NewRunCommand(mgr, nil, func() *allowlist.Allowlist { return al }, ".")
+	rc := NewRunCommand(mgr, nil, func(context.Context) (*allowlist.Allowlist, error) { return al, nil }, ".")
 	result, err := rc.Execute(context.Background(), json.RawMessage(`{"command":"echo ok","persistent":true}`))
 	if err != nil || result.IsError {
 		t.Fatalf("Execute persistent: result=%#v err=%v", result, err)
@@ -377,7 +377,7 @@ func TestExecutionUsesExplicitTerminalWithoutAcquire(t *testing.T) {
 		},
 	}
 	al := &allowlist.Allowlist{AutoApprove: []string{"echo *"}, DefaultAction: "deny"}
-	rc := NewRunCommand(mgr, nil, func() *allowlist.Allowlist { return al }, ".")
+	rc := NewRunCommand(mgr, nil, func(context.Context) (*allowlist.Allowlist, error) { return al, nil }, ".")
 
 	result, err := rc.Execute(context.Background(), json.RawMessage(
 		`{"command":"echo ok","terminal_id":"term-explicit"}`,
@@ -401,7 +401,7 @@ func TestExecutionRejectsWorkingDirectoryWithExplicitTerminal(t *testing.T) {
 		liveSessions: map[string]bool{"term-explicit": true},
 	}
 	al := &allowlist.Allowlist{AutoApprove: []string{"echo *"}, DefaultAction: "deny"}
-	rc := NewRunCommand(mgr, nil, func() *allowlist.Allowlist { return al }, ".")
+	rc := NewRunCommand(mgr, nil, func(context.Context) (*allowlist.Allowlist, error) { return al, nil }, ".")
 
 	result, err := rc.Execute(context.Background(), json.RawMessage(
 		`{"command":"echo ok","terminal_id":"term-explicit","working_directory":"outro"}`,
@@ -417,7 +417,7 @@ func TestExecutionRejectsWorkingDirectoryWithExplicitTerminal(t *testing.T) {
 func TestExecutionRejectsWorkingDirectoryOutsideProject(t *testing.T) {
 	mgr := &MockSessionManager{}
 	al := &allowlist.Allowlist{AutoApprove: []string{"echo *"}, DefaultAction: "deny"}
-	rc := NewRunCommand(mgr, nil, func() *allowlist.Allowlist { return al }, t.TempDir())
+	rc := NewRunCommand(mgr, nil, func(context.Context) (*allowlist.Allowlist, error) { return al, nil }, t.TempDir())
 
 	result, err := rc.Execute(context.Background(), json.RawMessage(
 		`{"command":"echo ok","working_directory":"../../outside"}`,
@@ -441,7 +441,7 @@ func TestExplicitTerminalConfirmationUsesSessionCWD(t *testing.T) {
 		confirmedCWD = workDir
 		return false, nil
 	}
-	rc := NewRunCommand(mgr, confirmFn, func() *allowlist.Allowlist { return al }, ".")
+	rc := NewRunCommand(mgr, confirmFn, func(context.Context) (*allowlist.Allowlist, error) { return al, nil }, ".")
 
 	result, err := rc.Execute(context.Background(), json.RawMessage(
 		`{"command":"echo ok","terminal_id":"term-explicit"}`,
@@ -457,7 +457,7 @@ func TestExplicitTerminalConfirmationUsesSessionCWD(t *testing.T) {
 func TestExecutionRejectsDeadExplicitTerminal(t *testing.T) {
 	mgr := &MockSessionManager{liveSessions: map[string]bool{}}
 	al := &allowlist.Allowlist{AutoApprove: []string{"echo *"}, DefaultAction: "deny"}
-	rc := NewRunCommand(mgr, nil, func() *allowlist.Allowlist { return al }, ".")
+	rc := NewRunCommand(mgr, nil, func(context.Context) (*allowlist.Allowlist, error) { return al, nil }, ".")
 
 	result, err := rc.Execute(context.Background(), json.RawMessage(
 		`{"command":"echo ok","terminal_id":"term-dead"}`,
@@ -477,7 +477,7 @@ func TestExecutionDoesNotReleaseExplicitTerminalAfterFailure(t *testing.T) {
 		fakeRunErr:   errors.New("sessão ocupada"),
 	}
 	al := &allowlist.Allowlist{AutoApprove: []string{"echo *"}, DefaultAction: "deny"}
-	rc := NewRunCommand(mgr, nil, func() *allowlist.Allowlist { return al }, ".")
+	rc := NewRunCommand(mgr, nil, func(context.Context) (*allowlist.Allowlist, error) { return al, nil }, ".")
 
 	result, err := rc.Execute(context.Background(), json.RawMessage(
 		`{"command":"echo ok","terminal_id":"term-explicit"}`,
@@ -511,7 +511,7 @@ func TestNonZeroExitCode(t *testing.T) {
 		DefaultAction: "deny",
 	}
 
-	rc := NewRunCommand(mgr, nil, func() *allowlist.Allowlist { return al }, ".")
+	rc := NewRunCommand(mgr, nil, func(context.Context) (*allowlist.Allowlist, error) { return al, nil }, ".")
 	result, err := rc.Execute(context.Background(), json.RawMessage(`{"command":"false"}`))
 
 	if err != nil {
@@ -542,7 +542,7 @@ func TestTimeoutWithPartialOutput(t *testing.T) {
 		DefaultAction: "deny",
 	}
 
-	rc := NewRunCommand(mgr, nil, func() *allowlist.Allowlist { return al }, ".")
+	rc := NewRunCommand(mgr, nil, func(context.Context) (*allowlist.Allowlist, error) { return al, nil }, ".")
 	result, err := rc.Execute(context.Background(), json.RawMessage(`{"command":"long-command", "timeout_seconds":5}`))
 
 	if err != nil {
@@ -569,7 +569,7 @@ func TestGenericErrorWithLargePartialOutputIsRecoverable(t *testing.T) {
 		},
 	}
 	al := &allowlist.Allowlist{AutoApprove: []string{"failing-command"}, DefaultAction: "deny"}
-	rc := NewRunCommand(mgr, nil, func() *allowlist.Allowlist { return al }, ".")
+	rc := NewRunCommand(mgr, nil, func(context.Context) (*allowlist.Allowlist, error) { return al, nil }, ".")
 	ctx := userctx.WithUserID(context.Background(), "shell-error-test")
 
 	result, err := rc.Execute(ctx, json.RawMessage(`{"command":"failing-command"}`))
@@ -603,7 +603,7 @@ func TestTimeoutWithoutOutput(t *testing.T) {
 		DefaultAction: "deny",
 	}
 
-	rc := NewRunCommand(mgr, nil, func() *allowlist.Allowlist { return al }, ".")
+	rc := NewRunCommand(mgr, nil, func(context.Context) (*allowlist.Allowlist, error) { return al, nil }, ".")
 	result, err := rc.Execute(context.Background(), json.RawMessage(`{"command":"hang-forever", "timeout_seconds":1}`))
 
 	if err != nil {
@@ -628,7 +628,7 @@ func TestAcquireSessionError(t *testing.T) {
 		DefaultAction: "deny",
 	}
 
-	rc := NewRunCommand(mgr, nil, func() *allowlist.Allowlist { return al }, ".")
+	rc := NewRunCommand(mgr, nil, func(context.Context) (*allowlist.Allowlist, error) { return al, nil }, ".")
 	result, err := rc.Execute(context.Background(), json.RawMessage(`{"command":"test","persistent":true}`))
 
 	if err != nil {
@@ -652,7 +652,7 @@ func TestConfirmFunctionError(t *testing.T) {
 		DefaultAction: "confirm",
 	}
 
-	rc := NewRunCommand(nil, confirmFn, func() *allowlist.Allowlist { return al }, ".")
+	rc := NewRunCommand(nil, confirmFn, func(context.Context) (*allowlist.Allowlist, error) { return al, nil }, ".")
 	result, err := rc.Execute(context.Background(), json.RawMessage(`{"command":"test"}`))
 
 	if err != nil {
@@ -688,7 +688,7 @@ func TestOutputTruncation(t *testing.T) {
 		DefaultAction: "deny",
 	}
 
-	rc := NewRunCommand(mgr, nil, func() *allowlist.Allowlist { return al }, ".")
+	rc := NewRunCommand(mgr, nil, func(context.Context) (*allowlist.Allowlist, error) { return al, nil }, ".")
 	result, err := rc.Execute(userctx.WithUserID(context.Background(), "shell-test"), json.RawMessage(`{"command":"big-output"}`))
 
 	if err != nil {
@@ -713,7 +713,7 @@ func TestRunCommandUsesLargerExecutorBudgetForJobs(t *testing.T) {
 	}}
 	al := &allowlist.Allowlist{AutoApprove: []string{"*"}, DefaultAction: "deny"}
 	ctx := tools.WithMaxResultSize(context.Background(), 10*1024*1024)
-	result, err := NewRunCommand(mgr, nil, func() *allowlist.Allowlist { return al }, ".").
+	result, err := NewRunCommand(mgr, nil, func(context.Context) (*allowlist.Allowlist, error) { return al, nil }, ".").
 		Execute(ctx, json.RawMessage(`{"command":"big-output"}`))
 	if err != nil || result.IsError || result.Content != largeOutput {
 		t.Fatalf("budget de job não preservou output: err=%v bytes=%d result=%+v", err, len(result.Content), result)
@@ -729,7 +729,7 @@ func TestRunCommandDoesNotCutValidJSON(t *testing.T) {
 		ID: "cmd-json", Command: "json-output", Output: jsonOutput, ExitCode: 0,
 	}}
 	al := &allowlist.Allowlist{AutoApprove: []string{"*"}, DefaultAction: "deny"}
-	result, err := NewRunCommand(mgr, nil, func() *allowlist.Allowlist { return al }, ".").
+	result, err := NewRunCommand(mgr, nil, func(context.Context) (*allowlist.Allowlist, error) { return al, nil }, ".").
 		Execute(context.Background(), json.RawMessage(`{"command":"json-output"}`))
 	if err != nil || result.IsError || !result.Structured || result.Content != jsonOutput {
 		t.Fatalf("JSON de comando foi alterado: err=%v result=%+v", err, result)
@@ -754,7 +754,7 @@ func TestTimeoutExceedsMaxTimeout(t *testing.T) {
 		DefaultAction: "deny",
 	}
 
-	rc := NewRunCommand(mgr, nil, func() *allowlist.Allowlist { return al }, ".")
+	rc := NewRunCommand(mgr, nil, func(context.Context) (*allowlist.Allowlist, error) { return al, nil }, ".")
 
 	// Req timeout: 600 segundos (máximo é 300s / 5min)
 	result, err := rc.Execute(context.Background(), json.RawMessage(`{"command":"long-task", "timeout_seconds":600}`))
@@ -790,7 +790,7 @@ func TestConfirmDecisionWithNilCallback(t *testing.T) {
 
 	// Sem confirmFn (nil) — com DefaultAction="confirm", vai tentar chamar callback
 	// Mas como é nil, deve pular para execução
-	rc := NewRunCommand(mgr, nil, func() *allowlist.Allowlist { return al }, ".")
+	rc := NewRunCommand(mgr, nil, func(context.Context) (*allowlist.Allowlist, error) { return al, nil }, ".")
 	result, err := rc.Execute(context.Background(), json.RawMessage(`{"command":"test"}`))
 
 	if err != nil {
@@ -821,7 +821,7 @@ func TestWorkingDirectoryRelativePath(t *testing.T) {
 		DefaultAction: "deny",
 	}
 
-	rc := NewRunCommand(mgr, nil, func() *allowlist.Allowlist { return al }, "/project")
+	rc := NewRunCommand(mgr, nil, func(context.Context) (*allowlist.Allowlist, error) { return al, nil }, "/project")
 	result, err := rc.Execute(context.Background(), json.RawMessage(`{
 		"command":"pwd",
 		"working_directory":"subdir/nested"
@@ -855,7 +855,7 @@ func TestMetadataCompleto(t *testing.T) {
 		DefaultAction: "deny",
 	}
 
-	rc := NewRunCommand(mgr, nil, func() *allowlist.Allowlist { return al }, "/mydir")
+	rc := NewRunCommand(mgr, nil, func(context.Context) (*allowlist.Allowlist, error) { return al, nil }, "/mydir")
 	result, err := rc.Execute(context.Background(), json.RawMessage(`{
 		"command":"echo test",
 		"working_directory":"subdir",
@@ -910,7 +910,7 @@ func TestMetadataTimeoutWithoutOutput(t *testing.T) {
 		DefaultAction: "deny",
 	}
 
-	rc := NewRunCommand(mgr, nil, func() *allowlist.Allowlist { return al }, ".")
+	rc := NewRunCommand(mgr, nil, func(context.Context) (*allowlist.Allowlist, error) { return al, nil }, ".")
 	result, err := rc.Execute(context.Background(), json.RawMessage(`{
 		"command":"hang",
 		"timeout_seconds":1
@@ -948,7 +948,7 @@ func TestMultipleExecutionsReleaseSession(t *testing.T) {
 		DefaultAction: "deny",
 	}
 
-	rc := NewRunCommand(mgr, nil, func() *allowlist.Allowlist { return al }, ".")
+	rc := NewRunCommand(mgr, nil, func(context.Context) (*allowlist.Allowlist, error) { return al, nil }, ".")
 
 	// Executar 3 vezes
 	for i := 0; i < 3; i++ {

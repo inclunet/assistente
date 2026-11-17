@@ -45,7 +45,7 @@ runbook `docs/operations/acp-compatibility-retirement.md` do repositório.
 
 ## Permissões
 
-Todo `request_permission` do agente vira um questionário na UI (ou mensagem numerada em canais). `Permitir sempre` grava por **classe** (`execute`/`edit`/`read`) em `.assistente/acp-permissions/<perfil>.json`. Gerencie em **Configurações → Permissões do Agente**; canais e jobs nunca gravam "sempre".
+Todo `request_permission` do agente vira um questionário na UI (ou mensagem numerada em canais). `Permitir sempre` grava por **classe** (`execute`/`edit`/`read`) no banco do Assistente, vinculada ao usuário e ao perfil. Gerencie em **Configurações → Permissões do Agente**; canais e jobs nunca gravam "sempre".
 
 ## Ferramentas no histórico
 
@@ -76,3 +76,16 @@ pode impedir o registro de uma atividade ainda em andamento.
 - O catálogo instala e inicia agentes, mas não garante que todos os recursos opcionais do ACP estejam integrados.
 - O Assistente não lista sessões que o agente conhece fora das conversas locais, nem oferece várias raízes de workspace na mesma sessão.
 - Envios manuais que aguardam a vez aparecem como pendentes na barra; **Cancelar próximo envio** remove o próximo envio manual que ainda não começou e anuncia o resultado. Mensagens recebidas por canais continuam na fila, e o turno ativo segue normalmente.
+
+### Autorizações locais e revogação
+
+O Assistente guarda a escolha permanente localmente e responde ao agente com
+uma autorização pontual em cada pedido, inclusive no primeiro. Assim, revogar
+em **Configurações → Permissões do Agente** impede novas aprovações automáticas.
+Se o agente não oferecer autorização pontual, o aplicativo não converte uma
+escolha local em autorização permanente no processo externo.
+
+Os arquivos antigos de `acp-permissions` são importados uma vez e ficam como
+cópia de recuperação. Autorizações já memorizadas pelo agente externo em versões
+anteriores não são apagadas por essa migração; precisam ser revogadas no próprio
+agente. As restrições de canais e jobs continuam valendo.

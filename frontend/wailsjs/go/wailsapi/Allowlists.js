@@ -14,10 +14,6 @@ export function GetAllowlist(arg1) {
   return window['go']['wailsapi']['Allowlists']['GetAllowlist'](arg1);
 }
 
-export function GetAllowlistSearchPaths() {
-  return window['go']['wailsapi']['Allowlists']['GetAllowlistSearchPaths']();
-}
-
 export function GetAllowlists() {
   return window['go']['wailsapi']['Allowlists']['GetAllowlists']();
 }

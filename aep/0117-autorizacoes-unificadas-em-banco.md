@@ -1,6 +1,6 @@
 # AEP-0117 — Autorizações unificadas em banco
 
-**Status:** In Progress — contrato definido; migração e integração pendentes
+**Status:** In Progress — persistência integrada; orquestração e gestão unificadas pendentes
 
 ## Resumo
 
@@ -273,6 +273,28 @@ Cada PR atualiza este status, o índice e os AEPs afetados com evidências. Dura
 a transição, adaptadores migrados não voltam aos arquivos; os ainda pendentes
 são explicitamente enumerados. Nenhum PR é mergeado pelo agente.
 
+### Evidências da primeira implementação
+
+- `internal/authorization` e os modelos `AuthorizationRule`,
+  `AuthorizationPolicy`, `AuthorizationPolicyBinding` e `AuthorizationImport`
+  usam o banco aberto e exigem identidade de usuário. Importação, marcador e
+  substituição de política são transacionais.
+- `trustscope`, `allowlist` e `acptrust` substituem os escritores JSON; os
+  leitores antigos existem apenas na fronteira de importação. As telas atuais
+  consultam e revogam pelo banco. Bindings Wails foram regenerados para remover
+  a consulta de caminhos de arquivos, sem consumidores de UI.
+- Testes de `authorization`, `trustscope`, `nettrust`, `fstrust`, `allowlist` e
+  `tools/shell` cobrem rollback, revogação, usuário, arquivo inválido, escopos,
+  negativas e erros de consulta. O controller captura o workspace antes de
+  enfileirar envio/retry; testes cobrem operação de A com interface já em B e
+  canais sem herança do workspace desktop.
+- ACP preserva a decisão local e devolve `allow_once`, incluindo a primeira
+  resposta. Seus testes foram adaptados para contexto autenticado e banco
+  isolado; execução exclusivamente no CI remoto.
+- Ainda pendentes: revisão/CI desta implementação, serviço único de decisão,
+  consentimento escopado de shell/ACP, gestão unificada e atribuição explícita
+  de proprietário para origens legadas ambíguas. Até essa atribuição existir,
+  a migração multiusuário/externa falha de modo fechado e informa o motivo.
 ## Riscos
 
 - Ampliar permissões ao normalizar comandos ou migrar documentos homônimos:

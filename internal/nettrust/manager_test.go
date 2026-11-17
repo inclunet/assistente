@@ -1,6 +1,7 @@
 package nettrust
 
 import (
+	"assistente/internal/testutil/authorizationfixture"
 	"context"
 	"errors"
 	"fmt"
@@ -13,7 +14,7 @@ import (
 )
 
 func ctxWith(convID, profileSlug string) context.Context {
-	return invocationctx.With(context.Background(), invocationctx.InvocationContext{
+	return invocationctx.With(authorizationfixture.Context(), invocationctx.InvocationContext{
 		ConversationID: convID,
 		ProfileSlug:    profileSlug,
 	})
@@ -21,8 +22,8 @@ func ctxWith(convID, profileSlug string) context.Context {
 
 func TestManager_GlobalPersistenceMatch(t *testing.T) {
 	dir := t.TempDir()
-	m := NewManagerWithDirs(dir, dir)
-	ctx := context.Background()
+	m := NewManager(authorizationfixture.Options(t, dir, dir))
+	ctx := authorizationfixture.Context()
 
 	if d := m.Match(ctx, "api.nu.workflows.dev", "443"); d.Allowed {
 		t.Fatal("host não deveria estar autorizado antes de persistir")
@@ -33,7 +34,7 @@ func TestManager_GlobalPersistenceMatch(t *testing.T) {
 	}
 
 	// Um Manager novo lendo os mesmos diretórios deve enxergar a entrada persistida.
-	m2 := NewManagerWithDirs(dir, dir)
+	m2 := NewManager(authorizationfixture.Options(t, dir, dir))
 	d := m2.Match(ctx, "api.nu.workflows.dev", "443")
 	if !d.Allowed || d.Scope != ScopeGlobal {
 		t.Fatalf("esperado match global persistido, got %+v", d)
@@ -42,8 +43,8 @@ func TestManager_GlobalPersistenceMatch(t *testing.T) {
 
 func TestManager_WildcardMatchAndApex(t *testing.T) {
 	dir := t.TempDir()
-	m := NewManagerWithDirs(dir, dir)
-	ctx := context.Background()
+	m := NewManager(authorizationfixture.Options(t, dir, dir))
+	ctx := authorizationfixture.Context()
 
 	if err := m.Add(ctx, AllowlistEntry{Host: "*.nu.workflows.dev", Scope: ScopeGlobal}); err != nil {
 		t.Fatalf("Add wildcard: %v", err)
@@ -63,8 +64,8 @@ func TestManager_WildcardMatchAndApex(t *testing.T) {
 
 func TestManager_SimilarHostStillBlocked(t *testing.T) {
 	dir := t.TempDir()
-	m := NewManagerWithDirs(dir, dir)
-	ctx := context.Background()
+	m := NewManager(authorizationfixture.Options(t, dir, dir))
+	ctx := authorizationfixture.Context()
 
 	if err := m.Add(ctx, AllowlistEntry{Host: "api.nu.workflows.dev", Scope: ScopeGlobal}); err != nil {
 		t.Fatalf("Add: %v", err)
@@ -94,8 +95,8 @@ func TestManager_SimilarHostStillBlocked(t *testing.T) {
 
 func TestManager_PortScopedMatch(t *testing.T) {
 	dir := t.TempDir()
-	m := NewManagerWithDirs(dir, dir)
-	ctx := context.Background()
+	m := NewManager(authorizationfixture.Options(t, dir, dir))
+	ctx := authorizationfixture.Context()
 
 	if err := m.Add(ctx, AllowlistEntry{Host: "svc.internal", Port: "8443", Scope: ScopeGlobal}); err != nil {
 		t.Fatalf("Add: %v", err)
@@ -110,7 +111,7 @@ func TestManager_PortScopedMatch(t *testing.T) {
 
 func TestManager_SessionScopeIsolatedPerConversation(t *testing.T) {
 	dir := t.TempDir()
-	m := NewManagerWithDirs(dir, dir)
+	m := NewManager(authorizationfixture.Options(t, dir, dir))
 
 	ctxA := ctxWith("conv-A", "")
 	ctxB := ctxWith("conv-B", "")
@@ -125,7 +126,7 @@ func TestManager_SessionScopeIsolatedPerConversation(t *testing.T) {
 		t.Fatal("sessão B não deveria herdar autorização da sessão A")
 	}
 	// Sessão não é persistida em disco.
-	m2 := NewManagerWithDirs(dir, dir)
+	m2 := NewManager(authorizationfixture.Options(t, dir, dir))
 	if d := m2.Match(ctxA, "api.internal", ""); d.Allowed {
 		t.Fatal("escopo de sessão não deveria persistir entre managers")
 	}
@@ -133,7 +134,7 @@ func TestManager_SessionScopeIsolatedPerConversation(t *testing.T) {
 
 func TestManager_ProfileScopePersistsPerSlug(t *testing.T) {
 	dir := t.TempDir()
-	m := NewManagerWithDirs(dir, dir)
+	m := NewManager(authorizationfixture.Options(t, dir, dir))
 
 	ctxP := ctxWith("", "programacao")
 	if err := m.Add(ctxP, AllowlistEntry{Host: "api.internal", Scope: ScopeProfile}); err != nil {
@@ -150,8 +151,8 @@ func TestManager_ProfileScopePersistsPerSlug(t *testing.T) {
 
 func TestManager_Remove(t *testing.T) {
 	dir := t.TempDir()
-	m := NewManagerWithDirs(dir, dir)
-	ctx := context.Background()
+	m := NewManager(authorizationfixture.Options(t, dir, dir))
+	ctx := authorizationfixture.Context()
 
 	_ = m.Add(ctx, AllowlistEntry{Host: "api.internal", Scope: ScopeGlobal})
 	if d := m.Match(ctx, "api.internal", ""); !d.Allowed {
@@ -169,8 +170,8 @@ func TestManager_Remove(t *testing.T) {
 // não reportar revogação bem sucedida.
 func TestManager_RemoveNotFound(t *testing.T) {
 	dir := t.TempDir()
-	m := NewManagerWithDirs(dir, dir)
-	ctx := context.Background()
+	m := NewManager(authorizationfixture.Options(t, dir, dir))
+	ctx := authorizationfixture.Context()
 
 	if err := m.Remove(ctx, ScopeGlobal, "inexistente.internal", ""); err == nil {
 		t.Fatal("Remove de entrada inexistente deveria falhar")
@@ -190,7 +191,7 @@ func TestManager_RemoveNotFound(t *testing.T) {
 // consistente com a API de gestão.
 func TestManager_ProfileSlugFallback(t *testing.T) {
 	dir := t.TempDir()
-	m := NewManagerWithDirs(dir, dir)
+	m := NewManager(authorizationfixture.Options(t, dir, dir))
 	m.SetActiveProfileSlugFunc(func() string { return "programacao" })
 
 	// ctx SEM ProfileSlug (só conversa).
@@ -206,7 +207,7 @@ func TestManager_ProfileSlugFallback(t *testing.T) {
 
 	// Um Manager novo lendo o mesmo dir, mas com o slug explícito no ctx, também
 	// deve encontrar (persistiu no arquivo do slug do fallback).
-	m2 := NewManagerWithDirs(dir, dir)
+	m2 := NewManager(authorizationfixture.Options(t, dir, dir))
 	if d := m2.Match(ctxWith("", "programacao"), "api.internal", ""); !d.Allowed {
 		t.Fatal("entrada deveria ter sido persistida no arquivo do slug ativo")
 	}
@@ -216,8 +217,8 @@ func TestManager_ProfileSlugFallback(t *testing.T) {
 // erro de leitura), pois apagaria silenciosamente entradas ainda no disco.
 func TestManager_AddDoesNotOverwriteOnReadError(t *testing.T) {
 	dir := t.TempDir()
-	m := NewManagerWithDirs(dir, dir)
-	ctx := context.Background()
+	m := NewManager(authorizationfixture.Options(t, dir, dir))
+	ctx := authorizationfixture.Context()
 
 	path := filepath.Join(dir, "network-allowlist", "global.json")
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
@@ -246,10 +247,10 @@ func TestManager_WorkspaceDirFuncDynamic(t *testing.T) {
 	wsB := t.TempDir()
 
 	active := wsA
-	m := NewManagerWithDirs(home, home)
+	m := NewManager(authorizationfixture.Options(t, home, home))
 	m.SetWorkspaceDirFunc(func() string { return active })
 
-	ctx := context.Background()
+	ctx := authorizationfixture.Context()
 	if err := m.Add(ctx, AllowlistEntry{Host: "svc.internal", Scope: ScopeWorkspace}); err != nil {
 		t.Fatalf("Add workspace: %v", err)
 	}
@@ -274,7 +275,7 @@ func TestManager_WorkspaceDirFuncDynamic(t *testing.T) {
 // chat que reutilize o mesmo ID não herde autorizações da sessão anterior.
 func TestManager_ClearSession(t *testing.T) {
 	home := t.TempDir()
-	m := NewManagerWithDirs(home, home)
+	m := NewManager(authorizationfixture.Options(t, home, home))
 	ctx := ctxWith("conv-1", "")
 
 	if err := m.Add(ctx, AllowlistEntry{Host: "svc.internal", Scope: ScopeSession}); err != nil {
@@ -293,16 +294,13 @@ func TestManager_ClearSession(t *testing.T) {
 	m.ClearSession("")
 }
 
-// Quando o resolvedor de workspace devolve "", o Manager deve cair no fallback
-// (configdir), mantendo o workspacePath resolvível — semântica documentada.
-func TestManager_WorkspaceDirFuncEmptyFallsBack(t *testing.T) {
+// Identidade ausente não pode cair silenciosamente num workspace diferente.
+func TestManager_WorkspaceUnavailableFailsClosed(t *testing.T) {
 	home := t.TempDir()
-	m := NewManagerWithDirs(home, home)
+	m := NewManager(authorizationfixture.Options(t, home, home))
 	m.SetWorkspaceDirFunc(func() string { return "" })
-
-	// Sem o fallback, workspacePath() seria "" e o escopo workspace falharia.
-	if got := m.workspacePath(); got == "" {
-		t.Fatal("resolvedor vazio deveria cair no fallback (configdir), não zerar o workspacePath")
+	if err := m.Add(authorizationfixture.Context(), AllowlistEntry{Host: "api.internal", Scope: ScopeWorkspace}); err == nil {
+		t.Fatal("autorizou sem workspace")
 	}
 }
 
@@ -311,8 +309,8 @@ func TestManager_WorkspaceDirFuncEmptyFallsBack(t *testing.T) {
 // arquivos sob concorrência — a regressão que o RWMutex + escrita atômica corrige.
 func TestManager_ConcurrentAddMatchNoRace(t *testing.T) {
 	dir := t.TempDir()
-	m := NewManagerWithDirs(dir, dir)
-	ctx := context.Background()
+	m := NewManager(authorizationfixture.Options(t, dir, dir))
+	ctx := authorizationfixture.Context()
 
 	const workers = 16
 	var wg sync.WaitGroup
@@ -340,7 +338,7 @@ func TestManager_ConcurrentAddMatchNoRace(t *testing.T) {
 		}
 	}
 	// Recarrega de disco para garantir persistência íntegra.
-	m2 := NewManagerWithDirs(dir, dir)
+	m2 := NewManager(authorizationfixture.Options(t, dir, dir))
 	for i := 0; i < workers; i++ {
 		host := fmt.Sprintf("svc-%d.internal", i)
 		if d := m2.Match(ctx, host, ""); !d.Allowed {

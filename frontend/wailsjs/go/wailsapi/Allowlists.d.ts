@@ -8,8 +8,6 @@ export function DeleteAllowlist(arg1:string):Promise<void>;
 
 export function GetAllowlist(arg1:string):Promise<allowlist.Allowlist>;
 
-export function GetAllowlistSearchPaths():Promise<Array<string>>;
-
 export function GetAllowlists():Promise<Array<allowlist.AllowlistInfo>>;
 
 export function RespondQuestionnaire(arg1:string,arg2:Record<string, any>,arg3:boolean):Promise<void>;

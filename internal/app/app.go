@@ -1232,6 +1232,7 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 		ResponseNotifier:  a.responseNotifier,
 		OnSpeechRequest:   speechDispatcher,
 		OpenEditorPaths:   a.workspaceMgr.OpenEditorFilePaths,
+		WorkspacePath:     a.workspaceMgr.ActivePath,
 	})
 	a.wireChat()
 	// Conecta adapters de canal só agora — SendMessageFromChannel precisa de chatCtrl.

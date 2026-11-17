@@ -53,6 +53,9 @@ func NewAuthorizer(mgr *Manager, prompt Prompter) *Authorizer {
 // Authorize decide se absPath+operation pode ser liberado.
 // nil = permitido; erro descritivo se negado ou se o prompt falhar.
 func (a *Authorizer) Authorize(ctx context.Context, absPath, operation string) error {
+	if a.mgr != nil {
+		ctx = a.mgr.Capture(ctx)
+	}
 	requested := NormalizePath(absPath)
 	if requested == "" {
 		return fmt.Errorf("path vazio não pode ser autorizado")
@@ -71,7 +74,11 @@ func (a *Authorizer) Authorize(ctx context.Context, absPath, operation string) e
 
 	// 1) Allowlist existente (sempre no path resolvido).
 	if a.mgr != nil {
-		if decision := a.mgr.Match(ctx, resolved, operation); decision.Allowed {
+		decision := a.mgr.Match(ctx, resolved, operation)
+		if decision.Err != nil {
+			return decision.Err
+		}
+		if decision.Allowed {
 			logging.Infof(ctx, "fstrust.authorizer",
 				"[FsTrust] match em allowlist: path=%s op=%s escopo=%s",
 				resolved, operation, decision.Scope)
@@ -135,6 +142,11 @@ func (a *Authorizer) Authorize(ctx context.Context, absPath, operation string) e
 		return newDeniedPathError(requested, operation, "autorização negada pelo usuário", true)
 	}
 
+	// Reavalia após a espera: uma nova negação ou conversa limpa invalida
+	// o consentimento pendente, inclusive quando foi escolhida a opção once.
+	if err := a.deniedResolved(ctx, requested, resolved, operation); err != nil {
+		return err
+	}
 	scope := decision.Scope
 	if !ValidScope(scope) {
 		scope = ScopeOnce
@@ -159,6 +171,9 @@ func (a *Authorizer) Authorize(ctx context.Context, absPath, operation string) e
 			CreatedBy: creatorFor(skillSlug),
 		}
 		if err := a.mgr.Add(ctx, entry); err != nil {
+			if currentErr := a.deniedResolved(ctx, requested, resolved, operation); currentErr != nil {
+				return currentErr
+			}
 			logging.Errorf(ctx, "fstrust.authorizer",
 				"[FsTrust] falha ao persistir allowlist (escopo %s) para path=%s: %v — liberando apenas esta tentativa (once)",
 				scope, entryPath, err)
@@ -221,6 +236,9 @@ func (a *Authorizer) deniedResolved(ctx context.Context, requested, resolved, op
 		return nil
 	}
 	decision := a.mgr.MatchDeny(ctx, resolved, operation)
+	if decision.Err != nil {
+		return decision.Err
+	}
 	if !decision.Matched {
 		return nil
 	}

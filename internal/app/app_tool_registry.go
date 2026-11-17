@@ -26,6 +26,7 @@ import (
 	feedtool "assistente/internal/tools/feed"
 	"assistente/internal/tools/filesystem"
 	"assistente/internal/tools/history"
+	"assistente/internal/tools/invocationctx"
 	jobtool "assistente/internal/tools/job"
 	mcpservertool "assistente/internal/tools/mcpserver"
 	memorytool "assistente/internal/tools/memory"
@@ -379,30 +380,29 @@ func (a *App) initToolRegistry() {
 		}
 		return approvedFromShellDecision(resp)
 	}
-	getAllowlistFn := func() *allowlist.Allowlist {
-		activeProfile, err := a.profileManager.GetActive()
-		if err != nil || activeProfile == nil {
-			// Sem perfil ativo: usa allowlist padrão
-			al, err := a.allowlistMgr.Get("padrao")
-			if err != nil {
-				return nil // sem allowlist = tudo requer confirmação
-			}
-			return al
+	getAllowlistFn := func(ctx context.Context) (*allowlist.Allowlist, error) {
+		if err := a.allowlistMgr.EnsureDefaults(ctx); err != nil {
+			return nil, err
 		}
-		if activeProfile.Chat.CommandAllowlist == "" {
-			// Perfil sem allowlist configurada: usa a padrão
-			al, err := a.allowlistMgr.Get("padrao")
-			if err != nil {
-				return nil
-			}
-			return al
+		inv, _ := invocationctx.Get(ctx)
+		slug := inv.ProfileSlug
+		if slug == "" {
+			slug = a.profileManager.GetActiveSlug()
 		}
-		al, err := a.allowlistMgr.Get(activeProfile.Chat.CommandAllowlist)
+		if slug == "" {
+			return a.allowlistMgr.Get(ctx, "padrao")
+		}
+		profile, err := a.profileManager.Get(slug)
 		if err != nil {
-			logging.Infof(context.Background(), "app.app-tool-registry", "[Tools] Allowlist '%s' não encontrada, usando confirmação para tudo", activeProfile.Chat.CommandAllowlist)
-			return nil
+			return nil, err
 		}
-		return al
+		policy := profile.Chat.CommandAllowlist
+		if policy == "" {
+			policy = "padrao"
+		}
+		inv.ProfileSlug = slug
+		ctx = invocationctx.With(ctx, inv)
+		return a.allowlistMgr.Get(ctx, policy)
 	}
 	a.toolRegistry.MustRegister(shell.NewRunCommand(a.terminalMgr, confirmFn, getAllowlistFn, workDir))
 	a.toolRegistry.MustRegister(shell.NewTerminalSession(a.terminalMgr, workDir))

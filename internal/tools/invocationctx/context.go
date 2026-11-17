@@ -21,7 +21,19 @@ type InvocationContext struct {
 }
 
 type ctxKey struct{}
+type workspaceKey struct{}
 type maskedInvocationContext struct{}
+
+// WithWorkspace captura no backend a raiz de origem antes de enfileirar o
+// turno. Vazio significa origem sem workspace, nunca o workspace atual da UI.
+func WithWorkspace(ctx context.Context, root string) context.Context {
+	return context.WithValue(ctx, workspaceKey{}, root)
+}
+
+func Workspace(ctx context.Context) (string, bool) {
+	root, ok := ctx.Value(workspaceKey{}).(string)
+	return root, ok
+}
 
 // With retorna um novo context.Context com o InvocationContext embutido.
 func With(ctx context.Context, inv InvocationContext) context.Context {
@@ -38,5 +50,5 @@ func Get(ctx context.Context) (InvocationContext, bool) {
 // Without cria uma fronteira de execução que não herda conversa, turno,
 // superfície nem profile-pai do contexto que originou um evento.
 func Without(ctx context.Context) context.Context {
-	return context.WithValue(ctx, ctxKey{}, maskedInvocationContext{})
+	return WithWorkspace(context.WithValue(ctx, ctxKey{}, maskedInvocationContext{}), "")
 }

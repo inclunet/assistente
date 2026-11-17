@@ -1,7 +1,8 @@
 package controllers
 
 import (
-	"context"
+	"assistente/internal/testutil/authorizationfixture"
+	"assistente/internal/trustscope"
 	"os"
 	"path/filepath"
 	"strings"
@@ -14,7 +15,7 @@ import (
 func TestFSTrustGetPathAllowlistNilManager(t *testing.T) {
 	t.Parallel()
 	c := NewFSTrustController(FSTrustControllerConfig{})
-	if got := c.GetPathAllowlist(context.Background()); got != nil {
+	if got, err := c.GetPathAllowlist(authorizationfixture.Context()); err == nil || got != nil {
 		t.Fatalf("want nil, got %#v", got)
 	}
 }
@@ -22,9 +23,9 @@ func TestFSTrustGetPathAllowlistNilManager(t *testing.T) {
 func TestFSTrustRemoveRequiresPersistentScope(t *testing.T) {
 	t.Parallel()
 	c := NewFSTrustController(FSTrustControllerConfig{
-		FSTrustMgr: fstrust.NewManager(),
+		FSTrustMgr: fstrust.NewManager(trustscope.Options{}),
 	})
-	err := c.RemovePathAllowlistEntry(context.Background(), "session", "/tmp/a.txt", "file", "read", "allow")
+	err := c.RemovePathAllowlistEntry(authorizationfixture.Context(), "session", "/tmp/a.txt", "file", "read", "allow")
 	if err == nil || !strings.Contains(err.Error(), "escopo inválido") {
 		t.Fatalf("want escopo inválido, got %v", err)
 	}
@@ -33,7 +34,7 @@ func TestFSTrustRemoveRequiresPersistentScope(t *testing.T) {
 func TestFSTrustRemoveNilManager(t *testing.T) {
 	t.Parallel()
 	c := NewFSTrustController(FSTrustControllerConfig{})
-	err := c.RemovePathAllowlistEntry(context.Background(), "global", "/tmp/a.txt", "file", "read", "allow")
+	err := c.RemovePathAllowlistEntry(authorizationfixture.Context(), "global", "/tmp/a.txt", "file", "read", "allow")
 	if err == nil || !strings.Contains(err.Error(), "não inicializado") {
 		t.Fatalf("want gerenciador não inicializado, got %v", err)
 	}
@@ -42,9 +43,9 @@ func TestFSTrustRemoveNilManager(t *testing.T) {
 func TestFSTrustRemoveInvalidKind(t *testing.T) {
 	t.Parallel()
 	c := NewFSTrustController(FSTrustControllerConfig{
-		FSTrustMgr: fstrust.NewManager(),
+		FSTrustMgr: fstrust.NewManager(trustscope.Options{}),
 	})
-	err := c.RemovePathAllowlistEntry(context.Background(), "global", "/tmp/a.txt", "weird", "read", "allow")
+	err := c.RemovePathAllowlistEntry(authorizationfixture.Context(), "global", "/tmp/a.txt", "weird", "read", "allow")
 	if err == nil || !strings.Contains(err.Error(), "kind inválido") {
 		t.Fatalf("want kind inválido, got %v", err)
 	}
@@ -53,18 +54,21 @@ func TestFSTrustRemoveInvalidKind(t *testing.T) {
 func TestFSTrustAddPathAllowlistEntryDeny(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
-	mgr := fstrust.NewManagerWithDirs(dir, dir)
+	mgr := fstrust.NewManager(authorizationfixture.Options(t, dir, dir))
 	c := NewFSTrustController(FSTrustControllerConfig{FSTrustMgr: mgr})
 	path := filepath.Join(dir, "bloqueado.txt")
 
-	if err := c.AddPathAllowlistEntry(context.Background(), path, "file", "read", "deny", "global", "teste"); err != nil {
+	if err := c.AddPathAllowlistEntry(authorizationfixture.Context(), path, "file", "read", "deny", "global", "teste"); err != nil {
 		t.Fatalf("AddPathAllowlistEntry deny: %v", err)
 	}
-	if err := c.AddPathAllowlistEntry(context.Background(), path, "file", "read", "deny", "session", ""); err == nil {
+	if err := c.AddPathAllowlistEntry(authorizationfixture.Context(), path, "file", "read", "deny", "session", ""); err == nil {
 		t.Fatal("session não deveria ser aceito para regra persistente")
 	}
 
-	views := c.GetPathAllowlist(context.Background())
+	views, err := c.GetPathAllowlist(authorizationfixture.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
 	if len(views) != 1 || views[0].Effect != "deny" {
 		t.Fatalf("want 1 deny, got %#v", views)
 	}
@@ -73,20 +77,23 @@ func TestFSTrustAddPathAllowlistEntryDeny(t *testing.T) {
 func TestFSTrustAddPathAllowlistEntryAllow(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
-	mgr := fstrust.NewManagerWithDirs(dir, dir)
+	mgr := fstrust.NewManager(authorizationfixture.Options(t, dir, dir))
 	c := NewFSTrustController(FSTrustControllerConfig{FSTrustMgr: mgr})
 	path := filepath.Join(dir, "permitido.txt")
 
-	if err := c.AddPathAllowlistEntry(context.Background(), path, "file", " ReAd ", "allow", "global", " docs "); err != nil {
+	if err := c.AddPathAllowlistEntry(authorizationfixture.Context(), path, "file", " ReAd ", "allow", "global", " docs "); err != nil {
 		t.Fatalf("AddPathAllowlistEntry allow: %v", err)
 	}
-	if err := c.AddPathAllowlistEntry(context.Background(), path, "file", "read", "allow", "session", ""); err == nil {
+	if err := c.AddPathAllowlistEntry(authorizationfixture.Context(), path, "file", "read", "allow", "session", ""); err == nil {
 		t.Fatal("session não deveria ser aceito pela gestão persistente")
 	}
-	if err := c.AddPathAllowlistEntry(context.Background(), path, "file", "read", "maybe", "global", ""); err == nil {
+	if err := c.AddPathAllowlistEntry(authorizationfixture.Context(), path, "file", "read", "maybe", "global", ""); err == nil {
 		t.Fatal("efeito desconhecido não deveria ser aceito")
 	}
-	views := c.GetPathAllowlist(context.Background())
+	views, err := c.GetPathAllowlist(authorizationfixture.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
 	if len(views) != 1 || views[0].Effect != "allow" || views[0].Operation != "read" || views[0].Reason != "docs" {
 		t.Fatalf("want 1 allow normalizado, got %#v", views)
 	}
@@ -95,18 +102,21 @@ func TestFSTrustAddPathAllowlistEntryAllow(t *testing.T) {
 func TestFSTrustAddPathAllowlistEntryTrims(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
-	mgr := fstrust.NewManagerWithDirs(dir, dir)
+	mgr := fstrust.NewManager(authorizationfixture.Options(t, dir, dir))
 	c := NewFSTrustController(FSTrustControllerConfig{FSTrustMgr: mgr})
 	want := filepath.Join(dir, "bloqueado.txt")
 	// Path com espaços nas bordas e um segmento ".." que precisa ser colapsado
 	// para casar o que o MatchDeny usa em tempo de acesso.
 	raw := "  " + filepath.Join(dir, "sub", "..", "bloqueado.txt") + "  "
 
-	if err := c.AddPathAllowlistEntry(context.Background(), raw, "file", "  ReAd  ", "deny", "global", "  motivo  "); err != nil {
+	if err := c.AddPathAllowlistEntry(authorizationfixture.Context(), raw, "file", "  ReAd  ", "deny", "global", "  motivo  "); err != nil {
 		t.Fatalf("AddPathAllowlistEntry: %v", err)
 	}
 
-	views := c.GetPathAllowlist(context.Background())
+	views, err := c.GetPathAllowlist(authorizationfixture.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
 	if len(views) != 1 {
 		t.Fatalf("want 1 entrada, got %d", len(views))
 	}
@@ -129,14 +139,17 @@ func TestFSTrustAddPathAllowlistEntryExpandsHome(t *testing.T) {
 		t.Skipf("home indisponível: %v", err)
 	}
 	dir := t.TempDir()
-	mgr := fstrust.NewManagerWithDirs(dir, dir)
+	mgr := fstrust.NewManager(authorizationfixture.Options(t, dir, dir))
 	c := NewFSTrustController(FSTrustControllerConfig{FSTrustMgr: mgr})
 
-	if err := c.AddPathAllowlistEntry(context.Background(), "~/segredo.env", "file", "read", "deny", "global", ""); err != nil {
+	if err := c.AddPathAllowlistEntry(authorizationfixture.Context(), "~/segredo.env", "file", "read", "deny", "global", ""); err != nil {
 		t.Fatalf("AddPathAllowlistEntry: %v", err)
 	}
 
-	views := c.GetPathAllowlist(context.Background())
+	views, err := c.GetPathAllowlist(authorizationfixture.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
 	if len(views) != 1 {
 		t.Fatalf("want 1 entrada, got %d", len(views))
 	}
@@ -152,13 +165,13 @@ func TestFSTrustAddPathAllowlistEntryExpandsHome(t *testing.T) {
 func TestFSTrustAddPathAllowlistEntryRejectsRelative(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
-	mgr := fstrust.NewManagerWithDirs(dir, dir)
+	mgr := fstrust.NewManager(authorizationfixture.Options(t, dir, dir))
 	c := NewFSTrustController(FSTrustControllerConfig{FSTrustMgr: mgr})
 
-	if err := c.AddPathAllowlistEntry(context.Background(), "relativo/segredo.env", "file", "read", "deny", "global", ""); err == nil {
+	if err := c.AddPathAllowlistEntry(authorizationfixture.Context(), "relativo/segredo.env", "file", "read", "deny", "global", ""); err == nil {
 		t.Fatal("path relativo deveria ser rejeitado")
 	}
-	if len(c.GetPathAllowlist(context.Background())) != 0 {
+	if entries, err := c.GetPathAllowlist(authorizationfixture.Context()); err != nil || len(entries) != 0 {
 		t.Fatal("nada deveria ter sido persistido para path relativo")
 	}
 }
@@ -166,7 +179,7 @@ func TestFSTrustAddPathAllowlistEntryRejectsRelative(t *testing.T) {
 func TestFSTrustGetPathAllowlistMapsEntry(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
-	mgr := fstrust.NewManagerWithDirs(dir, dir)
+	mgr := fstrust.NewManager(authorizationfixture.Options(t, dir, dir))
 	path := filepath.Join(dir, "docs", "a.txt")
 	created := time.Date(2026, 8, 17, 12, 0, 0, 0, time.UTC)
 	entry := fstrust.AllowlistEntry{
@@ -179,12 +192,15 @@ func TestFSTrustGetPathAllowlistMapsEntry(t *testing.T) {
 		CreatedAt: created,
 		Reason:    "teste",
 	}
-	if err := mgr.Add(context.Background(), entry); err != nil {
+	if err := mgr.Add(authorizationfixture.Context(), entry); err != nil {
 		t.Fatalf("Add: %v", err)
 	}
 
 	c := NewFSTrustController(FSTrustControllerConfig{FSTrustMgr: mgr})
-	views := c.GetPathAllowlist(context.Background())
+	views, err := c.GetPathAllowlist(authorizationfixture.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
 	if len(views) != 1 {
 		t.Fatalf("want 1 entrada, got %d", len(views))
 	}

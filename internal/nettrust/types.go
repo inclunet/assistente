@@ -93,6 +93,7 @@ func isDefaultPort(port string) bool {
 // NetworkTrustDecision é o resultado de uma consulta de autorização: se o destino
 // pode ser acessado, por qual escopo/entrada, e se veio de consentimento novo.
 type NetworkTrustDecision struct {
+	Err      error
 	Allowed  bool
 	Scope    Scope
 	Entry    *AllowlistEntry

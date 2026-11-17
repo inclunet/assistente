@@ -12,10 +12,14 @@ import (
 	"assistente/internal/acptrust"
 	"assistente/internal/core/ports"
 	"assistente/internal/questionnaire"
+	"assistente/internal/testutil/authorizationfixture"
 )
 
 // telaFalsa é o questionário do desktop com a pessoa do outro lado: guarda o
 // que foi perguntado e responde o que o teste combinou.
+const permissionActionID = "action"
+const permissionAnswerID = "decision"
+
 type telaFalsa struct {
 	mu        sync.Mutex
 	manager   *questionnaire.Manager
@@ -209,12 +213,14 @@ func handlerCom(tela *telaFalsa, owner acp.TurnOwner, temTurno bool) *acpRequest
 	h := &acpRequestHandler{
 		owner: func(string) (acp.TurnOwner, bool) { return owner, temTurno },
 	}
-	if tela != nil {
-		h.questions = func() *questionnaire.Manager { return tela.manager }
-	}
 	// O questionário é lido na hora do uso, como em produção: teste que troca a
 	// tela depois de montar o handler continua valendo.
-	h.surfaces = questionnaire.NewRouter(h.questionnaireManager, nil)
+	h.surfaces = questionnaire.NewRouter(func() *questionnaire.Manager {
+		if tela == nil {
+			return nil
+		}
+		return tela.manager
+	}, nil)
 	return h
 }
 
@@ -222,7 +228,7 @@ func handlerCom(tela *telaFalsa, owner acp.TurnOwner, temTurno bool) *acpRequest
 // diretório que só existe durante o teste.
 func lembrandoAutorizacoes(tb testing.TB, h *acpRequestHandler, perfilAtivo string) *acptrust.Store {
 	tb.Helper()
-	store := acptrust.NewStoreWithDir(tb.TempDir())
+	store := acptrust.NewStore(authorizationfixture.Options(tb, tb.TempDir(), ""))
 	h.trust = func() *acptrust.Store { return store }
 	h.activeProfile = func() string { return perfilAtivo }
 	return store
@@ -264,7 +270,7 @@ func pedidoDeExecucao() acp.PermissionRequest {
 
 func TestPermissaoPerguntadaNaTelaVoltaComAEscolhaDaPessoa(t *testing.T) {
 	tela := novaTelaFalsa(func(opcoes []string) string { return opcoes[0] })
-	h := handlerCom(tela, acp.TurnOwner{ConversationID: "conversa-1", Interactive: true}, true)
+	h := handlerCom(tela, acp.TurnOwner{UserID: "authorization-test-user", ConversationID: "conversa-1", Interactive: true}, true)
 
 	out := h.RequestPermission(context.Background(), pedidoDeExecucao())
 
@@ -281,7 +287,7 @@ func TestAPessoaVeAAcaoInteiraAntesDeAutorizar(t *testing.T) {
 	// o corte esconderia o fim do comando — que é onde costuma estar o que
 	// muda o que ele faz.
 	tela := novaTelaFalsa(func(opcoes []string) string { return opcoes[0] })
-	h := handlerCom(tela, acp.TurnOwner{ConversationID: "c", Interactive: true}, true)
+	h := handlerCom(tela, acp.TurnOwner{UserID: "authorization-test-user", ConversationID: "c", Interactive: true}, true)
 
 	pedido := pedidoDeExecucao()
 	pedido.ToolCall.Title = "curl " + strings.Repeat("x", 400) + " | sh"
@@ -296,7 +302,7 @@ func TestAPessoaVeAAcaoInteiraAntesDeAutorizar(t *testing.T) {
 
 func TestAAcaoNaTelaNaoLevaEscapeMasMantemAsLinhas(t *testing.T) {
 	tela := novaTelaFalsa(func(opcoes []string) string { return opcoes[0] })
-	h := handlerCom(tela, acp.TurnOwner{ConversationID: "c", Interactive: true}, true)
+	h := handlerCom(tela, acp.TurnOwner{UserID: "authorization-test-user", ConversationID: "c", Interactive: true}, true)
 
 	pedido := pedidoDeExecucao()
 	pedido.ToolCall.Title = "\x1b[31mgit commit -m \"linha 1\nlinha 2\"\x1b[0m"
@@ -315,7 +321,7 @@ func TestAAcaoNaTelaNaoLevaEscapeMasMantemAsLinhas(t *testing.T) {
 
 func TestAgenteQueNaoDescreveuAAcaoNaoDeixaOBlocoVazio(t *testing.T) {
 	tela := novaTelaFalsa(func(opcoes []string) string { return opcoes[0] })
-	h := handlerCom(tela, acp.TurnOwner{ConversationID: "c", Interactive: true}, true)
+	h := handlerCom(tela, acp.TurnOwner{UserID: "authorization-test-user", ConversationID: "c", Interactive: true}, true)
 
 	pedido := pedidoDeExecucao()
 	pedido.ToolCall.Title = "   "
@@ -329,7 +335,7 @@ func TestAgenteQueNaoDescreveuAAcaoNaoDeixaOBlocoVazio(t *testing.T) {
 
 func TestTurnoSemNinguemNaTelaNegaNaHoraSemPerguntar(t *testing.T) {
 	tela := novaTelaFalsa(func(opcoes []string) string { return opcoes[0] })
-	h := handlerCom(tela, acp.TurnOwner{ConversationID: "conversa-1"}, true)
+	h := handlerCom(tela, acp.TurnOwner{UserID: "authorization-test-user", ConversationID: "conversa-1"}, true)
 
 	out := h.RequestPermission(context.Background(), pedidoDeExecucao())
 
@@ -347,7 +353,7 @@ func TestConversaSemTelaFicaSabendoDoQueFoiNegado(t *testing.T) {
 	// que não conseguiu. Sem este aviso ninguém saberia que houve um pedido,
 	// muito menos por que ele não chegou a ninguém.
 	tela := novaTelaFalsa(func(opcoes []string) string { return opcoes[0] })
-	h := handlerCom(tela, acp.TurnOwner{ConversationID: "conversa-1"}, true)
+	h := handlerCom(tela, acp.TurnOwner{UserID: "authorization-test-user", ConversationID: "conversa-1"}, true)
 	avisos := escutandoAvisos(h)
 
 	h.RequestPermission(context.Background(), pedidoDeExecucao())
@@ -368,7 +374,7 @@ func TestAvisoNaoLevaOComandoDoAgenteParaAConversa(t *testing.T) {
 	// O aviso pode parar numa conversa que ninguém está olhando agora, e linha
 	// de comando carrega segredo em flag e em variável de ambiente. A classe
 	// da ação diz o que houve sem guardar o que o agente escreveu.
-	h := handlerCom(nil, acp.TurnOwner{ConversationID: "conversa-1"}, true)
+	h := handlerCom(nil, acp.TurnOwner{UserID: "authorization-test-user", ConversationID: "conversa-1"}, true)
 	avisos := escutandoAvisos(h)
 
 	pedido := pedidoDeExecucao()
@@ -383,7 +389,7 @@ func TestAvisoNaoLevaOComandoDoAgenteParaAConversa(t *testing.T) {
 }
 
 func TestClasseDeAcaoDesconhecidaNaoViraCodigoCruNaTela(t *testing.T) {
-	h := handlerCom(nil, acp.TurnOwner{ConversationID: "conversa-1"}, true)
+	h := handlerCom(nil, acp.TurnOwner{UserID: "authorization-test-user", ConversationID: "conversa-1"}, true)
 	avisos := escutandoAvisos(h)
 
 	pedido := pedidoDeExecucao()
@@ -398,8 +404,8 @@ func TestClasseDeAcaoDesconhecidaNaoViraCodigoCruNaTela(t *testing.T) {
 
 func TestPrazoEstouradoAvisaAConversa(t *testing.T) {
 	mudo := questionnaire.NewManager(func(string, any) {})
-	h := handlerCom(nil, acp.TurnOwner{ConversationID: "conversa-1", Interactive: true}, true)
-	h.questions = func() *questionnaire.Manager { return mudo }
+	h := handlerCom(nil, acp.TurnOwner{UserID: "authorization-test-user", ConversationID: "conversa-1", Interactive: true}, true)
+	h.surfaces = questionnaire.NewRouter(func() *questionnaire.Manager { return mudo }, nil)
 	avisos := escutandoAvisos(h)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
@@ -416,7 +422,7 @@ func TestQuemCancelouOTurnoNaoRecebeAvisoDoQueEleMesmoFez(t *testing.T) {
 	// A pessoa desistiu e o diálogo já saiu da tela dizendo isso. Um aviso
 	// aqui cobraria explicação de quem acabou de dar uma.
 	tela := novaTelaMuda()
-	h := handlerCom(tela, acp.TurnOwner{ConversationID: "conversa-1", Interactive: true}, true)
+	h := handlerCom(tela, acp.TurnOwner{UserID: "authorization-test-user", ConversationID: "conversa-1", Interactive: true}, true)
 	avisos := escutandoAvisos(h)
 
 	ctx, cancelarTurno := context.WithCancel(context.Background())
@@ -454,7 +460,7 @@ func TestCancelamentoCalaOAvisoAindaQueOErroNaoDigaAcausa(t *testing.T) {
 
 func TestDecisaoDaPessoaNaoViraAviso(t *testing.T) {
 	tela := novaTelaFalsa(func(opcoes []string) string { return opcoes[len(opcoes)-1] })
-	h := handlerCom(tela, acp.TurnOwner{ConversationID: "conversa-1", Interactive: true}, true)
+	h := handlerCom(tela, acp.TurnOwner{UserID: "authorization-test-user", ConversationID: "conversa-1", Interactive: true}, true)
 	avisos := escutandoAvisos(h)
 
 	h.RequestPermission(context.Background(), pedidoDeExecucao())
@@ -465,7 +471,7 @@ func TestDecisaoDaPessoaNaoViraAviso(t *testing.T) {
 }
 
 func TestPedidoQueOAppNaoConsegueMostrarTambemEhAvisado(t *testing.T) {
-	h := handlerCom(nil, acp.TurnOwner{ConversationID: "conversa-1", Interactive: true}, true)
+	h := handlerCom(nil, acp.TurnOwner{UserID: "authorization-test-user", ConversationID: "conversa-1", Interactive: true}, true)
 	avisos := escutandoAvisos(h)
 
 	h.RequestPermission(context.Background(), pedidoDeExecucao())
@@ -503,7 +509,7 @@ func TestPedidoDeSessaoSemTurnoNaoAbreDialogo(t *testing.T) {
 
 func TestDialogoFechadoSemEscolherNega(t *testing.T) {
 	tela := novaTelaFalsa(nil) // ninguém escolheu: a janela foi fechada
-	h := handlerCom(tela, acp.TurnOwner{ConversationID: "conversa-1", Interactive: true}, true)
+	h := handlerCom(tela, acp.TurnOwner{UserID: "authorization-test-user", ConversationID: "conversa-1", Interactive: true}, true)
 
 	if out := h.RequestPermission(context.Background(), pedidoDeExecucao()); out.OptionID != "" {
 		t.Errorf("decisão = %q, quer nenhuma", out.OptionID)
@@ -515,7 +521,7 @@ func TestTurnoCanceladoTiraOPedidoDaTela(t *testing.T) {
 	// autorização para uma ação que já não vai acontecer — e nada dali levaria
 	// resposta ao agente, que também já desistiu do pedido.
 	tela := novaTelaMuda()
-	h := handlerCom(tela, acp.TurnOwner{ConversationID: "conversa-1", Interactive: true}, true)
+	h := handlerCom(tela, acp.TurnOwner{UserID: "authorization-test-user", ConversationID: "conversa-1", Interactive: true}, true)
 
 	ctx, cancelarTurno := context.WithCancel(context.Background())
 	pronto := make(chan acp.PermissionOutcome, 1)
@@ -547,8 +553,8 @@ func TestPrazoEstouradoNaoPenduraOAgente(t *testing.T) {
 	// Questionário que nunca é respondido: o handler precisa voltar mesmo
 	// assim, senão o agente fica esperando até o teto do transporte.
 	mudo := questionnaire.NewManager(func(string, any) {})
-	h := handlerCom(nil, acp.TurnOwner{ConversationID: "c", Interactive: true}, true)
-	h.questions = func() *questionnaire.Manager { return mudo }
+	h := handlerCom(nil, acp.TurnOwner{UserID: "authorization-test-user", ConversationID: "c", Interactive: true}, true)
+	h.surfaces = questionnaire.NewRouter(func() *questionnaire.Manager { return mudo }, nil)
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()
 
@@ -566,7 +572,7 @@ func TestPrazoEstouradoNaoPenduraOAgente(t *testing.T) {
 }
 
 func TestSemQuestionarioAPermissaoEhNegada(t *testing.T) {
-	h := handlerCom(nil, acp.TurnOwner{ConversationID: "c", Interactive: true}, true)
+	h := handlerCom(nil, acp.TurnOwner{UserID: "authorization-test-user", ConversationID: "c", Interactive: true}, true)
 
 	if out := h.RequestPermission(context.Background(), pedidoDeExecucao()); out.OptionID != "" {
 		t.Errorf("decisão = %q, quer nenhuma", out.OptionID)
@@ -575,7 +581,7 @@ func TestSemQuestionarioAPermissaoEhNegada(t *testing.T) {
 
 func TestPedidoSemOpcaoNaoInventaResposta(t *testing.T) {
 	tela := novaTelaFalsa(func(opcoes []string) string { return "" })
-	h := handlerCom(tela, acp.TurnOwner{ConversationID: "c", Interactive: true}, true)
+	h := handlerCom(tela, acp.TurnOwner{UserID: "authorization-test-user", ConversationID: "c", Interactive: true}, true)
 
 	pedido := pedidoDeExecucao()
 	pedido.Options = []acp.PermissionOption{{ID: "  ", Name: "sem identificador"}}
@@ -594,7 +600,7 @@ func TestORotuloDoAgenteNaoLevaEscapeDeTerminalParaATela(t *testing.T) {
 		oferecidas = opcoes
 		return opcoes[0]
 	})
-	h := handlerCom(tela, acp.TurnOwner{ConversationID: "c", Interactive: true}, true)
+	h := handlerCom(tela, acp.TurnOwner{UserID: "authorization-test-user", ConversationID: "c", Interactive: true}, true)
 
 	pedido := pedidoDeExecucao()
 	pedido.ToolCall.Title = "\x1b[31mrm -rf /\x1b[0m\ncontinua na linha de baixo"
@@ -619,8 +625,9 @@ func TestOpcoesComOMesmoNomeNaoViramAMesmaEscolha(t *testing.T) {
 		oferecidas = opcoes
 		return opcoes[1]
 	})
-	h := handlerCom(tela, acp.TurnOwner{ConversationID: "c", Interactive: true}, true)
+	h := handlerCom(tela, acp.TurnOwner{UserID: "authorization-test-user", ConversationID: "c", Interactive: true}, true)
 
+	store := lembrandoAutorizacoes(t, h, "cursor")
 	pedido := pedidoDeExecucao()
 	pedido.Options = []acp.PermissionOption{
 		{ID: "allow-once", Name: "Permitir", Kind: "allow_once"},
@@ -632,8 +639,12 @@ func TestOpcoesComOMesmoNomeNaoViramAMesmaEscolha(t *testing.T) {
 	if oferecidas[0] == oferecidas[1] {
 		t.Fatalf("opções na tela = %q, quer rótulos distinguíveis", oferecidas)
 	}
-	if out.OptionID != "allow-always" {
-		t.Errorf("decisão = %q, quer a segunda opção", out.OptionID)
+	if out.OptionID != "allow-once" {
+		t.Errorf("decisão = %q, quer resposta pontual da opção permanente local", out.OptionID)
+	}
+
+	if allowed, err := store.Allows(authorizationfixture.Context(), "cursor", "execute"); err != nil || !allowed {
+		t.Fatalf("não preservou a escolha permanente: %v, %v", allowed, err)
 	}
 }
 
@@ -642,7 +653,7 @@ func TestOIdentificadorVoltaAoAgenteComoEleOMandou(t *testing.T) {
 	// identificador aparado aqui não bateria com nenhuma, e a escolha da
 	// pessoa cairia na recusa.
 	tela := novaTelaFalsa(func(opcoes []string) string { return opcoes[0] })
-	h := handlerCom(tela, acp.TurnOwner{ConversationID: "c", Interactive: true}, true)
+	h := handlerCom(tela, acp.TurnOwner{UserID: "authorization-test-user", ConversationID: "c", Interactive: true}, true)
 
 	pedido := pedidoDeExecucao()
 	pedido.Options = []acp.PermissionOption{{ID: " allow-once ", Name: "Permitir uma vez", Kind: "allow_once"}}
@@ -652,18 +663,32 @@ func TestOIdentificadorVoltaAoAgenteComoEleOMandou(t *testing.T) {
 	}
 }
 
+func TestSemOpcaoPontualNaoConcedeSempreNoAgente(t *testing.T) {
+	tela := novaTelaFalsa(func(opcoes []string) string { t.Fatal("não deve oferecer autorização permanente remota"); return "" })
+	h := handlerCom(tela, acp.TurnOwner{UserID: "authorization-test-user", ConversationID: "c", Interactive: true, ProfileSlug: "cursor"}, true)
+	store := lembrandoAutorizacoes(t, h, "cursor")
+	pedido := pedidoDeExecucao()
+	pedido.Options = []acp.PermissionOption{{ID: "always", Name: "Permitir sempre", Kind: "allow_always"}}
+	if out := h.RequestPermission(context.Background(), pedido); out.OptionID != "" {
+		t.Fatalf("concedeu permissão remota: %+v", out)
+	}
+	if allowed, err := store.Allows(authorizationfixture.Context(), "cursor", "execute"); err != nil || allowed {
+		t.Fatalf("gravou permissão sem decisão: %v, %v", allowed, err)
+	}
+}
+
 func TestIdentificadorQueDesempataRotuloTambemEhSaneado(t *testing.T) {
 	var oferecidas []string
 	tela := novaTelaFalsa(func(opcoes []string) string {
 		oferecidas = opcoes
 		return opcoes[1]
 	})
-	h := handlerCom(tela, acp.TurnOwner{ConversationID: "c", Interactive: true}, true)
+	h := handlerCom(tela, acp.TurnOwner{UserID: "authorization-test-user", ConversationID: "c", Interactive: true}, true)
 
 	pedido := pedidoDeExecucao()
 	pedido.Options = []acp.PermissionOption{
 		{ID: "allow-once", Name: "Permitir", Kind: "allow_once"},
-		{ID: "\x1b[31mallow-always", Name: "Permitir", Kind: "allow_always"},
+		{ID: "\x1b[31mallow-always", Name: "Permitir", Kind: "allow_once"},
 	}
 
 	out := h.RequestPermission(context.Background(), pedido)
@@ -687,13 +712,13 @@ func TestNenhumaOpcaoDoAgenteFicaForaDaTela(t *testing.T) {
 		oferecidas = opcoes
 		return opcoes[len(opcoes)-1]
 	})
-	h := handlerCom(tela, acp.TurnOwner{ConversationID: "c", Interactive: true}, true)
+	h := handlerCom(tela, acp.TurnOwner{UserID: "authorization-test-user", ConversationID: "c", Interactive: true}, true)
 
 	pedido := pedidoDeExecucao()
 	pedido.Options = []acp.PermissionOption{
 		{ID: "allow\x01", Name: "Permitir", Kind: "allow_once"},
-		{ID: "allow\x02", Name: "Permitir", Kind: "allow_always"},
-		{ID: "\x03", Name: "Permitir", Kind: "allow_always"},
+		{ID: "allow\x02", Name: "Permitir", Kind: "allow_once"},
+		{ID: "\x03", Name: "Permitir", Kind: "allow_once"},
 	}
 
 	out := h.RequestPermission(context.Background(), pedido)
@@ -729,7 +754,7 @@ func TestOLogNaoGuardaALinhaDeComandoDoAgente(t *testing.T) {
 
 func TestOBotaoDeConfirmarDizOQueEleFaz(t *testing.T) {
 	tela := novaTelaFalsa(func(opcoes []string) string { return opcoes[0] })
-	h := handlerCom(tela, acp.TurnOwner{ConversationID: "c", Interactive: true}, true)
+	h := handlerCom(tela, acp.TurnOwner{UserID: "authorization-test-user", ConversationID: "c", Interactive: true}, true)
 
 	h.RequestPermission(context.Background(), pedidoDeExecucao())
 
@@ -773,7 +798,7 @@ func TestOpcaoSemNomeGanhaORotuloDaClasse(t *testing.T) {
 		oferecidas = opcoes
 		return opcoes[0]
 	})
-	h := handlerCom(tela, acp.TurnOwner{ConversationID: "c", Interactive: true}, true)
+	h := handlerCom(tela, acp.TurnOwner{UserID: "authorization-test-user", ConversationID: "c", Interactive: true}, true)
 
 	pedido := pedidoDeExecucao()
 	pedido.Options = []acp.PermissionOption{{ID: "reject-once", Kind: "reject_once"}}
@@ -788,7 +813,7 @@ func TestOpcaoSemNomeGanhaORotuloDaClasse(t *testing.T) {
 
 func TestRespostaForaDasOpcoesNaoAutorizaNada(t *testing.T) {
 	tela := novaTelaFalsa(func([]string) string { return "sim, pode tudo" })
-	h := handlerCom(tela, acp.TurnOwner{ConversationID: "c", Interactive: true}, true)
+	h := handlerCom(tela, acp.TurnOwner{UserID: "authorization-test-user", ConversationID: "c", Interactive: true}, true)
 
 	if out := h.RequestPermission(context.Background(), pedidoDeExecucao()); out.OptionID != "" {
 		t.Errorf("decisão = %q, quer nenhuma", out.OptionID)
@@ -810,10 +835,10 @@ func escolhendo(rotulo string) func([]string) string {
 
 func TestQuemAutorizouParaSempreNaoEPerguntadoDeNovo(t *testing.T) {
 	tela := novaTelaFalsa(escolhendo("Permitir sempre"))
-	h := handlerCom(tela, acp.TurnOwner{ConversationID: "c", Interactive: true}, true)
+	h := handlerCom(tela, acp.TurnOwner{UserID: "authorization-test-user", ConversationID: "c", Interactive: true}, true)
 	lembrandoAutorizacoes(t, h, "cursor")
 
-	if out := h.RequestPermission(context.Background(), pedidoDeExecucao()); out.OptionID != "allow-always" {
+	if out := h.RequestPermission(context.Background(), pedidoDeExecucao()); out.OptionID != "allow-once" {
 		t.Fatalf("primeira decisão = %q, quer a que a pessoa escolheu", out.OptionID)
 	}
 
@@ -831,7 +856,7 @@ func TestQuemAutorizouParaSempreNaoEPerguntadoDeNovo(t *testing.T) {
 
 func TestPermitirUmaVezNaoAutorizaAProxima(t *testing.T) {
 	tela := novaTelaFalsa(escolhendo("Permitir uma vez"))
-	h := handlerCom(tela, acp.TurnOwner{ConversationID: "c", Interactive: true}, true)
+	h := handlerCom(tela, acp.TurnOwner{UserID: "authorization-test-user", ConversationID: "c", Interactive: true}, true)
 	lembrandoAutorizacoes(t, h, "cursor")
 
 	h.RequestPermission(context.Background(), pedidoDeExecucao())
@@ -844,7 +869,7 @@ func TestPermitirUmaVezNaoAutorizaAProxima(t *testing.T) {
 
 func TestAutorizarUmaClasseNaoLiberaAsOutras(t *testing.T) {
 	tela := novaTelaFalsa(escolhendo("Permitir sempre"))
-	h := handlerCom(tela, acp.TurnOwner{ConversationID: "c", Interactive: true}, true)
+	h := handlerCom(tela, acp.TurnOwner{UserID: "authorization-test-user", ConversationID: "c", Interactive: true}, true)
 	lembrandoAutorizacoes(t, h, "cursor")
 	h.RequestPermission(context.Background(), pedidoDeExecucao())
 
@@ -862,15 +887,15 @@ func TestAAutorizacaoDoTurnoEhADoPerfilQuePediuOTurno(t *testing.T) {
 	// Canal e job dizem em qual perfil correm. Guardar tudo no perfil ativo do
 	// desktop misturaria autorizações de agentes diferentes.
 	tela := novaTelaFalsa(escolhendo("Permitir sempre"))
-	h := handlerCom(tela, acp.TurnOwner{ConversationID: "c", Interactive: true, ProfileSlug: "cursor"}, true)
+	h := handlerCom(tela, acp.TurnOwner{UserID: "authorization-test-user", ConversationID: "c", Interactive: true, ProfileSlug: "cursor"}, true)
 	store := lembrandoAutorizacoes(t, h, "outro-perfil")
 
 	h.RequestPermission(context.Background(), pedidoDeExecucao())
 
-	if !store.Allows("cursor", "execute") {
+	if allowed, err := store.Allows(authorizationfixture.Context(), "cursor", "execute"); err != nil || !allowed {
 		t.Error("a autorização não ficou no perfil que pediu o turno")
 	}
-	if store.Allows("outro-perfil", "execute") {
+	if allowed, err := store.Allows(authorizationfixture.Context(), "outro-perfil", "execute"); err != nil || allowed {
 		t.Error("a autorização foi parar no perfil ativo, e não no do turno")
 	}
 }
@@ -879,7 +904,7 @@ func TestSemPerfilNenhumOAgenteContinuaPerguntando(t *testing.T) {
 	// Sem saber de quem é a autorização, guardá-la valeria para todos os
 	// perfis — o oposto do que a pessoa autorizou.
 	tela := novaTelaFalsa(escolhendo("Permitir sempre"))
-	h := handlerCom(tela, acp.TurnOwner{ConversationID: "c", Interactive: true}, true)
+	h := handlerCom(tela, acp.TurnOwner{UserID: "authorization-test-user", ConversationID: "c", Interactive: true}, true)
 	lembrandoAutorizacoes(t, h, "")
 
 	h.RequestPermission(context.Background(), pedidoDeExecucao())
@@ -894,9 +919,9 @@ func TestSemOndeGuardarOTurnoAindaSegueComOSimDaPessoa(t *testing.T) {
 	// Não conseguir lembrar não é motivo para desautorizar o que a pessoa
 	// acabou de permitir.
 	tela := novaTelaFalsa(escolhendo("Permitir sempre"))
-	h := handlerCom(tela, acp.TurnOwner{ConversationID: "c", Interactive: true}, true)
+	h := handlerCom(tela, acp.TurnOwner{UserID: "authorization-test-user", ConversationID: "c", Interactive: true}, true)
 
-	if out := h.RequestPermission(context.Background(), pedidoDeExecucao()); out.OptionID != "allow-always" {
+	if out := h.RequestPermission(context.Background(), pedidoDeExecucao()); out.OptionID != "allow-once" {
 		t.Errorf("decisão = %q, quer a que a pessoa escolheu", out.OptionID)
 	}
 }
@@ -906,7 +931,7 @@ func TestAConversaFicaSabendoDaAutorizacaoPermanente(t *testing.T) {
 	// que o app passou a autorizar sozinho. O aviso fica na conversa para que
 	// isso não vire uma mudança silenciosa de comportamento.
 	tela := novaTelaFalsa(escolhendo("Permitir sempre"))
-	h := handlerCom(tela, acp.TurnOwner{ConversationID: "conversa-1", Interactive: true}, true)
+	h := handlerCom(tela, acp.TurnOwner{UserID: "authorization-test-user", ConversationID: "conversa-1", Interactive: true}, true)
 	lembrandoAutorizacoes(t, h, "cursor")
 	emitter := escutandoAvisos(h)
 
@@ -926,7 +951,7 @@ func TestAConversaFicaSabendoDaAutorizacaoPermanente(t *testing.T) {
 
 func TestPermitirUmaVezNaoAnunciaAutorizacaoPermanente(t *testing.T) {
 	tela := novaTelaFalsa(escolhendo("Permitir uma vez"))
-	h := handlerCom(tela, acp.TurnOwner{ConversationID: "c", Interactive: true}, true)
+	h := handlerCom(tela, acp.TurnOwner{UserID: "authorization-test-user", ConversationID: "c", Interactive: true}, true)
 	lembrandoAutorizacoes(t, h, "cursor")
 	emitter := escutandoAvisos(h)
 
@@ -942,7 +967,7 @@ func TestOSempreQueNaoPodeSerGuardadoEhContadoAConversa(t *testing.T) {
 	// conseguiu lembrar, a pergunta volta — e a pessoa precisa saber disso
 	// antes de estranhar a repetição.
 	tela := novaTelaFalsa(escolhendo("Permitir sempre"))
-	h := handlerCom(tela, acp.TurnOwner{ConversationID: "c", Interactive: true}, true)
+	h := handlerCom(tela, acp.TurnOwner{UserID: "authorization-test-user", ConversationID: "c", Interactive: true}, true)
 	emitter := escutandoAvisos(h)
 
 	h.RequestPermission(context.Background(), pedidoDeExecucao())
@@ -957,7 +982,7 @@ func TestOAvisoDaAutorizacaoNaoSeRepeteACadaPedido(t *testing.T) {
 	// Depois de guardada, a autorização passa a valer em silêncio: repetir o
 	// aviso a cada pedido encheria a conversa de uma notícia velha.
 	tela := novaTelaFalsa(escolhendo("Permitir sempre"))
-	h := handlerCom(tela, acp.TurnOwner{ConversationID: "c", Interactive: true}, true)
+	h := handlerCom(tela, acp.TurnOwner{UserID: "authorization-test-user", ConversationID: "c", Interactive: true}, true)
 	lembrandoAutorizacoes(t, h, "cursor")
 	emitter := escutandoAvisos(h)
 
@@ -973,7 +998,7 @@ func TestODialogoDizAteOndeVaiOSempre(t *testing.T) {
 	// "Permitir sempre" vale para a classe inteira, e não só para o comando
 	// que está na tela. Quem não souber disso autoriza mais do que pretende.
 	tela := novaTelaFalsa(escolhendo("Permitir uma vez"))
-	h := handlerCom(tela, acp.TurnOwner{ConversationID: "c", Interactive: true}, true)
+	h := handlerCom(tela, acp.TurnOwner{UserID: "authorization-test-user", ConversationID: "c", Interactive: true}, true)
 	lembrandoAutorizacoes(t, h, "cursor")
 
 	h.RequestPermission(context.Background(), pedidoDeExecucao())
@@ -986,7 +1011,7 @@ func TestODialogoDizAteOndeVaiOSempre(t *testing.T) {
 
 func TestPedidoSemOpcaoDeSempreNaoFalaDeAutorizacaoPermanente(t *testing.T) {
 	tela := novaTelaFalsa(func(opcoes []string) string { return opcoes[0] })
-	h := handlerCom(tela, acp.TurnOwner{ConversationID: "c", Interactive: true}, true)
+	h := handlerCom(tela, acp.TurnOwner{UserID: "authorization-test-user", ConversationID: "c", Interactive: true}, true)
 	lembrandoAutorizacoes(t, h, "cursor")
 
 	pedido := pedidoDeExecucao()
@@ -1006,7 +1031,7 @@ func TestSemOpcaoDePermitirAPerguntaVoltaParaATela(t *testing.T) {
 	// A autorização é do app, mas quem responde é o agente: se ele não
 	// ofereceu como dizer sim, não há o que responder no lugar dele.
 	tela := novaTelaFalsa(escolhendo("Permitir sempre"))
-	h := handlerCom(tela, acp.TurnOwner{ConversationID: "c", Interactive: true}, true)
+	h := handlerCom(tela, acp.TurnOwner{UserID: "authorization-test-user", ConversationID: "c", Interactive: true}, true)
 	lembrandoAutorizacoes(t, h, "cursor")
 	h.RequestPermission(context.Background(), pedidoDeExecucao())
 
@@ -1023,17 +1048,17 @@ func TestClasseQueOAgenteNaoNomeouNaoViraAutorizacaoDeTudo(t *testing.T) {
 	// Pedido sem classe cai em "other", e é só "other" que fica autorizado:
 	// um pedido de execução depois disso continua sendo perguntado.
 	tela := novaTelaFalsa(escolhendo("Permitir sempre"))
-	h := handlerCom(tela, acp.TurnOwner{ConversationID: "c", Interactive: true}, true)
+	h := handlerCom(tela, acp.TurnOwner{UserID: "authorization-test-user", ConversationID: "c", Interactive: true}, true)
 	store := lembrandoAutorizacoes(t, h, "cursor")
 
 	pedido := pedidoDeExecucao()
 	pedido.ToolCall = acp.ToolCall{ID: "call-1", Title: "algo"}
 	h.RequestPermission(context.Background(), pedido)
 
-	if !store.Allows("cursor", acp.ToolKindOther) {
+	if allowed, err := store.Allows(authorizationfixture.Context(), "cursor", acp.ToolKindOther); err != nil || !allowed {
 		t.Error("a autorização da classe sem nome não foi guardada")
 	}
-	if store.Allows("cursor", "execute") {
+	if allowed, err := store.Allows(authorizationfixture.Context(), "cursor", "execute"); err != nil || allowed {
 		t.Error("autorizar uma ação sem classe liberou execução de comando")
 	}
 }

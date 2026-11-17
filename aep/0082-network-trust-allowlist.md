@@ -8,6 +8,11 @@ Até o corte de cada consumidor, a implementação descrita aqui permanece vigen
 a nova entrega preserva as proteções de transporte e substitui D4/D8 quanto ao
 armazenamento em arquivos e ao plano de implementação futura.
 
+Persistência migrada na primeira implementação do AEP-0117: o banco é a fonte
+canônica, com arquivos apenas para importação idempotente. Gestão e revogação
+existentes usam o mesmo repositório. A orquestração/gestão unificada continua
+pendente no AEP-0117; as proteções específicas deste domínio são mantidas.
+
 ## Resumo
 
 As tools de rede (`http_request`, `web_fetch`, `feed_read`) bloqueiam destinos que

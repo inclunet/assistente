@@ -9,17 +9,12 @@ import (
 	"assistente/internal/acp"
 	"assistente/internal/acptrust"
 	"assistente/internal/core/ports"
+	"assistente/internal/database"
 	"assistente/internal/logging"
 	"assistente/internal/questionnaire"
 )
 
 const acpPermissionComponent = "app.acp-permissions"
-
-// Chaves dos itens do questionário: a ação que se lê e a escolha que se faz.
-const (
-	permissionActionID = "action"
-	permissionAnswerID = "decision"
-)
 
 // permissionTextNamespace é o assunto deste diálogo nas chaves de tradução
 // (AEP-0085 D7). O texto pronto em pt-BR continua viajando como fallback: é ele
@@ -41,9 +36,6 @@ func permissionTextKey(field string) string {
 type acpRequestHandler struct {
 	// owner diz de quem é o turno em voo daquela sessão do agente.
 	owner func(sessionID string) (acp.TurnOwner, bool)
-	// questions é o questionário do desktop, o mesmo mecanismo acessível que
-	// shell, HTTP mutável e confirmação de edição já usam.
-	questions func() *questionnaire.Manager
 	// surfaces roteia a pergunta para a superfície de origem da conversa: o
 	// questionário do desktop ou o canal de onde a conversa veio (AEP-0084
 	// Fase 5). É o mesmo roteador que as confirmações do app usam, e ele já
@@ -80,6 +72,7 @@ func (h *acpRequestHandler) RequestPermission(ctx context.Context, req acp.Permi
 	registro := permissionLogSummary(req.ToolCall)
 
 	owner, ok := h.turnOwner(req.SessionID)
+	ctx = database.WithUserID(ctx, owner.UserID)
 	surface := h.surfaceOf(owner, ok)
 	if !surface.HasInterlocutor() {
 		// Turno de job, de subagente ou de CLI, e conversa de canal que já não
@@ -93,6 +86,9 @@ func (h *acpRequestHandler) RequestPermission(ctx context.Context, req acp.Permi
 	}
 
 	choices := permissionChoicesFrom(req.Options)
+	if _, canApprove := choices.approval(); !canApprove {
+		choices = choices.withoutAlways()
+	}
 	if len(choices) == 0 {
 		// Pedido sem opção nenhuma: não há o que oferecer à pessoa, e inventar
 		// uma resposta seria decidir por ela.
@@ -109,7 +105,13 @@ func (h *acpRequestHandler) RequestPermission(ctx context.Context, req acp.Permi
 		// novo seria ignorar o que a pessoa já respondeu. Só o desktop consulta,
 		// pelo mesmo motivo que só ele concede — assim um canal remoto não colhe
 		// o sim que alguém deu na tela (AEP-0084 D9).
-		if h.alreadyAllowed(profile, kind) {
+		allowed, err := h.alreadyAllowed(ctx, profile, kind)
+		if err != nil {
+			logging.Warnf(ctx, acpPermissionComponent, "[ACP] consulta de autorização falhou: %v", err)
+			h.notifyConversation(owner, ports.ChatNoticeKindPermissionUnavailable, req.ToolCall.Kind)
+			return acp.PermissionOutcome{}
+		}
+		if allowed {
 			if id, ok := choices.approval(); ok {
 				logging.Infof(ctx, acpPermissionComponent,
 					"[ACP] permissão concedida pelo que o perfil %q já autorizou (%s)", profile, registro)
@@ -183,6 +185,11 @@ func (h *acpRequestHandler) RequestPermission(ctx context.Context, req acp.Permi
 	}
 	if choice.always() {
 		h.rememberAlways(ctx, owner, surface, profile, kind, registro)
+		id, ok := choices.approval()
+		if !ok {
+			return acp.PermissionOutcome{}
+		}
+		return acp.PermissionOutcome{OptionID: id}
 	}
 	return acp.PermissionOutcome{OptionID: choice.id}
 }
@@ -274,13 +281,6 @@ func (h *acpRequestHandler) turnOwner(sessionID string) (acp.TurnOwner, bool) {
 	return h.owner(sessionID)
 }
 
-func (h *acpRequestHandler) questionnaireManager() *questionnaire.Manager {
-	if h == nil || h.questions == nil {
-		return nil
-	}
-	return h.questions()
-}
-
 // turnCancelled diz se o pedido acabou porque o turno foi abortado, e não
 // porque o tempo acabou. Olha o contexto do turno além do erro: o erro é a
 // via normal, mas depender só dele amarraria esta decisão ao jeito como o
@@ -345,15 +345,15 @@ func (h *acpRequestHandler) trustStore() *acptrust.Store {
 // alreadyAllowed diz se este perfil já resolveu esta classe de ação antes.
 // Sem perfil não há autorização a consultar: guardar por "perfil nenhum"
 // valeria para todo mundo, que é o oposto do que a pessoa autorizou.
-func (h *acpRequestHandler) alreadyAllowed(profile, kind string) bool {
+func (h *acpRequestHandler) alreadyAllowed(ctx context.Context, profile, kind string) (bool, error) {
 	if profile == "" {
-		return false
+		return false, nil
 	}
 	store := h.trustStore()
 	if store == nil {
-		return false
+		return false, nil
 	}
-	return store.Allows(profile, kind)
+	return store.Allows(ctx, profile, kind)
 }
 
 // rememberAlways guarda o "permitir sempre" e conta à conversa o que houve.
@@ -383,7 +383,7 @@ func (h *acpRequestHandler) rememberAlways(ctx context.Context, owner acp.TurnOw
 		h.notifyConversation(owner, ports.ChatNoticeKindPermissionAlwaysNotSaved, kind)
 		return
 	}
-	if err := store.Allow(profile, kind); err != nil {
+	if err := store.Allow(ctx, profile, kind); err != nil {
 		logging.Warnf(ctx, acpPermissionComponent,
 			"[ACP] erro ao guardar a autorização permanente do perfil %q: %v", profile, err)
 		h.notifyConversation(owner, ports.ChatNoticeKindPermissionAlwaysNotSaved, kind)
@@ -570,11 +570,6 @@ func (c permissionChoices) withoutAlways() permissionChoices {
 func (c permissionChoices) approval() (string, bool) {
 	for _, choice := range c {
 		if choice.kind == optionAllowOnce {
-			return choice.id, true
-		}
-	}
-	for _, choice := range c {
-		if choice.always() {
 			return choice.id, true
 		}
 	}

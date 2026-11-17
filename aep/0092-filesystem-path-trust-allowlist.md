@@ -7,6 +7,11 @@ persistência para o banco e unifica autorização/gestão com rede, shell e ACP
 As proteções de caminhos e operações deste AEP permanecem obrigatórias. O store
 em arquivos só deixa de vigorar quando seu consumidor for migrado no novo AEP.
 
+Persistência migrada na primeira implementação do AEP-0117: o banco é a fonte
+canônica, com arquivos apenas para importação idempotente. Gestão e revogação
+existentes usam o mesmo repositório. A orquestração/gestão unificada continua
+pendente no AEP-0117; as proteções específicas deste domínio são mantidas.
+
 ## Resumo
 
 As tools de filesystem (`read_file`, `write_file`, `edit_file`, `grep_search`,

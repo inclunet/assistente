@@ -17,6 +17,11 @@ no CI. O status e o escopo pendente deste AEP não mudam.
 do mantenedor, as lacunas da auditoria ACP v1 estão autorizadas para
 implementação, exceto a apresentação de planos, reservada para discussão.
 
+Persistência migrada na primeira implementação do AEP-0117: o banco é a fonte
+canônica, com arquivos apenas para importação idempotente. Gestão e revogação
+existentes usam o mesmo repositório. A orquestração/gestão unificada continua
+pendente no AEP-0117; as proteções específicas deste domínio são mantidas.
+
 ## Resumo
 
 Agentes de codificação que falam **ACP (Agent Client Protocol)** — Cursor CLI

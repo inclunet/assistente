@@ -1,7 +1,7 @@
 package fstrust
 
 import (
-	"context"
+	"assistente/internal/testutil/authorizationfixture"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -9,8 +9,8 @@ import (
 
 func TestManager_MatchDenyPrecedenciaSobreAllow(t *testing.T) {
 	dir := t.TempDir()
-	m := NewManagerWithDirs(dir, dir)
-	ctx := context.Background()
+	m := NewManager(authorizationfixture.Options(t, dir, dir))
+	ctx := authorizationfixture.Context()
 	alvo := filepath.Join(dir, "segredo.txt")
 
 	if err := m.Add(ctx, AllowlistEntry{
@@ -31,15 +31,19 @@ func TestManager_MatchDenyPrecedenciaSobreAllow(t *testing.T) {
 	if d := m.MatchDeny(ctx, alvo, "read"); d.Entry == nil || NormalizedEffect(d.Entry.Effect) != EffectDeny {
 		t.Fatalf("MatchDeny deveria achar deny: %#v", d)
 	}
-	if len(m.List(ctx)) != 2 {
-		t.Fatalf("want 2 entradas (allow+deny), got %d", len(m.List(ctx)))
+	entries, err := m.List(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 2 {
+		t.Fatalf("want 2 entradas (allow+deny), got %d", len(entries))
 	}
 }
 
 func TestManager_DenyEAllowCoexistemEmOperacoesDiferentes(t *testing.T) {
 	dir := t.TempDir()
-	m := NewManagerWithDirs(dir, dir)
-	ctx := context.Background()
+	m := NewManager(authorizationfixture.Options(t, dir, dir))
+	ctx := authorizationfixture.Context()
 	alvo := filepath.Join(dir, "docs")
 
 	if err := m.Add(ctx, AllowlistEntry{
@@ -64,8 +68,8 @@ func TestManager_DenyEAllowCoexistemEmOperacoesDiferentes(t *testing.T) {
 
 func TestManager_LegacySemEffectContaComoAllow(t *testing.T) {
 	dir := t.TempDir()
-	m := NewManagerWithDirs(dir, dir)
-	ctx := context.Background()
+	m := NewManager(authorizationfixture.Options(t, dir, dir))
+	ctx := authorizationfixture.Context()
 	alvo := filepath.Join(dir, "legado.txt")
 
 	if err := m.Add(ctx, AllowlistEntry{
@@ -84,8 +88,8 @@ func TestManager_LegacySemEffectContaComoAllow(t *testing.T) {
 
 func TestAuthorizer_DenyBloqueiaSemPrompt(t *testing.T) {
 	dir := t.TempDir()
-	m := NewManagerWithDirs(dir, dir)
-	ctx := context.Background()
+	m := NewManager(authorizationfixture.Options(t, dir, dir))
+	ctx := authorizationfixture.Context()
 	alvo := filepath.Join(dir, "bloqueado.txt")
 	if err := m.Add(ctx, AllowlistEntry{
 		Path: alvo, Kind: KindFile, Operation: "read", Effect: EffectDeny, Scope: ScopeGlobal,

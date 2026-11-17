@@ -3,16 +3,20 @@ package allowlist
 import (
 	"encoding/json"
 	"path/filepath"
+	"strings"
 	"testing"
 
-	"assistente/internal/configdir"
+	"assistente/internal/testutil/authorizationfixture"
+	"context"
+	"os"
 )
 
 // newTestManager cria um Manager isolado em um diretorio temporario do teste.
 func newTestManager(t *testing.T) *Manager {
 	t.Helper()
 	dir := t.TempDir()
-	return &Manager{resolver: configdir.NewResolverWithBase(dir)}
+	repo, _ := authorizationfixture.Open(t, dir)
+	return NewManager(Options{Repository: repo, HomeDir: func() string { return dir }, Paths: func() []string { return []string{dir} }, MayImport: func(context.Context) bool { return true }})
 }
 
 func writeAllowlistFile(t *testing.T, m *Manager, slug string, al *Allowlist) {
@@ -21,10 +25,8 @@ func writeAllowlistFile(t *testing.T, m *Manager, slug string, al *Allowlist) {
 	if err != nil {
 		t.Fatalf("marshal allowlist: %v", err)
 	}
-	if err := m.resolver.EnsureHomeDir(); err != nil {
-		t.Fatalf("ensure home dir: %v", err)
-	}
-	if err := m.resolver.Create(slug+".json", data); err != nil {
+
+	if err := os.WriteFile(filepath.Join(m.paths()[0], slug+".json"), data, 0600); err != nil {
 		t.Fatalf("create %s.json: %v", slug, err)
 	}
 }
@@ -32,16 +34,28 @@ func writeAllowlistFile(t *testing.T, m *Manager, slug string, al *Allowlist) {
 func TestEnsureDefaults_CreatesPadraoWhenEmpty(t *testing.T) {
 	m := newTestManager(t)
 
-	if err := m.EnsureDefaults(); err != nil {
+	if err := m.EnsureDefaults(authorizationfixture.Context()); err != nil {
 		t.Fatalf("EnsureDefaults: %v", err)
 	}
 
-	got, err := m.Get(defaultSlug)
+	got, err := m.Get(authorizationfixture.Context(), defaultSlug)
 	if err != nil {
 		t.Fatalf("Get(padrao): %v", err)
 	}
 	if len(got.CommandRules) == 0 {
 		t.Fatal("padrao deveria ter CommandRules apos criacao")
+	}
+}
+
+func TestMigracaoPreservaNegativasComMaiusculas(t *testing.T) {
+	m := newTestManager(t)
+	writeAllowlistFile(t, m, "restrita", &Allowlist{Name: "Restrita", DefaultAction: " DENY ", CommandRules: []CommandRule{{Program: "git", Decision: " DENY "}}})
+	policy, err := m.Get(authorizationfixture.Context(), "restrita")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if policy.DefaultAction != "deny" || len(policy.CommandRules) != 1 || strings.ToLower(strings.TrimSpace(policy.CommandRules[0].Decision)) != "deny" {
+		t.Fatalf("negativa alterada na importação: %+v", policy)
 	}
 }
 
@@ -57,11 +71,11 @@ func TestEnsureDefaults_MigratesPadraoWithoutKubectlRules(t *testing.T) {
 	}
 	writeAllowlistFile(t, m, defaultSlug, preExisting)
 
-	if err := m.EnsureDefaults(); err != nil {
+	if err := m.EnsureDefaults(authorizationfixture.Context()); err != nil {
 		t.Fatalf("EnsureDefaults: %v", err)
 	}
 
-	got, err := m.Get(defaultSlug)
+	got, err := m.Get(authorizationfixture.Context(), defaultSlug)
 	if err != nil {
 		t.Fatalf("Get(padrao): %v", err)
 	}
@@ -105,11 +119,11 @@ func TestEnsureDefaults_DoesNotOverwriteUserKubectlRules(t *testing.T) {
 	}
 	writeAllowlistFile(t, m, defaultSlug, preExisting)
 
-	if err := m.EnsureDefaults(); err != nil {
+	if err := m.EnsureDefaults(authorizationfixture.Context()); err != nil {
 		t.Fatalf("EnsureDefaults: %v", err)
 	}
 
-	got, err := m.Get(defaultSlug)
+	got, err := m.Get(authorizationfixture.Context(), defaultSlug)
 	if err != nil {
 		t.Fatalf("Get(padrao): %v", err)
 	}
@@ -137,18 +151,18 @@ func TestEnsureDefaults_MigrationIsIdempotent(t *testing.T) {
 	}
 	writeAllowlistFile(t, m, defaultSlug, preExisting)
 
-	if err := m.EnsureDefaults(); err != nil {
+	if err := m.EnsureDefaults(authorizationfixture.Context()); err != nil {
 		t.Fatalf("EnsureDefaults#1: %v", err)
 	}
-	first, err := m.Get(defaultSlug)
+	first, err := m.Get(authorizationfixture.Context(), defaultSlug)
 	if err != nil {
 		t.Fatalf("Get(padrao)#1: %v", err)
 	}
 
-	if err := m.EnsureDefaults(); err != nil {
+	if err := m.EnsureDefaults(authorizationfixture.Context()); err != nil {
 		t.Fatalf("EnsureDefaults#2: %v", err)
 	}
-	second, err := m.Get(defaultSlug)
+	second, err := m.Get(authorizationfixture.Context(), defaultSlug)
 	if err != nil {
 		t.Fatalf("Get(padrao)#2: %v", err)
 	}
@@ -168,11 +182,11 @@ func TestEnsureDefaults_DoesNotMigrateOtherProfiles(t *testing.T) {
 	}
 	writeAllowlistFile(t, m, "personalizado", other)
 
-	if err := m.EnsureDefaults(); err != nil {
+	if err := m.EnsureDefaults(authorizationfixture.Context()); err != nil {
 		t.Fatalf("EnsureDefaults: %v", err)
 	}
 
-	got, err := m.Get("personalizado")
+	got, err := m.Get(authorizationfixture.Context(), "personalizado")
 	if err != nil {
 		t.Fatalf("Get(personalizado): %v", err)
 	}
@@ -192,13 +206,12 @@ func TestSave_RejectsInvalidAllowlist(t *testing.T) {
 		},
 	}
 
-	err := m.save("x", bad)
+	_, err := m.Create(authorizationfixture.Context(), bad)
 	if err == nil {
 		t.Fatal("save aceitou allowlist invalida")
 	}
 
-	// O arquivo nao deve ter sido criado.
-	if m.resolver.Exists(filepath.Base("x.json")) {
-		t.Fatal("save persistiu allowlist invalida no disco")
+	if _, err := m.Get(authorizationfixture.Context(), "x"); err == nil {
+		t.Fatal("persistiu política inválida no banco")
 	}
 }

@@ -1,6 +1,7 @@
 package controllers
 
 import (
+	"context"
 	"fmt"
 
 	"assistente/internal/allowlist"
@@ -36,49 +37,41 @@ func (c *AllowlistController) RespondQuestionnaire(requestID string, answers map
 }
 
 // GetAllowlists retorna a lista de allowlists disponíveis.
-func (c *AllowlistController) GetAllowlists() ([]allowlist.AllowlistInfo, error) {
+func (c *AllowlistController) GetAllowlists(ctx context.Context) ([]allowlist.AllowlistInfo, error) {
 	if c.allowlistMgr == nil {
 		return nil, fmt.Errorf("allowlist manager não inicializado")
 	}
-	return c.allowlistMgr.List()
+	return c.allowlistMgr.List(ctx)
 }
 
 // GetAllowlist retorna uma allowlist pelo slug.
-func (c *AllowlistController) GetAllowlist(slug string) (*allowlist.Allowlist, error) {
+func (c *AllowlistController) GetAllowlist(ctx context.Context, slug string) (*allowlist.Allowlist, error) {
 	if c.allowlistMgr == nil {
 		return nil, fmt.Errorf("allowlist manager não inicializado")
 	}
-	return c.allowlistMgr.Get(slug)
+	return c.allowlistMgr.Get(ctx, slug)
 }
 
 // CreateAllowlist cria uma nova allowlist.
-func (c *AllowlistController) CreateAllowlist(al allowlist.Allowlist) (string, error) {
+func (c *AllowlistController) CreateAllowlist(ctx context.Context, al allowlist.Allowlist) (string, error) {
 	if c.allowlistMgr == nil {
 		return "", fmt.Errorf("allowlist manager não inicializado")
 	}
-	return c.allowlistMgr.Create(&al)
+	return c.allowlistMgr.Create(ctx, &al)
 }
 
 // UpdateAllowlist atualiza uma allowlist existente.
-func (c *AllowlistController) UpdateAllowlist(slug string, al allowlist.Allowlist) error {
+func (c *AllowlistController) UpdateAllowlist(ctx context.Context, slug string, al allowlist.Allowlist) error {
 	if c.allowlistMgr == nil {
 		return fmt.Errorf("allowlist manager não inicializado")
 	}
-	return c.allowlistMgr.Update(slug, &al)
+	return c.allowlistMgr.Update(ctx, slug, &al)
 }
 
 // DeleteAllowlist exclui uma allowlist.
-func (c *AllowlistController) DeleteAllowlist(slug string) error {
+func (c *AllowlistController) DeleteAllowlist(ctx context.Context, slug string) error {
 	if c.allowlistMgr == nil {
 		return fmt.Errorf("allowlist manager não inicializado")
 	}
-	return c.allowlistMgr.Delete(slug)
-}
-
-// GetAllowlistSearchPaths retorna os caminhos de busca de allowlists.
-func (c *AllowlistController) GetAllowlistSearchPaths() []string {
-	if c.allowlistMgr == nil {
-		return []string{}
-	}
-	return c.allowlistMgr.GetSearchPaths()
+	return c.allowlistMgr.Delete(ctx, slug)
 }

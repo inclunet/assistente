@@ -20,6 +20,7 @@ import (
 	"assistente/internal/speech"
 	"assistente/internal/subagent"
 	"assistente/internal/terminal"
+	"assistente/internal/testutil/authorizationfixture"
 	"assistente/internal/wailsapi"
 )
 
@@ -618,7 +619,7 @@ func TestWireACPWorkDirAttachesBind(t *testing.T) {
 
 func TestWireACPTrustAttachesBind(t *testing.T) {
 	t.Parallel()
-	a := &App{acpTrust: acptrust.NewStoreWithDir(t.TempDir())}
+	a := &App{acpTrust: acptrust.NewStore(authorizationfixture.Options(t, t.TempDir(), ""))}
 	api := wailsapi.NewACPTrust()
 	SetACPTrustAPI(a, api)
 
