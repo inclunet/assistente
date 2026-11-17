@@ -2,6 +2,7 @@ package shelltrust
 
 import (
 	"context"
+	"errors"
 	"strings"
 
 	"assistente/internal/allowlist"
@@ -46,6 +47,12 @@ func (a *Authorizer) Authorize(ctx context.Context, command, directory string) (
 	}
 	flow := authorization.Flow[Entry]{
 		Evaluate: func(ctx context.Context) (authorization.Decision, error) {
+			if reusable {
+				current, valid := Represent(command, directory)
+				if !valid || current.Directory != selector.Directory {
+					return authorization.Decision{}, errors.New("diretório shell mudou durante a autorização")
+				}
+			}
 			if a.Manager != nil {
 				if _, err := a.Manager.AvailableScopes(ctx); err != nil {
 					return authorization.Decision{}, err

@@ -145,6 +145,10 @@ representar a operação com segurança sem persistir segredos, oferecer somente
 ganhar autorização por apenas um fragmento aprovado. Negativas existentes
 continuam prevalecendo sobre concessões de runtime.
 
+O executor recebe o diretório canônico apresentado e recusa mudança de destino
+durante a pergunta. A execução efêmera restabelece esse diretório após a
+inicialização do shell e não executa o comando se a mudança de diretório falhar.
+
 **ACP:** recurso é a classe de ação declarada pelo agente e sua identidade
 disponível no backend, nunca um comando inferido do título enviado pelo agente.
 Não assumir que a permissão ACP prova que o aplicativo inspecionou o shell,
@@ -310,6 +314,8 @@ são explicitamente enumerados. Nenhum PR é mergeado pelo agente.
 - Origens ambíguas têm atribuição administrativa explícita no mesmo modelo de importações. Testes cobrem usuário não administrador, proprietário inexistente, reassignment e distinção entre atribuição e importação concluída.
 - A regressão de titularidade cobre adoção automática seguida de segunda conta e marcadores anteriores ao registro administrativo, impedindo reatribuição e duplicação de concessões.
 - Revisão remota da interface: recarga preserva o DataGrid e sua restauração por identidade, com fallback para a toolbar após remover a última linha. Associação navega para a rota de perfis, sem contornar guardas de comandos/modal. Regressões de foco e E2E de abertura do editor real passaram.
+- Revisão remota de diretório shell: regressões de troca de symlink durante consentimento, caminho literal com aspas e falha de mudança de diretório. O teste de startup bash com `cd` roda no CI Linux; o wrapper PowerShell foi exercitado localmente.
+- Diagnósticos de migração usam `PermissionDiagnostic` com código, domínio e perfil, traduzidos nos três idiomas. Detalhes técnicos ficam no log; testes do controller preservam regras conhecidas junto da pendência e verificam os códigos.
 - Testes de UI cobrem axe, filtros, erro de leitura, pendências e confirmação de revogação. Testes de concorrência cobrem geração de sessão e snapshot consistente dos escopos. Build, vet, golangci-lint, TypeScript e ESLint passaram; Stylelint sem erros. Dez pacotes Go, 174 testes de regressão frontend e dois E2E de arquivos/foco passaram. Revisão independente concluída sem pendências. CI remoto ainda pendente. A tentativa de excluir ACP na suíte frontend ampla não foi respeitada pelos projetos Vitest e incluiu testes de UI com mocks; não houve execução de agentes nem testes Go ACP. As validações locais seguintes usam arquivos explicitamente selecionados.
 ## Riscos
 

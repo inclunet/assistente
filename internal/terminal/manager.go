@@ -4,6 +4,7 @@ import (
 	"assistente/internal/logging"
 	"context"
 	"fmt"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -160,6 +161,14 @@ func (m *Manager) Acquire(ctx context.Context, workDir string) (*Session, error)
 // Não adiciona a sessão ao pool nem emite session_created/closed — evita
 // flicker no Terminal e não ocupa o limite de sessões.
 func (m *Manager) RunEphemeral(ctx context.Context, workDir, command string, timeout time.Duration, source string) (*HistoryEntry, error) {
+	absolute, err := filepath.Abs(workDir)
+	if err != nil {
+		return nil, err
+	}
+	workDir, err = filepath.EvalSymlinks(absolute)
+	if err != nil {
+		return nil, err
+	}
 	if timeout == 0 {
 		timeout = m.config.DefaultTimeout
 	}
@@ -184,7 +193,11 @@ func (m *Manager) RunEphemeral(ctx context.Context, workDir, command string, tim
 	if err := session.beginCommandWithID(commandID); err != nil {
 		return nil, err
 	}
-	result, err := session.RunCommand(ctx, command, timeout, source, commandID)
+	// O shell pode carregar um perfil que muda o diretório. Reestabelecer o
+	// diretório da execução depois da inicialização impede que isso amplie
+	// uma autorização vinculada ao diretório, sem retirar o ambiente do usuário.
+	executionCommand := commandInDirectory(command, session.cwd, shellType(session.shell))
+	result, err := session.RunCommand(ctx, executionCommand, timeout, source, commandID)
 	return completeCommandEntry(entry, result, err), err
 }
 

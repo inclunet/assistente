@@ -51,6 +51,10 @@ de execução, comandos simples reconhecidos podem ser lembrados para a operaç�
 exata e o diretório exibidos. Comandos livres, argumentos não reconhecidos,
 pipelines e redirecionamentos oferecem somente aprovação pontual. Uma
 proibição da política continua prevalecendo.
+O diretório apresentado é resolvido antes da autorização e conferido novamente
+antes da execução. Se o destino mudar enquanto você decide, o comando é
+recusado. Em execuções efêmeras, o aplicativo restabelece esse diretório depois
+dos scripts de inicialização do shell.
 
 Terminais persistentes podem mudar de diretório durante a sessão. Quando a
 política exige confirmação, a autorização vale apenas para aquela execução;
@@ -79,6 +83,8 @@ sobre a mesma configuração.
 Origem inválida ou ilegível bloqueia as operações que dependem dela, mas não
 impede abrir o chat. A listagem informa a pendência e permite revogar regras
 já conhecidas. A importação automática exige proprietário local inequívoco.
+Os diagnósticos acompanham o idioma da interface, indicam domínio e perfil e
+orientam consultar os logs quando os detalhes são técnicos.
 Em ambientes com múltiplos usuários ou autenticação externa, um administrador
 usa **Atribuir origens legadas**, escolhe uma origem conhecida e seu proprietário.
 A atribuição é exclusiva; o primeiro login não recebe as regras automaticamente.

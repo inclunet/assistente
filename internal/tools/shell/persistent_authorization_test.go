@@ -3,6 +3,9 @@ package shell
 import (
 	"context"
 	"encoding/json"
+	"os"
+	"path/filepath"
+	"runtime"
 	"testing"
 
 	"assistente/internal/allowlist"
@@ -10,6 +13,38 @@ import (
 	"assistente/internal/shelltrust"
 	"assistente/internal/testutil/authorizationfixture"
 )
+
+func TestDirectorySymlinkSwapDuringConsentDoesNotExecute(t *testing.T) {
+	root, first, second := t.TempDir(), t.TempDir(), t.TempDir()
+	link := filepath.Join(root, "workspace")
+	if err := os.Symlink(first, link); err != nil {
+		if runtime.GOOS == "windows" {
+			t.Skipf("symlink indisponível: %v", err)
+		}
+		t.Fatal(err)
+	}
+	m := &MockSessionManager{}
+	policy := func(context.Context) (*allowlist.Allowlist, error) {
+		return &allowlist.Allowlist{DefaultAction: "confirm"}, nil
+	}
+	rc := NewRunCommand(m, func(_ context.Context, _, directory string) (bool, error) {
+		expected, err := filepath.EvalSymlinks(first)
+		if err != nil || directory != expected {
+			t.Fatalf("diretório apresentado: %s, esperado %s: %v", directory, expected, err)
+		}
+		if err := os.Remove(link); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(second, link); err != nil {
+			t.Fatal(err)
+		}
+		return true, nil
+	}, policy, link)
+	result, err := rc.Execute(authorizationfixture.Context(), json.RawMessage(`{"command":"git push"}`))
+	if err != nil || !result.IsError || m.runEphemeralCalls != 0 {
+		t.Fatalf("executou após troca: %+v %v calls=%d", result, err, m.runEphemeralCalls)
+	}
+}
 
 func TestPersistentTerminalNeverReusesInitialDirectoryGrant(t *testing.T) {
 	dir := t.TempDir()
