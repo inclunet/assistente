@@ -37,7 +37,7 @@ export default function PermissionsPage() {
   const { handleGridReady } = useGridFocus();
   useGridPageLandmarks({ pageClass: 'permissions-page' });
   const [rows, setRows] = useState<Permission[]>([]);
-  const [errors, setErrors] = useState<string[]>([]);
+  const [errors, setErrors] = useState<controllers.PermissionDiagnostic[]>([]);
   const [loading, setLoading] = useState(true);
   const [hasSnapshot, setHasSnapshot] = useState(false);
   const [failed, setFailed] = useState(false);
@@ -132,7 +132,12 @@ export default function PermissionsPage() {
         <Select id="permission-effect" label={t('permissions.effectLabel')} value={effect} options={options(effects, 'effect')} onChange={(e) => setEffect(e.target.value)} />
         <Select id="permission-status" label={t('permissions.statusLabel')} value={status} options={options(['active', 'revoked'], 'status')} onChange={(e) => setStatus(e.target.value)} />
       </div>
-      {errors.length > 0 && <div><p>{t('permissions.incomplete')}</p><ul>{errors.map((error, index) => <li key={`${index}:${error}`}>{error}</li>)}</ul></div>}
+      {errors.length > 0 && <div><p>{t('permissions.incomplete')}</p><ul>{errors.map((error, index) => <li key={index}>
+        {t(`permissions.diagnostic.${error.code === 'owner_pending' ? 'owner_pending' : 'source_unavailable'}`, {
+          domain: t(error.domain === 'profiles' ? 'permissions.diagnostic.profiles' : domains.includes(error.domain) ? `permissions.domain.${error.domain}` : 'permissions.title'),
+          profile: error.profile || t('permissions.diagnostic.noProfile'),
+        })}
+      </li>)}</ul></div>}
       {failed && <p>{t('permissions.loadFailed')}</p>}
       {!hasSnapshot ? loading && <PageLoading message={t('permissions.loading')} /> :
         <DataGrid items={visible} columns={columns} label={t('permissions.title')} getItemId={(row) => row.id}

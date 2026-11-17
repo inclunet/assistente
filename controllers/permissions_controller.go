@@ -41,8 +41,25 @@ type PermissionSnapshot struct {
 	Rules []PermissionView `json:"rules"`
 	// Erros de importação aparecem junto às regras já conhecidas, sem fingir
 	// que a listagem está completa ou impedir a revogação do que já existe.
-	MigrationErrors []string `json:"migrationErrors"`
+	MigrationErrors []PermissionDiagnostic `json:"migrationErrors"`
 }
+
+type PermissionDiagnostic struct {
+	Code    string `json:"code"`
+	Domain  string `json:"domain"`
+	Profile string `json:"profile"`
+}
+
+type PermissionPreparationError struct {
+	Domain  string
+	Profile string
+	Err     error
+}
+
+func (e *PermissionPreparationError) Error() string {
+	return fmt.Sprintf("%s (%s): %v", e.Domain, e.Profile, e.Err)
+}
+func (e *PermissionPreparationError) Unwrap() error { return e.Err }
 
 type PermissionsController struct {
 	Repository *authorization.Repository
@@ -51,11 +68,20 @@ type PermissionsController struct {
 }
 
 func (c *PermissionsController) List(ctx context.Context) (PermissionSnapshot, error) {
-	result := PermissionSnapshot{Rules: []PermissionView{}, MigrationErrors: []string{}}
+	result := PermissionSnapshot{Rules: []PermissionView{}, MigrationErrors: []PermissionDiagnostic{}}
 	if c.Prepare != nil {
 		for _, err := range c.Prepare(ctx) {
 			if err != nil {
-				result.MigrationErrors = append(result.MigrationErrors, err.Error())
+				diagnostic := PermissionDiagnostic{Code: "source_unavailable"}
+				if errors.Is(err, authorization.ErrLegacyOwnerPending) {
+					diagnostic.Code = "owner_pending"
+				}
+				var preparation *PermissionPreparationError
+				if errors.As(err, &preparation) {
+					diagnostic.Domain, diagnostic.Profile = preparation.Domain, preparation.Profile
+				}
+				result.MigrationErrors = append(result.MigrationErrors, diagnostic)
+				logging.Logger(ctx, "authorization").WarnContext(ctx, "Preparação de permissões incompleta", "error", err, "code", diagnostic.Code)
 			}
 		}
 	}

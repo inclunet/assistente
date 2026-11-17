@@ -1,6 +1,7 @@
 const es = {
   translation: {
 permissions: {
+diagnostic: { owner_pending: '{{domain}} ({{profile}}): el origen antiguo necesita un propietario. Use Asignar orígenes antiguos con una cuenta administradora.', source_unavailable: '{{domain}} ({{profile}}): no se pudieron cargar las autorizaciones. Consulte los registros para más detalles.', profiles: 'Perfiles', noProfile: 'sin perfil específico' },
 associations: 'Asociar políticas a perfiles',
 resourceKind: 'Tipo de recurso', expiresAt: 'Vence el',
 assign: 'Asignar orígenes antiguos', assigned: 'Propietario asignado. La importación ocurrirá en el contexto de ese usuario.', assignmentFailed: 'No se pudo asignar el origen.', assignmentHelp: 'Elija el origen conocido y su propietario. La asignación es exclusiva: esta acción no puede transferirla y no concede sus reglas a otros usuarios.', owner: 'Propietario', choose: 'Seleccione',

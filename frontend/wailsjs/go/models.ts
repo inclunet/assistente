@@ -4966,6 +4966,22 @@ export namespace controllers {
 		    return a;
 		}
 	}
+	export class PermissionDiagnostic {
+	    code: string;
+	    domain: string;
+	    profile: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new PermissionDiagnostic(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.code = source["code"];
+	        this.domain = source["domain"];
+	        this.profile = source["profile"];
+	    }
+	}
 	export class PermissionView {
 	    id: string;
 	    domain: string;
@@ -5002,7 +5018,7 @@ export namespace controllers {
 	}
 	export class PermissionSnapshot {
 	    rules: PermissionView[];
-	    migrationErrors: string[];
+	    migrationErrors: PermissionDiagnostic[];
 	
 	    static createFrom(source: any = {}) {
 	        return new PermissionSnapshot(source);
@@ -5011,7 +5027,7 @@ export namespace controllers {
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.rules = this.convertValues(source["rules"], PermissionView);
-	        this.migrationErrors = source["migrationErrors"];
+	        this.migrationErrors = this.convertValues(source["migrationErrors"], PermissionDiagnostic);
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {

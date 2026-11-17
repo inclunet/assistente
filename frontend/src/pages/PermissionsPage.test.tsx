@@ -99,11 +99,11 @@ describe('PermissionsPage — gestão', () => {
     expect(screen.queryByText('Nenhum item para exibir')).not.toBeInTheDocument();
   });
   it('expõe origens pendentes junto às regras já conhecidas', async () => {
-    mockGetPermissions.mockResolvedValue({ rules:[entradaDeWorkspace], migrationErrors:['pending-source'] });
+    mockGetPermissions.mockResolvedValue({ rules:[entradaDeWorkspace], migrationErrors:[{ code: 'owner_pending', domain: 'network', profile: 'padrao' }] });
     renderPermissions();
     await screen.findByText('api.internal');
     expect(screen.getByText('permissions.incomplete')).toBeInTheDocument();
-    expect(screen.getByText('pending-source')).toBeInTheDocument();
+    expect(screen.getByText('permissions.diagnostic.owner_pending')).toBeInTheDocument();
   });
   it('revoga a identidade da linha após a confirmação', async () => {
     mockGetPermissions.mockResolvedValueOnce({rules:[entradaDeWorkspace],migrationErrors:[]}).mockResolvedValue({rules:[],migrationErrors:[]});
@@ -148,4 +148,3 @@ describe('PermissionsPage — gestão', () => {
     else expect(screen.getByText('Nenhum item para exibir')).toBeInTheDocument();
   });
 });
-

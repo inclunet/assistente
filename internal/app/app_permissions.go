@@ -2,7 +2,6 @@ package app
 
 import (
 	"context"
-	"fmt"
 
 	"assistente/controllers"
 	"assistente/internal/authorization"
@@ -30,11 +29,11 @@ func (a *App) wirePermissions() {
 func (a *App) preparePermissions(ctx context.Context) []error {
 	var failures []error
 	if _, err := a.allowlistMgr.List(ctx); err != nil {
-		failures = append(failures, fmt.Errorf("shell: %w", err))
+		failures = append(failures, &controllers.PermissionPreparationError{Domain: "shell", Err: err})
 	}
 	profiles, err := a.profileManager.List()
 	if err != nil {
-		return append(failures, err)
+		return append(failures, &controllers.PermissionPreparationError{Domain: "profiles", Err: err})
 	}
 	// Somente perfis conhecidos e o workspace aberto. Não há busca em discos
 	// nem troca de banco para encontrar autorizações esquecidas.
@@ -45,14 +44,14 @@ func (a *App) preparePermissions(ctx context.Context) []error {
 	for _, slug := range slugs {
 		origin := invocationctx.With(ctx, invocationctx.InvocationContext{ProfileSlug: slug})
 		if _, err := a.netTrustMgr.List(origin); err != nil {
-			failures = append(failures, fmt.Errorf("network (%s): %w", slug, err))
+			failures = append(failures, &controllers.PermissionPreparationError{Domain: "network", Profile: slug, Err: err})
 		}
 		if _, err := a.fsTrustMgr.List(origin); err != nil {
-			failures = append(failures, fmt.Errorf("filesystem (%s): %w", slug, err))
+			failures = append(failures, &controllers.PermissionPreparationError{Domain: "filesystem", Profile: slug, Err: err})
 		}
 	}
 	if _, err := a.acpTrust.Profiles(ctx); err != nil {
-		failures = append(failures, fmt.Errorf("acp: %w", err))
+		failures = append(failures, &controllers.PermissionPreparationError{Domain: "acp", Err: err})
 	}
 	return failures
 }

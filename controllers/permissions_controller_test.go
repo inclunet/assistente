@@ -63,10 +63,18 @@ func TestPermissionsMigrationFailureDoesNotHideKnownRules(t *testing.T) {
 	if err := repo.Upsert(ctx, database.AuthorizationRule{Domain: "network", Scope: "global", Effect: "allow", Origin: "consent", SelectorKey: "known", SelectorVersion: 1, Selector: `{"host":"known.internal","scope":"global"}`}); err != nil {
 		t.Fatal(err)
 	}
-	c := PermissionsController{Repository: repo, Prepare: func(context.Context) []error { return []error{errors.New("pending-source")} }}
+	c := PermissionsController{Repository: repo, Prepare: func(context.Context) []error {
+		return []error{
+			&PermissionPreparationError{Domain: "network", Profile: "padrao", Err: authorization.ErrLegacyOwnerPending},
+			errors.New("detalhe técnico que não deve ir para a UI"),
+		}
+	}}
 	result, err := c.List(ctx)
-	if err != nil || len(result.Rules) != 1 || len(result.MigrationErrors) != 1 {
+	if err != nil || len(result.Rules) != 1 || len(result.MigrationErrors) != 2 {
 		t.Fatalf("estado incompleto: %+v %v", result, err)
+	}
+	if result.MigrationErrors[0] != (PermissionDiagnostic{Code: "owner_pending", Domain: "network", Profile: "padrao"}) || result.MigrationErrors[1].Code != "source_unavailable" {
+		t.Fatalf("diagnósticos sem contrato traduzível: %+v", result.MigrationErrors)
 	}
 	if err := c.Revoke(ctx, result.Rules[0].ID); err != nil {
 		t.Fatal(err)

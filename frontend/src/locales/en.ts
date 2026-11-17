@@ -1,6 +1,7 @@
 const en = {
   translation: {
 permissions: {
+diagnostic: { owner_pending: '{{domain}} ({{profile}}): the legacy source needs an owner. Use Assign legacy sources with an administrator account.', source_unavailable: '{{domain}} ({{profile}}): authorizations could not be loaded. See the logs for details.', profiles: 'Profiles', noProfile: 'no specific profile' },
 associations: 'Assign policies to profiles',
 resourceKind: 'Resource type', expiresAt: 'Expires at',
 assign: 'Assign legacy sources', assigned: 'Owner assigned. Import will run in that user context.', assignmentFailed: 'Could not assign the source.', assignmentHelp: 'Choose a known source and its owner. Assignment is exclusive: this action cannot transfer it and does not grant its rules to other users.', owner: 'Owner', choose: 'Select',

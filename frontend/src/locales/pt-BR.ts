@@ -1,6 +1,7 @@
 const ptBR = {
   translation: {
 permissions: {
+diagnostic: { owner_pending: '{{domain}} ({{profile}}): a origem legada precisa de um proprietário. Use Atribuir origens legadas com uma conta administradora.', source_unavailable: '{{domain}} ({{profile}}): não foi possível carregar as autorizações. Consulte os logs para detalhes.', profiles: 'Perfis', noProfile: 'sem perfil específico' },
 associations: 'Associar políticas a perfis',
 resourceKind: 'Tipo de recurso', expiresAt: 'Expira em',
 assign: 'Atribuir origens legadas', assigned: 'Proprietário atribuído. A importação ocorrerá no contexto desse usuário.', assignmentFailed: 'Não foi possível atribuir a origem.', assignmentHelp: 'Escolha a origem conhecida e seu proprietário. A atribuição é exclusiva: não pode ser transferida por esta ação e não concede as regras aos demais usuários.', owner: 'Proprietário', choose: 'Selecione',
