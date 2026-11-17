@@ -84,7 +84,7 @@ func (t *SearchFiles) Execute(ctx context.Context, args json.RawMessage) (tools.
 		basePath = "."
 	}
 
-	fullBase, err := t.resolvePath(basePath)
+	fullBase, err := resolveFilePath(ctx, basePath, t.workDir)
 	if err != nil {
 		return tools.ToolResult{Content: err.Error(), IsError: true}, nil
 	}
@@ -139,7 +139,7 @@ func (t *SearchFiles) Execute(ctx context.Context, args json.RawMessage) (tools.
 			// Vem antes do skill para a entrada não ser contada em
 			// skippedBySkill e anunciada no cabeçalho — omissão por sandbox é
 			// silenciosa (AEP-0092 D-Q7).
-			if walkEntryEscapesSandbox(path, d.Type(), t.workDir) {
+			if walkEntryEscapesSandbox(ctx, path, d.Type(), t.workDir) {
 				return nil
 			}
 
@@ -206,7 +206,7 @@ func (t *SearchFiles) Execute(ctx context.Context, args json.RawMessage) (tools.
 
 		for _, match := range globMatches {
 			// Link apontando para fora do sandbox: não vazar nomes externos
-			if pathEscapesSandbox(match, t.workDir) {
+			if pathEscapesSandbox(ctx, match, t.workDir) {
 				continue
 			}
 
@@ -293,10 +293,6 @@ func searchFilesMetadata(matches []searchFileMatch, truncated bool, skippedBySki
 		"results": len(matches), "truncated": truncated, "skipped_by_skill": skippedBySkill,
 		tools.SearchResultPresentationMetadataKey: tools.SearchResultPresentation{Version: 1, Total: len(items), Truncated: truncated, Items: items},
 	}
-}
-
-func (t *SearchFiles) resolvePath(path string) (string, error) {
-	return resolveFilePath(path, t.workDir)
 }
 
 // extractGlobPattern extrai o padrão simples de um padrão recursivo

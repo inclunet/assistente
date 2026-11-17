@@ -296,6 +296,8 @@ são explicitamente enumerados. Nenhum PR é mergeado pelo agente.
   consentimento escopado de shell/ACP, gestão unificada e atribuição explícita
   de proprietário para origens legadas ambíguas. Até essa atribuição existir,
   a migração multiusuário/externa falha de modo fechado e informa o motivo.
+- Revisão de origem filesystem: resolução relativa, sandbox, walks e padrões de skills recebem o contexto capturado. O teste TestReadFileMantemWorkspaceDaOrigemDepoisDeTrocarATela executa leitura real após A→B e verifica que canal sem workspace não herda UI/cwd.
+
 ## Riscos
 
 - Ampliar permissões ao normalizar comandos ou migrar documentos homônimos:

@@ -11,6 +11,7 @@ import (
 
 	"assistente/internal/configdir"
 	"assistente/internal/tools"
+	"assistente/internal/tools/invocationctx"
 )
 
 // errOutsideAllowedDirs é retornado quando um caminho está fora dos diretórios permitidos
@@ -76,9 +77,9 @@ func expandTilde(path string) string {
 // Ordem de resolução:
 //  1. Expande ~ para home directory
 //  2. Se absoluto, retorna limpo
-//  3. Se relativo, resolve em relação ao workspace ativo; sem workspace ativo,
-//     cai no workDir estático da tool.
-func resolveFilePath(path, workDir string) (string, error) {
+//  3. Se relativo, resolve no workspace capturado da operação; fora de uma invocação,
+//     usa a raiz dinâmica da UI e então o workDir estático da tool.
+func resolveFilePath(ctx context.Context, path, workDir string) (string, error) {
 	// Primeiro expande tilde
 	expanded := expandTilde(path)
 
@@ -87,11 +88,14 @@ func resolveFilePath(path, workDir string) (string, error) {
 		return filepath.Clean(expanded), nil
 	}
 
-	// Relativo: acompanha a mesma raiz dinâmica usada pelo sandbox. Isso evita
+	// Relativo: acompanha a mesma raiz de origem usada pelo sandbox. Isso evita
 	// resolver no cwd do boot depois que o usuário troca o workspace ativo.
-	root, err := effectiveSandboxRoot(workDir)
+	root, err := effectiveSandboxRoot(ctx, workDir)
 	if err != nil {
 		return "", err
+	}
+	if root == "" {
+		return "", errors.New("operação sem workspace: informe um caminho absoluto")
 	}
 	return filepath.Abs(filepath.Join(root, expanded))
 }
@@ -124,7 +128,16 @@ func isWithinRoot(absPath string, absRoot string) bool {
 	return true
 }
 
-func effectiveSandboxRoot(workDir string) (string, error) {
+func effectiveSandboxRoot(ctx context.Context, workDir string) (string, error) {
+	if root, captured := invocationctx.Workspace(ctx); captured {
+		if root == "" {
+			return "", nil
+		}
+		return filepath.Abs(filepath.Clean(root))
+	}
+	if inv, ok := invocationctx.Get(ctx); ok && inv.Source != "" {
+		return "", nil
+	}
 	if sandboxRootFunc != nil {
 		if root := strings.TrimSpace(sandboxRootFunc()); root != "" {
 			abs, err := filepath.Abs(filepath.Clean(root))
@@ -216,8 +229,8 @@ func ResolveForComparison(path string) (string, error) {
 	return resolveForComparison(path)
 }
 
-func validatePath(fullPath, workDir string) error {
-	_, err := validatePathResolved(fullPath, workDir)
+func validatePath(ctx context.Context, fullPath, workDir string) error {
+	_, err := validatePathResolved(ctx, fullPath, workDir)
 	return err
 }
 
@@ -225,17 +238,20 @@ func validatePath(fullPath, workDir string) error {
 // resolvidos), para o chamador reaproveitar sem repetir a resolução (ex.: a
 // checagem de denylist dentro do sandbox). O path resolvido é devolvido mesmo
 // quando o erro é errOutsideAllowedDirs.
-func validatePathResolved(fullPath, workDir string) (string, error) {
+func validatePathResolved(ctx context.Context, fullPath, workDir string) (string, error) {
 	absPath, err := filepath.Abs(filepath.Clean(fullPath))
 	if err != nil {
 		return "", fmt.Errorf("caminho inválido: %v", err)
 	}
-	absRoot, err := effectiveSandboxRoot(workDir)
+	absRoot, err := effectiveSandboxRoot(ctx, workDir)
 	if err != nil {
 		return "", err
 	}
 
-	allowedRoots := []string{absRoot}
+	var allowedRoots []string
+	if absRoot != "" {
+		allowedRoots = append(allowedRoots, absRoot)
+	}
 	if homeBase := strings.TrimSpace(configdir.GetHomeDir()); homeBase != "" {
 		if absHomeBase, err := filepath.Abs(filepath.Clean(homeBase)); err == nil {
 			if normalizeForComparison(absHomeBase) != normalizeForComparison(absRoot) {
@@ -272,19 +288,19 @@ func validatePathResolved(fullPath, workDir string) (string, error) {
 // Walkers pulam a entrada em silêncio em vez de acionar o PathAuthorizer: um
 // prompt por arquivo percorrido inviabilizaria a busca. Ler o alvo continua
 // possível pelo caminho real, aí sim com consentimento (AEP-0092).
-func walkEntryEscapesSandbox(path string, mode os.FileMode, workDir string) bool {
+func walkEntryEscapesSandbox(ctx context.Context, path string, mode os.FileMode, workDir string) bool {
 	if mode&os.ModeSymlink == 0 {
 		return false
 	}
-	return validatePath(path, workDir) != nil
+	return validatePath(ctx, path, workDir) != nil
 }
 
 // pathEscapesSandbox faz o teste completo, sem o atalho do symlink. É o que
 // vale para resultados de filepath.Glob: diferente do WalkDir, o Glob atravessa
 // diretório linkado quando o padrão nomeia o link (`linkdir/*.conf`), então o
 // match pode ser um arquivo comum cujo destino real está fora da raiz.
-func pathEscapesSandbox(path string, workDir string) bool {
-	return validatePath(path, workDir) != nil
+func pathEscapesSandbox(ctx context.Context, path string, workDir string) bool {
+	return validatePath(ctx, path, workDir) != nil
 }
 
 func validatePathWithPolicy(ctx context.Context, fullPath, workDir string, policy Policy, operation string) error {
@@ -306,7 +322,7 @@ func validatePathWithPolicyResolved(ctx context.Context, fullPath, workDir strin
 			return "", err
 		}
 	}
-	resolvedPath, err := validatePathResolved(fullPath, workDir)
+	resolvedPath, err := validatePathResolved(ctx, fullPath, workDir)
 	if err != nil {
 		if !errors.Is(err, errOutsideAllowedDirs) {
 			return "", err
@@ -351,7 +367,7 @@ func validateSkillFilesystemAllowlist(ctx context.Context, fullPath, workDir, op
 	}
 
 	// Deny tem precedência.
-	if matchesAnyFilesystemPattern(absPath, workDir, ec.Filesystem.Deny) {
+	if matchesAnyFilesystemPattern(ctx, absPath, workDir, ec.Filesystem.Deny) {
 		if ec.InvokedSkillSlug != "" {
 			return fmt.Errorf("acesso ao filesystem bloqueado pela denylist do skill '%s'", ec.InvokedSkillSlug)
 		}
@@ -376,7 +392,7 @@ func validateSkillFilesystemAllowlist(ctx context.Context, fullPath, workDir, op
 		return fmt.Errorf("skill não permite operação '%s' no filesystem", operation)
 	}
 
-	if !matchesAnyFilesystemPattern(absPath, workDir, allowed) {
+	if !matchesAnyFilesystemPattern(ctx, absPath, workDir, allowed) {
 		if ec.InvokedSkillSlug != "" {
 			return fmt.Errorf("caminho não permitido pelo skill '%s' para operação '%s'", ec.InvokedSkillSlug, operation)
 		}
@@ -391,7 +407,7 @@ func validateSkillFilesystemAllowlist(ctx context.Context, fullPath, workDir, op
 // consulta deny e allow. Resolver de novo aqui dobraria syscalls no walk e
 // ainda abriria janela para os dois lados discordarem se o disco mudasse entre
 // as duas resoluções.
-func matchesAnyFilesystemPattern(absPath string, workDir string, patterns []string) bool {
+func matchesAnyFilesystemPattern(ctx context.Context, absPath string, workDir string, patterns []string) bool {
 	if len(patterns) == 0 {
 		return false
 	}
@@ -400,7 +416,7 @@ func matchesAnyFilesystemPattern(absPath string, workDir string, patterns []stri
 		if pat == "" {
 			continue
 		}
-		if filesystemPatternMatches(absPath, workDir, pat) {
+		if filesystemPatternMatches(ctx, absPath, workDir, pat) {
 			return true
 		}
 	}
@@ -439,10 +455,10 @@ func resolveGlobFreePrefix(pattern string) string {
 	return resolved
 }
 
-func filesystemPatternMatches(absPath string, workDir string, pattern string) bool {
+func filesystemPatternMatches(ctx context.Context, absPath string, workDir string, pattern string) bool {
 	// Resolve o padrão como um path (expande ~ e caminhos relativos à mesma
 	// raiz dinâmica do sandbox/workspace ativo).
-	resolved, err := resolveFilePath(pattern, workDir)
+	resolved, err := resolveFilePath(ctx, pattern, workDir)
 	if err != nil {
 		return false
 	}

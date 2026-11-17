@@ -69,11 +69,11 @@ func (t *CopyFile) Execute(ctx context.Context, args json.RawMessage) (tools.Too
 		overwrite = *a.Overwrite
 	}
 
-	fullFrom, err := resolveFilePath(from, t.workDir)
+	fullFrom, err := resolveFilePath(ctx, from, t.workDir)
 	if err != nil {
 		return tools.ToolResult{Content: err.Error(), IsError: true}, nil
 	}
-	fullTo, err := resolveFilePath(to, t.workDir)
+	fullTo, err := resolveFilePath(ctx, to, t.workDir)
 	if err != nil {
 		return tools.ToolResult{Content: err.Error(), IsError: true}, nil
 	}

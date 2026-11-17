@@ -171,7 +171,7 @@ func (t *ApplyPatch) Execute(ctx context.Context, args json.RawMessage) (tools.T
 		}), nil
 	}
 
-	fullPath, err := resolveFilePath(a.Path, t.workDir)
+	fullPath, err := resolveFilePath(ctx, a.Path, t.workDir)
 	if err != nil {
 		return patchFileErrorResult(a.Path, "invalid_path", err), nil
 	}

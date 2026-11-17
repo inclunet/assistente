@@ -46,7 +46,7 @@ func TestValidatePath_PathTraversal(t *testing.T) {
 				t.Skipf("backslash path traversal only applies on Windows")
 			}
 			fullPath := filepath.Join(workDir, tt.path)
-			err := validatePath(fullPath, workDir)
+			err := validatePath(context.Background(), fullPath, workDir)
 
 			if tt.shouldErr && err == nil {
 				t.Errorf("%s: esperado erro, got nil (path: %s)", tt.desc, fullPath)
@@ -193,13 +193,13 @@ func TestValidatePath_HomeDirectory(t *testing.T) {
 
 	// Paths dentro de workDir devem ser válidos
 	validPath := filepath.Join(workDir, "file.txt")
-	if err := validatePath(validPath, workDir); err != nil {
+	if err := validatePath(context.Background(), validPath, workDir); err != nil {
 		t.Errorf("path dentro de workDir deve ser válido: %v", err)
 	}
 
 	// Paths completamente fora devem ser inválidos
 	outsidePath := "/outside/the/workdir/file.txt"
-	if err := validatePath(outsidePath, workDir); err == nil {
+	if err := validatePath(context.Background(), outsidePath, workDir); err == nil {
 		t.Error("path fora de workDir deve ser rejeitado")
 	}
 }
@@ -219,7 +219,7 @@ func TestValidatePath_InvalidInput(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.desc, func(t *testing.T) {
-			err := validatePath(tt.fullPath, tt.workDir)
+			err := validatePath(context.Background(), tt.fullPath, tt.workDir)
 			if tt.shouldErr && err == nil {
 				t.Errorf("%s: esperado erro, got nil", tt.desc)
 			}
@@ -566,13 +566,13 @@ func TestValidatePath_SymlinkEscapeBlocked(t *testing.T) {
 
 	// Arquivo existente através do link → destino real fora do sandbox.
 	viaLink := filepath.Join(link, "secret.txt")
-	if err := validatePath(viaLink, workDir); !errors.Is(err, errOutsideAllowedDirs) {
+	if err := validatePath(context.Background(), viaLink, workDir); !errors.Is(err, errOutsideAllowedDirs) {
 		t.Errorf("leitura via symlink para fora deveria cair em errOutsideAllowedDirs, obtido: %v", err)
 	}
 
 	// Arquivo novo (inexistente) através do link → ancestral resolvido fora.
 	novoViaLink := filepath.Join(link, "novo.txt")
-	if err := validatePath(novoViaLink, workDir); !errors.Is(err, errOutsideAllowedDirs) {
+	if err := validatePath(context.Background(), novoViaLink, workDir); !errors.Is(err, errOutsideAllowedDirs) {
 		t.Errorf("escrita via symlink para fora deveria cair em errOutsideAllowedDirs, obtido: %v", err)
 	}
 
@@ -584,14 +584,14 @@ func TestValidatePath_SymlinkEscapeBlocked(t *testing.T) {
 	if err := os.Symlink(danglingTarget, danglingLink); err != nil {
 		t.Fatalf("falha ao criar symlink pendurado: %v", err)
 	}
-	if err := validatePath(danglingLink, workDir); !errors.Is(err, errOutsideAllowedDirs) {
+	if err := validatePath(context.Background(), danglingLink, workDir); !errors.Is(err, errOutsideAllowedDirs) {
 		t.Errorf("symlink final pendurado para fora deveria cair em errOutsideAllowedDirs, obtido: %v", err)
 	}
 
 	// Regressão: arquivo real dentro do workDir continua permitido.
 	inside := filepath.Join(workDir, "inside.txt")
 	_ = os.WriteFile(inside, []byte("ok"), 0644)
-	if err := validatePath(inside, workDir); err != nil {
+	if err := validatePath(context.Background(), inside, workDir); err != nil {
 		t.Errorf("arquivo real dentro do workDir deveria ser permitido: %v", err)
 	}
 }
@@ -606,12 +606,12 @@ func TestValidatePath_SandboxRootFunc(t *testing.T) {
 	t.Cleanup(func() { sandboxRootFunc = prev })
 	sandboxRootFunc = func() string { return active }
 
-	if err := validatePath(fileInActive, bootDir); err != nil {
+	if err := validatePath(context.Background(), fileInActive, bootDir); err != nil {
 		t.Fatalf("path no workspace ativo deveria passar: %v", err)
 	}
 	outside := filepath.Join(t.TempDir(), "y.txt")
 	_ = os.WriteFile(outside, []byte("y"), 0644)
-	if err := validatePath(outside, bootDir); err == nil {
+	if err := validatePath(context.Background(), outside, bootDir); err == nil {
 		t.Fatal("path fora do workspace ativo deveria falhar")
 	}
 }
@@ -624,7 +624,7 @@ func TestResolveFilePath_UsesActiveSandboxRoot(t *testing.T) {
 	t.Cleanup(func() { sandboxRootFunc = prev })
 	sandboxRootFunc = func() string { return active }
 
-	resolved, err := resolveFilePath(filepath.Join("docs", "note.md"), bootDir)
+	resolved, err := resolveFilePath(context.Background(), filepath.Join("docs", "note.md"), bootDir)
 	if err != nil {
 		t.Fatalf("resolveFilePath relativo: %v", err)
 	}
@@ -634,7 +634,7 @@ func TestResolveFilePath_UsesActiveSandboxRoot(t *testing.T) {
 	}
 
 	absolute := filepath.Join(bootDir, "absolute.txt")
-	resolvedAbsolute, err := resolveFilePath(absolute, bootDir)
+	resolvedAbsolute, err := resolveFilePath(context.Background(), absolute, bootDir)
 	if err != nil {
 		t.Fatalf("resolveFilePath absoluto: %v", err)
 	}
@@ -644,11 +644,11 @@ func TestResolveFilePath_UsesActiveSandboxRoot(t *testing.T) {
 
 	// Patterns relativos de skill precisam acompanhar a mesma raiz dinâmica.
 	allowed := filepath.Join(active, "docs", "child.txt")
-	if !filesystemPatternMatches(allowed, bootDir, filepath.Join("docs", "**")) {
+	if !filesystemPatternMatches(context.Background(), allowed, bootDir, filepath.Join("docs", "**")) {
 		t.Fatalf("pattern relativo deveria casar path no workspace ativo: %q", allowed)
 	}
 	oldWorkspacePath := filepath.Join(bootDir, "docs", "child.txt")
-	if filesystemPatternMatches(oldWorkspacePath, bootDir, filepath.Join("docs", "**")) {
+	if filesystemPatternMatches(context.Background(), oldWorkspacePath, bootDir, filepath.Join("docs", "**")) {
 		t.Fatalf("pattern relativo não deveria continuar casando o diretório de boot: %q", oldWorkspacePath)
 	}
 }
@@ -684,13 +684,13 @@ func TestFilesystemPatternMatches_RaizSymlinkada(t *testing.T) {
 		filepath.Join(linkRoot, "docs", "*.txt"),
 	}
 	for _, pattern := range patterns {
-		if !matchesAnyFilesystemPattern(child, workDir, []string{pattern}) {
+		if !matchesAnyFilesystemPattern(context.Background(), child, workDir, []string{pattern}) {
 			t.Errorf("pattern %q com raiz symlinkada deveria casar %q", pattern, child)
 		}
 	}
 
 	fora := filepath.Join(t.TempDir(), "outro.txt")
-	if matchesAnyFilesystemPattern(fora, workDir, []string{filepath.Join(linkRoot, "**")}) {
+	if matchesAnyFilesystemPattern(context.Background(), fora, workDir, []string{filepath.Join(linkRoot, "**")}) {
 		t.Errorf("pattern não deveria casar path fora da raiz: %q", fora)
 	}
 }

@@ -79,7 +79,7 @@ func (t *ListDirectory) Execute(ctx context.Context, args json.RawMessage) (tool
 	}
 
 	// Resolve caminho
-	fullPath, err := t.resolvePath(dirPath)
+	fullPath, err := resolveFilePath(ctx, dirPath, t.workDir)
 	if err != nil {
 		return tools.ToolResult{Content: err.Error(), IsError: true}, nil
 	}
@@ -130,7 +130,7 @@ func (t *ListDirectory) listFlat(ctx context.Context, fullPath, displayPath stri
 		// Omissão por sandbox é silenciosa (AEP-0092 D-Q7), então vem antes do
 		// skill: senão a entrada entraria na conta de skippedBySkill e o
 		// cabeçalho atribuiria ao skill uma omissão que é do sandbox.
-		if walkEntryEscapesSandbox(entryPath, entry.Type(), t.workDir) {
+		if walkEntryEscapesSandbox(ctx, entryPath, entry.Type(), t.workDir) {
 			continue
 		}
 		if err := validateSkillFilesystemAllowlist(ctx, entryPath, t.workDir, "list"); err != nil {
@@ -206,7 +206,7 @@ func (t *ListDirectory) listRecursive(ctx context.Context, fullPath, displayPath
 		indent := strings.Repeat("  ", depth)
 		for _, entry := range entries {
 			entryPath := filepath.Join(dir, entry.Name())
-			if walkEntryEscapesSandbox(entryPath, entry.Type(), t.workDir) {
+			if walkEntryEscapesSandbox(ctx, entryPath, entry.Type(), t.workDir) {
 				continue
 			}
 			if err := validateSkillFilesystemAllowlist(ctx, entryPath, t.workDir, "list"); err != nil {
@@ -292,11 +292,6 @@ func (t *ListDirectory) listRecursive(ctx context.Context, fullPath, displayPath
 		}}
 	}
 	return result, nil
-}
-
-// resolvePath converte caminho relativo para absoluto
-func (t *ListDirectory) resolvePath(path string) (string, error) {
-	return resolveFilePath(path, t.workDir)
 }
 
 // shouldSkipDir retorna true para diretórios que devem ser ignorados na recursão

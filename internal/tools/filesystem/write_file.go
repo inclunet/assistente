@@ -105,7 +105,7 @@ func (t *WriteFile) Execute(ctx context.Context, args json.RawMessage) (tools.To
 	}
 
 	// Resolve caminho
-	fullPath, err := t.resolvePath(a.Path)
+	fullPath, err := resolveFilePath(ctx, a.Path, t.workDir)
 	if err != nil {
 		return tools.ToolResult{Content: err.Error(), IsError: true}, nil
 	}
@@ -205,8 +205,4 @@ func (t *WriteFile) Execute(ctx context.Context, args json.RawMessage) (tools.To
 			"overwrite": existed,
 		},
 	}, nil
-}
-
-func (t *WriteFile) resolvePath(path string) (string, error) {
-	return resolveFilePath(path, t.workDir)
 }

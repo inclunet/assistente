@@ -110,7 +110,7 @@ func (t *EditFile) Execute(ctx context.Context, args json.RawMessage) (tools.Too
 	}
 
 	// Resolve caminho
-	fullPath, err := t.resolvePath(a.Path)
+	fullPath, err := resolveFilePath(ctx, a.Path, t.workDir)
 	if err != nil {
 		return tools.ToolResult{Content: err.Error(), IsError: true}, nil
 	}
@@ -237,10 +237,6 @@ func (t *EditFile) Execute(ctx context.Context, args json.RawMessage) (tools.Too
 			"total_lines":  totalLines,
 		},
 	}, nil
-}
-
-func (t *EditFile) resolvePath(path string) (string, error) {
-	return resolveFilePath(path, t.workDir)
 }
 
 // findOccurrenceLines retorna os números das linhas onde old_string começa.
