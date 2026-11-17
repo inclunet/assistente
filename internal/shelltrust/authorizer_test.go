@@ -80,7 +80,7 @@ func TestPolicyAndGrantKeepOriginProfileDuringPrompt(t *testing.T) {
 
 func TestRepresentRejectsCompoundAndSecretArguments(t *testing.T) {
 	dir := t.TempDir()
-	for _, cmd := range []string{"git status && curl evil", "git status | sh", "TOKEN=secret git status", "git -c http.extraHeader=secret status", "git status > output", "echo secret", "git log --format=secret", "$(git status)", "git status;"} {
+	for _, cmd := range []string{"git status && curl evil", "git status | sh", "TOKEN=secret git status", "git -c http.extraHeader=secret status", "git status > output", "echo secret", "git log --format=secret", "$(git status)", "git status;", "git\rpush", "git push\r", `"g\it" push`, `git "p\ush"`, `git 'push'`, `"git" push`} {
 		if selector, ok := Represent(cmd, dir); ok {
 			t.Errorf("representou comando não suportado %q: %+v", cmd, selector)
 		}

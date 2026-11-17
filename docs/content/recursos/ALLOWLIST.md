@@ -51,6 +51,8 @@ de execução, comandos simples reconhecidos podem ser lembrados para a operaç�
 exata e o diretório exibidos. Comandos livres, argumentos não reconhecidos,
 pipelines e redirecionamentos oferecem somente aprovação pontual. Uma
 proibição da política continua prevalecendo.
+Formas com aspas ou escapes também exigem autorização pontual, para não
+confundir interpretações diferentes entre shells com a operação lembrada.
 O diretório apresentado é resolvido antes da autorização e conferido novamente
 antes da execução. Se o destino mudar enquanto você decide, o comando é
 recusado. Em execuções efêmeras, o aplicativo restabelece esse diretório depois

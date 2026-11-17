@@ -16,5 +16,8 @@ func commandInDirectory(command, directory, shell string) string {
 		return fmt.Sprintf("try { Microsoft.PowerShell.Management\\Set-Location -LiteralPath '%s' -ErrorAction Stop; %s } catch { Write-Error $_; $global:LASTEXITCODE = 1 }", path, command)
 	}
 	path := strings.ReplaceAll(directory, "'", "'\"'\"'")
-	return fmt.Sprintf("if command cd -- '%s'; then\n%s\nelse false; fi", path, command)
+	// eval recebe um único literal, sem expansão antecipada. Isso mantém a
+	// leitura por linhas do shell, inclusive alias definido na linha anterior.
+	script := strings.ReplaceAll(command, "'", "'\"'\"'")
+	return fmt.Sprintf("if command cd -- '%s'; then command eval -- '%s'; else false; fi", path, script)
 }

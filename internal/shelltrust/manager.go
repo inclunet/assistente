@@ -87,6 +87,11 @@ func Represent(command, directory string) (Selector, bool) {
 		return Selector{}, false
 	}
 	cmd := parsed.Commands[0]
+	// O parser comum não é um interpretador de cada shell. Só lembrar as
+	// formas literais enumeradas, sem colapsar aspas/escapes para outro comando.
+	if strings.ContainsAny(command, "\r\n") || strings.Join(strings.Fields(command), "\x00") != operation(cmd.Program, cmd.Args) {
+		return Selector{}, false
+	}
 	if len(cmd.EnvAssignments) != 0 || !reusableOperations[operation(cmd.Program, cmd.Args)] {
 		return Selector{}, false
 	}

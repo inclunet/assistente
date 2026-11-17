@@ -66,3 +66,24 @@ func TestCommandInDirectoryQuotesPathsAndStopsOnFailure(t *testing.T) {
 		t.Fatalf("executou após falhar cd: %s", output)
 	}
 }
+
+func TestEphemeralPreservesMultilineAliasesAndLiteralArguments(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("regressão Bash executada no CI Linux")
+	}
+	bash, err := exec.LookPath("bash")
+	if err != nil {
+		t.Skip("bash indisponível")
+	}
+	config := DefaultManagerConfig()
+	config.DefaultShell = bash
+	m := NewManager(config, nil)
+	command := "alias permission_alias='echo alias-ok'\npermission_alias\nprintf '%s\\n' 'literal $(echo unexpected)'\nfalse"
+	entry, err := m.RunEphemeral(context.Background(), t.TempDir(), command, 5*time.Second, "test")
+	if err != nil || entry.ExitCode != 1 {
+		t.Fatalf("status perdido: %+v %v", entry, err)
+	}
+	if !strings.Contains(entry.Output, "alias-ok") || !strings.Contains(entry.Output, "literal $(echo unexpected)") {
+		t.Fatalf("alias ou argumento literal alterado: %s", entry.Output)
+	}
+}
