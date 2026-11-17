@@ -26,6 +26,55 @@ func writeFixture(t *testing.T, path, content string) {
 	}
 }
 
+func TestCapturedIdentityRejectsChangedUser(t *testing.T) {
+	dir := t.TempDir()
+	m := nettrust.NewManager(authorizationfixture.Options(t, dir, ""))
+	ctx := invocationctx.With(authorizationfixture.Context(), invocationctx.InvocationContext{ConversationID: "conversation"})
+	ctx = m.Capture(ctx)
+	if err := m.Add(ctx, nettrust.AllowlistEntry{Host: "private.internal", Scope: nettrust.ScopeSession}); err != nil {
+		t.Fatal(err)
+	}
+	for _, user := range []string{"another-user", ""} {
+		changed := database.WithUserID(ctx, user)
+		if result := m.Match(changed, "private.internal", "443"); result.Err == nil || result.Allowed {
+			t.Fatalf("concessão vazou: %+v", result)
+		}
+		if err := m.Add(changed, nettrust.AllowlistEntry{Host: "persistent.internal", Scope: nettrust.ScopeGlobal}); err == nil {
+			t.Fatal("gravou com identidade divergente")
+		}
+	}
+}
+
+func TestPersistentRevocationRejectsSessionInvalidatedAfterList(t *testing.T) {
+	repo, _ := authorizationfixture.Open(t, t.TempDir())
+	type entry struct{ Scope trustscope.Scope }
+	var m *trustscope.Manager[entry, string]
+	clear := false
+	m = trustscope.NewManager(trustscope.Config[entry, string]{Domain: "network", Subdir: "test", Adapter: trustscope.Adapter[entry, string]{
+		Scope: func(e entry) trustscope.Scope { return e.Scope }, Normalize: func(e entry) (entry, error) { return e, nil },
+		Key: func(entry) string { return "private.internal" }, Identity: func(entry) string { return "private.internal" },
+		Effect: func(entry) string { return "deny" }, Operation: func(entry) string { return "" },
+		SameKey: func(entry, string) bool {
+			if clear {
+				m.ClearSession("conversation")
+			}
+			return true
+		},
+	}}, trustscope.Options{Repository: repo, HomeDir: func() string { return "" }, WorkDir: func() string { return "" }})
+	ctx := invocationctx.With(authorizationfixture.Context(), invocationctx.InvocationContext{ConversationID: "conversation"})
+	if err := m.Add(ctx, entry{Scope: trustscope.ScopeGlobal}); err != nil {
+		t.Fatal(err)
+	}
+	clear = true
+	if err := m.Remove(ctx, trustscope.ScopeGlobal, "private.internal"); err == nil {
+		t.Fatal("revogou negativa após limpar sessão")
+	}
+	rows, err := repo.List(ctx, "network", "global", "")
+	if err != nil || len(rows) != 1 {
+		t.Fatalf("negativa perdida: %+v %v", rows, err)
+	}
+}
+
 func TestConsultaEmVooNaoRetornaSessaoInvalidada(t *testing.T) {
 	dir := t.TempDir()
 	repo, db := authorizationfixture.Open(t, dir)

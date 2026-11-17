@@ -47,6 +47,30 @@ func TestEnsureDefaults_CreatesPadraoWhenEmpty(t *testing.T) {
 	}
 }
 
+func TestDefaultsComPoliticaPersonalizadaNaoRessuscitamAposExclusao(t *testing.T) {
+	m := newTestManager(t)
+	ctx := authorizationfixture.Context()
+	writeAllowlistFile(t, m, "personalizado", &Allowlist{Name: "Personalizado", DefaultAction: "deny"})
+	if err := m.EnsureDefaults(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.Get(ctx, defaultSlug); err != nil {
+		t.Fatal(err)
+	}
+	if custom, err := m.Get(ctx, "personalizado"); err != nil || custom.DefaultAction != "deny" {
+		t.Fatalf("personalizado: %+v %v", custom, err)
+	}
+	if err := m.Delete(ctx, defaultSlug); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.EnsureDefaults(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.Get(ctx, defaultSlug); err == nil {
+		t.Fatal("padrão excluído reapareceu")
+	}
+}
+
 func TestMigracaoPreservaNegativasComMaiusculas(t *testing.T) {
 	m := newTestManager(t)
 	writeAllowlistFile(t, m, "restrita", &Allowlist{Name: "Restrita", DefaultAction: " DENY ", CommandRules: []CommandRule{{Program: "git", Decision: " DENY "}}})

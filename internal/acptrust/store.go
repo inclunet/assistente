@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"time"
@@ -29,9 +30,10 @@ type Entry struct {
 	Scope     trustscope.Scope `json:"scope,omitempty"`
 }
 type Store struct {
-	core *trustscope.Manager[Entry, Resource]
-	repo *authorization.Repository
-	home func() string
+	core     *trustscope.Manager[Entry, Resource]
+	repo     *authorization.Repository
+	home     func() string
+	profiles func() ([]string, error)
 }
 
 func NewStore(options trustscope.Options) *Store {
@@ -41,36 +43,82 @@ func NewStore(options trustscope.Options) *Store {
 	if options.HomeDir == nil {
 		options.HomeDir = configdir.GetHomeDir
 	}
-	cfg := trustscope.Config[Entry, Resource]{Domain: "acp", Subdir: subdir, NotFoundError: ErrEntryNotFound, Adapter: trustscope.Adapter[Entry, Resource]{
-		Scope: func(e Entry) trustscope.Scope { return e.Scope },
-		Normalize: func(e Entry) (Entry, error) {
-			e.Kind = normalizeKind(e.Kind)
-			if e.Kind == "" {
-				return e, errors.New("classe de ação vazia")
+	store := &Store{repo: options.Repository, home: options.HomeDir, profiles: options.LegacyProfiles}
+	cfg := trustscope.Config[Entry, Resource]{Domain: "acp", Subdir: subdir, NotFoundError: ErrEntryNotFound,
+		LegacyScopes: []trustscope.Scope{trustscope.ScopeProfile},
+		ValidateLegacyProfile: func(key, legacyKey string) error {
+			resolved, err := store.legacyProfile(legacyKey)
+			if err != nil {
+				return err
 			}
-			if e.Scope == "" {
-				e.Scope = trustscope.ScopeProfile
+			if resolved != key {
+				return errors.New("origem legada ACP pertence a outro perfil")
 			}
-			if e.GrantedAt.IsZero() {
-				e.GrantedAt = time.Now().UTC()
+			return nil
+		}, Adapter: trustscope.Adapter[Entry, Resource]{
+			Scope: func(e Entry) trustscope.Scope { return e.Scope },
+			Normalize: func(e Entry) (Entry, error) {
+				e.Kind = normalizeKind(e.Kind)
+				if e.Kind == "" {
+					return e, errors.New("classe de ação vazia")
+				}
+				if e.Scope == "" {
+					e.Scope = trustscope.ScopeProfile
+				}
+				if e.GrantedAt.IsZero() {
+					e.GrantedAt = time.Now().UTC()
+				}
+				return e, nil
+			},
+			Key: func(e Entry) Resource { return Resource{Kind: e.Kind, AgentID: e.AgentID} },
+			Matches: func(e Entry, q Resource) bool {
+				return e.Kind == normalizeKind(q.Kind) && (e.AgentID == "" || e.AgentID == q.AgentID)
+			},
+			SameKey: func(e Entry, q Resource) bool { return e.Kind == normalizeKind(q.Kind) && e.AgentID == q.AgentID },
+			Identity: func(e Entry) string {
+				if e.AgentID == "" {
+					return e.Kind
+				}
+				return e.AgentID + "\x00" + e.Kind
+			},
+			Effect:    func(Entry) string { return "allow" },
+			Operation: func(e Entry) string { return e.Kind },
+		}}
+	store.core = trustscope.NewManager(cfg, options)
+	return store
+}
+
+// A sanitização antiga não é invertível: somente o catálogo real pode
+// identificar um arquivo, e colisões permanecem bloqueadas.
+func (s *Store) legacyProfile(legacyKey string) (string, error) {
+	if s.profiles == nil {
+		return "", errors.New("catálogo de perfis indisponível para migração ACP")
+	}
+	keys, err := s.profiles()
+	if err != nil {
+		return "", err
+	}
+	resolved := ""
+	for _, key := range keys {
+		key = ProfileKey(key)
+		encoded := strings.Map(func(r rune) rune {
+			if r >= 'a' && r <= 'z' || r >= '0' && r <= '9' || r == '-' || r == '_' {
+				return r
 			}
-			return e, nil
-		},
-		Key: func(e Entry) Resource { return Resource{Kind: e.Kind, AgentID: e.AgentID} },
-		Matches: func(e Entry, q Resource) bool {
-			return e.Kind == normalizeKind(q.Kind) && (e.AgentID == "" || e.AgentID == q.AgentID)
-		},
-		SameKey: func(e Entry, q Resource) bool { return e.Kind == normalizeKind(q.Kind) && e.AgentID == q.AgentID },
-		Identity: func(e Entry) string {
-			if e.AgentID == "" {
-				return e.Kind
-			}
-			return e.AgentID + "\x00" + e.Kind
-		},
-		Effect:    func(Entry) string { return "allow" },
-		Operation: func(e Entry) string { return e.Kind },
-	}}
-	return &Store{core: trustscope.NewManager(cfg, options), repo: options.Repository, home: options.HomeDir}
+			return -1
+		}, key)
+		if encoded != legacyKey {
+			continue
+		}
+		if resolved != "" && resolved != key {
+			return "", errors.New("origem legada ACP com identidade de perfil ambígua")
+		}
+		resolved = key
+	}
+	if resolved == "" {
+		return "", errors.New("origem legada ACP sem perfil identificável")
+	}
+	return resolved, nil
 }
 func profileContext(ctx context.Context, profile string) (context.Context, error) {
 	profile = ProfileKey(profile)
@@ -107,9 +155,31 @@ func (s *Store) Profiles(ctx context.Context) ([]string, error) {
 			if entry.IsDir() || !strings.HasPrefix(name, "profile-") || !strings.HasSuffix(name, ".json") {
 				continue
 			}
-			slug := strings.TrimSuffix(strings.TrimPrefix(name, "profile-"), ".json")
-			if slug == "" || ProfileKey(slug) != slug {
+			// Uma cópia já consumida não depende mais do catálogo atual.
+			source, err := filepath.Abs(filepath.Join(home, subdir, name))
+			if err != nil {
+				return nil, err
+			}
+			if resolved, err := filepath.EvalSymlinks(source); err == nil {
+				source = resolved
+			}
+			if runtime.GOOS == "windows" {
+				source = strings.ToLower(source)
+			}
+			imported, err := s.repo.Imported(ctx, "acp", source)
+			if err != nil {
+				return nil, err
+			}
+			if imported {
+				continue
+			}
+			legacyKey := strings.TrimSuffix(strings.TrimPrefix(name, "profile-"), ".json")
+			if legacyKey == "" || ProfileKey(legacyKey) != legacyKey {
 				return nil, fmt.Errorf("origem legada ACP inválida: %s", name)
+			}
+			slug, err := s.legacyProfile(legacyKey)
+			if err != nil {
+				return nil, err
 			}
 			// O core importa uma vez; depois só consulta o banco, mesmo que o
 			// arquivo continue no diretório como recuperação.

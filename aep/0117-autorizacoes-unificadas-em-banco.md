@@ -306,6 +306,17 @@ são explicitamente enumerados. Nenhum PR é mergeado pelo agente.
   inteira após contenção SQLite. `TestConcurrentSavePolicyRetriesWholeTransaction`
   reproduz `SQLITE_BUSY` antes da correção na criação e edição concorrentes e
   verifica revisão, unicidade e coerência entre metadados e regras após o retry.
+- Revisão complementar de isolamento: o contexto capturado rejeita troca de
+  usuário e a revogação persistente revalida a geração sob o mesmo lock da
+  gravação. Criação de política rejeita duplicatas na transação; a existência
+  de outra política não impede criar `padrao`, sem ressuscitá-la após exclusão.
+- Migração ACP lê somente o escopo legado de perfil. O nome sanitizado do
+  arquivo é cruzado com o catálogo real: perfil ausente ou colisão permanece
+  bloqueado, sem inventar aliases. Arquivos já importados continuam apenas como
+  recuperação. Regressões ACP são executadas exclusivamente no CI remoto.
+- Erros de carregamento de políticas shell são registrados sem argumentos
+  editáveis. A captura de workspace no controller e sua propagação ao envio
+  de subagentes estão cobertas sem herdar a tela ativa após a captura.
 - Revisão de origem filesystem: resolução relativa, sandbox, walks e padrões de skills recebem o contexto capturado. O teste TestReadFileMantemWorkspaceDaOrigemDepoisDeTrocarATela executa leitura real após A→B e verifica que canal sem workspace não herda UI/cwd.
 
 ### Evidências da segunda implementação

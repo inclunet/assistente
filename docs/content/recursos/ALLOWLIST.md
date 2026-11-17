@@ -105,3 +105,9 @@ A atribuição é exclusiva; o primeiro login não recebe as regras automaticame
 O usuário escolhido importa a origem ao utilizá-la novamente.
 A adoção automática também fixa o proprietário da origem. Criar outra conta
 depois não transfere nem duplica as permissões já importadas.
+
+Para ACP, a migração aceita somente os arquivos antigos por perfil. Arquivos
+de workspace ou globais não concedem permissões ACP automaticamente. Se o nome
+antigo corresponder a mais de um perfil, ou a nenhum perfil existente, a origem
+fica bloqueada até sua identidade ser corrigida. O aplicativo não atribui a
+permissão a um perfil diferente por semelhança do nome.

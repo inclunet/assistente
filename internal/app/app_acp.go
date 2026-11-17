@@ -27,7 +27,17 @@ func (a *App) initACP() {
 	// agente chega antes disso, porque o primeiro processo só sobe no primeiro
 	// turno.
 	if a.acpTrust == nil {
-		a.acpTrust = acptrust.NewStore(trustscope.Options{MayImport: authorization.LocalLegacyOwner})
+		a.acpTrust = acptrust.NewStore(trustscope.Options{MayImport: authorization.LocalLegacyOwner, LegacyProfiles: func() ([]string, error) {
+			if a.profileManager == nil {
+				return nil, errors.New("catálogo de perfis indisponível")
+			}
+			rows, err := a.profileManager.List()
+			keys := make([]string, 0, len(rows))
+			for _, row := range rows {
+				keys = append(keys, row.Slug)
+			}
+			return keys, err
+		}})
 	}
 	handler := &acpRequestHandler{
 		surfaces: a.questionnaireRouter(),

@@ -934,8 +934,11 @@ describe('Criação de abas — Topbar, Toolbar e Menu reais', () => {
       await user.keyboard('{End}{Enter}');
       expect(trigger).toHaveAttribute('aria-expanded', 'true');
       expect(screen.getByRole('menu', { name: 'workspace.workspaceList' })).toBeInTheDocument();
+      // O menu pesquisável transfere o foco na próxima animação. Só envie
+      // Escape depois de a abertura terminar, como na interação do usuário.
+      await waitFor(() => expect(screen.getByRole('textbox', { name: 'workspace.searchWorkspaces' })).toHaveFocus());
       await user.keyboard('{Escape}');
-      expect(trigger).toHaveFocus();
+      await waitFor(() => expect(trigger).toHaveFocus());
       expect(trigger).toHaveAttribute('aria-expanded', 'false');
     } finally { view.unmount(); }
   });
