@@ -4246,6 +4246,7 @@ notSaved: 'A decisão vale somente para esta operação: não foi possível lemb
       pageContent: 'Conteúdo da página',
     },
     workspace: {
+      creationRecovery: 'O workspace foi salvo em {{path}}, mas não foi registrado na lista. Abra a pasta escolhida novamente para recuperá-lo.',
       activeStatus: 'Aberto',
       inactiveStatus: 'Não está em uso',
       remove: 'Remover workspace',

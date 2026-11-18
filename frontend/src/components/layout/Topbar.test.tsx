@@ -23,7 +23,6 @@ import { WorkspaceToolbar } from '../workspace/WorkspaceToolbar';
 import { useWorkspaceKeyboardShortcuts } from '../../hooks/useWorkspaceKeyboardShortcuts';
 import type { SurfaceContextGetter } from '../../lib/commandContextProviders';
 import type { BackendCommandExecutionResult } from '../../lib/commandBackendExecution';
-import type { MenuItem } from '../menu';
 import { COMMAND_NAVIGATION_ROUTES } from '../../lib/commandNavigation';
 import { ReadFocusContext } from '../../lib/commandContextProviders';
 
@@ -137,6 +136,14 @@ const navigationKeyboardCases = navigationRouteCases.map(([commandID, route], in
 const toggleMenuSpy = vi.fn();
 const announceSpy = vi.fn();
 const commandOpenSpy = vi.fn();
+const workspaceDialogState = vi.hoisted(() => ({ activate: null as ((id: string) => void) | null, close: null as (() => void) | null, opens: vi.fn() }));
+vi.mock('../workspace/WorkspaceListDialog', () => ({ WorkspaceListDialog: (props: { onActivate(id: string): void; onClose(): void }) => {
+  workspaceDialogState.activate = props.onActivate;
+  workspaceDialogState.close = props.onClose;
+  workspaceDialogState.opens(props);
+  return null;
+} }));
+
 const modalState = vi.hoisted(() => ({ open: false }));
 const locationState = vi.hoisted(() => ({ pathname: '/history', search: '', hash: '', key: 'history' }));
 const catalogState = vi.hoisted(() => ({ list: vi.fn() }));
@@ -346,6 +353,8 @@ afterEach(() => {
   catalogState.list.mockReset();
   catalogState.list.mockResolvedValue([]);
   commandOpenSpy.mockReset();
+  workspaceDialogState.opens.mockClear(); workspaceDialogState.activate = null; workspaceDialogState.close = null;
+  workspaceState.workspaces = [{ id: 'workspace-b', name: 'Workspace B', is_active: false, tab_count: 2 }];
   authState.isAuthenticated = true;
   authState.user = { userId: 'user-a', sessionId: 'session-a', role: 'user' };
   authState.listeners.clear();
@@ -781,14 +790,11 @@ describe('Topbar teclado local — controller e guard reais', () => {
     const view = await mountKeyboard();
     await act(async () => { fireEvent.keyDown(window, { key: 'K', code: 'KeyK', ctrlKey: true, shiftKey: true }); });
     expect(keyboardState.dispatch).toHaveBeenCalledExactlyOnceWith('g1', shortcut, 'down', false);
-    expect(commandOpenSpy).toHaveBeenCalledTimes(1);
-    const items: MenuItem[] = commandOpenSpy.mock.calls[0][2];
-    expect(items[0]).toMatchObject({ id: 'ws-command-workspace-b', label: 'Workspace B' });
+    expect(workspaceDialogState.activate).not.toBeNull();
+    const activate = workspaceDialogState.activate!;
     await act(async () => { fireEvent.keyUp(window, { key: 'K', code: 'KeyK' }); });
     expect(keyboardState.dispatch).toHaveBeenLastCalledWith('g1', shortcut, 'up', false);
-    expect(commandOpenSpy).toHaveBeenCalledTimes(1);
-    items[0].action?.();
-    items[0].action?.();
+    await act(async () => { activate('workspace-b'); activate('workspace-b'); });
     expect(workspaceState.switchWorkspace).toHaveBeenCalledExactlyOnceWith('workspace-b');
     expect(keyboardState.palette).not.toHaveBeenCalled();
     expect(catalogState.list).not.toHaveBeenCalled();
@@ -913,10 +919,10 @@ describe('Topbar teclado local — controller e guard reais', () => {
     async (change) => {
       const view = await mountKeyboard();
       await press();
-      const items: MenuItem[] = commandOpenSpy.mock.calls[0][2];
+      const activate = workspaceDialogState.activate!;
       changeContext(change);
       if (change === 'route') view.rerender(<Topbar />);
-      items[0].action?.();
+      activate('workspace-b');
       expect(workspaceState.switchWorkspace).not.toHaveBeenCalled();
       view.unmount();
     },
@@ -3259,17 +3265,16 @@ describe('Topbar', () => {
     });
 
     expect(backendExecutionState.execute).toHaveBeenCalledWith('workspace.list', expect.any(Function));
-    const workspaceItems = commandOpenSpy.mock.calls[1]?.[2] as Array<{ label: string; action?: () => void }>;
-    expect(workspaceItems).toHaveLength(1);
-    expect(workspaceItems[0].label).toBe('Workspace B');
-    await act(async () => { workspaceItems[0].action?.(); });
+    const activate = workspaceDialogState.activate!;
+    expect(activate).toBeTypeOf('function');
+    await act(async () => { activate('workspace-b'); });
     expect(workspaceState.switchWorkspace).toHaveBeenCalledWith('workspace-b');
-    await act(async () => { workspaceItems[0].action?.(); });
+    await act(async () => { activate('workspace-b'); });
     expect(workspaceState.switchWorkspace).toHaveBeenCalledTimes(1);
 
     authState.user = { userId: 'user-a', sessionId: 'session-b', role: 'user' };
     authState.listeners.forEach((listener) => listener());
-    await act(async () => { workspaceItems[0].action?.(); });
+    await act(async () => { activate('workspace-b'); });
     expect(workspaceState.switchWorkspace).toHaveBeenCalledTimes(1);
   });
 
@@ -3296,7 +3301,7 @@ describe('Topbar', () => {
       menuHookState.afterSelect?.();
       await Promise.resolve();
     });
-    const oldItems = commandOpenSpy.mock.calls[1]?.[2] as Array<{ action?: () => void }>;
+    const oldActivate = workspaceDialogState.activate!;
 
     // Reutiliza o item do catálogo: cada seleção captura uma intenção distinta.
     await act(async () => {
@@ -3306,7 +3311,7 @@ describe('Topbar', () => {
     });
 
     workspaceState.switchWorkspace.mockClear();
-    await act(async () => { oldItems[0].action?.(); });
+    await act(async () => { oldActivate('workspace-b'); });
     expect(workspaceState.switchWorkspace).not.toHaveBeenCalled();
   });
 
@@ -3331,8 +3336,8 @@ describe('Topbar', () => {
       await Promise.resolve();
     });
 
-    await act(async () => { menuHookState.afterDismisses[0]?.(); });
-    expect(document.activeElement).toBe(commandButton);
+    await act(async () => { workspaceDialogState.close?.(); });
+    await waitFor(() => expect(document.activeElement).toBe(commandButton));
   });
 
   it('cancela somente a apresentação pendente de workspace.list com Escape', async () => {

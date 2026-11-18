@@ -20,6 +20,13 @@ import (
 	"github.com/google/uuid"
 )
 
+// Ephemeral recovery information; never part of command output or audit.
+type workspaceCreationRecoveryEvent struct {
+	UserID    string `json:"userId"`
+	SessionID string `json:"sessionId"`
+	Path      string `json:"path"`
+}
+
 // As reservas são transitórias e limitadas. O ledger do executor é a fonte
 // persistente do desfecho; este mapa apenas correlaciona o transporte Wails.
 type commandUIRun struct {
@@ -658,6 +665,10 @@ func (a *App) commitWorkspaceTabCommand(ticket, handoffID string) error {
 					// workspace independente; nunca substitui o workspace ativo.
 					created, err = p.workspaceMgr.CreateForCommand(executionCtx, expected, workspaceName, workspaceDirectory)
 					if err != nil {
+						var recovery *workspace.CreationRegistrationError
+						if errors.As(err, &recovery) && a.emitter != nil {
+							a.emitter.Emit("workspace:creation-recovery", workspaceCreationRecoveryEvent{UserID: p.principal.UserID, SessionID: p.principal.SessionID, Path: recovery.Path})
+						}
 						return err
 					}
 				} else if isCreate {

@@ -26,7 +26,6 @@ import { MenuButton, type MenuItem as MenuButtonItem, type MenuButtonRef } from 
 import type { MenuItem } from '../menu';
 import { Combobox, type ComboboxDismissReason, type ComboboxItem } from '../pickers/Combobox';
 import { KeyboardShortcutsHelp } from '../ui/KeyboardShortcutsHelp';
-import { useAnchoredContextMenu } from '../../hooks/useAnchoredContextMenu';
 import { useToolbarKeyboardNav } from '../../hooks/useToolbarKeyboardNav';
 import { useAnnouncer } from '../../hooks/useAnnouncer';
 import { scheduleDefaultFocusRestore } from '../../lib/deferredDefaultFocus';
@@ -56,7 +55,7 @@ import { createCommandUIExecutionWailsPort } from '../../lib/commandUIExecutionW
 import { createCommandVoiceInputWailsPort } from '../../lib/commandVoiceInputWails';
 import { executeGlobalVoiceReservation, parseVoiceInputReservation, VOICE_INPUT_COMMAND } from '../../lib/commandVoiceInput';
 import { COMMAND_NAVIGATION_EVENT, COMMAND_NAVIGATION_ROUTES, createCommandNavigationHandlers, isCommandNavigation, isCommandNavigationRoute, isCommandNavigationTextField, isWorkspaceTabNavigationTextField } from '../../lib/commandNavigation';
-import { createCommandBackendExecution, type CommandBackendExecution, type WorkspaceListCommandOutput } from '../../lib/commandBackendExecution';
+import { createCommandBackendExecution, type CommandBackendExecution } from '../../lib/commandBackendExecution';
 import { createCommandBackendExecutionWailsPort } from '../../lib/commandBackendExecutionWails';
 import { createContextualPaletteLayerWailsPort } from '../../lib/commandContextualPaletteLayerWails';
 import { createContextualDeckLease, isContextualDeckCommand, selectContextualDeckSelection } from '../../lib/commandContextualDeck';
@@ -121,7 +120,6 @@ import {
   SettingOutlined,
   QuestionCircleOutlined,
   InfoCircleOutlined,
-  CheckOutlined,
   KeyOutlined,
 } from '@ant-design/icons';
 import './Topbar.css';
@@ -239,8 +237,8 @@ export function Topbar() {
   const creationPresentationRef = useRef({ locale: i18n.language, t, announce });
   creationPresentationRef.current = { locale: i18n.language, t, announce };
   const addToast = useUIStore((s) => s.addToast);
-  const { workspace, workspaces, switchWorkspace } = useWorkspaceStore(
-    useShallow((s) => ({ workspace: s.workspace, workspaces: s.workspaces, switchWorkspace: s.switchWorkspace }))
+  const { workspace, switchWorkspace } = useWorkspaceStore(
+    useShallow((s) => ({ workspace: s.workspace, switchWorkspace: s.switchWorkspace }))
   );
   const shortcutsHelpOpen = useShortcutsHelpStore((s) => s.isOpen);
   const shortcutSurface = pathname === '/' ? workspace?.tabs.find(tab => tab.id === workspace.activeTabId)?.type
@@ -286,7 +284,7 @@ export function Topbar() {
   const executePendingCommandRef = useRef<(() => void) | null>(null);
   const activeCommandIntentRef = useRef<PendingCommandIntent | null>(null);
   const workspacePickerIntentRef = useRef<PendingCommandIntent | null>(null);
-  const openWorkspacePickerRef = useRef<((trigger: HTMLElement, ariaLabel: string, items: MenuItem[]) => void) | null>(null);
+  const openWorkspacePickerRef = useRef<((trigger: HTMLElement) => void) | null>(null);
   const commandContextualExecutionRef = useRef<CommandUIExecution | null>(null);
   const commandCancellationGenerationRef = useRef(0);
   const commandBackendExecutionRef = useRef<CommandBackendExecution | null>(null);
@@ -1571,27 +1569,14 @@ export function Topbar() {
     pendingWorkspaceSwitchRef.current = selection;
   }, [switchWorkspace]);
 
-  const presentWorkspaceList = useCallback((intent: PendingCommandIntent, output: WorkspaceListCommandOutput): undefined => {
+  const presentWorkspaceList = useCallback((intent: PendingCommandIntent): undefined => {
     if (activeCommandIntentRef.current !== intent || !intentIsCurrent(intent)) return undefined;
     const trigger = commandPickerButtonRef.current;
     if (!trigger) return undefined;
-    const items: MenuItem[] = output.workspaces.map((ws) => ({
-      id: `ws-command-${ws.id}`,
-      label: ws.name,
-      icon: ws.is_active ? <CheckOutlined /> : undefined,
-      shortcut: `${ws.tab_count} ${ws.tab_count === 1 ? t('workspace.tabSingular') : t('workspace.tabPlural')}`,
-      checked: ws.is_active,
-      action: () => {
-        if (workspacePickerIntentRef.current !== intent || !intentIsCurrent(intent, true)) return;
-        // Consumir antes do efeito: o mesmo callback não pode trocar duas vezes.
-        workspacePickerIntentRef.current = null;
-        selectWorkspace(ws.id, ws.is_active);
-      },
-    }));
     workspacePickerIntentRef.current = intent;
-    openWorkspacePickerRef.current?.(trigger, t('workspace.workspaceList'), items);
+    openWorkspacePickerRef.current?.(trigger);
     return undefined;
-  }, [intentIsCurrent, selectWorkspace, t]);
+  }, [intentIsCurrent]);
   const presentWorkspaceListRef = useRef(presentWorkspaceList);
   presentWorkspaceListRef.current = presentWorkspaceList;
 
@@ -2243,8 +2228,8 @@ export function Topbar() {
         }, keyboardContext ? { ...contextOptions, surfaceID: keyboardContext.surfaceId } : contextOptions);
         localCommandExecutionRef.current = localExecutor;
         try {
-          const result = await localExecutor.execute(request.commandId, (output) =>
-            presentWorkspaceListRef.current(intent, output));
+          const result = await localExecutor.execute(request.commandId, () =>
+            presentWorkspaceListRef.current(intent));
           if (isCommandLayerAction(request.commandId) && result.presented && intentIsCurrent(intent)) {
             creationPresentationRef.current.announce(creationPresentationRef.current.t('commandSettings.layerActionCompleted'));
           }
@@ -3168,8 +3153,8 @@ export function Topbar() {
         activeCommandIntentRef.current = null;
         return;
       }
-      void backendExecutor.execute(intent.commandID, (output) =>
-        presentWorkspaceList(intent, output)).then((result) => {
+      void backendExecutor.execute(intent.commandID, () =>
+        presentWorkspaceList(intent)).then((result) => {
         const stillCurrent = executionStillCurrent();
         if (activeCommandIntentRef.current === intent) activeCommandIntentRef.current = null;
         if (contextualLayer && result.execution.status === 'succeeded') {
@@ -3367,29 +3352,51 @@ export function Topbar() {
     ? (workspace?.name || t('menu.appTitle'))
     : t(PAGE_TITLE_KEYS[resolvedPath] || 'menu.appTitle');
 
-  // --- Workspace picker (left, workspace route) — only workspace list ---
-  const {
-    menu: pickerMenu,
-    openForTrigger: openPicker,
-    closeMenu: closePicker,
-    onSelectItem: onPickerSelect,
-  } = useAnchoredContextMenu({
-    onAfterSelect: () => {
-      const selection = pendingWorkspaceSwitchRef.current;
-      scheduleDefaultFocusRestore({ after: selection?.ready, isCurrent: selection?.isCurrent });
-    },
-    onAfterDismiss: () => {
-      workspacePickerIntentRef.current = null;
-      workspacePickerTriggerRef.current?.focus();
-      workspacePickerTriggerRef.current = null;
-    },
-  });
-  const openWorkspacePicker = useCallback((trigger: HTMLElement, ariaLabel: string, items: MenuItem[]) => {
+  const [workspaceListOrigin, setWorkspaceListOrigin] = useState<PendingCommandIntent | null>(null);
+  const workspaceListLease = useRef<PendingCommandIntent | null>(null);
+  const workspaceListOpen = workspaceListOrigin !== null;
+  const pendingPickerClose = useRef<(() => void) | null>(null);
+  useEffect(() => {
+    if (workspaceListOpen) return;
+    const complete = pendingPickerClose.current;
+    pendingPickerClose.current = null;
+    complete?.();
+  }, [workspaceListOpen]);
+  const closePicker = useCallback(() => {
+    workspacePickerIntentRef.current = null;
+    workspaceListLease.current = null;
+    setWorkspaceListOrigin(null);
+    const trigger = workspacePickerTriggerRef.current;
+    workspacePickerTriggerRef.current = null;
+    pendingPickerClose.current = () => { if (!isModalOpen() && trigger?.isConnected) trigger.focus(); };
+  }, []);
+  const openWorkspacePicker = useCallback((trigger: HTMLElement) => {
+    pendingPickerClose.current = null;
     pendingWorkspaceSwitchRef.current = null;
     workspacePickerTriggerRef.current = trigger;
-    openPicker(trigger, ariaLabel, items);
-  }, [openPicker]);
+    const auth = useAuthStore.getState();
+    const active = useWorkspaceStore.getState().workspace;
+    if (!auth.isAuthenticated || !auth.user || !active) return;
+    const origin: PendingCommandIntent = { commandID: 'workspace.list', userId: auth.user.userId,
+      sessionId: auth.user.sessionId, workspaceId: active.id, activeTabId: active.activeTabId,
+      routeIdentity: commandRouteIdentityRef.current };
+    workspaceListLease.current = origin;
+    setWorkspaceListOrigin(origin);
+  }, []);
   openWorkspacePickerRef.current = openWorkspacePicker;
+  const activateWorkspace = useCallback((id: string) => {
+    if (!workspaceListOrigin || workspaceListLease.current !== workspaceListOrigin || !intentIsCurrent(workspaceListOrigin, true)) return;
+    const intent = workspacePickerIntentRef.current;
+    if (intent && !intentIsCurrent(intent, true)) return;
+    const state = useWorkspaceStore.getState();
+    if (!state.workspaces.some(ws => ws.id === id)) return;
+    workspacePickerIntentRef.current = null;
+    selectWorkspace(id, state.workspace?.id === id);
+    workspaceListLease.current = null;
+    setWorkspaceListOrigin(null);
+    const selection = pendingWorkspaceSwitchRef.current;
+    pendingPickerClose.current = () => scheduleDefaultFocusRestore({ after: selection?.ready, isCurrent: selection?.isCurrent });
+  }, [intentIsCurrent, selectWorkspace, workspaceListOrigin]);
 
   const handleCommandPaletteSelect = useCallback((value: string) => {
     const item = commandPaletteMenuItemsRef.current.find((candidate) => candidate.id === value);
@@ -3502,25 +3509,15 @@ export function Topbar() {
     };
   }, []);
 
-  const pickerItems = useMemo((): MenuItem[] => {
-    return workspaces.map((ws) => ({
-      id: `ws-${ws.id}`,
-      label: ws.name,
-      icon: ws.is_active ? <CheckOutlined /> : undefined,
-      shortcut: `${ws.tab_count} ${ws.tab_count === 1 ? t('workspace.tabSingular') : t('workspace.tabPlural')}`,
-      checked: ws.is_active,
-      action: () => { selectWorkspace(ws.id, ws.is_active); },
-    }));
-  }, [workspaces, selectWorkspace, t]);
-
   useEffect(() => tabCreationMenu?.registerWorkspaceList((trigger) => {
-    if (pickerMenu.visible) { closePicker(); return; }
-    openWorkspacePicker(trigger, t('workspace.workspaceList'), pickerItems);
-  }), [tabCreationMenu, pickerMenu.visible, closePicker, openWorkspacePicker, pickerItems, t]);
+    if (workspaceListOpen) { closePicker(); return; }
+    workspacePickerIntentRef.current = null;
+    openWorkspacePicker(trigger);
+  }), [tabCreationMenu, workspaceListOpen, closePicker, openWorkspacePicker]);
 
   useEffect(() => {
-    tabCreationMenu?.setWorkspaceListOpen(pickerMenu.visible);
-  }, [tabCreationMenu, pickerMenu.visible]);
+    tabCreationMenu?.setWorkspaceListOpen(workspaceListOpen);
+  }, [tabCreationMenu, workspaceListOpen]);
   const commandCatalogItemsToMenuItems = useCallback((items: apidto.CommandCatalogItem[]): MenuItem[] => {
     if (items.length === 0) {
       return [{
@@ -4071,8 +4068,8 @@ export function Topbar() {
         </div>
       </header>
 
-      {pickerMenu.visible && <WorkspaceListDialog rootRef={workspacePickerRootRef} items={pickerMenu.items}
-        onClose={closePicker} onSelect={onPickerSelect} />}
+      {workspaceListOpen && <WorkspaceListDialog rootRef={workspacePickerRootRef}
+        onClose={closePicker} onActivate={activateWorkspace} />}
 
 
 

@@ -2,7 +2,12 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"gorm.io/gorm"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -13,6 +18,7 @@ import (
 	"assistente/internal/commandui"
 	"assistente/internal/database"
 	"assistente/internal/questionnaire"
+	"assistente/internal/testutil/workspacefixture"
 	"assistente/internal/workspace"
 )
 
@@ -332,6 +338,14 @@ func readyWorkspaceCreation(t *testing.T) *App {
 }
 
 func TestCommandWorkspaceCreationLifetimeCoversForm(t *testing.T) {
+	a := readyWorkspaceCreation(t)
+	_, handlers, err := a.commandProductCatalog()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if handlers[commandWorkspaceCreateID].ExecutionTimeout < 5*time.Minute {
+		t.Fatal("handler expires while the form is open")
+	}
 	if commandUIRunTimeout(commandWorkspaceCreateID) < 5*time.Minute || commandUIResultTTL(commandWorkspaceCreateID) <= commandUIRunTimeout(commandWorkspaceCreateID) {
 		t.Fatal("result expires before the form and execution")
 	}
@@ -377,5 +391,59 @@ func TestCommandWorkspaceCreateRevalidatesAfterForm(t *testing.T) {
 	}
 	if commandWorkspaceInfoCount(t, a) != before {
 		t.Fatal("stale form created workspace")
+	}
+}
+
+func TestCommandWorkspaceCreateEmitsRecoveryWithoutPersistentPath(t *testing.T) {
+	var indexDB *gorm.DB
+	a := readyCommandProduct(t, func(a *App) {
+		home := t.TempDir()
+		indexDB = workspacefixture.OpenIndex(t, home)
+		a.workspaceMgr = workspace.NewManager(home, func() *gorm.DB { return indexDB })
+		if err := a.workspaceMgr.Initialize(t.TempDir()); err != nil {
+			t.Fatal(err)
+		}
+		if err := a.workspaceMgr.AddTab(workspace.Tab{ID: "origin", Type: workspace.TabTypeEditor}); err != nil {
+			t.Fatal(err)
+		}
+	})
+	installWorkspaceCreationDialog(t, a)
+	directory := a.dialogPort.(workspaceCreationDialog).directory
+	var notice workspaceCreationRecoveryEvent
+	a.emitter = globalJobTestEmitter(func(event string, data any) {
+		if event == "workspace:creation-recovery" {
+			notice = data.(workspaceCreationRecoveryEvent)
+		}
+	})
+	db := indexDB
+	const callback = "test:creation-registration-failure"
+	if err := db.Callback().Update().Before("gorm:update").Register(callback, func(tx *gorm.DB) {
+		if tx.Statement.Table == "desktop_workspace_states" {
+			_ = tx.AddError(errors.New("index unavailable"))
+		}
+	}); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Callback().Update().Remove(callback) })
+	reservation := beginUICommand(t, a, commandWorkspaceCreateID)
+	handoff := takeUICommandFor(t, a, reservation.Ticket, commandWorkspaceCreateID)
+	if err := a.CommitWorkspaceTabCommand(reservation.Ticket, handoff.HandoffID); err == nil {
+		t.Fatal("registration succeeded unexpectedly")
+	}
+	principal := a.commandProduct.Load().principal
+	if notice.UserID != principal.UserID || notice.SessionID != principal.SessionID || notice.Path != filepath.Join(directory, ".assistente", "workspace.yaml") {
+		t.Fatalf("notice=%+v", notice)
+	}
+	if _, err := os.Stat(notice.Path); err != nil {
+		t.Fatal(err)
+	}
+	result := getUIResultEventually(t, a, reservation.Ticket)
+	raw, err := json.Marshal(result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	escaped, _ := json.Marshal(notice.Path)
+	if strings.Contains(string(raw), string(escaped[1:len(escaped)-1])) {
+		t.Fatalf("recovery path leaked into command result: %s", raw)
 	}
 }

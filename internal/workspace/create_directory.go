@@ -9,6 +9,17 @@ import (
 	"time"
 )
 
+// CreationRegistrationError identifies a published document that can be reopened.
+type CreationRegistrationError struct {
+	Path  string
+	Cause error
+}
+
+func (e *CreationRegistrationError) Error() string {
+	return fmt.Sprintf("workspace document preserved at %s; index registration failed: %v", e.Path, e.Cause)
+}
+func (e *CreationRegistrationError) Unwrap() error { return e.Cause }
+
 // createInDirectoryLocked nunca substitui um documento existente nem remove
 // a pasta escolhida. O índice só é publicado depois do documento completo.
 func (m *Manager) createInDirectoryLocked(ctx context.Context, ws *Workspace, directory string) (*Workspace, error) {
@@ -56,7 +67,7 @@ func (m *Manager) createInDirectoryLocked(ctx context.Context, ws *Workspace, di
 		// a publicação. Sem transação entre banco e filesystem, não há exclusão
 		// condicional atômica segura. Preservar o documento permite recuperá-lo
 		// abrindo a pasta novamente, sem apagar alterações concorrentes.
-		return nil, fmt.Errorf("workspace document preserved at %s; index registration failed: %w", path, err)
+		return nil, &CreationRegistrationError{Path: path, Cause: err}
 	}
 	return ws, nil
 }

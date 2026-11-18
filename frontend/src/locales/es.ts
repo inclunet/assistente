@@ -4249,6 +4249,7 @@ notSaved: 'La decisión vale solo para esta operación: no se pudo recordar. Ser
       pageContent: 'Contenido de la página',
     },
     workspace: {
+      creationRecovery: 'El espacio de trabajo se guardó en {{path}}, pero no se pudo registrar en la lista. Abra de nuevo la carpeta seleccionada para recuperarlo.',
       activeStatus: 'Abierto',
       inactiveStatus: 'No está en uso',
       remove: 'Eliminar espacio de trabajo',

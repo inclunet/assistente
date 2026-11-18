@@ -5,7 +5,6 @@ import { Modal } from '../ui/Modal';
 import { DataGrid, DATAGRID_ENTRY_SELECTOR, type GridFocusRequest } from '../ui/DataGrid';
 import { ConfirmDialog } from '../ui/ConfirmDialog';
 import { Toolbar, ToolbarButton } from '../ui/Toolbar';
-import type { MenuItem } from '../menu';
 import { getModalRegistrySnapshot } from '../../lib/modalRegistry';
 import { useWorkspaceStore } from '../../store/workspaceStore';
 import { useAuthStore } from '../../store/authStore';
@@ -13,14 +12,16 @@ import { useQuestionnaireUIStore } from '../../store/questionnaireUIStore';
 import { useAnnouncer } from '../../hooks/useAnnouncer';
 import { usePagePresentationCommands, WORKSPACE_LIST_COMMAND_IDS } from '../../lib/commandPagePresentation';
 
-interface Props { rootRef?: RefObject<HTMLDivElement>; items: MenuItem[]; onClose(): void; onSelect(item: MenuItem): void }
+interface Props { rootRef?: RefObject<HTMLDivElement>; onClose(): void; onActivate(id: string): void }
 
 // Mounted only while open: closing the list also revokes its command surface.
-export function WorkspaceListDialog({ items, onClose, onSelect, rootRef }: Props) {
+export function WorkspaceListDialog({ onClose, onActivate, rootRef }: Props) {
   const { t } = useTranslation();
   const { pathname } = useLocation();
   const { announce } = useAnnouncer();
-  const workspaces = useWorkspaceStore(s => s.workspaces);
+  const cachedWorkspaces = useWorkspaceStore(s => s.workspaces);
+  const activeWorkspaceId = useWorkspaceStore(s => s.workspace?.id);
+  const workspaces = cachedWorkspaces.map(ws => ({ ...ws, is_active: ws.id === activeWorkspaceId }));
   const ownRoot = useRef<HTMLDivElement>(null);
   const root = rootRef ?? ownRoot;
   const focusGrid = useRef<GridFocusRequest>();
@@ -98,7 +99,7 @@ export function WorkspaceListDialog({ items, onClose, onSelect, rootRef }: Props
     },
   });
   const remove = async () => {
-    if (!removeId || busy.current || !current()) return;
+    if (!removeId || busy.current || !current() || useWorkspaceStore.getState().workspace?.id === removeId) return;
     busy.current = true;
     setPending(true);
     setError('');
@@ -116,12 +117,17 @@ export function WorkspaceListDialog({ items, onClose, onSelect, rootRef }: Props
       restore();
     }
   };
+  useEffect(() => {
+    void useWorkspaceStore.getState().refreshWorkspaceList().then(ok => {
+      if (!ok && current()) { const message = t('commandPalette.executionFailed'); setError(message); announce(message); }
+    });
+  // Refresh once for this dialog lifetime; session checks guard late results.
+  }, []);
   const activate = (id: string) => {
     if (busy.current || !current()) return;
     const modal = root.current?.closest('[data-modal-id]');
     if (modal?.getAttribute('data-modal-id') !== getModalRegistrySnapshot().topID) return;
-    const item = items.find(candidate => candidate.id === `ws-${id}` || candidate.id === `ws-command-${id}`);
-    if (item) { item.action?.(); onSelect(item); onClose(); }
+    if (useWorkspaceStore.getState().workspaces.some(ws => ws.id === id)) onActivate(id);
   };
   return <>
     <Modal isOpen onClose={onClose} title={t('workspace.workspaceList')} allowClose={!pending}

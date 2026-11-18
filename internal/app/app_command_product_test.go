@@ -15,9 +15,12 @@ import (
 	"github.com/google/uuid"
 )
 
-func readyCommandProduct(t *testing.T) *App {
+func readyCommandProduct(t *testing.T, configure ...func(*App)) *App {
 	t.Helper()
 	a, _ := appLifecycleProductMountFixture(t)
+	for _, setup := range configure {
+		setup(a)
+	}
 	ctx := context.Background()
 	if err := a.credMgr.RegisterInstanceSecret("internal-auth:command-request-hmac:v1", base64.RawURLEncoding.EncodeToString(bytes.Repeat([]byte{42}, 32))); err != nil {
 		t.Fatal(err)
@@ -76,7 +79,7 @@ func TestCommandProductRefusesUnknownInvalidAndRevokedRequests(t *testing.T) {
 	a := readyCommandProduct(t)
 	for _, request := range []struct {
 		id, args string
-		wantErr error
+		wantErr  error
 	}{
 		{"unknown.command", `{}`, nil},
 		{commandProductWorkspaceListID, `{"user_id":"forged"}`, commandexecution.ErrInvalidRequest},

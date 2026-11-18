@@ -62,6 +62,7 @@ const state = vi.hoisted(() => ({
   workspace: {
     workspace: { id: 'workspace-a', name: 'Workspace', activeTabId: 'tab-a', tabs: [{ id: 'tab-a', type: 'chat' }] },
     workspaces: [] as Array<{ id: string; name: string; is_active: boolean; tab_count: number }>,
+    refreshWorkspaceList: vi.fn(async () => true),
     switchWorkspace: vi.fn(),
       renameWorkspace: vi.fn(),
     setActiveTab: vi.fn(),
@@ -92,6 +93,7 @@ type IntegrationAuthState = {
 type IntegrationWorkspaceState = {
   workspace: { id: string; name: string; activeTabId: string };
   workspaces: typeof state.workspace.workspaces;
+  refreshWorkspaceList: typeof state.workspace.refreshWorkspaceList;
   switchWorkspace: typeof state.workspace.switchWorkspace;
   renameWorkspace: typeof state.workspace.renameWorkspace;
   setActiveTab: typeof state.workspace.setActiveTab;
@@ -1010,6 +1012,7 @@ describe('Criação de abas — Topbar, Toolbar e Menu reais', () => {
       fireEvent.click(screen.getByRole('button', { name: 'workspace.workspaceList' }));
       act(() => frames.splice(0).forEach(callback => callback(0)));
       fireEvent.click(screen.getByRole('gridcell', { name: /Outro workspace/ }));
+      act(() => screen.getByRole('gridcell', { name: /Outro workspace/ }).focus());
       fireEvent.keyDown(screen.getByRole('gridcell', { name: /Outro workspace/ }), { key: 'Enter', code: 'Enter' });
       expect(state.workspace.switchWorkspace).toHaveBeenCalledExactlyOnceWith('workspace-b');
       act(() => frames.splice(0).forEach(callback => callback(0)));
@@ -1061,6 +1064,7 @@ describe('Criação de abas — Topbar, Toolbar e Menu reais', () => {
       fireEvent.click(trigger);
       act(() => frames.splice(0).forEach(callback => callback(0)));
       fireEvent.click(screen.getByRole('gridcell', { name: /Workspace atual/ }));
+      act(() => screen.getByRole('gridcell', { name: /Workspace atual/ }).focus());
       fireEvent.keyDown(screen.getByRole('gridcell', { name: /Workspace atual/ }), { key: 'Enter', code: 'Enter' });
       if (navigated) trigger.focus();
       act(() => frames.splice(0).forEach(callback => callback(0)));

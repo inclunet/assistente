@@ -43,8 +43,8 @@ afterEach(() => {
 async function openList(suppressed = false) {
   const activate = vi.fn();
   const onClose = vi.fn();
-  render(<MemoryRouter><WorkspaceListDialog items={[{ id: 'ws-other', label: 'Projeto', action: activate }]}
-    onClose={onClose} onSelect={() => {}} /></MemoryRouter>);
+  render(<MemoryRouter><WorkspaceListDialog onActivate={id => { activate(id); onClose(); }}
+    onClose={onClose} /></MemoryRouter>);
   const cell = await screen.findByRole('gridcell', { name: 'Projeto' });
   const first = screen.getByRole('gridcell', { name: 'Atual' });
   fireEvent.click(first);
@@ -160,4 +160,36 @@ it('mostra o workspace aberto separado da seleção do grid', async () => {
  const selected = screen.getByRole('gridcell', { name: 'Projeto' }).closest('[role="row"]')!;
  expect(within(active as HTMLElement).getByText('workspace.activeStatus')).toBeInTheDocument();
  expect(within(selected as HTMLElement).getByText('workspace.inactiveStatus')).toBeInTheDocument();
+});
+
+it('atualiza a lista ao abrir e ativa resultados novos pela mesma coleção', async () => {
+  const activate = vi.fn();
+  api.list.mockResolvedValue([new workspace.WorkspaceInfo({ id: 'new', name: 'Novo', path: 'C:/new', tab_count: 0 })]);
+  render(<MemoryRouter><WorkspaceListDialog onActivate={activate} onClose={() => {}} /></MemoryRouter>);
+  const cell = await screen.findByRole('gridcell', { name: 'Novo' });
+  fireEvent.click(cell); press(cell, 'Enter');
+  expect(activate).toHaveBeenCalledWith('new');
+});
+it('deriva a situação atual e impede Delete depois de trocar o workspace', async () => {
+  const { cell } = await openList();
+  act(() => useWorkspaceStore.setState({ workspace: { ...useWorkspaceStore.getState().workspace!, id: 'other' } }));
+  expect(within(cell.closest('[role="row"]')!).getByText('workspace.activeStatus')).toBeTruthy();
+  press(cell, 'Delete');
+  expect(screen.queryByRole('alertdialog')).toBeNull();
+});
+it('Ctrl+F não retira foco da confirmação filha', async () => {
+  const { cell } = await openList();
+  press(cell, 'Delete');
+  const dialog = await screen.findByRole('alertdialog');
+  const button = within(dialog).getAllByRole('button')[0];
+  act(() => button.focus());
+  fireEvent.keyDown(button, { key: 'f', code: 'KeyF', ctrlKey: true });
+  expect(button).toHaveFocus();
+});
+
+it('avisa quando não consegue atualizar a lista ao abrir', async () => {
+  api.list.mockRejectedValue(new Error('index unavailable'));
+  render(<MemoryRouter><WorkspaceListDialog onActivate={() => {}} onClose={() => {}} /></MemoryRouter>);
+  await screen.findByText('commandPalette.executionFailed');
+  expect(api.announce).toHaveBeenCalledWith('commandPalette.executionFailed');
 });

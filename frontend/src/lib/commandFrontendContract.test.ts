@@ -1,5 +1,6 @@
 import { expect, it, vi } from 'vitest';
 import wire from './__fixtures__/commandKeyboardMap.json';
+import profileWire from './__fixtures__/commandKeyboardWorkspaceProfile.json';
 import { createCommandLocalKeyboardWailsPort } from './commandLocalKeyboardWails';
 import { createLocalCommandKeyboard, type LocalCommandKeyboardMap } from './commandLocalKeyboard';
 import { parseLocalPaletteConditions } from './commandLocalPaletteConditions';
@@ -11,7 +12,7 @@ async function controller(map = structuredClone(wire) as unknown as LocalCommand
   const port = createCommandLocalKeyboardWailsPort({ target });
   const accepted = vi.fn();
   const onDown = vi.fn(async () => {});
-  const context = { surfaceId: 'contract-toolbar', surfaceType: 'toolbar', appPage: 'settings' as 'settings' | 'workspace', isCurrent: () => true };
+  const context = { surfaceId: 'contract-toolbar', surfaceType: 'toolbar', profile: undefined as string | undefined, appPage: 'settings' as 'settings' | 'workspace', isCurrent: () => true };
   const keyboard = createLocalCommandKeyboard({ target: window, loadMap: () => port.loadMap(), onDown, onUp: vi.fn(async () => {}), reset: vi.fn(async () => {}), blocked: () => false, onMapAccepted: accepted, readContext: () => context });
   await keyboard.refresh();
   return { keyboard, accepted, onDown, context };
@@ -69,3 +70,17 @@ it.each(['missing-fallback', 'unknown-page', 'empty-root'])(
     } finally { keyboard.dispose(); }
   },
 );
+
+it('aceita o DTO Go de personalização por página e perfil sem desabilitar os demais atalhos', async () => {
+  const map = structuredClone(wire) as unknown as LocalCommandKeyboardMap;
+  map.contextualBindings = [profileWire as unknown as NonNullable<LocalCommandKeyboardMap['contextualBindings']>[number]];
+  const { keyboard, accepted, onDown, context } = await controller(map);
+  try {
+    expect(accepted).toHaveBeenCalledTimes(1);
+    context.appPage = 'workspace'; context.surfaceType = 'workspaces'; context.profile = 'dev';
+    press('F2', {});
+    expect(onDown).toHaveBeenLastCalledWith(expect.objectContaining({ commandId: 'workspaces.rename.open' }));
+    press('Tab', { ctrlKey: true });
+    expect(onDown).toHaveBeenLastCalledWith(expect.objectContaining({ commandId: 'workspace.tab.next' }));
+  } finally { keyboard.dispose(); }
+});

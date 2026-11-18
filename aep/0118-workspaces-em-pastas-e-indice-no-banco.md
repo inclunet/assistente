@@ -119,3 +119,27 @@ Revisor independente `revisao_abertura_posicional`: sete rodadas no PR base e
 oito na implementação da interface, com fechamento sem pendências. Onze threads
 remotas do #1090 e quatro do #1091 corrigidas/respondidas e resolvidas. O commit
 final de documentação também passa por revisão independente e CI.
+
+### Segunda rodada de revisão do PR #1091
+
+- Projeção de teclas por página/perfil aceita as superfícies `workspaces` e
+  `allowlists`; fixture compartilhada compara o DTO real Go com o controlador
+  frontend sem invalidar os demais atalhos.
+- A lista atualiza a coleção autenticada ao abrir e usa a mesma coleção para
+  ativar por ID. O indicador ativo vem do snapshot atual; falha de atualização
+  retorna resultado explícito para anúncio. Removidos os callbacks de menu
+  congelados e sua adaptação na Topbar.
+- Ctrl+F respeita o modal proprietário, composição e evento já consumido.
+  Restauração após seleção é agendada somente depois da remoção do modal,
+  preservando troca assíncrona e navegação posterior.
+- O handler de criação, a execução/Commit e o formulário têm janela de cinco
+  minutos; o broker não expira a reserva durante o Commit.
+- Falha de registro após publicar o documento emite `workspace:creation-recovery`
+  tipado, efêmero e vinculado a usuário/sessão. O toast traduzido orienta reabrir
+  a pasta; o caminho não é incluído no resultado persistível do comando.
+
+Revisor independente `revisao_abertura_posicional`: duas rodadas adicionais de
+implementação e uma conferência final de testes/documentação; duas pendências de foco/erro corrigidas, segunda rodada sem
+pendências. A revisão de documentação anterior também foi concluída. As duas
+threads e os quatro apontamentos no corpo da segunda review remota foram
+tratados; validação e CI deste lote são registrados no PR.

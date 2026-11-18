@@ -1,0 +1,462 @@
+{
+  "shortcut": {
+    "version": 1,
+    "code": "F2",
+    "modifiers": []
+  },
+  "bySurface": {},
+  "byPage": {
+    "about": {
+      "fallbackToSequences": true,
+      "shortcut": {
+        "version": 1,
+        "code": "F2",
+        "modifiers": []
+      },
+      "bySurface": {
+        "toolbar": null,
+        "workspaces": null
+      },
+      "byProfile": {
+        "dev": {
+          "fallbackToSequences": true,
+          "shortcut": {
+            "version": 1,
+            "code": "F2",
+            "modifiers": []
+          },
+          "bySurface": {
+            "toolbar": null,
+            "workspaces": null
+          },
+          "sequenceFallbacks": {
+            "toolbar": {
+              "": true
+            },
+            "workspaces": {
+              "": true
+            }
+          },
+          "fallback": null
+        }
+      },
+      "sequenceFallbacks": {
+        "toolbar": {
+          "": true
+        },
+        "workspaces": {
+          "": true
+        }
+      },
+      "fallback": null
+    },
+    "help": {
+      "fallbackToSequences": true,
+      "shortcut": {
+        "version": 1,
+        "code": "F2",
+        "modifiers": []
+      },
+      "bySurface": {
+        "toolbar": null,
+        "workspaces": null
+      },
+      "byProfile": {
+        "dev": {
+          "fallbackToSequences": true,
+          "shortcut": {
+            "version": 1,
+            "code": "F2",
+            "modifiers": []
+          },
+          "bySurface": {
+            "toolbar": null,
+            "workspaces": null
+          },
+          "sequenceFallbacks": {
+            "toolbar": {
+              "": true
+            },
+            "workspaces": {
+              "": true
+            }
+          },
+          "fallback": null
+        }
+      },
+      "sequenceFallbacks": {
+        "toolbar": {
+          "": true
+        },
+        "workspaces": {
+          "": true
+        }
+      },
+      "fallback": null
+    },
+    "history": {
+      "fallbackToSequences": true,
+      "shortcut": {
+        "version": 1,
+        "code": "F2",
+        "modifiers": []
+      },
+      "bySurface": {
+        "history": null,
+        "workspaces": null
+      },
+      "byProfile": {
+        "dev": {
+          "fallbackToSequences": true,
+          "shortcut": {
+            "version": 1,
+            "code": "F2",
+            "modifiers": []
+          },
+          "bySurface": {
+            "history": null,
+            "workspaces": null
+          },
+          "sequenceFallbacks": {
+            "history": {
+              "": true
+            },
+            "workspaces": {
+              "": true
+            }
+          },
+          "fallback": null
+        }
+      },
+      "sequenceFallbacks": {
+        "history": {
+          "": true
+        },
+        "workspaces": {
+          "": true
+        }
+      },
+      "fallback": null
+    },
+    "jobs": {
+      "fallbackToSequences": true,
+      "shortcut": {
+        "version": 1,
+        "code": "F2",
+        "modifiers": []
+      },
+      "bySurface": {
+        "toolbar": null,
+        "workspaces": null
+      },
+      "byProfile": {
+        "dev": {
+          "fallbackToSequences": true,
+          "shortcut": {
+            "version": 1,
+            "code": "F2",
+            "modifiers": []
+          },
+          "bySurface": {
+            "toolbar": null,
+            "workspaces": null
+          },
+          "sequenceFallbacks": {
+            "toolbar": {
+              "": true
+            },
+            "workspaces": {
+              "": true
+            }
+          },
+          "fallback": null
+        }
+      },
+      "sequenceFallbacks": {
+        "toolbar": {
+          "": true
+        },
+        "workspaces": {
+          "": true
+        }
+      },
+      "fallback": null
+    },
+    "memories": {
+      "fallbackToSequences": true,
+      "shortcut": {
+        "version": 1,
+        "code": "F2",
+        "modifiers": []
+      },
+      "bySurface": {
+        "toolbar": null,
+        "workspaces": null
+      },
+      "byProfile": {
+        "dev": {
+          "fallbackToSequences": true,
+          "shortcut": {
+            "version": 1,
+            "code": "F2",
+            "modifiers": []
+          },
+          "bySurface": {
+            "toolbar": null,
+            "workspaces": null
+          },
+          "sequenceFallbacks": {
+            "toolbar": {
+              "": true
+            },
+            "workspaces": {
+              "": true
+            }
+          },
+          "fallback": null
+        }
+      },
+      "sequenceFallbacks": {
+        "toolbar": {
+          "": true
+        },
+        "workspaces": {
+          "": true
+        }
+      },
+      "fallback": null
+    },
+    "profiles": {
+      "fallbackToSequences": true,
+      "shortcut": {
+        "version": 1,
+        "code": "F2",
+        "modifiers": []
+      },
+      "bySurface": {
+        "profiles": null,
+        "workspaces": null
+      },
+      "byProfile": {
+        "dev": {
+          "fallbackToSequences": true,
+          "shortcut": {
+            "version": 1,
+            "code": "F2",
+            "modifiers": []
+          },
+          "bySurface": {
+            "profiles": null,
+            "workspaces": null
+          },
+          "sequenceFallbacks": {
+            "profiles": {
+              "": true
+            },
+            "workspaces": {
+              "": true
+            }
+          },
+          "fallback": null
+        }
+      },
+      "sequenceFallbacks": {
+        "profiles": {
+          "": true
+        },
+        "workspaces": {
+          "": true
+        }
+      },
+      "fallback": null
+    },
+    "settings": {
+      "fallbackToSequences": true,
+      "shortcut": {
+        "version": 1,
+        "code": "F2",
+        "modifiers": []
+      },
+      "bySurface": {
+        "allowlists": null,
+        "providers": null,
+        "toolbar": null,
+        "workspaces": null
+      },
+      "byProfile": {
+        "dev": {
+          "fallbackToSequences": true,
+          "shortcut": {
+            "version": 1,
+            "code": "F2",
+            "modifiers": []
+          },
+          "bySurface": {
+            "allowlists": null,
+            "providers": null,
+            "toolbar": null,
+            "workspaces": null
+          },
+          "sequenceFallbacks": {
+            "allowlists": {
+              "": true
+            },
+            "providers": {
+              "": true
+            },
+            "toolbar": {
+              "": true
+            },
+            "workspaces": {
+              "": true
+            }
+          },
+          "fallback": null
+        }
+      },
+      "sequenceFallbacks": {
+        "allowlists": {
+          "": true
+        },
+        "providers": {
+          "": true
+        },
+        "toolbar": {
+          "": true
+        },
+        "workspaces": {
+          "": true
+        }
+      },
+      "fallback": null
+    },
+    "tasklists": {
+      "fallbackToSequences": true,
+      "shortcut": {
+        "version": 1,
+        "code": "F2",
+        "modifiers": []
+      },
+      "bySurface": {
+        "tasklists": null,
+        "workspaces": null
+      },
+      "byProfile": {
+        "dev": {
+          "fallbackToSequences": true,
+          "shortcut": {
+            "version": 1,
+            "code": "F2",
+            "modifiers": []
+          },
+          "bySurface": {
+            "tasklists": null,
+            "workspaces": null
+          },
+          "sequenceFallbacks": {
+            "tasklists": {
+              "": true
+            },
+            "workspaces": {
+              "": true
+            }
+          },
+          "fallback": null
+        }
+      },
+      "sequenceFallbacks": {
+        "tasklists": {
+          "": true
+        },
+        "workspaces": {
+          "": true
+        }
+      },
+      "fallback": null
+    },
+    "update": {
+      "fallbackToSequences": true,
+      "shortcut": {
+        "version": 1,
+        "code": "F2",
+        "modifiers": []
+      },
+      "bySurface": {
+        "toolbar": null,
+        "workspaces": null
+      },
+      "byProfile": {
+        "dev": {
+          "fallbackToSequences": true,
+          "shortcut": {
+            "version": 1,
+            "code": "F2",
+            "modifiers": []
+          },
+          "bySurface": {
+            "toolbar": null,
+            "workspaces": null
+          },
+          "sequenceFallbacks": {
+            "toolbar": {
+              "": true
+            },
+            "workspaces": {
+              "": true
+            }
+          },
+          "fallback": null
+        }
+      },
+      "sequenceFallbacks": {
+        "toolbar": {
+          "": true
+        },
+        "workspaces": {
+          "": true
+        }
+      },
+      "fallback": null
+    },
+    "workspace": {
+      "fallbackToSequences": true,
+      "shortcut": {
+        "version": 1,
+        "code": "F2",
+        "modifiers": []
+      },
+      "bySurface": {
+        "workspaces": null
+      },
+      "byProfile": {
+        "dev": {
+          "fallbackToSequences": true,
+          "shortcut": {
+            "version": 1,
+            "code": "F2",
+            "modifiers": []
+          },
+          "bySurface": {
+            "workspaces": {
+              "shortcut": {
+                "version": 1,
+                "code": "F2",
+                "modifiers": []
+              },
+              "commandId": "workspaces.rename.open",
+              "handler": "local_ui"
+            }
+          },
+          "fallback": null
+        }
+      },
+      "sequenceFallbacks": {
+        "workspaces": {
+          "": true
+        }
+      },
+      "fallback": null
+    }
+  },
+  "fallback": null
+}

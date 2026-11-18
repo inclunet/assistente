@@ -143,7 +143,7 @@ interface WorkspaceStore {
   switchWorkspace: (workspaceId: string) => Promise<void>;
   renameWorkspace: (workspaceId: string, newName: string) => Promise<void>;
   deleteWorkspace: (workspaceId: string) => Promise<void>;
-  refreshWorkspaceList: () => Promise<void>;
+  refreshWorkspaceList: () => Promise<boolean>;
 
   // Tab management
   addTab: (type: TabType, title: string, initialState?: Record<string, unknown>) => Promise<string>;
@@ -560,11 +560,16 @@ export const useWorkspaceStore = create<WorkspaceStore>()((set, get) => {
 
 
   refreshWorkspaceList: async () => {
+    const owner = useAuthStore.getState().user;
     try {
       const list = await ListWorkspaces();
+      const auth = useAuthStore.getState();
+      if (!auth.isAuthenticated || auth.user?.userId !== owner?.userId || auth.user?.sessionId !== owner?.sessionId) return false;
       set({ workspaces: list || [] });
+      return true;
     } catch (error) {
       logger.error('[Workspace] Error refreshing list:', error);
+      return false;
     }
   },
 

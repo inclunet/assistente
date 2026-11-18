@@ -4245,6 +4245,7 @@ notSaved: 'The decision applies only to this operation: it could not be remember
       pageContent: 'Page content',
     },
     workspace: {
+      creationRecovery: 'The workspace was saved at {{path}}, but could not be registered in the list. Open the selected folder again to recover it.',
       activeStatus: 'Open',
       inactiveStatus: 'Not in use',
       remove: 'Remove workspace',

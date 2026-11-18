@@ -107,6 +107,7 @@ function setStoreState(
 
 describe('eventos de workspace', () => {
   beforeEach(async () => {
+    useAuthStore.setState({ isAuthenticated: true, user: { userId: 'user', sessionId: 'session', role: 'user' } });
     useWorkspaceStore.setState({ workspace: null, isInitialized: false, workspaces: [] });
     mockedAnnounce.mockClear();
     mockedEventsOn.mockClear();
@@ -1422,4 +1423,16 @@ describe('updateTab — ProfileOverride por patch', () => {
       model: 'modelo-a',
     });
   });
+});
+
+it('descarta uma lista que chega após trocar de sessão', async () => {
+  useAuthStore.setState({ isAuthenticated: true, user: { userId: 'user', sessionId: 'old', role: 'user' } });
+  useWorkspaceStore.setState({ workspaces: [] });
+  let complete!: (rows: workspace.WorkspaceInfo[]) => void;
+  mockedListWorkspaces.mockImplementationOnce(() => new Promise(resolve => { complete = resolve; }));
+  const result = useWorkspaceStore.getState().refreshWorkspaceList();
+  useAuthStore.setState({ isAuthenticated: true, user: { userId: 'user', sessionId: 'new', role: 'user' } });
+  complete([{ id: 'private', name: 'Old session', path: 'C:/private', tab_count: 0, is_active: false }]);
+  expect(await result).toBe(false);
+  expect(useWorkspaceStore.getState().workspaces).toEqual([]);
 });

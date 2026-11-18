@@ -333,7 +333,7 @@ function validateContextualEntry(raw: unknown, allowProfiles: boolean, workspace
   if (allowProfiles && raw.byProfile !== undefined) {
     if (!isRecord(raw.byProfile) || Object.keys(raw.byProfile).length === 0 ||
         Object.keys(bySurface).some((surface) => !WORKSPACE_SURFACE_TYPES.has(surface) &&
-          !(allowRoutePageSurfaces && ['toolbar', 'profiles', 'tasklists', 'history', 'providers'].includes(surface)))) return null;
+          !(allowRoutePageSurfaces && ['toolbar', 'profiles', 'tasklists', 'history', 'providers', 'allowlists', 'workspaces'].includes(surface)))) return null;
   }
   if (raw.bySurfaceId !== undefined) {
     if (!isRecord(raw.bySurfaceId)) return null;

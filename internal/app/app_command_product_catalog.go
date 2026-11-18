@@ -148,7 +148,7 @@ func (a *App) commandProductCatalog() (*commandcatalog.Registry, map[string]comm
 		commandWorkspaceTabTasklistCreateID: {Contract: tasklistHandler, Start: a.startCommandUI},
 		commandWorkspaceTabTerminalCreateID: {Contract: terminalHandler, Start: a.startCommandUI},
 		commandWorkspaceTabCloseID:          {Contract: closeHandler, Start: a.startCommandUI},
-		commandWorkspaceCreateID:            {Contract: workspaceCreateHandler, Start: a.startCommandUI},
+		commandWorkspaceCreateID:            {Contract: workspaceCreateHandler, Start: a.startCommandUI, ExecutionTimeout: 5 * time.Minute},
 		commandWorkspaceChatOpenID:          {Contract: workspaceChatOpenHandler, Start: a.startCommandUI},
 	}
 	for commandID, handler := range toolHandlers {
