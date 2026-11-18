@@ -1,6 +1,7 @@
 package app
 
 import (
+	"assistente/internal/testutil/workspacefixture"
 	"context"
 	"errors"
 	"os"
@@ -49,7 +50,7 @@ func (f *fakeCommandTerminalCreator) Has(id string) bool { return f.live && id =
 
 func TestCreateTerminalSessionAndCommitPersisteAbaSemCleanupNoSucesso(t *testing.T) {
 	root := t.TempDir()
-	manager := workspace.NewManager(filepath.Join(root, "home"))
+	manager := workspacefixture.New(t, filepath.Join(root, "home"))
 	workspacePath := filepath.Join(root, "workspace")
 	if err := manager.Initialize(workspacePath); err != nil {
 		t.Fatal(err)

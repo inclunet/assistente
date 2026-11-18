@@ -307,7 +307,7 @@ O componente de detalhe é o mesmo tanto no modal da listagem quanto na aba do w
 |-------|------|---------|
 | Estado do workspace + abas | `.assistente/workspace.yaml` | Arquivo YAML |
 | Conversas | DB (como hoje) | SQLite/IndexedDB |
-| Índice global de workspaces | `~/.assistente/workspaces/index.yaml` | Arquivo YAML |
+| Índice de workspaces do cliente | Banco selecionado, escopo local do desktop (AEP-0118) | Tabelas normalizadas |
 
 ### Localização do workspace
 
@@ -315,7 +315,7 @@ O componente de detalhe é o mesmo tanto no modal da listagem quanto na aba do w
 |------|---------|
 | Vinculado a pasta/projeto | `<pasta>/.assistente/workspace.yaml` |
 | Avulso (criado na UI) | `~/.assistente/workspaces/<id>/.assistente/workspace.yaml` |
-| Default (sem diretório) | `~/.assistente/workspaces/default/.assistente/workspace.yaml` |
+| Default (primeira abertura sem diretório) | `~/.assistente/workspace.yaml` |
 
 ### Compatibilidade publicada
 
@@ -337,7 +337,7 @@ App abre em <path>
   │     └── Sim → cria workspace novo ali
   │
   └── Sem path (abriu o app direto)?
-        └── Carrega último usado (via index.yaml)
+        └── Carrega último usado (via banco)
               └── Se não tem histórico → default
 ```
 
@@ -372,7 +372,14 @@ name: "On-call"           # display name (renomeável livremente)
 
 Pasta de workspaces avulsos usa **ID**, não nome. O nome é só metadata dentro do YAML.
 
-### index.yaml
+### Índice legado (importação única pelo AEP-0118)
+
+O índice ativo reside no banco. O YAML abaixo só é lido para migração; sua
+remoção exige importação confirmada e conteúdo ainda idêntico ao importado.
+Workspaces avulsos antigos permanecem nos caminhos originais. O identificador
+local `desktop-client-id` separa clientes antes do login, inclusive em banco
+compartilhado. O AEP-0052 continua governando o acesso aos conteúdos das abas.
+
 
 ```yaml
 # ~/.assistente/workspaces/index.yaml

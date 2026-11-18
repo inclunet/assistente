@@ -1,16 +1,12 @@
 package workspace
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"time"
-
-	"gopkg.in/yaml.v3"
 )
 
 var (
@@ -74,8 +70,7 @@ func (m *Manager) CreateForCommand(ctx context.Context, expected CommandSnapshot
 		return rollback(err)
 	}
 
-	indexPath := filepath.Join(m.homeDir, workspacesDir, indexFile)
-	index, err := readCommandWorkspaceIndex(indexPath)
+	index, err := m.loadIndex()
 	if err != nil {
 		return rollback(err)
 	}
@@ -85,90 +80,11 @@ func (m *Manager) CreateForCommand(ctx context.Context, expected CommandSnapshot
 		Path:     workspaceDir,
 		LastUsed: time.Now(),
 	})
-	if err := publishCommandWorkspaceIndex(ctx, indexPath, index); err != nil {
+	if err := m.saveIndexContext(ctx, index); err != nil {
 		return rollback(err)
 	}
 
 	// Cancellation after the index publication cannot undo a successful durable
 	// publication without risking removal of a workspace the caller now owns.
 	return ws, nil
-}
-
-func readCommandWorkspaceIndex(path string) (*Index, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, fmt.Errorf("read workspace index: %w", err)
-	}
-	var index Index
-	decoder := yaml.NewDecoder(bytes.NewReader(data))
-	decoder.KnownFields(true)
-	if err := decoder.Decode(&index); err != nil {
-		return nil, fmt.Errorf("parse workspace index: %w", err)
-	}
-	var extra any
-	if err := decoder.Decode(&extra); err != io.EOF {
-		if err == nil {
-			return nil, fmt.Errorf("parse workspace index: multiple YAML documents")
-		}
-		return nil, fmt.Errorf("parse workspace index: %w", err)
-	}
-	return &index, nil
-}
-
-func publishCommandWorkspaceIndex(ctx context.Context, path string, index *Index) error {
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-	data, err := yaml.Marshal(index)
-	if err != nil {
-		return fmt.Errorf("marshal workspace index: %w", err)
-	}
-	dir := filepath.Dir(path)
-	temporary, err := os.CreateTemp(dir, ".index.yaml-command-*")
-	if err != nil {
-		return fmt.Errorf("create workspace index temporary file: %w", err)
-	}
-	temporaryName := temporary.Name()
-	defer func() {
-		_ = temporary.Close()
-		_ = os.Remove(temporaryName)
-	}()
-	if _, err := temporary.Write(data); err != nil {
-		return fmt.Errorf("write workspace index temporary file: %w", err)
-	}
-	if existing, statErr := os.Stat(path); statErr == nil {
-		if err := temporary.Chmod(existing.Mode().Perm()); err != nil {
-			return fmt.Errorf("set workspace index temporary file permissions: %w", err)
-		}
-	} else if !errors.Is(statErr, os.ErrNotExist) {
-		return fmt.Errorf("stat workspace index: %w", statErr)
-	}
-	if err := temporary.Close(); err != nil {
-		return fmt.Errorf("close workspace index temporary file: %w", err)
-	}
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-	var renameErr error
-	for attempt := 0; attempt < 5; attempt++ {
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		if renameErr = os.Rename(temporaryName, path); renameErr == nil {
-			return nil
-		}
-		if attempt == 4 {
-			break
-		}
-		timer := time.NewTimer(time.Duration(attempt+1) * 10 * time.Millisecond)
-		select {
-		case <-ctx.Done():
-			if !timer.Stop() {
-				<-timer.C
-			}
-			return ctx.Err()
-		case <-timer.C:
-		}
-	}
-	return fmt.Errorf("publish workspace index after retries: %w", renameErr)
 }

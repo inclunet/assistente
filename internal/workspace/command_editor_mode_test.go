@@ -110,7 +110,7 @@ func TestSetEditorModeForCommandRecusaSnapshotStaleABAReplayMesmoModo(t *testing
 
 func TestSetEditorModeForCommandFalhaDePersistenciaFazRollback(t *testing.T) {
 	root := t.TempDir()
-	m := NewManager(filepath.Join(root, "home"))
+	m := newTestManager(t, filepath.Join(root, "home"))
 	if err := m.Initialize(filepath.Join(root, "workspace")); err != nil {
 		t.Fatal(err)
 	}

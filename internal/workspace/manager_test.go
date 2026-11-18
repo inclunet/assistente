@@ -10,7 +10,7 @@ import (
 )
 
 func TestInitialize_NewWorkspaceHasActiveChatTab(t *testing.T) {
-	m := NewManager(t.TempDir())
+	m := newTestManager(t, t.TempDir())
 	if err := m.Initialize(t.TempDir()); err != nil {
 		t.Fatalf("Initialize: %v", err)
 	}
@@ -38,7 +38,7 @@ func TestInitialize_NewWorkspaceHasActiveChatTab(t *testing.T) {
 func TestInitialize_RepairsPersistedWorkspaceWithoutTabs(t *testing.T) {
 	homeDir := t.TempDir()
 	workDir := t.TempDir()
-	m := NewManager(homeDir)
+	m := newTestManager(t, homeDir)
 	if err := m.saveWorkspace(&Workspace{
 		ID:   "ws-empty",
 		Name: "Empty",
@@ -59,7 +59,7 @@ func TestInitialize_RepairsPersistedWorkspaceWithoutTabs(t *testing.T) {
 		t.Fatalf("expected repaired tab to be active, got %q", ws.Tabs.Active)
 	}
 
-	reloaded := NewManager(homeDir)
+	reloaded := newTestManager(t, homeDir)
 	if err := reloaded.Initialize(workDir); err != nil {
 		t.Fatalf("reload Initialize: %v", err)
 	}
@@ -71,7 +71,7 @@ func TestInitialize_RepairsPersistedWorkspaceWithoutTabs(t *testing.T) {
 func TestInitialize_RepairsMissingActiveTab(t *testing.T) {
 	homeDir := t.TempDir()
 	workDir := t.TempDir()
-	m := NewManager(homeDir)
+	m := newTestManager(t, homeDir)
 	if err := m.saveWorkspace(&Workspace{
 		ID:   "ws-invalid-active",
 		Name: "Invalid active",
@@ -97,7 +97,7 @@ func TestInitialize_RepairsMissingActiveTab(t *testing.T) {
 }
 
 func TestImportWorkspace_PreservesImportedTabCount(t *testing.T) {
-	m := NewManager(t.TempDir())
+	m := newTestManager(t, t.TempDir())
 	data, err := yaml.Marshal(&Workspace{
 		Name: "Imported",
 		Tabs: TabsState{Items: []Tab{
@@ -122,7 +122,7 @@ func TestImportWorkspace_PreservesImportedTabCount(t *testing.T) {
 }
 
 func TestImportWorkspace_EmptyImportGetsDefaultTab(t *testing.T) {
-	m := NewManager(t.TempDir())
+	m := newTestManager(t, t.TempDir())
 	data, err := yaml.Marshal(&Workspace{Name: "Empty import"})
 	if err != nil {
 		t.Fatalf("yaml.Marshal: %v", err)
@@ -141,7 +141,7 @@ func TestImportWorkspace_EmptyImportGetsDefaultTab(t *testing.T) {
 }
 
 func TestOpenEditorFilePaths_NoActiveWorkspace(t *testing.T) {
-	m := NewManager(t.TempDir())
+	m := newTestManager(t, t.TempDir())
 	paths := m.OpenEditorFilePaths()
 	if paths != nil {
 		t.Errorf("expected nil without active workspace, got %v", paths)
@@ -149,7 +149,7 @@ func TestOpenEditorFilePaths_NoActiveWorkspace(t *testing.T) {
 }
 
 func TestOpenEditorFilePaths_NoEditorTabs(t *testing.T) {
-	m := NewManager(t.TempDir())
+	m := newTestManager(t, t.TempDir())
 	if err := m.Initialize(t.TempDir()); err != nil {
 		t.Fatalf("Initialize: %v", err)
 	}
@@ -170,7 +170,7 @@ func TestOpenEditorFilePaths_NoEditorTabs(t *testing.T) {
 }
 
 func TestOpenEditorFilePaths_ReturnsEditorPaths(t *testing.T) {
-	m := NewManager(t.TempDir())
+	m := newTestManager(t, t.TempDir())
 	if err := m.Initialize(t.TempDir()); err != nil {
 		t.Fatalf("Initialize: %v", err)
 	}
@@ -223,7 +223,7 @@ func TestOpenEditorFilePaths_ReturnsEditorPaths(t *testing.T) {
 }
 
 func TestOpenEditorFilePaths_SkipsEmptyAndRelativePaths(t *testing.T) {
-	m := NewManager(t.TempDir())
+	m := newTestManager(t, t.TempDir())
 	if err := m.Initialize(t.TempDir()); err != nil {
 		t.Fatalf("Initialize: %v", err)
 	}
@@ -280,7 +280,7 @@ func TestOpenEditorFilePaths_SkipsEmptyAndRelativePaths(t *testing.T) {
 }
 
 func TestUpdateTab_MergesState(t *testing.T) {
-	m := NewManager(t.TempDir())
+	m := newTestManager(t, t.TempDir())
 	if err := m.Initialize(t.TempDir()); err != nil {
 		t.Fatalf("Initialize: %v", err)
 	}
@@ -318,7 +318,7 @@ func TestUpdateTab_MergesState(t *testing.T) {
 }
 
 func TestUpdateTabProfileForConversationValidatesRelationship(t *testing.T) {
-	m := NewManager(t.TempDir())
+	m := newTestManager(t, t.TempDir())
 	if err := m.Initialize(t.TempDir()); err != nil {
 		t.Fatalf("Initialize: %v", err)
 	}
@@ -349,7 +349,7 @@ func TestUpdateTabProfileForConversationValidatesRelationship(t *testing.T) {
 }
 
 func TestUpdateTabProfileForConversationLimpaModeloQuandoSlugMuda(t *testing.T) {
-	m := NewManager(t.TempDir())
+	m := newTestManager(t, t.TempDir())
 	if err := m.Initialize(t.TempDir()); err != nil {
 		t.Fatalf("Initialize: %v", err)
 	}
@@ -380,7 +380,7 @@ func TestUpdateTabProfileForConversationLimpaModeloQuandoSlugMuda(t *testing.T) 
 }
 
 func TestUpdateTabProfileForConversationPreservaModeloQuandoSlugNaoMuda(t *testing.T) {
-	m := NewManager(t.TempDir())
+	m := newTestManager(t, t.TempDir())
 	if err := m.Initialize(t.TempDir()); err != nil {
 		t.Fatalf("Initialize: %v", err)
 	}
@@ -404,7 +404,7 @@ func TestUpdateTabProfileForConversationPreservaModeloQuandoSlugNaoMuda(t *testi
 
 func TestUpdateTabProfileForConversationRollsBackWhenSaveFails(t *testing.T) {
 	root := t.TempDir()
-	m := NewManager(root)
+	m := newTestManager(t, root)
 	if err := m.Initialize(t.TempDir()); err != nil {
 		t.Fatalf("Initialize: %v", err)
 	}
@@ -436,7 +436,7 @@ func TestUpdateTabProfileForConversationRollsBackWhenSaveFails(t *testing.T) {
 }
 
 func TestUpdateTabProfileOverrideFazMergeERemoveComNil(t *testing.T) {
-	m := NewManager(t.TempDir())
+	m := newTestManager(t, t.TempDir())
 	if err := m.Initialize(t.TempDir()); err != nil {
 		t.Fatalf("Initialize: %v", err)
 	}
@@ -473,7 +473,7 @@ func TestUpdateTabProfileOverrideFazMergeERemoveComNil(t *testing.T) {
 
 func TestUpdateTabProfileOverrideRollsBackWhenSaveFails(t *testing.T) {
 	root := t.TempDir()
-	m := NewManager(root)
+	m := newTestManager(t, root)
 	if err := m.Initialize(t.TempDir()); err != nil {
 		t.Fatalf("Initialize: %v", err)
 	}
@@ -504,7 +504,7 @@ func TestUpdateTabProfileOverrideRollsBackWhenSaveFails(t *testing.T) {
 }
 
 func TestUpdateTab_NilRemovesStateKey(t *testing.T) {
-	m := NewManager(t.TempDir())
+	m := newTestManager(t, t.TempDir())
 	if err := m.Initialize(t.TempDir()); err != nil {
 		t.Fatalf("Initialize: %v", err)
 	}
@@ -538,7 +538,7 @@ func TestUpdateTab_NilRemovesStateKey(t *testing.T) {
 }
 
 func TestUpdateTab_MergesStatePreservesOpenEditorPaths(t *testing.T) {
-	m := NewManager(t.TempDir())
+	m := newTestManager(t, t.TempDir())
 	if err := m.Initialize(t.TempDir()); err != nil {
 		t.Fatalf("Initialize: %v", err)
 	}
@@ -581,7 +581,7 @@ func TestUpdateTab_MergesStatePreservesOpenEditorPaths(t *testing.T) {
 }
 
 func TestUpdateTab_ConversationIDFloat64Zero(t *testing.T) {
-	m := NewManager(t.TempDir())
+	m := newTestManager(t, t.TempDir())
 	if err := m.Initialize(t.TempDir()); err != nil {
 		t.Fatalf("Initialize: %v", err)
 	}

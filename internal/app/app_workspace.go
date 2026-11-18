@@ -3,6 +3,7 @@ package app
 import (
 	"assistente/controllers"
 	"assistente/internal/configdir"
+	"assistente/internal/database"
 	"assistente/internal/logging"
 	"assistente/internal/workspace"
 	"context"
@@ -34,7 +35,7 @@ func (a *App) initialToolWorkDir() (string, error) {
 
 func (a *App) initWorkspace() error {
 	homeDir := configdir.GetHomeDir()
-	a.workspaceMgr = workspace.NewManager(homeDir)
+	a.workspaceMgr = workspace.NewManager(homeDir, database.DB())
 
 	workDir := ""
 	if a.startupWorkspaceDir != nil {

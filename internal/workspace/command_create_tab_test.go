@@ -276,7 +276,7 @@ func TestAddTabForCommandPersistFailureNaoMutaMemoria(t *testing.T) {
 	for _, tc := range commandCreateTabTypes {
 		t.Run(tc.name, func(t *testing.T) {
 			root := t.TempDir()
-			manager := NewManager(filepath.Join(root, "home"))
+			manager := newTestManager(t, filepath.Join(root, "home"))
 			workspacePath := filepath.Join(root, "workspace")
 			if err := manager.Initialize(workspacePath); err != nil {
 				t.Fatal(err)
@@ -316,7 +316,7 @@ func TestAddTabForCommandPersistFailureNaoMutaMemoria(t *testing.T) {
 func TestAddTabForCommandNaoDeixaTemporarioAposPersistencia(t *testing.T) {
 	root := t.TempDir()
 	workspacePath := filepath.Join(root, "workspace")
-	manager := NewManager(filepath.Join(root, "home"))
+	manager := newTestManager(t, filepath.Join(root, "home"))
 	if err := manager.Initialize(workspacePath); err != nil {
 		t.Fatal(err)
 	}
@@ -346,7 +346,7 @@ func TestAddTabForCommandNaoDeixaTemporarioAposPersistencia(t *testing.T) {
 
 func TestSaveWorkspaceForCommandCanceladoAntesDoReplacePreservaArquivo(t *testing.T) {
 	root := t.TempDir()
-	manager := NewManager(filepath.Join(root, "home"))
+	manager := newTestManager(t, filepath.Join(root, "home"))
 	workspacePath := filepath.Join(root, "workspace")
 	if err := manager.Initialize(workspacePath); err != nil {
 		t.Fatal(err)

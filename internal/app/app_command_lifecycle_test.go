@@ -1,6 +1,7 @@
 package app
 
 import (
+	"assistente/internal/testutil/workspacefixture"
 	"bytes"
 	"context"
 	"encoding/base64"
@@ -313,7 +314,7 @@ func appLifecycleProductMountFixture(t *testing.T) (*App, CommandLifecycleMountI
 	if err != nil {
 		t.Fatal(err)
 	}
-	workspaceManager := workspace.NewManager(filepath.Join(t.TempDir(), "assistente-home"))
+	workspaceManager := workspacefixture.New(t, filepath.Join(t.TempDir(), "assistente-home"))
 	if err := workspaceManager.Initialize(filepath.Join(t.TempDir(), "workspace")); err != nil {
 		t.Fatal(err)
 	}

@@ -1,6 +1,7 @@
 package app
 
 import (
+	"assistente/internal/testutil/workspacefixture"
 	"context"
 	"encoding/json"
 	"errors"
@@ -28,7 +29,7 @@ func newCommandWorkspaceProviderFixture(t *testing.T) (*App, auth.LocalSessionPr
 	configdir.ResetForTests()
 	t.Cleanup(configdir.ResetForTests)
 
-	manager := workspace.NewManager(filepath.Join(root, "assistente-home"))
+	manager := workspacefixture.New(t, filepath.Join(root, "assistente-home"))
 	if err := manager.Initialize(filepath.Join(root, "workspace")); err != nil {
 		t.Fatalf("Initialize workspace fixture: %v", err)
 	}

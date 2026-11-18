@@ -26,7 +26,9 @@ Um workspace é um container que agrupa:
 
 A pasta indicada precisa existir. Se ainda não houver
 `.assistente/workspace.yaml`, o aplicativo cria o workspace com uma aba de chat.
-Sem histórico de uso, a abertura sem argumentos cria o workspace padrão na home.
+Sem histórico de uso, a abertura sem argumentos cria o workspace padrão em
+`~/.assistente/workspace.yaml`. Um documento existente inválido é preservado
+e causa um erro explícito, sem ser substituído por um workspace vazio.
 O menu **Abrir Assistente Aqui** do Windows usa a mesma sintaxe. A opção
 `--workdir` não é suportada.
 
@@ -39,9 +41,20 @@ esse banco, a abertura apresenta a janela existente, sem trocar seu workspace.
 
 Os workspaces são armazenados em:
 
-- **Workspace avulso**: `~/.assistente/workspaces/<id>/workspace.yaml`
+- **Workspace padrão**: `~/.assistente/workspace.yaml`
+- **Workspace avulso antigo**: `~/.assistente/workspaces/<id>/.assistente/workspace.yaml` (preservado)
 - **Workspace de diretório**: `<diretório>/.assistente/workspace.yaml`
 - **Config global**: `~/.assistente/` (home directory)
+
+A lista de workspaces conhecidos e o último aberto são armazenados no banco.
+O índice YAML antigo é importado uma vez e removido após confirmação; se seu
+conteúdo tiver mudado desde a importação, o arquivo é preservado. A pasta
+`workspaces` permanece enquanto contiver workspaces antigos ou outros arquivos.
+
+A lista retira referências quando o documento foi apagado de uma pasta ainda
+acessível. Pastas indisponíveis e erros de acesso não são tratados como exclusão.
+O arquivo local `desktop-client-id` identifica a instalação para separar seus
+recentes dos de outro desktop; ele não concede acesso às conversas.
 
 ## Operações
 

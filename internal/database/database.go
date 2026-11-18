@@ -230,6 +230,8 @@ func InitPath(path string) error {
 		&AuthorizationImport{},
 		&AuthorizationPolicy{},
 		&AuthorizationPolicyBinding{},
+		&DesktopWorkspaceEntry{},
+		&DesktopWorkspaceState{},
 		&User{},
 		&Session{},
 		&Conversation{},

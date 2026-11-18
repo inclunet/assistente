@@ -1,6 +1,7 @@
 package wailsapi
 
 import (
+	"assistente/internal/testutil/workspacefixture"
 	"context"
 	"errors"
 	"path/filepath"
@@ -15,7 +16,7 @@ type workspaceSelectionTestEmitter struct{}
 func (workspaceSelectionTestEmitter) Emit(string, any) {}
 
 func TestWorkspaceSetActiveWorkspaceTabForWorkspaceUsesWithUserAndReturnsStampedSnapshot(t *testing.T) {
-	manager := workspace.NewManager(filepath.Join(t.TempDir(), "home"))
+	manager := workspacefixture.New(t, filepath.Join(t.TempDir(), "home"))
 	if err := manager.Initialize(filepath.Join(t.TempDir(), "active")); err != nil {
 		t.Fatal(err)
 	}

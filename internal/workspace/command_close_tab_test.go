@@ -158,7 +158,7 @@ func TestCloseActiveTabForCommandRecusaCancelamento(t *testing.T) {
 
 func TestCloseActiveTabForCommandPersistFailureFazRollback(t *testing.T) {
 	root := t.TempDir()
-	manager := NewManager(filepath.Join(root, "home"))
+	manager := newTestManager(t, filepath.Join(root, "home"))
 	workspacePath := filepath.Join(root, "workspace")
 	if err := manager.Initialize(workspacePath); err != nil {
 		t.Fatal(err)

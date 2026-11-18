@@ -36,7 +36,7 @@ func TestPublishedWorkspacesUpgradeDirectly(t *testing.T) {
 			}
 
 			withChdirAndConfigReset(t, workDir)
-			manager := NewManager(filepath.Join(root, "home", assistenteDir))
+			manager := newTestManager(t, filepath.Join(root, "home", assistenteDir))
 			if err := manager.Initialize(workDir); err != nil {
 				t.Fatalf("startup do workspace %s: %v", version, err)
 			}
@@ -49,7 +49,7 @@ func TestPublishedWorkspacesUpgradeDirectly(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			reloaded := NewManager(filepath.Join(root, "home", assistenteDir))
+			reloaded := newTestManager(t, filepath.Join(root, "home", assistenteDir))
 			if err := reloaded.Initialize(workDir); err != nil {
 				t.Fatalf("segunda inicialização %s: %v", version, err)
 			}

@@ -1,6 +1,7 @@
 package app
 
 import (
+	"assistente/internal/testutil/workspacefixture"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -11,14 +12,13 @@ import (
 	"assistente/internal/commandcatalog"
 	"assistente/internal/commandexecution"
 	"assistente/internal/commandledger"
-	"assistente/internal/workspace"
 	"github.com/google/uuid"
 )
 
 func TestCommandProductCatalogWorkspaceListIsCompleteAndReadsRealManager(t *testing.T) {
 	homeDir := t.TempDir()
 	workDir := t.TempDir()
-	manager := workspace.NewManager(homeDir)
+	manager := workspacefixture.New(t, homeDir)
 	if err := manager.Initialize(workDir); err != nil {
 		t.Fatal(err)
 	}
@@ -94,7 +94,7 @@ func TestCommandProductCatalogNavigationMetadataPaletteAndKeyboard(t *testing.T)
 
 	// Montagem com manager real é exercitada pelo teste acima; este teste valida
 	// o snapshot completo sem depender de estado de UI ou de URL.
-	manager := workspace.NewManager(t.TempDir())
+	manager := workspacefixture.New(t, t.TempDir())
 	if err := manager.Initialize(t.TempDir()); err != nil {
 		t.Fatal(err)
 	}
@@ -217,7 +217,7 @@ func TestCommandProductCatalogNavigationMetadataPaletteAndKeyboard(t *testing.T)
 func TestCommandProductLocalUIClassificationIsClosedAndFailClosed(t *testing.T) {
 	a := &App{}
 	registry, _, err := func() (*commandcatalog.Registry, map[string]commandexecution.Handler, error) {
-		manager := workspace.NewManager(t.TempDir())
+		manager := workspacefixture.New(t, t.TempDir())
 		if err := manager.Initialize(t.TempDir()); err != nil {
 			t.Fatal(err)
 		}

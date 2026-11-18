@@ -11,7 +11,7 @@ import (
 
 func workspaceTabSelectionManager(t *testing.T) (*Manager, string, string) {
 	t.Helper()
-	m := NewManager(filepath.Join(t.TempDir(), "home"))
+	m := newTestManager(t, filepath.Join(t.TempDir(), "home"))
 	if err := m.Initialize(filepath.Join(t.TempDir(), "active")); err != nil {
 		t.Fatal(err)
 	}

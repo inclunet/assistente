@@ -1,6 +1,7 @@
 package app
 
 import (
+	"assistente/internal/testutil/workspacefixture"
 	"bytes"
 	"context"
 	"encoding/base64"
@@ -343,7 +344,7 @@ func TestCommandMutationFactoryUsesRealDBAndPresenterAndRevalidatesSession(t *te
 		t.Fatalf("binding recém-persistido ausente: %+v %v", resolved, err)
 	}
 	t.Run("publicacao-preserva-workspace-ativo-independente-do-alvo", func(t *testing.T) {
-		wm := workspace.NewManager(filepath.Join(t.TempDir(), "home"))
+		wm := workspacefixture.New(t, filepath.Join(t.TempDir(), "home"))
 		if err := wm.Initialize(filepath.Join(t.TempDir(), "workspace")); err != nil {
 			t.Fatal(err)
 		}

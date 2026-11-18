@@ -1,6 +1,7 @@
 package app
 
 import (
+	"assistente/internal/testutil/workspacefixture"
 	"context"
 	"path/filepath"
 	"testing"
@@ -16,7 +17,6 @@ import (
 	"assistente/internal/questionnaire"
 	"assistente/internal/toolinvocations"
 	"assistente/internal/tools"
-	"assistente/internal/workspace"
 
 	"github.com/google/uuid"
 )
@@ -48,7 +48,7 @@ func restartCommandMaintenanceApp(t *testing.T, previous *App) *App {
 		t.Fatal(err)
 	}
 
-	manager := workspace.NewManager(filepath.Join(t.TempDir(), "restarted-workspace-home"))
+	manager := workspacefixture.New(t, filepath.Join(t.TempDir(), "restarted-workspace-home"))
 	if err := manager.Initialize(previous.workspaceMgr.ActivePath()); err != nil {
 		t.Fatal(err)
 	}
