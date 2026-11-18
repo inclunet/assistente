@@ -207,3 +207,31 @@ it('falha ao remover anuncia somente o erro, sem confirmar sucesso', async () =>
   expect(api.announce).toHaveBeenCalledExactlyOnceWith('commandPalette.executionFailed');
   expect(screen.getByRole('gridcell', { name: 'Projeto' })).toBeInTheDocument();
 });
+
+
+it('confirmações repetidas durante a remoção não duplicam a operação', async () => {
+  let completeRemoval!: () => void;
+  api.remove.mockReturnValue(new Promise<void>(resolve => { completeRemoval = resolve; }));
+  const { cell } = await openList();
+  press(cell, 'Delete');
+  await screen.findByRole('alertdialog');
+  const confirm = screen.getByRole('button', { name: /confirmar|confirm/i });
+
+  vi.useFakeTimers();
+  try {
+    act(() => {
+      confirm.click();
+      confirm.click();
+    });
+    // DecisionDialog's own click guard expires while the backend is still pending.
+    act(() => { vi.advanceTimersByTime(1100); });
+    fireEvent.click(confirm);
+    expect(api.remove).toHaveBeenCalledExactlyOnceWith('other');
+  } finally {
+    vi.useRealTimers();
+  }
+
+  await act(async () => { completeRemoval(); });
+  await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull());
+  expect(api.announce).toHaveBeenCalledExactlyOnceWith(i18next.t('workspace.announce.workspaceRemoved'));
+});
