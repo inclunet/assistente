@@ -143,3 +143,16 @@ implementação e uma conferência final de testes/documentação; duas pendênc
 pendências. A revisão de documentação anterior também foi concluída. As duas
 threads e os quatro apontamentos no corpo da segunda review remota foram
 tratados; validação e CI deste lote são registrados no PR.
+
+### Casos complementares da revisão
+
+Personalização somente por perfil (sem `app.page`) também projeta a superfície
+`workspaces`; a fixture Go/frontend prova o padrão nos outros perfis e a recusa
+fora da superfície. A importação utiliza o mesmo aviso efêmero de recuperação,
+com usuário e sessão capturados juntos na admissão da chamada. O teste do
+controller injeta falha de registro; o teste de contexto prova que trocar a
+sessão do mesmo usuário antes da importação preserva o destinatário original.
+Duas rodadas adicionais do revisor independente corrigiram a recaptura da
+sessão; a última terminou sem pendências. O CI de `61ed0977e` passou completo
+([44237718027](https://github.com/inclunet/assistente/actions/runs/44237718027));
+o PR registra a validação remota deste complemento.

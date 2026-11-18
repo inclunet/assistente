@@ -12,6 +12,7 @@ import (
 	"assistente/internal/credentials"
 	"assistente/internal/database"
 	"assistente/internal/mcp"
+	"assistente/internal/userctx"
 	"assistente/internal/wailsapi"
 )
 
@@ -711,6 +712,7 @@ func (a *App) internalBootstrapCtx() context.Context {
 	ctx = database.WithUserID(ctx, a.currentUserID)
 	if a.currentAuthUser != nil {
 		ctx = mcp.WithOAuthSession(ctx, a.currentAuthUser.SessionID)
+		ctx = userctx.WithSessionID(ctx, a.currentAuthUser.SessionID)
 	}
 	return ctx
 }

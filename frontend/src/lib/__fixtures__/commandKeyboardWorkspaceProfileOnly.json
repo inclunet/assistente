@@ -1,0 +1,42 @@
+{
+  "fallbackToSequences": true,
+  "shortcut": {
+    "version": 1,
+    "code": "F2",
+    "modifiers": []
+  },
+  "bySurface": {
+    "workspaces": {
+      "shortcut": {
+        "version": 1,
+        "code": "F2",
+        "modifiers": []
+      },
+      "commandId": "workspaces.rename.open",
+      "handler": "local_ui"
+    }
+  },
+  "byProfile": {
+    "dev": {
+      "fallbackToSequences": true,
+      "shortcut": {
+        "version": 1,
+        "code": "F2",
+        "modifiers": []
+      },
+      "bySurface": {
+        "workspaces": {
+          "shortcut": {
+            "version": 1,
+            "code": "F2",
+            "modifiers": []
+          },
+          "commandId": "workspaces.delete.open",
+          "handler": "local_ui"
+        }
+      },
+      "fallback": null
+    }
+  },
+  "fallback": null
+}

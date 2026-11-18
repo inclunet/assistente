@@ -215,7 +215,7 @@ func (api *Workspace) ImportWorkspace(yamlData, directory string) (*workspace.Wo
 		return nil, err
 	}
 	return WithUser(session, func(ctx context.Context) (*workspace.Workspace, error) {
-		return ctrl.ImportWorkspace(yamlData, directory)
+		return ctrl.ImportWorkspace(ctx, yamlData, directory)
 	})
 }
 

@@ -229,7 +229,7 @@ Configurações antigas de perfil global no arquivo do workspace são ignoradas.
 Comandos de chat indisponíveis em Configurações explicam que é necessário voltar
 ao chat. O leitor de telas recebe a opção ativa, sua ajuda e seu estado pelo
 controle da lista, sem repetir esse mesmo texto em um anúncio separado.
-Se o documento for salvo, mas o registro na lista falhar, o aplicativo mostra
+Se o documento for salvo durante criação ou importação, mas o registro na lista falhar, o aplicativo mostra
 um aviso não bloqueante com o caminho preservado. Abra novamente a pasta
 escolhida para recuperar o workspace. A lista é atualizada a cada abertura;
 se essa atualização falhar, o aplicativo informa o problema.

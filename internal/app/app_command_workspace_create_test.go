@@ -19,6 +19,7 @@ import (
 	"assistente/internal/database"
 	"assistente/internal/questionnaire"
 	"assistente/internal/testutil/workspacefixture"
+	"assistente/internal/userctx"
 	"assistente/internal/workspace"
 )
 
@@ -409,10 +410,10 @@ func TestCommandWorkspaceCreateEmitsRecoveryWithoutPersistentPath(t *testing.T) 
 	})
 	installWorkspaceCreationDialog(t, a)
 	directory := a.dialogPort.(workspaceCreationDialog).directory
-	var notice workspaceCreationRecoveryEvent
+	var notice workspace.CreationRecoveryEvent
 	a.emitter = globalJobTestEmitter(func(event string, data any) {
 		if event == "workspace:creation-recovery" {
-			notice = data.(workspaceCreationRecoveryEvent)
+			notice = data.(workspace.CreationRecoveryEvent)
 		}
 	})
 	db := indexDB
@@ -445,5 +446,21 @@ func TestCommandWorkspaceCreateEmitsRecoveryWithoutPersistentPath(t *testing.T) 
 	escaped, _ := json.Marshal(notice.Path)
 	if strings.Contains(string(raw), string(escaped[1:len(escaped)-1])) {
 		t.Fatalf("recovery path leaked into command result: %s", raw)
+	}
+}
+
+func TestWorkspaceImportContextRetainsAdmittedSession(t *testing.T) {
+	a := &App{ctx: context.Background(), currentUserID: "owner", currentAuthUser: &AuthUser{UserID: "owner", SessionID: "original"}}
+	ctx, err := (wailsSession{app: a}).AuthenticatedContext()
+	if err != nil {
+		t.Fatal(err)
+	}
+	a.authMu.Lock()
+	a.currentAuthUser = &AuthUser{UserID: "owner", SessionID: "new"}
+	a.authMu.Unlock()
+	userID, _ := database.UserIDFromContext(ctx)
+	sessionID, _ := userctx.SessionIDFromContext(ctx)
+	if userID != "owner" || sessionID != "original" {
+		t.Fatalf("owner=%s session=%s", userID, sessionID)
 	}
 }

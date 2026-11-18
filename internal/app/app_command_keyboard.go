@@ -632,7 +632,7 @@ func contextualKeyboardBinding(ctx context.Context, configuration *commandbindin
 	if len(profiles) != 0 && len(pages) == 0 {
 		workspaceValues := make([]string, 0, len(values))
 		for _, value := range values {
-			if localKeyboardWorkspaceSurface(value) {
+			if localKeyboardWorkspaceSurface(value) || value == "workspaces" {
 				workspaceValues = append(workspaceValues, value)
 			}
 		}

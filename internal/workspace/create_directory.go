@@ -9,6 +9,13 @@ import (
 	"time"
 )
 
+// CreationRecoveryEvent is ephemeral and scoped to the session that started the operation.
+type CreationRecoveryEvent struct {
+	UserID    string `json:"userId"`
+	SessionID string `json:"sessionId"`
+	Path      string `json:"path"`
+}
+
 // CreationRegistrationError identifies a published document that can be reopened.
 type CreationRegistrationError struct {
 	Path  string

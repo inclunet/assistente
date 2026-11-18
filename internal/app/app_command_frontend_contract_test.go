@@ -72,3 +72,39 @@ func TestWorkspacePageProfileKeyboardWireContract(t *testing.T) {
 		t.Fatal("page/profile fixture differs from backend")
 	}
 }
+
+func TestWorkspaceProfileOnlyKeyboardWireContract(t *testing.T) {
+	a := commandCatalogProductFixture(t)
+	trigger := "keyboard.local:F2"
+	config, err := commandbindings.NewConfiguration(nil, nil, []commandbindings.Candidate{{
+		ID: "base", Trigger: trigger, CommandID: "workspaces.rename.open", ArgumentsKey: "{}", ExecutionScopeKey: "global", Scope: commandbindings.Global, Enabled: true, LayerActive: true, Condition: commandbindings.Facts{commandbindings.SurfaceType: "workspaces"},
+	}, {
+		ID: "workspace-profile", Trigger: trigger, CommandID: "workspaces.delete.open", ArgumentsKey: "{}", ExecutionScopeKey: "global", Scope: commandbindings.Surface, Enabled: true, LayerActive: true,
+		Condition: commandbindings.Facts{commandbindings.Profile: "dev", commandbindings.SurfaceType: "workspaces"},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	entry, ok := contextualKeyboardBinding(context.Background(), config, a.commandProduct.Load().registry, trigger, LocalCommandShortcut{Version: 1, Code: "F2", Modifiers: []string{}})
+	if !ok {
+		t.Fatal("profile binding not projected")
+	}
+	raw, err := json.Marshal(entry)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, err := os.ReadFile("../../frontend/src/lib/__fixtures__/commandKeyboardWorkspaceProfileOnly.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var gotJSON, wantJSON any
+	if err := json.Unmarshal(raw, &gotJSON); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(want, &wantJSON); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(gotJSON, wantJSON) {
+		t.Fatal("page/profile fixture differs from backend")
+	}
+}

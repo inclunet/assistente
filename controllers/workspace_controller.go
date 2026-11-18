@@ -2,10 +2,12 @@ package controllers
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 
 	"assistente/internal/core/ports"
+	"assistente/internal/userctx"
 	"assistente/internal/workspace"
 )
 
@@ -186,12 +188,18 @@ func (c *WorkspaceController) ExportWorkspace() (string, error) {
 	return string(data), nil
 }
 
-func (c *WorkspaceController) ImportWorkspace(yamlData, directory string) (*workspace.Workspace, error) {
+func (c *WorkspaceController) ImportWorkspace(ctx context.Context, yamlData, directory string) (*workspace.Workspace, error) {
 	if c.workspaceMgr == nil {
 		return nil, fmt.Errorf("workspace manager not initialized")
 	}
+	userID, _ := userctx.UserIDFromContext(ctx)
+	sessionID, _ := userctx.SessionIDFromContext(ctx)
 	ws, err := c.workspaceMgr.ImportWorkspace([]byte(yamlData), directory)
 	if err != nil {
+		var recovery *workspace.CreationRegistrationError
+		if errors.As(err, &recovery) && c.emitter != nil && userID != "" && sessionID != "" {
+			c.emitter.Emit("workspace:creation-recovery", workspace.CreationRecoveryEvent{UserID: userID, SessionID: sessionID, Path: recovery.Path})
+		}
 		return nil, err
 	}
 	c.emitter.Emit("workspace:created", ws)
