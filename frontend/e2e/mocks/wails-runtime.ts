@@ -106,6 +106,7 @@ export function buildWailsMockScript(): string {
     // This admits only local_ui commands; route/focus/context guards remain
     // responsible for deciding whether a presentation is available now.
     localPaletteCommands: [
+      'workspaces.rename.open', 'workspaces.delete.open',
       'allowlists.create.open', 'command_settings.create.open',
       'providers.create.open', 'providers.api.create.open', 'providers.acp.create.open', 'providers.chatgpt.create.open',
       'tasklists.create.open',

@@ -80,6 +80,8 @@ renomear e Delete para remover, com confirmação. A remoção não apaga conver
 banco ou outros arquivos da pasta: remove somente o documento de workspace e
 sua referência na lista. O workspace ativo precisa ser fechado pela troca para
 outro antes de poder ser removido. Avulsos antigos continuam em suas pastas.
+Se o documento for criado mas o registro no banco falhar, ele é preservado e
+o erro informa seu caminho. Abra essa pasta novamente para recuperar a referência.
 
 
 No picker de comandos, selecione **Listar workspaces** (`workspace.list`).

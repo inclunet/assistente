@@ -2,8 +2,12 @@ package workspace
 
 import (
 	"context"
+	"errors"
+	"fmt"
+	"gorm.io/gorm"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -117,4 +121,45 @@ func TestRenameInactivePreservesActiveAndPersistsSelectedDocument(t *testing.T) 
 		}
 	}
 	t.Fatal("index not renamed")
+}
+
+func TestCreationIndexFailurePreservesConcurrentDocument(t *testing.T) {
+	for _, replace := range []bool{false, true} {
+		t.Run(fmt.Sprintf("replace=%v", replace), func(t *testing.T) {
+			m, _ := newCommandCreateWorkspaceManager(t)
+			directory := t.TempDir()
+			path := filepath.Join(directory, assistenteDir, workspaceFile)
+			before, _ := m.List()
+			db := m.indexDB()
+			const callback = "test:concurrent_creation"
+			if err := db.Callback().Update().Before("gorm:update").Register(callback, func(tx *gorm.DB) {
+				if tx.Statement.Table != "desktop_workspace_states" {
+					return
+				}
+				if replace {
+					if err := os.Remove(path); err != nil {
+						t.Error(err)
+					}
+				}
+				if err := os.WriteFile(path, []byte("concurrent changes"), 0600); err != nil {
+					t.Error(err)
+				}
+				_ = tx.AddError(errors.New("injected index failure"))
+			}); err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = db.Callback().Update().Remove(callback) })
+			if _, err := m.createForTest("Criado", directory); err == nil || !strings.Contains(err.Error(), path) {
+				t.Fatalf("creation=%v", err)
+			}
+			data, err := os.ReadFile(path)
+			if err != nil || string(data) != "concurrent changes" {
+				t.Fatalf("concurrent document lost: %q %v", data, err)
+			}
+			after, err := m.List()
+			if err != nil || len(after) != len(before) {
+				t.Fatalf("index partially committed: %v", err)
+			}
+		})
+	}
 }

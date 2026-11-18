@@ -4249,6 +4249,8 @@ notSaved: 'La decisión vale solo para esta operación: no se pudo recordar. Ser
       pageContent: 'Contenido de la página',
     },
     workspace: {
+      activeStatus: 'Abierto',
+      inactiveStatus: 'No está en uso',
       remove: 'Eliminar espacio de trabajo',
       removed: 'Espacio eliminado',
       removeConfirmation: '¿Eliminar el espacio “{{name}}”? Solo se eliminará su archivo de espacio de trabajo. Se conservarán las conversaciones y los demás archivos de la carpeta.',

@@ -129,3 +129,18 @@ um documento no intervalo, ambos são preservados e o erro identifica o backup.
 Contraprovas em `TestWorkspaceRejectsBlankNameBeforePersisting` e
 `TestDeleteRollbackPreservesConcurrentDocument`. Revisor independente, sétima
 rodada: sem defeitos de produção; ajuste errcheck no teste aplicado.
+
+Proteção pós-publicação: se o documento foi publicado e a transação do índice
+falhar, preservar o documento e incluir seu caminho no erro. Não tentar apagar
+um arquivo que outro processo pode ter alterado ou substituído. Abrir novamente
+a pasta recupera a referência. Cancelar a escolha de pasta/nome continua sem
+escrita. TestCreationIndexFailurePreservesConcurrentDocument cobre edição e
+substituição concorrentes. A lista identifica o workspace aberto por texto;
+Delete em campos de edição permanece nativo, e a restauração de foco exige o
+modal da lista no topo. Erros usam o anunciador global (AEP-0058).
+
+Validação da interface: 140 testes de integração da Topbar/paleta e nove da
+lista passaram; contrato Go↔frontend, auditoria de live regions e E2E exato da
+projeção da paleta passaram. Build/vet e lint Go sem issues. Revisão independente
+dos quatro achados remotos concluída sem pendências; CI será reexecutado no
+push consolidado. A validação remota final ainda impede marcar o AEP como Done.

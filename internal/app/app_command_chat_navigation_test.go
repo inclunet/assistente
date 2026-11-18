@@ -52,7 +52,7 @@ func TestCommandChatNavigationLocalPresentation(t *testing.T) {
 				if layer.ID != commandKeyboardLayerID {
 					continue
 				}
-				if len(layer.Defaults) != 70 {
+				if len(layer.Defaults) != 72 {
 					t.Fatal("defaults changed")
 				}
 				for _, item := range layer.Defaults {

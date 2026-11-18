@@ -2,7 +2,6 @@ package workspace
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -53,12 +52,11 @@ func (m *Manager) createInDirectoryLocked(ctx context.Context, ws *Workspace, di
 		ID: ws.ID, Name: ws.Name, Path: directory, LastUsed: time.Now(),
 	})
 	if err := m.saveIndexContext(ctx, index); err != nil {
-		// Somente o documento recém-criado pertence à operação. Outros arquivos
-		// da pasta, inclusive um banco local, não fazem parte da compensação.
-		if cleanupErr := os.Remove(path); cleanupErr != nil {
-			return nil, errors.Join(err, fmt.Errorf("rollback workspace document: %w", cleanupErr))
-		}
-		return nil, err
+		// Um processo externo pode ter alterado/substituído o documento desde
+		// a publicação. Sem transação entre banco e filesystem, não há exclusão
+		// condicional atômica segura. Preservar o documento permite recuperá-lo
+		// abrindo a pasta novamente, sem apagar alterações concorrentes.
+		return nil, fmt.Errorf("workspace document preserved at %s; index registration failed: %w", path, err)
 	}
 	return ws, nil
 }

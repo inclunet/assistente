@@ -4246,6 +4246,8 @@ notSaved: 'A decisão vale somente para esta operação: não foi possível lemb
       pageContent: 'Conteúdo da página',
     },
     workspace: {
+      activeStatus: 'Aberto',
+      inactiveStatus: 'Não está em uso',
       remove: 'Remover workspace',
       removed: 'Workspace removido',
       removeConfirmation: 'Remover o workspace “{{name}}”? Apenas seu arquivo de workspace será removido. Conversas e outros arquivos da pasta serão preservados.',

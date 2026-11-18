@@ -4245,6 +4245,8 @@ notSaved: 'The decision applies only to this operation: it could not be remember
       pageContent: 'Page content',
     },
     workspace: {
+      activeStatus: 'Open',
+      inactiveStatus: 'Not in use',
       remove: 'Remove workspace',
       removed: 'Workspace removed',
       removeConfirmation: 'Remove workspace “{{name}}”? Only its workspace file will be removed. Conversations and other files in the folder will be preserved.',

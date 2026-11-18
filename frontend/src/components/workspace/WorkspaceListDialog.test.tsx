@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { WorkspaceListDialog } from './WorkspaceListDialog';
@@ -10,11 +10,15 @@ import { createLocalCommandKeyboard, type LocalCommandKeyboardController } from 
 import { registerOpenModal, unregisterOpenModal } from '../../lib/modalRegistry';
 import { workspace } from '../../../wailsjs/go/models';
 
-const api = vi.hoisted(() => ({ rename: vi.fn(), remove: vi.fn(), list: vi.fn() }));
+const api = vi.hoisted(() => ({ rename: vi.fn(), remove: vi.fn(), list: vi.fn(), announce: vi.fn() }));
 vi.mock('@wailsjs/go/wailsapi/Workspace', async importOriginal => ({
   ...await importOriginal<typeof import('@wailsjs/go/wailsapi/Workspace')>(),
   RenameWorkspace: api.rename, DeleteWorkspace: api.remove, ListWorkspaces: api.list,
 }));
+vi.mock('../../hooks/useAnnouncer', async importOriginal => {
+  const actual = await importOriginal<typeof import('../../hooks/useAnnouncer')>();
+  return { ...actual, useAnnouncer: () => ({ ...actual.useAnnouncer(), announce: api.announce }) };
+});
 let keyboard: LocalCommandKeyboardController | undefined;
 const rows = [
   new workspace.WorkspaceInfo({ id: 'active', name: 'Atual', path: 'C:/active', tab_count: 1, is_active: true }),
@@ -121,4 +125,39 @@ it('excluir o último resultado filtrado devolve o foco para a busca', async () 
   fireEvent.click(screen.getByRole('button', { name: /confirmar|confirm/i }));
   await waitFor(() => expect(search).toHaveFocus());
   expect(api.remove).toHaveBeenCalledWith('other');
+});
+
+it('falha ao renomear usa o anunciador global e preserva a lista', async () => {
+ const { cell } = await openList();
+ api.rename.mockRejectedValueOnce(new Error('disk error'));
+ press(cell, 'F2');
+ await waitFor(() => expect(useQuestionnaireUIStore.getState().active).not.toBeNull());
+ await act(async () => { useQuestionnaireUIStore.getState().submit({ name: 'Renomeado' }); });
+ await waitFor(() => expect(api.announce).toHaveBeenCalledOnce());
+ expect(screen.queryByRole('alert')).toBeNull();
+ expect(screen.getByRole('gridcell', { name: 'Projeto' })).toBeInTheDocument();
+});
+
+it('restauração após renomear não rouba foco de outro modal', async () => {
+ const { cell } = await openList();
+ press(cell, 'F2');
+ await waitFor(() => expect(useQuestionnaireUIStore.getState().active).not.toBeNull());
+ registerOpenModal('foreign-modal');
+ const nextForm = document.createElement('input');
+ document.body.append(nextForm);
+ nextForm.focus();
+ try {
+  await act(async () => {
+   useQuestionnaireUIStore.getState().submit({ name: 'Renomeado' });
+   await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+  });
+  expect(nextForm).toHaveFocus();
+ } finally { nextForm.remove(); }
+});
+it('mostra o workspace aberto separado da seleção do grid', async () => {
+ await openList();
+ const active = screen.getByRole('gridcell', { name: 'Atual' }).closest('[role="row"]')!;
+ const selected = screen.getByRole('gridcell', { name: 'Projeto' }).closest('[role="row"]')!;
+ expect(within(active as HTMLElement).getByText('workspace.activeStatus')).toBeInTheDocument();
+ expect(within(selected as HTMLElement).getByText('workspace.inactiveStatus')).toBeInTheDocument();
 });

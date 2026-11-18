@@ -18,24 +18,6 @@ func newCommandCreateWorkspaceManager(t *testing.T) (*Manager, string) {
 	return m, home
 }
 
-func commandWorkspaceDirCount(t *testing.T, home string) int {
-	t.Helper()
-	entries, err := os.ReadDir(filepath.Join(home, workspacesDir))
-	if os.IsNotExist(err) {
-		return 0
-	}
-	if err != nil {
-		t.Fatal(err)
-	}
-	count := 0
-	for _, entry := range entries {
-		if entry.IsDir() {
-			count++
-		}
-	}
-	return count
-}
-
 func TestCreateForCommandPersistsWithoutChangingActiveWorkspace(t *testing.T) {
 	m, home := newCommandCreateWorkspaceManager(t)
 	expected, err := m.CommandSnapshot()
@@ -97,13 +79,13 @@ func TestCreateForCommandRejectsNilCanceledAndStale(t *testing.T) {
 	}
 }
 
-func TestCreateForCommandIndexReadFailureCompensates(t *testing.T) {
-	m, home := newCommandCreateWorkspaceManager(t)
+func TestCreateForCommandIndexReadFailureDoesNotPublish(t *testing.T) {
+	m, _ := newCommandCreateWorkspaceManager(t)
 	expected, err := m.CommandSnapshot()
 	if err != nil {
 		t.Fatal(err)
 	}
-	before := commandWorkspaceDirCount(t, home)
+	directory := t.TempDir()
 	sqlDB, err := m.indexDB().DB()
 	if err != nil {
 		t.Fatal(err)
@@ -111,11 +93,11 @@ func TestCreateForCommandIndexReadFailureCompensates(t *testing.T) {
 	if err := sqlDB.Close(); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := m.CreateForCommand(context.Background(), expected, "failure", t.TempDir()); err == nil {
+	if _, err := m.CreateForCommand(context.Background(), expected, "failure", directory); err == nil {
 		t.Fatal("closed database accepted write")
 	}
-	if got := commandWorkspaceDirCount(t, home); got != before {
-		t.Fatalf("orphan directories: %d -> %d", before, got)
+	if _, err := os.Stat(filepath.Join(directory, assistenteDir, workspaceFile)); !os.IsNotExist(err) {
+		t.Fatalf("document published despite failed admission: %v", err)
 	}
 	if m.ActiveID() != expected.WorkspaceID {
 		t.Fatal("failed creation changed workspace")

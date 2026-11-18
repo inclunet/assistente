@@ -5,7 +5,7 @@ import { createLocalCommandKeyboard, type LocalCommandKeyboardMap } from './comm
 import { parseLocalPaletteConditions } from './commandLocalPaletteConditions';
 
 // Esta fixture é comparada ao endpoint Go real em TestCommandFrontendKeyboardWireContract.
-async function controller(map = structuredClone(wire) as LocalCommandKeyboardMap) {
+async function controller(map = structuredClone(wire) as unknown as LocalCommandKeyboardMap) {
   const api = { GetLocalCommandKeyboardMap: vi.fn(async () => map), DispatchLocalCommandKey: vi.fn(), BeginLocalCommandUIKey: vi.fn(), ResetLocalCommandKeyboard: vi.fn() };
   const target = { go: { app: { App: api } }, runtime: {} } as unknown as Window;
   const port = createCommandLocalKeyboardWailsPort({ target });
@@ -47,7 +47,7 @@ it('instala o mapa Go completo, preserva paleta e despacha Ctrl+Tab, Alt+M e Ctr
 });
 
 it('aceita folha vazia de perfil dentro da página sem habilitar ação inexistente', async () => {
-  const map = structuredClone(wire) as LocalCommandKeyboardMap;
+  const map = structuredClone(wire) as unknown as LocalCommandKeyboardMap;
   const branch = map.contextualBindings!.find(entry => entry.byPage)!.byPage!.workspace;
   branch.byProfile = { custom: { shortcut: branch.shortcut, bySurface: {}, fallback: null } };
   const { keyboard, accepted } = await controller(map);
@@ -56,7 +56,7 @@ it('aceita folha vazia de perfil dentro da página sem habilitar ação inexiste
 
 it.each(['missing-fallback', 'unknown-page', 'empty-root'])(
   'continua recusando mapa inválido: %s', async (invalid) => {
-    const map = structuredClone(wire) as LocalCommandKeyboardMap;
+    const map = structuredClone(wire) as unknown as LocalCommandKeyboardMap;
     const entry = map.contextualBindings!.find(item => item.byPage)!;
     if (invalid === 'missing-fallback') delete (entry.byPage!.workspace as Partial<typeof entry>).fallback;
     if (invalid === 'unknown-page') entry.byPage!.invalid = entry.byPage!.workspace;

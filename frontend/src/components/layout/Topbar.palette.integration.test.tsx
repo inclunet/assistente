@@ -2379,3 +2379,26 @@ it('workspace.list pela paleta abre o modal e Enter troca o workspace uma única
   expect(screen.queryByRole('dialog', { name: 'workspace.workspaceList' })).toBeNull();
  } finally { view.unmount(); state.workspace.workspaces = previous; }
 });
+
+it('Delete na busca da lista edita texto sem iniciar remoção de workspace', async () => {
+ const user = userEvent.setup();
+ const previous = state.workspace.workspaces;
+ state.workspace.workspaces = [{ id: 'workspace-b', name: 'Projeto', tab_count: 1, is_active: false }];
+ const shortcut = { version: 1, code: 'Delete', modifiers: [] };
+ state.loadMap.mockResolvedValue({ generation: 'workspace-delete-map', ownerId: 'user-a', sessionId: 'session-a', workspaceId: 'workspace-a', bindings: [],
+  contextualBindings: [{ shortcut, bySurface: { workspaces: { shortcut, commandId: 'workspaces.delete.open', handler: 'local_ui' } }, fallback: null }],
+  localPaletteCommands: ['workspaces.delete.open'],
+ });
+ const view = render(<WorkspaceTabCreationMenuProvider><Topbar /><WorkspaceToolbar /></WorkspaceTabCreationMenuProvider>);
+ try {
+  await waitFor(() => expect(state.loadMap).toHaveBeenCalled());
+  await user.click(screen.getByRole('button', { name: 'workspace.workspaceList' }));
+  await user.click(screen.getByRole('gridcell', { name: 'Projeto' }));
+  const search = screen.getByRole('textbox', { name: 'workspace.searchWorkspaces' });
+  await user.type(search, 'Projeto');
+  (search as HTMLInputElement).setSelectionRange(0,0);
+  await user.keyboard('{Delete}');
+  expect(search).toHaveValue('rojeto');
+  expect(screen.queryByRole('alertdialog')).toBeNull();
+ } finally { view.unmount(); state.workspace.workspaces = previous; }
+});

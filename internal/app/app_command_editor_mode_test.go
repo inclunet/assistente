@@ -60,8 +60,8 @@ func TestCommandEditorModesCatalogDefaultsAndHandlers(t *testing.T) {
 			}
 		}
 	}
-	if keyboardDefaults != 70 {
-		t.Fatalf("defaults de teclado = %d, esperado 70", keyboardDefaults)
+	if keyboardDefaults != 72 {
+		t.Fatalf("defaults de teclado = %d, esperado 72", keyboardDefaults)
 	}
 	payload, err := json.Marshal(workspaceEditorModeChangedEvent{Workspace: p.workspaceMgr.Active(), TabID: "tab-editor", Mode: "markdown"})
 	if err != nil {

@@ -49,11 +49,15 @@ export function WorkspaceListDialog({ items, onClose, onSelect, rootRef }: Props
     return mounted.current && auth.isAuthenticated && auth.user?.userId === owner.current?.userId &&
       auth.user?.sessionId === owner.current?.sessionId;
   };
+  const ownsTopmostModal = () => {
+    const top = getModalRegistrySnapshot().topID;
+    return Boolean(top && root.current?.closest('[data-modal-id]')?.getAttribute('data-modal-id') === top);
+  };
   const restore = (id?: string) => {
     busy.current = false;
     if (!mounted.current) return;
     setPending(false);
-    requestAnimationFrame(() => { if (current()) focusGrid.current?.({ itemId: id }); });
+    requestAnimationFrame(() => { if (current() && ownsTopmostModal()) focusGrid.current?.({ itemId: id }); });
   };
   const rename = async (id: string, name: string) => {
     busy.current = true;
@@ -72,7 +76,11 @@ export function WorkspaceListDialog({ items, onClose, onSelect, rootRef }: Props
       await useWorkspaceStore.getState().renameWorkspace(id, value.trim());
       await useWorkspaceStore.getState().refreshWorkspaceList();
     } catch {
-      if (current()) setError(t('commandPalette.executionFailed'));
+      if (current()) {
+        const message = t('commandPalette.executionFailed');
+        setError(message);
+        announce(message);
+      }
     } finally { questionnaireId.current = null; restore(id); }
   };
   const { request } = usePagePresentationCommands({
@@ -98,7 +106,11 @@ export function WorkspaceListDialog({ items, onClose, onSelect, rootRef }: Props
       await useWorkspaceStore.getState().deleteWorkspace(removeId);
       if (current()) announce(t('workspace.removed'));
     } catch {
-      if (current()) setError(t('commandPalette.executionFailed'));
+      if (current()) {
+        const message = t('commandPalette.executionFailed');
+        setError(message);
+        announce(message);
+      }
     } finally {
       setRemoveId(null);
       restore();
@@ -121,16 +133,18 @@ export function WorkspaceListDialog({ items, onClose, onSelect, rootRef }: Props
           <ToolbarButton label={t('workspace.renamePlaceholder')} onClick={() => request('workspaces.rename.open')} disabled={!selectedWorkspace || pending} />
           <ToolbarButton label={t('workspace.remove')} onClick={() => request('workspaces.delete.open')} disabled={!selectedWorkspace || selectedWorkspace.is_active || pending} />
         </>} />
-        {error && <p role="alert">{error}</p>}
+        {error && <p>{error}</p>}
         <DataGrid items={visibleWorkspaces} getItemId={ws => ws.id} label={t('workspace.workspaceList')}
           onEmptyFocus={() => {
+            if (!ownsTopmostModal()) return false;
             const searchInput = root.current?.querySelector<HTMLInputElement>('input');
             searchInput?.focus();
             return Boolean(searchInput && document.activeElement === searchInput);
           }}
           commandManagedActions onGridReady={focus => { focusGrid.current = focus; }}
           onFocusChange={ws => setSelected(ws?.id ?? null)}
-          columns={[{ key: 'name', label: t('workspace.renamePlaceholder') }, { key: 'path', label: t('workspace.directory') }]}
+          columns={[{ key: 'name', label: t('workspace.renamePlaceholder') }, { key: 'path', label: t('workspace.directory') },
+            { key: 'is_active', label: t('common.status'), format: value => t(value ? 'workspace.activeStatus' : 'workspace.inactiveStatus') }]}
           onActivate={ws => activate(ws.id)} />
       </div>
     </Modal>
