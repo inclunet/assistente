@@ -10,7 +10,7 @@ import (
 
 func TestDefaultProfileIsRuntimeProjectionAcrossWorkspaces(t *testing.T) {
 	root := t.TempDir()
-	manager := NewManager(filepath.Join(root, "home"))
+	manager := newTestManager(t, filepath.Join(root, "home"))
 	if !manager.SetDefaultProfile("app-default") {
 		t.Fatal("padrão inicial não foi aplicado")
 	}

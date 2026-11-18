@@ -1,6 +1,7 @@
 package app
 
 import (
+	"assistente/internal/testutil/workspacefixture"
 	"crypto/ed25519"
 	"encoding/base64"
 	"encoding/json"
@@ -17,7 +18,6 @@ import (
 	"assistente/internal/commandexecution"
 	"assistente/internal/commandui"
 	"assistente/internal/database"
-	"assistente/internal/workspace"
 	"github.com/google/uuid"
 )
 
@@ -142,7 +142,7 @@ func TestWorkspaceListRevalidatesOwnerAndManagerAfterAsyncRead(t *testing.T) {
 	if err := f.app.revalidateWorkspaceListOwner(ctx, ownerID, true, commandexecution.Invocation{}, product.workspaceMgr); err != nil {
 		t.Fatalf("unchanged mounted owner should remain valid after read: %v", err)
 	}
-	replacement := workspace.NewManager(t.TempDir())
+	replacement := workspacefixture.New(t, t.TempDir())
 	if err := replacement.Initialize(t.TempDir()); err != nil {
 		t.Fatal(err)
 	}

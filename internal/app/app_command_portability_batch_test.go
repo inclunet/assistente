@@ -1,6 +1,7 @@
 package app
 
 import (
+	"assistente/internal/testutil/workspacefixture"
 	"context"
 	"encoding/json"
 	"errors"
@@ -17,7 +18,6 @@ import (
 	"assistente/internal/database"
 	"assistente/internal/portability"
 	"assistente/internal/questionnaire"
-	"assistente/internal/workspace"
 )
 
 func TestAppCommandPortabilityBatchConfirmaGlobalWorkspaceKeepNoopEMapaAtivo(t *testing.T) {
@@ -252,7 +252,7 @@ func appCommandPortabilityBatchFixture(t *testing.T) (*App, string, []byte, stri
 		t.Fatal(err)
 	}
 	if a.workspaceMgr == nil {
-		manager := workspace.NewManager(t.TempDir())
+		manager := workspacefixture.New(t, t.TempDir())
 		if err := manager.Initialize(t.TempDir()); err != nil {
 			t.Fatal(err)
 		}

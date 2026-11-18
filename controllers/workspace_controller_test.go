@@ -1,6 +1,7 @@
 package controllers
 
 import (
+	"assistente/internal/testutil/workspacefixture"
 	"path/filepath"
 	"sync"
 	"testing"
@@ -36,7 +37,7 @@ func (e *workspaceControllerEmitter) wsEvent(event string, data any) {
 
 func newWorkspaceControllerTestFixture(t *testing.T) (*workspace.Manager, *workspace.Workspace, *workspace.Workspace) {
 	t.Helper()
-	manager := workspace.NewManager(t.TempDir())
+	manager := workspacefixture.New(t, t.TempDir())
 	if err := manager.Initialize(filepath.Join(t.TempDir(), "active")); err != nil {
 		t.Fatal(err)
 	}

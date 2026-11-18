@@ -1,6 +1,7 @@
 package app
 
 import (
+	"assistente/internal/testutil/workspacefixture"
 	"context"
 	"errors"
 	"os"
@@ -23,13 +24,16 @@ func isolateWorkspaceStartup(t *testing.T) string {
 	t.Chdir(root)
 	configdir.ResetForTests()
 	t.Cleanup(configdir.ResetForTests)
+	indexDB := workspacefixture.OpenIndex(t, configdir.GetHomeDir())
+	restoreDB := database.SetDB(indexDB)
+	t.Cleanup(restoreDB)
 	return root
 }
 
 func TestWorkspaceStartupRestoresLastWithoutUsingLauncherDirectory(t *testing.T) {
 	root := isolateWorkspaceStartup(t)
 	last := filepath.Join(root, "project")
-	manager := workspace.NewManager(configdir.GetHomeDir())
+	manager := workspacefixture.New(t, configdir.GetHomeDir())
 	if err := manager.Initialize(last); err != nil {
 		t.Fatal(err)
 	}
@@ -86,7 +90,7 @@ func TestWorkspaceStartupFirstLaunchUsesHomeDefault(t *testing.T) {
 	if err := a.initWorkspace(); err != nil {
 		t.Fatal(err)
 	}
-	want := filepath.Join(root, ".assistente", "workspaces", "default")
+	want := root
 	if got := a.workspaceMgr.ActivePath(); got != want {
 		t.Fatalf("got %q, want %q", got, want)
 	}

@@ -13,7 +13,7 @@ import (
 )
 
 func TestActiveSnapshotHasStableEpochAndDecimalPublicationSequence(t *testing.T) {
-	m := NewManager(t.TempDir())
+	m := newTestManager(t, t.TempDir())
 	if err := m.Initialize(t.TempDir()); err != nil {
 		t.Fatalf("Initialize: %v", err)
 	}
@@ -40,7 +40,7 @@ func TestActiveSnapshotHasStableEpochAndDecimalPublicationSequence(t *testing.T)
 }
 
 func TestActiveConcurrentSnapshotsHaveUniqueSequencesAndDetachedClones(t *testing.T) {
-	m := NewManager(t.TempDir())
+	m := newTestManager(t, t.TempDir())
 	if err := m.Initialize(t.TempDir()); err != nil {
 		t.Fatalf("Initialize: %v", err)
 	}
@@ -106,7 +106,7 @@ func TestActiveDoesNotChangeCommandEpochOrCommandSnapshotVersion(t *testing.T) {
 }
 
 func TestSwitchABAReturnsIncreasingSequencesInSameEpoch(t *testing.T) {
-	m := NewManager(t.TempDir())
+	m := newTestManager(t, t.TempDir())
 	if err := m.Initialize(t.TempDir()); err != nil {
 		t.Fatalf("Initialize: %v", err)
 	}
@@ -208,7 +208,7 @@ func TestSnapshotLazilyInitializesEpochForManagerLiteral(t *testing.T) {
 }
 
 func TestSnapshotSequenceOverflowFailsClosedWithoutReset(t *testing.T) {
-	m := NewManager(t.TempDir())
+	m := newTestManager(t, t.TempDir())
 	if err := m.Initialize(t.TempDir()); err != nil {
 		t.Fatalf("Initialize: %v", err)
 	}
@@ -228,7 +228,7 @@ func TestSnapshotSequenceOverflowFailsClosedWithoutReset(t *testing.T) {
 }
 
 func TestSnapshotCloneClearsIncomingTransportMetadata(t *testing.T) {
-	m := NewManager(t.TempDir())
+	m := newTestManager(t, t.TempDir())
 	m.active = &Workspace{
 		ID:               "ws-metadata",
 		Name:             "Metadata",
@@ -262,7 +262,7 @@ func TestWorkspaceSnapshotMetadataIsExcludedFromYAML(t *testing.T) {
 }
 
 func TestCreateDoesNotReplaceActiveSnapshotRoot(t *testing.T) {
-	m := NewManager(t.TempDir())
+	m := newTestManager(t, t.TempDir())
 	if err := m.Initialize(t.TempDir()); err != nil {
 		t.Fatalf("Initialize: %v", err)
 	}
@@ -283,7 +283,7 @@ func TestCreateDoesNotReplaceActiveSnapshotRoot(t *testing.T) {
 }
 
 func TestSwitchReturnsPublicationSnapshot(t *testing.T) {
-	m := NewManager(t.TempDir())
+	m := newTestManager(t, t.TempDir())
 	if err := m.Initialize(t.TempDir()); err != nil {
 		t.Fatalf("Initialize: %v", err)
 	}

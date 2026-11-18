@@ -18,7 +18,7 @@ func bindConversationManager(t *testing.T) (*Manager, string) {
 	t.Helper()
 	root := t.TempDir()
 	workspacePath := filepath.Join(root, "workspace")
-	manager := NewManager(filepath.Join(root, "home"))
+	manager := newTestManager(t, filepath.Join(root, "home"))
 	if err := manager.Initialize(workspacePath); err != nil {
 		t.Fatalf("Initialize: %v", err)
 	}
@@ -46,7 +46,7 @@ func TestBindConversationForCommandPersistsAndReloads(t *testing.T) {
 		t.Fatalf("returned binding incorrect: %#v", got)
 	}
 
-	reloaded := NewManager(manager.homeDir)
+	reloaded := newTestManager(t, manager.homeDir)
 	if err := reloaded.Initialize(workspacePath); err != nil {
 		t.Fatalf("reload Initialize: %v", err)
 	}
@@ -113,7 +113,7 @@ func TestBindConversationForCommandNoOverwriteAndNoopWithoutWrite(t *testing.T) 
 }
 
 func TestBindConversationForCommandRejectsUnsupportedChat(t *testing.T) {
-	manager := NewManager(t.TempDir())
+	manager := newTestManager(t, t.TempDir())
 	workspacePath := t.TempDir()
 	if err := manager.Initialize(workspacePath); err != nil {
 		t.Fatalf("Initialize: %v", err)

@@ -1,6 +1,7 @@
 package app
 
 import (
+	"assistente/internal/testutil/workspacefixture"
 	"context"
 	"errors"
 	"testing"
@@ -9,7 +10,6 @@ import (
 	"assistente/internal/commandactivation"
 	"assistente/internal/commandjobactivation"
 	"assistente/internal/database"
-	"assistente/internal/workspace"
 	"github.com/google/uuid"
 )
 
@@ -106,7 +106,7 @@ func TestCommandMaintenanceRecoversGlobalClaimsAcrossUsersWithUnavailableWorkspa
 		t.Fatalf("fim com contexto indisponível=%+v err=%v", result, err)
 	}
 	assertClaimsReconciled(t, 9)
-	a.workspaceMgr = workspace.NewManager(t.TempDir()) // existe, mas não há snapshot inicializado
+	a.workspaceMgr = workspacefixture.New(t, t.TempDir()) // existe, mas não há snapshot inicializado
 	seedClaimsAndLeases(t, 1, activeUser, foreignUser)
 	result, err = mounted.ports.Claims.Recover(ctx, batch)
 	if err != nil || result.Processed != 1 || result.More {

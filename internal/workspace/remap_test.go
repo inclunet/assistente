@@ -92,6 +92,7 @@ func TestLoadWorkspaceFile_RemapsLegacyChatContentID(t *testing.T) {
 
 	// Create workspace with a legacy chat tab referencing content_id="42"
 	ws := Workspace{
+		ID: "legacy-workspace", Name: "Legacy workspace",
 		Tabs: TabsState{
 			Items: []Tab{{
 				ID:        "tab-1",
@@ -106,7 +107,7 @@ func TestLoadWorkspaceFile_RemapsLegacyChatContentID(t *testing.T) {
 	// Point configdir to our temp dir
 	withChdirAndConfigReset(t, tmp)
 
-	m := NewManager(tmp)
+	m := newTestManager(t, tmp)
 	loaded, err := m.loadWorkspaceFile(wsPath)
 	if err != nil {
 		t.Fatalf("loadWorkspaceFile: %v", err)
@@ -129,6 +130,7 @@ func TestLoadWorkspaceFile_ClearsInvalidTasklistIDWithoutRemap(t *testing.T) {
 
 	// NO remap file — simulate case where remap was already consumed or never existed.
 	ws := Workspace{
+		ID: "legacy-workspace", Name: "Legacy workspace",
 		Tabs: TabsState{
 			Items: []Tab{{
 				ID:        "tab-tl",
@@ -141,7 +143,7 @@ func TestLoadWorkspaceFile_ClearsInvalidTasklistIDWithoutRemap(t *testing.T) {
 	wsPath := writeWorkspaceYAML(t, tmp, ws)
 	withChdirAndConfigReset(t, tmp)
 
-	m := NewManager(tmp)
+	m := newTestManager(t, tmp)
 	loaded, err := m.loadWorkspaceFile(wsPath)
 	if err != nil {
 		t.Fatalf("loadWorkspaceFile: %v", err)
@@ -171,6 +173,7 @@ func TestLoadWorkspaceFile_RemapsTasklistStateID(t *testing.T) {
 	})
 
 	ws := Workspace{
+		ID: "legacy-workspace", Name: "Legacy workspace",
 		Tabs: TabsState{
 			Items: []Tab{{
 				ID:    "tab-tl",
@@ -183,7 +186,7 @@ func TestLoadWorkspaceFile_RemapsTasklistStateID(t *testing.T) {
 	wsPath := writeWorkspaceYAML(t, tmp, ws)
 	withChdirAndConfigReset(t, tmp)
 
-	m := NewManager(tmp)
+	m := newTestManager(t, tmp)
 	loaded, err := m.loadWorkspaceFile(wsPath)
 	if err != nil {
 		t.Fatalf("loadWorkspaceFile: %v", err)
@@ -204,6 +207,7 @@ func TestLoadWorkspaceFile_ClearsInvalidTasklistStateWithoutRemap(t *testing.T) 
 
 	// No remap file
 	ws := Workspace{
+		ID: "legacy-workspace", Name: "Legacy workspace",
 		Tabs: TabsState{
 			Items: []Tab{{
 				ID:    "tab-tl",
@@ -216,7 +220,7 @@ func TestLoadWorkspaceFile_ClearsInvalidTasklistStateWithoutRemap(t *testing.T) 
 	wsPath := writeWorkspaceYAML(t, tmp, ws)
 	withChdirAndConfigReset(t, tmp)
 
-	m := NewManager(tmp)
+	m := newTestManager(t, tmp)
 	loaded, err := m.loadWorkspaceFile(wsPath)
 	if err != nil {
 		t.Fatalf("loadWorkspaceFile: %v", err)
@@ -243,6 +247,7 @@ func TestLoadWorkspaceFile_PreservesRemapAfterSave(t *testing.T) {
 	})
 
 	ws := Workspace{
+		ID: "legacy-workspace", Name: "Legacy workspace",
 		Tabs: TabsState{
 			Items: []Tab{{
 				ID:        "tab-1",
@@ -255,7 +260,7 @@ func TestLoadWorkspaceFile_PreservesRemapAfterSave(t *testing.T) {
 	wsPath := writeWorkspaceYAML(t, tmp, ws)
 	withChdirAndConfigReset(t, tmp)
 
-	m := NewManager(tmp)
+	m := newTestManager(t, tmp)
 	_, err := m.loadWorkspaceFile(wsPath)
 	if err != nil {
 		t.Fatalf("loadWorkspaceFile: %v", err)
@@ -280,6 +285,7 @@ func TestLoadWorkspaceFile_SanitizesLegacyConversationID(t *testing.T) {
 
 	// Tab already has conversation_id set to a legacy numeric string
 	ws := Workspace{
+		ID: "legacy-workspace", Name: "Legacy workspace",
 		Tabs: TabsState{
 			Items: []Tab{{
 				ID:             "tab-1",
@@ -292,7 +298,7 @@ func TestLoadWorkspaceFile_SanitizesLegacyConversationID(t *testing.T) {
 	wsPath := writeWorkspaceYAML(t, tmp, ws)
 	withChdirAndConfigReset(t, tmp)
 
-	m := NewManager(tmp)
+	m := newTestManager(t, tmp)
 	loaded, err := m.loadWorkspaceFile(wsPath)
 	if err != nil {
 		t.Fatalf("loadWorkspaceFile: %v", err)
@@ -312,6 +318,7 @@ func TestLoadWorkspaceFile_ClearsLegacyConversationIDWithoutRemap(t *testing.T) 
 
 	// No remap file
 	ws := Workspace{
+		ID: "legacy-workspace", Name: "Legacy workspace",
 		Tabs: TabsState{
 			Items: []Tab{{
 				ID:             "tab-1",
@@ -324,7 +331,7 @@ func TestLoadWorkspaceFile_ClearsLegacyConversationIDWithoutRemap(t *testing.T) 
 	wsPath := writeWorkspaceYAML(t, tmp, ws)
 	withChdirAndConfigReset(t, tmp)
 
-	m := NewManager(tmp)
+	m := newTestManager(t, tmp)
 	loaded, err := m.loadWorkspaceFile(wsPath)
 	if err != nil {
 		t.Fatalf("loadWorkspaceFile: %v", err)
@@ -368,6 +375,7 @@ func TestLoadIDRemap_HighestPriorityWins(t *testing.T) {
 	withChdirAndConfigReset(t, tmpWork)
 
 	ws := Workspace{
+		ID: "legacy-workspace", Name: "Legacy workspace",
 		Tabs: TabsState{
 			Items: []Tab{{
 				ID:        "tab-1",
@@ -379,7 +387,7 @@ func TestLoadIDRemap_HighestPriorityWins(t *testing.T) {
 	}
 	wsPath := writeWorkspaceYAML(t, tmpWork, ws)
 
-	m := NewManager(tmpHome)
+	m := newTestManager(t, tmpHome)
 	loaded, err := m.loadWorkspaceFile(wsPath)
 	if err != nil {
 		t.Fatalf("loadWorkspaceFile: %v", err)
@@ -453,7 +461,7 @@ func TestInitialize_MigratesAllWorkspacesBeforeDeletingRemap(t *testing.T) {
 
 	withChdirAndConfigReset(t, homeDir)
 
-	m := NewManager(homeDir)
+	m := newTestManager(t, homeDir)
 	if err := m.Initialize(ws1Dir); err != nil {
 		t.Fatalf("Initialize: %v", err)
 	}
@@ -495,6 +503,7 @@ func TestLoadWorkspaceFile_ReturnsErrMigrationSaveFailedOnSaveError(t *testing.T
 	})
 
 	ws := Workspace{
+		ID: "legacy-workspace", Name: "Legacy workspace",
 		Tabs: TabsState{
 			Items: []Tab{{
 				ID:        "tab-1",
@@ -514,7 +523,7 @@ func TestLoadWorkspaceFile_ReturnsErrMigrationSaveFailedOnSaveError(t *testing.T
 	}
 	t.Cleanup(func() { _ = os.Chmod(wsPath, 0644) })
 
-	m := NewManager(tmp)
+	m := newTestManager(t, tmp)
 	loaded, err := m.loadWorkspaceFile(wsPath)
 
 	// Should return the workspace AND an ErrMigrationSaveFailed error
@@ -597,7 +606,7 @@ func TestInitialize_PreservesRemapOnPartialSaveFailure(t *testing.T) {
 
 	withChdirAndConfigReset(t, homeDir)
 
-	m := NewManager(homeDir)
+	m := newTestManager(t, homeDir)
 	if err := m.Initialize(ws1Dir); err != nil {
 		t.Fatalf("Initialize: %v", err)
 	}
@@ -661,7 +670,7 @@ func TestInitialize_PreservesRemapOnActiveWorkspaceSaveFailure(t *testing.T) {
 
 	withChdirAndConfigReset(t, homeDir)
 
-	m := NewManager(homeDir)
+	m := newTestManager(t, homeDir)
 	if err := m.Initialize(activeDir); err != nil {
 		t.Fatalf("Initialize: %v", err)
 	}

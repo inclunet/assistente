@@ -94,8 +94,11 @@ type IndexEntry struct {
 
 // Index é o índice global de todos os workspaces conhecidos.
 type Index struct {
-	LastOpened string       `json:"last_opened" yaml:"last_opened"`
-	Workspaces []IndexEntry `json:"workspaces" yaml:"workspaces"`
+	revision       uint64
+	legacyImported bool
+	legacyDigest   string
+	LastOpened     string       `json:"last_opened" yaml:"last_opened"`
+	Workspaces     []IndexEntry `json:"workspaces" yaml:"workspaces"`
 }
 
 // WorkspaceInfo é um resumo leve para listagem na UI.

@@ -1,6 +1,7 @@
 package app
 
 import (
+	"assistente/internal/testutil/workspacefixture"
 	"bytes"
 	"context"
 	"encoding/base64"
@@ -18,7 +19,6 @@ import (
 	"assistente/internal/credentials"
 	"assistente/internal/database"
 	"assistente/internal/sqlite"
-	"assistente/internal/workspace"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 )
@@ -60,7 +60,7 @@ func TestCommandDesktopExecutorUsesFixedRevalidatedSessionWithoutToken(t *testin
 	if err := manager.RegisterInstanceSecret("internal-auth:command-request-hmac:v1", base64.RawURLEncoding.EncodeToString(bytes.Repeat([]byte{0x43}, 32))); err != nil {
 		t.Fatal(err)
 	}
-	workspaceManager := workspace.NewManager(filepath.Join(t.TempDir(), "workspace-home"))
+	workspaceManager := workspacefixture.New(t, filepath.Join(t.TempDir(), "workspace-home"))
 	if err := workspaceManager.Initialize(filepath.Join(t.TempDir(), "workspace")); err != nil {
 		t.Fatal(err)
 	}

@@ -11,7 +11,7 @@ import (
 func commandSnapshotManager(t *testing.T) *Manager {
 	t.Helper()
 	root := t.TempDir()
-	manager := NewManager(filepath.Join(root, "assistente-home"))
+	manager := newTestManager(t, filepath.Join(root, "assistente-home"))
 	if err := manager.Initialize(filepath.Join(root, "workspace")); err != nil {
 		t.Fatalf("Initialize: %v", err)
 	}

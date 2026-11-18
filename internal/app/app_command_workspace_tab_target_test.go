@@ -1,15 +1,15 @@
 package app
 
 import (
+	"assistente/internal/testutil/workspacefixture"
 	"testing"
 
 	"assistente/internal/commandbindings"
 	"assistente/internal/commandcatalog"
-	"assistente/internal/workspace"
 )
 
 func TestWorkspaceTabGoToDoesNotCreateUnsafePaletteDefault(t *testing.T) {
-	manager := workspace.NewManager(t.TempDir())
+	manager := workspacefixture.New(t, t.TempDir())
 	if err := manager.Initialize(t.TempDir()); err != nil {
 		t.Fatal(err)
 	}
