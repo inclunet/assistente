@@ -217,11 +217,19 @@ it('confirmações repetidas durante a remoção não duplicam a operação', as
   await screen.findByRole('alertdialog');
   const confirm = screen.getByRole('button', { name: /confirmar|confirm/i });
 
-  act(() => {
-    confirm.click();
-    confirm.click();
-  });
-  expect(api.remove).toHaveBeenCalledExactlyOnceWith('other');
+  vi.useFakeTimers();
+  try {
+    act(() => {
+      confirm.click();
+      confirm.click();
+    });
+    // DecisionDialog's own click guard expires while the backend is still pending.
+    act(() => { vi.advanceTimersByTime(1100); });
+    fireEvent.click(confirm);
+    expect(api.remove).toHaveBeenCalledExactlyOnceWith('other');
+  } finally {
+    vi.useRealTimers();
+  }
 
   await act(async () => { completeRemoval(); });
   await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull());
