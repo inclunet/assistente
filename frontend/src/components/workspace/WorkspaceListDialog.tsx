@@ -105,7 +105,6 @@ export function WorkspaceListDialog({ onClose, onActivate, rootRef }: Props) {
     setError('');
     try {
       await useWorkspaceStore.getState().deleteWorkspace(removeId);
-      if (current()) announce(t('workspace.removed'));
     } catch {
       if (current()) {
         const message = t('commandPalette.executionFailed');

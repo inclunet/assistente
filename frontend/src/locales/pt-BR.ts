@@ -4250,7 +4250,6 @@ notSaved: 'A decisão vale somente para esta operação: não foi possível lemb
       activeStatus: 'Aberto',
       inactiveStatus: 'Não está em uso',
       remove: 'Remover workspace',
-      removed: 'Workspace removido',
       removeConfirmation: 'Remover o workspace “{{name}}”? Apenas seu arquivo de workspace será removido. Conversas e outros arquivos da pasta serão preservados.',
       directory: 'Pasta do workspace',
       createInDirectory: 'Criar workspace',

@@ -160,3 +160,11 @@ o PR registra a validação remota deste complemento.
 O aviso de recuperação já visível também é removido sincronicamente no logout
 ou troca de sessão, sem remover avisos de outros recursos. O hook limpa seus
 próprios avisos ao desmontar; testes cobrem esses três caminhos.
+
+### Confirmação acessível única na remoção
+
+A confirmação de sucesso da remoção pertence à ação `deleteWorkspace` do store;
+o diálogo não repete esse anúncio. A chave de tradução exclusiva do anúncio
+duplicado foi retirada nos três idiomas. `WorkspaceListDialog.test.tsx` observa
+as chamadas do store e do componente no mesmo anunciador, provando uma única
+confirmação no sucesso e somente erro quando a remoção falha. Status: Done.

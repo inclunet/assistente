@@ -1,5 +1,6 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
+import i18next from 'i18next';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { WorkspaceListDialog } from './WorkspaceListDialog';
 import { useAuthStore } from '../../store/authStore';
@@ -17,7 +18,7 @@ vi.mock('@wailsjs/go/wailsapi/Workspace', async importOriginal => ({
 }));
 vi.mock('../../hooks/useAnnouncer', async importOriginal => {
   const actual = await importOriginal<typeof import('../../hooks/useAnnouncer')>();
-  return { ...actual, useAnnouncer: () => ({ ...actual.useAnnouncer(), announce: api.announce }) };
+  return { ...actual, announce: api.announce, useAnnouncer: () => ({ ...actual.useAnnouncer(), announce: api.announce }) };
 });
 let keyboard: LocalCommandKeyboardController | undefined;
 const rows = [
@@ -89,6 +90,8 @@ it('Delete pede confirmação e só então remove o workspace selecionado', asyn
   expect(api.remove).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole('button', { name: /confirmar|confirm/i }));
   await waitFor(() => expect(api.remove).toHaveBeenCalledWith('other'));
+  await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull());
+  expect(api.announce).toHaveBeenCalledExactlyOnceWith(i18next.t('workspace.announce.workspaceRemoved'));
 });
 it('não executa F2 ou Delete quando o binding foi suprimido', async () => {
   const { cell } = await openList(true);
@@ -192,4 +195,15 @@ it('avisa quando não consegue atualizar a lista ao abrir', async () => {
   render(<MemoryRouter><WorkspaceListDialog onActivate={() => {}} onClose={() => {}} /></MemoryRouter>);
   await screen.findByText('commandPalette.executionFailed');
   expect(api.announce).toHaveBeenCalledWith('commandPalette.executionFailed');
+});
+
+it('falha ao remover anuncia somente o erro, sem confirmar sucesso', async () => {
+  api.remove.mockRejectedValueOnce(new Error('write failed'));
+  const { cell } = await openList();
+  press(cell, 'Delete');
+  await screen.findByRole('alertdialog');
+  fireEvent.click(screen.getByRole('button', { name: /confirmar|confirm/i }));
+  await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull());
+  expect(api.announce).toHaveBeenCalledExactlyOnceWith('commandPalette.executionFailed');
+  expect(screen.getByRole('gridcell', { name: 'Projeto' })).toBeInTheDocument();
 });

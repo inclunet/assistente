@@ -233,3 +233,6 @@ Se o documento for salvo durante criação ou importação, mas o registro na li
 um aviso não bloqueante com o caminho preservado. Abra novamente a pasta
 escolhida para recuperar o workspace. A lista é atualizada a cada abertura;
 se essa atualização falhar, o aplicativo informa o problema.
+
+Ao confirmar a remoção de um workspace, o leitor de tela recebe uma única
+confirmação de sucesso. Se a operação falhar, o aplicativo anuncia o erro.
