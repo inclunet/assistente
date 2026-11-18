@@ -558,8 +558,9 @@ responseEvents:
 					ID:   fc.ID,
 					Type: "function",
 					Function: FunctionCall{
-						Name:      fc.Name,
-						Arguments: fc.Args.String(),
+						Name: fc.Name,
+						// The done event carries the finalized arguments, not another delta.
+						Arguments: ev.Arguments,
 					},
 				})
 				delete(activeFuncCalls, ev.ItemID)

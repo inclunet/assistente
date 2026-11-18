@@ -1292,7 +1292,7 @@ de cancelamento de release na dependência; o AEP permanece **In Progress**.
 | [0095](0095-mermaid-acessivel-e-resiliente.md) | Mermaid acessível e resiliente | ✅ Done |
 | [0096](0096-baseline-operacional-de-tools-por-perfil.md) | Baseline operacional de tools por perfil | ✅ Done |
 | [0097](0097-capabilities-de-protocolo-por-provedor.md) | Capabilities de protocolo configuráveis por provedor | 🚧 In Progress |
-| [0098](0098-limite-de-saida-e-tool-calls-truncadas.md) | Limite de saída e tool calls truncadas | ✅ Done |
+| [0098](0098-limite-de-saida-e-tool-calls-truncadas.md) | Limite de saída e tool calls truncadas (regressão de argumentos finais Responses/ChatGPT coberta) | ✅ Done |
 | [0099](0099-patch-canonico-multi-hunk.md) | Patch canônico multi-hunk | ✅ Done |
 | [0100](0100-progresso-unificado-por-conversa.md) | Progresso unificado por conversa | ✅ Done |
 | [0101](0101-profiles-descobríveis-e-delegacao-autorizada.md) | Profiles descobríveis, delegação autorizada e grants específicos de jobs | ✅ Done |
