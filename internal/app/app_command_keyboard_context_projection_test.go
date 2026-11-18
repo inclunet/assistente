@@ -19,7 +19,7 @@ func TestCommandKeyboardContextProjectionAltIAndClone(t *testing.T) {
 			t.Fatal("Alt+I não pode permanecer no mapa incondicional")
 		}
 	}
-	if len(first.ContextualBindings) != 2 {
+	if len(first.ContextualBindings) != 4 {
 		t.Fatalf("tabelas contextuais = %+v", first.ContextualBindings)
 	}
 	var entry LocalCommandKeyboardContextualBinding

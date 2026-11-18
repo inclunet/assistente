@@ -1,6 +1,7 @@
 package app
 
 import (
+ "assistente/internal/testutil/workspacefixture"
 	"context"
 	"errors"
 	"testing"
@@ -407,7 +408,7 @@ func TestCommandWorkspaceChatStaleWorkspaceAntesDoCommitNaoCriaAba(t *testing.T)
 	a := readyCommandProduct(t)
 	wireCommandWorkspaceForTest(a)
 	reservation, handoff := beginWorkspaceChatCommand(t, a)
-	other, err := a.workspaceMgr.Create("outro workspace")
+	other, err := workspacefixture.Create(t, a.workspaceMgr, "outro workspace", t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -555,7 +556,7 @@ func TestCommandWorkspaceChatListCommandsRefleteAlvoESessao(t *testing.T) {
 					t.Fatal(err)
 				}
 			case "workspace_stale":
-				other, err := a.workspaceMgr.Create("workspace stale")
+				other, err := workspacefixture.Create(t, a.workspaceMgr, "workspace stale", t.TempDir())
 				if err != nil {
 					t.Fatal(err)
 				}

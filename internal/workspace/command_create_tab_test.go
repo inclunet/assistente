@@ -73,7 +73,7 @@ func TestAddTabForCommandRecusaWorkspaceAlterado(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			other, err := manager.Create("Outro")
+			other, err := manager.createForTest("Outro", t.TempDir())
 			if err != nil {
 				t.Fatal(err)
 			}

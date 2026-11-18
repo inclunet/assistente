@@ -63,7 +63,7 @@ func TestCommandPagePresentationClosedLocalCatalog(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(p.registry.List()) != 156 || len(view.LocalPaletteCommands) != 67 {
+	if len(p.registry.List()) != 158 || len(view.LocalPaletteCommands) != 69 {
 		t.Fatal("catalog counts")
 	}
 	for _, item := range commandProductPagePresentation {
@@ -235,6 +235,44 @@ func TestCommandProvidersCtrlNSuppression(t *testing.T) {
 		}
 		if !found {
 			t.Fatal("contextual Ctrl+N missing")
+		}
+	}
+}
+
+func TestCommandWorkspaceListBindingsAreScopedAndSuppressible(t *testing.T) {
+	a, decisions := settingsSecurityFixture(t)
+	for _, choice := range []struct{ code, id, binding string }{
+		{"F2", "workspaces.rename.open", "builtin.keyboard.f2.workspaces.rename.open"},
+		{"Delete", "workspaces.delete.open", "builtin.keyboard.delete.workspaces.delete.open"},
+	} {
+		for _, suppressed := range []bool{true, false} {
+			settingsActivationSecurityConfirmed(t, a, decisions, func() (CommandSettingsMutation, error) {
+				return a.SetDefaultCommandSuppressed(choice.binding, suppressed)
+			})
+			view, err := a.GetLocalCommandKeyboardMap()
+			if err != nil {
+				t.Fatal(err)
+			}
+			found := false
+			for _, entry := range view.ContextualBindings {
+				if entry.Shortcut.Code != choice.code {
+					continue
+				}
+				binding := entry.BySurface["workspaces"]
+				if entry.Fallback != nil || entry.BySurface["chat"] != nil {
+					t.Fatal("list action leaked outside list")
+				}
+				if suppressed && binding != nil {
+					t.Fatal("suppressed list action still enabled")
+				}
+				if !suppressed && (binding == nil || binding.CommandID != choice.id || binding.Handler != "local_ui") {
+					t.Fatalf("binding=%+v", binding)
+				}
+				found = true
+			}
+			if !suppressed && !found {
+				t.Fatalf("missing %s", choice.code)
+			}
 		}
 	}
 }

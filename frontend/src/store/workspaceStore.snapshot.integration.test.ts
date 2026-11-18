@@ -10,7 +10,7 @@ const ports = vi.hoisted(() => ({
 vi.mock('@wailsjs/go/wailsapi/Workspace', () => ({
   GetActiveWorkspace: ports.get, ListWorkspaces: ports.list, SetActiveWorkspaceTab: ports.activate,
   SwitchWorkspace: ports.switch, AddWorkspaceTab: ports.add,
-  CreateWorkspace: vi.fn(), RenameWorkspace: vi.fn(), DeleteWorkspace: vi.fn(),
+  RenameWorkspace: vi.fn(), DeleteWorkspace: vi.fn(),
  RemoveWorkspaceTab: vi.fn(), UpdateWorkspaceTab: vi.fn(),
   ReorderWorkspaceTabs: vi.fn(), MoveWorkspaceTabTo: vi.fn(), ExportWorkspace: vi.fn(), ImportWorkspace: vi.fn(),
 }));

@@ -145,7 +145,7 @@ function hasCommandModifier(shortcut: Pick<CommandShortcut, 'code' | 'modifiers'
 }
 
 function isBareWhitelistedFunctionKey(shortcut: Pick<CommandShortcut, 'code' | 'modifiers'>): boolean {
-  return ((shortcut.code === 'F1' || shortcut.code === 'F5') && shortcut.modifiers.length === 0) ||
+  return ((shortcut.code === 'F1' || shortcut.code === 'F2' || shortcut.code === 'F5' || shortcut.code === 'Delete') && shortcut.modifiers.length === 0) ||
     (shortcut.code === 'F6' && (shortcut.modifiers.length === 0 ||
       shortcut.modifiers.length === 1 && shortcut.modifiers[0] === 'Shift'));
 }
@@ -231,7 +231,7 @@ export function resolveLocalCommandContextualBinding(
     return { ...resolved, requiresLease: true };
   }
   const hasProfileBranches = entry.byProfile !== undefined;
-  if (hasProfileBranches && !WORKSPACE_SURFACE_TYPES.has(surfaceType) &&
+  if (hasProfileBranches && !PROFILE_SURFACE_TYPES.has(surfaceType) &&
       !(pageScoped && context?.appPage !== undefined && appPageAllowsSurfaceType(context.appPage, surfaceType))) {
     return { matched: false, branch: null, barrier: true, requiresLease: true };
   }
@@ -280,8 +280,10 @@ function safeContextKey(value: string): boolean {
 }
 
 const WORKSPACE_SURFACE_TYPES = new Set(['chat', 'editor', 'terminal', 'tasklist']);
+const PROFILE_SURFACE_TYPES = new Set([...WORKSPACE_SURFACE_TYPES, 'workspaces']);
 
 function appPageAllowsSurfaceType(page: import('./commandAppPage').AppPage, surfaceType: string): boolean {
+  if (surfaceType === 'workspaces') return true;
   switch (page) {
     case 'settings': return surfaceType === 'toolbar' || surfaceType === 'providers';
     case 'profiles': return surfaceType === 'profiles';
@@ -320,7 +322,7 @@ function validateContextualEntry(raw: unknown, allowProfiles: boolean, workspace
   };
   for (const [surface, branch] of Object.entries(raw.bySurface)) {
     if (!safeContextKey(surface)) return null;
-    if (workspaceOnly && !WORKSPACE_SURFACE_TYPES.has(surface)) return null;
+    if (workspaceOnly && !PROFILE_SURFACE_TYPES.has(surface)) return null;
     const validated = validateBranch(branch);
     if (validated === undefined) return null;
     bySurface[surface] = validated;
@@ -331,8 +333,8 @@ function validateContextualEntry(raw: unknown, allowProfiles: boolean, workspace
   if (!allowProfiles && raw.byProfile !== undefined) return null;
   if (allowProfiles && raw.byProfile !== undefined) {
     if (!isRecord(raw.byProfile) || Object.keys(raw.byProfile).length === 0 ||
-        Object.keys(bySurface).some((surface) => !WORKSPACE_SURFACE_TYPES.has(surface) &&
-          !(allowRoutePageSurfaces && ['toolbar', 'profiles', 'tasklists', 'history', 'providers'].includes(surface)))) return null;
+        Object.keys(bySurface).some((surface) => !PROFILE_SURFACE_TYPES.has(surface) &&
+          !(allowRoutePageSurfaces && ['toolbar', 'profiles', 'tasklists', 'history', 'providers', 'allowlists', 'workspaces'].includes(surface)))) return null;
   }
   if (raw.bySurfaceId !== undefined) {
     if (!isRecord(raw.bySurfaceId)) return null;

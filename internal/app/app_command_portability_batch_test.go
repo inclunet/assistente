@@ -32,7 +32,7 @@ func testAppCommandBatchSuccess(t *testing.T, importInactive bool) {
 	a, access, raw, globalID, workspaceID, workspace := appCommandPortabilityBatchFixture(t)
 	publicationWorkspace := workspace
 	if importInactive {
-		other, err := a.workspaceMgr.Create("workspace fora do lote")
+		other, err := workspacefixture.Create(t, a.workspaceMgr, "workspace fora do lote", t.TempDir())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -258,7 +258,7 @@ func appCommandPortabilityBatchFixture(t *testing.T) (*App, string, []byte, stri
 		}
 		a.workspaceMgr = manager
 	}
-	active, err := a.workspaceMgr.Create("batch ativo")
+	active, err := workspacefixture.Create(t, a.workspaceMgr, "batch ativo", t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}

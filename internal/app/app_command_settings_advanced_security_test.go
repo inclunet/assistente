@@ -1,6 +1,7 @@
 package app
 
 import (
+ "assistente/internal/testutil/workspacefixture"
 	"testing"
 	"time"
 
@@ -141,7 +142,7 @@ func TestCommandSettingsAdvancedSecurityWorkspaceSwitchDuringDecisionDoesNotComm
 		})
 	}
 	original := a.workspaceMgr.ActiveID()
-	other, err := a.workspaceMgr.Create("settings-security-outro")
+	other, err := workspacefixture.Create(t, a.workspaceMgr, "settings-security-outro", t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}

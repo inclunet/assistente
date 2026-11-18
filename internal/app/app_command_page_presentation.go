@@ -4,6 +4,9 @@ import "assistente/internal/commandcatalog"
 
 // These commands only present existing controls; process and CRUD effects are excluded.
 var commandProductPagePresentation = []commandUINavigation{
+	{id: "workspaces.rename.open", route: "ui/workspaces/rename/open", uiAction: true, ptName: "Renomear workspace selecionado", ptDesc: "Abrir renomeação na lista de workspaces", enName: "Rename selected workspace", enDesc: "Open rename in the workspace list", esName: "Renombrar espacio seleccionado", esDesc: "Abrir cambio de nombre en la lista"},
+	{id: "workspaces.delete.open", route: "ui/workspaces/delete/open", uiAction: true, ptName: "Remover workspace selecionado", ptDesc: "Abrir confirmação de remoção na lista de workspaces", enName: "Remove selected workspace", enDesc: "Open removal confirmation in the workspace list", esName: "Eliminar espacio seleccionado", esDesc: "Abrir confirmación en la lista de espacios"},
+
 	{id: "allowlists.create.open", route: "ui/allowlists/create/open", uiAction: true, ptName: "Nova política de comandos", ptDesc: "Abrir criação de política no gerenciador ativo", enName: "New command policy", enDesc: "Open policy creation in the active manager", esName: "Nueva política de comandos", esDesc: "Abrir creación de política en el gestor activo"},
 	{id: "providers.create.open", route: "ui/providers/create/open", uiAction: true, ptName: "Novo provedor", ptDesc: "Novo provedor", enName: "New provider", enDesc: "New provider", esName: "Nuevo proveedor", esDesc: "Nuevo proveedor"},
 	{id: "providers.api.create.open", route: "ui/providers/api/create/open", uiAction: true, ptName: "Provedor API", ptDesc: "Provedor API", enName: "API provider", enDesc: "API provider", esName: "Proveedor API", esDesc: "Proveedor API"},

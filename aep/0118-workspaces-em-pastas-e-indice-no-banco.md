@@ -1,6 +1,6 @@
 # AEP-0118: Workspaces em pastas e índice no banco
 
-Status: In Progress
+Status: Done
 
 ## Resumo
 
@@ -46,61 +46,117 @@ O índice YAML também tem gravações independentes que podem falhar parcialmen
 - Falhas de leitura/gravação devem ser propagadas. Não apresentar sucesso nem
   substituir um documento ilegível por um workspace vazio.
 
+- Criação recusa nomes vazios e a pasta ativa, inclusive se seu documento foi
+  removido. O comando coleta pasta/nome antes da escrita e revalida o contexto.
+- Depois de publicar o documento, falha no índice preserva o arquivo e informa
+  seu caminho no erro. Abrir a pasta novamente recupera a referência. Não fazer
+  exclusão que possa apagar uma edição/substituição de outro processo.
+- A lista identifica o workspace aberto por texto localizado. Delete em campos
+  de texto mantém a edição nativa. Retorno de foco exige o modal da lista no
+  topo; lista vazia recebe foco na busca. Erros usam o anunciador global.
+
 ## Fases
 
-- [x] Repositório do índice no banco e importação idempotente do YAML antigo.
-  Testes de migração, revisão concorrente e preservação de origem alterada em `internal/workspace/index_test.go`.
-- [ ] Resolução inicial na home e criação/importação em pasta explícita.
-- [ ] Interface acessível de nome e destino, usando os comandos existentes.
-- [ ] Preservação dos avulsos antigos, remoção e renomeação pela lista.
-- [ ] Testes, documentação do usuário, revisão independente e CI.
+- [x] Índice transacional no banco e importação idempotente do YAML antigo (#1090).
+- [x] Primeira abertura na home e restauração da última pasta (#1090).
+- [x] Criação/importação em pasta explícita, nome e revalidação do contexto (#1091).
+- [x] Gestão acessível da lista, preservando avulsos antigos (#1091).
+- [x] Testes, documentação, revisão independente e CI dos dois PRs.
 
 ## Riscos
 
-Entrega inicial: build, vet estático e lint sem issues; suíte de workspace e
-testes nomeados de startup/comandos, controller e Wails API passaram. O teste
-de publicação concorrente da identidade local passou em três repetições.
-Revisor independente `revisao_abertura_posicional`: três rodadas, corrigidas
-preservação de documento inválido, identificação da origem importada e
-publicação atômica da identidade; rodada final sem pendências. ACP não foi
-executado localmente. Interface de criação por pasta, Delete e F2 permanecem
-pendentes para o PR empilhado; status geral continua In Progress.
-
-Revisão remota: publicação atômica sem substituição nos três sistemas,
-proteção da identidade antes de migrar, de-duplicação de referências da mesma
-pasta, conexão vigente após reabertura do banco e rollback de renomeação
-cobertos por `internal/workspace/index_recovery_test.go`. No Windows,
-`publish_document_windows_test.go` verifica caminho maior que 300 caracteres.
-Ausência de arquivo não remove referência automaticamente: não distingue um
-volume desmontado de uma exclusão. A remoção explícita continua disponível.
-Segunda revisão local: três rodadas do mesmo revisor independente (hardlinks,
-caminhos longos, rodada final limpa). Suíte workspace e startup App passaram;
-build, vet e lint do recorte sem pendências. ACP permanece exclusivo do CI.
-
-
-- Banco e filesystem não compartilham uma transação: migração e criação exigem
-  publicação recuperável, sem excluir a única cópia depois de falha parcial.
-- Pastas movidas, arquivos inválidos e nomes/IDs conflitantes precisam de erro
-  explícito, sem sobrescrita silenciosa.
-- O índice pré-login não concede acesso aos conteúdos referenciados nas abas.
-- A mudança de organização não comprova nem substitui o diagnóstico do bloqueio
-  intermitente dos atalhos relatado em outra máquina.
+- Banco e filesystem não compartilham transação. Falha após publicação mantém
+  o documento recuperável e é reportada; não existe sucesso silencioso.
+- Volumes desmontados e arquivos removidos podem produzir a mesma ausência.
+  A lista conserva referências até remoção explícita.
+- Documento inválido ou com identidade diferente é preservado, com erro.
+- O índice pré-login não concede autoridade sobre conversas de outra conta.
+- Esta organização não comprova a causa do bloqueio intermitente de atalhos
+  relatado em outro computador. Não alterar seleção de banco para tratá-lo.
+- Os testes verificam DOM, foco e contrato de comandos; não substituem o aceite
+  manual com NVDA no aplicativo instalado.
 
 ## Critérios de aceitação
 
-- [x] Primeira abertura persiste o workspace na `.assistente` da home (`TestWorkspaceStartupFirstLaunchUsesHomeDefault`).
-- [x] Reabertura restaura a última pasta; abertura explícita prevalece (testes de startup do App).
-- [ ] Criação e importação pela interface exigem pasta e preservam documentos existentes.
-- [ ] Índice e seleção sobrevivem a reinício, com isolamento entre diretórios locais.
-- [ ] Migração tolera repetição e falhas sem perda de abas ou referências.
-- [ ] Não há escrita de índice YAML nem criação de novos workspaces em pastas internas.
-- [ ] Limpeza remove somente legado migrado; pasta com conteúdo é preservada.
-- [ ] Atalhos permanecem no catálogo/resolvedor do AEP-0103; formulários seguem AEP-0091.
-- [ ] Testes ACP são executados exclusivamente no CI remoto.
+- [x] Primeira abertura em `~/.assistente/workspace.yaml`; restauração e argumento
+  explícito cobertos pelos testes de startup do App.
+- [x] Criação/importação exigem destino e preservam documento existente e pasta
+  ativa: `internal/workspace/create_directory_test.go`.
+- [x] Persistência e isolamento por cliente: `internal/workspace/index_test.go`.
+- [x] Migração repetível, conflitos, falha transacional e origem alterada cobertos
+  por `index_test.go` e `index_recovery_test.go`.
+- [x] Writer do índice YAML, criação interna e APIs sem consumidores retirados;
+  fixtures usam os caminhos produtivos com diretório explícito.
+- [x] Limpeza somente do índice migrado idêntico; diretórios com conteúdo e links
+  simbólicos preservados: `index_recovery_test.go`.
+- [x] F2/Delete passam pelo catálogo/resolvedor; formulários/decisões reutilizam
+  componentes padrão. `WorkspaceListDialog.test.tsx`, integração da Topbar e
+  `TestCommandWorkspaceListBindingsAreScopedAndSuppressible` cobrem o percurso,
+  supressão, modal proprietário, edição nativa, confirmação e retorno de foco.
+- [x] Cancelamento e contexto alterado durante formulário não criam workspace:
+  `app_command_workspace_create_test.go`.
+- [x] Falha pós-publicação preserva edição/substituição concorrente:
+  `TestCreationIndexFailurePreservesConcurrentDocument`.
+- [x] Testes ACP exclusivamente no CI remoto; não executados localmente.
 
-Revisão remota adicional: nomes vazios são recusados antes da persistência e o
-rollback da exclusão usa publicação sem substituição. Se outra instância criar
-um documento no intervalo, ambos são preservados e o erro identifica o backup.
-Contraprovas em `TestWorkspaceRejectsBlankNameBeforePersisting` e
-`TestDeleteRollbackPreservesConcurrentDocument`. Revisor independente, sétima
-rodada: sem defeitos de produção; ajuste errcheck no teste aplicado.
+## Evidências de entrega
+
+Ordem de merge: [#1090](https://github.com/inclunet/assistente/pull/1090), depois
+[#1091](https://github.com/inclunet/assistente/pull/1091). Nenhum merge automático.
+
+Build, vet e lint Go aprovados; TypeScript e ESLint aprovados; Stylelint sem
+novos erros. Suíte workspace, regressões Go de comandos/controller/API, 140
+integrações da paleta/Topbar, nove provas da lista, contrato Go/frontend,
+auditoria de live regions e E2E específico aprovados localmente.
+
+CI completo aprovado nos commits `96fde6a97` (#1090, execução
+[44230253539](https://github.com/inclunet/assistente/actions/runs/44230253539)) e
+`a26b051aa` (#1091, execução
+[44232924346](https://github.com/inclunet/assistente/actions/runs/44232924346)),
+incluindo ACP, race, bindings, frontend, E2E e instalador Windows.
+
+Revisor independente `revisao_abertura_posicional`: sete rodadas no PR base e
+oito na implementação da interface, com fechamento sem pendências. Onze threads
+remotas do #1090 e quatro do #1091 corrigidas/respondidas e resolvidas. O commit
+final de documentação também passa por revisão independente e CI.
+
+### Segunda rodada de revisão do PR #1091
+
+- Projeção de teclas por página/perfil aceita as superfícies `workspaces` e
+  `allowlists`; fixture compartilhada compara o DTO real Go com o controlador
+  frontend sem invalidar os demais atalhos.
+- A lista atualiza a coleção autenticada ao abrir e usa a mesma coleção para
+  ativar por ID. O indicador ativo vem do snapshot atual; falha de atualização
+  retorna resultado explícito para anúncio. Removidos os callbacks de menu
+  congelados e sua adaptação na Topbar.
+- Ctrl+F respeita o modal proprietário, composição e evento já consumido.
+  Restauração após seleção é agendada somente depois da remoção do modal,
+  preservando troca assíncrona e navegação posterior.
+- O handler de criação, a execução/Commit e o formulário têm janela de cinco
+  minutos; o broker não expira a reserva durante o Commit.
+- Falha de registro após publicar o documento emite `workspace:creation-recovery`
+  tipado, efêmero e vinculado a usuário/sessão. O toast traduzido orienta reabrir
+  a pasta; o caminho não é incluído no resultado persistível do comando.
+
+Revisor independente `revisao_abertura_posicional`: duas rodadas adicionais de
+implementação e uma conferência final de testes/documentação; duas pendências de foco/erro corrigidas, segunda rodada sem
+pendências. A revisão de documentação anterior também foi concluída. As duas
+threads e os quatro apontamentos no corpo da segunda review remota foram
+tratados; validação e CI deste lote são registrados no PR.
+
+### Casos complementares da revisão
+
+Personalização somente por perfil (sem `app.page`) também projeta a superfície
+`workspaces`; a fixture Go/frontend prova o padrão nos outros perfis e a recusa
+fora da superfície. A importação utiliza o mesmo aviso efêmero de recuperação,
+com usuário e sessão capturados juntos na admissão da chamada. O teste do
+controller injeta falha de registro; o teste de contexto prova que trocar a
+sessão do mesmo usuário antes da importação preserva o destinatário original.
+Duas rodadas adicionais do revisor independente corrigiram a recaptura da
+sessão; a última terminou sem pendências. O CI de `61ed0977e` passou completo
+([44237718027](https://github.com/inclunet/assistente/actions/runs/44237718027));
+o PR registra a validação remota deste complemento.
+
+O aviso de recuperação já visível também é removido sincronicamente no logout
+ou troca de sessão, sem remover avisos de outros recursos. O hook limpa seus
+próprios avisos ao desmontar; testes cobrem esses três caminhos.

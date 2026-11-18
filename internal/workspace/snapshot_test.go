@@ -111,7 +111,7 @@ func TestSwitchABAReturnsIncreasingSequencesInSameEpoch(t *testing.T) {
 		t.Fatalf("Initialize: %v", err)
 	}
 	a := m.Active()
-	bWorkspace, err := m.Create("B")
+	bWorkspace, err := m.createForTest("B", t.TempDir())
 	if err != nil {
 		t.Fatalf("Create B: %v", err)
 	}
@@ -267,7 +267,7 @@ func TestCreateDoesNotReplaceActiveSnapshotRoot(t *testing.T) {
 		t.Fatalf("Initialize: %v", err)
 	}
 	active := m.Active()
-	created, err := m.Create("created")
+	created, err := m.createForTest("created", t.TempDir())
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -287,7 +287,7 @@ func TestSwitchReturnsPublicationSnapshot(t *testing.T) {
 	if err := m.Initialize(t.TempDir()); err != nil {
 		t.Fatalf("Initialize: %v", err)
 	}
-	target, err := m.Create("target")
+	target, err := m.createForTest("target", t.TempDir())
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}

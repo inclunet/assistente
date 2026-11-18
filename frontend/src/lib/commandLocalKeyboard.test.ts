@@ -387,13 +387,13 @@ describe('commandLocalKeyboard', () => {
     keyboard.dispose();
   });
 
-  it('rejeita tecla de função sem modificador fora da whitelist F1/F5', async () => {
+  it('rejeita tecla de função sem modificador fora da whitelist do catálogo', async () => {
     const onDown = vi.fn(async (_request: LocalCommandKeyRequest) => {});
     const keyboard = createLocalCommandKeyboard({
       target: window,
       loadMap: vi.fn(async () => ({
-        generation: 'g-f2',
-        bindings: [{ shortcut: { version: 1 as const, code: 'F2', modifiers: [] }, commandId: 'editor.presentation.fullscreen', handler: 'local_ui' as const }],
+        generation: 'g-f3',
+        bindings: [{ shortcut: { version: 1 as const, code: 'F3', modifiers: [] }, commandId: 'editor.presentation.fullscreen', handler: 'local_ui' as const }],
       })),
       onDown,
       onUp: vi.fn(async () => {}),
@@ -402,9 +402,9 @@ describe('commandLocalKeyboard', () => {
     });
     await keyboard.refresh();
 
-    const f2 = new KeyboardEvent('keydown', { code: 'F2', key: 'F2', cancelable: true });
-    window.dispatchEvent(f2);
-    expect(f2.defaultPrevented).toBe(false);
+    const f3 = new KeyboardEvent('keydown', { code: 'F3', key: 'F3', cancelable: true });
+    window.dispatchEvent(f3);
+    expect(f3.defaultPrevented).toBe(false);
     expect(onDown).not.toHaveBeenCalled();
     keyboard.dispose();
   });

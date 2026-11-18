@@ -1,6 +1,7 @@
 package app
 
 import (
+ "assistente/internal/testutil/workspacefixture"
 	"bytes"
 	"context"
 	"fmt"
@@ -114,7 +115,7 @@ func TestCreatedTabResultRejectsWhenReadAuthorityIsGone(t *testing.T) {
 		{
 			name: "runtime-substituido-apos-troca-de-workspace",
 			before: func(t *testing.T, a *App, _ string) {
-				second, err := a.workspaceMgr.Create("tab-result-runtime-switch")
+				second, err := workspacefixture.Create(t, a.workspaceMgr, "tab-result-runtime-switch", t.TempDir())
 				if err != nil {
 					t.Fatalf("criar workspace para troca: %v", err)
 				}

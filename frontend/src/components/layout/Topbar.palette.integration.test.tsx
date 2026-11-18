@@ -62,9 +62,9 @@ const state = vi.hoisted(() => ({
   workspace: {
     workspace: { id: 'workspace-a', name: 'Workspace', activeTabId: 'tab-a', tabs: [{ id: 'tab-a', type: 'chat' }] },
     workspaces: [] as Array<{ id: string; name: string; is_active: boolean; tab_count: number }>,
+    refreshWorkspaceList: vi.fn(async () => true),
     switchWorkspace: vi.fn(),
-    createWorkspace: vi.fn(),
-    renameWorkspace: vi.fn(),
+      renameWorkspace: vi.fn(),
     setActiveTab: vi.fn(),
   },
   chat: {
@@ -93,8 +93,8 @@ type IntegrationAuthState = {
 type IntegrationWorkspaceState = {
   workspace: { id: string; name: string; activeTabId: string };
   workspaces: typeof state.workspace.workspaces;
+  refreshWorkspaceList: typeof state.workspace.refreshWorkspaceList;
   switchWorkspace: typeof state.workspace.switchWorkspace;
-  createWorkspace: typeof state.workspace.createWorkspace;
   renameWorkspace: typeof state.workspace.renameWorkspace;
   setActiveTab: typeof state.workspace.setActiveTab;
 };
@@ -784,13 +784,16 @@ describe('Criação de abas — Topbar, Toolbar e Menu reais', () => {
     state.beginLocalCommandUIKey.mockResolvedValue({ ticket: 'workspace-ticket', invocationId: 'workspace-inv', commandId: 'workspace.create' });
     state.takeUICommand.mockResolvedValue({ ticket: 'workspace-ticket', invocationId: 'workspace-inv', commandId: 'workspace.create', handoffId: 'workspace-handoff' });
     state.getUICommandResult.mockResolvedValue({ invocationId: 'workspace-inv', status: 'succeeded' });
-    state.commitBackendCommand.mockResolvedValue(undefined);
+    state.commitBackendCommand.mockImplementation(async () => {
+      registerOpenModal('workspace-name-form');
+      unregisterOpenModal('workspace-name-form');
+    });
     render(<Topbar />);
     screen.getByRole('button', { name: 'commandPalette.title' }).focus();
     await waitFor(() => expect(state.loadMap).toHaveBeenCalled());
     await user.keyboard('{Control>}{Shift>}n{/Shift}{/Control}');
     await waitFor(() => expect(state.commitBackendCommand).toHaveBeenCalledExactlyOnceWith('workspace-ticket', 'workspace-handoff'));
-    expect(state.workspace.createWorkspace).not.toHaveBeenCalled();
+
     expect(beginUICommand).not.toHaveBeenCalled();
     expect(state.beginLocalCommandUIKey).toHaveBeenCalledTimes(1);
     expect(state.announce).toHaveBeenCalledWith('workspace.announce.workspaceCreatedCommand');
@@ -817,7 +820,7 @@ describe('Criação de abas — Topbar, Toolbar e Menu reais', () => {
       await waitFor(() => expect(state.commitBackendCommand)
         .toHaveBeenCalledExactlyOnceWith('toolbar-workspace-ticket', 'toolbar-workspace-handoff'));
       expect(state.cancelUICommand).not.toHaveBeenCalled();
-      expect(state.workspace.createWorkspace).not.toHaveBeenCalled();
+
       expect(state.workspace.switchWorkspace).not.toHaveBeenCalled();
       expect(state.announce).toHaveBeenCalledWith('workspace.announce.workspaceCreatedCommand');
       expect(screen.queryByRole('menu', { name: 'workspace.workspaceOptions' })).not.toBeInTheDocument();
@@ -848,7 +851,7 @@ describe('Criação de abas — Topbar, Toolbar e Menu reais', () => {
         await Promise.resolve();
       });
       expect(state.commitBackendCommand).not.toHaveBeenCalled();
-      expect(state.workspace.createWorkspace).not.toHaveBeenCalled();
+
       expect(state.workspace.switchWorkspace).not.toHaveBeenCalled();
     } finally {
       unregisterOpenModal('workspace-create-stale');
@@ -922,6 +925,7 @@ describe('Criação de abas — Topbar, Toolbar e Menu reais', () => {
   }
 
   it('lista workspaces na toolbar do workspace, navega por setas e restaura foco', async () => {
+    const visibleRects = vi.spyOn(HTMLElement.prototype, 'getClientRects').mockReturnValue([{}] as unknown as DOMRectList);
     const user = userEvent.setup();
     const view = await mountCreation();
     try {
@@ -933,14 +937,14 @@ describe('Criação de abas — Topbar, Toolbar e Menu reais', () => {
       expect(within(toolbar).getByRole('button', { name: 'workspace.newTab, Ctrl+N' })).toHaveFocus();
       await user.keyboard('{End}{Enter}');
       expect(trigger).toHaveAttribute('aria-expanded', 'true');
-      expect(screen.getByRole('menu', { name: 'workspace.workspaceList' })).toBeInTheDocument();
-      // O menu pesquisável transfere o foco na próxima animação. Só envie
+      expect(screen.getByRole('dialog', { name: 'workspace.workspaceList' })).toBeInTheDocument();
+      // A lista vazia entra pela busca. Só envie
       // Escape depois de a abertura terminar, como na interação do usuário.
       await waitFor(() => expect(screen.getByRole('textbox', { name: 'workspace.searchWorkspaces' })).toHaveFocus());
       await user.keyboard('{Escape}');
       await waitFor(() => expect(trigger).toHaveFocus());
       expect(trigger).toHaveAttribute('aria-expanded', 'false');
-    } finally { view.unmount(); }
+    } finally { view.unmount(); visibleRects.mockRestore(); }
   });
   it.each(['rename', 'dismiss', 'import', 'navigate'])('opções do workspace respeitam o destino do foco: %s', async (action) => {
     const view = await mountCreation(action === 'navigate');
@@ -1007,7 +1011,9 @@ describe('Criação de abas — Topbar, Toolbar e Menu reais', () => {
       });
       fireEvent.click(screen.getByRole('button', { name: 'workspace.workspaceList' }));
       act(() => frames.splice(0).forEach(callback => callback(0)));
-      fireEvent.click(screen.getByRole('menuitem', { name: /Outro workspace/ }));
+      fireEvent.click(screen.getByRole('gridcell', { name: /Outro workspace/ }));
+      act(() => screen.getByRole('gridcell', { name: /Outro workspace/ }).focus());
+      fireEvent.keyDown(screen.getByRole('gridcell', { name: /Outro workspace/ }), { key: 'Enter', code: 'Enter' });
       expect(state.workspace.switchWorkspace).toHaveBeenCalledExactlyOnceWith('workspace-b');
       act(() => frames.splice(0).forEach(callback => callback(0)));
       expect(restoreDefaultFocus).not.toHaveBeenCalled();
@@ -1057,7 +1063,9 @@ describe('Criação de abas — Topbar, Toolbar e Menu reais', () => {
       vi.mocked(restoreDefaultFocus).mockImplementation(() => { destination.focus(); return true; });
       fireEvent.click(trigger);
       act(() => frames.splice(0).forEach(callback => callback(0)));
-      fireEvent.click(screen.getByRole('menuitem', { name: /Workspace atual/ }));
+      fireEvent.click(screen.getByRole('gridcell', { name: /Workspace atual/ }));
+      act(() => screen.getByRole('gridcell', { name: /Workspace atual/ }).focus());
+      fireEvent.keyDown(screen.getByRole('gridcell', { name: /Workspace atual/ }), { key: 'Enter', code: 'Enter' });
       if (navigated) trigger.focus();
       act(() => frames.splice(0).forEach(callback => callback(0)));
       expect(restoreDefaultFocus).toHaveBeenCalledTimes(navigated ? 0 : 1);
@@ -1537,7 +1545,7 @@ describe('Topbar palette — integração real do Combobox compartilhado', () =>
     await user.type(search, 'Novo workspace');
     await user.keyboard('{ArrowDown}{Enter}');
     await waitFor(() => expect(state.commitBackendCommand).toHaveBeenCalledExactlyOnceWith('palette-workspace-ticket', 'palette-workspace-handoff'));
-    expect(state.workspace.createWorkspace).not.toHaveBeenCalled();
+
     expect(state.beginLocalCommandUIKey).not.toHaveBeenCalled();
     expect(beginUICommand).toHaveBeenCalledExactlyOnceWith('workspace.create');
   });
@@ -2354,4 +2362,47 @@ describe('handoff UI externo — provider e handlers reais da Topbar', () => {
       locationState.pathname = '/';
     }
   });
+});
+
+it('workspace.list pela paleta abre o modal e Enter troca o workspace uma única vez', async () => {
+ const user = userEvent.setup();
+ const previous = state.workspace.workspaces;
+ state.workspace.workspaces = [{ id: 'workspace-b', name: 'Projeto da paleta', tab_count: 1, is_active: false }];
+ state.genericExecute.mockResolvedValue({ invocationId: 'list-workspaces', status: 'succeeded', output: {
+  kind: 'workspace.list', workspaces: state.workspace.workspaces,
+ } });
+ listCommandCatalog.mockResolvedValue([{ id: 'workspace.list', name: 'Workspaces', available: true }]);
+ const view = render(<Topbar />);
+ try {
+  await user.click(screen.getByRole('button', { name: 'commandPalette.title' }));
+  await user.click(await screen.findByRole('option', { name: /Workspaces/ }));
+  const cell = await screen.findByRole('gridcell', { name: 'Projeto da paleta' });
+  await user.click(cell);
+  await user.keyboard('{Enter}');
+  await waitFor(() => expect(state.workspace.switchWorkspace).toHaveBeenCalledExactlyOnceWith('workspace-b'));
+  expect(screen.queryByRole('dialog', { name: 'workspace.workspaceList' })).toBeNull();
+ } finally { view.unmount(); state.workspace.workspaces = previous; }
+});
+
+it('Delete na busca da lista edita texto sem iniciar remoção de workspace', async () => {
+ const user = userEvent.setup();
+ const previous = state.workspace.workspaces;
+ state.workspace.workspaces = [{ id: 'workspace-b', name: 'Projeto', tab_count: 1, is_active: false }];
+ const shortcut = { version: 1, code: 'Delete', modifiers: [] };
+ state.loadMap.mockResolvedValue({ generation: 'workspace-delete-map', ownerId: 'user-a', sessionId: 'session-a', workspaceId: 'workspace-a', bindings: [],
+  contextualBindings: [{ shortcut, bySurface: { workspaces: { shortcut, commandId: 'workspaces.delete.open', handler: 'local_ui' } }, fallback: null }],
+  localPaletteCommands: ['workspaces.delete.open'],
+ });
+ const view = render(<WorkspaceTabCreationMenuProvider><Topbar /><WorkspaceToolbar /></WorkspaceTabCreationMenuProvider>);
+ try {
+  await waitFor(() => expect(state.loadMap).toHaveBeenCalled());
+  await user.click(screen.getByRole('button', { name: 'workspace.workspaceList' }));
+  await user.click(screen.getByRole('gridcell', { name: 'Projeto' }));
+  const search = screen.getByRole('textbox', { name: 'workspace.searchWorkspaces' });
+  await user.type(search, 'Projeto');
+  (search as HTMLInputElement).setSelectionRange(0,0);
+  await user.keyboard('{Delete}');
+  expect(search).toHaveValue('rojeto');
+  expect(screen.queryByRole('alertdialog')).toBeNull();
+ } finally { view.unmount(); state.workspace.workspaces = previous; }
 });

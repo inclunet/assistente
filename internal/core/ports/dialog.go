@@ -23,6 +23,9 @@ type FileFilter struct {
 // Implementações concretas: adapters/wails.DialogAdapter (desktop),
 // adapters/noop.DialogAdapter (testes/CLI).
 type SystemDialogPort interface {
+	// OpenDirectoryDialog seleciona uma pasta existente; vazio significa cancelamento.
+	OpenDirectoryDialog() (string, error)
+
 	// OpenFileDialog exibe o diálogo nativo de seleção de arquivo.
 	// Retorna o path selecionado ou "" se o usuário cancelou.
 	OpenFileDialog(opts OpenFileOptions) (string, error)

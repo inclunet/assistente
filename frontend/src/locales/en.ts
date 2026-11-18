@@ -117,6 +117,7 @@ notSaved: 'The decision applies only to this operation: it could not be remember
   }
 },
     common: {
+      open: 'Open',
       loading: 'Loading...',
       error: 'Error',
       success: 'Success',
@@ -4244,6 +4245,14 @@ notSaved: 'The decision applies only to this operation: it could not be remember
       pageContent: 'Page content',
     },
     workspace: {
+      creationRecovery: 'The workspace was saved at {{path}}, but could not be registered in the list. Open the selected folder again to recover it.',
+      activeStatus: 'Open',
+      inactiveStatus: 'Not in use',
+      remove: 'Remove workspace',
+      removed: 'Workspace removed',
+      removeConfirmation: 'Remove workspace “{{name}}”? Only its workspace file will be removed. Conversations and other files in the folder will be preserved.',
+      directory: 'Workspace folder',
+      createInDirectory: 'Create workspace',
       noTabs: 'No tabs open',
       toolbarLabel: 'Workspace',
       switchWorkspace: 'Switch workspace',

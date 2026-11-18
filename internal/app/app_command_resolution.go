@@ -47,6 +47,7 @@ var commandKeyboardSequenceDefaultSpecs = []commandKeyboardSequenceDefaultSpec{
 }
 
 var commandKeyboardDefaultSpecs = []commandKeyboardDefaultSpec{
+
 	{ID: "builtin.keyboard.alt-w.navigation.workspace.open", Code: "KeyW", CommandID: "navigation.workspace.open"},
 	{ID: "builtin.keyboard.alt-c.navigation.settings.open", Code: "KeyC", CommandID: "navigation.settings.open"},
 	{ID: "builtin.keyboard.alt-h.navigation.history.open", Code: "KeyH", CommandID: "navigation.history.open"},
@@ -115,6 +116,8 @@ var commandKeyboardDefaultSpecs = []commandKeyboardDefaultSpec{
 	{ID: "builtin.keyboard.ctrl-n.history.workspace.open", Code: "KeyN", CommandID: "navigation.workspace.open", Prefix: "Control+", Condition: commandbindings.Facts{commandbindings.SurfaceType: "history"}, Scope: commandbindings.Surface, Contextual: true},
 	{ID: "builtin.keyboard.ctrl-n.providers.create.open", Code: "KeyN", CommandID: "providers.create.open", Prefix: "Control+", Condition: commandbindings.Facts{commandbindings.AppPage: "settings", commandbindings.SurfaceType: "providers"}, Scope: commandbindings.Surface, Contextual: true},
 	{ID: "builtin.keyboard.ctrl-n.allowlists.create.open", Code: "KeyN", CommandID: "allowlists.create.open", Prefix: "Control+", Condition: commandbindings.Facts{commandbindings.AppPage: "settings", commandbindings.SurfaceType: "allowlists"}, Scope: commandbindings.Surface, Contextual: true},
+	{ID: "builtin.keyboard.f2.workspaces.rename.open", Code: "F2", CommandID: "workspaces.rename.open", Bare: true, Condition: commandbindings.Facts{commandbindings.SurfaceType: "workspaces"}, Scope: commandbindings.Surface, Contextual: true},
+	{ID: "builtin.keyboard.delete.workspaces.delete.open", Code: "Delete", CommandID: "workspaces.delete.open", Bare: true, Condition: commandbindings.Facts{commandbindings.SurfaceType: "workspaces"}, Scope: commandbindings.Surface, Contextual: true},
 }
 
 func commandPaletteCandidate(invocationID, correlationID, selection string, arguments json.RawMessage) (commandexecution.EnvelopeCandidate, error) {

@@ -2,11 +2,16 @@ package controllers
 
 import (
 	"assistente/internal/testutil/workspacefixture"
+	"context"
+	"errors"
+	"gorm.io/gorm"
+	"os"
 	"path/filepath"
 	"sync"
 	"testing"
 	"time"
 
+	"assistente/internal/userctx"
 	"assistente/internal/workspace"
 )
 
@@ -41,11 +46,11 @@ func newWorkspaceControllerTestFixture(t *testing.T) (*workspace.Manager, *works
 	if err := manager.Initialize(filepath.Join(t.TempDir(), "active")); err != nil {
 		t.Fatal(err)
 	}
-	first, err := manager.Create("first")
+	first, err := workspacefixture.Create(t, manager, "first", t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := manager.Create("second")
+	second, err := workspacefixture.Create(t, manager, "second", t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -205,5 +210,45 @@ func TestWorkspaceControllerSerializesConcurrentSwitchBootstrapAndEvent(t *testi
 		if order[index][5:] != order[index+1][19:] {
 			t.Fatalf("par de troca desalinhado: %v", order)
 		}
+	}
+}
+
+func TestWorkspaceImportRegistrationFailureNotifiesOriginalSession(t *testing.T) {
+	home := t.TempDir()
+	db := workspacefixture.OpenIndex(t, home)
+	manager := workspace.NewManager(home, func() *gorm.DB { return db })
+	if err := manager.Initialize(t.TempDir()); err != nil {
+		t.Fatal(err)
+	}
+	directory := t.TempDir()
+	ctx := userctx.WithSessionID(userctx.WithUserID(context.Background(), "owner"), "original")
+	var notice workspace.CreationRecoveryEvent
+	controller := NewWorkspaceController(WorkspaceControllerConfig{
+		WorkspaceMgr: manager,
+		Emitter: &captureWorkspaceControllerEmitter{capture: func(name string, data any) {
+			if name == "workspace:creation-recovery" {
+				notice = data.(workspace.CreationRecoveryEvent)
+			}
+		}},
+	})
+	const callback = "test:failed-import-index"
+	if err := db.Callback().Update().Before("gorm:update").Register(callback, func(tx *gorm.DB) {
+		if tx.Statement.Table == "desktop_workspace_states" {
+			_ = tx.AddError(errors.New("index unavailable"))
+		}
+	}); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Callback().Update().Remove(callback) })
+	_, err := controller.ImportWorkspace(ctx, "name: Imported\ntabs:\n  items: []\n", directory)
+	var recovery *workspace.CreationRegistrationError
+	if !errors.As(err, &recovery) {
+		t.Fatalf("error=%v", err)
+	}
+	if notice.SessionID != "original" || notice.UserID != "owner" || notice.Path != recovery.Path {
+		t.Fatalf("notice=%+v", notice)
+	}
+	if _, err := os.Stat(notice.Path); err != nil {
+		t.Fatal(err)
 	}
 }

@@ -1,6 +1,7 @@
 package app
 
 import (
+ "assistente/internal/testutil/workspacefixture"
 	"context"
 	"errors"
 	"testing"
@@ -31,7 +32,7 @@ func testAppCommandBatchPostCommit(t *testing.T, mode string) {
 	// O lote importado é deliberadamente diferente do workspace ativo. Ambos
 	// têm escopo persistido; somente o global e o workspace ativo participam da
 	// publicação, enquanto o workspace importado apenas altera seu generation.
-	active, err := a.workspaceMgr.Create("batch ativo independente")
+	active, err := workspacefixture.Create(t, a.workspaceMgr, "batch ativo independente", t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}

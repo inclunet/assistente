@@ -117,6 +117,7 @@ notSaved: 'A decisão vale somente para esta operação: não foi possível lemb
   }
 },
     common: {
+      open: 'Abrir',
       loading: 'Carregando...',
       error: 'Erro',
       success: 'Sucesso',
@@ -4245,6 +4246,14 @@ notSaved: 'A decisão vale somente para esta operação: não foi possível lemb
       pageContent: 'Conteúdo da página',
     },
     workspace: {
+      creationRecovery: 'O workspace foi salvo em {{path}}, mas não foi registrado na lista. Abra a pasta escolhida novamente para recuperá-lo.',
+      activeStatus: 'Aberto',
+      inactiveStatus: 'Não está em uso',
+      remove: 'Remover workspace',
+      removed: 'Workspace removido',
+      removeConfirmation: 'Remover o workspace “{{name}}”? Apenas seu arquivo de workspace será removido. Conversas e outros arquivos da pasta serão preservados.',
+      directory: 'Pasta do workspace',
+      createInDirectory: 'Criar workspace',
       noTabs: 'Nenhuma aba aberta',
       toolbarLabel: 'Workspace',
       switchWorkspace: 'Alternar workspace',

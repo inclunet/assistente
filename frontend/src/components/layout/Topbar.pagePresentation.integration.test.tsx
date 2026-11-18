@@ -28,6 +28,8 @@ const ids = [
 ] as const satisfies readonly PagePresentationCommandID[];
 const palettePreferencesKey = 'assistente.command-palette.v1.user-a.workspace-a';
 const shortcuts: Record<PagePresentationCommandID, string> = {
+ 'workspaces.rename.open': 'F2',
+ 'workspaces.delete.open': 'Delete',
   'allowlists.create.open': 'Ctrl+N',
   'command_settings.create.open': 'Ctrl+N',
   'providers.create.open': 'Ctrl+N',

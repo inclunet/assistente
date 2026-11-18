@@ -62,7 +62,7 @@ func (p *commandProductRuntime) uiOwner() commandui.Owner {
 }
 
 func commandUIRunTimeout(commandID string) time.Duration {
-	if isPageMutationCommand(commandID) {
+	if isPageMutationCommand(commandID) || commandID == commandWorkspaceCreateID {
 		return 5 * time.Minute
 	}
 	if isEditorFileCommand(commandID) || isEditorFormatDialogCommand(commandID) || commandID == commandConversationClearID || commandID == commandMessageDeleteID || commandID == commandTerminalSessionCloseID {
@@ -82,8 +82,8 @@ func commandUITakeTimeout(commandID string) time.Duration {
 }
 
 func commandUIResultTTL(commandID string) time.Duration {
-	if isPageMutationCommand(commandID) {
-		return 6 * time.Minute
+	if isPageMutationCommand(commandID) || commandID == commandWorkspaceCreateID {
+		return commandUIRunTimeout(commandID) + time.Minute
 	}
 	if isEditorFileCommand(commandID) || isEditorFormatDialogCommand(commandID) || commandID == commandConversationClearID || commandID == commandMessageDeleteID || commandID == commandTerminalSessionCloseID {
 		// A consulta do desfecho precisa sobreviver ao prazo total do diálogo.
@@ -543,7 +543,11 @@ func (a *App) commitWorkspaceTabCommand(ticket, handoffID string) error {
 	if !run.contextual || (!isCreate && !isClose && !isWorkspaceCreate && !isContextChat && !isEditorMode && !isClear && !isTerminalInterrupt && !isTerminalSessionCreate && !isTerminalSessionClose) {
 		return commandexecution.ErrDenied
 	}
-	ctx, cancel := context.WithTimeout(a.commandBridgeContext(), 35*time.Second)
+	timeout := 35 * time.Second
+	if isWorkspaceCreate {
+		timeout = commandUIRunTimeout(commandWorkspaceCreateID)
+	}
+	ctx, cancel := context.WithTimeout(a.commandBridgeContext(), timeout)
 	defer cancel()
 	return p.ui.Commit(ctx, p.uiOwner(), ticket, handoffID, func(ctx context.Context) error {
 		current, err := a.authenticatedCommandProduct()
@@ -576,6 +580,14 @@ func (a *App) commitWorkspaceTabCommand(ticket, handoffID string) error {
 			return err
 		}
 		defer release()
+		var workspaceName, workspaceDirectory string
+		if isWorkspaceCreate {
+			// Nunca segurar authMu enquanto o usuário responde.
+			workspaceName, workspaceDirectory, err = a.requestWorkspaceDestination(executionCtx)
+			if err != nil {
+				return err
+			}
+		}
 		var created *workspace.Workspace
 		if isTerminalInterrupt {
 			if !terminalPrepared {
@@ -644,8 +656,12 @@ func (a *App) commitWorkspaceTabCommand(ticket, handoffID string) error {
 				if isWorkspaceCreate {
 					// O snapshot protege a origem da solicitação. O resultado é um
 					// workspace independente; nunca substitui o workspace ativo.
-					created, err = p.workspaceMgr.CreateForCommand(executionCtx, expected, "Workspace "+time.Now().Format("2006-01-02 15-04-05"))
+					created, err = p.workspaceMgr.CreateForCommand(executionCtx, expected, workspaceName, workspaceDirectory)
 					if err != nil {
+						var recovery *workspace.CreationRegistrationError
+						if errors.As(err, &recovery) && a.emitter != nil {
+							a.emitter.Emit("workspace:creation-recovery", workspace.CreationRecoveryEvent{UserID: p.principal.UserID, SessionID: p.principal.SessionID, Path: recovery.Path})
+						}
 						return err
 					}
 				} else if isCreate {

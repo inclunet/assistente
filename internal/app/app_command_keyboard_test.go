@@ -258,7 +258,7 @@ func TestCommandKeyboardRejectsUnsupportedSourceAndUnmappedCombination(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(view.Bindings) != 63 || len(view.ContextualBindings) != 2 {
+	if len(view.Bindings) != 63 || len(view.ContextualBindings) != 4 {
 		t.Fatalf("mapa ativo inesperado: bindings=%d contextual=%d view=%+v", len(view.Bindings), len(view.ContextualBindings), view)
 	}
 	for _, shortcut := range []LocalCommandShortcut{
@@ -291,7 +291,7 @@ func TestCommandKeyboardRevokedSessionCannotDispatch(t *testing.T) {
 		t.Fatal(err)
 	}
 	view, err := a.GetLocalCommandKeyboardMap()
-	if err != nil || len(view.Bindings) != 63 || len(view.ContextualBindings) != 2 {
+	if err != nil || len(view.Bindings) != 63 || len(view.ContextualBindings) != 4 {
 		t.Fatalf("mapa antes da revogação: %+v err=%v", view, err)
 	}
 	principal := a.commandProduct.Load().principal

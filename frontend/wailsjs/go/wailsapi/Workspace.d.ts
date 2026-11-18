@@ -4,15 +4,13 @@ import {workspace} from '../models';
 
 export function AddWorkspaceTab(arg1:workspace.Tab):Promise<workspace.Workspace>;
 
-export function CreateWorkspace(arg1:string):Promise<workspace.Workspace>;
-
 export function DeleteWorkspace(arg1:string):Promise<void>;
 
 export function ExportWorkspace():Promise<string>;
 
 export function GetActiveWorkspace():Promise<workspace.Workspace>;
 
-export function ImportWorkspace(arg1:string):Promise<workspace.Workspace>;
+export function ImportWorkspace(arg1:string,arg2:string):Promise<workspace.Workspace>;
 
 export function ListWorkspaces():Promise<Array<workspace.WorkspaceInfo>>;
 
@@ -20,11 +18,13 @@ export function MoveWorkspaceTabTo(arg1:string,arg2:string):Promise<workspace.Wo
 
 export function RemoveWorkspaceTab(arg1:string):Promise<workspace.Workspace>;
 
-export function RenameWorkspace(arg1:string):Promise<void>;
+export function RenameWorkspace(arg1:string,arg2:string):Promise<void>;
 
 export function ReorderWorkspaceTabs(arg1:Array<string>):Promise<void>;
 
 export function SaveWorkspace():Promise<void>;
+
+export function SelectWorkspaceDirectory():Promise<string>;
 
 export function SetActiveWorkspaceTab(arg1:string):Promise<void>;
 

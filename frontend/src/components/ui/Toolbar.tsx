@@ -1,6 +1,7 @@
 import { type ReactNode, forwardRef, useRef, useEffect } from 'react';
 import { useToolbarKeyboardNav } from '../../hooks/useToolbarKeyboardNav';
 import './Toolbar.css';
+import { getModalRegistrySnapshot } from '../../lib/modalRegistry';
 
 export type ToolbarButtonVariant = 'primary' | 'secondary' | 'danger';
 
@@ -134,6 +135,9 @@ export const Toolbar = forwardRef<HTMLDivElement, ToolbarProps>(({
     if (!onSearchChange) return; // Só ativa se houver campo de busca
 
     const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.defaultPrevented || e.isComposing) return;
+      const topModal = getModalRegistrySnapshot().topID;
+      if (topModal && toolbarRef.current?.closest('[data-modal-id]')?.getAttribute('data-modal-id') !== topModal) return;
       if (e.ctrlKey && e.key === 'f') {
         e.preventDefault();
         searchInputRef.current?.focus();

@@ -80,7 +80,7 @@ func TestCommandSnapshotAuthoritativoObservaABADoWorkspaceEIgnoraApresentacaoENo
 		t.Fatalf("snapshot base: %v", err)
 	}
 
-	if err := manager.Rename("nome-apresentação"); err != nil {
+	if err := manager.Rename(manager.ActiveID(), "nome-apresentação"); err != nil {
 		t.Fatalf("Rename: %v", err)
 	}
 	manager.SetDefaultProfile("profile-a")
@@ -95,7 +95,7 @@ func TestCommandSnapshotAuthoritativoObservaABADoWorkspaceEIgnoraApresentacaoENo
 		t.Fatalf("apresentação/no-op alterou versão: base=%#v unchanged=%#v", base, unchanged)
 	}
 
-	other, err := manager.Create("workspace-b")
+	other, err := manager.createForTest("workspace-b", t.TempDir())
 	if err != nil {
 		t.Fatalf("Create workspace B: %v", err)
 	}
@@ -280,7 +280,7 @@ func TestManagerLeiturasDeActiveESwitchNaoExibemAliasMutavel(t *testing.T) {
 		t.Fatalf("Active expôs alias mutável: base=%#v atual=%#v", base, got)
 	}
 
-	other, err := manager.Create("workspace-switch-copy")
+	other, err := manager.createForTest("workspace-switch-copy", t.TempDir())
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}

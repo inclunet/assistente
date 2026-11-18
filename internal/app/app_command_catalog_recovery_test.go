@@ -1,6 +1,7 @@
 package app
 
 import (
+ "assistente/internal/testutil/workspacefixture"
 	"context"
 	"errors"
 	"testing"
@@ -111,7 +112,7 @@ func TestCommandCatalogRecoveryTicketStopsOnLogoutAndWorkspaceChange(t *testing.
 	if ticket == nil || !ticket.current(a) {
 		t.Fatal("ticket autenticado inválido no início")
 	}
-	if _, err := a.workspaceMgr.Create("recovery-ticket-workspace"); err != nil {
+	if _, err := workspacefixture.Create(t, a.workspaceMgr, "recovery-ticket-workspace", t.TempDir()); err != nil {
 		t.Fatal(err)
 	}
 	if !ticket.current(a) {

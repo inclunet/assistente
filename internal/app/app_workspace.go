@@ -61,6 +61,7 @@ func (a *App) initWorkspace() error {
 func (a *App) configureWorkspaceController() {
 	a.workspaceCtrl = controllers.NewWorkspaceController(controllers.WorkspaceControllerConfig{
 		WorkspaceMgr:        a.workspaceMgr,
+		Dialog:              a.dialogPort,
 		Emitter:             a.emitter,
 		OnWorkspaceSwitched: a.reloadCommandsAfterWorkspaceSwitch,
 	})

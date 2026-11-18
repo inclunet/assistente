@@ -1,6 +1,7 @@
 package app
 
 import (
+ "assistente/internal/testutil/workspacefixture"
 	"context"
 	"errors"
 	"testing"
@@ -77,7 +78,7 @@ func TestLifecyclePublishRecusaMudancaDeWorkspaceAntesDaPublicacao(t *testing.T)
 	if err != nil || !ok {
 		t.Fatalf("load: ok=%v err=%v", ok, err)
 	}
-	other, err := app.workspaceMgr.Create("outro")
+	other, err := workspacefixture.Create(t, app.workspaceMgr, "outro", t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}

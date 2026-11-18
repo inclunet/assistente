@@ -21,6 +21,8 @@ import { scheduleDefaultFocusRestore } from '../../lib/deferredDefaultFocus';
 import { useWorkspaceTabCreationMenu, useWorkspaceListOpen, type WorkspaceTabCreationMenuRequest } from '../../lib/workspaceTabCreationMenu';
 import { useCommandSequencePrefixHint, useCommandShortcutHints } from '../../lib/commandShortcutHints';
 import { WORKSPACE_TAB_CREATE_COMMAND_IDS } from '../../lib/commandContextualBackendExecution';
+import { SelectWorkspaceDirectory } from '@wailsjs/go/wailsapi/Workspace';
+import { useAuthStore } from '../../store/authStore';
 import './WorkspaceToolbar.css';
 
 export function WorkspaceToolbar() {
@@ -94,14 +96,25 @@ export function WorkspaceToolbar() {
       input.onchange = async () => {
         const file = input.files?.[0];
         if (!file) return;
-        const text = await file.text();
-        await useWorkspaceStore.getState().importWorkspace(text);
+        const owner = useAuthStore.getState().user;
+        const origin = useWorkspaceStore.getState().workspace?.id;
+        try {
+          const text = await file.text();
+          const directory = await SelectWorkspaceDirectory();
+          const current = useAuthStore.getState();
+          if (!directory || !current.isAuthenticated || current.user?.userId !== owner?.userId ||
+              current.user?.sessionId !== owner?.sessionId || useWorkspaceStore.getState().workspace?.id !== origin) return;
+          await useWorkspaceStore.getState().importWorkspace(text, directory);
+        } catch (error) {
+          logger.error('[WorkspaceToolbar] Import error:', error);
+          announce(t('commandPalette.executionFailed'));
+        }
       };
       input.click();
     } catch (error) {
       logger.error('[WorkspaceToolbar] Import error:', error);
     }
-  }, []);
+  }, [announce, t]);
 
   const startRename = useCallback(() => {
     if (!workspace) return;
@@ -112,7 +125,7 @@ export function WorkspaceToolbar() {
   const handleConfirmRename = useCallback(async () => {
     const trimmed = renameValue.trim();
     if (trimmed && trimmed !== workspace?.name) {
-      await renameWorkspace(trimmed);
+      if (workspace) await renameWorkspace(workspace.id, trimmed);
       announce(`${t('workspace.renamed')}: ${trimmed}`);
     }
     setIsRenaming(false);

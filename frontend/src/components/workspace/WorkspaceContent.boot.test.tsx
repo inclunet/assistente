@@ -8,7 +8,6 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 vi.mock('@wailsjs/go/wailsapi/Workspace', () => ({
   GetActiveWorkspace: vi.fn(),
   ListWorkspaces: vi.fn(),
-  CreateWorkspace: vi.fn(),
   SwitchWorkspace: vi.fn(),
   RenameWorkspace: vi.fn(),
   DeleteWorkspace: vi.fn(),

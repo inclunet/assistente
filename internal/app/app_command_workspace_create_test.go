@@ -2,15 +2,24 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"gorm.io/gorm"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
+	"assistente/adapters/noop"
 	"assistente/internal/commandcatalog"
 	"assistente/internal/commanddeck"
 	"assistente/internal/commandexecution"
 	"assistente/internal/commandui"
 	"assistente/internal/database"
+	"assistente/internal/questionnaire"
+	"assistente/internal/testutil/workspacefixture"
+	"assistente/internal/userctx"
 	"assistente/internal/workspace"
 )
 
@@ -24,7 +33,7 @@ func commandWorkspaceInfoCount(t *testing.T, a *App) int {
 }
 
 func TestCommandWorkspaceCreateCatalogContract(t *testing.T) {
-	a := readyCommandProduct(t)
+	a := readyWorkspaceCreation(t)
 	registry, handlers, err := a.commandProductCatalog()
 	if err != nil {
 		t.Fatal(err)
@@ -71,7 +80,7 @@ func TestCommandWorkspaceCreateCatalogContract(t *testing.T) {
 }
 
 func TestCommandWorkspaceCreateIsDurableAndNotLocalUI(t *testing.T) {
-	a := readyCommandProduct(t)
+	a := readyWorkspaceCreation(t)
 	definition, ok := a.commandProduct.Load().registry.Lookup(commandWorkspaceCreateID)
 	if !ok {
 		t.Fatal("workspace.create ausente")
@@ -86,7 +95,7 @@ func TestCommandWorkspaceCreateIsDurableAndNotLocalUI(t *testing.T) {
 
 func TestCommandWorkspaceCreatePaletteCommitAndSourceRevalidation(t *testing.T) {
 	t.Run("commit", func(t *testing.T) {
-		a := readyCommandProduct(t)
+		a := readyWorkspaceCreation(t)
 		before := commandWorkspaceInfoCount(t, a)
 		reservation := beginUICommand(t, a, commandWorkspaceCreateID)
 		handoff := takeUICommandFor(t, a, reservation.Ticket, commandWorkspaceCreateID)
@@ -99,7 +108,7 @@ func TestCommandWorkspaceCreatePaletteCommitAndSourceRevalidation(t *testing.T) 
 		}
 	})
 	t.Run("source stale após handoff", func(t *testing.T) {
-		a := readyCommandProduct(t)
+		a := readyWorkspaceCreation(t)
 		before := commandWorkspaceInfoCount(t, a)
 		reservation := beginUICommand(t, a, commandWorkspaceCreateID)
 		handoff := takeUICommandFor(t, a, reservation.Ticket, commandWorkspaceCreateID)
@@ -122,7 +131,7 @@ func TestCommandWorkspaceCreatePaletteCommitAndSourceRevalidation(t *testing.T) 
 }
 
 func TestCommandWorkspaceCreateKeyboardLocalCommit(t *testing.T) {
-	a := readyCommandProduct(t)
+	a := readyWorkspaceCreation(t)
 	shortcut := LocalCommandShortcut{Version: 1, Code: "KeyN", Modifiers: []string{"Control", "Shift"}}
 	view, err := a.GetLocalCommandKeyboardMap()
 	if err != nil {
@@ -150,7 +159,7 @@ func TestCommandWorkspaceCreateKeyboardLocalCommit(t *testing.T) {
 }
 
 func TestCommandWorkspaceCreateDeckGuardUsesDurablePath(t *testing.T) {
-	a := readyCommandProduct(t)
+	a := readyWorkspaceCreation(t)
 	definition, ok := a.commandProduct.Load().registry.Lookup(commandWorkspaceCreateID)
 	if !ok || !commandDeckUICommand(commandWorkspaceCreateID) || !commandDeckLedgerCommand(definition) {
 		t.Fatalf("workspace.create não está exposto como mutação Deck durable: ok=%v definition=%+v", ok, definition)
@@ -169,6 +178,7 @@ func TestCommandWorkspaceCreateDeckNativeCommitAuditsSource(t *testing.T) {
 	if _, err := a.SetCommandLayerActive(layer, true); err != nil {
 		t.Fatal(err)
 	}
+	installWorkspaceCreationDialog(t, a)
 	p := a.commandProduct.Load()
 	reservations := make(chan commandui.Reservation, 1)
 	a.emitter = commandOSBootstrapEmitter(func(name string, value any) {
@@ -221,7 +231,7 @@ func TestCommandWorkspaceCreateDeckNativeCommitAuditsSource(t *testing.T) {
 
 func TestCommandWorkspaceCreateCommitGuardsAndKeyboardRepeat(t *testing.T) {
 	t.Run("repeat recusado", func(t *testing.T) {
-		a := readyCommandProduct(t)
+		a := readyWorkspaceCreation(t)
 		view, err := a.GetLocalCommandKeyboardMap()
 		if err != nil {
 			t.Fatal(err)
@@ -233,7 +243,7 @@ func TestCommandWorkspaceCreateCommitGuardsAndKeyboardRepeat(t *testing.T) {
 	})
 
 	t.Run("forjado e cancelado", func(t *testing.T) {
-		a := readyCommandProduct(t)
+		a := readyWorkspaceCreation(t)
 		before := commandWorkspaceInfoCount(t, a)
 		reservation := beginUICommand(t, a, commandWorkspaceCreateID)
 		handoff := takeUICommandFor(t, a, reservation.Ticket, commandWorkspaceCreateID)
@@ -253,7 +263,7 @@ func TestCommandWorkspaceCreateCommitGuardsAndKeyboardRepeat(t *testing.T) {
 	})
 
 	t.Run("snapshot stale", func(t *testing.T) {
-		a := readyCommandProduct(t)
+		a := readyWorkspaceCreation(t)
 		before := commandWorkspaceInfoCount(t, a)
 		reservation := beginUICommand(t, a, commandWorkspaceCreateID)
 		handoff := takeUICommandFor(t, a, reservation.Ticket, commandWorkspaceCreateID)
@@ -273,7 +283,7 @@ func TestCommandWorkspaceCreateCommitGuardsAndKeyboardRepeat(t *testing.T) {
 	})
 
 	t.Run("replay", func(t *testing.T) {
-		a := readyCommandProduct(t)
+		a := readyWorkspaceCreation(t)
 		reservation := beginUICommand(t, a, commandWorkspaceCreateID)
 		handoff := takeUICommandFor(t, a, reservation.Ticket, commandWorkspaceCreateID)
 		if err := a.CommitWorkspaceTabCommand(reservation.Ticket, handoff.HandoffID); err != nil {
@@ -285,7 +295,7 @@ func TestCommandWorkspaceCreateCommitGuardsAndKeyboardRepeat(t *testing.T) {
 	})
 
 	t.Run("sessão revogada", func(t *testing.T) {
-		a := readyCommandProduct(t)
+		a := readyWorkspaceCreation(t)
 		before := commandWorkspaceInfoCount(t, a)
 		reservation := beginUICommand(t, a, commandWorkspaceCreateID)
 		handoff := takeUICommandFor(t, a, reservation.Ticket, commandWorkspaceCreateID)
@@ -300,4 +310,157 @@ func TestCommandWorkspaceCreateCommitGuardsAndKeyboardRepeat(t *testing.T) {
 			t.Fatalf("sessão revogada criou workspace: %d", got)
 		}
 	})
+}
+
+type workspaceCreationDialog struct {
+	noop.DialogAdapter
+	directory string
+}
+
+func (d workspaceCreationDialog) OpenDirectoryDialog() (string, error) { return d.directory, nil }
+func installWorkspaceCreationDialog(t *testing.T, a *App) {
+	t.Helper()
+	a.dialogPort = workspaceCreationDialog{directory: t.TempDir()}
+	a.questionnaireMgr = questionnaire.NewManager(func(event string, value any) {
+		if event != questionnaire.EventQuestionnaire {
+			return
+		}
+		payload := value.(map[string]any)
+		if err := a.questionnaireMgr.Respond(payload["id"].(string), map[string]any{"name": "Novo projeto"}, false); err != nil {
+			t.Error(err)
+		}
+	})
+}
+func readyWorkspaceCreation(t *testing.T) *App {
+	t.Helper()
+	a := readyCommandProduct(t)
+	installWorkspaceCreationDialog(t, a)
+	return a
+}
+
+func TestCommandWorkspaceCreationLifetimeCoversForm(t *testing.T) {
+	a := readyWorkspaceCreation(t)
+	_, handlers, err := a.commandProductCatalog()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if handlers[commandWorkspaceCreateID].ExecutionTimeout < 5*time.Minute {
+		t.Fatal("handler expires while the form is open")
+	}
+	if commandUIRunTimeout(commandWorkspaceCreateID) < 5*time.Minute || commandUIResultTTL(commandWorkspaceCreateID) <= commandUIRunTimeout(commandWorkspaceCreateID) {
+		t.Fatal("result expires before the form and execution")
+	}
+}
+
+func TestCommandWorkspaceCreateCancelledFormDoesNotWrite(t *testing.T) {
+	a := readyWorkspaceCreation(t)
+	before := commandWorkspaceInfoCount(t, a)
+	a.questionnaireMgr = questionnaire.NewManager(func(event string, value any) {
+		if event == questionnaire.EventQuestionnaire {
+			_ = a.questionnaireMgr.Respond(value.(map[string]any)["id"].(string), nil, true)
+		}
+	})
+	reservation := beginUICommand(t, a, commandWorkspaceCreateID)
+	handoff := takeUICommandFor(t, a, reservation.Ticket, commandWorkspaceCreateID)
+	if err := a.CommitWorkspaceTabCommand(reservation.Ticket, handoff.HandoffID); !errors.Is(err, commandui.ErrCancelled) {
+		t.Fatalf("cancel=%v", err)
+	}
+	if commandWorkspaceInfoCount(t, a) != before {
+		t.Fatal("cancelled form created workspace")
+	}
+}
+
+func TestCommandWorkspaceCreateRevalidatesAfterForm(t *testing.T) {
+	a := readyWorkspaceCreation(t)
+	before := commandWorkspaceInfoCount(t, a)
+	a.questionnaireMgr = questionnaire.NewManager(func(event string, value any) {
+		if event != questionnaire.EventQuestionnaire {
+			return
+		}
+		if err := a.workspaceMgr.AddTab(workspace.Tab{ID: "changed-during-form", Type: workspace.TabTypeEditor}); err != nil {
+			t.Error(err)
+		}
+		if err := a.workspaceMgr.SetActiveTab("changed-during-form"); err != nil {
+			t.Error(err)
+		}
+		_ = a.questionnaireMgr.Respond(value.(map[string]any)["id"].(string), map[string]any{"name": "Must not create"}, false)
+	})
+	reservation := beginUICommand(t, a, commandWorkspaceCreateID)
+	handoff := takeUICommandFor(t, a, reservation.Ticket, commandWorkspaceCreateID)
+	if err := a.CommitWorkspaceTabCommand(reservation.Ticket, handoff.HandoffID); err == nil {
+		t.Fatal("stale form committed")
+	}
+	if commandWorkspaceInfoCount(t, a) != before {
+		t.Fatal("stale form created workspace")
+	}
+}
+
+func TestCommandWorkspaceCreateEmitsRecoveryWithoutPersistentPath(t *testing.T) {
+	var indexDB *gorm.DB
+	a := readyCommandProduct(t, func(a *App) {
+		home := t.TempDir()
+		indexDB = workspacefixture.OpenIndex(t, home)
+		a.workspaceMgr = workspace.NewManager(home, func() *gorm.DB { return indexDB })
+		if err := a.workspaceMgr.Initialize(t.TempDir()); err != nil {
+			t.Fatal(err)
+		}
+		if err := a.workspaceMgr.AddTab(workspace.Tab{ID: "origin", Type: workspace.TabTypeEditor}); err != nil {
+			t.Fatal(err)
+		}
+	})
+	installWorkspaceCreationDialog(t, a)
+	directory := a.dialogPort.(workspaceCreationDialog).directory
+	var notice workspace.CreationRecoveryEvent
+	a.emitter = globalJobTestEmitter(func(event string, data any) {
+		if event == "workspace:creation-recovery" {
+			notice = data.(workspace.CreationRecoveryEvent)
+		}
+	})
+	db := indexDB
+	const callback = "test:creation-registration-failure"
+	if err := db.Callback().Update().Before("gorm:update").Register(callback, func(tx *gorm.DB) {
+		if tx.Statement.Table == "desktop_workspace_states" {
+			_ = tx.AddError(errors.New("index unavailable"))
+		}
+	}); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Callback().Update().Remove(callback) })
+	reservation := beginUICommand(t, a, commandWorkspaceCreateID)
+	handoff := takeUICommandFor(t, a, reservation.Ticket, commandWorkspaceCreateID)
+	if err := a.CommitWorkspaceTabCommand(reservation.Ticket, handoff.HandoffID); err == nil {
+		t.Fatal("registration succeeded unexpectedly")
+	}
+	principal := a.commandProduct.Load().principal
+	if notice.UserID != principal.UserID || notice.SessionID != principal.SessionID || notice.Path != filepath.Join(directory, ".assistente", "workspace.yaml") {
+		t.Fatalf("notice=%+v", notice)
+	}
+	if _, err := os.Stat(notice.Path); err != nil {
+		t.Fatal(err)
+	}
+	result := getUIResultEventually(t, a, reservation.Ticket)
+	raw, err := json.Marshal(result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	escaped, _ := json.Marshal(notice.Path)
+	if strings.Contains(string(raw), string(escaped[1:len(escaped)-1])) {
+		t.Fatalf("recovery path leaked into command result: %s", raw)
+	}
+}
+
+func TestWorkspaceImportContextRetainsAdmittedSession(t *testing.T) {
+	a := &App{ctx: context.Background(), currentUserID: "owner", currentAuthUser: &AuthUser{UserID: "owner", SessionID: "original"}}
+	ctx, err := (wailsSession{app: a}).AuthenticatedContext()
+	if err != nil {
+		t.Fatal(err)
+	}
+	a.authMu.Lock()
+	a.currentAuthUser = &AuthUser{UserID: "owner", SessionID: "new"}
+	a.authMu.Unlock()
+	userID, _ := database.UserIDFromContext(ctx)
+	sessionID, _ := userctx.SessionIDFromContext(ctx)
+	if userID != "owner" || sessionID != "original" {
+		t.Fatalf("owner=%s session=%s", userID, sessionID)
+	}
 }

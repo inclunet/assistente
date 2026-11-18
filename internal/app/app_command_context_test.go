@@ -166,7 +166,7 @@ func TestCommandWorkspaceProviderRejeitaWorkspaceDivergenteEFatoDesconhecido(t *
 		t.Fatalf("workspace correto rejeitado após mismatch: %v", err)
 	}
 
-	other, err := manager.Create("workspace alternativo")
+	other, err := workspacefixture.Create(t, manager, "workspace alternativo", t.TempDir())
 	if err != nil {
 		t.Fatalf("Create workspace alternativo: %v", err)
 	}
@@ -304,7 +304,7 @@ func TestNewCommandFactBusProfileRejeitaLogoutSessaoSubstituidaETrocaWorkspace(t
 	}
 
 	app.setCurrentAuthUser(&AuthUser{UserID: principal.UserID, SessionID: principal.SessionID})
-	other, err := manager.Create("workspace alternativo")
+	other, err := workspacefixture.Create(t, manager, "workspace alternativo", t.TempDir())
 	if err != nil {
 		t.Fatalf("Create workspace alternativo: %v", err)
 	}

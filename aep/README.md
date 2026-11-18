@@ -1,5 +1,10 @@
 AEP-0116 (15/11/2026): sincronização na toolbar e decisão acessível para conteúdo protegido; testes em `ChatTimelineRecovery.test.tsx`, validação real com NVDA pendente. Status **Done** mantido.
 
+AEP-0118: índice no banco, criação/importação em pasta explícita e gestão
+acessível da lista entregues nos PRs #1090/#1091; CI completo aprovado. **Done**.
+AEP-0103: F2/Delete da lista usam catálogo v46 e modal proprietário; **In Progress**.
+
+
 AEP-0116 (14/11/2026): cadeia recolhida ao fim do streaming sem interromper leitura ou foco; indicador decorativo oculto de leitores de tela. Testes em `ChatMessage.test.tsx`; validação real com NVDA pendente. Status **Done** mantido.
 
 AEP-0103 (09/11/2026): menus de opções e lista do workspace preservam foco na renomeação e na navegação posterior; retorno único e Escape cobertos por regressões (#1062). Status **In Progress**. Evidências em `docs/operations/intermittent-polling-focus-1062.md`.
@@ -1307,7 +1312,7 @@ de cancelamento de release na dependência; o AEP permanece **In Progress**.
 | [0115](0115-catalogo-publico-provedores-modelos.md) | Catálogo público de provedores e modelos | ✅ Done — fases 1 e 2 implementadas; fase 3 concluída com persistência explícita, formulário por perfis e fábrica backend allowlisted; onboarding desktop compartilha o formulário; CLI consolidada com autenticação e cadastro compartilhados; fase 4 concluída com resolução exata, vínculos privados por conexão e contratos de parâmetros compartilhados entre editor e envio (defaults, limites e opções); fase 5 de vozes concluída; Cohere e Ollama usam OpenAI-compatible; fase 6 concluída com manutenção editorial e validação antes da publicação |
 | [0116](0116-timeline-canonica-backend.md) | Timeline canônica de chat do backend à apresentação | Done — escopo implementado e critérios locais verificados; entrega sujeita aos gates do PR #1040 |
 | [0117](0117-autorizacoes-unificadas-em-banco.md) | Autorizações unificadas em banco para rede, shell, filesystem e ACP | Done |
-| [0118](0118-workspaces-em-pastas-e-indice-no-banco.md) | Workspaces em pastas e índice no banco | In Progress |
+| [0118](0118-workspaces-em-pastas-e-indice-no-banco.md) | Workspaces em pastas e índice no banco | Done |
 
 Correções paralelas posteriores à revisão da AEP-0103 estão registradas nas seções 10 e 11 da tasklist de conclusão: bridge, importação, restore, outbox, lifecycle e a primeira rodada real de produto. O executor desktop usa `newCommandDesktopExecutor` e `commandconfig.ProjectComplete`; autenticação é por sessão local sem JWT, a bridge é assíncrona com shutdown/join, e recovery é preflight somente leitura fail-closed sem reconciliação interprocesso. A limitação inicial de entrega somente de resumo/status foi resolvida na seção 14: `workspace.list` entrega resultado efêmero no picker compartilhado. A seção 15 liga a seleção da paleta à resolução de configuração persistida, supressão e recusa sem fallback, inclusive na bridge. A falha histórica de `internal/acpregistry` não reapareceu nas suítes completas das seções 12–14, mas sua causa não foi certificada. Providers/transporte de UI, origens físicas, recovery R04 e o aceite BASE-PRONTA permanecem pendentes.
 

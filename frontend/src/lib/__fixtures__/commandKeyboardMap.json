@@ -907,6 +907,17 @@
             ]
           },
           "bySurface": {
+            "allowlists": {
+              "shortcut": {
+                "version": 1,
+                "code": "KeyN",
+                "modifiers": [
+                  "Control"
+                ]
+              },
+              "commandId": "allowlists.create.open",
+              "handler": "local_ui"
+            },
             "providers": {
               "shortcut": {
                 "version": 1,
@@ -927,17 +938,6 @@
                 ]
               },
               "commandId": "command_settings.create.open",
-              "handler": "local_ui"
-            },
-            "allowlists": {
-              "shortcut": {
-                "version": 1,
-                "code": "KeyN",
-                "modifiers": [
-                  "Control"
-                ]
-              },
-              "commandId": "allowlists.create.open",
               "handler": "local_ui"
             }
           },
@@ -1010,6 +1010,46 @@
         }
       },
       "fallback": null
+    },
+    {
+      "fallbackToSequences": true,
+      "shortcut": {
+        "version": 1,
+        "code": "Delete",
+        "modifiers": []
+      },
+      "bySurface": {
+        "workspaces": {
+          "shortcut": {
+            "version": 1,
+            "code": "Delete",
+            "modifiers": []
+          },
+          "commandId": "workspaces.delete.open",
+          "handler": "local_ui"
+        }
+      },
+      "fallback": null
+    },
+    {
+      "fallbackToSequences": true,
+      "shortcut": {
+        "version": 1,
+        "code": "F2",
+        "modifiers": []
+      },
+      "bySurface": {
+        "workspaces": {
+          "shortcut": {
+            "version": 1,
+            "code": "F2",
+            "modifiers": []
+          },
+          "commandId": "workspaces.rename.open",
+          "handler": "local_ui"
+        }
+      },
+      "fallback": null
     }
   ],
   "localPaletteCommands": [
@@ -1079,6 +1119,8 @@
     "workspace.tab.second",
     "workspace.tab.seventh",
     "workspace.tab.sixth",
-    "workspace.tab.third"
+    "workspace.tab.third",
+    "workspaces.delete.open",
+    "workspaces.rename.open"
   ]
 }

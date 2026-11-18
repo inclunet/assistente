@@ -117,6 +117,7 @@ notSaved: 'La decisión vale solo para esta operación: no se pudo recordar. Ser
   }
 },
     common: {
+      open: 'Abrir',
       loading: 'Cargando...',
       error: 'Error',
       success: 'Éxito',
@@ -4248,6 +4249,14 @@ notSaved: 'La decisión vale solo para esta operación: no se pudo recordar. Ser
       pageContent: 'Contenido de la página',
     },
     workspace: {
+      creationRecovery: 'El espacio de trabajo se guardó en {{path}}, pero no se pudo registrar en la lista. Abra de nuevo la carpeta seleccionada para recuperarlo.',
+      activeStatus: 'Abierto',
+      inactiveStatus: 'No está en uso',
+      remove: 'Eliminar espacio de trabajo',
+      removed: 'Espacio eliminado',
+      removeConfirmation: '¿Eliminar el espacio “{{name}}”? Solo se eliminará su archivo de espacio de trabajo. Se conservarán las conversaciones y los demás archivos de la carpeta.',
+      directory: 'Carpeta del espacio de trabajo',
+      createInDirectory: 'Crear espacio de trabajo',
       noTabs: 'Ninguna pestaña abierta',
       toolbarLabel: 'Workspace',
       switchWorkspace: 'Cambiar workspace',

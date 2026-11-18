@@ -122,7 +122,7 @@ func TestCommandMermaidScopeClosedAndNormalSavePreserved(t *testing.T) {
 	if _, err := a.BeginEditorMermaidUIKey(view.Generation, key, false); err == nil {
 		t.Fatal("old generation admitted")
 	}
-	if !containsString(view.LocalPaletteCommands, "editor.mermaid.open") || len(view.LocalPaletteCommands) != 67 {
+	if !containsString(view.LocalPaletteCommands, "editor.mermaid.open") || len(view.LocalPaletteCommands) != 69 {
 		t.Fatal("local presentation missing")
 	}
 	if _, err := a.BeginUICommand("editor.mermaid.open"); err == nil {

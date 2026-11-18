@@ -1,3 +1,4 @@
+import { useWorkspaceCreationRecovery } from './hooks/useWorkspaceCreationRecovery';
 import { ChatTimelineRecoveryHost } from './components/chat/ChatTimelineRecovery';
 import { logger } from './utils/logger';
 import { useEffect, useRef, useState } from 'react';
@@ -54,6 +55,7 @@ function useAntdLocale(lang: string): Locale | undefined {
 }
 
 function App() {
+    useWorkspaceCreationRecovery();
     useEffect(() => {
         const ownership = acquireGlobalCommandOwnership({
             subscribe: (listener) => EventsOn('command:global-ownership', listener),
