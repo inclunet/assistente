@@ -12,7 +12,13 @@ import { useQuestionnaireUIStore } from '../../store/questionnaireUIStore';
 import { useAnnouncer } from '../../hooks/useAnnouncer';
 import { usePagePresentationCommands, WORKSPACE_LIST_COMMAND_IDS } from '../../lib/commandPagePresentation';
 
-interface Props { rootRef?: RefObject<HTMLDivElement>; onClose(): void; onActivate(id: string): void }
+interface Props {
+  rootRef?: RefObject<HTMLDivElement>;
+  onClose(): void;
+  onActivate(id: string): void;
+}
+
+type Operation = 'idle' | 'renaming' | 'removing';
 
 // Mounted only while open: closing the list also revokes its command surface.
 export function WorkspaceListDialog({ onClose, onActivate, rootRef }: Props) {
@@ -25,137 +31,215 @@ export function WorkspaceListDialog({ onClose, onActivate, rootRef }: Props) {
   const ownRoot = useRef<HTMLDivElement>(null);
   const root = rootRef ?? ownRoot;
   const focusGrid = useRef<GridFocusRequest>();
-  const mounted = useRef(true);
-  const busy = useRef(false);
-  const questionnaireId = useRef<string | null>(null);
-  const [pending, setPending] = useState(false);
-  const [selected, setSelected] = useState<string | null>(null);
-  const [removeId, setRemoveId] = useState<string | null>(null);
-  const selectedWorkspace = workspaces.find(ws => ws.id === selected);
-  const removedWorkspace = workspaces.find(ws => ws.id === removeId);
+  const mountedRef = useRef(true);
+  // The ref blocks repeated commands before React commits the disabled UI.
+  const operationRef = useRef<Operation>('idle');
+  const questionnaireIdRef = useRef<string | null>(null);
+  const [operation, setOperation] = useState<Operation>('idle');
+  const pending = operation !== 'idle';
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [removalTargetId, setRemovalTargetId] = useState<string | null>(null);
+  const selectedWorkspace = workspaces.find(ws => ws.id === selectedId);
+  const removalTarget = workspaces.find(ws => ws.id === removalTargetId);
   const user = useAuthStore(s => s.user);
-  const owner = useRef(user);
+  const ownerRef = useRef(user);
   const [error, setError] = useState('');
   const [search, setSearch] = useState('');
   const visibleWorkspaces = workspaces.filter(ws => `${ws.name} ${ws.path}`.toLocaleLowerCase().includes(search.toLocaleLowerCase()));
-  useEffect(() => { mounted.current = true; return () => {
-    mounted.current = false;
-    if (questionnaireId.current) useQuestionnaireUIStore.getState().cancelById(questionnaireId.current);
-  }; }, []);
   useEffect(() => {
-    if (user?.userId !== owner.current?.userId || user?.sessionId !== owner.current?.sessionId) onClose();
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      if (questionnaireIdRef.current) {
+        useQuestionnaireUIStore.getState().cancelById(questionnaireIdRef.current);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    if (user?.userId !== ownerRef.current?.userId || user?.sessionId !== ownerRef.current?.sessionId) {
+      onClose();
+    }
   }, [user, onClose]);
-  const current = () => {
+
+  const isSessionCurrent = () => {
     const auth = useAuthStore.getState();
-    return mounted.current && auth.isAuthenticated && auth.user?.userId === owner.current?.userId &&
-      auth.user?.sessionId === owner.current?.sessionId;
+    return mountedRef.current && auth.isAuthenticated && auth.user?.userId === ownerRef.current?.userId &&
+      auth.user?.sessionId === ownerRef.current?.sessionId;
   };
   const ownsTopmostModal = () => {
     const top = getModalRegistrySnapshot().topID;
     return Boolean(top && root.current?.closest('[data-modal-id]')?.getAttribute('data-modal-id') === top);
   };
-  const restore = (id?: string) => {
-    busy.current = false;
-    if (!mounted.current) return;
-    setPending(false);
-    requestAnimationFrame(() => { if (current() && ownsTopmostModal()) focusGrid.current?.({ itemId: id }); });
+  const reportOperationError = () => {
+    if (!isSessionCurrent()) return;
+    const message = t('commandPalette.executionFailed');
+    setError(message);
+    announce(message);
   };
-  const rename = async (id: string, name: string) => {
-    busy.current = true;
-    setPending(true);
+
+  const beginOperation = (nextOperation: Exclude<Operation, 'idle'>) => {
+    if (operationRef.current !== 'idle') return false;
+    operationRef.current = nextOperation;
+    setOperation(nextOperation);
     setError('');
+    return true;
+  };
+
+  const finishOperation = (id?: string) => {
+    operationRef.current = 'idle';
+    if (!mountedRef.current) return;
+    setOperation('idle');
+    requestAnimationFrame(() => {
+      if (isSessionCurrent() && ownsTopmostModal()) focusGrid.current?.({ itemId: id });
+    });
+  };
+  const renameWorkspace = async (id: string, name: string) => {
+    if (!beginOperation('renaming')) return;
     try {
-      questionnaireId.current = `workspace-rename-${crypto.randomUUID()}`;
+      questionnaireIdRef.current = `workspace-rename-${crypto.randomUUID()}`;
       const response = await useQuestionnaireUIStore.getState().request({
-        id: questionnaireId.current, title: t('workspace.renamePlaceholder'), allowCancel: true,
-        submitLabel: t('common.save'), cancelLabel: t('common.cancel'),
+        id: questionnaireIdRef.current,
+        title: t('workspace.renamePlaceholder'),
+        allowCancel: true,
+        submitLabel: t('common.save'),
+        cancelLabel: t('common.cancel'),
         questions: [{ id: 'name', type: 'text', prompt: t('workspace.renamePlaceholder'), required: true, default: name }],
       });
-      if (response.cancelled || !current()) return;
+      if (response.cancelled || !isSessionCurrent()) return;
       const value = response.answers.name;
       if (typeof value !== 'string' || !value.trim()) return;
       await useWorkspaceStore.getState().renameWorkspace(id, value.trim());
       await useWorkspaceStore.getState().refreshWorkspaceList();
     } catch {
-      if (current()) {
-        const message = t('commandPalette.executionFailed');
-        setError(message);
-        announce(message);
-      }
-    } finally { questionnaireId.current = null; restore(id); }
+      reportOperationError();
+    } finally {
+      questionnaireIdRef.current = null;
+      finishOperation(id);
+    }
   };
   const { request } = usePagePresentationCommands({
-    root, pathname, workspaceManager: true, allowedCommands: WORKSPACE_LIST_COMMAND_IDS,
-    readTarget: () => selected,
-    isCurrent: current,
-    canOpen: id => !busy.current && !removeId && Boolean(selectedWorkspace) &&
+    root,
+    pathname,
+    workspaceManager: true,
+    allowedCommands: WORKSPACE_LIST_COMMAND_IDS,
+    readTarget: () => selectedId,
+    isCurrent: isSessionCurrent,
+    canOpen: id => operationRef.current === 'idle' && !removalTargetId && Boolean(selectedWorkspace) &&
       (id === 'workspaces.rename.open' || !selectedWorkspace?.is_active),
     open: id => {
-      if (!selectedWorkspace || busy.current || removeId) return false;
-      if (id === 'workspaces.rename.open') void rename(selectedWorkspace.id, selectedWorkspace.name);
-      else if (!selectedWorkspace.is_active) setRemoveId(selectedWorkspace.id);
-      else return false;
+      if (!selectedWorkspace || operationRef.current !== 'idle' || removalTargetId) return false;
+      if (id === 'workspaces.rename.open') {
+        void renameWorkspace(selectedWorkspace.id, selectedWorkspace.name);
+      } else if (!selectedWorkspace.is_active) {
+        setRemovalTargetId(selectedWorkspace.id);
+      } else {
+        return false;
+      }
       return true;
     },
   });
-  const remove = async () => {
-    if (!removeId || busy.current || !current() || useWorkspaceStore.getState().workspace?.id === removeId) return;
-    busy.current = true;
-    setPending(true);
-    setError('');
+  const removeWorkspace = async () => {
+    if (!removalTargetId || !isSessionCurrent() ||
+      useWorkspaceStore.getState().workspace?.id === removalTargetId) return;
+    if (!beginOperation('removing')) return;
     try {
-      await useWorkspaceStore.getState().deleteWorkspace(removeId);
+      await useWorkspaceStore.getState().deleteWorkspace(removalTargetId);
     } catch {
-      if (current()) {
-        const message = t('commandPalette.executionFailed');
-        setError(message);
-        announce(message);
-      }
+      reportOperationError();
     } finally {
-      setRemoveId(null);
-      restore();
+      setRemovalTargetId(null);
+      finishOperation();
     }
   };
   useEffect(() => {
     void useWorkspaceStore.getState().refreshWorkspaceList().then(ok => {
-      if (!ok && current()) { const message = t('commandPalette.executionFailed'); setError(message); announce(message); }
+      if (!ok) reportOperationError();
     });
   // Refresh once for this dialog lifetime; session checks guard late results.
   }, []);
-  const activate = (id: string) => {
-    if (busy.current || !current()) return;
+  const activateWorkspace = (id: string) => {
+    if (operationRef.current !== 'idle' || !isSessionCurrent()) return;
     const modal = root.current?.closest('[data-modal-id]');
     if (modal?.getAttribute('data-modal-id') !== getModalRegistrySnapshot().topID) return;
     if (useWorkspaceStore.getState().workspaces.some(ws => ws.id === id)) onActivate(id);
   };
-  return <>
-    <Modal isOpen onClose={onClose} title={t('workspace.workspaceList')} allowClose={!pending}
-      initialFocusSelector={visibleWorkspaces.length ? DATAGRID_ENTRY_SELECTOR : 'input'} returnFocusOnClose={false}>
-      <div ref={root}>
-        <Toolbar ariaLabel={t('workspace.workspaceList')} searchValue={search} onSearchChange={setSearch} searchPlaceholder={t('workspace.searchWorkspaces')}
-          onFocusContent={() => focusGrid.current?.({})} left={<>
-          <ToolbarButton label={t('common.open')} onClick={() => { if (selected) activate(selected); }} disabled={!selectedWorkspace || pending} />
-          <ToolbarButton label={t('workspace.renamePlaceholder')} onClick={() => request('workspaces.rename.open')} disabled={!selectedWorkspace || pending} />
-          <ToolbarButton label={t('workspace.remove')} onClick={() => request('workspaces.delete.open')} disabled={!selectedWorkspace || selectedWorkspace.is_active || pending} />
-        </>} />
-        {error && <p>{error}</p>}
-        <DataGrid items={visibleWorkspaces} getItemId={ws => ws.id} label={t('workspace.workspaceList')}
-          onEmptyFocus={() => {
-            if (!ownsTopmostModal()) return false;
-            const searchInput = root.current?.querySelector<HTMLInputElement>('input');
-            searchInput?.focus();
-            return Boolean(searchInput && document.activeElement === searchInput);
-          }}
-          commandManagedActions onGridReady={focus => { focusGrid.current = focus; }}
-          onFocusChange={ws => setSelected(ws?.id ?? null)}
-          columns={[{ key: 'name', label: t('workspace.renamePlaceholder') }, { key: 'path', label: t('workspace.directory') },
-            { key: 'is_active', label: t('common.status'), format: value => t(value ? 'workspace.activeStatus' : 'workspace.inactiveStatus') }]}
-          onActivate={ws => activate(ws.id)} />
-      </div>
-    </Modal>
-    <ConfirmDialog isOpen={Boolean(removeId)} title={t('workspace.remove')}
-      message={t('workspace.removeConfirmation', { name: removedWorkspace?.name ?? '' })}
-      onConfirm={() => { void remove(); }} onCancel={() => { if (!busy.current) { setRemoveId(null); restore(selected ?? undefined); } }}
-      returnFocusOnClose={false} />
-  </>;
+  return (
+    <>
+      <Modal
+        isOpen
+        onClose={onClose}
+        title={t('workspace.workspaceList')}
+        allowClose={!pending}
+        initialFocusSelector={visibleWorkspaces.length ? DATAGRID_ENTRY_SELECTOR : 'input'}
+        returnFocusOnClose={false}
+      >
+        <div ref={root}>
+          <Toolbar
+            ariaLabel={t('workspace.workspaceList')}
+            searchValue={search}
+            onSearchChange={setSearch}
+            searchPlaceholder={t('workspace.searchWorkspaces')}
+            onFocusContent={() => focusGrid.current?.({})}
+            left={
+              <>
+                <ToolbarButton
+                  label={t('common.open')}
+                  onClick={() => { if (selectedId) activateWorkspace(selectedId); }}
+                  disabled={!selectedWorkspace || pending}
+                />
+                <ToolbarButton
+                  label={t('workspace.renamePlaceholder')}
+                  onClick={() => request('workspaces.rename.open')}
+                  disabled={!selectedWorkspace || pending}
+                />
+                <ToolbarButton
+                  label={t('workspace.remove')}
+                  onClick={() => request('workspaces.delete.open')}
+                  disabled={!selectedWorkspace || selectedWorkspace.is_active || pending}
+                />
+              </>
+            }
+          />
+          {error && <p>{error}</p>}
+          <DataGrid
+            items={visibleWorkspaces}
+            getItemId={ws => ws.id}
+            label={t('workspace.workspaceList')}
+            onEmptyFocus={() => {
+              if (!ownsTopmostModal()) return false;
+              const searchInput = root.current?.querySelector<HTMLInputElement>('input');
+              searchInput?.focus();
+              return Boolean(searchInput && document.activeElement === searchInput);
+            }}
+            commandManagedActions
+            onGridReady={focus => { focusGrid.current = focus; }}
+            onFocusChange={ws => setSelectedId(ws?.id ?? null)}
+            columns={[
+              { key: 'name', label: t('workspace.renamePlaceholder') },
+              { key: 'path', label: t('workspace.directory') },
+              {
+                key: 'is_active',
+                label: t('common.status'),
+                format: value => t(value ? 'workspace.activeStatus' : 'workspace.inactiveStatus'),
+              },
+            ]}
+            onActivate={ws => activateWorkspace(ws.id)}
+          />
+        </div>
+      </Modal>
+      <ConfirmDialog
+        isOpen={Boolean(removalTargetId)}
+        title={t('workspace.remove')}
+        message={t('workspace.removeConfirmation', { name: removalTarget?.name ?? '' })}
+        onConfirm={() => { void removeWorkspace(); }}
+        onCancel={() => {
+          if (operationRef.current !== 'idle') return;
+          setRemovalTargetId(null);
+          finishOperation(selectedId ?? undefined);
+        }}
+        returnFocusOnClose={false}
+      />
+    </>
+  );
 }

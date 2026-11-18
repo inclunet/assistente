@@ -1,3 +1,4 @@
+import { useWorkspaceList } from '../workspace/useWorkspaceList';
 import { WorkspaceListDialog } from '../workspace/WorkspaceListDialog';
 import { isProviderSettingsPath } from '../../lib/commandAppPage';
 import { logger } from '../../utils/logger';
@@ -21,14 +22,12 @@ import { useShortcutsHelpStore } from '../../store/shortcutsHelpStore';
 import { useAuthStore } from '../../store/authStore';
 import { useUIStore } from '../../store/uiStore';
 import { isModalOpen } from '../ui/Modal';
-import { useShallow } from 'zustand/shallow';
 import { MenuButton, type MenuItem as MenuButtonItem, type MenuButtonRef } from './MenuButton';
 import type { MenuItem } from '../menu';
 import { Combobox, type ComboboxDismissReason, type ComboboxItem } from '../pickers/Combobox';
 import { KeyboardShortcutsHelp } from '../ui/KeyboardShortcutsHelp';
 import { useToolbarKeyboardNav } from '../../hooks/useToolbarKeyboardNav';
 import { useAnnouncer } from '../../hooks/useAnnouncer';
-import { scheduleDefaultFocusRestore } from '../../lib/deferredDefaultFocus';
 import { captureWorkspaceTabCreateFocus } from '../../lib/commandWorkspaceTabCreateFocus';
 import { describeCommandCatalogItem, listCommandCatalog } from '../../services/commandCatalog';
 import { CommandArgumentsDialog } from '../commands/CommandArgumentsDialog';
@@ -237,9 +236,7 @@ export function Topbar() {
   const creationPresentationRef = useRef({ locale: i18n.language, t, announce });
   creationPresentationRef.current = { locale: i18n.language, t, announce };
   const addToast = useUIStore((s) => s.addToast);
-  const { workspace, switchWorkspace } = useWorkspaceStore(
-    useShallow((s) => ({ workspace: s.workspace, switchWorkspace: s.switchWorkspace }))
-  );
+  const workspace = useWorkspaceStore(s => s.workspace);
   const shortcutsHelpOpen = useShortcutsHelpStore((s) => s.isOpen);
   const shortcutSurface = pathname === '/' ? workspace?.tabs.find(tab => tab.id === workspace.activeTabId)?.type
     : isProviderSettingsPath(pathname) ? 'providers' : pathname === '/tasklists' ? 'tasklists' : pathname === '/profiles' ? 'profiles' : pathname === '/history' ? 'history' : 'toolbar';
@@ -284,7 +281,6 @@ export function Topbar() {
   const executePendingCommandRef = useRef<(() => void) | null>(null);
   const activeCommandIntentRef = useRef<PendingCommandIntent | null>(null);
   const workspacePickerIntentRef = useRef<PendingCommandIntent | null>(null);
-  const openWorkspacePickerRef = useRef<((trigger: HTMLElement) => void) | null>(null);
   const commandContextualExecutionRef = useRef<CommandUIExecution | null>(null);
   const commandCancellationGenerationRef = useRef(0);
   const commandBackendExecutionRef = useRef<CommandBackendExecution | null>(null);
@@ -494,8 +490,6 @@ export function Topbar() {
     });
   }, [palettePreferencesKey]);
   commandPaletteOpenRef.current = commandPaletteOpen;
-  const workspacePickerTriggerRef = useRef<HTMLElement | null>(null);
-  const workspacePickerRootRef = useRef<HTMLDivElement>(null);
   const commandNavigationHandlers = useMemo(() => {
     const handlers = new Map(createCommandNavigationHandlers(navigate));
     handlers.set('navigation.menu.open', () => {
@@ -1544,39 +1538,30 @@ export function Topbar() {
       commandRouteIdentityRef.current === intent.routeIdentity && (!isModalOpen() || ownsTopmostPicker);
   }, []);
 
-  const pendingWorkspaceSwitchRef = useRef<{ ready: Promise<void>; isCurrent: () => boolean } | null>(null);
-  /** Keep selection completion separate from command intents, which expire on workspace changes. */
-  const selectWorkspace = useCallback((workspaceId: string, active: boolean) => {
-    pendingWorkspaceSwitchRef.current = null;
-    if (active) return;
-    const user = useAuthStore.getState().user;
-    const route = commandRouteIdentityRef.current;
-    const originWorkspaceId = useWorkspaceStore.getState().workspace?.id;
-    let focusWorkspaceId: string | undefined = workspaceId;
-    const selection = {
-      ready: switchWorkspace(workspaceId).catch(error => {
-        focusWorkspaceId = originWorkspaceId;
-        logger.error('[Workspace] Falha ao trocar workspace', error);
-      }),
-      isCurrent: (): boolean => {
-        const auth = useAuthStore.getState();
-        return pendingWorkspaceSwitchRef.current === selection && commandPickerMountedRef.current &&
-          auth.isAuthenticated && auth.user?.userId === user?.userId && auth.user?.sessionId === user?.sessionId &&
-          commandRouteIdentityRef.current === route && Boolean(focusWorkspaceId) &&
-          useWorkspaceStore.getState().workspace?.id === focusWorkspaceId;
-      },
-    };
-    pendingWorkspaceSwitchRef.current = selection;
-  }, [switchWorkspace]);
+  const {
+    isOpen: workspaceListOpen,
+    rootRef: workspacePickerRootRef,
+    open: openWorkspacePicker,
+    close: closePicker,
+    activate: activateWorkspace,
+  } = useWorkspaceList({
+    readRouteIdentity: () => commandRouteIdentityRef.current,
+    isOriginCurrent: origin => intentIsCurrent(origin, true),
+    canActivate: () => {
+      const intent = workspacePickerIntentRef.current;
+      return !intent || intentIsCurrent(intent, true);
+    },
+    onDismiss: () => { workspacePickerIntentRef.current = null; },
+  });
 
   const presentWorkspaceList = useCallback((intent: PendingCommandIntent): undefined => {
     if (activeCommandIntentRef.current !== intent || !intentIsCurrent(intent)) return undefined;
     const trigger = commandPickerButtonRef.current;
     if (!trigger) return undefined;
     workspacePickerIntentRef.current = intent;
-    openWorkspacePickerRef.current?.(trigger);
+    openWorkspacePicker(trigger);
     return undefined;
-  }, [intentIsCurrent]);
+  }, [intentIsCurrent, openWorkspacePicker]);
   const presentWorkspaceListRef = useRef(presentWorkspaceList);
   presentWorkspaceListRef.current = presentWorkspaceList;
 
@@ -3351,52 +3336,6 @@ export function Topbar() {
   const pageTitle = isWorkspaceRoute
     ? (workspace?.name || t('menu.appTitle'))
     : t(PAGE_TITLE_KEYS[resolvedPath] || 'menu.appTitle');
-
-  const [workspaceListOrigin, setWorkspaceListOrigin] = useState<PendingCommandIntent | null>(null);
-  const workspaceListLease = useRef<PendingCommandIntent | null>(null);
-  const workspaceListOpen = workspaceListOrigin !== null;
-  const pendingPickerClose = useRef<(() => void) | null>(null);
-  useEffect(() => {
-    if (workspaceListOpen) return;
-    const complete = pendingPickerClose.current;
-    pendingPickerClose.current = null;
-    complete?.();
-  }, [workspaceListOpen]);
-  const closePicker = useCallback(() => {
-    workspacePickerIntentRef.current = null;
-    workspaceListLease.current = null;
-    setWorkspaceListOrigin(null);
-    const trigger = workspacePickerTriggerRef.current;
-    workspacePickerTriggerRef.current = null;
-    pendingPickerClose.current = () => { if (!isModalOpen() && trigger?.isConnected) trigger.focus(); };
-  }, []);
-  const openWorkspacePicker = useCallback((trigger: HTMLElement) => {
-    pendingPickerClose.current = null;
-    pendingWorkspaceSwitchRef.current = null;
-    workspacePickerTriggerRef.current = trigger;
-    const auth = useAuthStore.getState();
-    const active = useWorkspaceStore.getState().workspace;
-    if (!auth.isAuthenticated || !auth.user || !active) return;
-    const origin: PendingCommandIntent = { commandID: 'workspace.list', userId: auth.user.userId,
-      sessionId: auth.user.sessionId, workspaceId: active.id, activeTabId: active.activeTabId,
-      routeIdentity: commandRouteIdentityRef.current };
-    workspaceListLease.current = origin;
-    setWorkspaceListOrigin(origin);
-  }, []);
-  openWorkspacePickerRef.current = openWorkspacePicker;
-  const activateWorkspace = useCallback((id: string) => {
-    if (!workspaceListOrigin || workspaceListLease.current !== workspaceListOrigin || !intentIsCurrent(workspaceListOrigin, true)) return;
-    const intent = workspacePickerIntentRef.current;
-    if (intent && !intentIsCurrent(intent, true)) return;
-    const state = useWorkspaceStore.getState();
-    if (!state.workspaces.some(ws => ws.id === id)) return;
-    workspacePickerIntentRef.current = null;
-    selectWorkspace(id, state.workspace?.id === id);
-    workspaceListLease.current = null;
-    setWorkspaceListOrigin(null);
-    const selection = pendingWorkspaceSwitchRef.current;
-    pendingPickerClose.current = () => scheduleDefaultFocusRestore({ after: selection?.ready, isCurrent: selection?.isCurrent });
-  }, [intentIsCurrent, selectWorkspace, workspaceListOrigin]);
 
   const handleCommandPaletteSelect = useCallback((value: string) => {
     const item = commandPaletteMenuItemsRef.current.find((candidate) => candidate.id === value);
