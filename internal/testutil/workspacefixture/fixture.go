@@ -36,5 +36,6 @@ func OpenIndex(t testing.TB, home string) *gorm.DB {
 
 func New(t testing.TB, home string) *workspace.Manager {
 	t.Helper()
-	return workspace.NewManager(home, OpenIndex(t, home))
+	db := OpenIndex(t, home)
+	return workspace.NewManager(home, func() *gorm.DB { return db })
 }

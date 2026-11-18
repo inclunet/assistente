@@ -92,6 +92,7 @@ func TestLoadWorkspaceFile_RemapsLegacyChatContentID(t *testing.T) {
 
 	// Create workspace with a legacy chat tab referencing content_id="42"
 	ws := Workspace{
+		ID: "legacy-workspace", Name: "Legacy workspace",
 		Tabs: TabsState{
 			Items: []Tab{{
 				ID:        "tab-1",
@@ -129,6 +130,7 @@ func TestLoadWorkspaceFile_ClearsInvalidTasklistIDWithoutRemap(t *testing.T) {
 
 	// NO remap file — simulate case where remap was already consumed or never existed.
 	ws := Workspace{
+		ID: "legacy-workspace", Name: "Legacy workspace",
 		Tabs: TabsState{
 			Items: []Tab{{
 				ID:        "tab-tl",
@@ -171,6 +173,7 @@ func TestLoadWorkspaceFile_RemapsTasklistStateID(t *testing.T) {
 	})
 
 	ws := Workspace{
+		ID: "legacy-workspace", Name: "Legacy workspace",
 		Tabs: TabsState{
 			Items: []Tab{{
 				ID:    "tab-tl",
@@ -204,6 +207,7 @@ func TestLoadWorkspaceFile_ClearsInvalidTasklistStateWithoutRemap(t *testing.T) 
 
 	// No remap file
 	ws := Workspace{
+		ID: "legacy-workspace", Name: "Legacy workspace",
 		Tabs: TabsState{
 			Items: []Tab{{
 				ID:    "tab-tl",
@@ -243,6 +247,7 @@ func TestLoadWorkspaceFile_PreservesRemapAfterSave(t *testing.T) {
 	})
 
 	ws := Workspace{
+		ID: "legacy-workspace", Name: "Legacy workspace",
 		Tabs: TabsState{
 			Items: []Tab{{
 				ID:        "tab-1",
@@ -280,6 +285,7 @@ func TestLoadWorkspaceFile_SanitizesLegacyConversationID(t *testing.T) {
 
 	// Tab already has conversation_id set to a legacy numeric string
 	ws := Workspace{
+		ID: "legacy-workspace", Name: "Legacy workspace",
 		Tabs: TabsState{
 			Items: []Tab{{
 				ID:             "tab-1",
@@ -312,6 +318,7 @@ func TestLoadWorkspaceFile_ClearsLegacyConversationIDWithoutRemap(t *testing.T) 
 
 	// No remap file
 	ws := Workspace{
+		ID: "legacy-workspace", Name: "Legacy workspace",
 		Tabs: TabsState{
 			Items: []Tab{{
 				ID:             "tab-1",
@@ -368,6 +375,7 @@ func TestLoadIDRemap_HighestPriorityWins(t *testing.T) {
 	withChdirAndConfigReset(t, tmpWork)
 
 	ws := Workspace{
+		ID: "legacy-workspace", Name: "Legacy workspace",
 		Tabs: TabsState{
 			Items: []Tab{{
 				ID:        "tab-1",
@@ -495,6 +503,7 @@ func TestLoadWorkspaceFile_ReturnsErrMigrationSaveFailedOnSaveError(t *testing.T
 	})
 
 	ws := Workspace{
+		ID: "legacy-workspace", Name: "Legacy workspace",
 		Tabs: TabsState{
 			Items: []Tab{{
 				ID:        "tab-1",

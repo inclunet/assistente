@@ -27,6 +27,8 @@ O índice YAML também tem gravações independentes que podem falhar parcialmen
 - Importação de workspace também exige destino explícito.
 - O banco mantém referências e último acesso; o YAML da pasta permanece a fonte
   de verdade para nome, abas e estado. Não mudar a seleção ou localização do banco.
+- A conexão do índice acompanha a conexão vigente do aplicativo, inclusive após
+  reset do banco; isso não altera a escolha do banco.
 - O índice é estado do cliente desktop, conforme AEP-0052; ele precisa estar
   disponível antes do login. Seu escopo combina a identidade local `desktop-client-id` e o diretório de configuração
   local, sem atribuir autoridade sobre conversas ou dados de outra conta.
@@ -36,8 +38,9 @@ O índice YAML também tem gravações independentes que podem falhar parcialmen
   `workspaces` exige que esteja vazia; arquivos desconhecidos são preservados.
   Workspaces avulsos existentes permanecem onde estão, conforme decisão do
   mantenedor. Não transferir nem apagar suas pastas automaticamente.
-- Ao detectar documento removido, remover sua referência do banco. Acesso
-  negado, falha de volume e documento inválido não comprovam exclusão.
+- Ausência do documento, inclusive em uma pasta acessível, não comprova exclusão:
+  o volume pode estar desmontado. Preservar a referência e permitir remoção
+  explícita pela lista, com confirmação; não introduzir sentinelas ou seleção de banco.
 - Na lista, Delete pede confirmação para remover workspace não ativo; F2
   permite renomear. Integrar ao catálogo/resolvedor e preservar foco da lista.
 - Falhas de leitura/gravação devem ser propagadas. Não apresentar sucesso nem
@@ -62,6 +65,18 @@ preservação de documento inválido, identificação da origem importada e
 publicação atômica da identidade; rodada final sem pendências. ACP não foi
 executado localmente. Interface de criação por pasta, Delete e F2 permanecem
 pendentes para o PR empilhado; status geral continua In Progress.
+
+Revisão remota: publicação atômica sem substituição nos três sistemas,
+proteção da identidade antes de migrar, de-duplicação de referências da mesma
+pasta, conexão vigente após reabertura do banco e rollback de renomeação
+cobertos por `internal/workspace/index_recovery_test.go`. No Windows,
+`publish_document_windows_test.go` verifica caminho maior que 300 caracteres.
+Ausência de arquivo não remove referência automaticamente: não distingue um
+volume desmontado de uma exclusão. A remoção explícita continua disponível.
+Segunda revisão local: três rodadas do mesmo revisor independente (hardlinks,
+caminhos longos, rodada final limpa). Suíte workspace e startup App passaram;
+build, vet e lint do recorte sem pendências. ACP permanece exclusivo do CI.
+
 
 - Banco e filesystem não compartilham uma transação: migração e criação exigem
   publicação recuperável, sem excluir a única cópia depois de falha parcial.

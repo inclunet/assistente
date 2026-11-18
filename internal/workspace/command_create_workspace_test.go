@@ -104,7 +104,7 @@ func TestCreateForCommandIndexReadFailureCompensates(t *testing.T) {
 		t.Fatal(err)
 	}
 	before := commandWorkspaceDirCount(t, home)
-	sqlDB, err := m.indexDB.DB()
+	sqlDB, err := m.indexDB().DB()
 	if err != nil {
 		t.Fatal(err)
 	}

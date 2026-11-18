@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -41,7 +42,7 @@ func isValidUUIDv7(s string) bool {
 
 // Manager gerencia workspaces: CRUD, persistência YAML e índice global.
 type Manager struct {
-	indexDB     *gorm.DB
+	indexDB     func() *gorm.DB
 	indexClient string
 	mu          sync.RWMutex
 	snapshotState
@@ -55,7 +56,7 @@ type Manager struct {
 
 // NewManager cria um novo workspace manager.
 // homeDir é o diretório ~/.assistente/ (onde ficam workspaces avulsos e o índice).
-func NewManager(homeDir string, indexDB *gorm.DB) *Manager {
+func NewManager(homeDir string, indexDB func() *gorm.DB) *Manager {
 	return &Manager{
 		indexDB:       indexDB,
 		homeDir:       homeDir,
@@ -84,6 +85,7 @@ func (m *Manager) Initialize(workDir string) error {
 		return fmt.Errorf("workspace index: %w", err)
 	}
 	defaultWorkspace := false
+	preserveLastOpened := ""
 	if workDir == "" {
 		index, err := m.loadIndex()
 		if err != nil {
@@ -98,6 +100,8 @@ func (m *Manager) Initialize(workDir string) error {
 				workDir = entry.Path
 			} else if !errors.Is(err, os.ErrNotExist) {
 				return fmt.Errorf("last workspace: %w", err)
+			} else {
+				preserveLastOpened = index.LastOpened
 			}
 			break
 		}
@@ -127,7 +131,7 @@ func (m *Manager) Initialize(workDir string) error {
 		}
 	}
 	m.activeMigrationFailed = errors.Is(err, ErrMigrationSaveFailed)
-	if err := m.touchIndex(ws, workDir); err != nil {
+	if err := m.touchIndexPreservingLast(ws, workDir, preserveLastOpened); err != nil {
 		return err
 	}
 	m.replaceActiveLocked(ws, workDir)
@@ -146,16 +150,22 @@ func (m *Manager) createWorkspaceDocument(ws *Workspace, directory string) error
 	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
 		return err
 	}
-	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0644)
+	file, err := os.CreateTemp(filepath.Dir(path), ".workspace-*")
 	if err != nil {
 		return err
 	}
-	_, writeErr := file.Write(data)
-	closeErr := file.Close()
-	if err := errors.Join(writeErr, closeErr); err != nil {
-		return errors.Join(err, os.Remove(path))
+	defer func() { _ = file.Close(); _ = os.Remove(file.Name()) }()
+	if _, err := file.Write(data); err != nil {
+		return err
 	}
-	return nil
+	if err := file.Sync(); err != nil {
+		return err
+	}
+	if err := file.Close(); err != nil {
+		return err
+	}
+	// Publica bytes completos sem substituir um criador concorrente.
+	return publishNewWorkspaceDocument(file.Name(), path)
 }
 
 // Active retorna o workspace ativo (pode ser nil antes de Initialize).
@@ -221,7 +231,6 @@ func (m *Manager) List() ([]WorkspaceInfo, error) {
 	}
 
 	var result []WorkspaceInfo
-	kept := make([]IndexEntry, 0, len(idx.Workspaces))
 	for _, entry := range idx.Workspaces {
 		info := WorkspaceInfo{
 			ID:       entry.ID,
@@ -232,24 +241,11 @@ func (m *Manager) List() ([]WorkspaceInfo, error) {
 
 		// Tenta carregar mais detalhes
 		wsPath := filepath.Join(entry.Path, assistenteDir, workspaceFile)
-		if !info.IsActive && workspaceDocumentWasRemoved(wsPath, entry.Path) {
-			if idx.LastOpened == entry.ID {
-				idx.LastOpened = ""
-			}
-			continue
-		}
-		kept = append(kept, entry)
 		if ws, err := m.loadWorkspaceFile(wsPath); err == nil || errors.Is(err, ErrMigrationSaveFailed) {
 			info.TabCount = len(ws.Tabs.Items)
 		}
 
 		result = append(result, info)
-	}
-	if len(kept) != len(idx.Workspaces) {
-		idx.Workspaces = kept
-		if err := m.saveIndex(idx); err != nil {
-			return nil, err
-		}
 	}
 
 	return result, nil
@@ -323,12 +319,17 @@ func (m *Manager) Rename(newName string) error {
 		return fmt.Errorf("name cannot be empty")
 	}
 
-	m.active.Name = newName
-	if err := m.saveWorkspace(m.active, m.activePath); err != nil {
+	previous := cloneWorkspace(m.active)
+	updated := cloneWorkspace(m.active)
+	updated.Name = newName
+	if err := m.saveWorkspaceForCommand(context.Background(), updated, m.activePath); err != nil {
 		return err
 	}
-
-	return m.touchIndex(m.active, m.activePath)
+	if err := m.touchIndex(updated, m.activePath); err != nil {
+		return errors.Join(err, m.saveWorkspaceForCommand(context.Background(), previous, m.activePath))
+	}
+	m.active.Name = newName
+	return nil
 }
 
 // Delete remove um workspace pelo ID (não pode ser o ativo).
@@ -365,6 +366,14 @@ func (m *Manager) Delete(workspaceID string) error {
 	}
 	// Remove workspace.yaml (mas não o diretório inteiro, pode ter outros arquivos)
 	wsFile := filepath.Join(deletePath, assistenteDir, workspaceFile)
+	if m.active != nil && sameWorkspaceDirectory(deletePath, m.activePath) {
+		return fmt.Errorf("cannot delete the active workspace directory")
+	}
+	if document, readErr := m.loadWorkspaceFile(wsFile); readErr == nil && document.ID != workspaceID {
+		return fmt.Errorf("workspace document identity changed")
+	} else if readErr != nil && !os.IsNotExist(readErr) {
+		return readErr
+	}
 	backup := wsFile + ".removing-" + generateID()
 	renamed := false
 	if err := os.Rename(wsFile, backup); err != nil {
@@ -1019,6 +1028,10 @@ func (m *Manager) loadWorkspaceFile(path string) (*Workspace, error) {
 		return nil, fmt.Errorf("failed to parse workspace file: %w", err)
 	}
 
+	if strings.TrimSpace(ws.ID) == "" || strings.TrimSpace(ws.Name) == "" {
+		return nil, fmt.Errorf("workspace document has no valid identity or name")
+	}
+
 	// Migração de formato antigo: content_id → campos corretos
 	needsSave := false
 	remap, _ := loadIDRemap()
@@ -1162,12 +1175,32 @@ func (m *Manager) saveWorkspace(ws *Workspace, basePath string) error {
 
 // touchIndex atualiza ou adiciona a entrada do workspace no índice global.
 func (m *Manager) touchIndex(ws *Workspace, basePath string) error {
+	return m.touchIndexPreservingLast(ws, basePath, "")
+}
+
+func (m *Manager) touchIndexPreservingLast(ws *Workspace, basePath, lastOpened string) error {
 	idx, err := m.loadIndex()
 	if err != nil {
 		return err
 	}
 
 	idx.LastOpened = ws.ID
+	if lastOpened != "" {
+		idx.LastOpened = lastOpened
+	}
+	// A document has a single current identity. Recreated files replace obsolete
+	// references for the same folder atomically with the current index entry.
+	entries := idx.Workspaces[:0]
+	for _, entry := range idx.Workspaces {
+		if entry.ID != ws.ID && sameWorkspaceDirectory(entry.Path, basePath) {
+			if idx.LastOpened == entry.ID {
+				idx.LastOpened = ws.ID
+			}
+			continue
+		}
+		entries = append(entries, entry)
+	}
+	idx.Workspaces = entries
 
 	found := false
 	for i, entry := range idx.Workspaces {
@@ -1227,4 +1260,17 @@ func (m *Manager) OpenEditorFilePaths() []string {
 func generateID() string {
 	// ID curto baseado em timestamp + random suffix
 	return fmt.Sprintf("%x", time.Now().UnixNano()&0xFFFFFFFFFF)
+}
+
+func sameWorkspaceDirectory(left, right string) bool {
+	a, errA := filepath.EvalSymlinks(left)
+	b, errB := filepath.EvalSymlinks(right)
+	if errA == nil && errB == nil {
+		left, right = a, b
+	}
+	left, right = filepath.Clean(left), filepath.Clean(right)
+	if runtime.GOOS == "windows" {
+		return strings.EqualFold(left, right)
+	}
+	return left == right
 }

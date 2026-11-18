@@ -35,7 +35,7 @@ func (a *App) initialToolWorkDir() (string, error) {
 
 func (a *App) initWorkspace() error {
 	homeDir := configdir.GetHomeDir()
-	a.workspaceMgr = workspace.NewManager(homeDir, database.DB())
+	a.workspaceMgr = workspace.NewManager(homeDir, database.DB)
 
 	workDir := ""
 	if a.startupWorkspaceDir != nil {

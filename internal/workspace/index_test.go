@@ -30,7 +30,7 @@ func newTestManager(t *testing.T, home string) *Manager {
 	if err := db.AutoMigrate(&database.DesktopWorkspaceEntry{}, &database.DesktopWorkspaceState{}); err != nil {
 		t.Fatal(err)
 	}
-	return NewManager(home, db)
+	return NewManager(home, func() *gorm.DB { return db })
 }
 
 func TestIndexMigrationPreservesLegacyWorkspacesAndDoesNotReimport(t *testing.T) {
@@ -143,7 +143,7 @@ func TestInitializePreservesInvalidHomeWorkspace(t *testing.T) {
 	}
 }
 
-func TestListPrunesRemovedDocumentButKeepsUnavailableDirectory(t *testing.T) {
+func TestListPreservesMissingDocumentsUntilExplicitRemoval(t *testing.T) {
 	m := newTestManager(t, t.TempDir())
 	if err := m.Initialize(t.TempDir()); err != nil {
 		t.Fatal(err)
@@ -171,17 +171,29 @@ func TestListPrunesRemovedDocumentButKeepsUnavailableDirectory(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	foundUnavailable := false
+	foundUnavailable, foundMissing := false, false
 	for _, entry := range list {
 		if entry.ID == removed.ID {
-			t.Fatal("removed workspace still listed")
+			foundMissing = true
 		}
 		if entry.ID == "unavailable" {
 			foundUnavailable = true
 		}
 	}
-	if !foundUnavailable {
-		t.Fatal("unavailable directory was treated as deleted")
+	if !foundUnavailable || !foundMissing {
+		t.Fatal("missing document was treated as confirmed removal")
+	}
+	if err := m.Delete(removed.ID); err != nil {
+		t.Fatal(err)
+	}
+	list, err = m.List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range list {
+		if entry.ID == removed.ID {
+			t.Fatal("explicit deletion retained reference")
+		}
 	}
 }
 
@@ -223,7 +235,7 @@ func TestIndexWriteFailureRollsBackStateAndEntries(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := m.indexDB.Exec("CREATE TRIGGER reject_workspace_insert BEFORE INSERT ON desktop_workspace_entries BEGIN SELECT RAISE(ABORT, 'injected write failure'); END").Error; err != nil {
+	if err := m.indexDB().Exec("CREATE TRIGGER reject_workspace_insert BEFORE INSERT ON desktop_workspace_entries BEGIN SELECT RAISE(ABORT, 'injected write failure'); END").Error; err != nil {
 		t.Fatal(err)
 	}
 	next, err := m.loadIndex()

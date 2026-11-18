@@ -74,6 +74,10 @@ func (m *Manager) loadIndex() (*Index, error) {
 	if m.indexDB == nil {
 		return nil, errors.New("workspace index database unavailable")
 	}
+	db := m.indexDB()
+	if db == nil {
+		return nil, errors.New("workspace index database unavailable")
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	var index Index
@@ -81,7 +85,7 @@ func (m *Manager) loadIndex() (*Index, error) {
 	if err != nil {
 		return nil, err
 	}
-	err = m.indexDB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	err = db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var state database.DesktopWorkspaceState
 		err := tx.Where("client_scope = ?", scope).Take(&state).Error
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -113,12 +117,16 @@ func (m *Manager) saveIndexContext(ctx context.Context, idx *Index) error {
 	if m.indexDB == nil {
 		return errors.New("workspace index database unavailable")
 	}
+	db := m.indexDB()
+	if db == nil {
+		return errors.New("workspace index database unavailable")
+	}
 	scope, err := m.indexScope()
 	if err != nil {
 		return err
 	}
 	err = database.WithSQLiteBusyRetry(ctx, "workspace index", func() error {
-		return m.indexDB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		return db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 			state := database.DesktopWorkspaceState{ClientScope: scope, LastOpened: idx.LastOpened, Revision: idx.revision + 1, LegacyImported: idx.legacyImported, LegacyDigest: idx.legacyDigest}
 			if idx.revision == 0 {
 				if err := tx.Create(&state).Error; err != nil {
@@ -206,6 +214,8 @@ func (m *Manager) importLegacyIndex() error {
 		}
 	}
 	// Remove apenas diretório vazio. Conteúdo legado ou desconhecido é preservado.
-	_ = os.Remove(filepath.Dir(path))
+	if info, err := os.Lstat(filepath.Dir(path)); err == nil && info.IsDir() && info.Mode()&os.ModeSymlink == 0 {
+		_ = os.Remove(filepath.Dir(path))
+	}
 	return nil
 }

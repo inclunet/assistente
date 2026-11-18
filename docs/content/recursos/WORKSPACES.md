@@ -51,8 +51,9 @@ O índice YAML antigo é importado uma vez e removido após confirmação; se se
 conteúdo tiver mudado desde a importação, o arquivo é preservado. A pasta
 `workspaces` permanece enquanto contiver workspaces antigos ou outros arquivos.
 
-A lista retira referências quando o documento foi apagado de uma pasta ainda
-acessível. Pastas indisponíveis e erros de acesso não são tratados como exclusão.
+A lista preserva referências cujo documento está ausente: uma pasta acessível
+também pode ser um volume temporariamente desmontado. A remoção da referência
+exige uma ação explícita; ausência e erros de acesso não apagam o histórico.
 O arquivo local `desktop-client-id` identifica a instalação para separar seus
 recentes dos de outro desktop; ele não concede acesso às conversas.
 
