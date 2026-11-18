@@ -69,17 +69,6 @@ func (api *Workspace) ListWorkspaces() ([]workspace.WorkspaceInfo, error) {
 	})
 }
 
-// CreateWorkspace cria um workspace.
-func (api *Workspace) CreateWorkspace(name string) (*workspace.Workspace, error) {
-	session, ctrl, err := api.deps()
-	if err != nil {
-		return nil, err
-	}
-	return WithUser(session, func(ctx context.Context) (*workspace.Workspace, error) {
-		return ctrl.CreateWorkspace(name)
-	})
-}
-
 // SwitchWorkspace troca o workspace ativo.
 func (api *Workspace) SwitchWorkspace(workspaceID string) (*workspace.Workspace, error) {
 	session, ctrl, err := api.deps()
@@ -91,14 +80,14 @@ func (api *Workspace) SwitchWorkspace(workspaceID string) (*workspace.Workspace,
 	})
 }
 
-// RenameWorkspace renomeia o workspace ativo.
-func (api *Workspace) RenameWorkspace(newName string) error {
+// RenameWorkspace renomeia o workspace selecionado.
+func (api *Workspace) RenameWorkspace(workspaceID, newName string) error {
 	session, ctrl, err := api.deps()
 	if err != nil {
 		return err
 	}
 	_, err = WithUser(session, func(ctx context.Context) (struct{}, error) {
-		return struct{}{}, ctrl.RenameWorkspace(newName)
+		return struct{}{}, ctrl.RenameWorkspace(workspaceID, newName)
 	})
 	return err
 }
@@ -220,12 +209,21 @@ func (api *Workspace) ExportWorkspace() (string, error) {
 }
 
 // ImportWorkspace importa um workspace a partir de YAML.
-func (api *Workspace) ImportWorkspace(yamlData string) (*workspace.Workspace, error) {
+func (api *Workspace) ImportWorkspace(yamlData, directory string) (*workspace.Workspace, error) {
 	session, ctrl, err := api.deps()
 	if err != nil {
 		return nil, err
 	}
 	return WithUser(session, func(ctx context.Context) (*workspace.Workspace, error) {
-		return ctrl.ImportWorkspace(yamlData)
+		return ctrl.ImportWorkspace(yamlData, directory)
 	})
+}
+
+// SelectWorkspaceDirectory apresenta a seleção nativa sem criar um workspace.
+func (api *Workspace) SelectWorkspaceDirectory() (string, error) {
+	session, ctrl, err := api.deps()
+	if err != nil {
+		return "", err
+	}
+	return WithUser(session, func(ctx context.Context) (string, error) { return ctrl.SelectWorkspaceDirectory() })
 }

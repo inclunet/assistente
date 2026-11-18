@@ -130,3 +130,6 @@ type dialogPortError struct{ err error }
 
 func (d dialogPortError) OpenFileDialog(ports.OpenFileOptions) (string, error) { return "", d.err }
 func (d dialogPortError) SaveFileDialog(ports.SaveFileOptions) (string, error) { return "", d.err }
+
+func (p *editorDialogPathPort) OpenDirectoryDialog() (string, error) { return "", nil }
+func (d dialogPortError) OpenDirectoryDialog() (string, error) { return "", d.err }

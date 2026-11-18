@@ -12,6 +12,7 @@ import (
 // WorkspaceControllerConfig agrupa as dependências do WorkspaceController.
 type WorkspaceControllerConfig struct {
 	WorkspaceMgr *workspace.Manager
+	Dialog       ports.SystemDialogPort
 	Emitter      ports.Emitter
 	// OnWorkspaceSwitched é chamado após a troca persistida e antes do evento
 	// público, para o bootstrap interno reconstruir a geração dependente.
@@ -21,6 +22,7 @@ type WorkspaceControllerConfig struct {
 // WorkspaceController é o Inbound Adapter para gerenciamento de workspaces e abas.
 type WorkspaceController struct {
 	workspaceMgr        *workspace.Manager
+	dialog              ports.SystemDialogPort
 	emitter             ports.Emitter
 	switchMu            sync.Mutex
 	onWorkspaceSwitched func()
@@ -30,6 +32,7 @@ type WorkspaceController struct {
 func NewWorkspaceController(cfg WorkspaceControllerConfig) *WorkspaceController {
 	return &WorkspaceController{
 		workspaceMgr:        cfg.WorkspaceMgr,
+		dialog:              cfg.Dialog,
 		emitter:             cfg.Emitter,
 		onWorkspaceSwitched: cfg.OnWorkspaceSwitched,
 	}
@@ -49,18 +52,6 @@ func (c *WorkspaceController) ListWorkspaces() ([]workspace.WorkspaceInfo, error
 	return c.workspaceMgr.List()
 }
 
-func (c *WorkspaceController) CreateWorkspace(name string) (*workspace.Workspace, error) {
-	if c.workspaceMgr == nil {
-		return nil, fmt.Errorf("workspace manager not initialized")
-	}
-	ws, err := c.workspaceMgr.Create(name)
-	if err != nil {
-		return nil, err
-	}
-	c.emitter.Emit("workspace:created", ws)
-	return ws, nil
-}
-
 func (c *WorkspaceController) SwitchWorkspace(workspaceID string) (*workspace.Workspace, error) {
 	c.switchMu.Lock()
 	defer c.switchMu.Unlock()
@@ -78,11 +69,11 @@ func (c *WorkspaceController) SwitchWorkspace(workspaceID string) (*workspace.Wo
 	return ws, nil
 }
 
-func (c *WorkspaceController) RenameWorkspace(newName string) error {
+func (c *WorkspaceController) RenameWorkspace(workspaceID, newName string) error {
 	if c.workspaceMgr == nil {
 		return fmt.Errorf("workspace manager not initialized")
 	}
-	if err := c.workspaceMgr.Rename(newName); err != nil {
+	if err := c.workspaceMgr.Rename(workspaceID, newName); err != nil {
 		return err
 	}
 	c.emitter.Emit("workspace:renamed", c.workspaceMgr.Active())
@@ -195,14 +186,22 @@ func (c *WorkspaceController) ExportWorkspace() (string, error) {
 	return string(data), nil
 }
 
-func (c *WorkspaceController) ImportWorkspace(yamlData string) (*workspace.Workspace, error) {
+func (c *WorkspaceController) ImportWorkspace(yamlData, directory string) (*workspace.Workspace, error) {
 	if c.workspaceMgr == nil {
 		return nil, fmt.Errorf("workspace manager not initialized")
 	}
-	ws, err := c.workspaceMgr.ImportWorkspace([]byte(yamlData))
+	ws, err := c.workspaceMgr.ImportWorkspace([]byte(yamlData), directory)
 	if err != nil {
 		return nil, err
 	}
 	c.emitter.Emit("workspace:created", ws)
 	return ws, nil
+}
+
+// SelectWorkspaceDirectory não escreve arquivos nem altera o workspace ativo.
+func (c *WorkspaceController) SelectWorkspaceDirectory() (string, error) {
+	if c.dialog == nil {
+		return "", fmt.Errorf("directory dialog unavailable")
+	}
+	return c.dialog.OpenDirectoryDialog()
 }

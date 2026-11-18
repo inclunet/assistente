@@ -77,7 +77,7 @@ func TestSetActiveWorkspaceTabForWorkspaceRecusaWorkspaceOuAbaSemEfeito(t *testi
 	before := m.Active()
 	beforeEpoch := m.commandEpoch
 
-	other, err := m.Create("other")
+	other, err := m.createForTest("other", t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -143,7 +143,7 @@ func TestSetActiveWorkspaceTabForWorkspaceRollbackCancelamentoEABA(t *testing.T)
 	t.Run("workspace ABA is guarded by current workspace ID", func(t *testing.T) {
 		m, sourceID, targetID := workspaceTabSelectionManager(t)
 		a := m.Active()
-		b, err := m.Create("B")
+		b, err := m.createForTest("B", t.TempDir())
 		if err != nil {
 			t.Fatal(err)
 		}

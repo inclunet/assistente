@@ -1,6 +1,7 @@
 package app
 
 import (
+ "assistente/internal/testutil/workspacefixture"
 	"context"
 	"encoding/json"
 	"errors"
@@ -22,7 +23,7 @@ func wireCommandWorkspaceForTest(a *App) *testEmitter {
 
 func TestCommandWorkspaceSwitchNotifiesReadyKeyboardMap(t *testing.T) {
 	a := readyCommandProduct(t)
-	second, err := a.workspaceMgr.Create("workspace novo")
+	second, err := workspacefixture.Create(t, a.workspaceMgr, "workspace novo", t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -49,7 +50,7 @@ func TestCommandWorkspaceSwitchRebuildsExactConfigurationAndRetiresOldRuntime(t 
 	emitter := wireCommandWorkspaceForTest(a)
 	previous := a.commandProduct.Load()
 	firstID := previous.workspaceID
-	second, err := a.workspaceMgr.Create("segundo")
+	second, err := workspacefixture.Create(t, a.workspaceMgr, "segundo", t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -120,7 +121,7 @@ func TestCommandWorkspaceSwitchStorageFailureLeavesNoOldMapAndCanRetry(t *testin
 	a := readyCommandProduct(t)
 	wireCommandWorkspaceForTest(a)
 	previous := a.commandProduct.Load()
-	second, err := a.workspaceMgr.Create("segundo")
+	second, err := workspacefixture.Create(t, a.workspaceMgr, "segundo", t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -177,7 +178,7 @@ func TestCommandWorkspaceSwitchRetiresPendingUIHandoff(t *testing.T) {
 	wireCommandWorkspaceForTest(a)
 	old := beginAuditedTabCreate(t, a)
 	waitCommandUIAdmission(t, a, old)
-	second, err := a.workspaceMgr.Create("segundo")
+	second, err := workspacefixture.Create(t, a.workspaceMgr, "segundo", t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}

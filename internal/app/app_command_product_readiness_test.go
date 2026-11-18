@@ -1,6 +1,7 @@
 package app
 
 import (
+ "assistente/internal/testutil/workspacefixture"
 	"context"
 	"testing"
 
@@ -39,7 +40,7 @@ func TestCommandProductCatalogReflectsOperationalReadiness(t *testing.T) {
 					t.Fatal(err)
 				}
 			case "workspace_changed":
-				other, err := a.workspaceMgr.Create("Outro workspace")
+				other, err := workspacefixture.Create(t, a.workspaceMgr, "Outro workspace", t.TempDir())
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -51,7 +52,7 @@ func TestCommandProductCatalogReflectsOperationalReadiness(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if len(items) != 156 {
+			if len(items) != 158 {
 				t.Fatalf("catálogo inesperado: %+v", items)
 			}
 			want := scenario == "ready"

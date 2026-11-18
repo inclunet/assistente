@@ -1864,3 +1864,5 @@ func TestEditorWatchNormalizaPathNaBorda(t *testing.T) {
 		t.Fatalf("hooks chamados %d vezes, quer 2 (path vazio não chega ao watcher)", len(observados))
 	}
 }
+
+func (f *fakeDialog) OpenDirectoryDialog() (string, error) { return "", nil }

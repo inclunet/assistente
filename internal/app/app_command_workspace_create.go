@@ -1,6 +1,14 @@
 package app
 
-import "assistente/internal/commandcatalog"
+import (
+	"assistente/internal/commandcatalog"
+	"assistente/internal/commandexecution"
+	"assistente/internal/commandui"
+	"assistente/internal/questionnaire"
+	"context"
+	"path/filepath"
+	"strings"
+)
 
 const commandWorkspaceCreateID = "workspace.create"
 
@@ -34,4 +42,43 @@ func commandWorkspaceCreateRegistration() (commandcatalog.Definition, commandcat
 		HandlerRoute:          contract.Route,
 		HandlerClassification: contract.Classification,
 	}, contract
+}
+
+// requestWorkspaceDestination coleta a escolha antes de qualquer escrita. O
+// contexto admitido cancela a pergunta se sessão/segurança forem invalidadas.
+func (a *App) requestWorkspaceDestination(ctx context.Context) (string, string, error) {
+	if a.dialogPort == nil || a.questionnaireMgr == nil {
+		return "", "", commandexecution.ErrDenied
+	}
+	directory, err := a.dialogPort.OpenDirectoryDialog()
+	if err != nil {
+		return "", "", err
+	}
+	if err := ctx.Err(); err != nil {
+		return "", "", err
+	}
+	if directory == "" {
+		return "", "", commandui.ErrCancelled
+	}
+	response, err := a.questionnaireMgr.RequestQuestionnaire(ctx, questionnaire.RequestPayload{
+		Title:       questionnaire.Keyed("workspace.newWorkspace", "Novo workspace"),
+		AllowCancel: true,
+		SubmitLabel: questionnaire.Keyed("workspace.createInDirectory", "Criar workspace"),
+		CancelLabel: questionnaire.Keyed("common.cancel", "Cancelar"),
+		Questions: []questionnaire.Question{
+			{ID: "directory", Type: "readonly_code", Prompt: questionnaire.Keyed("workspace.directory", "Pasta do workspace"), Content: directory},
+			{ID: "name", Type: "text", Prompt: questionnaire.Keyed("workspace.renamePlaceholder", "Nome do workspace"), Required: true, Default: filepath.Base(directory), AutoFocus: true},
+		},
+	})
+	if err != nil {
+		return "", "", err
+	}
+	if response.Cancelled {
+		return "", "", commandui.ErrCancelled
+	}
+	name, ok := response.Answers["name"].(string)
+	if !ok || strings.TrimSpace(name) == "" {
+		return "", "", commandexecution.ErrInvalidRequest
+	}
+	return strings.TrimSpace(name), directory, nil
 }

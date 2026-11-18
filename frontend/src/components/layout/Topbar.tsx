@@ -1,3 +1,4 @@
+import { WorkspaceListDialog } from '../workspace/WorkspaceListDialog';
 import { isProviderSettingsPath } from '../../lib/commandAppPage';
 import { logger } from '../../utils/logger';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
@@ -22,7 +23,7 @@ import { useUIStore } from '../../store/uiStore';
 import { isModalOpen } from '../ui/Modal';
 import { useShallow } from 'zustand/shallow';
 import { MenuButton, type MenuItem as MenuButtonItem, type MenuButtonRef } from './MenuButton';
-import { Menu, type MenuItem } from '../menu';
+import type { MenuItem } from '../menu';
 import { Combobox, type ComboboxDismissReason, type ComboboxItem } from '../pickers/Combobox';
 import { KeyboardShortcutsHelp } from '../ui/KeyboardShortcutsHelp';
 import { useAnchoredContextMenu } from '../../hooks/useAnchoredContextMenu';
@@ -496,6 +497,7 @@ export function Topbar() {
   }, [palettePreferencesKey]);
   commandPaletteOpenRef.current = commandPaletteOpen;
   const workspacePickerTriggerRef = useRef<HTMLElement | null>(null);
+  const workspacePickerRootRef = useRef<HTMLDivElement>(null);
   const commandNavigationHandlers = useMemo(() => {
     const handlers = new Map(createCommandNavigationHandlers(navigate));
     handlers.set('navigation.menu.open', () => {
@@ -1360,6 +1362,8 @@ export function Topbar() {
     let editorModeTarget: EditorModeTargetLease | undefined;
     const cancellationGeneration = commandCancellationGenerationRef.current;
     const completionRoute = commandRouteIdentityRef.current;
+    const completionOwner = useAuthStore.getState().user;
+    const completionWorkspaceId = useWorkspaceStore.getState().workspace?.id;
     const pendingTargetForExecution = commandID === WORKSPACE_CREATE_COMMAND_ID &&
       activeCommandIntentRef.current?.commandID === WORKSPACE_CREATE_COMMAND_ID
       ? pendingWorkspaceCreateTargetRef.current
@@ -1480,9 +1484,13 @@ export function Topbar() {
           creationPresentationRef.current.t('workspace.chatModal.prepareFailed'),
         );
       }
-      if (commandID === WORKSPACE_CREATE_COMMAND_ID &&
+      if (commandID === WORKSPACE_CREATE_COMMAND_ID && commandPickerMountedRef.current &&
           cancellationGeneration === commandCancellationGenerationRef.current &&
-          originalTarget?.isCurrent()) {
+          completionRoute === commandRouteIdentityRef.current &&
+          useAuthStore.getState().isAuthenticated &&
+          completionOwner?.userId === useAuthStore.getState().user?.userId &&
+          completionOwner?.sessionId === useAuthStore.getState().user?.sessionId &&
+          completionWorkspaceId === useWorkspaceStore.getState().workspace?.id) {
         const presentation = creationPresentationRef.current;
         if (result.status === 'succeeded') {
           presentation.announce(presentation.t('workspace.announce.workspaceCreatedCommand'));
@@ -1525,14 +1533,17 @@ export function Topbar() {
 
   const [commandCatalogLoading, setCommandCatalogLoading] = useState(false);
 
-  const intentIsCurrent = useCallback((intent: PendingCommandIntent) => {
+  const intentIsCurrent = useCallback((intent: PendingCommandIntent, ownWorkspacePicker = false) => {
+    const pickerModal = workspacePickerRootRef.current?.closest('[data-modal-id]');
+    const ownsTopmostPicker = ownWorkspacePicker && pickerModal?.getAttribute('data-modal-id') === getModalRegistrySnapshot().topID &&
+      pickerModal?.contains(document.activeElement);
     const auth = useAuthStore.getState();
     const currentWorkspace = useWorkspaceStore.getState().workspace;
     return commandPickerMountedRef.current && auth.isAuthenticated &&
       auth.user?.userId === intent.userId && auth.user?.sessionId === intent.sessionId &&
       currentWorkspace?.id === intent.workspaceId &&
       (currentWorkspace?.activeTabId ?? null) === intent.activeTabId &&
-      commandRouteIdentityRef.current === intent.routeIdentity && !isModalOpen();
+      commandRouteIdentityRef.current === intent.routeIdentity && (!isModalOpen() || ownsTopmostPicker);
   }, []);
 
   const pendingWorkspaceSwitchRef = useRef<{ ready: Promise<void>; isCurrent: () => boolean } | null>(null);
@@ -1571,7 +1582,7 @@ export function Topbar() {
       shortcut: `${ws.tab_count} ${ws.tab_count === 1 ? t('workspace.tabSingular') : t('workspace.tabPlural')}`,
       checked: ws.is_active,
       action: () => {
-        if (workspacePickerIntentRef.current !== intent || !intentIsCurrent(intent)) return;
+        if (workspacePickerIntentRef.current !== intent || !intentIsCurrent(intent, true)) return;
         // Consumir antes do efeito: o mesmo callback não pode trocar duas vezes.
         workspacePickerIntentRef.current = null;
         selectWorkspace(ws.id, ws.is_active);
@@ -4060,18 +4071,9 @@ export function Topbar() {
         </div>
       </header>
 
-      <Menu
-        items={pickerMenu.items}
-        x={pickerMenu.x}
-        y={pickerMenu.y}
-        visible={pickerMenu.visible}
-        ariaLabel={pickerMenu.ariaLabel || t('workspace.workspaceList')}
-        restoreFocusOnClose={false}
-        searchable
-        searchPlaceholder={t('workspace.searchWorkspaces')}
-        onClose={closePicker}
-        onSelect={onPickerSelect}
-      />
+      {pickerMenu.visible && <WorkspaceListDialog rootRef={workspacePickerRootRef} items={pickerMenu.items}
+        onClose={closePicker} onSelect={onPickerSelect} />}
+
 
 
 

@@ -13,7 +13,6 @@ import { dispatchKey, expectGlobalShortcutIgnoredWhileModalOpen } from '../test/
 const setActiveTab = vi.fn();
 const addTab = vi.fn();
 const removeTab = vi.fn(() => Promise.resolve());
-const createWorkspace = vi.fn();
 const createWorkspaceTab = vi.fn();
 const announce = vi.fn();
 
@@ -31,7 +30,6 @@ const workspaceState = {
   addTab,
   removeTab,
   setActiveTab,
-  createWorkspace,
 };
 
 vi.mock('../store/workspaceStore', () => ({
@@ -106,7 +104,7 @@ describe('useWorkspaceKeyboardShortcuts — atalhos globais respeitam o modal', 
     const event = dispatchKey({ key: 'N', code: 'KeyN', ctrlKey: true, shiftKey: true });
 
     expect(event.defaultPrevented).toBe(false);
-    expect(createWorkspace).not.toHaveBeenCalled();
+
     expect(addTab).not.toHaveBeenCalled();
   });
 });

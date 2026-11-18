@@ -109,7 +109,7 @@ func TestImportWorkspace_PreservesImportedTabCount(t *testing.T) {
 		t.Fatalf("yaml.Marshal: %v", err)
 	}
 
-	ws, err := m.ImportWorkspace(data)
+	ws, err := m.ImportWorkspace(data, t.TempDir())
 	if err != nil {
 		t.Fatalf("ImportWorkspace: %v", err)
 	}
@@ -128,7 +128,7 @@ func TestImportWorkspace_EmptyImportGetsDefaultTab(t *testing.T) {
 		t.Fatalf("yaml.Marshal: %v", err)
 	}
 
-	ws, err := m.ImportWorkspace(data)
+	ws, err := m.ImportWorkspace(data, t.TempDir())
 	if err != nil {
 		t.Fatalf("ImportWorkspace: %v", err)
 	}

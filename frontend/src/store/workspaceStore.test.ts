@@ -8,7 +8,6 @@ const { mockedAnnounce, mockedIsModalOpen } = vi.hoisted(() => ({
 vi.mock('@wailsjs/go/wailsapi/Workspace', () => ({
   GetActiveWorkspace: vi.fn(),
   ListWorkspaces: vi.fn(),
-  CreateWorkspace: vi.fn(),
   SwitchWorkspace: vi.fn(),
   RenameWorkspace: vi.fn(),
   DeleteWorkspace: vi.fn(),

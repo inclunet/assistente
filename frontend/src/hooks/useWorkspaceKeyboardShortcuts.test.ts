@@ -38,7 +38,6 @@ const workspaceState = {
   addTab,
   removeTab,
   setActiveTab,
-  createWorkspace: vi.fn(),
 };
 
 function resetWorkspaceState() {
@@ -210,13 +209,13 @@ describe('useWorkspaceKeyboardShortcuts - respeita isModalOpen()', () => {
     expect(requestOpen).not.toHaveBeenCalled();
   });
 
-  it('Ctrl+Shift+N não chama createWorkspace no hook legado', () => {
+  it('Ctrl+Shift+N não é capturado pelo hook legado', () => {
     renderHook(() => useWorkspaceKeyboardShortcuts());
 
     const event = dispatchKey({ ctrlKey: true, shiftKey: true, key: 'N', code: 'KeyN' });
 
     expect(event.defaultPrevented).toBe(false);
-    expect(workspaceState.createWorkspace).not.toHaveBeenCalled();
+
     expect(addTab).not.toHaveBeenCalled();
   });
 

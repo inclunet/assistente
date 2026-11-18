@@ -50,10 +50,35 @@ O índice YAML também tem gravações independentes que podem falhar parcialmen
 
 - [x] Repositório do índice no banco e importação idempotente do YAML antigo.
   Testes de migração, revisão concorrente e preservação de origem alterada em `internal/workspace/index_test.go`.
-- [ ] Resolução inicial na home e criação/importação em pasta explícita.
-- [ ] Interface acessível de nome e destino, usando os comandos existentes.
-- [ ] Preservação dos avulsos antigos, remoção e renomeação pela lista.
+- [x] Resolução inicial na home e criação/importação em pasta explícita.
+- [x] Interface acessível de nome e destino, usando os comandos existentes.
+- [x] Preservação dos avulsos antigos, remoção e renomeação pela lista.
 - [ ] Testes, documentação do usuário, revisão independente e CI.
+
+## Entrega da interface (PR empilhado)
+
+Criação continua no comando `workspace.create`: seletor nativo de pasta seguido
+pelo formulário de nome. Cancelamento não escreve; o commit revalida sessão,
+configuração e snapshot após a resposta. Importação também exige destino.
+O gerenciador recusa a pasta ativa, inclusive se seu documento foi removido.
+
+A lista usa Modal, Toolbar e DataGrid. F2 e Delete são apresentações registradas
+no catálogo, disponíveis somente no modal proprietário. Renomear não troca o
+workspace; Delete usa ConfirmDialog e recusa o ativo também no backend.
+O filtro preserva a busca como destino de foco quando a lista fica vazia.
+A remoção apaga apenas o documento e a referência, preservando banco, conversas
+e demais arquivos. Não remove recursivamente pastas antigas.
+
+Foram retirados CreateWorkspace, Manager.Create e o caminho de criação de
+avulsos; fixtures usam o comando produtivo com diretório explícito. Mocks e
+assertions exclusivos da API removida também saem. Não há API de produção
+mantida apenas para testes.
+
+Evidências: create_directory_test.go (destino, não sobrescrita, pasta ativa),
+app_command_workspace_create_test.go (paleta/teclado/Deck e cancelamento),
+WorkspaceListDialog.test.tsx (binding, confirmação, ownership, foco), além das
+regressões de integração da Topbar. Revisão e CI finais ainda em andamento;
+status geral permanece In Progress até a conclusão das verificações.
 
 ## Riscos
 

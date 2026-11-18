@@ -4,7 +4,6 @@ import { useShallow } from 'zustand/shallow';
 import {
   GetActiveWorkspace,
   ListWorkspaces,
-  CreateWorkspace,
   SwitchWorkspace,
   RenameWorkspace,
   DeleteWorkspace,
@@ -141,9 +140,8 @@ interface WorkspaceStore {
   setupEventListeners: () => () => void;
 
   // Workspace CRUD
-  createWorkspace: (name: string) => Promise<string>;
   switchWorkspace: (workspaceId: string) => Promise<void>;
-  renameWorkspace: (newName: string) => Promise<void>;
+  renameWorkspace: (workspaceId: string, newName: string) => Promise<void>;
   deleteWorkspace: (workspaceId: string) => Promise<void>;
   refreshWorkspaceList: () => Promise<void>;
 
@@ -162,7 +160,7 @@ interface WorkspaceStore {
 
   // Export/Import
   exportWorkspace: () => Promise<string>;
-  importWorkspace: (yamlData: string) => Promise<string>;
+  importWorkspace: (yamlData: string, directory: string) => Promise<string>;
 
   // Getters
   getActiveTab: () => WorkspaceTab | undefined;
@@ -537,12 +535,6 @@ export const useWorkspaceStore = create<WorkspaceStore>()((set, get) => {
     };
   },
 
-  createWorkspace: async (name) => {
-    const bws = await CreateWorkspace(name);
-    announce(i18next.t('workspace.announce.workspaceCreated', { name }));
-    return bws.id;
-  },
-
   switchWorkspace: async (workspaceId) => {
     workspaceNavigationGeneration += 1;
     activationSeqId += 1;
@@ -552,10 +544,10 @@ export const useWorkspaceStore = create<WorkspaceStore>()((set, get) => {
     announce(i18next.t('workspace.announce.workspaceSwitched', { name: bws.name }));
   },
 
-  renameWorkspace: async (newName) => {
-    await RenameWorkspace(newName);
+  renameWorkspace: async (workspaceId, newName) => {
+    await RenameWorkspace(workspaceId, newName);
     set(state => ({
-      workspace: state.workspace ? { ...state.workspace, name: newName } : null,
+      workspace: state.workspace?.id === workspaceId ? { ...state.workspace, name: newName } : state.workspace,
     }));
     announce(i18next.t('workspace.announce.workspaceRenamed', { name: newName }));
   },
@@ -822,8 +814,8 @@ export const useWorkspaceStore = create<WorkspaceStore>()((set, get) => {
     return yaml;
   },
 
-  importWorkspace: async (yamlData) => {
-    const bws = await ImportWorkspace(yamlData);
+  importWorkspace: async (yamlData, directory) => {
+    const bws = await ImportWorkspace(yamlData, directory);
     await get().refreshWorkspaceList();
     announce(i18next.t('workspace.announce.workspaceImported', { name: bws.name }));
     return bws.id;

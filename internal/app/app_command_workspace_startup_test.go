@@ -1,6 +1,7 @@
 package app
 
 import (
+ "assistente/internal/testutil/workspacefixture"
 	"context"
 	"sync"
 	"testing"
@@ -89,7 +90,7 @@ func TestCommandWorkspaceReloadRecoversCatalogUnmountedDuringSwitch(t *testing.T
 	a.commandProduct.Store(nil)
 	a.commandBridge.Store(nil)
 	a.commandRegistry = nil
-	ws, err := a.workspaceMgr.Create("workspace-during-catalog-recovery")
+	ws, err := workspacefixture.Create(t, a.workspaceMgr, "workspace-during-catalog-recovery", t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}

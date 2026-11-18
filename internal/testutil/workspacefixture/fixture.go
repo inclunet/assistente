@@ -3,6 +3,7 @@
 package workspacefixture
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -38,4 +39,14 @@ func New(t testing.TB, home string) *workspace.Manager {
 	t.Helper()
 	db := OpenIndex(t, home)
 	return workspace.NewManager(home, func() *gorm.DB { return db })
+}
+
+// Create prepara dados de teste pelo mesmo caminho durável usado pelo app.
+func Create(t testing.TB, manager *workspace.Manager, name, directory string) (*workspace.Workspace, error) {
+	t.Helper()
+	snapshot, err := manager.CommandSnapshot()
+	if err != nil {
+		return nil, err
+	}
+	return manager.CreateForCommand(context.Background(), snapshot, name, directory)
 }

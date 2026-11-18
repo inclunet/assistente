@@ -1,6 +1,7 @@
 package app
 
 import (
+ "assistente/internal/testutil/workspacefixture"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -177,7 +178,7 @@ func TestCommandProductOutputIsDroppedAfterAuthHostOrWorkspaceInvalidation(t *te
 			if active == nil || active.ID != p.workspaceID {
 				return fmt.Errorf("workspace ativo inesperado antes da troca: active=%+v runtime=%q", active, p.workspaceID)
 			}
-			other, err := a.workspaceMgr.Create("Output test workspace")
+			other, err := workspacefixture.Create(t, a.workspaceMgr, "Output test workspace", t.TempDir())
 			if err != nil {
 				return err
 			}

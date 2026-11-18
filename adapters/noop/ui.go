@@ -19,3 +19,5 @@ func (DialogAdapter) SaveFileDialog(_ ports.SaveFileOptions) (string, error) { r
 type EmitterAdapter struct{}
 
 func (EmitterAdapter) Emit(_ string, _ any) {}
+
+func (DialogAdapter) OpenDirectoryDialog() (string, error) { return "", nil }

@@ -41,11 +41,11 @@ func newWorkspaceControllerTestFixture(t *testing.T) (*workspace.Manager, *works
 	if err := manager.Initialize(filepath.Join(t.TempDir(), "active")); err != nil {
 		t.Fatal(err)
 	}
-	first, err := manager.Create("first")
+	first, err := workspacefixture.Create(t, manager, "first", t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := manager.Create("second")
+	second, err := workspacefixture.Create(t, manager, "second", t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}

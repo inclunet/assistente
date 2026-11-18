@@ -1,6 +1,7 @@
 package app
 
 import (
+ "assistente/internal/testutil/workspacefixture"
 	"context"
 	"errors"
 	"testing"
@@ -231,7 +232,7 @@ func TestCommandFactBusRealRecusaOwnershipWorkspaceEFonteAusente(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Capture: %v", err)
 		}
-		other, err := manager.Create("outro")
+		other, err := workspacefixture.Create(t, manager, "outro", t.TempDir())
 		if err != nil {
 			t.Fatalf("Create: %v", err)
 		}

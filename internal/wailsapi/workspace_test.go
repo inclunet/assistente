@@ -21,13 +21,11 @@ func TestWorkspaceNotWired(t *testing.T) {
 	if _, err := api.ListWorkspaces(); !errors.Is(err, ErrWorkspaceNotWired) {
 		t.Fatalf("ListWorkspaces: got %v", err)
 	}
-	if _, err := api.CreateWorkspace("x"); !errors.Is(err, ErrWorkspaceNotWired) {
-		t.Fatalf("CreateWorkspace: got %v", err)
-	}
+
 	if _, err := api.SwitchWorkspace("id"); !errors.Is(err, ErrWorkspaceNotWired) {
 		t.Fatalf("SwitchWorkspace: got %v", err)
 	}
-	if err := api.RenameWorkspace("n"); !errors.Is(err, ErrWorkspaceNotWired) {
+	if err := api.RenameWorkspace("id", "n"); !errors.Is(err, ErrWorkspaceNotWired) {
 		t.Fatalf("RenameWorkspace: got %v", err)
 	}
 	if err := api.DeleteWorkspace("id"); !errors.Is(err, ErrWorkspaceNotWired) {
@@ -57,7 +55,7 @@ func TestWorkspaceNotWired(t *testing.T) {
 	if _, err := api.ExportWorkspace(); !errors.Is(err, ErrWorkspaceNotWired) {
 		t.Fatalf("ExportWorkspace: got %v", err)
 	}
-	if _, err := api.ImportWorkspace(""); !errors.Is(err, ErrWorkspaceNotWired) {
+	if _, err := api.ImportWorkspace("", t.TempDir()); !errors.Is(err, ErrWorkspaceNotWired) {
 		t.Fatalf("ImportWorkspace: got %v", err)
 	}
 }
@@ -94,16 +92,13 @@ func TestWorkspaceUsesWithUserNotRequireAuth(t *testing.T) {
 			_, err := api.ListWorkspaces()
 			return err
 		}},
-		{"CreateWorkspace", func() error {
-			_, err := api.CreateWorkspace("x")
-			return err
-		}},
+
 		{"SwitchWorkspace", func() error {
 			_, err := api.SwitchWorkspace("id")
 			return err
 		}},
 		{"RenameWorkspace", func() error {
-			return api.RenameWorkspace("n")
+			return api.RenameWorkspace("id", "n")
 		}},
 		{"DeleteWorkspace", func() error {
 			return api.DeleteWorkspace("id")
@@ -137,7 +132,7 @@ func TestWorkspaceUsesWithUserNotRequireAuth(t *testing.T) {
 			return err
 		}},
 		{"ImportWorkspace", func() error {
-			_, err := api.ImportWorkspace("name: x")
+			_, err := api.ImportWorkspace("name: x", t.TempDir())
 			return err
 		}},
 	}

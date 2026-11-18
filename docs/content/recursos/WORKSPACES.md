@@ -62,14 +62,25 @@ recentes dos de outro desktop; ele não concede acesso às conversas.
 | Ação | Como |
 |---|---|
 | **Criar workspace** | Menu → Novo Workspace |
-| **Alternar workspace** | Menu → selecione o workspace desejado |
-| **Renomear** | Menu → Renomear Workspace ativo |
-| **Deletar** | Menu → Deletar Workspace |
+| **Alternar workspace** | Lista de workspaces na toolbar → selecione e pressione Enter |
+| **Renomear** | Lista de workspaces → F2 no item desejado |
+| **Remover** | Lista de workspaces → Delete e confirmação (somente não ativo) |
 
 Para criar, use **Ctrl+Shift+N**, **Criar workspace** na paleta ou **Novo
 workspace** no menu. Uma tecla do Stream Deck também pode receber essa ação.
 Todas usam o mesmo comando protegido: a lista é atualizada, mas o workspace
 ativo não muda. O atalho pode ser personalizado em Comandos e acionadores.
+Primeiro escolha uma pasta existente, depois informe o nome. Cancelar qualquer
+etapa não cria o workspace. Uma pasta com documento existente não é sobrescrita;
+a pasta do workspace ativo também não pode ser destino de uma nova criação.
+A importação de YAML pede uma pasta de destino e preserva documentos existentes.
+
+A lista tem busca por nome ou pasta. Use setas e Enter para abrir, F2 para
+renomear e Delete para remover, com confirmação. A remoção não apaga conversas,
+banco ou outros arquivos da pasta: remove somente o documento de workspace e
+sua referência na lista. O workspace ativo precisa ser fechado pela troca para
+outro antes de poder ser removido. Avulsos antigos continuam em suas pastas.
+
 
 No picker de comandos, selecione **Listar workspaces** (`workspace.list`).
 O comando consulta o backend pelo executor autenticado e abre o picker com

@@ -178,7 +178,6 @@ const workspaceState = vi.hoisted(() => ({
     workspaceState.workspace = { ...workspaceState.workspace, activeTabId: tabId };
     workspaceState.listeners.forEach((listener) => listener());
   }),
-  createWorkspace: vi.fn(),
   renameWorkspace: vi.fn(),
   exportWorkspace: vi.fn(),
   importWorkspace: vi.fn(),

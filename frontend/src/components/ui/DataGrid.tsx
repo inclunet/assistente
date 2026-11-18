@@ -52,6 +52,8 @@ export interface DataGridProps<T = unknown> {
   selectionMode?: 'list' | 'checkbox';
   onSelectionChange?: (selectedIds: Set<string | number>) => void;
   onActivate?: (item: T, rowIndex: number) => void;
+  /** F2/Delete are handled by the registered application command surface. */
+  commandManagedActions?: boolean;
   onDelete?: (item: T, rowIndex: number) => void;
   onCellAction?: (item: T, column: DataGridColumn<T>, rowIndex: number, colIndex: number) => void;
   onCellEdit?: (item: T, column: DataGridColumn<T>, newValue: string, rowIndex: number, colIndex: number) => void;
@@ -83,6 +85,7 @@ export function DataGrid<T = unknown>({
   onSelectionChange,
   onActivate,
   onDelete,
+  commandManagedActions = false,
   onCellAction,
   onCellEdit,
   onGridReady,
@@ -672,11 +675,13 @@ export function DataGrid<T = unknown>({
       }
 
       case 'Delete':
+        if (commandManagedActions) return;
         event.preventDefault();
         onDelete?.(items[focusedRow], focusedRow);
         return;
 
       case 'F2':
+        if (commandManagedActions) return;
         event.preventDefault();
         startEditing(focusedRow, focusedCol);
         return;

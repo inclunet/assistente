@@ -251,28 +251,6 @@ func (m *Manager) List() ([]WorkspaceInfo, error) {
 	return result, nil
 }
 
-// Create cria um novo workspace avulso (em ~/.assistente/workspaces/<id>/).
-func (m *Manager) Create(name string) (*Workspace, error) {
-	name = strings.TrimSpace(name)
-	if name == "" {
-		return nil, fmt.Errorf("name cannot be empty")
-	}
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	ws := m.newWorkspace(name)
-	wsDir := filepath.Join(m.homeDir, workspacesDir, ws.ID)
-
-	if err := m.saveWorkspace(ws, wsDir); err != nil {
-		return nil, err
-	}
-
-	if err := m.touchIndex(ws, wsDir); err != nil {
-		return nil, err
-	}
-	return ws, nil
-}
-
 // Switch alterna para outro workspace pelo ID.
 func (m *Manager) Switch(workspaceID string) (*Workspace, error) {
 	m.mu.Lock()
@@ -311,30 +289,47 @@ func (m *Manager) Switch(workspaceID string) (*Workspace, error) {
 	return nil, fmt.Errorf("workspace not found: %s", workspaceID)
 }
 
-// Rename renomeia o workspace ativo.
-func (m *Manager) Rename(newName string) error {
+// Rename renomeia a entrada selecionada sem trocar o workspace ativo.
+func (m *Manager) Rename(workspaceID, newName string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-
-	if m.active == nil {
-		return fmt.Errorf("no active workspace")
-	}
 	newName = strings.TrimSpace(newName)
 	if newName == "" {
 		return fmt.Errorf("name cannot be empty")
 	}
-
-	previous := cloneWorkspace(m.active)
-	updated := cloneWorkspace(m.active)
-	updated.Name = newName
-	if err := m.saveWorkspaceForCommand(context.Background(), updated, m.activePath); err != nil {
+	index, err := m.loadIndex()
+	if err != nil {
 		return err
 	}
-	if err := m.touchIndex(updated, m.activePath); err != nil {
-		return errors.Join(err, m.saveWorkspaceForCommand(context.Background(), previous, m.activePath))
+	for i, entry := range index.Workspaces {
+		if entry.ID != workspaceID {
+			continue
+		}
+		ws, err := m.loadWorkspaceFile(filepath.Join(entry.Path, assistenteDir, workspaceFile))
+		if err != nil {
+			return err
+		}
+		if ws.ID != workspaceID {
+			return fmt.Errorf("workspace document identity changed")
+		}
+		if m.active != nil && m.active.ID == workspaceID {
+			ws = cloneWorkspace(m.active)
+		}
+		previous := cloneWorkspace(ws)
+		ws.Name = newName
+		if err := m.saveWorkspaceForCommand(context.Background(), ws, entry.Path); err != nil {
+			return err
+		}
+		index.Workspaces[i].Name = newName
+		if err := m.saveIndex(index); err != nil {
+			return errors.Join(err, m.saveWorkspaceForCommand(context.Background(), previous, entry.Path))
+		}
+		if m.active != nil && m.active.ID == workspaceID {
+			m.active.Name = newName
+		}
+		return nil
 	}
-	m.active.Name = newName
-	return nil
+	return fmt.Errorf("workspace not found: %s", workspaceID)
 }
 
 // Delete remove um workspace pelo ID (não pode ser o ativo).
@@ -894,7 +889,7 @@ func (m *Manager) ExportWorkspace() ([]byte, error) {
 
 // ImportWorkspace cria um novo workspace a partir de dados YAML exportados.
 // Gera novos IDs para o workspace e todas as abas, zerando content_id (conteúdo é local).
-func (m *Manager) ImportWorkspace(data []byte) (*Workspace, error) {
+func (m *Manager) ImportWorkspace(data []byte, directory string) (*Workspace, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -929,15 +924,7 @@ func (m *Manager) ImportWorkspace(data []byte) (*Workspace, error) {
 		ws.Tabs.Active = ws.Tabs.Items[0].ID
 	}
 
-	wsDir := filepath.Join(m.homeDir, workspacesDir, ws.ID)
-	if err := m.saveWorkspace(ws, wsDir); err != nil {
-		return nil, err
-	}
-
-	if err := m.touchIndex(ws, wsDir); err != nil {
-		return nil, err
-	}
-	return ws, nil
+	return m.createInDirectoryLocked(context.Background(), ws, directory)
 }
 
 // === Persistência YAML ===
@@ -1181,11 +1168,6 @@ func (m *Manager) saveWorkspace(ws *Workspace, basePath string) error {
 	}
 
 	return os.WriteFile(filepath.Join(dir, workspaceFile), data, 0644)
-}
-
-// touchIndex atualiza ou adiciona a entrada do workspace no índice global.
-func (m *Manager) touchIndex(ws *Workspace, basePath string) error {
-	return m.touchIndexPreservingLast(ws, basePath, "")
 }
 
 func (m *Manager) touchIndexPreservingLast(ws *Workspace, basePath, lastOpened string) error {

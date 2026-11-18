@@ -1,6 +1,7 @@
 package app
 
 import (
+ "assistente/internal/testutil/workspacefixture"
 	"bytes"
 	"context"
 	"encoding/base64"
@@ -138,7 +139,7 @@ func TestCommandProductOldRuntimeRejectsAfterWorkspaceSwitchAndRemounts(t *testi
 	a := readyCommandProduct(t)
 	ctx := context.Background()
 	previous := a.commandProduct.Load()
-	second, err := a.workspaceMgr.Create("remount-workspace")
+	second, err := workspacefixture.Create(t, a.workspaceMgr, "remount-workspace", t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}

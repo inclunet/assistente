@@ -53,3 +53,7 @@ func (a *DialogAdapter) SaveFileDialog(opts ports.SaveFileOptions) (string, erro
 		Filters:         filters,
 	})
 }
+
+func (a *DialogAdapter) OpenDirectoryDialog() (string, error) {
+	return wailsruntime.OpenDirectoryDialog(a.ctx, wailsruntime.OpenDialogOptions{})
+}

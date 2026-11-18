@@ -659,7 +659,7 @@ func TestWorkspaceMethodsNotOnUnauthAllowlist(t *testing.T) {
 	for _, name := range []string{
 		"GetActiveWorkspace",
 		"ListWorkspaces",
-		"CreateWorkspace",
+		"SelectWorkspaceDirectory",
 		"SwitchWorkspace",
 		"RenameWorkspace",
 		"DeleteWorkspace",

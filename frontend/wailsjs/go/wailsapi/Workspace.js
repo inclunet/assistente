@@ -6,10 +6,6 @@ export function AddWorkspaceTab(arg1) {
   return window['go']['wailsapi']['Workspace']['AddWorkspaceTab'](arg1);
 }
 
-export function CreateWorkspace(arg1) {
-  return window['go']['wailsapi']['Workspace']['CreateWorkspace'](arg1);
-}
-
 export function DeleteWorkspace(arg1) {
   return window['go']['wailsapi']['Workspace']['DeleteWorkspace'](arg1);
 }
@@ -22,8 +18,8 @@ export function GetActiveWorkspace() {
   return window['go']['wailsapi']['Workspace']['GetActiveWorkspace']();
 }
 
-export function ImportWorkspace(arg1) {
-  return window['go']['wailsapi']['Workspace']['ImportWorkspace'](arg1);
+export function ImportWorkspace(arg1, arg2) {
+  return window['go']['wailsapi']['Workspace']['ImportWorkspace'](arg1, arg2);
 }
 
 export function ListWorkspaces() {
@@ -38,8 +34,8 @@ export function RemoveWorkspaceTab(arg1) {
   return window['go']['wailsapi']['Workspace']['RemoveWorkspaceTab'](arg1);
 }
 
-export function RenameWorkspace(arg1) {
-  return window['go']['wailsapi']['Workspace']['RenameWorkspace'](arg1);
+export function RenameWorkspace(arg1, arg2) {
+  return window['go']['wailsapi']['Workspace']['RenameWorkspace'](arg1, arg2);
 }
 
 export function ReorderWorkspaceTabs(arg1) {
@@ -48,6 +44,10 @@ export function ReorderWorkspaceTabs(arg1) {
 
 export function SaveWorkspace() {
   return window['go']['wailsapi']['Workspace']['SaveWorkspace']();
+}
+
+export function SelectWorkspaceDirectory() {
+  return window['go']['wailsapi']['Workspace']['SelectWorkspaceDirectory']();
 }
 
 export function SetActiveWorkspaceTab(arg1) {

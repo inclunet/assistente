@@ -148,7 +148,7 @@ func TestListPreservesMissingDocumentsUntilExplicitRemoval(t *testing.T) {
 	if err := m.Initialize(t.TempDir()); err != nil {
 		t.Fatal(err)
 	}
-	removed, err := m.Create("removed")
+	removed, err := m.createForTest("removed", t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}

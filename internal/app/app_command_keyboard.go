@@ -505,7 +505,7 @@ func (a *App) captureLocalKeyboardContext(observed LocalCommandKeyboardContext) 
 		return nil, commandexecution.ErrDenied
 	}
 	routeSurface, knownPage := localKeyboardRouteSurface(observed.AppPage)
-	routePageContext := observed.SurfaceID == "command-toolbar" && knownPage && (observed.SurfaceType == routeSurface || observed.AppPage == "settings" && (observed.SurfaceType == "providers" || observed.SurfaceType == "allowlists"))
+	routePageContext := observed.SurfaceID == "command-toolbar" && (knownPage || observed.AppPage == "workspace") && (observed.SurfaceType == "workspaces" || observed.SurfaceType == routeSurface || observed.AppPage == "settings" && (observed.SurfaceType == "providers" || observed.SurfaceType == "allowlists"))
 	workspaceTabContext := observed.SurfaceID != "" && observed.SurfaceID != "command-toolbar" && localKeyboardWorkspaceSurface(observed.SurfaceType)
 	if !routePageContext && !workspaceTabContext {
 		return nil, commandexecution.ErrDenied
@@ -659,13 +659,16 @@ func contextualKeyboardBinding(ctx context.Context, configuration *commandbindin
 				} else {
 					branchValues = make([]string, 0, len(values))
 					for _, value := range values {
-						if localKeyboardWorkspaceSurface(value) {
+						if localKeyboardWorkspaceSurface(value) || value == "workspaces" {
 							branchValues = append(branchValues, value)
 						}
 					}
 				}
 			} else if routeSurface, ok := localKeyboardRouteSurface(appPage); ok {
 				branchValues = []string{routeSurface}
+				if slices.Contains(values, "workspaces") {
+					branchValues = append(branchValues, "workspaces")
+				}
 				if appPage == "settings" {
 					branchValues = append(branchValues, "providers", "allowlists")
 				}
@@ -1005,7 +1008,7 @@ func localCommandShortcutAllowed(shortcut LocalCommandShortcut) bool {
 		return false
 	}
 	if len(shortcut.Modifiers) == 0 {
-		return shortcut.Code == "F1" || shortcut.Code == "F5" || shortcut.Code == "F6"
+		return shortcut.Code == "F1" || shortcut.Code == "F2" || shortcut.Code == "F5" || shortcut.Code == "F6" || shortcut.Code == "Delete"
 	}
 	if shortcut.Code == "F6" && len(shortcut.Modifiers) == 1 && shortcut.Modifiers[0] == "Shift" {
 		return true

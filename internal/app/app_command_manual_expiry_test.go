@@ -1,6 +1,7 @@
 package app
 
 import (
+ "assistente/internal/testutil/workspacefixture"
 	"context"
 	"testing"
 	"time"
@@ -155,7 +156,7 @@ func TestCommandManualSessionSurvivesRebuildButNotRestart(t *testing.T) {
 	if err := a.rebuildCommandLifecycleProjection(a.ctx, false); err != nil {
 		t.Fatal(err)
 	}
-	other, err := a.workspaceMgr.Create("Outra área de trabalho")
+	other, err := workspacefixture.Create(t, a.workspaceMgr, "Outra área de trabalho", t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}

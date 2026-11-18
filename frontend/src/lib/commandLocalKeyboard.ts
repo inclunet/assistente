@@ -145,7 +145,7 @@ function hasCommandModifier(shortcut: Pick<CommandShortcut, 'code' | 'modifiers'
 }
 
 function isBareWhitelistedFunctionKey(shortcut: Pick<CommandShortcut, 'code' | 'modifiers'>): boolean {
-  return ((shortcut.code === 'F1' || shortcut.code === 'F5') && shortcut.modifiers.length === 0) ||
+  return ((shortcut.code === 'F1' || shortcut.code === 'F2' || shortcut.code === 'F5' || shortcut.code === 'Delete') && shortcut.modifiers.length === 0) ||
     (shortcut.code === 'F6' && (shortcut.modifiers.length === 0 ||
       shortcut.modifiers.length === 1 && shortcut.modifiers[0] === 'Shift'));
 }
@@ -282,6 +282,7 @@ function safeContextKey(value: string): boolean {
 const WORKSPACE_SURFACE_TYPES = new Set(['chat', 'editor', 'terminal', 'tasklist']);
 
 function appPageAllowsSurfaceType(page: import('./commandAppPage').AppPage, surfaceType: string): boolean {
+  if (surfaceType === 'workspaces') return true;
   switch (page) {
     case 'settings': return surfaceType === 'toolbar' || surfaceType === 'providers';
     case 'profiles': return surfaceType === 'profiles';

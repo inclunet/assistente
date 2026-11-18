@@ -20,3 +20,7 @@ func (DialogAdapter) OpenFileDialog(_ ports.OpenFileOptions) (string, error) {
 func (DialogAdapter) SaveFileDialog(_ ports.SaveFileOptions) (string, error) {
 	return "", fmt.Errorf("diálogos de arquivo não disponíveis no modo CLI; informe o caminho via argumento ou flag do comando")
 }
+
+func (DialogAdapter) OpenDirectoryDialog() (string, error) {
+	return "", fmt.Errorf("seleção de pasta não disponível no modo CLI")
+}

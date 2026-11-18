@@ -108,7 +108,7 @@ func TestWorkspaceIndexUsesReopenedDatabaseConnection(t *testing.T) {
 	if err != nil || len(list) != 1 {
 		t.Fatalf("reopened index: %v %v", list, err)
 	}
-	if err := m.Rename("Após reabertura"); err != nil {
+	if err := m.Rename(m.ActiveID(), "Após reabertura"); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -127,7 +127,7 @@ func TestRenameIndexFailureRestoresDocumentAndMemory(t *testing.T) {
 	if err := m.indexDB().Exec("CREATE TRIGGER deny_workspace_update BEFORE UPDATE ON desktop_workspace_states BEGIN SELECT RAISE(ABORT, 'injected'); END").Error; err != nil {
 		t.Fatal(err)
 	}
-	if err := m.Rename("Should fail"); err == nil {
+	if err := m.Rename(m.ActiveID(), "Should fail"); err == nil {
 		t.Fatal("write failure hidden")
 	}
 	after, err := os.ReadFile(path)
@@ -199,13 +199,13 @@ func TestWorkspaceRejectsBlankNameBeforePersisting(t *testing.T) {
 		t.Fatal(err)
 	}
 	before, _ := m.List()
-	if _, err := m.Create("   "); err == nil {
+	if _, err := m.createForTest("   ", t.TempDir()); err == nil {
 		t.Fatal("blank create accepted")
 	}
-	if _, err := m.ImportWorkspace([]byte("{}")); err == nil {
+	if _, err := m.ImportWorkspace([]byte("{}"), t.TempDir()); err == nil {
 		t.Fatal("nameless import accepted")
 	}
-	if err := m.Rename("   "); err == nil {
+	if err := m.Rename(m.ActiveID(), "   "); err == nil {
 		t.Fatal("blank rename accepted")
 	}
 	after, err := m.List()
@@ -219,7 +219,7 @@ func TestDeleteRollbackPreservesConcurrentDocument(t *testing.T) {
 	if err := m.Initialize(""); err != nil {
 		t.Fatal(err)
 	}
-	ws, err := m.Create("Remover")
+	ws, err := m.createForTest("Remover", t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}

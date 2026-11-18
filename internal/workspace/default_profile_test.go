@@ -18,7 +18,7 @@ func TestDefaultProfileIsRuntimeProjectionAcrossWorkspaces(t *testing.T) {
 		t.Fatal(err)
 	}
 	original := manager.Active().ID
-	other, err := manager.Create("Outro")
+	other, err := manager.createForTest("Outro", t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}

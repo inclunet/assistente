@@ -59,7 +59,7 @@ func TestAddTerminalTabForCommandRecusaSnapshotStaleEABA(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		other, err := manager.Create("Outro workspace")
+		other, err := manager.createForTest("Outro workspace", t.TempDir())
 		if err != nil {
 			t.Fatal(err)
 		}

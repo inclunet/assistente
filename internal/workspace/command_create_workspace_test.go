@@ -46,7 +46,7 @@ func TestCreateForCommandPersistsWithoutChangingActiveWorkspace(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	created, err := m.CreateForCommand(context.Background(), expected, "Novo workspace")
+	created, err := m.CreateForCommand(context.Background(), expected, "Novo workspace", t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -81,18 +81,18 @@ func TestCreateForCommandRejectsNilCanceledAndStale(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CommandSnapshot: %v", err)
 	}
-	if _, err := manager.CreateForCommand(nil, expected, "nil context"); !errors.Is(err, ErrCommandCreateWorkspaceNilContext) { //nolint:staticcheck // Verifica a rejeição explícita de contexto nil.
+	if _, err := manager.CreateForCommand(nil, expected, "nil context", t.TempDir()); !errors.Is(err, ErrCommandCreateWorkspaceNilContext) { //nolint:staticcheck // Verifica a rejeição explícita de contexto nil.
 		t.Fatalf("nil context error: %v", err)
 	}
 	canceled, cancel := context.WithCancel(context.Background())
 	cancel()
-	if _, err := manager.CreateForCommand(canceled, expected, "canceled"); !errors.Is(err, context.Canceled) {
+	if _, err := manager.CreateForCommand(canceled, expected, "canceled", t.TempDir()); !errors.Is(err, context.Canceled) {
 		t.Fatalf("canceled context error: %v", err)
 	}
 	if err := manager.AddTab(Tab{ID: "stale-tab", Type: TabTypeChat}); err != nil {
 		t.Fatalf("AddTab: %v", err)
 	}
-	if _, err := manager.CreateForCommand(context.Background(), expected, "stale"); !errors.Is(err, ErrCommandCreateWorkspaceStale) {
+	if _, err := manager.CreateForCommand(context.Background(), expected, "stale", t.TempDir()); !errors.Is(err, ErrCommandCreateWorkspaceStale) {
 		t.Fatalf("stale snapshot error: %v", err)
 	}
 }
@@ -111,7 +111,7 @@ func TestCreateForCommandIndexReadFailureCompensates(t *testing.T) {
 	if err := sqlDB.Close(); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := m.CreateForCommand(context.Background(), expected, "failure"); err == nil {
+	if _, err := m.CreateForCommand(context.Background(), expected, "failure", t.TempDir()); err == nil {
 		t.Fatal("closed database accepted write")
 	}
 	if got := commandWorkspaceDirCount(t, home); got != before {

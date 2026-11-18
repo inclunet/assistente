@@ -1,4 +1,5 @@
 import { useCallback, useId, useLayoutEffect, useRef, type RefObject } from 'react';
+import { resolveAppPage } from './commandAppPage';
 import { useAuthStore } from '../store/authStore';
 import { useWorkspaceStore } from '../store/workspaceStore';
 import { ReadFocusContext, ReadProfileContext } from './commandContextProviders';
@@ -7,7 +8,9 @@ import type { LocalCommandContextLease } from './commandLocalKeyboard';
 
 export const COMMAND_SETTINGS_CREATE_COMMAND_ID = 'command_settings.create.open';
 
+export const WORKSPACE_LIST_COMMAND_IDS = ['workspaces.rename.open', 'workspaces.delete.open'] as const;
 export const PAGE_PRESENTATION_COMMAND_IDS = [
+  ...WORKSPACE_LIST_COMMAND_IDS,
 	'allowlists.create.open',
   COMMAND_SETTINGS_CREATE_COMMAND_ID,
   'providers.create.open', 'providers.api.create.open', 'providers.acp.create.open', 'providers.chatgpt.create.open',
@@ -27,6 +30,7 @@ export interface PagePresentationOptions {
   tabId?: string;
   /** Only explicitly registered managers may own this narrow topmost scope. */
   settingsManager?: boolean;
+  workspaceManager?: boolean;
   allowedCommands: readonly PagePresentationCommandID[];
   readTarget(): unknown;
   isCurrent(): boolean;
@@ -48,16 +52,21 @@ function identity(source: Source): string | undefined {
   const ws = useWorkspaceStore.getState().workspace;
   const modal = getModalRegistrySnapshot();
   const managerRoot = source.root.closest('[data-modal-id]');
-  const ownsManager = options.settingsManager === true &&
+  const ownsSettingsManager = options.settingsManager === true &&
     options.allowedCommands.length === 1 && (
       (options.pathname === '/settings/commands' && options.allowedCommands[0] === COMMAND_SETTINGS_CREATE_COMMAND_ID) ||
       (options.pathname === '/settings/permissions' && options.allowedCommands[0] === 'allowlists.create.open')
     ) &&
     modal.topID !== null && managerRoot?.getAttribute('data-modal-id') === modal.topID &&
     managerRoot.contains(document.activeElement);
+  const ownsWorkspaceManager = options.workspaceManager === true &&
+    options.allowedCommands.length === WORKSPACE_LIST_COMMAND_IDS.length &&
+    options.allowedCommands.every(id => (WORKSPACE_LIST_COMMAND_IDS as readonly string[]).includes(id)) &&
+    modal.topID !== null && managerRoot?.getAttribute('data-modal-id') === modal.topID &&
+    managerRoot.contains(document.activeElement);
   if (!auth.isAuthenticated || !auth.user || !ws || !options.isCurrent() ||
       !source.root.isConnected || source.root.closest('[hidden],[inert],[aria-hidden="true"]') ||
-      (options.settingsManager ? !ownsManager : modal.topID !== null) ||
+      ((options.settingsManager || options.workspaceManager) ? !(ownsSettingsManager || ownsWorkspaceManager) : modal.topID !== null) ||
       (options.tabId && ws.activeTabId !== options.tabId)) return;
   for (let element: HTMLElement | null = source.root; element; element = element.parentElement) {
     const style = getComputedStyle(element);
@@ -69,25 +78,31 @@ function identity(source: Source): string | undefined {
 /** A modal scope carries only this presentation command, never backend authority. */
 export function captureCommandSettingsKeyboardContext(readPathname: () => string): LocalCommandContextLease | undefined {
   const path = readPathname();
-  const commandID = path === '/settings/permissions' ? 'allowlists.create.open' : COMMAND_SETTINGS_CREATE_COMMAND_ID;
+  const commandID: PagePresentationCommandID = path === '/settings/permissions' ? 'allowlists.create.open' : COMMAND_SETTINGS_CREATE_COMMAND_ID;
   if (!document.hasFocus() || ReadFocusContext().composition === 'active') return;
-  const candidates = [...sources].filter(source => source.options().settingsManager &&
-    source.options().pathname === path && identity(source) && source.options().canOpen(commandID));
+  const candidates = [...sources].filter(source =>
+    (source.options().workspaceManager || source.options().settingsManager) &&
+    source.options().pathname === path && identity(source) &&
+    source.options().allowedCommands.some(id => source.options().canOpen(id)));
   if (candidates.length !== 1) return;
   const source = candidates[0];
+  const workspaceManager = source.options().workspaceManager === true;
+  const allowed = workspaceManager ? WORKSPACE_LIST_COMMAND_IDS : [commandID];
+  const appPage = resolveAppPage(path);
+  if (!appPage) return;
   const capturedIdentity = identity(source);
   const target = source.options().readTarget();
   const profile = ReadProfileContext()?.slug;
   const focus = document.activeElement;
   return {
     surfaceId: 'command-toolbar',
-    surfaceType: commandID === 'allowlists.create.open' ? 'allowlists' : 'toolbar', appPage: 'settings',
-    ...(profile ? { profile } : {}), allowedCommandIds: [commandID],
+    surfaceType: workspaceManager ? 'workspaces' : commandID === 'allowlists.create.open' ? 'allowlists' : 'toolbar', appPage,
+    ...(profile ? { profile } : {}), allowedCommandIds: allowed,
     isCurrent: () => sources.has(source) && path === readPathname() &&
       identity(source) === capturedIdentity && source.options().readTarget() === target &&
       document.hasFocus() && document.activeElement === focus &&
       ReadFocusContext().composition !== 'active' && ReadProfileContext()?.slug === profile &&
-      source.options().canOpen(commandID),
+      allowed.some(id => source.options().canOpen(id)),
   };
 }
 export function capturePagePresentationTarget(readPathname: () => string, commandID: string, instanceId?: string): PagePresentationTarget | undefined {
