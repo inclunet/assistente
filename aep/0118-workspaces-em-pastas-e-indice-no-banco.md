@@ -156,3 +156,7 @@ Duas rodadas adicionais do revisor independente corrigiram a recaptura da
 sessão; a última terminou sem pendências. O CI de `61ed0977e` passou completo
 ([44237718027](https://github.com/inclunet/assistente/actions/runs/44237718027));
 o PR registra a validação remota deste complemento.
+
+O aviso de recuperação já visível também é removido sincronicamente no logout
+ou troca de sessão, sem remover avisos de outros recursos. O hook limpa seus
+próprios avisos ao desmontar; testes cobrem esses três caminhos.

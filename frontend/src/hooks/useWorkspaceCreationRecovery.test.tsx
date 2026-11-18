@@ -19,3 +19,19 @@ it('mostra aviso não bloqueante apenas ao proprietário atual e remove a assina
   expect(toast).toHaveBeenCalledTimes(1);
   hook.unmount(); expect(events.off).toHaveBeenCalled();
 });
+
+it.each(['logout', 'session', 'unmount'])('remove somente os próprios avisos em %s', change => {
+  useUIStore.setState({ toasts: [] });
+  useAuthStore.setState({ isAuthenticated: true, user: { userId: 'u', sessionId: 's', role: 'user' } });
+  const unrelated = useUIStore.getState().addToast('unrelated', 'info');
+  const hook = renderHook(useWorkspaceCreationRecovery);
+  act(() => events.listener?.({ userId: 'u', sessionId: 's', path: 'C:/private/workspace.yaml' }));
+  expect(useUIStore.getState().toasts).toHaveLength(2);
+  if (change === 'unmount') hook.unmount();
+  else act(() => {
+    if (change === 'logout') useAuthStore.setState({ isAuthenticated: false, user: null });
+    else useAuthStore.setState({ user: { userId: 'u', sessionId: 'new', role: 'user' } });
+    expect(useUIStore.getState().toasts.map(toast => toast.id)).toEqual([unrelated]);
+  });
+  expect(useUIStore.getState().toasts.map(toast => toast.id)).toEqual([unrelated]);
+});
