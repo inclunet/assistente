@@ -212,3 +212,19 @@ Evidências:
 - diagnóstico de provider/modelo/limite/usage/tamanho:
   testes dos transports em `internal/llm` e
   `internal/agent/service_stats_test.go`.
+
+
+## Regressão de argumentos finais em Responses (18/11/2026)
+
+O adapter compartilhado por OpenAI Responses e ChatGPT usa os argumentos de
+`response.function_call_arguments.done` ao finalizar uma chamada local. Esse
+snapshot final substitui os deltas acumulados; não é concatenado nem reconstruído.
+Argumentos finais inválidos ou vazios continuam sujeitos à validação do executor,
+sem fallback para deltas aparentemente válidos. O motivo terminal da resposta
+continua autoritativo: receber argumentos completos não libera um lote interrompido
+por limite de saída.
+
+Evidência: `TestResponsesUsesFinalFunctionArguments` cobre ambos os provedores,
+identidade da chamada, deltas completos/ausentes/parciais/divergentes, argumentos
+finais inválidos/vazios e o lifecycle até `response.completed`. As provas do loop
+sobre limites de saída e rejeição de JSON inválido permanecem vigentes. Status Done.

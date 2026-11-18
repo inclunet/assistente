@@ -168,6 +168,8 @@ conclusão ou cancele naquela instância antes de excluir ou desconectar o prove
 Se o aplicativo encerrar durante o consentimento, tente novamente após até cinco
 minutos, quando a reserva da tentativa expira.
 
+Nas chamadas de ferramentas com ChatGPT ou OpenAI Responses, o Assistente usa os argumentos finalizados pelo provedor. Argumentos inválidos são recusados antes da execução. Uma resposta interrompida por limite de saída não autoriza a execução de chamadas incompletas.
+
 ## Provedores Suportados
 
 ### Perfis do catálogo
