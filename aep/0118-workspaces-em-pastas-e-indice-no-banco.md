@@ -168,3 +168,17 @@ o diálogo não repete esse anúncio. A chave de tradução exclusiva do anúnci
 duplicado foi retirada nos três idiomas. `WorkspaceListDialog.test.tsx` observa
 as chamadas do store e do componente no mesmo anunciador, provando uma única
 confirmação no sucesso e somente erro quando a remoção falha. Status: Done.
+
+### Organização do ciclo de vida da lista
+
+O hook `useWorkspaceList` concentra abertura, revogação de callbacks antigos,
+troca assíncrona e restauração de foco após desmontar o modal. A Topbar mantém
+a admissão e a validação da origem dos comandos. O diálogo mantém seleção,
+busca e operações de renomear/remover; estado React controla a apresentação e
+uma referência bloqueia comandos repetidos antes do render. Persistência e
+regras de workspace continuam nos contratos existentes do store/backend.
+
+A cobertura de `Topbar.test.tsx`, `Topbar.palette.integration.test.tsx` e
+`WorkspaceListDialog.test.tsx` verifica sessão, rota, modal proprietário,
+seleção obsoleta, foco após troca assíncrona e ações da lista. Esta organização
+preserva o comportamento entregue; status permanece Done.
