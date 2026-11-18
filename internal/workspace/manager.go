@@ -253,6 +253,10 @@ func (m *Manager) List() ([]WorkspaceInfo, error) {
 
 // Create cria um novo workspace avulso (em ~/.assistente/workspaces/<id>/).
 func (m *Manager) Create(name string) (*Workspace, error) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return nil, fmt.Errorf("name cannot be empty")
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -315,6 +319,7 @@ func (m *Manager) Rename(newName string) error {
 	if m.active == nil {
 		return fmt.Errorf("no active workspace")
 	}
+	newName = strings.TrimSpace(newName)
 	if newName == "" {
 		return fmt.Errorf("name cannot be empty")
 	}
@@ -385,8 +390,8 @@ func (m *Manager) Delete(workspaceID string) error {
 	}
 	if err := m.saveIndex(idx); err != nil {
 		if renamed {
-			if restoreErr := os.Rename(backup, wsFile); restoreErr != nil {
-				return errors.Join(err, fmt.Errorf("restore workspace document: %w", restoreErr))
+			if restoreErr := publishNewWorkspaceDocument(backup, wsFile); restoreErr != nil {
+				return errors.Join(err, fmt.Errorf("restore workspace document; backup preserved at %s: %w", backup, restoreErr))
 			}
 		}
 		return err
@@ -896,6 +901,11 @@ func (m *Manager) ImportWorkspace(data []byte) (*Workspace, error) {
 	var imported Workspace
 	if err := yaml.Unmarshal(data, &imported); err != nil {
 		return nil, fmt.Errorf("invalid workspace data: %w", err)
+	}
+
+	imported.Name = strings.TrimSpace(imported.Name)
+	if imported.Name == "" {
+		return nil, fmt.Errorf("name cannot be empty")
 	}
 
 	// Gera novos IDs

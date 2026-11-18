@@ -97,3 +97,10 @@ build, vet e lint do recorte sem pendências. ACP permanece exclusivo do CI.
 - [ ] Limpeza remove somente legado migrado; pasta com conteúdo é preservada.
 - [ ] Atalhos permanecem no catálogo/resolvedor do AEP-0103; formulários seguem AEP-0091.
 - [ ] Testes ACP são executados exclusivamente no CI remoto.
+
+Revisão remota adicional: nomes vazios são recusados antes da persistência e o
+rollback da exclusão usa publicação sem substituição. Se outra instância criar
+um documento no intervalo, ambos são preservados e o erro identifica o backup.
+Contraprovas em `TestWorkspaceRejectsBlankNameBeforePersisting` e
+`TestDeleteRollbackPreservesConcurrentDocument`. Revisor independente, sétima
+rodada: sem defeitos de produção; ajuste errcheck no teste aplicado.

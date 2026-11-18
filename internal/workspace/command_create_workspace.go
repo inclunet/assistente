@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -47,6 +48,10 @@ func (m *Manager) CreateForCommand(ctx context.Context, expected CommandSnapshot
 		return nil, ErrCommandCreateWorkspaceStale
 	}
 
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return nil, fmt.Errorf("name cannot be empty")
+	}
 	ws := m.newWorkspace(name)
 	workspaceDir := filepath.Join(m.homeDir, workspacesDir, ws.ID)
 	if err := os.MkdirAll(filepath.Join(m.homeDir, workspacesDir), 0755); err != nil {

@@ -2,8 +2,10 @@ package workspace
 
 import (
 	"bytes"
+	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 
@@ -188,5 +190,78 @@ func TestLegacyIndexCleanupPreservesDirectorySymlink(t *testing.T) {
 	}
 	if data, err := os.ReadFile(filepath.Join(link, "keep")); err != nil || string(data) != "legacy" {
 		t.Fatalf("legacy content inaccessible: %v", err)
+	}
+}
+
+func TestWorkspaceRejectsBlankNameBeforePersisting(t *testing.T) {
+	m := newTestManager(t, filepath.Join(t.TempDir(), assistenteDir))
+	if err := m.Initialize(""); err != nil {
+		t.Fatal(err)
+	}
+	before, _ := m.List()
+	if _, err := m.Create("   "); err == nil {
+		t.Fatal("blank create accepted")
+	}
+	if _, err := m.ImportWorkspace([]byte("{}")); err == nil {
+		t.Fatal("nameless import accepted")
+	}
+	if err := m.Rename("   "); err == nil {
+		t.Fatal("blank rename accepted")
+	}
+	after, err := m.List()
+	if err != nil || len(before) != len(after) {
+		t.Fatalf("index changed: %v", err)
+	}
+}
+
+func TestDeleteRollbackPreservesConcurrentDocument(t *testing.T) {
+	m := newTestManager(t, filepath.Join(t.TempDir(), assistenteDir))
+	if err := m.Initialize(""); err != nil {
+		t.Fatal(err)
+	}
+	ws, err := m.Create("Remover")
+	if err != nil {
+		t.Fatal(err)
+	}
+	entries, _ := m.List()
+	var path string
+	for _, entry := range entries {
+		if entry.ID == ws.ID {
+			path = filepath.Join(entry.Path, assistenteDir, workspaceFile)
+		}
+	}
+	original, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	db := m.indexDB()
+	const callback = "test:concurrent_workspace_publication"
+	if err := db.Callback().Update().Before("gorm:update").Register(callback, func(tx *gorm.DB) {
+		if tx.Statement.Table != "desktop_workspace_states" {
+			return
+		}
+		if err := os.WriteFile(path, []byte("concurrent document"), 0600); err != nil {
+			t.Error(err)
+		}
+		_ = tx.AddError(errors.New("injected index failure"))
+	}); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Callback().Update().Remove(callback) })
+	err = m.Delete(ws.ID)
+	if err == nil || !strings.Contains(err.Error(), "backup preserved at") {
+		t.Fatalf("delete=%v", err)
+	}
+	content, readErr := os.ReadFile(path)
+	if readErr != nil || string(content) != "concurrent document" {
+		t.Fatalf("concurrent content lost: %v", readErr)
+	}
+	backups, _ := filepath.Glob(path + ".removing-*")
+	if len(backups) != 1 {
+		t.Fatalf("backups=%v", backups)
+	}
+	backup, err := os.ReadFile(backups[0])
+	if err != nil || !bytes.Equal(backup, original) {
+		t.Fatalf("backup lost: %v", err)
 	}
 }
