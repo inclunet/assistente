@@ -6,6 +6,8 @@ import { Button } from '../components/ui/Button';
 import { DataGrid } from '../components/ui/DataGrid';
 import { DialogActions } from '../components/ui/DialogActions';
 import { Modal } from '../components/ui/Modal';
+import PluginRepositories from './PluginRepositories';
+import { Tabs, Tab, TabList, TabPanel } from '../components/ui/tabs/Tabs';
 import { Toolbar } from '../components/ui/Toolbar';
 import { useConfirm } from '../hooks/useConfirm';
 import { useAnnouncer } from '../hooks/useAnnouncer';
@@ -29,6 +31,8 @@ function InstalledPlugins() {
   const { t } = useTranslation();
   const { announce } = useAnnouncer();
   const confirm = useConfirm();
+  const [section, setSection] = useState('installed');
+  const catalogOpener = useRef<HTMLElement | null>(null);
   const [items, setItems] = useState<database.PluginInstallation[]>([]);
   const [preview, setPreview] = useState<wailsapi.PluginPreview | null>(null);
   const [details, setDetails] = useState<{ installation: database.PluginInstallation; components: plugins.Component[] } | null>(null);
@@ -43,7 +47,8 @@ function InstalledPlugins() {
   useEffect(() => {
     if (!preview && !busy && restoreFocus.current) {
       restoreFocus.current = false;
-      chooseButton.current?.focus();
+      if (catalogOpener.current?.isConnected) catalogOpener.current.focus(); else chooseButton.current?.focus();
+      catalogOpener.current = null;
     }
   }, [preview, busy]);
   const refresh = useCallback(async () => {
@@ -197,13 +202,19 @@ function InstalledPlugins() {
     }
   };
   return <section aria-label={t('menu.plugins')}>
+    <Tabs value={section} onValueChange={setSection}>
+      <TabList ariaLabel={t('menu.plugins')}>{['installed','catalog','repositories'].map(value => <Tab value={value} key={value}>{t('plugins.' + value)}</Tab>)}</TabList>
+      <TabPanel value="installed">{section === 'installed' && <>
     <Toolbar left={<h1 className="page-toolbar__title">{t('menu.plugins')}</h1>}
       right={<Button ref={chooseButton} onClick={() => void inspect()} disabled={busy}>{t('plugins.choose')}</Button>} />
     <h2>{t('plugins.installed')}</h2>
-    {!preview && !details && error && <><p>{t(error)}</p>{retrySync}</>}
     {items.length > 0 ? <DataGrid items={items} onActivate={row => void openDetails(row)} getItemId={row => row.id} label={t('plugins.installed')}
       columns={[{ key: 'name', label: t('plugins.name') }, { key: 'version', label: t('plugins.version') }, { key: 'origin', label: t('plugins.origin') }]} />
       : !busy && !error && <p>{t('plugins.empty')}</p>}
+      </>}</TabPanel>
+      {['catalog','repositories'].map(value => <TabPanel key={value} value={value}>{section === value && <PluginRepositories key={value} catalog={value === 'catalog'} onPreview={(selection, opener) => { catalogOpener.current = opener; setError(''); setPreview(selection); }} />}</TabPanel>)}
+    </Tabs>
+    {!preview && !details && error && <><p>{t(error)}</p>{retrySync}</>}
     {details && <Modal isOpen title={details.installation.name} onClose={() => setDetails(null)} allowClose={!busy} readingMode>
       {error && <><p>{t(error)}</p>{retrySync}</>}
       {details.installation.disabled && <p>{t('plugins.disabledNotice')}</p>}
@@ -230,6 +241,7 @@ function InstalledPlugins() {
         <dt>{t('plugins.origin')}</dt><dd>{preview.origin}</dd>
         {preview.version && <><dt>{t('plugins.version')}</dt><dd>{preview.version}</dd></>}
         {preview.previousDigest && <><dt>{t('plugins.previous')}</dt><dd>{preview.previousDigest}</dd></>}
+        {preview.authentication && <><dt>{t('plugins.authentication')}</dt><dd>{preview.authentication}</dd></>}
         <dt>SHA-256</dt><dd>{preview.digest}</dd>
       </dl>
       {preview.previousDigest && <p>{t(sameRevision ? 'plugins.current' : 'plugins.updateNotice')}</p>}

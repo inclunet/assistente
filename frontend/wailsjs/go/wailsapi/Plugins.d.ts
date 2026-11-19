@@ -4,6 +4,8 @@ import {database} from '../models';
 import {plugins} from '../models';
 import {wailsapi} from '../models';
 
+export function AddLocalRepository():Promise<void>;
+
 export function ChangeInstallation(arg1:string,arg2:string,arg3:string):Promise<void>;
 
 export function DiscardPreview(arg1:string):Promise<void>;
@@ -14,11 +16,19 @@ export function InstalledComponents(arg1:string,arg2:string):Promise<Array<plugi
 
 export function ListInstalled():Promise<Array<database.PluginInstallation>>;
 
+export function ListRepositories():Promise<Array<plugins.Repository>>;
+
 export function PreviewLocal():Promise<wailsapi.PluginPreview>;
+
+export function PreviewRepositoryEntry(arg1:string,arg2:string,arg3:string,arg4:string):Promise<wailsapi.PluginPreview>;
+
+export function RefreshRepository(arg1:string,arg2:string):Promise<void>;
 
 export function RegisterMCP(arg1:string,arg2:string,arg3:string):Promise<void>;
 
 export function RemoveMCP(arg1:string,arg2:string,arg3:string,arg4:boolean):Promise<void>;
+
+export function RemoveRepository(arg1:string,arg2:string):Promise<void>;
 
 export function SetSkillActive(arg1:string,arg2:string,arg3:string,arg4:boolean):Promise<void>;
 

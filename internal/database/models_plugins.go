@@ -3,6 +3,7 @@ package database
 // PluginInstallation identifies one installed package per account and origin.
 // A published revision is inert until its components are activated.
 type PluginInstallation struct {
+	DiscoveryRepositoryID string `json:"discoveryRepositoryId,omitempty"`
 	UUIDModel
 	Disabled bool   `gorm:"not null;default:false" json:"disabled"`
 	UserID   string `gorm:"not null;uniqueIndex:plugin_owner_origin_name,priority:1" json:"-"`
@@ -36,4 +37,13 @@ type PluginMCPBinding struct {
 	ServerID       string `gorm:"uniqueIndex;not null"`
 	Slug           string `gorm:"not null"`
 	ConfigDigest   string `gorm:"not null"`
+}
+
+type PluginRepository struct {
+	RootID string `gorm:"not null" json:"-"`
+	UUIDModel
+	UserID   string `gorm:"not null;uniqueIndex:plugin_repository_owner,priority:1" json:"-"`
+	Origin   string `gorm:"not null;uniqueIndex:plugin_repository_owner,priority:2" json:"origin"`
+	Indices  []byte `gorm:"not null" json:"-"`
+	Revision string `gorm:"not null" json:"revision"`
 }

@@ -4,8 +4,8 @@ import userEvent from '@testing-library/user-event';
 import { axe } from 'vitest-axe';
 import PluginsPage from './PluginsPage';
 
-const mocks = vi.hoisted(() => ({ lifecycle: vi.fn(), sync: vi.fn(), register: vi.fn(), remove: vi.fn(), confirm: vi.fn(), list: vi.fn(), components: vi.fn(), toggle: vi.fn(), preview: vi.fn(), install: vi.fn(), discard: vi.fn(), announce: vi.fn() }));
-vi.mock('@wailsjs/go/wailsapi/Plugins', () => ({ ChangeInstallation: mocks.lifecycle, SyncMCP: mocks.sync, RegisterMCP: mocks.register, RemoveMCP: mocks.remove, InstalledComponents: mocks.components, SetSkillActive: mocks.toggle, DiscardPreview: mocks.discard, ListInstalled: mocks.list, PreviewLocal: mocks.preview, InstallReviewed: mocks.install }));
+const mocks = vi.hoisted(() => ({ repos: vi.fn(), catalogPreview: vi.fn(), lifecycle: vi.fn(), sync: vi.fn(), register: vi.fn(), remove: vi.fn(), confirm: vi.fn(), list: vi.fn(), components: vi.fn(), toggle: vi.fn(), preview: vi.fn(), install: vi.fn(), discard: vi.fn(), announce: vi.fn() }));
+vi.mock('@wailsjs/go/wailsapi/Plugins', () => ({ ListRepositories: mocks.repos, PreviewRepositoryEntry: mocks.catalogPreview, ChangeInstallation: mocks.lifecycle, SyncMCP: mocks.sync, RegisterMCP: mocks.register, RemoveMCP: mocks.remove, InstalledComponents: mocks.components, SetSkillActive: mocks.toggle, DiscardPreview: mocks.discard, ListInstalled: mocks.list, PreviewLocal: mocks.preview, InstallReviewed: mocks.install }));
 vi.mock('../hooks/useConfirm', () => ({ useConfirm: () => mocks.confirm }));
 vi.mock('../store/authStore', () => ({ useAuthStore: () => 'session' }));
 vi.mock('../hooks/useAnnouncer', () => ({ useAnnouncer: () => ({ announce: mocks.announce }) }));
@@ -146,6 +146,22 @@ describe('PluginsPage', () => {
     await user.click(remove);
     expect(mocks.lifecycle).toHaveBeenCalledWith('one','sha','uninstall');
     expect(await screen.findByText('plugins.empty')).toBeInTheDocument();
+  });
+
+  it('shows a failed catalog installation in the active catalog panel', async () => {
+    const user = userEvent.setup();
+    mocks.repos.mockResolvedValue([{ id: 's', origin: 'folder', revision: 'r', indices: [{ format: 'cursor', name: 'market', entries: [{ name: 'sample' }] }] }]);
+    mocks.catalogPreview.mockResolvedValue({ token: 'catalog', name: 'sample', files: [], digest: 's' });
+    mocks.install.mockRejectedValueOnce(new Error('failure'));
+    render(<PluginsPage />);
+    await user.click(await screen.findByRole('tab', { name: 'plugins.catalog' }));
+    const cell = await screen.findByRole('gridcell', { name: /sample/ });
+    cell.focus();
+    await user.keyboard('{Enter}');
+    await user.click(await screen.findByRole('button', { name: 'plugins.install' }));
+    expect(await screen.findByText('plugins.installError')).toBeVisible();
+    expect(screen.getByRole('tab', { name: 'plugins.catalog' })).toHaveAttribute('aria-selected', 'true');
+    await waitFor(() => expect(cell).toHaveFocus());
   });
 
   it('closes the preview without installing', async () => {

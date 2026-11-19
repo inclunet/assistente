@@ -15,6 +15,7 @@ import (
 )
 
 type PluginPreview struct {
+	Authentication string              `json:"authentication,omitempty"`
 	Components     []plugins.Component `json:"components"`
 	Token          string              `json:"token"`
 	Name           string              `json:"name"`
@@ -27,6 +28,7 @@ type PluginPreview struct {
 }
 
 type pluginSelection struct {
+	inspect  func(context.Context) (*pluginpackage.LocalSnapshot, error)
 	preview  PluginPreview
 	owner    string
 	validate commandsecurity.Admission
@@ -107,38 +109,42 @@ func (api *Plugins) PreviewLocal() (*PluginPreview, error) {
 		if err := validate.Check(); err != nil {
 			return nil, err
 		}
-		snap, err := pluginpackage.InspectLocal(dir)
-		if err != nil {
-			return nil, err
-		}
-		list, err := inventory.List(ctx)
-		if err != nil {
-			return nil, err
-		}
-		p := PluginPreview{Name: snap.Manifest.Name, Version: snap.Manifest.Version, Origin: snap.Origin, Digest: snap.Digest, Diagnostics: snap.Warnings, Components: plugins.DiscoverComponents(snap)}
-		for _, row := range list {
-			if row.Origin == p.Origin && row.Name == p.Name {
-				p.PreviousDigest = row.Digest
-				break
-			}
-		}
-		for path := range snap.Files {
-			p.Files = append(p.Files, path)
-		}
-		sort.Strings(p.Files)
-		token, err := uuid.NewRandom()
-		if err != nil {
-			return nil, err
-		}
-		p.Token = token.String()
-		api.mu.Lock()
-		defer api.mu.Unlock()
-		if err := validate.Check(); err != nil {
-			return nil, err
-		}
-		api.selection = &pluginSelection{preview: p, owner: owner, validate: validate}
-		return &p, nil
+		return api.preparePreview(ctx, inventory, owner, validate, func(context.Context) (*pluginpackage.LocalSnapshot, error) { return pluginpackage.InspectLocal(dir) })
 	})
+}
+
+func (api *Plugins) preparePreview(ctx context.Context, inventory *plugins.Inventory, owner string, validate commandsecurity.Admission, inspect func(context.Context) (*pluginpackage.LocalSnapshot, error)) (*PluginPreview, error) {
+	snap, err := inspect(ctx)
+	if err != nil {
+		return nil, err
+	}
+	list, err := inventory.List(ctx)
+	if err != nil {
+		return nil, err
+	}
+	p := PluginPreview{Authentication: snap.DiscoveryAuthentication, Name: snap.Manifest.Name, Version: snap.Manifest.Version, Origin: snap.Origin, Digest: snap.Digest, Diagnostics: snap.Warnings, Components: plugins.DiscoverComponents(snap)}
+	for _, row := range list {
+		if row.Origin == p.Origin && row.Name == p.Name {
+			p.PreviousDigest = row.Digest
+			break
+		}
+	}
+	for path := range snap.Files {
+		p.Files = append(p.Files, path)
+	}
+	sort.Strings(p.Files)
+	token, err := uuid.NewRandom()
+	if err != nil {
+		return nil, err
+	}
+	p.Token = token.String()
+	api.mu.Lock()
+	defer api.mu.Unlock()
+	if err := validate.Check(); err != nil {
+		return nil, err
+	}
+	api.selection = &pluginSelection{preview: p, owner: owner, validate: validate, inspect: inspect}
+	return &p, nil
 }
 
 func (api *Plugins) InstallReviewed(token string) (database.PluginInstallation, error) {
@@ -163,7 +169,7 @@ func (api *Plugins) InstallReviewed(token string) (database.PluginInstallation, 
 			return database.PluginInstallation{}, err
 		}
 		p := selection.preview
-		return inventory.InstallReviewed(ctx, p.Origin, p.Digest, p.PreviousDigest, selection.validate)
+		return inventory.InstallSource(ctx, p.Origin, p.Digest, p.PreviousDigest, selection.validate, func() (*pluginpackage.LocalSnapshot, error) { return selection.inspect(ctx) })
 	})
 }
 

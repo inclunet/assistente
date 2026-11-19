@@ -39,3 +39,33 @@ func TestSnapshotBudgets(t *testing.T) {
 		})
 	}
 }
+
+func TestRepositoryPackageRejectsReplacedRoot(t *testing.T) {
+	directory := filepath.Join(t.TempDir(), "repository")
+	if err := os.Mkdir(directory, 0700); err != nil {
+		t.Fatal(err)
+	}
+	root, err := os.OpenRoot(directory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	id, err := RootIdentity(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := root.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(directory, directory+"-old"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(directory, "sample"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(directory, "sample", "plugin.json"), []byte(`{"$schema":"`+ManifestSchema+`","name":"sample"}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := InspectRepositoryPackage(directory, id, "sample"); err == nil {
+		t.Fatal("accepted replacement root")
+	}
+}
