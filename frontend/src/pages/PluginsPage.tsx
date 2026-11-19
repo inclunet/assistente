@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { DiscardPreview, InstallReviewed, ListInstalled, PreviewLocal } from '@wailsjs/go/wailsapi/Plugins';
-import type { database, wailsapi } from '@wailsjs/go/models';
+import { DiscardPreview, InstalledComponents, InstallReviewed, ListInstalled, PreviewLocal, SetSkillActive } from '@wailsjs/go/wailsapi/Plugins';
+import type { database, plugins, wailsapi } from '@wailsjs/go/models';
 import { Button } from '../components/ui/Button';
 import { DataGrid } from '../components/ui/DataGrid';
 import { DialogActions } from '../components/ui/DialogActions';
@@ -9,6 +9,13 @@ import { Modal } from '../components/ui/Modal';
 import { Toolbar } from '../components/ui/Toolbar';
 import { useAnnouncer } from '../hooks/useAnnouncer';
 import { useAuthStore } from '../store/authStore';
+
+function componentRequirement(component: plugins.Component) {
+  if (component.reason === 'shellCommands') return 'plugins.shellPending';
+  if (component.reason === 'supportingFiles') return 'plugins.filesPending';
+  if (component.reason === 'frontmatter') return 'plugins.fieldsPending';
+  return component.kind === 'skill' ? undefined : 'plugins.unavailable';
+}
 
 export default function PluginsPage() {
   const session = useAuthStore(state => state.user?.sessionId);
@@ -20,6 +27,7 @@ function InstalledPlugins() {
   const { announce } = useAnnouncer();
   const [items, setItems] = useState<database.PluginInstallation[]>([]);
   const [preview, setPreview] = useState<wailsapi.PluginPreview | null>(null);
+  const [details, setDetails] = useState<{ installation: database.PluginInstallation; components: plugins.Component[] } | null>(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(true);
   useEffect(() => {
@@ -73,6 +81,31 @@ function InstalledPlugins() {
       setPreview(null);
     }
   };
+  const openDetails = async (installation: database.PluginInstallation) => {
+    if (busy) return;
+    setBusy(true);
+    setError('');
+    try {
+      const components = await InstalledComponents(installation.id, installation.digest);
+      if (mounted.current) setDetails({ installation, components: components ?? [] });
+    } catch { if (mounted.current) setError('plugins.listError'); }
+    finally { if (mounted.current) setBusy(false); }
+  };
+  const toggleSkill = async (component: plugins.Component) => {
+    if (!details || busy) return;
+    setBusy(true);
+    setError('');
+    const { installation } = details;
+    try {
+      await SetSkillActive(installation.id, installation.digest, component.key, !component.active);
+      const components = await InstalledComponents(installation.id, installation.digest);
+      if (mounted.current) {
+        setDetails({ installation, components: components ?? [] });
+        announce(t(component.active ? 'plugins.deactivated' : 'plugins.activated', { name: component.name }));
+      }
+    } catch { if (mounted.current) setError('plugins.componentError'); }
+    finally { if (mounted.current) setBusy(false); }
+  };
   const sameRevision = Boolean(preview && preview.previousDigest === preview.digest);
   const install = async () => {
     if (!preview || busy || sameRevision) return;
@@ -92,10 +125,21 @@ function InstalledPlugins() {
     <Toolbar left={<h1 className="page-toolbar__title">{t('menu.plugins')}</h1>}
       right={<Button ref={chooseButton} onClick={() => void inspect()} disabled={busy}>{t('plugins.choose')}</Button>} />
     <h2>{t('plugins.installed')}</h2>
-    {!preview && error && <p>{t(error)}</p>}
-    {items.length > 0 ? <DataGrid items={items} getItemId={row => row.id} label={t('plugins.installed')}
+    {!preview && !details && error && <p>{t(error)}</p>}
+    {items.length > 0 ? <DataGrid items={items} onActivate={row => void openDetails(row)} getItemId={row => row.id} label={t('plugins.installed')}
       columns={[{ key: 'name', label: t('plugins.name') }, { key: 'version', label: t('plugins.version') }, { key: 'origin', label: t('plugins.origin') }]} />
       : !busy && !error && <p>{t('plugins.empty')}</p>}
+    {details && <Modal isOpen title={details.installation.name} onClose={() => setDetails(null)} allowClose={!busy} readingMode>
+      {error && <p>{t(error)}</p>}
+      <h2>{t('plugins.components')}</h2>
+      {details.components.length === 0 ? <p>{t('plugins.noComponents')}</p> : <ul>{details.components.map(component => <li key={component.key}>
+        <strong>{component.name}</strong> · {t(component.kind === 'skill' ? 'plugins.skill' : component.kind === 'mcp' ? 'plugins.mcp' : 'plugins.invalid')}
+        {component.kind === 'skill' && !component.reason ? <>
+          {component.active && <code> /{component.slug}</code>}
+          <Button disabled={busy} onClick={() => void toggleSkill(component)}>{t(component.active ? 'plugins.deactivate' : 'plugins.activate', { name: component.name })}</Button>
+        </> : <p>{t(componentRequirement(component) ?? 'plugins.unavailable')}</p>}
+      </li>)}</ul>}
+    </Modal>}
     {preview && <Modal isOpen title={t('plugins.preview', { name: preview.name })} onClose={() => void discard()} allowClose={!busy} readingMode>
       {error && <p>{t(error)}</p>}
       <dl>
@@ -106,6 +150,7 @@ function InstalledPlugins() {
       </dl>
       {preview.previousDigest && <p>{t(sameRevision ? 'plugins.current' : 'plugins.updateNotice')}</p>}
       <p>{t('plugins.inactive')}</p>
+      {(preview.components ?? []).length > 0 && <ul aria-label={t('plugins.components')}>{preview.components.map(component => <li key={component.key}>{component.name} · {t(component.kind === 'skill' ? 'plugins.skill' : component.kind === 'mcp' ? 'plugins.mcp' : 'plugins.invalid')}{componentRequirement(component) && <p>{t(componentRequirement(component)!)}</p>}</li>)}</ul>}
       {(preview.diagnostics ?? []).length > 0 && <p>{t('plugins.warnings', { count: preview.diagnostics.length })}</p>}
       <details><summary>{t('plugins.files', { count: preview.files.length })}</summary><ul>{preview.files.map(path => <li key={path}>{path}</li>)}</ul></details>
       <DialogActions primary={<Button variant="primary" disabled={busy || sameRevision} onClick={() => void install()}>{t(preview.previousDigest ? 'plugins.update' : 'plugins.install')}</Button>}

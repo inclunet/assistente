@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 )
@@ -26,9 +27,10 @@ type discoveredSkill struct {
 // Manager gerencia skills no formato: .assistente/skills/{slug}/SKILL.md
 // Usa configdir.Resolver para resolução multi-diretório.
 type Manager struct {
-	resolver *configdir.Resolver
-	mu       sync.Mutex
-	cache    cachedFullSkills
+	installedSkills func(context.Context) ([]Skill, error)
+	resolver        *configdir.Resolver
+	mu              sync.Mutex
+	cache           cachedFullSkills
 }
 
 type cachedFullSkills struct {
@@ -482,3 +484,47 @@ func nextCopyName(baseSlug string, existing map[string]bool) string {
 		}
 	}
 }
+
+// NewManagerWithInstalledSkills includes account-scoped plugin skills only on
+// reads that have an authenticated caller. The filesystem cache stays local.
+func NewManagerWithInstalledSkills(installed func(context.Context) ([]Skill, error)) *Manager {
+	m := NewManager()
+	m.installedSkills = installed
+	return m
+}
+
+type FullSkillSource interface{ GetAllSkillsFull() ([]Skill, error) }
+
+func ListForContext(ctx context.Context, source FullSkillSource) ([]Skill, error) {
+	if scoped, ok := source.(interface {
+		GetAllSkillsForContext(context.Context) ([]Skill, error)
+	}); ok {
+		return scoped.GetAllSkillsForContext(ctx)
+	}
+	return source.GetAllSkillsFull()
+}
+
+func (m *Manager) GetAllSkillsForContext(ctx context.Context) ([]Skill, error) {
+	local, err := m.GetAllSkillsFull()
+	if err != nil || m.installedSkills == nil {
+		return local, err
+	}
+	installed, err := m.installedSkills(ctx)
+	if err != nil {
+		return nil, err
+	}
+	visible := local[:0]
+	for _, skill := range local {
+		if strings.HasPrefix(skill.Slug, PluginPrefix) {
+			continue
+		}
+		if strings.HasPrefix(skill.Name, PluginPrefix) {
+			skill.DisplayName = skill.GetDisplayName()
+			skill.Name = skill.Slug
+		}
+		visible = append(visible, skill)
+	}
+	return append(visible, installed...), nil
+}
+
+const PluginPrefix = "plugin:"

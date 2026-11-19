@@ -42,7 +42,7 @@ func (p *ContextProvider) Build(ctx context.Context, req contextprovider.BuildRe
 	if p == nil || p.source == nil {
 		return nil, nil
 	}
-	allSkills, err := p.source.GetAllSkillsFull()
+	allSkills, err := ListForContext(ctx, p.source)
 	if err != nil {
 		return nil, err
 	}
@@ -133,7 +133,7 @@ func buildBaseSkillBlock(ctx context.Context, baseSkills []Skill, source Context
 		}
 		sb.WriteString(content)
 		sb.WriteString("\n")
-		writeSupportingFiles(&sb, source, skill.Slug, "Supporting files (use read_file to access when needed):", "- `", "`")
+		writeSupportingFiles(&sb, source, skill, "Supporting files (use read_file to access when needed):", "- `", "`")
 	}
 	sb.WriteString("</base_skill>")
 	return sb.String(), nil
@@ -170,7 +170,7 @@ func buildAvailableSkillsBlock(availableSkills []Skill, source ContextProviderSo
 		sb.WriteString("\n  Identifier: `")
 		sb.WriteString(sanitizePromptMetadata(skill.Slug))
 		sb.WriteString("`\n")
-		writeSupportingFiles(&sb, source, skill.Slug, "  Supporting files:", "    - `", "`")
+		writeSupportingFiles(&sb, source, skill, "  Supporting files:", "    - `", "`")
 	}
 	sb.WriteString("</available_skills>")
 	return sb.String()
@@ -187,8 +187,11 @@ func writeSkillHeading(sb *strings.Builder, skill Skill) {
 	sb.WriteString("\n")
 }
 
-func writeSupportingFiles(sb *strings.Builder, source ContextProviderSource, slug string, heading string, prefix string, suffix string) {
-	supplementary, _ := source.GetSkillFiles(slug)
+func writeSupportingFiles(sb *strings.Builder, source ContextProviderSource, skill Skill, heading string, prefix string, suffix string) {
+	if skill.Source == "plugin" {
+		return
+	}
+	supplementary, _ := source.GetSkillFiles(skill.Slug)
 	supplementary = sortedStrings(supplementary)
 	if len(supplementary) == 0 {
 		return

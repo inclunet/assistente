@@ -15,14 +15,15 @@ import (
 )
 
 type PluginPreview struct {
-	Token          string   `json:"token"`
-	Name           string   `json:"name"`
-	Version        string   `json:"version"`
-	Origin         string   `json:"origin"`
-	Digest         string   `json:"digest"`
-	PreviousDigest string   `json:"previousDigest"`
-	Files          []string `json:"files"`
-	Diagnostics    []string `json:"diagnostics"`
+	Components     []plugins.Component `json:"components"`
+	Token          string              `json:"token"`
+	Name           string              `json:"name"`
+	Version        string              `json:"version"`
+	Origin         string              `json:"origin"`
+	Digest         string              `json:"digest"`
+	PreviousDigest string              `json:"previousDigest"`
+	Files          []string            `json:"files"`
+	Diagnostics    []string            `json:"diagnostics"`
 }
 
 type pluginSelection struct {
@@ -114,7 +115,7 @@ func (api *Plugins) PreviewLocal() (*PluginPreview, error) {
 		if err != nil {
 			return nil, err
 		}
-		p := PluginPreview{Name: snap.Manifest.Name, Version: snap.Manifest.Version, Origin: snap.Origin, Digest: snap.Digest, Diagnostics: snap.Warnings}
+		p := PluginPreview{Name: snap.Manifest.Name, Version: snap.Manifest.Version, Origin: snap.Origin, Digest: snap.Digest, Diagnostics: snap.Warnings, Components: plugins.DiscoverComponents(snap)}
 		for _, row := range list {
 			if row.Origin == p.Origin && row.Name == p.Name {
 				p.PreviousDigest = row.Digest
@@ -183,6 +184,45 @@ func (api *Plugins) DiscardPreview(token string) error {
 			api.selection = nil
 		}
 		return struct{}{}, nil
+	})
+	return err
+}
+
+func (api *Plugins) InstalledComponents(id, digest string) ([]plugins.Component, error) {
+	session, inventory, _, capture, err := api.wired()
+	if err != nil {
+		return nil, err
+	}
+	return WithUser(session, func(ctx context.Context) ([]plugins.Component, error) {
+		admit, err := capture(ctx)
+		if err != nil {
+			return nil, err
+		}
+		rows, err := inventory.InstalledComponents(ctx, id, digest)
+		if err != nil {
+			return nil, err
+		}
+		if err := admit.Check(); err != nil {
+			return nil, err
+		}
+		return rows, nil
+	})
+}
+
+func (api *Plugins) SetSkillActive(id, digest, key string, active bool) error {
+	session, inventory, _, capture, err := api.wired()
+	if err != nil {
+		return err
+	}
+	_, err = WithUser(session, func(ctx context.Context) (struct{}, error) {
+		admit, err := capture(ctx)
+		if err != nil {
+			return struct{}{}, err
+		}
+		if admit == nil {
+			return struct{}{}, database.ErrUserScopeRequired
+		}
+		return struct{}{}, admit(func() error { return inventory.SetSkillActive(ctx, id, digest, key, active) })
 	})
 	return err
 }

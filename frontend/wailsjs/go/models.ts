@@ -7989,6 +7989,37 @@ export namespace oauthflow {
 
 }
 
+export namespace plugins {
+	
+	export class Component {
+	    active: boolean;
+	    slug?: string;
+	    key: string;
+	    kind: string;
+	    name: string;
+	    entry: string;
+	    reason?: string;
+	    transport?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new Component(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.active = source["active"];
+	        this.slug = source["slug"];
+	        this.key = source["key"];
+	        this.kind = source["kind"];
+	        this.name = source["name"];
+	        this.entry = source["entry"];
+	        this.reason = source["reason"];
+	        this.transport = source["transport"];
+	    }
+	}
+
+}
+
 export namespace portability {
 	
 	export class ContentExportOptions {
@@ -9969,6 +10000,7 @@ export namespace wailsapi {
 		}
 	}
 	export class PluginPreview {
+	    components: plugins.Component[];
 	    token: string;
 	    name: string;
 	    version: string;
@@ -9984,6 +10016,7 @@ export namespace wailsapi {
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.components = this.convertValues(source["components"], plugins.Component);
 	        this.token = source["token"];
 	        this.name = source["name"];
 	        this.version = source["version"];
@@ -9993,6 +10026,24 @@ export namespace wailsapi {
 	        this.files = source["files"];
 	        this.diagnostics = source["diagnostics"];
 	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
 	}
 	export class SaveJobResult {
 	    jobId: string;

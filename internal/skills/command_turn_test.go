@@ -54,3 +54,14 @@ func TestCommandTurnArgumentIsText(t *testing.T) {
 		t.Fatalf("result=%v found=%v err=%v", result, found, err)
 	}
 }
+
+func TestPluginSlashDoesNotFallBackToLocalDefinition(t *testing.T) {
+	const slug = PluginPrefix + "note-a1"
+	local := invocableSkill("Local definition")
+	local.Slug = slug
+	mgr := &stubInvokerManager{skill: local}
+	result, found, err := InvokeContext(t.Context(), "/"+slug, mgr, "conversation", SelectionPolicy{OnDemand: []Skill{*local}})
+	if !found || err == nil || result != nil {
+		t.Fatalf("unexpected fallback: result=%v found=%v err=%v", result, found, err)
+	}
+}

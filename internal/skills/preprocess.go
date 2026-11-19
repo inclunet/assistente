@@ -80,7 +80,7 @@ func renderCommands(ctx context.Context, skill *Skill, content string, run Skill
 	}
 	for idx, line := range lines {
 		trimmed := strings.TrimSpace(line)
-		if len(trimmed) < 2 || trimmed[0] != '!' {
+		if !commandLine(trimmed) {
 			if expand != nil {
 				lines[idx] = expand(line)
 			}
@@ -187,4 +187,14 @@ func sanitizeHTMLCommentText(text string) string {
 	}
 	text = strings.ReplaceAll(text, ">", "&gt;")
 	return text
+}
+
+func commandLine(trimmed string) bool { return len(trimmed) >= 2 && trimmed[0] == '!' }
+func ContainsShellCommands(content string) bool {
+	for _, line := range strings.Split(content, "\n") {
+		if commandLine(strings.TrimSpace(line)) {
+			return true
+		}
+	}
+	return false
 }

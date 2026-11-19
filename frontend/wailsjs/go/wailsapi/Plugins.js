@@ -10,10 +10,18 @@ export function InstallReviewed(arg1) {
   return window['go']['wailsapi']['Plugins']['InstallReviewed'](arg1);
 }
 
+export function InstalledComponents(arg1, arg2) {
+  return window['go']['wailsapi']['Plugins']['InstalledComponents'](arg1, arg2);
+}
+
 export function ListInstalled() {
   return window['go']['wailsapi']['Plugins']['ListInstalled']();
 }
 
 export function PreviewLocal() {
   return window['go']['wailsapi']['Plugins']['PreviewLocal']();
+}
+
+export function SetSkillActive(arg1, arg2, arg3, arg4) {
+  return window['go']['wailsapi']['Plugins']['SetSkillActive'](arg1, arg2, arg3, arg4);
 }
