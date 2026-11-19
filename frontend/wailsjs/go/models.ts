@@ -8083,6 +8083,7 @@ export namespace plugins {
 	    }
 	}
 	export class BuilderRequest {
+	    skills?: string[];
 	    name: string;
 	    version: string;
 	    tasklists: BuilderTaskList[];
@@ -8093,6 +8094,7 @@ export namespace plugins {
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.skills = source["skills"];
 	        this.name = source["name"];
 	        this.version = source["version"];
 	        this.tasklists = this.convertValues(source["tasklists"], BuilderTaskList);

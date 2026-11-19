@@ -96,3 +96,15 @@ func (api *Plugins) SaveBuilder(request plugins.BuilderRequest, expectedDigest s
 	})
 	return saved, err
 }
+
+func (api *Plugins) BuilderSkillNames() ([]string, error) {
+	var names []string
+	err := api.withRepositorySession(func(ctx context.Context, i *plugins.Inventory, _ func() (string, error), admit commandsecurity.Admission) error {
+		names = i.BuilderSkillNames()
+		return admit.Check()
+	})
+	if err != nil {
+		return nil, err
+	}
+	return names, nil
+}
