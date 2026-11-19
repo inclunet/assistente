@@ -4,6 +4,15 @@
 **Contrato base concluído em:** 2026-10-05
 **Data:** 2026-09-30
 
+### Diagnóstico de falhas da Responses ChatGPT — 19/11/2026
+
+Falhas registram estágio, classe controlada, status HTTP quando disponível e
+categoria/código/tipo reconhecidos. O evento `response.failed` registra também
+contagens da resposta corrente; não copia mensagens, parâmetros ou dados remotos.
+Os testes `TestChatGPTFailureDiagnosticsDoNotExposeRemoteData` e
+`TestChatGPTDiagnosticsClassifyKnownRejection` cobrem HTTP e stream. A confirmação
+da causa na instalação afetada permanece pendente; status **In Progress**.
+
 ### Retorno PKCE do MCP sem sucesso prematuro — 13/11/2026
 
 O callback local do MCP exibe retorno recebido ou erro do provedor, sem afirmar

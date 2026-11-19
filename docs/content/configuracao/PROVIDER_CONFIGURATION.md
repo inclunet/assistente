@@ -126,6 +126,11 @@ continuam disponíveis. Se a abertura, conexão ou desconexão informar cofre
 indisponível, desbloqueie o cofre e tente novamente; essa falha não confirma
 a desconexão.
 
+Em falhas de resposta ChatGPT, procure `chatgpt_diagnostic` no log: o estágio,
+a classe e o status HTTP quando disponível ajudam a distinguir rejeição do
+serviço e falha de comunicação. O registro não inclui a descrição recebida,
+conteúdo da conversa ou credenciais. Consulte [gravar logs](../guias/LOG_FILE.md).
+
 O cofre precisa estar habilitado para persistir. Cadastro, access token, refresh token
 e ID token ficam cifrados juntos; a tela e as exportações não incluem esses segredos.
 A renovação é coordenada entre chamadas e respeita a expiração informada pelo servidor.
