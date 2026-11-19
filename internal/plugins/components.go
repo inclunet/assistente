@@ -66,9 +66,7 @@ func DiscoverComponents(snapshot *pluginpackage.LocalSnapshot) []Component {
 			components = append(components, Component{Key: "mcp.json", Kind: "invalidMcp", Entry: "mcp.json", Name: "mcp.json"})
 		} else {
 			for name, value := range servers {
-				var server struct {
-					Type string `json:"type"`
-				}
+				transport, valid := mcpTransport(value)
 				component := Component{Kind: "mcp", Name: name, Entry: "mcp.json", Key: "mcp/" + name}
 				if !valid {
 					component.Kind = "invalidMcp"
