@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"time"
 
 	"assistente/internal/commandsecurity"
 	"assistente/internal/database"
@@ -61,44 +62,44 @@ func (i *Inventory) InstallReviewed(ctx context.Context, reviewedOrigin, reviewe
 	if admit == nil {
 		return database.PluginInstallation{}, database.ErrUserScopeRequired
 	}
-	err = admit(func() error {
-		return database.WithSQLiteImmediateTransaction(ctx, i.db, "plugins.install", func(tx *gorm.DB) error {
-			installed = database.PluginInstallation{}
-			identity := database.PluginInstallation{UserID: owner, Name: snapshot.Manifest.Name, Origin: snapshot.Origin}
-			lookup := tx.Where(&identity).First(&installed).Error
-			switch {
-			case errors.Is(lookup, gorm.ErrRecordNotFound):
-				if previousDigest != "" {
-					return ErrInstallationChanged
-				}
-				installed = identity
-				installed.Digest = snapshot.Digest
-				installed.Version = snapshot.Manifest.Version
-				if err := tx.Create(&installed).Error; err != nil {
-					return err
-				}
-			case lookup != nil:
-				return lookup
-			case installed.Digest == snapshot.Digest:
-				return nil
-			case installed.Digest != previousDigest:
+	publishCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	err = database.WithSQLiteAdmittedCommit(publishCtx, i.db, "plugins.install", func(tx *gorm.DB) error {
+		installed = database.PluginInstallation{}
+		identity := database.PluginInstallation{UserID: owner, Name: snapshot.Manifest.Name, Origin: snapshot.Origin}
+		lookup := tx.Where(&identity).First(&installed).Error
+		switch {
+		case errors.Is(lookup, gorm.ErrRecordNotFound):
+			if previousDigest != "" {
 				return ErrInstallationChanged
-			default:
-				update := tx.Model(&installed).Where("user_id = ? AND digest = ?", owner, previousDigest).Updates(map[string]any{"digest": snapshot.Digest, "version": snapshot.Manifest.Version})
-				if update.Error != nil {
-					return update.Error
-				}
-				if update.RowsAffected != 1 {
-					return ErrInstallationChanged
-				}
-				if err := tx.Where("installation_id = ?", installed.ID).Delete(&database.PluginSkillActivation{}).Error; err != nil {
-					return err
-				}
 			}
-			revision := database.PluginRevision{InstallationID: installed.ID, Digest: snapshot.Digest, Files: files}
-			return tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&revision).Error
-		})
-	})
+			installed = identity
+			installed.Digest = snapshot.Digest
+			installed.Version = snapshot.Manifest.Version
+			if err := tx.Create(&installed).Error; err != nil {
+				return err
+			}
+		case lookup != nil:
+			return lookup
+		case installed.Digest == snapshot.Digest:
+			return nil
+		case installed.Digest != previousDigest:
+			return ErrInstallationChanged
+		default:
+			update := tx.Model(&installed).Where("user_id = ? AND digest = ?", owner, previousDigest).Updates(map[string]any{"digest": snapshot.Digest, "version": snapshot.Manifest.Version})
+			if update.Error != nil {
+				return update.Error
+			}
+			if update.RowsAffected != 1 {
+				return ErrInstallationChanged
+			}
+			if err := tx.Where("installation_id = ?", installed.ID).Delete(&database.PluginSkillActivation{}).Error; err != nil {
+				return err
+			}
+		}
+		revision := database.PluginRevision{InstallationID: installed.ID, Digest: snapshot.Digest, Files: files}
+		return tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&revision).Error
+	}, admit)
 	if err != nil {
 		return database.PluginInstallation{}, err
 	}
