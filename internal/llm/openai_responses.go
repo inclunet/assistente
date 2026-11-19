@@ -690,7 +690,14 @@ responseEvents:
 		case "response.failed":
 			ev := event.AsResponseFailed()
 			if p.provider.Type == ProviderChatGPT {
-				failChatGPT(chatGPTFailure(ctx, string(ev.Response.Error.Code)))
+				code := chatGPTFailure(ctx, string(ev.Response.Error.Code))
+				diagnosticProvider := &ProviderConfig{APIFormat: APIFormatOpenAIResponses, ErrorFamily: ProviderErrorFamilyOpenAI}
+				diagnostic := recognizeResponsesFailure(diagnosticProvider, ev.Response.Error.RawJSON())
+				if diagnostic == nil {
+					diagnostic = &ProviderError{Category: ProviderErrorUnrecognized}
+				}
+				logging.Warnf(ctx, "llm.chatgpt", "chatgpt_diagnostic stage=response_failed class=%s category=%s code=%s type=%s events=%d response_bytes=%d finished_tool_calls=%d", code, diagnostic.Category, diagnostic.Code, diagnostic.Type, eventCount, fullResponse.Len(), len(finishedToolCalls))
+				failChatGPT(code)
 				return mcpStreamAttemptResult{done: true}
 			}
 			errMsg := "erro na Responses API"
