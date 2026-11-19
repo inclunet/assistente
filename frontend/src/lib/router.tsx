@@ -12,6 +12,7 @@ const HelpPage = lazy(() => import('../pages/HelpPage'));
 const AboutPage = lazy(() => import('../pages/AboutPage'));
 const UpdatePage = lazy(() => import('../pages/UpdatePage'));
 const TaskListsPage = lazy(() => import('../pages/TaskListsPage'));
+const PluginsPage = lazy(() => import('../pages/PluginsPage'));
 const JobsPage = lazy(() => import('../pages/JobsPage'));
 const MemoriesPage = lazy(() => import('../pages/MemoriesPage'));
 
@@ -70,6 +71,10 @@ export const router = createHashRouter([
           {
             path: 'tasklists',
             element: withSuspense(<TaskListsPage />),
+          },
+          {
+            path: 'plugins',
+            element: withSuspense(<PluginsPage />),
           },
           {
             path: 'jobs',

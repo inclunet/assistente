@@ -5579,6 +5579,50 @@ export namespace database {
 		    return a;
 		}
 	}
+	export class PluginInstallation {
+	    id: string;
+	    // Go type: time
+	    createdAt: any;
+	    // Go type: time
+	    updatedAt: any;
+	    origin: string;
+	    name: string;
+	    digest: string;
+	    version: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new PluginInstallation(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.createdAt = this.convertValues(source["createdAt"], null);
+	        this.updatedAt = this.convertValues(source["updatedAt"], null);
+	        this.origin = source["origin"];
+	        this.name = source["name"];
+	        this.digest = source["digest"];
+	        this.version = source["version"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	export class Session {
 	    id: string;
 	    // Go type: time
@@ -9923,6 +9967,32 @@ export namespace wailsapi {
 		    }
 		    return a;
 		}
+	}
+	export class PluginPreview {
+	    token: string;
+	    name: string;
+	    version: string;
+	    origin: string;
+	    digest: string;
+	    previousDigest: string;
+	    files: string[];
+	    diagnostics: string[];
+	
+	    static createFrom(source: any = {}) {
+	        return new PluginPreview(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.token = source["token"];
+	        this.name = source["name"];
+	        this.version = source["version"];
+	        this.origin = source["origin"];
+	        this.digest = source["digest"];
+	        this.previousDigest = source["previousDigest"];
+	        this.files = source["files"];
+	        this.diagnostics = source["diagnostics"];
+	    }
 	}
 	export class SaveJobResult {
 	    jobId: string;

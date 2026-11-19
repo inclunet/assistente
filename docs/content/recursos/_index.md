@@ -32,3 +32,4 @@ Trilha de leitura sugerida — comece pelo Kickstart e siga na ordem. Cada item 
 | 21 | [Hotkeys](HOTKEYS/) | Atalhos globais e de navegação |
 | 22 | [Chat](CHAT/) | Mensagens, navegação e fixação persistente |
 | 23 | [Comandos e acionadores](COMANDOS/) | Inspeção de padrões e configuração de camadas pessoais |
+| 24 | [Plugins](PLUGINS/) | Prévia e instalação local de pacotes |
