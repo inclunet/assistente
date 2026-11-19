@@ -24,6 +24,9 @@ func TestLocalInventoryPublishesReviewedRevisionPerAccount(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = conn.Close() })
+	if err := db.Exec("PRAGMA journal_mode=WAL").Error; err != nil {
+		t.Fatal(err)
+	}
 	if err := db.AutoMigrate(&database.PluginInstallation{}, &database.PluginRevision{}); err != nil {
 		t.Fatal(err)
 	}
@@ -42,9 +45,27 @@ func TestLocalInventoryPublishesReviewedRevisionPerAccount(t *testing.T) {
 	if _, err := store.InstallLocal(context.Background(), seed.Origin, seed.Digest, ""); !errors.Is(err, database.ErrUserScopeRequired) {
 		t.Fatal(err)
 	}
-	first, err := store.InstallLocal(alice, seed.Origin, seed.Digest, "")
-	if err != nil {
-		t.Fatal(err)
+	type publication struct {
+		row database.PluginInstallation
+		err error
+	}
+	start := make(chan struct{})
+	results := make(chan publication, 4)
+	for range 4 {
+		go func() {
+			<-start
+			row, err := store.InstallLocal(alice, seed.Origin, seed.Digest, "")
+			results <- publication{row, err}
+		}()
+	}
+	close(start)
+	var first database.PluginInstallation
+	for range 4 {
+		result := <-results
+		if result.err != nil || (first.ID != "" && first.ID != result.row.ID) {
+			t.Fatalf("concurrent publication: %+v", result)
+		}
+		first = result.row
 	}
 	second, err := store.InstallLocal(alice, seed.Origin, seed.Digest, "")
 	if err != nil || first.ID != second.ID {

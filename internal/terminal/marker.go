@@ -54,7 +54,7 @@ func (m *CommandMarker) wrapBash(command string) string {
 	// A quebra inicial separa o marker de prompts sem newline (por exemplo sh),
 	// inclusive quando o comando foi enviado antes de o shell exibir o prompt.
 	return fmt.Sprintf(
-		"printf '\\n%%s\\n' '%s'; %s; printf '%%s%%s\\n' '%s' $?",
+		"printf '\\n%%s\\n' '%s'; %s; printf '\\n%%s%%s\\n' '%s' $?",
 		m.startTag, command, m.endTag,
 	)
 }

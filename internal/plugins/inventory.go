@@ -62,7 +62,8 @@ func (i *Inventory) InstallReviewed(ctx context.Context, reviewedOrigin, reviewe
 		return database.PluginInstallation{}, database.ErrUserScopeRequired
 	}
 	err = admit(func() error {
-		return i.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		return database.WithSQLiteImmediateTransaction(ctx, i.db, "plugins.install", func(tx *gorm.DB) error {
+			installed = database.PluginInstallation{}
 			identity := database.PluginInstallation{UserID: owner, Name: snapshot.Manifest.Name, Origin: snapshot.Origin}
 			lookup := tx.Where(&identity).First(&installed).Error
 			switch {
