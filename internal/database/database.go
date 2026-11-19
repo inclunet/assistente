@@ -53,9 +53,11 @@ func configuredGORMLogger() logger.Interface {
 	base := logger.New(
 		stdlog.New(output, "\r\n", stdlog.LstdFlags),
 		logger.Config{
-			SlowThreshold:             200 * time.Millisecond,
-			LogLevel:                  gormLogLevel,
-			IgnoreRecordNotFoundError: false,
+			SlowThreshold: 200 * time.Millisecond,
+			LogLevel:      gormLogLevel,
+			// Ausência é resultado normal de consultas de polling. O erro
+			// continua retornando ao chamador; queries lentas continuam no log.
+			IgnoreRecordNotFoundError: true,
 			// Colorful=false: o logger do GORM escreve também no arquivo de log
 			// (via gormLogOutput), e códigos ANSI de cor sujavam o arquivo.
 			Colorful: false,

@@ -58,8 +58,10 @@ const (
 	// AEP-0117: os stores JSON de autorizações e o bootstrap antecipado de
 	// allowlists foram removidos. Falhas de consulta agora são propagadas pelo
 	// repositório. A gestão unificada remove mais dez formatos dos caminhos antigos.
+	// Issue #744: sondagem SSE sem suporte e standalone desabilitado passam
+	// de Infof para Debugf, preservando os 688 formatos inventariados.
 	expectedLegacyFormatCount  = 688
-	expectedLegacyFormatDigest = "9323c6718d4c55440a74eada0ece2db26adf85b29b99b90ac1995852e5481189"
+	expectedLegacyFormatDigest = "7a3ce79858c8afa9069c168baf5027f719a9f69b9be116386c62d543ecd4a9aa"
 )
 
 // TestLegacyLoggingInventory mantém reproduzível o inventário da issue #675.

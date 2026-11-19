@@ -350,3 +350,30 @@ Racional: no MCP nativo, o provider LLM (OpenAI, Anthropic) faz a conexao server
 - [AEP-0037: SDK Migration + ChatProvider](0037-sdk-migration-chat-provider.md)
 - [Anthropic MCP Connector](https://docs.anthropic.com/en/docs/agents-and-tools/mcp-connector)
 - [OpenAI MCP and Connectors](https://developers.openai.com/api/docs/guides/tools-remote-mcp)
+
+## Diagnóstico de transporte (issue #744)
+
+Sondagem sem suporte SSE e SSE standalone desabilitado são configuração
+rotineira e usam DEBUG; não indicam indisponibilidade. Reconexão bem-sucedida
+continua em INFO e erros reais mantêm seus diagnósticos. Regressões:
+`TestProbeSSESemSuporteUsaDebugEPreservaConexao` e
+`TestStandaloneSSEDesabilitadoUsaNivelDebug`. O status geral permanece
+In Progress; esta mudança não conclui a qualificação nativa pendente.
+
+Amostra operacional anterior à mudança, 17–18/11/2026: o arquivo rotacionado
+contém 36 avisos da sondagem e 42 de SSE desabilitado. A contagem considera
+apenas cabeçalhos de log, não timestamps dentro de mensagens/SQL. Picos acima
+de 200 registros/minuto são dominados pelos diagnósticos GORM de jobs e
+comandos (115.544 dos 117.014 cabeçalhos da amostra); a maioria corresponde a ausência esperada de registros no polling.
+O logger GORM passa a ignorar apenas o diagnóstico de `ErrRecordNotFound`;
+o erro continua retornando ao chamador e SQL lento/erros reais continuam
+registrados. `TestConfiguredLoggerPreservesErrorsWithoutLoggingExpectedAbsence`
+prova 1.000 consultas vazias, erro SQL real e consulta lenta sem resultado.
+
+Reclassificando a mesma amostra pela nova política (sem contar timestamps
+embutidos e normalizando os dois formatos de data), os 117.014 registros em
+361 minutos com atividade ficam em 17.301: mediana 53, p95 71, máximo 174
+registros/minuto. Consultas acima de 200 ms são mantidas, inclusive sem
+resultado. Trata-se de projeção sobre log anterior, não medição de um deploy
+novo nem garantia sob qualquer carga; a verificação após instalação deve
+confirmar o volume. Não há redução de retries, timeouts ou logs de erros SQL.
