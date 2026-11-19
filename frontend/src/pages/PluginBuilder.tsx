@@ -73,7 +73,7 @@ export default function PluginBuilder() {
     {preview && <section aria-label={t('plugins.builderContents')}>
       <h3>{t('plugins.builderContents')}</h3>
       <p>{preview.name}</p><p>SHA-256 · {preview.digest}</p>
-      <ul>{preview.files.map(file => <li key={file}>{file}</li>)}</ul>
+      <ul>{preview.files.map(file => <li key={file}><details><summary>{file}</summary><pre>{preview.contents[file]}</pre></details></li>)}</ul>
     </section>}
     <Button type="submit" disabled={busy || Object.keys(selected).length === 0}>{t(preview ? 'plugins.builderSave' : 'plugins.builderReview')}</Button>
     {status && <p>{t(status)}</p>}

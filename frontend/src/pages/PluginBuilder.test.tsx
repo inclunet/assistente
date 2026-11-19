@@ -12,7 +12,7 @@ vi.mock('react-i18next', () => ({useTranslation:()=>({t:(key:string)=>key})}));
 describe('PluginBuilder', () => {
   it('requires a fresh preview when the selection changes and saves the reviewed package',async () => {
     mock.list.mockResolvedValue([{id:'source',title:'Release',slug:'release'}]);
-    mock.preview.mockResolvedValue({name:'release-kit',digest:'digest',files:['plugin.json'],components:[]});
+    mock.preview.mockResolvedValue({name:'release-kit',digest:'digest',files:['plugin.json'],contents:{'plugin.json':'Release template content'},components:[]});
     mock.save.mockResolvedValue(true);
     const user=userEvent.setup();
     render(<PluginBuilder />);
@@ -21,7 +21,8 @@ describe('PluginBuilder', () => {
     await user.type(name,'release-kit');
     await user.click(screen.getByRole('checkbox',{name:'Release'}));
     await user.click(screen.getByRole('button',{name:'plugins.builderReview'}));
-    await screen.findByText('plugin.json');
+    await user.click(await screen.findByText('plugin.json'));
+    expect(screen.getByText('Release template content')).toBeVisible();
     expect(mock.preview.mock.calls[0][0].tasklists[0].includeTasks).toBe(false);
     await user.click(screen.getByRole('checkbox',{name:'plugins.builderTasks'}));
     expect(screen.queryByRole('button',{name:'plugins.builderSave'})).toBeNull();

@@ -28,11 +28,21 @@ type BuilderRequest struct {
 	TaskLists []BuilderTaskList `json:"tasklists"`
 }
 
+// Windows reserves device names even when they are followed by an extension.
+func reservedDevice(name string) bool {
+	base, _, _ := strings.Cut(strings.ToUpper(name), ".")
+	switch base {
+	case "CON", "PRN", "AUX", "NUL":
+		return true
+	}
+	return len(base) == 4 && (base[:3] == "COM" || base[:3] == "LPT") && base[3] >= '1' && base[3] <= '9'
+}
+
 func (i *Inventory) BuildPackage(ctx context.Context, request BuilderRequest) ([]byte, *pluginpackage.LocalSnapshot, error) {
 	if _, err := database.RequireUserID(ctx); err != nil {
 		return nil, nil, err
 	}
-	if len(request.TaskLists) == 0 || len(request.TaskLists) > 100 || strings.TrimSpace(request.Name) == "" {
+	if len(request.TaskLists) == 0 || len(request.TaskLists) > 100 || strings.TrimSpace(request.Name) == "" || reservedDevice(request.Name) {
 		return nil, nil, errors.New("PLUGIN_BUILDER_SELECTION")
 	}
 	files := map[string][]byte{}
@@ -40,7 +50,7 @@ func (i *Inventory) BuildPackage(ctx context.Context, request BuilderRequest) ([
 	total := 0
 	err := i.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		for _, item := range request.TaskLists {
-			if !portableSkillName.MatchString(item.Key) || len(item.Key) > 64 {
+			if !portableSkillName.MatchString(item.Key) || len(item.Key) > 64 || reservedDevice(item.Key) {
 				return errors.New("PLUGIN_BUILDER_KEY")
 			}
 			file := path.Join(nativeExtension, "tasklists", item.Key+".json")

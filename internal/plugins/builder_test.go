@@ -46,6 +46,18 @@ func TestBuilderExportsOnlySelectedDefinitionsToAnotherAccount(t *testing.T) {
 	ctx := database.WithUserID(context.Background(), "author")
 	reader := database.WithUserID(context.Background(), "reader")
 	req := BuilderRequest{Name: "release-kit", Version: "1", TaskLists: []BuilderTaskList{{ID: list.ID, Key: "release"}}}
+	for _, name := range []string{"con", "NUL.txt", "LPT2"} {
+		invalid := req
+		invalid.Name = name
+		if _, _, err := store.BuildPackage(ctx, invalid); err == nil {
+			t.Fatal("reserved archive name accepted", name)
+		}
+	}
+	invalid := req
+	invalid.TaskLists = []BuilderTaskList{{ID: list.ID, Key: "aux"}}
+	if _, _, err := store.BuildPackage(ctx, invalid); err == nil {
+		t.Fatal("reserved resource name accepted")
+	}
 	if _, _, err := store.BuildPackage(reader, req); err == nil {
 		t.Fatal("foreign source used")
 	}

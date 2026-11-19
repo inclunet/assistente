@@ -10073,6 +10073,7 @@ export namespace updater {
 export namespace wailsapi {
 	
 	export class BuilderPreview {
+	    contents: Record<string, string>;
 	    name: string;
 	    digest: string;
 	    files: string[];
@@ -10084,6 +10085,7 @@ export namespace wailsapi {
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.contents = source["contents"];
 	        this.name = source["name"];
 	        this.digest = source["digest"];
 	        this.files = source["files"];

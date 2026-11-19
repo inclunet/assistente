@@ -13,6 +13,7 @@ import (
 )
 
 type BuilderPreview struct {
+	Contents   map[string]string   `json:"contents"`
 	Name       string              `json:"name"`
 	Digest     string              `json:"digest"`
 	Files      []string            `json:"files"`
@@ -32,8 +33,9 @@ func (api *Plugins) PreviewBuilder(request plugins.BuilderRequest) (*BuilderPrev
 		if err != nil {
 			return err
 		}
-		p := &BuilderPreview{Name: snap.Manifest.Name, Digest: snap.Digest, Components: plugins.DiscoverComponents(snap)}
-		for file := range snap.Files {
+		p := &BuilderPreview{Contents: make(map[string]string, len(snap.Files)), Name: snap.Manifest.Name, Digest: snap.Digest, Components: plugins.DiscoverComponents(snap)}
+		for file, contents := range snap.Files {
+			p.Contents[file] = string(contents)
 			p.Files = append(p.Files, file)
 		}
 		sort.Strings(p.Files)
