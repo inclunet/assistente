@@ -226,6 +226,8 @@ func InitPath(path string) error {
 	// AutoMigrate permanece responsável por ADIÇÃO de colunas/tabelas; mudanças
 	// estruturais são versionadas via runMigrations (AEP-0076).
 	if err := db.AutoMigrate(
+		&PluginInstallation{},
+		&PluginRevision{},
 		&AuthorizationRule{},
 		&AuthorizationImport{},
 		&AuthorizationPolicy{},
