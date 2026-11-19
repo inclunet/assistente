@@ -22,6 +22,9 @@ function InstalledPlugins() {
   const [preview, setPreview] = useState<wailsapi.PluginPreview | null>(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(true);
+  useEffect(() => {
+    if (error) announce(t(error), 'assertive');
+  }, [error, announce, t]);
   const mounted = useRef(false);
   const chooseButton = useRef<HTMLButtonElement>(null);
   const restoreFocus = useRef(false);
@@ -89,12 +92,12 @@ function InstalledPlugins() {
     <Toolbar left={<h1 className="page-toolbar__title">{t('menu.plugins')}</h1>}
       right={<Button ref={chooseButton} onClick={() => void inspect()} disabled={busy}>{t('plugins.choose')}</Button>} />
     <h2>{t('plugins.installed')}</h2>
-    {!preview && error && <p role="alert">{t(error)}</p>}
+    {!preview && error && <p>{t(error)}</p>}
     {items.length > 0 ? <DataGrid items={items} getItemId={row => row.id} label={t('plugins.installed')}
       columns={[{ key: 'name', label: t('plugins.name') }, { key: 'version', label: t('plugins.version') }, { key: 'origin', label: t('plugins.origin') }]} />
       : !busy && !error && <p>{t('plugins.empty')}</p>}
     {preview && <Modal isOpen title={t('plugins.preview', { name: preview.name })} onClose={() => void discard()} allowClose={!busy} readingMode>
-      {error && <p role="alert">{t(error)}</p>}
+      {error && <p>{t(error)}</p>}
       <dl>
         <dt>{t('plugins.origin')}</dt><dd>{preview.origin}</dd>
         {preview.version && <><dt>{t('plugins.version')}</dt><dd>{preview.version}</dd></>}

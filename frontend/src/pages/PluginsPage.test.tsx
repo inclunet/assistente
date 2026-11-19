@@ -74,7 +74,8 @@ describe('PluginsPage', () => {
     await user.click(choose);
     const cancel = await screen.findByRole('button', { name: 'common.cancel' });
     await user.click(cancel);
-    expect(screen.getByRole('dialog')).toContainElement(await screen.findByRole('alert'));
+    expect(screen.getByRole('dialog')).toContainElement(await screen.findByText('plugins.discardError'));
+    expect(mocks.announce).toHaveBeenCalledWith('plugins.discardError', 'assertive');
     await user.click(cancel);
     await waitFor(() => expect(choose).toHaveFocus());
     expect(mocks.install).not.toHaveBeenCalled();
