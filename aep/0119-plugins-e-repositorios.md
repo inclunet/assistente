@@ -63,7 +63,7 @@ Entrada própria no menu principal, no mesmo nível de Jobs. **Instalados** abre
 Preparação da fase 1: a execução de comandos embutidos em skills pelo chat
 usa a autorização de shell do AEP-0117 e o executor de invocações do turno.
 Testes de regressão em `internal/skills/command_turn_test.go` exercitam
-recusa, argumentos como texto e reconstrução do prompt sem repetir a execução.
+recusa, argumentos como texto e reconstrução do prompt sem repetir a execução. O caso POSIX de `TestSkillCommandInAdmittedTurn` usa o terminal real com saída sem quebra de linha.
 A instalação de pacotes e as demais entregas das fases abaixo permanecem pendentes.
 
 1. Contrato de pacote, instalação local, identidade, inventário no banco, recuperação e primeira instalação de skill e MCP.
