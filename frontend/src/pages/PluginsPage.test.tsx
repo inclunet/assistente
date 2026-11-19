@@ -4,11 +4,14 @@ import userEvent from '@testing-library/user-event';
 import { axe } from 'vitest-axe';
 import PluginsPage from './PluginsPage';
 
-const mocks = vi.hoisted(() => ({ lifecycle: vi.fn(), sync: vi.fn(), register: vi.fn(), remove: vi.fn(), confirm: vi.fn(), list: vi.fn(), components: vi.fn(), toggle: vi.fn(), preview: vi.fn(), install: vi.fn(), discard: vi.fn(), announce: vi.fn() }));
+const mocks = vi.hoisted(() => ({ lifecycle: vi.fn(), sync: vi.fn(), register: vi.fn(), remove: vi.fn(), confirm: vi.fn(), list: vi.fn(), components: vi.fn(), toggle: vi.fn(), preview: vi.fn(), install: vi.fn(), discard: vi.fn(), announce: vi.fn(), announceRequest: vi.fn() }));
 vi.mock('@wailsjs/go/wailsapi/Plugins', () => ({ ChangeInstallation: mocks.lifecycle, SyncMCP: mocks.sync, RegisterMCP: mocks.register, RemoveMCP: mocks.remove, InstalledComponents: mocks.components, SetSkillActive: mocks.toggle, DiscardPreview: mocks.discard, ListInstalled: mocks.list, PreviewLocal: mocks.preview, InstallReviewed: mocks.install }));
 vi.mock('../hooks/useConfirm', () => ({ useConfirm: () => mocks.confirm }));
-vi.mock('../store/authStore', () => ({ useAuthStore: () => 'session' }));
-vi.mock('../hooks/useAnnouncer', () => ({ useAnnouncer: () => ({ announce: mocks.announce }) }));
+vi.mock('../store/authStore', async importOriginal => {
+  const actual = await importOriginal<typeof import('../store/authStore')>();
+  return { ...actual, useAuthStore: Object.assign(() => 'session', actual.useAuthStore) };
+});
+vi.mock('../hooks/useAnnouncer', () => ({ useAnnouncer: () => ({ announce: mocks.announce, announceRequest: mocks.announceRequest }) }));
 vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string, options?: {name?: string}) => ['plugins.registerServer','plugins.keepServer','plugins.removeServer'].includes(key) ? key + ' ' + options?.name : key }) }));
 
 describe('PluginsPage', () => {
@@ -75,10 +78,12 @@ describe('PluginsPage', () => {
     await user.click(choose);
     const cancel = await screen.findByRole('button', { name: 'common.cancel' });
     await user.click(cancel);
-    expect(screen.getByRole('dialog')).toContainElement(await screen.findByText('plugins.discardError'));
+    expect(screen.getByRole('alertdialog')).toContainElement(await screen.findByText('plugins.discardError'));
     expect(mocks.announce).toHaveBeenCalledWith('plugins.discardError', 'assertive');
-    await user.click(cancel);
-    await waitFor(() => expect(choose).toHaveFocus());
+    await waitFor(async () => {
+      await user.click(cancel);
+      expect(choose).toHaveFocus();
+    }, { timeout: 2500 });
     expect(mocks.install).not.toHaveBeenCalled();
   });
 
@@ -94,6 +99,22 @@ describe('PluginsPage', () => {
     await user.click(await screen.findByRole('button', { name: 'plugins.activate' }));
     expect(mocks.toggle).toHaveBeenCalledWith('one', 'sha', 'skills/note', true);
     expect(await screen.findByText('/note-local')).toBeInTheDocument();
+    await user.keyboard('{Escape}');
+    await waitFor(() => expect(cell).toHaveFocus());
+  });
+
+  it.each(['cancel', 'readError'])('restores keyboard focus after picker result %s', async result => {
+    const user = userEvent.setup();
+    if (result === 'cancel') mocks.preview.mockResolvedValueOnce(null);
+    else mocks.preview.mockRejectedValueOnce(new Error('read'));
+    render(<PluginsPage />);
+    const choose = await screen.findByRole('button', { name: 'plugins.choose' });
+    await waitFor(() => expect(choose).toBeEnabled());
+    choose.focus();
+    await user.keyboard('{Enter}');
+    await waitFor(() => expect(mocks.preview).toHaveBeenCalledOnce());
+    await waitFor(() => expect(choose).toHaveFocus());
+    expect(screen.queryByRole('alertdialog')).toBeNull();
   });
 
   it('registers an MCP and preserves the native configuration only after confirmation', async () => {

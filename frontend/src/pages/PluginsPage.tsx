@@ -4,8 +4,9 @@ import { ChangeInstallation, DiscardPreview, InstalledComponents, InstallReviewe
 import type { database, plugins, wailsapi } from '@wailsjs/go/models';
 import { Button } from '../components/ui/Button';
 import { DataGrid } from '../components/ui/DataGrid';
-import { DialogActions } from '../components/ui/DialogActions';
 import { Modal } from '../components/ui/Modal';
+import { DecisionDialog } from '../components/ui/DecisionDialog';
+import { useGridPageLandmarks } from '../hooks/useGridPageLandmarks';
 import { Toolbar } from '../components/ui/Toolbar';
 import { useConfirm } from '../hooks/useConfirm';
 import { useAnnouncer } from '../hooks/useAnnouncer';
@@ -27,6 +28,7 @@ export default function PluginsPage() {
 
 function InstalledPlugins() {
   const { t } = useTranslation();
+  useGridPageLandmarks({ pageClass: 'plugins-page' });
   const { announce } = useAnnouncer();
   const confirm = useConfirm();
   const [items, setItems] = useState<database.PluginInstallation[]>([]);
@@ -37,15 +39,21 @@ function InstalledPlugins() {
   useEffect(() => {
     if (error) announce(t(error), 'assertive');
   }, [error, announce, t]);
+  const detailsOpener = useRef<HTMLElement | null>(null);
   const mounted = useRef(false);
   const chooseButton = useRef<HTMLButtonElement>(null);
   const restoreFocus = useRef(false);
   useEffect(() => {
+    if (!details && !preview && !busy && detailsOpener.current) {
+      const opener = detailsOpener.current;
+      detailsOpener.current = null;
+      if (opener.isConnected) opener.focus(); else chooseButton.current?.focus();
+    }
     if (!preview && !busy && restoreFocus.current) {
       restoreFocus.current = false;
       chooseButton.current?.focus();
     }
-  }, [preview, busy]);
+  }, [preview, details, busy]);
   const refresh = useCallback(async () => {
     const rows = await ListInstalled();
     if (mounted.current) setItems(rows ?? []);
@@ -62,7 +70,9 @@ function InstalledPlugins() {
     try {
       const next = await PreviewLocal();
       if (mounted.current && next) setPreview(next);
+      else restoreFocus.current = true;
     } catch {
+      restoreFocus.current = true;
       if (mounted.current) setError('plugins.inspectError');
     } finally {
       if (mounted.current) setBusy(false);
@@ -87,6 +97,7 @@ function InstalledPlugins() {
   };
   const openDetails = async (installation: database.PluginInstallation) => {
     if (busy) return;
+    detailsOpener.current = document.activeElement instanceof HTMLElement ? document.activeElement.closest<HTMLElement>('[role="gridcell"]') : null;
     setBusy(true);
     setError('');
     try {
@@ -196,7 +207,7 @@ function InstalledPlugins() {
       if (mounted.current) { restoreFocus.current = true; setBusy(false); setPreview(null); }
     }
   };
-  return <section aria-label={t('menu.plugins')}>
+  return <section className="plugins-page" aria-label={t('menu.plugins')}>
     <Toolbar left={<h1 className="page-toolbar__title">{t('menu.plugins')}</h1>}
       right={<Button ref={chooseButton} onClick={() => void inspect()} disabled={busy}>{t('plugins.choose')}</Button>} />
     <h2>{t('plugins.installed')}</h2>
@@ -224,8 +235,16 @@ function InstalledPlugins() {
         </> : <p>{t(componentRequirement(component) ?? 'plugins.unavailable')}</p>}
       </li>)}</ul>}
     </Modal>}
-    {preview && <Modal isOpen title={t('plugins.preview', { name: preview.name })} onClose={() => void discard()} allowClose={!busy} readingMode>
-      {error && <><p>{t(error)}</p>{retrySync}</>}
+    {preview && <DecisionDialog isOpen title={t('plugins.preview', { name: preview.name })}
+      description={t('plugins.inactive')} allowClose={!busy} size="lg"
+      actions={[
+        { id: 'install', label: t(preview.previousDigest ? 'plugins.update' : 'plugins.install'), primary: true, polarity: 'affirmative', disabled: busy || sameRevision },
+        { id: 'cancel', label: t('common.cancel'), disabled: busy },
+      ]}
+      onAction={id => { if (id === 'install') void install(); else void discard(); }}
+      onCancel={() => void discard()}
+      readingRegions={[{ id: 'package', label: t('plugins.preview', { name: preview.name }), content: <>
+      {error && <p>{t(error)}</p>}
       <dl>
         <dt>{t('plugins.origin')}</dt><dd>{preview.origin}</dd>
         {preview.version && <><dt>{t('plugins.version')}</dt><dd>{preview.version}</dd></>}
@@ -233,12 +252,9 @@ function InstalledPlugins() {
         <dt>SHA-256</dt><dd>{preview.digest}</dd>
       </dl>
       {preview.previousDigest && <p>{t(sameRevision ? 'plugins.current' : 'plugins.updateNotice')}</p>}
-      <p>{t('plugins.inactive')}</p>
       {(preview.components ?? []).length > 0 && <ul aria-label={t('plugins.components')}>{preview.components.map(component => <li key={component.key}>{component.name} · {t(component.kind === 'skill' ? 'plugins.skill' : component.kind === 'mcp' ? 'plugins.mcp' : 'plugins.invalid')}{component.endpoint && <span> · {component.endpoint}</span>}{componentRequirement(component) && <p>{t(componentRequirement(component)!)}</p>}</li>)}</ul>}
       {(preview.diagnostics ?? []).length > 0 && <p>{t('plugins.warnings', { count: preview.diagnostics.length })}</p>}
       <details><summary>{t('plugins.files', { count: preview.files.length })}</summary><ul>{preview.files.map(path => <li key={path}>{path}</li>)}</ul></details>
-      <DialogActions primary={<Button variant="primary" disabled={busy || sameRevision} onClick={() => void install()}>{t(preview.previousDigest ? 'plugins.update' : 'plugins.install')}</Button>}
-        secondary={<Button disabled={busy} onClick={() => void discard()}>{t('common.cancel')}</Button>} />
-    </Modal>}
+      </> }]} />}
   </section>;
 }
