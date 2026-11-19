@@ -31,6 +31,12 @@ func TestArchiveLimitsAndPortablePaths(t *testing.T) {
 	if _, err := OpenArchive(archive); err != nil {
 		t.Fatal(err)
 	}
+	withComment := bytes.Clone(archive)
+	comment := append([]byte("PK\x05\x06"), make([]byte, 19)...)
+	binary.LittleEndian.PutUint16(withComment[len(withComment)-2:], uint16(len(comment)))
+	if _, err := OpenArchive(append(withComment, comment...)); err == nil {
+		t.Fatal("ambiguous ZIP comment accepted")
+	}
 	for _, count := range []uint16{1, 65535} {
 		modified := bytes.Clone(archive)
 		end := modified[len(modified)-22:]

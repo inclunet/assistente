@@ -27,6 +27,11 @@ func validateDirectory(data []byte) error {
 		if string(record[:4]) != "PK\x05\x06" || int(binary.LittleEndian.Uint16(record[20:])) != len(record)-endSize {
 			continue
 		}
+		// archive/zip also accepts EOCD candidates with a shorter comment.
+		// An embedded signature must never select a different directory.
+		if bytes.Contains(record[4:], []byte("PK\x05\x06")) {
+			return fs.ErrInvalid
+		}
 		count := int(binary.LittleEndian.Uint16(record[10:]))
 		if count > 16384 || binary.LittleEndian.Uint32(record[4:]) != 0 || int(binary.LittleEndian.Uint16(record[8:])) != count {
 			return fs.ErrInvalid
