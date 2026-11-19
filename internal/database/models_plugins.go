@@ -4,11 +4,12 @@ package database
 // A published revision is inert until its components are activated.
 type PluginInstallation struct {
 	UUIDModel
-	UserID  string `gorm:"not null;uniqueIndex:plugin_owner_origin_name,priority:1" json:"-"`
-	Origin  string `gorm:"not null;uniqueIndex:plugin_owner_origin_name,priority:2" json:"origin"`
-	Name    string `gorm:"not null;uniqueIndex:plugin_owner_origin_name,priority:3" json:"name"`
-	Digest  string `gorm:"not null" json:"digest"`
-	Version string `json:"version"`
+	Disabled bool   `gorm:"not null;default:false" json:"disabled"`
+	UserID   string `gorm:"not null;uniqueIndex:plugin_owner_origin_name,priority:1" json:"-"`
+	Origin   string `gorm:"not null;uniqueIndex:plugin_owner_origin_name,priority:2" json:"origin"`
+	Name     string `gorm:"not null;uniqueIndex:plugin_owner_origin_name,priority:3" json:"name"`
+	Digest   string `gorm:"not null" json:"digest"`
+	Version  string `json:"version"`
 }
 
 type PluginRevision struct {

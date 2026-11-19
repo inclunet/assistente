@@ -245,3 +245,18 @@ func (api *Plugins) RemoveMCP(id, digest, key string, preserve bool) error {
 func (api *Plugins) SyncMCP() error {
 	return api.mutateComponent(func(ctx context.Context, i *plugins.Inventory) error { return i.SyncMCP(ctx) })
 }
+
+func (api *Plugins) ChangeInstallation(id, digest, action string) error {
+	session, inventory, _, capture, err := api.wired()
+	if err != nil {
+		return err
+	}
+	_, err = WithUser(session, func(ctx context.Context) (struct{}, error) {
+		admit, err := capture(ctx)
+		if err != nil {
+			return struct{}{}, err
+		}
+		return struct{}{}, inventory.ChangeInstallation(ctx, id, digest, action, admit)
+	})
+	return err
+}

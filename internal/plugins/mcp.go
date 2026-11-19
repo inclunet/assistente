@@ -104,6 +104,9 @@ func (i *Inventory) RegisterMCP(ctx context.Context, id, digest, key string) err
 		if err := tx.Where("user_id=? AND id=? AND digest=?", owner, id, digest).Take(&install).Error; err != nil {
 			return err
 		}
+		if install.Disabled {
+			return ErrInstallationDisabled
+		}
 		var binding database.PluginMCPBinding
 		err := tx.Where("installation_id=? AND component_key=?", id, key).Take(&binding).Error
 		if err == nil {

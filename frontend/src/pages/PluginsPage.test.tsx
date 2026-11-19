@@ -4,8 +4,8 @@ import userEvent from '@testing-library/user-event';
 import { axe } from 'vitest-axe';
 import PluginsPage from './PluginsPage';
 
-const mocks = vi.hoisted(() => ({ sync: vi.fn(), register: vi.fn(), remove: vi.fn(), confirm: vi.fn(), list: vi.fn(), components: vi.fn(), toggle: vi.fn(), preview: vi.fn(), install: vi.fn(), discard: vi.fn(), announce: vi.fn() }));
-vi.mock('@wailsjs/go/wailsapi/Plugins', () => ({ SyncMCP: mocks.sync, RegisterMCP: mocks.register, RemoveMCP: mocks.remove, InstalledComponents: mocks.components, SetSkillActive: mocks.toggle, DiscardPreview: mocks.discard, ListInstalled: mocks.list, PreviewLocal: mocks.preview, InstallReviewed: mocks.install }));
+const mocks = vi.hoisted(() => ({ lifecycle: vi.fn(), sync: vi.fn(), register: vi.fn(), remove: vi.fn(), confirm: vi.fn(), list: vi.fn(), components: vi.fn(), toggle: vi.fn(), preview: vi.fn(), install: vi.fn(), discard: vi.fn(), announce: vi.fn() }));
+vi.mock('@wailsjs/go/wailsapi/Plugins', () => ({ ChangeInstallation: mocks.lifecycle, SyncMCP: mocks.sync, RegisterMCP: mocks.register, RemoveMCP: mocks.remove, InstalledComponents: mocks.components, SetSkillActive: mocks.toggle, DiscardPreview: mocks.discard, ListInstalled: mocks.list, PreviewLocal: mocks.preview, InstallReviewed: mocks.install }));
 vi.mock('../hooks/useConfirm', () => ({ useConfirm: () => mocks.confirm }));
 vi.mock('../store/authStore', () => ({ useAuthStore: () => 'session' }));
 vi.mock('../hooks/useAnnouncer', () => ({ useAnnouncer: () => ({ announce: mocks.announce }) }));
@@ -130,6 +130,22 @@ describe('PluginsPage', () => {
     expect(await screen.findByRole('button', { name: 'plugins.keepServer search' })).toBeInTheDocument();
     expect(mocks.sync).toHaveBeenCalledOnce();
     expect(mocks.register).toHaveBeenCalledOnce();
+  });
+
+  it('removes the selected revision only after confirmation and refreshes the installed list', async () => {
+    const user = userEvent.setup();
+    mocks.list.mockResolvedValueOnce([{ id: 'one', name: 'Demo', digest: 'sha' }]).mockResolvedValue([]);
+    mocks.components.mockResolvedValue([]);
+    mocks.confirm.mockResolvedValueOnce(false).mockResolvedValueOnce(true);
+    render(<PluginsPage />);
+    (await screen.findByRole('gridcell', { name: /Demo/ })).focus();
+    await user.keyboard('{Enter}');
+    const remove = await screen.findByRole('button', { name: 'plugins.uninstall' });
+    await user.click(remove);
+    expect(mocks.lifecycle).not.toHaveBeenCalled();
+    await user.click(remove);
+    expect(mocks.lifecycle).toHaveBeenCalledWith('one','sha','uninstall');
+    expect(await screen.findByText('plugins.empty')).toBeInTheDocument();
   });
 
   it('closes the preview without installing', async () => {

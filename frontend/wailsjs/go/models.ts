@@ -5585,6 +5585,7 @@ export namespace database {
 	    createdAt: any;
 	    // Go type: time
 	    updatedAt: any;
+	    disabled: boolean;
 	    origin: string;
 	    name: string;
 	    digest: string;
@@ -5599,6 +5600,7 @@ export namespace database {
 	        this.id = source["id"];
 	        this.createdAt = this.convertValues(source["createdAt"], null);
 	        this.updatedAt = this.convertValues(source["updatedAt"], null);
+	        this.disabled = source["disabled"];
 	        this.origin = source["origin"];
 	        this.name = source["name"];
 	        this.digest = source["digest"];

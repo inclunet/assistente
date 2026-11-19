@@ -101,6 +101,9 @@ func (i *Inventory) SetSkillActive(ctx context.Context, id, digest, key string, 
 		if err := tx.Where("user_id = ? AND id = ? AND digest = ?", owner, id, digest).Take(&installation).Error; err != nil {
 			return err
 		}
+		if active && installation.Disabled {
+			return ErrInstallationDisabled
+		}
 		if !active {
 			return tx.Where("installation_id = ? AND component_key = ?", id, key).Delete(&database.PluginSkillActivation{}).Error
 		}
@@ -114,7 +117,7 @@ func (i *Inventory) ActiveSkills(ctx context.Context) ([]skills.Skill, error) {
 		return nil, err
 	}
 	var rows []database.PluginSkillActivation
-	err = i.db.WithContext(ctx).Model(&database.PluginSkillActivation{}).Joins("JOIN plugin_installations p ON p.id = plugin_skill_activations.installation_id AND p.digest = plugin_skill_activations.digest").Where("p.user_id = ?", owner).Order("plugin_skill_activations.slug").Find(&rows).Error
+	err = i.db.WithContext(ctx).Model(&database.PluginSkillActivation{}).Joins("JOIN plugin_installations p ON p.id = plugin_skill_activations.installation_id AND p.digest = plugin_skill_activations.digest").Where("p.user_id = ? AND p.disabled = ?", owner, false).Order("plugin_skill_activations.slug").Find(&rows).Error
 	if err != nil {
 		return nil, err
 	}
