@@ -214,6 +214,22 @@ describe('PluginsPage', () => {
     expect(mocks.createList.mock.calls[1]).toEqual(mocks.createList.mock.calls[0]);
     expect(mocks.createList.mock.calls[1]).toEqual(['one','sha','tasklists/release',expect.any(String)]);
   });
+  it('distinguishes an invalid profile from a valid profile awaiting activation', async () => {
+    mocks.list.mockResolvedValue([{id: 'one', name: 'Demo', digest: 'sha'}]);
+    mocks.components.mockResolvedValue([
+      {name: 'Writer', key: 'profiles/writer', kind: 'profile', reason: 'profileActivationPending'},
+      {name: 'broken', key: 'profiles/broken', kind: 'profile', reason: 'invalidProfile'},
+    ]);
+    const user = userEvent.setup();
+    render(<PluginsPage />);
+    const cell = await screen.findByRole('gridcell', {name: /Demo/});
+    cell.focus();
+    await user.keyboard('{Enter}');
+    await screen.findByText('plugins.profileActivationPending');
+    expect(screen.getByText('plugins.invalidProfile')).toBeVisible();
+    expect(screen.queryByRole('button', {name: 'plugins.activate'})).toBeNull();
+  });
+
   it('reports a supported template in preview before installation', async () => {
     mocks.preview.mockResolvedValue({token:'reviewed',name:'planner',digest:'sha',files:[],diagnostics:[],components:[{kind:'tasklistTemplate',key:'tasklists/release',name:'Release'}]});
     const user = userEvent.setup();

@@ -72,6 +72,8 @@ O leitor de repositórios locais interpreta índices de Claude Code, Cursor e Co
 
 A extensão nativa `extensions["br.com.inclunet.assistente"]` na versão 1 declara modelos de tasklist em `tasklists`. Cada chave referencia `br.com.inclunet.assistente/tasklists/<chave>.json`. O modelo contém título, descrição, workflow e tarefas iniciais opcionais. As instâncias usam o importador de portabilidade, com novos IDs e estado inicial. O teste `TestTemplateListSurvivesUpdateAndUninstall` cobre criação, repetição, isolamento e preservação de notas e progresso após atualização e remoção.
 
+A mesma extensão aceita `profiles`, uma lista de chaves para arquivos em `br.com.inclunet.assistente/profiles/<chave>.json`. A prévia identifica o perfil e distingue uma definição inválida de um perfil válido cuja ativação ainda está pendente. O contrato inicial aceita nome, descrição, temperatura, top-p e limite de tokens. O teste `TestDiscoverPortableProfile` cobre o diagnóstico e a validação pelo domínio nativo. A projeção persistida por conta e o uso no chat continuam pendentes.
+
 A entrega inicial do builder na tela Plugins seleciona listas da conta, exporta definições de workflow e inclui tarefas iniciais mediante escolha explícita. O ZIP passa pelo leitor usado na instalação, e o salvamento compara o digest com a prévia. `TestBuilderExportsOnlySelectedDefinitionsToAnotherAccount` prova a instalação em outra conta sem notas, responsáveis ou progresso. O builder também distribui skills de instruções portáveis selecionadas do catálogo nativo, validando a definição sem executar o conteúdo. A composição com jobs e perfis permanece pendente.
 
 1. Contrato de pacote, instalação local, identidade, inventário no banco, recuperação e primeira instalação de skill e MCP.

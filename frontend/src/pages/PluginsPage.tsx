@@ -15,7 +15,19 @@ import { useConfirm } from '../hooks/useConfirm';
 import { useAnnouncer } from '../hooks/useAnnouncer';
 import { useAuthStore } from '../store/authStore';
 
+function componentLabel(kind: string) {
+  switch (kind) {
+    case 'skill': return 'plugins.skill';
+    case 'mcp': return 'plugins.mcp';
+    case 'tasklistTemplate': return 'plugins.tasklistTemplate';
+    case 'profile': return 'plugins.profile';
+    default: return 'plugins.invalid';
+  }
+}
+
 function componentRequirement(component: plugins.Component) {
+  if (component.reason === 'invalidProfile') return 'plugins.invalidProfile';
+  if (component.reason === 'profileActivationPending') return 'plugins.profileActivationPending';
   if (component.reason === 'shellCommands') return 'plugins.shellPending';
   if (component.reason === 'supportingFiles') return 'plugins.filesPending';
   if (component.reason === 'manifestConfiguration') return 'plugins.manifestPending';
@@ -254,7 +266,7 @@ function InstalledPlugins() {
       {createdList && <p>{t('plugins.createdList', {name:createdList})}</p>}
       <h2>{t('plugins.components')}</h2>
       {details.components.length === 0 ? <p>{t('plugins.noComponents')}</p> : <ul>{details.components.map(component => <li key={component.key}>
-        <strong>{component.name}</strong> · {t(component.kind === 'skill' ? 'plugins.skill' : component.kind === 'mcp' ? 'plugins.mcp' : component.kind === 'tasklistTemplate' ? 'plugins.tasklistTemplate' : 'plugins.invalid')}
+        <strong>{component.name}</strong> · {t(componentLabel(component.kind))}
         {component.kind === 'tasklistTemplate' && !component.reason ?
           <Button disabled={busy || details.installation.disabled} onClick={() => void changeComponent(component)}>{t('plugins.createList', {name:component.name})}</Button>
           : component.kind === 'skill' && !component.reason ? <>
@@ -286,7 +298,7 @@ function InstalledPlugins() {
         <dt>SHA-256</dt><dd>{preview.digest}</dd>
       </dl>
       {preview.previousDigest && <p>{t(sameRevision ? 'plugins.current' : 'plugins.updateNotice')}</p>}
-      {(preview.components ?? []).length > 0 && <ul aria-label={t('plugins.components')}>{preview.components.map(component => <li key={component.key}>{component.name} · {t(component.kind === 'skill' ? 'plugins.skill' : component.kind === 'mcp' ? 'plugins.mcp' : component.kind === 'tasklistTemplate' ? 'plugins.tasklistTemplate' : 'plugins.invalid')}{component.requestsShell && <span> · {t('plugins.commandPolicy')}</span>}{component.endpoint && <span> · {component.endpoint}</span>}{componentRequirement(component) && <p>{t(componentRequirement(component)!)}</p>}</li>)}</ul>}
+      {(preview.components ?? []).length > 0 && <ul aria-label={t('plugins.components')}>{preview.components.map(component => <li key={component.key}>{component.name} · {t(componentLabel(component.kind))}{component.requestsShell && <span> · {t('plugins.commandPolicy')}</span>}{component.endpoint && <span> · {component.endpoint}</span>}{componentRequirement(component) && <p>{t(componentRequirement(component)!)}</p>}</li>)}</ul>}
       {(preview.diagnostics ?? []).length > 0 && <p>{t('plugins.warnings', { count: preview.diagnostics.length })}</p>}
       <details><summary>{t('plugins.files', { count: preview.files.length })}</summary><ul>{preview.files.map(path => <li key={path}>{path}</li>)}</ul></details>
       </> }]} />}

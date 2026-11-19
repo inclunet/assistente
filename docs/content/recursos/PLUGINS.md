@@ -55,6 +55,10 @@ Escolha **Adicionar loja por URL**. Uma mudança no arquivo exige **Atualizar** 
 
 Abra os detalhes de um plugin instalado que forneça um modelo de lista de tarefas. Escolha **Criar lista a partir de** e o nome do modelo. A nova lista fica em **Listas de tarefas**, com os estados de workflow e as tarefas iniciais que o autor incluiu. Cada nova criação gera uma lista independente. Suas notas e seu progresso continuam disponíveis quando você atualiza, desativa ou desinstala o plugin.
 
+## Conferir perfis incluídos no pacote
+
+A prévia e os detalhes identificam os perfis de conversa fornecidos pelo plugin. Nesta versão, você pode conferir o nome do perfil e saber se a definição é compatível. A ativação para uso em conversas ainda está em desenvolvimento.
+
 ## Gerar um pacote com o builder
 
 Abra **Plugins → Criar plugin**. Informe um identificador de pacote e, se quiser, sua versão. Marque as skills de instrução que deseja incluir. O builder preserva o SKILL.md original das skills portáveis sem arquivos auxiliares e permite conferir seu conteúdo na prévia. Marque as listas que deseja distribuir como modelos e informe uma chave estável para cada uma. Para incluir tarefas iniciais, marque a opção da lista correspondente. Os campos publicados são os títulos e as descrições das tarefas selecionadas, a hierarquia, o título e a descrição da lista e a definição do workflow. Notas pessoais, responsáveis, conclusão e histórico ficam na sua conta.
