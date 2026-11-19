@@ -48,7 +48,8 @@ func (i *Inventory) InstallLocal(ctx context.Context, reviewedOrigin, reviewedDi
 		return database.PluginInstallation{}, err
 	}
 	var installed database.PluginInstallation
-	err = i.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	err = database.WithSQLiteImmediateTransaction(ctx, i.db, "plugins.install", func(tx *gorm.DB) error {
+		installed = database.PluginInstallation{}
 		identity := database.PluginInstallation{UserID: owner, Name: snapshot.Manifest.Name, Origin: snapshot.Origin}
 		lookup := tx.Where(&identity).First(&installed).Error
 		switch {
