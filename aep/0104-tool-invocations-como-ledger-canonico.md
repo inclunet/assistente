@@ -587,3 +587,16 @@ de INSERT após a criação do catálogo.
 
 Evolui as AEPs 0047, 0059, 0063, 0074-B e 0078. Preserva os contratos das
 AEPs 0040, 0068, 0071, 0076, 0098 e 0102.
+
+## Evidência de desempenho da projeção (#776, 18/11/2026)
+
+O benchmark `BenchmarkToolSummaryProjection` mede o repositório de produção
+em SQLite em disco, com 1.000/100.000 invocações e janela fixa de 20 resumos.
+O benchmark opcional `BenchmarkToolSummaryProjectionReadOnly` mede banco
+existente sem migração ou escritas SQL (WAL/SHM e locks ainda podem ser usados
+pelo SQLite para coordenar leitores). A amostra real retornou 180 resumos com
+média de 8,116 ms e p95 de 9,543 ms; a sintética maior teve p95 de 2,708 ms.
+Método, reprodução e limites: `docs/operations/tool-summary-performance.md`.
+Os planos e o isolamento continuam cobertos pelos testes da correção v39.
+Esta evidência conclui a medição pendente da projeção, não as fases restantes
+do AEP; o status geral permanece In Progress.
