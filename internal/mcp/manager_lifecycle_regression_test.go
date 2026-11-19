@@ -1985,10 +1985,10 @@ func TestReconexaoBemSucedidaUsaNivelInfo(t *testing.T) {
 	}
 }
 
-// TestStandaloneSSEDesabilitadoUsaNivelInfo garante que a desabilitação do SSE
-// standalone é reportada em INFO (estado benigno de configuração) e preserva a
+// TestStandaloneSSEDesabilitadoUsaNivelDebug garante que a desabilitação do SSE
+// standalone é reportada em DEBUG (estado benigno de configuração) e preserva a
 // mensagem original com o slug do servidor.
-func TestStandaloneSSEDesabilitadoUsaNivelInfo(t *testing.T) {
+func TestStandaloneSSEDesabilitadoUsaNivelDebug(t *testing.T) {
 	handler := &captureHandler{}
 	oldLogger := slog.Default()
 	slog.SetDefault(slog.New(handler))
@@ -2001,8 +2001,8 @@ func TestStandaloneSSEDesabilitadoUsaNivelInfo(t *testing.T) {
 	if len(handler.records) != 1 {
 		t.Fatalf("records=%d, esperado 1", len(handler.records))
 	}
-	if got := handler.records[0].Level; got != slog.LevelInfo {
-		t.Fatalf("nível=%s, esperado INFO", got)
+	if got := handler.records[0].Level; got != slog.LevelDebug {
+		t.Fatalf("nível=%s, esperado DEBUG", got)
 	}
 	// A normalização de logs remove o prefixo legado [MCP:slug] da mensagem
 	// armazenada (mesmo comportamento de logReconnectSuccess), então validamos
@@ -2040,5 +2040,46 @@ func TestWaitConnectionSessionPropagaErroDoWatcher(t *testing.T) {
 	close(closedWithoutResult)
 	if _, completed := waitConnectionSession(&serverConnection{sessionDone: closedWithoutResult}); completed {
 		t.Fatal("canal fechado sem resultado não pode comprovar session.Wait")
+	}
+}
+
+// Exercise the real probe-to-transport path: an unsupported GET is normal,
+// while the HTTP transport can still connect successfully.
+func TestProbeSSESemSuporteUsaDebugEPreservaConexao(t *testing.T) {
+	handler := &captureHandler{}
+	previous := slog.Default()
+	slog.SetDefault(slog.New(handler))
+	defer slog.SetDefault(previous)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+	}))
+	defer server.Close()
+	m := newLifecycleManager()
+	factory := newInMemoryMCPFactory(t, m.ctx)
+	defer factory.close()
+	defer m.CloseAll()
+	m.transportFactory = func(ctx context.Context, slug string, config ServerConfig) (mcpsdk.Transport, error) {
+		if !config.DisableSSE {
+			t.Error("probe não selecionou transporte sem SSE")
+		}
+		return factory.transport(ctx, slug, config)
+	}
+	registerLifecycleServer(m, "probe-debug", ServerConfig{Enabled: true, Transport: TransportStreamable, URL: server.URL, AuthType: AuthNone})
+	if err := m.Connect("probe-debug"); err != nil {
+		t.Fatal(err)
+	}
+	handler.mu.Lock()
+	defer handler.mu.Unlock()
+	count := 0
+	for _, record := range handler.records {
+		if strings.Contains(record.Message, "SSE não suportado") {
+			count++
+			if record.Level != slog.LevelDebug {
+				t.Errorf("probe level=%s, esperado DEBUG", record.Level)
+			}
+		}
+	}
+	if count != 1 {
+		t.Fatalf("probe records=%d, esperado 1", count)
 	}
 }

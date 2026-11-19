@@ -63,3 +63,12 @@ diálogo do sistema.
 > Os mecanismos existentes de sanitização continuam valendo, mas o arquivo
 > ainda pode conter informações de diagnóstico. Guarde-o em local protegido e
 > revise o conteúdo antes de compartilhá-lo.
+
+A escolha rotineira de polling quando o servidor MCP não oferece SSE, e a
+configuração de SSE desabilitado, são diagnósticos DEBUG. Não aparecem no
+nível INFO padrão. Falhas reais de conexão continuam sendo registradas;
+um servidor sem SSE pode funcionar normalmente via HTTP.
+
+Consultas periódicas sem resultados não geram erros `record not found` no
+log do banco. Isso não altera o resultado entregue ao aplicativo. Consultas
+lentas (acima de 200 ms) e erros SQL reais continuam registrados.
