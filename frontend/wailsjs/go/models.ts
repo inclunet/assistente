@@ -8122,6 +8122,8 @@ export namespace plugins {
 	}
 	
 	export class Component {
+	    tool?: string;
+	    jobTriggers?: string[];
 	    requestsShell?: boolean;
 	    endpoint?: string;
 	    active: boolean;
@@ -8139,6 +8141,8 @@ export namespace plugins {
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.tool = source["tool"];
+	        this.jobTriggers = source["jobTriggers"];
 	        this.requestsShell = source["requestsShell"];
 	        this.endpoint = source["endpoint"];
 	        this.active = source["active"];
