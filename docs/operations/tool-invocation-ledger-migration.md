@@ -139,3 +139,7 @@ infira propriedade apenas porque existe um job com o mesmo ID. Preserve inputs,
 outputs e identificadores; revise a correção na cópia com o mantenedor antes de
 substituir o banco. Se o job original ou a evidência não existir, mantenha o backup
 e solicite suporte, sem apagar a execução ou forçar versões de migração.
+
+Para medir a leitura de resumos pelo repositório de produção, consulte
+[Projeção de ferramentas](tool-summary-performance.md), com cenários sintéticos
+e medição opcional de banco existente somente para leitura.
