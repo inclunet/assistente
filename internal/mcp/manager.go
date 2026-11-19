@@ -944,7 +944,7 @@ func (m *Manager) connectWithContextForRetry(parentCtx context.Context, slug str
 				m.resetConnectingStatus(slug)
 				return sessionCtx.Err()
 			}
-			logging.Infof(context.Background(), "mcp.manager", "[MCP:%s] SSE não suportado (%s) — usando polling", slug, reason)
+			logging.Debugf(sessionCtx, "mcp.manager", "[MCP:%s] SSE não suportado (%s) — usando polling", slug, reason)
 			cfg.DisableSSE = true
 		}
 	}
@@ -2648,11 +2648,10 @@ func logReconnectSuccess(slug string) {
 
 // logStandaloneSSEDisabled registra que o canal SSE standalone foi desabilitado
 // por configuração. É um estado benigno: o servidor continua conectando via HTTP
-// streamable/polling. Por isso o nível é INFO — a mensagem só documenta a
-// configuração vigente e não sinaliza falha (evita poluir o log com ~12 ERROR
-// por sessão).
+// streamable/polling. DEBUG preserva o diagnóstico sem repetir configuração
+// rotineira no log INFO a cada conexão.
 func logStandaloneSSEDisabled(slug string) {
-	logging.Infof(context.Background(), "mcp.manager", "[MCP:%s] Standalone SSE desabilitado por configuração", slug)
+	logging.Debugf(context.Background(), "mcp.manager", "[MCP:%s] Standalone SSE desabilitado por configuração", slug)
 }
 
 // ReadResource lê o conteúdo de um resource MCP.

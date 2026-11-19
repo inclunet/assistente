@@ -10,6 +10,8 @@ import (
 	"testing"
 	"time"
 
+	"assistente/internal/sqlite"
+	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 )
 
@@ -52,5 +54,53 @@ func TestBusyQuietLogger_LogModeMantemWrapper(t *testing.T) {
 	l := newBusyQuietLogger(io.Discard)
 	if _, ok := l.LogMode(logger.Info).(busyQuietLogger); !ok {
 		t.Fatal("LogMode deveria devolver busyQuietLogger para manter a supressão")
+	}
+}
+
+func TestConfiguredLoggerPreservesErrorsWithoutLoggingExpectedAbsence(t *testing.T) {
+	var output bytes.Buffer
+	previousOutput, previousLevel := gormLogOutput, gormLogLevel
+	gormLogOutput, gormLogLevel = &output, logger.Warn
+	defer func() { gormLogOutput, gormLogLevel = previousOutput, previousLevel }()
+	log := configuredGORMLogger()
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{Logger: log})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sqlDB, err := db.DB()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if err := sqlDB.Close(); err != nil {
+			t.Error(err)
+		}
+	}()
+	type pollingRow struct{ ID string }
+	if err := db.AutoMigrate(&pollingRow{}); err != nil {
+		t.Fatal(err)
+	}
+	output.Reset()
+	for i := 0; i < 1000; i++ {
+		var row pollingRow
+		if err := db.First(&row).Error; !errors.Is(err, gorm.ErrRecordNotFound) {
+			t.Fatalf("ausência deixou de retornar ErrRecordNotFound: %v", err)
+		}
+	}
+	if strings.Contains(output.String(), "record not found") {
+		t.Fatalf("ausência esperada foi registrada como erro: %s", output.String())
+	}
+	output.Reset()
+	// Expected absence must still be diagnosed if the SQL itself is slow.
+	log.Trace(context.Background(), time.Now().Add(-time.Second), func() (string, int64) { return "SELECT id FROM polling_rows", 0 }, gorm.ErrRecordNotFound)
+	if !strings.Contains(output.String(), "SLOW SQL") {
+		t.Fatal("consulta lenta sem resultado foi omitida")
+	}
+	output.Reset()
+	if err := db.Exec("SELECT id FROM missing_polling_table").Error; err == nil {
+		t.Fatal("erro SQL real foi perdido")
+	}
+	if !strings.Contains(output.String(), "missing_polling_table") {
+		t.Fatal("erro SQL real foi omitido do log")
 	}
 }
