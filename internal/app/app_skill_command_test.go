@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -31,8 +32,11 @@ func (s *skillTestTerminal) RunEphemeral(ctx context.Context, dir, command strin
 }
 
 func TestSkillCommandInAdmittedTurn(t *testing.T) {
-	for _, decision := range []string{"allow", "deny"} {
+	for _, decision := range []string{"allow", "deny", "posix"} {
 		t.Run(decision, func(t *testing.T) {
+			if decision == "posix" && runtime.GOOS == "windows" {
+				t.Skip("PTY POSIX exercitado no CI Linux")
+			}
 			a, _, cid := clearCommandFixture(t, workspace.TabTypeChat)
 			db := database.DB()
 			if err := db.AutoMigrate(&database.ToolCatalog{}, &database.ToolInvocation{}); err != nil {
@@ -60,14 +64,21 @@ func TestSkillCommandInAdmittedTurn(t *testing.T) {
 			ctx = invocationctx.With(ctx, invocationctx.InvocationContext{ConversationID: cid, TurnID: question.ID, Source: "wails"})
 			term := &skillTestTerminal{}
 			prompts := 0
-			const command = "example-tool private-argument"
+			command := "example-tool private-argument"
+			var sessions shell.SessionManager = term
+			if decision == "posix" {
+				config := terminal.DefaultManagerConfig()
+				config.DefaultShell = "/bin/sh"
+				sessions = terminal.NewManager(config, nil)
+				command = "printf private-output"
+			}
 			registry := tools.NewRegistry()
-			registry.MustRegister(shell.NewRunCommand(term, func(ctx context.Context, raw, dir string) (bool, error) {
+			registry.MustRegister(shell.NewRunCommand(sessions, func(ctx context.Context, raw, dir string) (bool, error) {
 				prompts++
 				if raw != command {
 					t.Fatalf("unexpected command %q", raw)
 				}
-				return decision == "allow", nil
+				return decision != "deny", nil
 			}, nil, t.TempDir()))
 			a.toolInvocationSvc = toolinvocations.NewService(toolinvocations.NewDBRepository(db), tools.NewExecutor(registry, tools.DefaultExecutorConfig()))
 			output, err := a.runSkillCommand(ctx, &skills.Skill{Slug: "example"}, command)
@@ -76,6 +87,9 @@ func TestSkillCommandInAdmittedTurn(t *testing.T) {
 			}
 			if decision == "allow" && (err != nil || !strings.Contains(output, "private-output") || term.calls != 1) {
 				t.Fatalf("allow: output=%q calls=%d err=%v", output, term.calls, err)
+			}
+			if decision == "posix" && (err != nil || !strings.Contains(output, "private-output")) {
+				t.Fatalf("POSIX: output=%q err=%v", output, err)
 			}
 			if decision == "deny" && (err == nil || term.calls != 0) {
 				t.Fatalf("deny: calls=%d err=%v", term.calls, err)

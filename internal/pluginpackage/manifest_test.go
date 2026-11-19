@@ -2,6 +2,7 @@ package pluginpackage
 
 import (
 	"os"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -33,6 +34,11 @@ func TestReadManifest(t *testing.T) {
 			m, warnings, err := ReadManifest(root)
 			if tc.invalid != (err != nil) || len(warnings) != tc.warnings {
 				t.Fatalf("%+v warnings=%v err=%v", m, warnings, err)
+			}
+			if tc.name == "metadados" {
+				if m.Version != "nightly" || m.Author != (Author{Name: "Exemplo", URL: "site interno"}) || !slices.Equal(m.Keywords, []string{"relatórios"}) || len(m.Extensions) != 1 || string(m.Extensions["com.example.other"]) != "null" {
+					t.Fatalf("metadados desserializados: %+v", m)
+				}
 			}
 			if !tc.invalid && m.Name != "one.example" {
 				t.Fatal(m)
