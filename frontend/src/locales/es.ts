@@ -162,6 +162,7 @@ notSaved: 'La decisión vale solo para esta operación: no se pudo recordar. Ser
       author: 'Autor',
       license: 'Licencia',
       catalogPolicy: 'Bloqueado por la política de la tienda',
+      catalogConfig: 'La entrada de la tienda añade una configuración que requiere soporte del adaptador.',
       catalogSource: 'Origen sin adaptador',
       catalogAvailable: 'Abrir vista previa',
       catalogEmpty: 'No se encontraron plugins en el catálogo.',

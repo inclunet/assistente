@@ -81,7 +81,7 @@ export default function PluginRepositories({ catalog, onPreview }: Props) {
           { key: 'format', label: t('plugins.format') }, { key: 'repo', label: t('plugins.origin'), format: (_, item) => item.repo.origin },
           { key: 'category', label: t('plugins.category') }, { key: 'authentication', label: t('plugins.authentication') },
           { key: 'version', label: t('plugins.version') }, { key: 'author', label: t('plugins.author') }, { key: 'license', label: t('plugins.license') },
-          { key: 'diagnostic', label: t('common.status'), format: (_, item) => t(item.diagnostic === 'policy' ? 'plugins.catalogPolicy' : item.diagnostic ? 'plugins.catalogSource' : 'plugins.catalogAvailable') },
+          { key: 'diagnostic', label: t('common.status'), format: (_, item) => t(item.diagnostic === 'policy' ? 'plugins.catalogPolicy' : item.diagnostic === 'configuration' ? 'plugins.catalogConfig' : item.diagnostic ? 'plugins.catalogSource' : 'plugins.catalogAvailable') },
         ]} /> : !busy && <p>{t('plugins.catalogEmpty')}</p>}
     </> : <ul>{repositories.map(repo => <li key={repo.id}>
       <strong>{repo.origin}</strong>

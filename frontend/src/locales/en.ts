@@ -163,6 +163,7 @@ notSaved: 'The decision applies only to this operation: it could not be remember
       author: 'Author',
       license: 'License',
       catalogPolicy: 'Blocked by store policy',
+      catalogConfig: 'The store entry includes additional configuration that requires adapter support.',
       catalogSource: 'Unsupported source',
       catalogAvailable: 'Open preview',
       catalogEmpty: 'No plugins found in the catalog.',

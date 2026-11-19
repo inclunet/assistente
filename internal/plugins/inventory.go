@@ -102,6 +102,7 @@ func (i *Inventory) InstallSource(ctx context.Context, reviewedOrigin, reviewedD
 				return ErrInstallationChanged
 			}
 			installed = identity
+			installed.DiscoveryRepositoryID = snapshot.DiscoveryRepositoryID
 			installed.Digest = snapshot.Digest
 			installed.Version = snapshot.Manifest.Version
 			if err := tx.Create(&installed).Error; err != nil {

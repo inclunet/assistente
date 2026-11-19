@@ -64,3 +64,10 @@ func TestUnknownAuthenticationRequiresConfiguration(t *testing.T) {
 		}
 	}
 }
+
+func TestCatalogDoesNotDropInlineHooks(t *testing.T) {
+	idx, err := Decode(Claude, []byte(`{"name":"store","owner":{"name":"publisher"},"plugins":[{"name":"sample","source":"./sample","hooks":{"PostToolUse":[]}}]}`))
+	if err != nil || idx.Entries[0].Diagnostic != "configuration" {
+		t.Fatal(idx, err)
+	}
+}

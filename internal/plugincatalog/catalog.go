@@ -117,6 +117,10 @@ func Decode(format Format, raw []byte) (Index, error) {
 	if len(raw) > 10<<20 || !utf8.Valid(raw) || json.Unmarshal(raw, &doc) != nil || !identifier.MatchString(doc.Name) || doc.Plugins == nil || len(doc.Plugins) > 10000 || format != Codex && strings.TrimSpace(doc.Owner.Name) == "" {
 		return Index{}, errors.New("invalid marketplace")
 	}
+	var declared struct{ Plugins []map[string]json.RawMessage }
+	if err := json.Unmarshal(raw, &declared); err != nil {
+		return Index{}, err
+	}
 	prefix := ""
 	if doc.Metadata.PluginRoot != "" {
 		var ok bool
@@ -127,7 +131,7 @@ func Decode(format Format, raw []byte) (Index, error) {
 	}
 	result := Index{Format: format, Name: doc.Name, Entries: make([]Entry, 0, len(doc.Plugins))}
 	seen := map[string]bool{}
-	for _, src := range doc.Plugins {
+	for pos, src := range doc.Plugins {
 		if !identifier.MatchString(src.Name) || seen[src.Name] {
 			return Index{}, errors.New("invalid or duplicate plugin name")
 		}
@@ -165,6 +169,12 @@ func Decode(format Format, raw []byte) (Index, error) {
 		}
 		if format == Codex && ((src.Policy.Installation != "AVAILABLE" && src.Policy.Installation != "INSTALLED_BY_DEFAULT") || src.Policy.Authentication != "ON_INSTALL" || strings.TrimSpace(src.Category) == "") {
 			entry.Diagnostic = "policy"
+		}
+		for _, field := range []string{"skills", "commands", "agents", "rules", "hooks", "mcpServers", "variables", "userConfig", "dependencies", "strict", "lspServers", "outputStyles", "channels", "monitors", "themes", "workflows"} {
+			if _, ok := declared.Plugins[pos][field]; ok && entry.Diagnostic == "" {
+				entry.Diagnostic = "configuration"
+				break
+			}
 		}
 		result.Entries = append(result.Entries, entry)
 	}
