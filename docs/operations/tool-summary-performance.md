@@ -22,7 +22,8 @@ a correção da migração e o plano indexado da consulta real são cobertos por
 O teste de isolamento de usuários permanece em `projection_read_test.go`.
 
 Opcionalmente, medir os 20 turnos com invocações mais recentes de um banco
-existente (somente o usuário do turno mais recente é selecionado):
+existente, aplicando os filtros de status e execução visível da projeção antes
+do limite (somente o usuário do turno mais recente é selecionado):
 
 ```powershell
 $env:ASSISTENTE_PROJECTION_BENCH_DB = Join-Path $env:USERPROFILE '.assistente/conversations.db'
@@ -49,8 +50,8 @@ Windows/amd64, Go 1.27.3, Intel Core Ultra 7 155H, código baseado na main
 - 100.000 invocações: 20 resumos, média **1,579 ms**, p95 **2,708 ms**,
   primeira leitura **2,046 ms**, 128.027 B/op.
 - Banco existente, arquivo principal de aproximadamente 629 MiB mais WAL:
-  180 resumos, 100 repetições, média **8,116 ms**, p95 **9,543 ms**,
-  primeira leitura **11,21 ms**, 817.862 B/op.
+  180 resumos, 100 repetições, média **7,000 ms**, p95 **8,817 ms**,
+  primeira leitura **8,987 ms**, 818.417 B/op.
 
 Esses cenários ficaram abaixo de 200 ms. São evidência para o problema de
 projeção da #776, não um SLA para toda consulta SQL, abertura do chat ou toda
@@ -61,3 +62,8 @@ medem todas as suas 20/100 iterações. O fixture sintético cobre histórico
 canônico legado; o banco existente exercita os dados atuais e a seleção por
 execução. A medição não compara tempos com a versão antiga, nem justifica
 remover guardas de isolamento ou otimizar outra consulta.
+
+`TestBenchmarkSampleSkipsUnselectedExecutionsBeforeLimit` prova que 21 turnos
+recentes com invocações de execuções não selecionadas não excluem da amostra
+um turno anterior que contém resumos visíveis. O ensaio real foi repetido
+após essa correção de seleção; os resultados acima são dessa repetição.

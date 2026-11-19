@@ -595,7 +595,7 @@ em SQLite em disco, com 1.000/100.000 invocações e janela fixa de 20 resumos.
 O benchmark opcional `BenchmarkToolSummaryProjectionReadOnly` mede banco
 existente sem migração ou escritas SQL (WAL/SHM e locks ainda podem ser usados
 pelo SQLite para coordenar leitores). A amostra real retornou 180 resumos com
-média de 8,116 ms e p95 de 9,543 ms; a sintética maior teve p95 de 2,708 ms.
+média de 7,000 ms e p95 de 8,817 ms; a sintética maior teve p95 de 2,708 ms.
 Método, reprodução e limites: `docs/operations/tool-summary-performance.md`.
 Os planos e o isolamento continuam cobertos pelos testes da correção v39.
 Esta evidência conclui a medição pendente da projeção, não as fases restantes

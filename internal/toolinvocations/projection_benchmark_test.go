@@ -122,11 +122,8 @@ func BenchmarkToolSummaryProjectionReadOnly(b *testing.B) {
 	if err := db.Exec("PRAGMA query_only=ON").Error; err != nil {
 		b.Fatal(err)
 	}
-	var sample []struct {
-		UserID string
-		TurnID string
-	}
-	if err := db.Raw(`SELECT user_id, turn_id FROM tool_invocations WHERE origin_type='chat' AND turn_id IS NOT NULL AND trim(tool_call_id)<>'' GROUP BY user_id,turn_id ORDER BY max(queued_at) DESC LIMIT 20`).Scan(&sample).Error; err != nil {
+	sample, err := selectBenchmarkSummaryTurns(db)
+	if err != nil {
 		b.Fatal("cannot select benchmark window")
 	}
 	if len(sample) == 0 {
@@ -178,4 +175,65 @@ func benchmarkSummaryRead(b *testing.B, db *gorm.DB, userID string, turns []stri
 	b.ReportMetric(float64(firstRead)/float64(time.Millisecond), "first-ms")
 	b.ReportMetric(samples[(len(samples)-1)*95/100], "p95-ms")
 	b.ReportMetric(float64(count), "summaries/op")
+}
+
+type benchmarkSummaryTurn struct {
+	UserID string
+	TurnID string
+}
+
+func selectBenchmarkSummaryTurns(db *gorm.DB) ([]benchmarkSummaryTurn, error) {
+	var sample []benchmarkSummaryTurn
+	selection := database.ChatInvocationSelection{}
+	err := db.Model(&database.ToolInvocation{}).
+		Select("tool_invocations.user_id, tool_invocations.turn_id").
+		Joins(selection.Join("tool_invocations")).
+		Where("tool_invocations.origin_type = ? AND tool_invocations.turn_id IS NOT NULL AND TRIM(tool_invocations.tool_call_id) <> ''", OriginChat).
+		Where("tool_invocations.completed_at IS NOT NULL OR tool_invocations.status IN ?", []string{StatusQueued, StatusRunning, StatusSucceeded, StatusFailed, StatusCancelled, StatusTimedOut}).
+		Where(selection.Predicate("tool_invocations")).
+		Group("tool_invocations.user_id, tool_invocations.turn_id").
+		Order("MAX(tool_invocations.queued_at) DESC").Limit(20).Scan(&sample).Error
+	return sample, err
+}
+
+func TestBenchmarkSampleSkipsUnselectedExecutionsBeforeLimit(t *testing.T) {
+	db := setupProjectionReadTest(t)
+	conv := database.Conversation{UUIDModel: database.UUIDModel{ID: "sample-conv"}, UserID: "sample-user"}
+	catalog := database.ToolCatalog{Name: "sample-tool", Origin: "builtin"}
+	if err := db.Create(&conv).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Create(&catalog).Error; err != nil {
+		t.Fatal(err)
+	}
+	ctx := database.WithUserID(context.Background(), conv.UserID)
+	for i := 0; i < 22; i++ {
+		turn := fmt.Sprintf("sample-turn-%d", i)
+		msg := database.ChatMessage{UUIDModel: database.UUIDModel{ID: turn}, ConversationID: conv.ID, Role: "user"}
+		if err := db.Create(&msg).Error; err != nil {
+			t.Fatal(err)
+		}
+		if i > 0 {
+			if _, err := database.NewChatTurnRepository(db).Begin(ctx, conv.ID, turn, "", database.TurnModeNew); err != nil {
+				t.Fatal(err)
+			}
+		}
+		// The newer turns have a selected execution; their legacy invocation is
+		// not visible. The older turn remains a valid legacy window.
+		inv := database.ToolInvocation{UUIDModel: database.UUIDModel{ID: fmt.Sprintf("sample-inv-%d", i)}, UserID: conv.UserID, ToolCatalogID: catalog.ID, OriginType: OriginChat, OriginID: turn, ConversationID: &conv.ID, TurnID: &turn, ToolCallID: "call", Status: StatusSucceeded, QueuedAt: time.Unix(int64(i), 0)}
+		if err := db.Create(&inv).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	sample, err := selectBenchmarkSummaryTurns(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sample) != 1 || sample[0].TurnID != "sample-turn-0" {
+		t.Fatalf("expected older visible window, got %+v", sample)
+	}
+	summaries, err := NewDBRepository(db).LoadSummariesForTurnIDs(ctx, []string{sample[0].TurnID})
+	if err != nil || len(summaries[sample[0].TurnID]) != 1 {
+		t.Fatalf("sample is not readable: err=%v", err)
+	}
 }
