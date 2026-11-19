@@ -12,12 +12,29 @@ import (
 	"gorm.io/gorm/clause"
 )
 
+var ErrMCPSyncPending = errors.New("PLUGIN_MCP_SYNC_PENDING")
+
 var ErrPackageChanged = errors.New("o pacote mudou desde a prévia")
 var ErrInstallationChanged = errors.New("a instalação mudou desde a prévia")
 
-type Inventory struct{ db *gorm.DB }
+type Inventory struct {
+	db      *gorm.DB
+	syncMCP func(context.Context) error
+}
 
 func NewInventory(db *gorm.DB) *Inventory { return &Inventory{db: db} }
+
+func (i *Inventory) WithMCPSync(sync func(context.Context) error) *Inventory {
+	return &Inventory{db: i.db, syncMCP: sync}
+}
+func (i *Inventory) SyncMCP(ctx context.Context) error {
+	if i.syncMCP != nil {
+		if err := i.syncMCP(ctx); err != nil {
+			return errors.Join(ErrMCPSyncPending, err)
+		}
+	}
+	return nil
+}
 
 func (i *Inventory) List(ctx context.Context) ([]database.PluginInstallation, error) {
 	owner, err := database.RequireUserID(ctx)
@@ -61,8 +78,9 @@ func (i *Inventory) InstallReviewed(ctx context.Context, reviewedOrigin, reviewe
 	if admit == nil {
 		return database.PluginInstallation{}, database.ErrUserScopeRequired
 	}
+	mcpChanged := false
 	err = admit(func() error {
-		return database.WithSQLiteImmediateTransaction(ctx, i.db, "plugins.install", func(tx *gorm.DB) error {
+		err := database.WithSQLiteImmediateTransaction(ctx, i.db, "plugins.install", func(tx *gorm.DB) error {
 			installed = database.PluginInstallation{}
 			identity := database.PluginInstallation{UserID: owner, Name: snapshot.Manifest.Name, Origin: snapshot.Origin}
 			lookup := tx.Where(&identity).First(&installed).Error
@@ -91,6 +109,14 @@ func (i *Inventory) InstallReviewed(ctx context.Context, reviewedOrigin, reviewe
 				if update.RowsAffected != 1 {
 					return ErrInstallationChanged
 				}
+				var count int64
+				if err := tx.Model(&database.PluginMCPBinding{}).Where("installation_id=?", installed.ID).Count(&count).Error; err != nil {
+					return err
+				}
+				mcpChanged = count > 0
+				if err := removeMCPBindings(ctx, tx, installed.ID, "", false); err != nil {
+					return err
+				}
 				if err := tx.Where("installation_id = ?", installed.ID).Delete(&database.PluginSkillActivation{}).Error; err != nil {
 					return err
 				}
@@ -98,6 +124,13 @@ func (i *Inventory) InstallReviewed(ctx context.Context, reviewedOrigin, reviewe
 			revision := database.PluginRevision{InstallationID: installed.ID, Digest: snapshot.Digest, Files: files}
 			return tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&revision).Error
 		})
+		if err != nil {
+			return err
+		}
+		if mcpChanged {
+			return i.SyncMCP(ctx)
+		}
+		return nil
 	})
 	if err != nil {
 		return database.PluginInstallation{}, err

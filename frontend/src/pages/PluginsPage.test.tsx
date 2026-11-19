@@ -4,11 +4,12 @@ import userEvent from '@testing-library/user-event';
 import { axe } from 'vitest-axe';
 import PluginsPage from './PluginsPage';
 
-const mocks = vi.hoisted(() => ({ list: vi.fn(), components: vi.fn(), toggle: vi.fn(), preview: vi.fn(), install: vi.fn(), discard: vi.fn(), announce: vi.fn() }));
-vi.mock('@wailsjs/go/wailsapi/Plugins', () => ({ InstalledComponents: mocks.components, SetSkillActive: mocks.toggle, DiscardPreview: mocks.discard, ListInstalled: mocks.list, PreviewLocal: mocks.preview, InstallReviewed: mocks.install }));
+const mocks = vi.hoisted(() => ({ sync: vi.fn(), register: vi.fn(), remove: vi.fn(), confirm: vi.fn(), list: vi.fn(), components: vi.fn(), toggle: vi.fn(), preview: vi.fn(), install: vi.fn(), discard: vi.fn(), announce: vi.fn() }));
+vi.mock('@wailsjs/go/wailsapi/Plugins', () => ({ SyncMCP: mocks.sync, RegisterMCP: mocks.register, RemoveMCP: mocks.remove, InstalledComponents: mocks.components, SetSkillActive: mocks.toggle, DiscardPreview: mocks.discard, ListInstalled: mocks.list, PreviewLocal: mocks.preview, InstallReviewed: mocks.install }));
+vi.mock('../hooks/useConfirm', () => ({ useConfirm: () => mocks.confirm }));
 vi.mock('../store/authStore', () => ({ useAuthStore: () => 'session' }));
 vi.mock('../hooks/useAnnouncer', () => ({ useAnnouncer: () => ({ announce: mocks.announce }) }));
-vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
+vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string, options?: {name?: string}) => ['plugins.registerServer','plugins.keepServer','plugins.removeServer'].includes(key) ? key + ' ' + options?.name : key }) }));
 
 describe('PluginsPage', () => {
   beforeEach(() => {
@@ -93,6 +94,42 @@ describe('PluginsPage', () => {
     await user.click(await screen.findByRole('button', { name: 'plugins.activate' }));
     expect(mocks.toggle).toHaveBeenCalledWith('one', 'sha', 'skills/note', true);
     expect(await screen.findByText('/note-local')).toBeInTheDocument();
+  });
+
+  it('registers an MCP and preserves the native configuration only after confirmation', async () => {
+    const user = userEvent.setup();
+    mocks.list.mockResolvedValue([{ id: 'one', name: 'Demo', digest: 'sha' }]);
+    const server = { kind: 'mcp', key: 'mcp/search', name: 'search', endpoint: 'https://example.org/mcp' };
+    const other = { ...server, key: 'mcp/other', name: 'other' };
+    mocks.components.mockResolvedValueOnce([server, other]).mockResolvedValue([{ ...server, active: true, slug: 'plugin-search' }, other]);
+    mocks.confirm.mockResolvedValueOnce(false).mockResolvedValueOnce(true);
+    render(<PluginsPage />);
+    (await screen.findByRole('gridcell', { name: /Demo/ })).focus();
+    await user.keyboard('{Enter}');
+    await user.click(await screen.findByRole('button', { name: 'plugins.registerServer search' }));
+    expect(mocks.register).toHaveBeenCalledWith('one', 'sha', 'mcp/search');
+    const keep = await screen.findByRole('button', { name: 'plugins.keepServer search' });
+    await user.click(keep);
+    expect(mocks.remove).not.toHaveBeenCalled();
+    await user.click(keep);
+    expect(mocks.remove).toHaveBeenCalledWith('one', 'sha', 'mcp/search', true);
+  });
+
+  it('recovers the persisted registration when both synchronization and the first refresh fail', async () => {
+    const user = userEvent.setup();
+    mocks.list.mockResolvedValue([{ id: 'one', name: 'Demo', digest: 'sha' }]);
+    const server = { kind: 'mcp', key: 'mcp/search', name: 'search', endpoint: 'https://example.org/mcp' };
+    mocks.components.mockResolvedValueOnce([server]).mockRejectedValueOnce(new Error('read')).mockResolvedValueOnce([{ ...server, active: true }]);
+    mocks.register.mockRejectedValueOnce(new Error('PLUGIN_MCP_SYNC_PENDING'));
+    render(<PluginsPage />);
+    (await screen.findByRole('gridcell', { name: /Demo/ })).focus();
+    await user.keyboard('{Enter}');
+    await user.click(await screen.findByRole('button', { name: 'plugins.registerServer search' }));
+    expect(await screen.findByText('plugins.syncPendingStale')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'plugins.retrySync' }));
+    expect(await screen.findByRole('button', { name: 'plugins.keepServer search' })).toBeInTheDocument();
+    expect(mocks.sync).toHaveBeenCalledOnce();
+    expect(mocks.register).toHaveBeenCalledOnce();
   });
 
   it('closes the preview without installing', async () => {

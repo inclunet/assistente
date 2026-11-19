@@ -27,3 +27,12 @@ type PluginSkillActivation struct {
 	Slug           string `gorm:"uniqueIndex;not null"`
 	Definition     string `gorm:"not null" json:"-"`
 }
+
+type PluginMCPBinding struct {
+	InstallationID string `gorm:"primaryKey"`
+	ComponentKey   string `gorm:"primaryKey"`
+	Digest         string `gorm:"not null"`
+	ServerID       string `gorm:"uniqueIndex;not null"`
+	Slug           string `gorm:"not null"`
+	ConfigDigest   string `gorm:"not null"`
+}

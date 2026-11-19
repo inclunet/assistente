@@ -39,7 +39,12 @@ func (a *App) wireAllowlist() {
 
 func (a *App) wirePlugins() {
 	if a.pluginsAPI != nil && a.dialogPort != nil {
-		wailsapi.AttachPlugins(a.pluginsAPI, wailsSession{app: a}, plugins.NewInventory(database.DB()), a.dialogPort.OpenDirectoryDialog, a.captureDialogAdmission)
+		wailsapi.AttachPlugins(a.pluginsAPI, wailsSession{app: a}, plugins.NewInventory(database.DB()).WithMCPSync(func(ctx context.Context) error {
+			if a.mcpMgr == nil {
+				return fmt.Errorf("gerenciador MCP indisponível")
+			}
+			return a.mcpMgr.ReloadPackagedConfigs(ctx)
+		}), a.dialogPort.OpenDirectoryDialog, a.captureDialogAdmission)
 	}
 }
 
