@@ -8,6 +8,7 @@ import (
 	"sync"
 
 	"assistente/internal/commandsecurity"
+	"assistente/internal/core/ports"
 	"assistente/internal/database"
 	"assistente/internal/pluginpackage"
 	"assistente/internal/plugins"
@@ -35,12 +36,13 @@ type pluginSelection struct {
 }
 
 type Plugins struct {
-	mu        sync.Mutex
-	session   Session
-	inventory *plugins.Inventory
-	choose    func() (string, error)
-	capture   func(context.Context) (commandsecurity.Admission, error)
-	selection *pluginSelection
+	savePackage func(ports.SaveFileOptions) (string, error)
+	mu          sync.Mutex
+	session     Session
+	inventory   *plugins.Inventory
+	choose      func() (string, error)
+	capture     func(context.Context) (commandsecurity.Admission, error)
+	selection   *pluginSelection
 }
 
 func NewPlugins() *Plugins { return &Plugins{} }

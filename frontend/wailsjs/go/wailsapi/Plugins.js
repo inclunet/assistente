@@ -38,6 +38,10 @@ export function ListRepositories() {
   return window['go']['wailsapi']['Plugins']['ListRepositories']();
 }
 
+export function PreviewBuilder(arg1) {
+  return window['go']['wailsapi']['Plugins']['PreviewBuilder'](arg1);
+}
+
 export function PreviewLocal() {
   return window['go']['wailsapi']['Plugins']['PreviewLocal']();
 }
@@ -60,6 +64,10 @@ export function RemoveMCP(arg1, arg2, arg3, arg4) {
 
 export function RemoveRepository(arg1, arg2) {
   return window['go']['wailsapi']['Plugins']['RemoveRepository'](arg1, arg2);
+}
+
+export function SaveBuilder(arg1, arg2) {
+  return window['go']['wailsapi']['Plugins']['SaveBuilder'](arg1, arg2);
 }
 
 export function SetSkillActive(arg1, arg2, arg3, arg4) {
