@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"net"
 	"net/http"
 	"strings"
 
@@ -127,6 +128,8 @@ func chatGPTFailure(ctx context.Context, code string) string {
 	return result
 }
 func chatGPTTransportFailure(ctx context.Context, err error) string {
+	class, status := chatGPTTransportDiagnostic(err)
+	logging.Warnf(ctx, "llm.chatgpt", "chatgpt_diagnostic stage=transport class=%s http_status=%d", class, status)
 	if errors.Is(err, oauthflow.ErrReauthorize) || errors.Is(err, oauthflow.ErrNotFound) {
 		return chatGPTFailure(ctx, "authentication_error")
 	}
@@ -141,6 +144,10 @@ func chatGPTTransportFailure(ctx context.Context, err error) string {
 	}
 	var apiError *openai.Error
 	if errors.As(err, &apiError) {
+		provider := &ProviderConfig{APIFormat: APIFormatOpenAIResponses, ErrorFamily: ProviderErrorFamilyOpenAI}
+		if diagnostic, ok := RecognizeProviderError(provider, err); ok {
+			logging.Warnf(ctx, "llm.chatgpt", "chatgpt_diagnostic stage=transport category=%s code=%s type=%s", diagnostic.Category, diagnostic.Code, diagnostic.Type)
+		}
 		if apiError.Code != "" {
 			return chatGPTFailure(ctx, apiError.Code)
 		}
@@ -149,7 +156,42 @@ func chatGPTTransportFailure(ctx context.Context, err error) string {
 	return chatGPTFailure(ctx, "")
 }
 
+// O erro e seus campos livres podem conter conteúdo remoto, URL ou credenciais.
+// Somente classes fixas e status HTTP válido atravessam a fronteira do log.
+func chatGPTTransportDiagnostic(err error) (string, int) {
+	var apiError *openai.Error
+	if errors.As(err, &apiError) {
+		status := apiError.StatusCode
+		if status < 100 || status > 599 {
+			status = 0
+		}
+		return "http", status
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return "deadline", 0
+	}
+	if errors.Is(err, context.Canceled) {
+		return "cancelled", 0
+	}
+	var netErr net.Error
+	if errors.As(err, &netErr) {
+		if netErr.Timeout() {
+			return "network_timeout", 0
+		}
+		return "network", 0
+	}
+	var syntaxErr *json.SyntaxError
+	if errors.As(err, &syntaxErr) {
+		return "invalid_json", 0
+	}
+	return "other", 0
+}
+
 func chatGPTStatusFailure(ctx context.Context, status int) string {
+	if status < 100 || status > 599 {
+		status = 0
+	}
+	logging.Warnf(ctx, "llm.chatgpt", "chatgpt_diagnostic stage=http_response class=http http_status=%d", status)
 	switch {
 	case status == http.StatusUnauthorized:
 		return chatGPTFailure(ctx, "authentication_error")

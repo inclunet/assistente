@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -89,6 +90,83 @@ func TestChatGPTFunctionNamespace(t *testing.T) {
 func TestChatGPTUnknownRemoteFailureDoesNotExposeDescription(t *testing.T) {
 	if got := chatGPTFailure(context.Background(), "secret echoed by remote"); got != "chatgpt_request_failed" {
 		t.Fatal(got)
+	}
+}
+
+func TestChatGPTFailureDiagnosticsDoNotExposeRemoteData(t *testing.T) {
+	for _, mode := range []string{"http", "response_failed"} {
+		t.Run(mode, func(t *testing.T) {
+			const secret = "private_secret_from_remote"
+			logs := &logCaptureHandler{}
+			previous := slog.Default()
+			slog.SetDefault(slog.New(logs))
+			defer slog.SetDefault(previous)
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if mode == "http" {
+					w.Header().Set("Content-Type", "application/json")
+					w.WriteHeader(http.StatusBadRequest)
+					_, _ = fmt.Fprintf(w, `{"error":{"code":"%s","message":"%s"}}`, secret, secret)
+					return
+				}
+				w.Header().Set("Content-Type", "text/event-stream")
+				_, _ = fmt.Fprintf(w, "event: response.failed\ndata: {\"type\":\"response.failed\",\"response\":{\"error\":{\"code\":\"%s\",\"message\":\"%s\"}}}\n\n", secret, secret)
+			}))
+			defer server.Close()
+			p := NewOpenAIResponsesProvider(&ProviderConfig{ID: "chatgpt", Type: ProviderChatGPT, BaseURL: server.URL + "/v1", APIFormat: APIFormatOpenAIResponses, AuthMode: AuthModeNone}, nil)
+			_, err := p.SendChat(context.Background(), []Message{{Role: "user", Content: secret}}, ChatParams{Model: "model"})
+			if err == nil || err.Error() != "chatgpt_request_failed" {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			want := "stage=transport class=http http_status=400"
+			if mode == "response_failed" {
+				want = "stage=response_failed class=chatgpt_request_failed"
+			}
+			found := false
+			for _, rec := range logs.snapshot() {
+				if strings.Contains(rec.Message, secret) {
+					t.Fatalf("remote data leaked in log: %s", rec.Message)
+				}
+				found = found || strings.Contains(rec.Message, want)
+			}
+			if !found {
+				t.Fatalf("diagnostic %q absent: %+v", want, logs.snapshot())
+			}
+		})
+	}
+}
+
+func TestChatGPTDiagnosticsClassifyKnownRejection(t *testing.T) {
+	for _, mode := range []string{"http", "response_failed"} {
+		t.Run(mode, func(t *testing.T) {
+			logs := &logCaptureHandler{}
+			previous := slog.Default()
+			slog.SetDefault(slog.New(logs))
+			defer slog.SetDefault(previous)
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				detail := `{"code":"invalid_value","type":"invalid_request_error","message":"private-value"}`
+				if mode == "http" {
+					w.Header().Set("Content-Type", "application/json")
+					w.WriteHeader(http.StatusBadRequest)
+					_, _ = fmt.Fprintf(w, `{"error":%s}`, detail)
+					return
+				}
+				w.Header().Set("Content-Type", "text/event-stream")
+				_, _ = fmt.Fprintf(w, "event: response.failed\ndata: {\"type\":\"response.failed\",\"response\":{\"error\":%s}}\n\n", detail)
+			}))
+			defer server.Close()
+			p := NewOpenAIResponsesProvider(&ProviderConfig{ID: "chatgpt", Type: ProviderChatGPT, BaseURL: server.URL + "/v1", APIFormat: APIFormatOpenAIResponses, AuthMode: AuthModeNone}, nil)
+			_, _ = p.SendChat(context.Background(), []Message{{Role: "user", Content: "hello"}}, ChatParams{Model: "model"})
+			found := false
+			for _, rec := range logs.snapshot() {
+				if strings.Contains(rec.Message, "private-value") {
+					t.Fatal("remote message leaked")
+				}
+				found = found || strings.Contains(rec.Message, "category=invalid_value code=invalid_value")
+			}
+			if !found {
+				t.Fatalf("missing safe category: %+v", logs.snapshot())
+			}
+		})
 	}
 }
 
