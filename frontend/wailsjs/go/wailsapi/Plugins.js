@@ -6,6 +6,10 @@ export function AddLocalRepository() {
   return window['go']['wailsapi']['Plugins']['AddLocalRepository']();
 }
 
+export function AddRemoteRepository(arg1, arg2) {
+  return window['go']['wailsapi']['Plugins']['AddRemoteRepository'](arg1, arg2);
+}
+
 export function ChangeInstallation(arg1, arg2, arg3) {
   return window['go']['wailsapi']['Plugins']['ChangeInstallation'](arg1, arg2, arg3);
 }

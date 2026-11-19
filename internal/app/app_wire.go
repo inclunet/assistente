@@ -13,6 +13,7 @@ import (
 	"assistente/internal/workspace"
 	"context"
 	"fmt"
+	"net/http"
 )
 
 // wireTokens monta o TokensController e associa o bind Wails (AEP-0088 Fase 4).
@@ -44,6 +45,8 @@ func (a *App) wirePlugins() {
 				return fmt.Errorf("gerenciador MCP indisponível")
 			}
 			return a.mcpMgr.ReloadPackagedConfigs(ctx)
+		}).WithRemoteClient(func(ref string) *http.Client {
+			return plugins.RepositoryHTTPClient(a.credMgr, ref)
 		}), a.dialogPort.OpenDirectoryDialog, a.captureDialogAdmission)
 	}
 }

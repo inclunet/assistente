@@ -43,6 +43,8 @@ const (
 // que aceitam http.Client customizado.
 type CredentialTransport struct {
 	// ExpectedType optionally constrains the resolved snapshot for legacy consumers.
+	// RequireCredential rejects anonymous fallback when the caller explicitly selected a vault reference.
+	RequireCredential   bool
 	ExpectedType        string
 	DisableCommandCache bool // SDKs que capturam uma chave fora deste transport
 	Base                http.RoundTripper
@@ -105,7 +107,7 @@ func (t *CredentialTransport) RoundTrip(req *http.Request) (*http.Response, erro
 			stripManagedPlaceholder(req)
 			return t.Base.RoundTrip(req)
 		}
-		if hasManagedCredentialPlaceholder(req) {
+		if t.RequireCredential || hasManagedCredentialPlaceholder(req) {
 			return nil, unresolvedCredentialError(req, t.CredPattern)
 		}
 		return t.Base.RoundTrip(req)
@@ -136,7 +138,7 @@ func (t *CredentialTransport) RoundTrip(req *http.Request) (*http.Response, erro
 			stripManagedPlaceholder(req)
 			return t.Base.RoundTrip(req)
 		}
-		if hasManagedCredentialPlaceholder(req) {
+		if t.RequireCredential || hasManagedCredentialPlaceholder(req) {
 			return nil, unresolvedCredentialError(req, t.CredPattern)
 		}
 		return t.Base.RoundTrip(req)

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { plugins, wailsapi } from '@wailsjs/go/models';
-import { AddLocalRepository, ListRepositories, PreviewRepositoryEntry, RefreshRepository, RemoveRepository, DiscardPreview } from '@wailsjs/go/wailsapi/Plugins';
+import { AddRemoteRepository, AddLocalRepository, ListRepositories, PreviewRepositoryEntry, RefreshRepository, RemoveRepository, DiscardPreview } from '@wailsjs/go/wailsapi/Plugins';
 import { useAnnouncer } from '../hooks/useAnnouncer';
 import { useConfirm } from '../hooks/useConfirm';
 import { Button } from '../components/ui/Button';
@@ -19,6 +19,8 @@ export default function PluginRepositories({ catalog, onPreview }: Props) {
   const { announce } = useAnnouncer();
   const confirm = useConfirm();
   const [repositories, setRepositories] = useState<plugins.Repository[]>([]);
+  const [url, setUrl] = useState('');
+  const [authenticated, setAuthenticated] = useState(false);
   const [search, setSearch] = useState('');
   const [busy, setBusy] = useState(true);
   const [error, setError] = useState('');
@@ -35,13 +37,16 @@ export default function PluginRepositories({ catalog, onPreview }: Props) {
   }, []);
   useEffect(() => { if (error) announce(t(error), 'assertive'); }, [error, t, announce]);
 
-  const change = async (action: 'add' | 'refresh' | 'remove', repo?: plugins.Repository) => {
+  const change = async (action: 'remote' | 'add' | 'refresh' | 'remove', repo?: plugins.Repository) => {
     if (busy) return;
     setBusy(true);
     setError('');
     try {
       if (action === 'add') await AddLocalRepository();
-      else if (repo && action === 'refresh') await RefreshRepository(repo.id, repo.revision);
+      else if (action === 'remote') {
+        await AddRemoteRepository(url.trim(), authenticated);
+        if (mounted.current) { setUrl(''); setAuthenticated(false); }
+      } else if (repo && action === 'refresh') await RefreshRepository(repo.id, repo.revision);
       else if (repo && action === 'remove') {
         const accepted = await confirm({ title: t('plugins.removeRepo'), message: t('plugins.removeRepoConfirm', { origin: repo.origin }), confirmText: t('plugins.removeRepo'), cancelText: t('common.cancel') });
         if (!accepted || !mounted.current) return;
@@ -73,6 +78,11 @@ export default function PluginRepositories({ catalog, onPreview }: Props) {
     <Toolbar left={<h2>{t(catalog ? 'plugins.catalog' : 'plugins.repositories')}</h2>}
       right={catalog ? <Input label={t('plugins.searchCatalog')} value={search} onChange={event => setSearch(event.target.value)} /> :
         <Button disabled={busy} onClick={() => void change('add')}>{t('plugins.addRepo')}</Button>} />
+    {!catalog && <form onSubmit={event => { event.preventDefault(); void change('remote'); }}>
+      <Input type="url" required label={t('plugins.archiveURL')} value={url} disabled={busy} onChange={event => { setUrl(event.target.value); setAuthenticated(false); }} />
+      <label htmlFor="plugin-use-host-credential"><input id="plugin-use-host-credential" type="checkbox" checked={authenticated} disabled={busy} onChange={event => setAuthenticated(event.target.checked)} />{t('plugins.archiveCredential')}</label>
+      <Button type="submit" disabled={busy || !url.trim()}>{t('plugins.addRemoteRepo')}</Button>
+    </form>}
     {error && <p>{t(error)}</p>}
     {catalog ? <>
       {entries.length > 0 ? <DataGrid items={entries} getItemId={item => item.id} autoFocusOnMount={false} label={t('plugins.catalog')} onActivate={entry => void preview(entry)}
