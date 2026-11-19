@@ -150,6 +150,8 @@ notSaved: 'La decisión vale solo para esta operación: no se pudo recordar. Ser
     },
 
     plugins: {
+      manifestPending: 'El manifiesto declara configuraciones aún no compatibles con este adaptador.',
+      commandPolicy: 'Los comandos de esta skill siguen las reglas habituales de confirmación.',
       category: 'Categoría',
       authentication: 'Autenticación',
       catalogAuthError: 'La tienda exige autenticación al instalar. Este paquete declara un servidor MCP que requiere configuración en el destino.',

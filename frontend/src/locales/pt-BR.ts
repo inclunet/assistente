@@ -151,6 +151,8 @@ notSaved: 'A decisão vale somente para esta operação: não foi possível lemb
     },
 
     plugins: {
+      manifestPending: 'O manifesto declara configurações que este adaptador ainda não aplica.',
+      commandPolicy: 'Os comandos desta skill seguem as regras de autorização de comandos do Assistente.',
       category: 'Categoria',
       authentication: 'Autenticação',
       catalogAuthError: 'A loja exige autenticação na instalação. Este pacote declara um servidor MCP que requer configuração no destino.',

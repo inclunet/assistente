@@ -35,6 +35,12 @@ Escolha **Desinstalar** para remover também as revisões armazenadas. Confira o
 
 ## Consultar uma loja local
 
-Em **Plugins → Repositórios**, escolha **Adicionar pasta de repositório** e selecione a pasta raiz da loja. O Assistente reconhece índices locais de Claude Code, Cursor e Codex. Na aba **Catálogo**, pesquise pelo nome, autor ou origem. Selecione uma linha e pressione Enter para conferir a prévia. Nesta etapa, a instalação pelo catálogo aceita pacotes Agent Plugins 1.0.0 em subpastas do repositório.
+Em **Plugins → Repositórios**, escolha **Adicionar pasta de repositório** e selecione a pasta raiz da loja. O Assistente reconhece índices locais de Claude Code, Cursor e Codex. Na aba **Catálogo**, pesquise pelo nome, autor ou origem. Selecione uma linha e pressione Enter para conferir a prévia. A instalação pelo catálogo aceita pacotes Agent Plugins 1.0.0 e pacotes com manifesto de Claude Code, Cursor ou Codex em subpastas do repositório.
 
 A aba **Repositórios** informa a data do último índice salvo. Escolha **Atualizar** para reler a pasta. Se ela estiver indisponível, você pode pesquisar a cópia do índice armazenada na conta. Para examinar ou instalar um pacote, sua pasta precisa estar acessível. **Remover repositório** retira a loja do catálogo e preserva as instalações feitas a partir dela.
+
+## Usar uma skill com comandos do Claude Code
+
+A prévia e os detalhes identificam skills que pedem execução de comandos. Ao invocar uma dessas skills, cada comando usa a autorização de shell da conta. Uma regra de aprovação permite executar o comando imediatamente. Uma regra de negação interrompe a invocação. Quando a regra pede confirmação, o Assistente aguarda sua decisão. As opções permanentes seguem o mesmo fluxo dos demais comandos. Se a skill perder a ativação enquanto você decide, o comando é interrompido.
+
+A compatibilidade depende dos recursos usados pelo pacote. Os detalhes indicam requisitos que impedem a ativação, como arquivos auxiliares ou restrições de execução que o Assistente ainda não consegue aplicar.

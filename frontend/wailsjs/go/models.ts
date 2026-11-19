@@ -8067,6 +8067,7 @@ export namespace plugincatalog {
 export namespace plugins {
 	
 	export class Component {
+	    requestsShell?: boolean;
 	    endpoint?: string;
 	    active: boolean;
 	    slug?: string;
@@ -8083,6 +8084,7 @@ export namespace plugins {
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.requestsShell = source["requestsShell"];
 	        this.endpoint = source["endpoint"];
 	        this.active = source["active"];
 	        this.slug = source["slug"];

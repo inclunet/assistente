@@ -21,6 +21,8 @@ type Author struct {
 }
 
 type Manifest struct {
+	Format      string
+	Unmapped    []string
 	Name        string
 	Version     string
 	Description string

@@ -96,16 +96,7 @@ func InspectRepositoryPackage(directory, expectedRoot, relative string) (*LocalS
 
 func inspectOpened(root *os.Root, origin string, entryLimit, depthLimit int, fileLimit, byteLimit int64) (*LocalSnapshot, error) {
 	snapshot := &LocalSnapshot{Origin: origin, Files: make(map[string][]byte)}
-	manifest, err := ReadFile(root, "plugin.json", min(int64(1<<20), byteLimit, fileLimit))
-	if err != nil {
-		return nil, err
-	}
-	snapshot.Manifest, snapshot.Warnings, err = decodeManifest(manifest)
-	if err != nil {
-		return nil, err
-	}
-	snapshot.Files["plugin.json"] = manifest
-	remaining := byteLimit - int64(len(manifest))
+	remaining := byteLimit
 	entriesLeft := entryLimit
 	var collect func(string, int) error
 	collect = func(dir string, depth int) error {
@@ -128,7 +119,7 @@ func inspectOpened(root *os.Root, origin string, entryLimit, depthLimit int, fil
 					return fmt.Errorf("package exceeds entry limit")
 				}
 				name := path.Join(dir, entry.Name())
-				if entry.Name() == ".git" || name == "plugin.json" {
+				if entry.Name() == ".git" {
 					continue
 				}
 				if !fs.ValidPath(name) {
@@ -156,6 +147,20 @@ func inspectOpened(root *os.Root, origin string, entryLimit, depthLimit int, fil
 	if err := collect(".", 0); err != nil {
 		return nil, err
 	}
+	_, _, metadata, warnings, err := LocateManifest(func(name string) ([]byte, error) {
+		raw, ok := snapshot.Files[name]
+		if !ok {
+			return nil, fs.ErrNotExist
+		}
+		if len(raw) > 1<<20 {
+			return nil, fmt.Errorf("manifest exceeds size limit")
+		}
+		return raw, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	snapshot.Manifest, snapshot.Warnings = metadata, warnings
 	names := make([]string, 0, len(snapshot.Files))
 	for name := range snapshot.Files {
 		names = append(names, name)

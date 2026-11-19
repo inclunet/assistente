@@ -77,17 +77,12 @@ func (i *Inventory) RegisterMCP(ctx context.Context, id, digest, key string) err
 	if err != nil {
 		return err
 	}
-	var file struct {
-		Servers map[string]json.RawMessage `json:"mcpServers"`
-	}
-	if err := json.Unmarshal(snap.Files["mcp.json"], &file); err != nil {
-		return ErrComponentUnavailable
-	}
+	_, servers, _ := mcpEntries(snap)
 	var cfg mcp.ServerConfig
 	for _, component := range DiscoverComponents(snap) {
 		if component.Key == key && component.Kind == "mcp" && component.Reason == "" {
 			var reason string
-			cfg, reason = portableMCP(file.Servers[component.Name])
+			cfg, reason = portableMCP(servers[component.Name])
 			if reason != "" {
 				return ErrComponentUnavailable
 			}

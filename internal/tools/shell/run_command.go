@@ -259,6 +259,11 @@ func (rc *RunCommand) Execute(ctx context.Context, args json.RawMessage) (tools.
 			return tools.ToolResult{Content: "O diretório mudou durante a autorização; solicite novamente.", IsError: true}, nil
 		}
 	}
+	if origin, ok := tools.GetExecutionContext(ctx); ok && origin.CheckCommandActivation != nil {
+		if err := origin.CheckCommandActivation(ctx); err != nil {
+			return tools.ToolResult{Content: "A ativação do plugin mudou ou está indisponível.", IsError: true}, nil
+		}
+	}
 	var sessionID string
 	var entry *terminal.HistoryEntry
 	var err error
