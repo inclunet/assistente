@@ -1875,3 +1875,28 @@ func TestPrepareContext_ModeloDaAbaPreservaIDExato(t *testing.T) {
 		})
 	}
 }
+
+func TestSlashCommandRequiresActiveProviderAndShellAccess(t *testing.T) {
+	for _, tc := range []struct {
+		name                         string
+		enabled, allowShell, wantRun bool
+	}{{"ativo", true, true, true}, {"provider desativado", false, true, false}, {"perfil sem shell", true, false, false}} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := &skills.Skill{Slug: "helper", SkillMetadata: skills.SkillMetadata{Name: "helper"}, Content: "!echo report"}
+			s.Tools = &skills.ToolPermissions{BashCommands: &skills.BashCommands{Allowed: []string{"echo"}}}
+			count := 0
+			i := NewInteractor(InteractorConfig{PromptBuilder: &capturingPromptBuilder{}, ContextProviders: contextprovider.NewRegistry(slashskill.NewContextProvider()), SkillMgr: staticSkillRuntimeManager{skills: map[string]*skills.Skill{"helper": s}}, SkillCommands: func(ctx context.Context, skill *skills.Skill, command string) (string, error) {
+				count++
+				return "report", nil
+			}})
+			profile := &profiles.Profile{ContextProviders: map[string]profiles.ContextProviderProfileConfig{"slash_skill": {Enabled: &tc.enabled}}}
+			result := i.PrepareMessages(context.Background(), PrepareMessagesRequest{Messages: []llm.Message{{Role: "user", Content: "/helper"}}, UserContent: "/helper", ConversationID: "conv", TurnID: "turn", ActiveProfile: profile, AllowSkillShell: tc.allowShell})
+			if tc.wantRun && (count != 1 || result.Err != nil) {
+				t.Fatalf("calls=%d err=%v", count, result.Err)
+			}
+			if !tc.wantRun && (count != 0 || result.Err == nil) {
+				t.Fatalf("calls=%d err=%v", count, result.Err)
+			}
+		})
+	}
+}

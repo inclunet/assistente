@@ -1,10 +1,10 @@
 # AEP-0119 — Plugins, repositórios e distribuição de recursos
 
-**Status:** Draft
+**Status:** In Progress
 
 ## Resumo
 
-Uma pessoa poderá adicionar um repositório, encontrar um plugin, examinar seus componentes e escolher onde ativá-los. Autores poderão selecionar recursos existentes do Assistente e gerar um pacote para publicação posterior. A proposta cobre o consumo de formatos externos e a distribuição de recursos próprios. Todas as fases de produto estão pendentes.
+Uma pessoa poderá adicionar um repositório, encontrar um plugin, examinar seus componentes e escolher onde ativá-los. Autores poderão selecionar recursos existentes do Assistente e gerar um pacote para publicação posterior. A proposta cobre o consumo de formatos externos e a distribuição de recursos próprios. O núcleo de autorização de comandos de skills está em implementação como preparação da primeira fase.
 
 ## Motivação
 
@@ -59,6 +59,12 @@ O builder identifica dependências e exibe a composição antes de gerar o pacot
 Entrada própria no menu principal, no mesmo nível de Jobs. **Instalados** abre por padrão e oferece detalhes, ativação, atualização e remoção. **Catálogo** reúne busca, origem e prévia. **Repositórios** permite configurar e atualizar as fontes. A futura ação **Criar plugin** começa nessa tela. Dos detalhes, abrir o editor existente de um job, perfil ou MCP. No editor, identificar o plugin de origem e permitir voltar aos detalhes. Progresso, decisões e erros seguem os contratos de teclado, NVDA, restauração do foco e i18n do projeto.
 
 ## Fases
+
+Preparação da fase 1: a execução de comandos embutidos em skills pelo chat
+usa a autorização de shell do AEP-0117 e o executor de invocações do turno.
+Testes de regressão em `internal/skills/command_turn_test.go` exercitam
+recusa, argumentos como texto e reconstrução do prompt sem repetir a execução.
+A instalação de pacotes e as demais entregas das fases abaixo permanecem pendentes.
 
 1. Contrato de pacote, instalação local, identidade, inventário no banco, recuperação e primeira instalação de skill e MCP.
 2. Tela Plugins, repositórios e adaptadores de catálogos e pacotes, com fixtures por formato e versão.

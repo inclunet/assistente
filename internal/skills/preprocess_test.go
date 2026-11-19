@@ -1,6 +1,11 @@
 package skills
 
 import (
+	"assistente/internal/osutil"
+	"bytes"
+	"context"
+	"fmt"
+	"os/exec"
 	"runtime"
 	"strings"
 	"testing"
@@ -64,7 +69,7 @@ func TestPreprocessCommands_FailedCommandDoesNotEchoCommand(t *testing.T) {
 func TestPreprocessCommands_BlockedCommand(t *testing.T) {
 	content := "!echo blocked"
 	result := PreprocessCommands(content, []string{"git", "ls"})
-	if !strings.Contains(result, "<!-- command blocked:") {
+	if !strings.Contains(result, "comando bloqueado para a skill") {
 		t.Errorf("expected blocked comment, got: %q", result)
 	}
 }
@@ -75,7 +80,7 @@ func TestPreprocessCommands_AllowedCommand(t *testing.T) {
 	if !strings.Contains(result, "allowed") {
 		t.Errorf("expected 'allowed' in output, got: %q", result)
 	}
-	if strings.Contains(result, "<!-- command blocked:") {
+	if strings.Contains(result, "comando bloqueado para a skill") {
 		t.Errorf("command should not be blocked, got: %q", result)
 	}
 }
@@ -177,11 +182,11 @@ func TestStripBackticks(t *testing.T) {
 func TestPreprocessCommands_NilAllowlistBlocksAll(t *testing.T) {
 	content := "!echo should-not-run"
 	result := PreprocessCommands(content, nil)
-	if !strings.Contains(result, "<!-- command blocked:") {
+	if !strings.Contains(result, "comando bloqueado para a skill") {
 		t.Errorf("nil allowlist must block all commands (default-deny), got: %q", result)
 	}
 	// A linha inteira deve virar o comentário de bloqueio (sem output do echo).
-	if !strings.HasPrefix(strings.TrimSpace(result), "<!--") {
+	if !strings.HasPrefix(strings.TrimSpace(result), "comando bloqueado para a skill") {
 		t.Errorf("command must not execute with nil allowlist, got: %q", result)
 	}
 }
@@ -189,7 +194,7 @@ func TestPreprocessCommands_NilAllowlistBlocksAll(t *testing.T) {
 func TestPreprocessCommands_EmptyAllowlistBlocksAll(t *testing.T) {
 	content := "!echo should-not-run"
 	result := PreprocessCommands(content, []string{})
-	if !strings.Contains(result, "<!-- command blocked:") {
+	if !strings.Contains(result, "comando bloqueado para a skill") {
 		t.Errorf("empty allowlist must block all commands (default-deny), got: %q", result)
 	}
 }
@@ -199,7 +204,7 @@ func TestPreprocessCommands_CompositeWithDisallowedPartBlocked(t *testing.T) {
 	// ser bloqueada (cada átomo precisa ser aprovado pela política).
 	content := "!echo hello; rm -rf x"
 	result := PreprocessCommands(content, []string{"echo"})
-	if !strings.Contains(result, "<!-- command blocked:") {
+	if !strings.Contains(result, "comando bloqueado para a skill") {
 		t.Errorf("composite command with disallowed part must be blocked, got: %q", result)
 	}
 	if strings.Contains(result, "<!-- command failed") {
@@ -210,7 +215,7 @@ func TestPreprocessCommands_CompositeWithDisallowedPartBlocked(t *testing.T) {
 func TestPreprocessCommands_BlockedCommentDoesNotEchoCommand(t *testing.T) {
 	content := "!echo token=secret-value; rm -rf x"
 	result := PreprocessCommands(content, []string{"echo"})
-	if !strings.Contains(result, "<!-- command blocked:") {
+	if !strings.Contains(result, "comando bloqueado para a skill") {
 		t.Errorf("expected blocked comment, got: %q", result)
 	}
 	if strings.Contains(result, "secret-value") || strings.Contains(result, "rm -rf") {
@@ -222,7 +227,7 @@ func TestPreprocessCommands_CompositeAllAllowedExecutes(t *testing.T) {
 	// Composição com && onde todos os átomos são permitidos deve executar.
 	content := "!echo first && echo second"
 	result := PreprocessCommands(content, []string{"echo"})
-	if strings.Contains(result, "<!-- command blocked:") {
+	if strings.Contains(result, "comando bloqueado para a skill") {
 		t.Errorf("composite command with all parts allowed should execute, got: %q", result)
 	}
 	if !strings.Contains(result, "first") || !strings.Contains(result, "second") {
@@ -246,7 +251,7 @@ func TestPreprocessCommands_ShellFeaturesBlocked(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			result := PreprocessCommands(tc.content, tc.allowed)
-			if !strings.Contains(result, "<!-- command blocked:") {
+			if !strings.Contains(result, "comando bloqueado para a skill") {
 				t.Errorf("unsupported shell feature must be blocked, got: %q", result)
 			}
 		})
@@ -305,4 +310,61 @@ func TestBuildSkillPolicy_NilOrEmptyReturnsNil(t *testing.T) {
 	if buildSkillPolicy([]string{"  ", ""}) != nil {
 		t.Error("whitespace-only entries should produce nil policy")
 	}
+}
+
+// Exercise the renderer with a real, test-only shell for the integration cases above.
+func PreprocessCommands(content string, allowed []string) string {
+	skill := Skill{}
+	skill.Tools = &ToolPermissions{BashCommands: &BashCommands{Allowed: allowed}}
+	value, err := renderCommands(context.Background(), &skill, content, func(_ context.Context, _ *Skill, cmd string) (string, error) {
+		out, err := executeCommand(cmd)
+		if err != nil {
+			return "", fmt.Errorf("<!-- command failed -->")
+		}
+		return out, nil
+	}, nil)
+	if err != nil {
+		return err.Error()
+	}
+	return value
+}
+
+// executeCommand executa um comando shell com timeout.
+func executeCommand(cmd string) (string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), DefaultCommandTimeout)
+	defer cancel()
+
+	var c *exec.Cmd
+	if runtime.GOOS == "windows" {
+		c = exec.CommandContext(ctx, "cmd", "/C", cmd)
+	} else {
+		c = exec.CommandContext(ctx, "sh", "-c", cmd)
+	}
+	// Evita que a janela de console do comando roube o foco no Windows.
+	osutil.HideConsoleWindow(c)
+
+	var stdout, stderr bytes.Buffer
+	c.Stdout = &stdout
+	c.Stderr = &stderr
+
+	err := c.Run()
+	if err != nil {
+		if ctx.Err() == context.DeadlineExceeded {
+			return "", fmt.Errorf("timeout after %v", DefaultCommandTimeout)
+		}
+		errMsg := strings.TrimSpace(stderr.String())
+		if errMsg != "" {
+			return "", fmt.Errorf("exit %v: %s", err, errMsg)
+		}
+		return "", err
+	}
+
+	output := stdout.String()
+
+	// Limita o tamanho do output
+	if len(output) > MaxCommandOutputSize {
+		output = output[:MaxCommandOutputSize] + "\n<!-- output truncated -->"
+	}
+
+	return output, nil
 }

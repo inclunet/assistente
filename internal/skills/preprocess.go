@@ -1,17 +1,13 @@
 package skills
 
 import (
-	"bytes"
 	"context"
 	"fmt"
-	"os/exec"
-	"runtime"
 	"strings"
 	"time"
 
 	"assistente/internal/allowlist"
 	"assistente/internal/commandpolicy"
-	"assistente/internal/osutil"
 )
 
 const (
@@ -21,82 +17,98 @@ const (
 	MaxCommandOutputSize = 100 * 1024
 )
 
-// PreprocessCommands processa linhas com prefixo `!` no conteúdo de um skill.
-// Cada linha `!command` ou “ !`command` “ é executada como shell command e substituída pelo output.
-// Compatível com a spec oficial do Claude Code.
-//
-// Formatos suportados:
-//   - !command → formato simples
-//   - !`command` → formato oficial Claude Code (com backticks)
-//
-// Regras:
-//   - Apenas linhas que começam com `!` (opcionalmente com espaço antes) são processadas
-//   - O `!` (e backticks opcionais) são removidos; o restante é executado como comando shell
-//   - O output substitui a linha inteira
-//   - Se o comando falha, a linha é substituída por um comentário de erro
-//   - Timeout de 5s por comando por padrão
-//
-// Segurança (default-deny, ver AEP-0060):
-//   - allowedCommands vem de tools.bashCommands.allowed do skill. Se nil ou
-//     vazia, NENHUM !command é executado (a linha vira comentário de bloqueio).
-//   - Quando há allowlist, o comando inteiro é avaliado por internal/commandpolicy
-//     (o mesmo avaliador da tool run_command): comandos compostos (`;`, `&&`,
-//     `||`) são decompostos e CADA átomo precisa estar permitido; features de
-//     shell (pipe, redirecionamento, substituição de comando, env inline,
-//     sintaxe ambígua) forçam confirm — e como não há usuário para confirmar
-//     no preprocess, qualquer decisão diferente de approve bloqueia.
-func PreprocessCommands(content string, allowedCommands []string) string {
-	if content == "" {
-		return ""
+// SkillCommandRunner uses the application's authenticated shell execution path.
+type SkillCommandRunner func(context.Context, *Skill, string) (string, error)
+
+type commandTurnKey struct{}
+type commandTurn struct {
+	run  SkillCommandRunner
+	base map[string]string
+	err  error
+}
+
+// WithCommandTurn scopes prepared base content to one prompt construction.
+func WithCommandTurn(ctx context.Context, run SkillCommandRunner) context.Context {
+	return context.WithValue(ctx, commandTurnKey{}, &commandTurn{run: run, base: make(map[string]string)})
+}
+
+func CommandTurnError(ctx context.Context) error {
+	turn, _ := ctx.Value(commandTurnKey{}).(*commandTurn)
+	if turn == nil {
+		return nil
 	}
+	return turn.err
+}
 
-	policy := buildSkillPolicy(allowedCommands)
-
-	lines := strings.Split(content, "\n")
-	result := make([]string, 0, len(lines))
-
-	for _, line := range lines {
-		trimmed := strings.TrimSpace(line)
-
-		if !strings.HasPrefix(trimmed, "!") || len(trimmed) < 2 {
-			result = append(result, line)
-			continue
+func prepareCommands(ctx context.Context, skill *Skill, content string, base bool, expand func(string) string) (string, error) {
+	turn, _ := ctx.Value(commandTurnKey{}).(*commandTurn)
+	if turn != nil && turn.err != nil {
+		return "", turn.err
+	}
+	if base && turn != nil {
+		if value, ok := turn.base[skill.Slug]; ok {
+			return value, nil
 		}
-
-		// Extrai o comando (remove o !)
-		cmd := strings.TrimSpace(trimmed[1:])
-		if cmd == "" {
-			result = append(result, line)
-			continue
-		}
-
-		// Suporta sintaxe com backticks: !`command` → remove backticks
-		cmd = stripBackticks(cmd)
-
-		// Verifica se o comando é permitido pela política (default-deny)
-		if allowed, reason := evaluateSkillCommand(cmd, policy); !allowed {
-			// O comentário entra no prompt do LLM; não ecoe a linha do comando
-			// porque ela pode conter secrets inline ou argumentos sensíveis.
-			result = append(result, fmt.Sprintf("<!-- command blocked: %s -->", sanitizeHTMLCommentText(reason)))
-			continue
-		}
-
-		// Executa o comando
-		output, err := executeCommand(cmd)
+	}
+	var run SkillCommandRunner
+	if turn != nil {
+		run = turn.run
+	}
+	result, err := renderCommands(ctx, skill, content, run, expand)
+	if turn != nil {
 		if err != nil {
-			// O erro pode conter stderr/args sensíveis; não propague detalhes ao prompt.
-			result = append(result, "<!-- command failed -->")
-			continue
-		}
-
-		// Adiciona output (sem trailing newline extra)
-		output = strings.TrimRight(output, "\n\r")
-		if output != "" {
-			result = append(result, output)
+			turn.err = err
+		} else if base {
+			turn.base[skill.Slug] = result
 		}
 	}
+	return result, err
+}
 
-	return strings.Join(result, "\n")
+func renderCommands(ctx context.Context, skill *Skill, content string, run SkillCommandRunner, expand func(string) string) (string, error) {
+	lines := strings.Split(content, "\n")
+	var allowed []string
+	if skill.Tools != nil && skill.Tools.BashCommands != nil {
+		allowed = skill.Tools.BashCommands.Allowed
+	}
+	policy := buildSkillPolicy(allowed)
+	if policy != nil && skill.Tools != nil && skill.Tools.BashCommands != nil {
+		policy.AlwaysDeny = append(policy.AlwaysDeny, skill.Tools.BashCommands.Denied...)
+		for _, name := range skill.Tools.BashCommands.Denied {
+			policy.CommandRules = append(policy.CommandRules, allowlist.CommandRule{Program: name, Subcommands: []string{"*"}, Decision: allowlist.DecisionDeny.String()})
+		}
+	}
+	for idx, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if len(trimmed) < 2 || trimmed[0] != '!' {
+			if expand != nil {
+				lines[idx] = expand(line)
+			}
+			continue
+		}
+		command := stripBackticks(strings.TrimSpace(trimmed[1:]))
+		if expand != nil {
+			command = expand(command)
+		}
+		if strings.ContainsAny(command, "\r\n") {
+			return "", fmt.Errorf("comando de skill deve ocupar uma linha")
+		}
+		if ok, reason := evaluateSkillCommand(command, policy); !ok {
+			return "", fmt.Errorf("comando bloqueado para a skill %q: %s", skill.Slug, sanitizeHTMLCommentText(reason))
+		}
+		if run == nil {
+			return "", fmt.Errorf("executor de comandos indisponível para a skill %q", skill.Slug)
+		}
+		output, err := run(ctx, skill, command)
+		if err != nil {
+			return "", err
+		}
+		if len(output) > MaxCommandOutputSize {
+			return "", fmt.Errorf("saída excedeu o limite da skill %q", skill.Slug)
+		}
+		lines[idx] = strings.TrimRight(output, "\r\n")
+	}
+	return strings.Join(lines, "\n"), nil
 }
 
 // stripBackticks remove backticks envolvendo o comando.
@@ -175,44 +187,4 @@ func sanitizeHTMLCommentText(text string) string {
 	}
 	text = strings.ReplaceAll(text, ">", "&gt;")
 	return text
-}
-
-// executeCommand executa um comando shell com timeout.
-func executeCommand(cmd string) (string, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), DefaultCommandTimeout)
-	defer cancel()
-
-	var c *exec.Cmd
-	if runtime.GOOS == "windows" {
-		c = exec.CommandContext(ctx, "cmd", "/C", cmd)
-	} else {
-		c = exec.CommandContext(ctx, "sh", "-c", cmd)
-	}
-	// Evita que a janela de console do comando roube o foco no Windows.
-	osutil.HideConsoleWindow(c)
-
-	var stdout, stderr bytes.Buffer
-	c.Stdout = &stdout
-	c.Stderr = &stderr
-
-	err := c.Run()
-	if err != nil {
-		if ctx.Err() == context.DeadlineExceeded {
-			return "", fmt.Errorf("timeout after %v", DefaultCommandTimeout)
-		}
-		errMsg := strings.TrimSpace(stderr.String())
-		if errMsg != "" {
-			return "", fmt.Errorf("exit %v: %s", err, errMsg)
-		}
-		return "", err
-	}
-
-	output := stdout.String()
-
-	// Limita o tamanho do output
-	if len(output) > MaxCommandOutputSize {
-		output = output[:MaxCommandOutputSize] + "\n<!-- output truncated -->"
-	}
-
-	return output, nil
 }

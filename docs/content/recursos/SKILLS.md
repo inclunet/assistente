@@ -26,6 +26,15 @@ durante a navegação, e a opção ativa é anunciada pelo leitor de telas.
 
 ## Gestão
 
+Uma linha iniciada por `!` no corpo de uma skill base ou invocada por barra
+pede a execução de um comando durante a preparação do turno. O comando precisa
+estar no escopo da skill e o perfil precisa permitir a ferramenta de shell.
+O Assistente consulta a política do comando no contexto da conversa. Quando
+é preciso decidir, o diálogo de shell mostra o comando, o diretório e as
+opções de duração disponíveis. Aprovar permite continuar. Recusar, cancelar
+ou encontrar uma negativa vigente interrompe o turno antes do envio ao modelo.
+Uma aprovação lembrada segue o mesmo escopo das demais execuções de shell.
+
 Em **Skills**: grid com nome/descrição/modo (Auto/Manual) e origem; crie, edite, duplique ou remova skills. `Ctrl+N` cria um skill quando essa aba de Configurações está ativa.
 
 Toda skill salva pela interface possui uma versão semântica no formato `X.Y.Z`. Novas skills começam em `1.0.0`; ao editar, a versão existente é preservada. Skills legadas sem `version` recebem `1.0.0` no formulário e passam a persistir esse valor quando forem salvas.

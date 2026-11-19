@@ -36,7 +36,7 @@ func TestValidateExecutionContextToolAccess_ProtectedBaseAllowedDespiteAllowlist
 		AllowedTools:     []string{"web_fetch"}, // allowlist focada no domínio, omite as base
 	})
 	for _, name := range []string{"memory", ToolCatalogName, LoadSkillName, "update_plan"} {
-		if err := validateExecutionContextToolAccess(ctx, name); err != nil {
+		if err := ValidateExecutionContextToolAccess(ctx, name); err != nil {
 			t.Errorf("tool base %q deveria ser permitida mesmo fora da allowlist: %v", name, err)
 		}
 	}
@@ -49,7 +49,7 @@ func TestValidateExecutionContextToolAccess_ExplicitDenyBeatsProtectedBase(t *te
 		AllowedTools:     []string{"web_fetch"},
 		DeniedTools:      []string{"memory"},
 	})
-	if err := validateExecutionContextToolAccess(ctx, "memory"); err == nil {
+	if err := ValidateExecutionContextToolAccess(ctx, "memory"); err == nil {
 		t.Fatal("deny explícito deveria bloquear a tool base 'memory'")
 	}
 }
@@ -60,11 +60,11 @@ func TestValidateExecutionContextToolAccess_DomainToolOutsideAllowlistBlocked(t 
 		InvokedSkillSlug: "pesquisa",
 		AllowedTools:     []string{"web_fetch"},
 	})
-	if err := validateExecutionContextToolAccess(ctx, "shell"); err == nil {
+	if err := ValidateExecutionContextToolAccess(ctx, "shell"); err == nil {
 		t.Fatal("tool de domínio 'shell' fora da allowlist deveria ser bloqueada")
 	}
 	// A tool que está na allowlist continua permitida.
-	if err := validateExecutionContextToolAccess(ctx, "web_fetch"); err != nil {
+	if err := ValidateExecutionContextToolAccess(ctx, "web_fetch"); err != nil {
 		t.Fatalf("tool 'web_fetch' na allowlist não deveria ser bloqueada: %v", err)
 	}
 }

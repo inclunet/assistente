@@ -17,6 +17,7 @@ import (
 	"assistente/internal/providers"
 	"assistente/internal/skills"
 	"assistente/internal/tools"
+	"assistente/internal/tools/invocationctx"
 	"assistente/internal/workspace"
 	"gorm.io/gorm"
 )
@@ -57,6 +58,7 @@ type SkillRuntimeManager interface {
 
 // InteractorConfig groups all dependencies for Interactor.
 type InteractorConfig struct {
+	SkillCommands skills.SkillCommandRunner
 	Emitter       events.Emitter
 	Repo          MessageRepository
 	ConvRepo      ConversationRepository
@@ -76,6 +78,7 @@ type InteractorConfig struct {
 
 // Interactor orchestrates the core chat use cases, free of Wails dependencies.
 type Interactor struct {
+	skillCommands    skills.SkillCommandRunner
 	emitter          events.Emitter
 	repo             MessageRepository
 	convRepo         ConversationRepository
@@ -105,6 +108,7 @@ type Interactor struct {
 // NewInteractor creates an Interactor with its required dependencies.
 func NewInteractor(cfg InteractorConfig) *Interactor {
 	return &Interactor{
+		skillCommands:    cfg.SkillCommands,
 		emitter:          cfg.Emitter,
 		repo:             cfg.Repo,
 		convRepo:         cfg.ConvRepo,
@@ -788,6 +792,7 @@ func (i *Interactor) PersistUserTranscription(ctx context.Context, messageID, co
 
 // PrepareMessagesRequest carries inputs for the PrepareMessages pipeline.
 type PrepareMessagesRequest struct {
+	AllowSkillShell     bool
 	Messages            []llm.Message
 	UserContent         string
 	ConversationSummary string
@@ -821,6 +826,17 @@ func (i *Interactor) PrepareMessages(ctx context.Context, req PrepareMessagesReq
 	if req.AgentTurn {
 		return i.prepareAgentMessages(ctx, req)
 	}
+	invocation, _ := invocationctx.Get(ctx)
+	invocation.Source = req.Params.Source
+	invocation.SurfaceTabID = req.Params.SurfaceTabID
+	invocation.ConversationID = req.ConversationID
+	invocation.TurnID = req.TurnID
+	invocation.ProfileSlug = req.Params.ProfileSlug
+	runner := i.skillCommands
+	if !req.AllowSkillShell || i.promptBuilder == nil {
+		runner = nil
+	}
+	ctx = skills.WithCommandTurn(invocationctx.With(ctx, invocation), runner)
 	var skillTplData TemplateData
 	if i.promptBuilder != nil {
 		skillTplData = i.promptBuilder.BuildTemplateData(req.ActiveProfile, req.Params, req.ConversationID)
@@ -860,7 +876,14 @@ func (i *Interactor) PrepareMessages(ctx context.Context, req PrepareMessagesReq
 	if policyReady {
 		modelOnDemandSkillAvailable = skillPolicy.HasModelOnDemandSkill()
 		taskListContextEnabled = skillPolicy.IsEnabled("tasklist-manager")
-		inv, found, err = skills.Invoke(req.UserContent, i.skillMgr, skillTplData, req.ConversationID, skillPolicy)
+		slashCtx := ctx
+		if isSlashCommand && runner != nil {
+			_, enabled, _ := resolveContextProviderProfileConfig(i.contextProviders.Metadata(), req.ActiveProfile)
+			if !enabled["slash_skill"] {
+				slashCtx = skills.WithCommandTurn(ctx, nil)
+			}
+		}
+		inv, found, err = skills.InvokeContext(slashCtx, req.UserContent, i.skillMgr, req.ConversationID, skillPolicy)
 	}
 	if found {
 		if err != nil {
@@ -908,6 +931,9 @@ func (i *Interactor) PrepareMessages(ctx context.Context, req PrepareMessagesReq
 	}
 
 	contextBlocks := i.buildDynamicContext(ctx, skillTplData, req.UserContent, req.ConversationSummary, slashSkillContent, linkedTaskLists, taskListContextEnabled, req.ActiveProfile)
+	if err := skills.CommandTurnError(ctx); err != nil {
+		return PrepareMessagesResponse{Err: err}
+	}
 	slashSkillInjected := strings.TrimSpace(slashSkillContent) == "" || (i.promptBuilder != nil && hasContextBlock(contextBlocks, "slash_skill", "slash_skill"))
 
 	var invokedSkillSlug string

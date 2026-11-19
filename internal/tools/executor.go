@@ -115,7 +115,7 @@ func (e *Executor) executeSingle(ctx context.Context, call ToolCall) (execution 
 		}
 	}()
 
-	if err := validateExecutionContextToolAccess(ctx, toolName); err != nil {
+	if err := ValidateExecutionContextToolAccess(ctx, toolName); err != nil {
 		return ToolExecutionResult{
 			CallID:   call.ID,
 			ToolName: toolName,
@@ -663,7 +663,8 @@ func failureRetryable(result ToolResult) bool {
 	return result.Failure != nil && result.Failure.Retryable
 }
 
-func validateExecutionContextToolAccess(ctx context.Context, toolName string) error {
+// ValidateExecutionContextToolAccess checks the caller's narrowing without invoking the tool.
+func ValidateExecutionContextToolAccess(ctx context.Context, toolName string) error {
 	ec, ok := GetExecutionContext(ctx)
 	if !ok {
 		return nil

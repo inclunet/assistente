@@ -30,36 +30,44 @@ func SubstituteArguments(content string, rawArgs string, vars ...map[string]stri
 	// Faz parse dos argumentos posicionais (respeitando aspas)
 	args := parseArgs(rawArgs)
 
-	result := content
-
-	// 1. Substitui $ARGUMENTS[N] PRIMEIRO (bracket syntax, 0-based, mais específico)
-	for i := len(args) - 1; i >= 0; i-- {
-		bracket := fmt.Sprintf("$ARGUMENTS[%d]", i)
-		result = strings.ReplaceAll(result, bracket, args[i])
-	}
-
-	// 2. Substitui $ARGUMENTS pela string completa (depois dos brackets)
-	result = strings.ReplaceAll(result, "$ARGUMENTS", rawArgs)
-
-	// 3. Substitui $N (shorthand, 0-based) — de trás para frente para evitar conflitos ($10 antes de $1)
-	for i := len(args) - 1; i >= 0; i-- {
-		placeholder := fmt.Sprintf("$%d", i)
-		result = strings.ReplaceAll(result, placeholder, args[i])
-	}
-
-	// 4. Substitui variáveis de sessão (${CLAUDE_SESSION_ID}, etc.)
-	if len(vars) > 0 && vars[0] != nil {
-		for k, v := range vars[0] {
-			result = strings.ReplaceAll(result, "${"+k+"}", v)
-		}
-	}
-
+	expand := argumentExpander(rawArgs, args, vars...)
+	result := expand(content)
 	// 5. Fallback: se $ARGUMENTS não estava no conteúdo original e há args, appenda
 	if !hasArgumentsPlaceholder && rawArgs != "" {
 		result = result + "\n\nARGUMENTS: " + rawArgs
 	}
 
 	return result
+}
+
+// argumentExpander applies substitutions to a single piece of skill-authored text.
+func argumentExpander(rawArgs string, args []string, vars ...map[string]string) func(string) string {
+	return func(content string) string {
+		result := content
+		// 1. Substitui $ARGUMENTS[N] PRIMEIRO (bracket syntax, 0-based, mais específico)
+		for i := len(args) - 1; i >= 0; i-- {
+			bracket := fmt.Sprintf("$ARGUMENTS[%d]", i)
+			result = strings.ReplaceAll(result, bracket, args[i])
+		}
+
+		// 2. Substitui $ARGUMENTS pela string completa (depois dos brackets)
+		result = strings.ReplaceAll(result, "$ARGUMENTS", rawArgs)
+
+		// 3. Substitui $N (shorthand, 0-based) — de trás para frente para evitar conflitos ($10 antes de $1)
+		for i := len(args) - 1; i >= 0; i-- {
+			placeholder := fmt.Sprintf("$%d", i)
+			result = strings.ReplaceAll(result, placeholder, args[i])
+		}
+
+		// 4. Substitui variáveis de sessão (${CLAUDE_SESSION_ID}, etc.)
+		if len(vars) > 0 && vars[0] != nil {
+			for k, v := range vars[0] {
+				result = strings.ReplaceAll(result, "${"+k+"}", v)
+			}
+		}
+
+		return result
+	}
 }
 
 // containsPlainArguments verifica se o conteúdo contém $ARGUMENTS (plain),

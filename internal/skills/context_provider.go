@@ -38,7 +38,7 @@ func (p *ContextProvider) Metadata() contextprovider.ProviderMetadata {
 	}
 }
 
-func (p *ContextProvider) Build(_ context.Context, req contextprovider.BuildRequest) ([]contextprovider.Block, error) {
+func (p *ContextProvider) Build(ctx context.Context, req contextprovider.BuildRequest) ([]contextprovider.Block, error) {
 	if p == nil || p.source == nil {
 		return nil, nil
 	}
@@ -52,7 +52,10 @@ func (p *ContextProvider) Build(_ context.Context, req contextprovider.BuildRequ
 	}
 
 	budget := req.Budget(p.Name(), defaultContextProviderBudget)
-	baseContent := buildBaseSkillBlock(baseSkills, p.source)
+	baseContent, err := buildBaseSkillBlock(ctx, baseSkills, p.source)
+	if err != nil {
+		return nil, err
+	}
 	catalogContent := buildAvailableSkillsBlock(onDemandSkills, p.source)
 	blocks := make([]contextprovider.Block, 0, 2)
 	baseBudget := budget
@@ -113,9 +116,9 @@ func selectPromptSkills(allSkills []Skill, req contextprovider.BuildRequest) ([]
 	return baseSkills, availableSkills
 }
 
-func buildBaseSkillBlock(baseSkills []Skill, source ContextProviderSource) string {
+func buildBaseSkillBlock(ctx context.Context, baseSkills []Skill, source ContextProviderSource) (string, error) {
 	if len(baseSkills) == 0 {
-		return ""
+		return "", nil
 	}
 	var sb strings.Builder
 	sb.WriteString("<base_skill>\n")
@@ -124,17 +127,16 @@ func buildBaseSkillBlock(baseSkills []Skill, source ContextProviderSource) strin
 			sb.WriteString("\n")
 		}
 		writeSkillHeading(&sb, skill)
-		content := skill.Content
-		var allowedBash []string
-		if skill.Tools != nil && skill.Tools.BashCommands != nil {
-			allowedBash = skill.Tools.BashCommands.Allowed
+		content, err := prepareCommands(ctx, &skill, skill.Content, true, nil)
+		if err != nil {
+			return "", err
 		}
-		sb.WriteString(PreprocessCommands(content, allowedBash))
+		sb.WriteString(content)
 		sb.WriteString("\n")
 		writeSupportingFiles(&sb, source, skill.Slug, "Supporting files (use read_file to access when needed):", "- `", "`")
 	}
 	sb.WriteString("</base_skill>")
-	return sb.String()
+	return sb.String(), nil
 }
 
 func buildAvailableSkillsBlock(availableSkills []Skill, source ContextProviderSource) string {

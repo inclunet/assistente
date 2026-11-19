@@ -79,6 +79,10 @@ func ParseSlashCommand(content string) (slug string, args string, ok bool) {
 // Retorna (resultado, encontrado, erro).
 // found=false significa que o conteúdo não é um slash command ou o skill não existe.
 func Invoke(userContent string, mgr InvokerManager, tplData any, sessionID string, policy SelectionPolicy) (*InvocationResult, bool, error) {
+	return InvokeContext(context.Background(), userContent, mgr, sessionID, policy)
+}
+
+func InvokeContext(ctx context.Context, userContent string, mgr InvokerManager, sessionID string, policy SelectionPolicy) (*InvocationResult, bool, error) {
 	slug, args, ok := ParseSlashCommand(userContent)
 	if !ok || mgr == nil {
 		return nil, false, nil
@@ -104,14 +108,21 @@ func Invoke(userContent string, mgr InvokerManager, tplData any, sessionID strin
 	sessionVars := map[string]string{
 		"CLAUDE_SESSION_ID": sessionID,
 	}
-	processedContent := SubstituteArguments(skill.Content, args, sessionVars)
+	processedContent := skill.Content
 
-	// Preprocessa !commands (respeita permissões de bash do skill)
-	var allowedBashCmds []string
-	if skill.Tools != nil && skill.Tools.BashCommands != nil {
-		allowedBashCmds = skill.Tools.BashCommands.Allowed
+	// Base content is rendered once by the context provider.
+	if mode != SkillModeBase {
+		processedContent, err = prepareCommands(ctx, skill, processedContent, false, argumentExpander(args, parseArgs(args), sessionVars))
+		if err != nil {
+			return nil, true, err
+		}
 	}
-	processedContent = PreprocessCommands(processedContent, allowedBashCmds)
+
+	if mode == SkillModeBase {
+		processedContent = SubstituteArguments(processedContent, args, sessionVars)
+	} else if args != "" && !containsPlainArguments(skill.Content) {
+		processedContent += "\n\nARGUMENTS: " + args
+	}
 
 	// Monta seção XML do skill invocado
 	var sb strings.Builder

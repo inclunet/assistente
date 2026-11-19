@@ -54,6 +54,9 @@ func executionID(ctx context.Context) string {
 	return ""
 }
 
+// TurnExecutionID identifies the admitted attempt, including during prompt preparation.
+func TurnExecutionID(ctx context.Context) string { return executionID(ctx) }
+
 // Somente handlers isolados sem admissão têm proveniência legada nil.
 func executionIDRef(ctx context.Context) *string {
 	id := executionID(ctx)
