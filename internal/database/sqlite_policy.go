@@ -166,6 +166,12 @@ func withSQLiteImmediateTransaction(ctx context.Context, db *gorm.DB, operation 
 // de qualquer leitura de validação. É exportado para repositories de outros
 // pacotes que persistem dados ligados ao histórico.
 func WithSQLiteImmediateTransaction(ctx context.Context, db *gorm.DB, operation string, fn func(*gorm.DB) error) error {
+	return WithSQLiteAdmittedCommit(ctx, db, operation, fn, func(commit func() error) error { return commit() })
+}
+
+// WithSQLiteAdmittedCommit mantém a aquisição do writer e a preparação fora
+// da seção admitida. A admissão pode recusar o commit e provocar rollback.
+func WithSQLiteAdmittedCommit(ctx context.Context, db *gorm.DB, operation string, fn func(*gorm.DB) error, admit func(func() error) error) error {
 	return WithSQLiteBusyRetry(ctx, operation, func() error {
 		return db.WithContext(ctx).Connection(func(tx *gorm.DB) error {
 			// BEGIN/COMMIT são controlados explicitamente abaixo; impedir que
@@ -190,7 +196,7 @@ func WithSQLiteImmediateTransaction(ctx context.Context, db *gorm.DB, operation 
 			if err := fn(tx); err != nil {
 				return err
 			}
-			if err := tx.Exec("COMMIT").Error; err != nil {
+			if err := admit(func() error { return tx.Exec("COMMIT").Error }); err != nil {
 				return err
 			}
 			committed = true

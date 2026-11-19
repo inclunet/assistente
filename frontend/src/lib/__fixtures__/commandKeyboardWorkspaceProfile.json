@@ -226,6 +226,50 @@
       },
       "fallback": null
     },
+    "plugins": {
+      "fallbackToSequences": true,
+      "shortcut": {
+        "version": 1,
+        "code": "F2",
+        "modifiers": []
+      },
+      "bySurface": {
+        "toolbar": null,
+        "workspaces": null
+      },
+      "byProfile": {
+        "dev": {
+          "fallbackToSequences": true,
+          "shortcut": {
+            "version": 1,
+            "code": "F2",
+            "modifiers": []
+          },
+          "bySurface": {
+            "toolbar": null,
+            "workspaces": null
+          },
+          "sequenceFallbacks": {
+            "toolbar": {
+              "": true
+            },
+            "workspaces": {
+              "": true
+            }
+          },
+          "fallback": null
+        }
+      },
+      "sequenceFallbacks": {
+        "toolbar": {
+          "": true
+        },
+        "workspaces": {
+          "": true
+        }
+      },
+      "fallback": null
+    },
     "profiles": {
       "fallbackToSequences": true,
       "shortcut": {

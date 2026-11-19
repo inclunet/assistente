@@ -1,5 +1,5 @@
 export const APP_PAGES = [
-  'workspace', 'settings', 'profiles', 'history', 'help', 'about', 'update', 'tasklists', 'jobs', 'memories',
+  'workspace', 'settings', 'profiles', 'history', 'help', 'about', 'update', 'tasklists', 'jobs', 'memories', 'plugins',
 ] as const;
 
 export type AppPage = typeof APP_PAGES[number];
@@ -21,6 +21,7 @@ export function resolveAppPage(pathname: unknown): AppPage | null {
     case '/about': return 'about';
     case '/update': return 'update';
     case '/tasklists': return 'tasklists';
+    case '/plugins': return 'plugins';
     case '/jobs': return 'jobs';
     case '/memories': return 'memories';
     default: return null;

@@ -874,6 +874,25 @@
           },
           "fallback": null
         },
+        "plugins": {
+          "fallbackToSequences": true,
+          "shortcut": {
+            "version": 1,
+            "code": "KeyN",
+            "modifiers": [
+              "Control"
+            ]
+          },
+          "bySurface": {
+            "toolbar": null
+          },
+          "sequenceFallbacks": {
+            "toolbar": {
+              "": true
+            }
+          },
+          "fallback": null
+        },
         "profiles": {
           "fallbackToSequences": true,
           "shortcut": {

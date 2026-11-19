@@ -70,10 +70,10 @@ func DiscoverComponents(snapshot *pluginpackage.LocalSnapshot) []Component {
 					Type string `json:"type"`
 				}
 				component := Component{Kind: "mcp", Name: name, Entry: "mcp.json", Key: "mcp/" + name}
-				if json.Unmarshal(value, &server) != nil || server.Type == "" {
+				if !valid {
 					component.Kind = "invalidMcp"
 				} else {
-					component.Transport = server.Type
+					component.Transport = transport
 					cfg, reason := portableMCP(value)
 					component.Reason = reason
 					component.Endpoint = cfg.URL

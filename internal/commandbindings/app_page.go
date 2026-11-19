@@ -15,11 +15,12 @@ const (
 	PageTaskLists AppPageValue = "tasklists"
 	PageJobs      AppPageValue = "jobs"
 	PageMemories  AppPageValue = "memories"
+	PagePlugins   AppPageValue = "plugins"
 )
 
 var appPages = [...]AppPageValue{
 	PageWorkspace, PageSettings, PageProfiles, PageHistory, PageHelp,
-	PageAbout, PageUpdate, PageTaskLists, PageJobs, PageMemories,
+	PageAbout, PageUpdate, PageTaskLists, PageJobs, PageMemories, PagePlugins,
 }
 
 func AppPages() []string {

@@ -6,7 +6,7 @@ import (
 )
 
 func TestAppPageIsClosedAndIndependentFromSurfaceType(t *testing.T) {
-	want := []string{"workspace", "settings", "profiles", "history", "help", "about", "update", "tasklists", "jobs", "memories"}
+	want := []string{"workspace", "settings", "profiles", "history", "help", "about", "update", "tasklists", "jobs", "memories", "plugins"}
 	if got := AppPages(); !reflect.DeepEqual(got, want) {
 		t.Fatalf("closed app.page enum = %v, want %v", got, want)
 	}
