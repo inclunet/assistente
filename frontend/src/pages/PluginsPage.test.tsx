@@ -98,6 +98,8 @@ describe('PluginsPage', () => {
     await user.click(await screen.findByRole('button', { name: 'plugins.activate' }));
     expect(mocks.toggle).toHaveBeenCalledWith('one', 'sha', 'skills/note', true);
     expect(await screen.findByText('/note-local')).toBeInTheDocument();
+    await user.keyboard('{Escape}');
+    await waitFor(() => expect(cell).toHaveFocus());
   });
 
   it.each(['cancel', 'readError'])('restores keyboard focus after picker result %s', async result => {

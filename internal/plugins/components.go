@@ -56,22 +56,19 @@ func DiscoverComponents(snapshot *pluginpackage.LocalSnapshot) []Component {
 		components = append(components, component)
 	}
 	if raw, ok := snapshot.Files["mcp.json"]; ok {
-		var file struct {
-			Schema  string                     `json:"$schema"`
-			Servers map[string]json.RawMessage `json:"mcpServers"`
-		}
-		if json.Unmarshal(raw, &file) != nil || file.Schema != "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json" || file.Servers == nil {
+		var fields map[string]json.RawMessage
+		var schema string
+		var servers map[string]json.RawMessage
+		if json.Unmarshal(raw, &fields) != nil || len(fields) != 2 || json.Unmarshal(fields["$schema"], &schema) != nil || schema != "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json" || json.Unmarshal(fields["mcpServers"], &servers) != nil || servers == nil {
 			components = append(components, Component{Key: "mcp.json", Kind: "invalidMcp", Entry: "mcp.json", Name: "mcp.json"})
 		} else {
-			for name, value := range file.Servers {
-				var server struct {
-					Type string `json:"type"`
-				}
+			for name, value := range servers {
+				transport, valid := mcpTransport(value)
 				component := Component{Kind: "mcp", Name: name, Entry: "mcp.json", Key: "mcp/" + name}
-				if json.Unmarshal(value, &server) != nil || server.Type == "" {
+				if !valid {
 					component.Kind = "invalidMcp"
 				} else {
-					component.Transport = server.Type
+					component.Transport = transport
 				}
 				components = append(components, component)
 			}

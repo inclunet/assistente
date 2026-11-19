@@ -35,15 +35,21 @@ function InstalledPlugins() {
   useEffect(() => {
     if (error) announce(t(error), 'assertive');
   }, [error, announce, t]);
+  const detailsOpener = useRef<HTMLElement | null>(null);
   const mounted = useRef(false);
   const chooseButton = useRef<HTMLButtonElement>(null);
   const restoreFocus = useRef(false);
   useEffect(() => {
+    if (!details && !preview && !busy && detailsOpener.current) {
+      const opener = detailsOpener.current;
+      detailsOpener.current = null;
+      if (opener.isConnected) opener.focus(); else chooseButton.current?.focus();
+    }
     if (!preview && !busy && restoreFocus.current) {
       restoreFocus.current = false;
       chooseButton.current?.focus();
     }
-  }, [preview, busy]);
+  }, [preview, details, busy]);
   const refresh = useCallback(async () => {
     const rows = await ListInstalled();
     if (mounted.current) setItems(rows ?? []);
@@ -87,6 +93,7 @@ function InstalledPlugins() {
   };
   const openDetails = async (installation: database.PluginInstallation) => {
     if (busy) return;
+    detailsOpener.current = document.activeElement instanceof HTMLElement ? document.activeElement.closest<HTMLElement>('[role="gridcell"]') : null;
     setBusy(true);
     setError('');
     try {
