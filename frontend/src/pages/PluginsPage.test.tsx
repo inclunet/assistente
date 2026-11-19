@@ -4,10 +4,13 @@ import userEvent from '@testing-library/user-event';
 import { axe } from 'vitest-axe';
 import PluginsPage from './PluginsPage';
 
-const mocks = vi.hoisted(() => ({ list: vi.fn(), preview: vi.fn(), install: vi.fn(), discard: vi.fn(), announce: vi.fn() }));
+const mocks = vi.hoisted(() => ({ list: vi.fn(), preview: vi.fn(), install: vi.fn(), discard: vi.fn(), announce: vi.fn(), announceRequest: vi.fn() }));
 vi.mock('@wailsjs/go/wailsapi/Plugins', () => ({ DiscardPreview: mocks.discard, ListInstalled: mocks.list, PreviewLocal: mocks.preview, InstallReviewed: mocks.install }));
-vi.mock('../store/authStore', () => ({ useAuthStore: () => 'session' }));
-vi.mock('../hooks/useAnnouncer', () => ({ useAnnouncer: () => ({ announce: mocks.announce }) }));
+vi.mock('../store/authStore', async importOriginal => {
+  const actual = await importOriginal<typeof import('../store/authStore')>();
+  return { ...actual, useAuthStore: Object.assign(() => 'session', actual.useAuthStore) };
+});
+vi.mock('../hooks/useAnnouncer', () => ({ useAnnouncer: () => ({ announce: mocks.announce, announceRequest: mocks.announceRequest }) }));
 vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
 
 describe('PluginsPage', () => {
@@ -74,11 +77,27 @@ describe('PluginsPage', () => {
     await user.click(choose);
     const cancel = await screen.findByRole('button', { name: 'common.cancel' });
     await user.click(cancel);
-    expect(screen.getByRole('dialog')).toContainElement(await screen.findByText('plugins.discardError'));
+    expect(screen.getByRole('alertdialog')).toContainElement(await screen.findByText('plugins.discardError'));
     expect(mocks.announce).toHaveBeenCalledWith('plugins.discardError', 'assertive');
-    await user.click(cancel);
-    await waitFor(() => expect(choose).toHaveFocus());
+    await waitFor(async () => {
+      await user.click(cancel);
+      expect(choose).toHaveFocus();
+    }, { timeout: 2500 });
     expect(mocks.install).not.toHaveBeenCalled();
+  });
+
+  it.each(['cancel', 'readError'])('restores keyboard focus after picker result %s', async result => {
+    const user = userEvent.setup();
+    if (result === 'cancel') mocks.preview.mockResolvedValueOnce(null);
+    else mocks.preview.mockRejectedValueOnce(new Error('read'));
+    render(<PluginsPage />);
+    const choose = await screen.findByRole('button', { name: 'plugins.choose' });
+    await waitFor(() => expect(choose).toBeEnabled());
+    choose.focus();
+    await user.keyboard('{Enter}');
+    await waitFor(() => expect(mocks.preview).toHaveBeenCalledOnce());
+    await waitFor(() => expect(choose).toHaveFocus());
+    expect(screen.queryByRole('alertdialog')).toBeNull();
   });
 
   it('closes the preview without installing', async () => {

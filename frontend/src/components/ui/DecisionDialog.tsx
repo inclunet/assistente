@@ -31,6 +31,7 @@ export type DecisionSeverity = 'destructive' | 'permission' | 'info';
 const ACTION_REENTRY_GUARD_MS = 1000;
 
 export interface DecisionAction {
+  disabled?: boolean;
   id: string;
   label: string;
   /** Variante visual do botão. */
@@ -303,7 +304,7 @@ export function DecisionDialog({
   };
 
   const fireAction = (actionId: string) => {
-    if (actionInFlightRef.current) return;
+    if (actionInFlightRef.current || actions.find(a => a.id === actionId)?.disabled) return;
     actionInFlightRef.current = true;
     // O fechamento normal limpa o timer pelo efeito de isOpen. O fallback
     // evita travar o diálogo se o callback falhar ou decidir mantê-lo aberto.
@@ -405,6 +406,7 @@ export function DecisionDialog({
         type="button"
         variant={buttonVariant}
         data-decision-action={action.id}
+        disabled={action.disabled}
         onClick={() => fireAction(action.id)}
         aria-label={displayLabel}
         aria-keyshortcuts={

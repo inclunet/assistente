@@ -101,6 +101,14 @@ func TestLocalInventoryPublishesReviewedRevisionPerAccount(t *testing.T) {
 	if err := db.Exec("DROP TRIGGER reject_revision").Error; err != nil {
 		t.Fatal(err)
 	}
+	denied := errors.New("sessão revogada antes do commit")
+	if _, err := store.InstallReviewed(alice, seed.Origin, update.Digest, seed.Digest, func(func() error) error { return denied }); !errors.Is(err, denied) {
+		t.Fatal(err)
+	}
+	rows, err = store.List(alice)
+	if err != nil || len(rows) != 1 || rows[0].Digest != seed.Digest {
+		t.Fatalf("publicação recusada alterou a revisão: %v %v", rows, err)
+	}
 	updated, err := store.InstallLocal(alice, seed.Origin, update.Digest, seed.Digest)
 	if err != nil || updated.Digest != update.Digest {
 		t.Fatal(updated, err)

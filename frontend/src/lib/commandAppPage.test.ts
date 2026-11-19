@@ -10,12 +10,12 @@ describe('trusted application-page enum', () => {
     }
     expect(Object.fromEntries([
       ['/profiles', 'profiles'], ['/history', 'history'], ['/help', 'help'], ['/about', 'about'],
-      ['/update', 'update'], ['/tasklists', 'tasklists'], ['/jobs', 'jobs'], ['/memories', 'memories'],
+      ['/update', 'update'], ['/tasklists', 'tasklists'], ['/plugins', 'plugins'], ['/jobs', 'jobs'], ['/memories', 'memories'],
     ].map(([path]) => [path, resolveAppPage(path)]))).toEqual({
       '/profiles': 'profiles', '/history': 'history', '/help': 'help', '/about': 'about',
-      '/update': 'update', '/tasklists': 'tasklists', '/jobs': 'jobs', '/memories': 'memories',
+      '/update': 'update', '/tasklists': 'tasklists', '/plugins': 'plugins', '/jobs': 'jobs', '/memories': 'memories',
     });
-    expect(APP_PAGES).toEqual(['workspace', 'settings', 'profiles', 'history', 'help', 'about', 'update', 'tasklists', 'jobs', 'memories']);
+    expect(APP_PAGES).toEqual(['workspace', 'settings', 'profiles', 'history', 'help', 'about', 'update', 'tasklists', 'jobs', 'memories', 'plugins']);
   });
 
   it('fails closed for absent, unknown and malformed routes or page facts', () => {
