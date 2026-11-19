@@ -50,3 +50,7 @@ A compatibilidade depende dos recursos usados pelo pacote. Os detalhes indicam r
 Em **Plugins → Repositórios**, informe o endereço HTTPS de um arquivo ZIP que contenha o índice da loja e os pacotes. Os arquivos podem estar na raiz ou dentro da pasta que alguns serviços Git acrescentam ao gerar o ZIP. Para uma loja privada, selecione a opção de usar a credencial cadastrada para aquele host e porta. Guarde a credencial no cofre da conta. A URL deve estar livre de senha e parâmetros de consulta.
 
 Escolha **Adicionar loja por URL**. Uma mudança no arquivo exige **Atualizar** antes de abrir uma nova prévia ou instalar. Se a consulta falhar, o catálogo continua mostrando o último índice válido. Para arquivos hospedados em outro domínio, informe diretamente o endereço HTTPS do domínio que entrega o ZIP e escolha a credencial correspondente.
+
+## Criar uma lista a partir de um modelo
+
+Abra os detalhes de um plugin instalado que forneça um modelo de lista de tarefas. Escolha **Criar lista a partir de** e o nome do modelo. A nova lista fica em **Listas de tarefas**, com os estados de workflow e as tarefas iniciais que o autor incluiu. Cada nova criação gera uma lista independente. Suas notas e seu progresso continuam disponíveis quando você atualiza, desativa ou desinstala o plugin.

@@ -4,8 +4,8 @@ import userEvent from '@testing-library/user-event';
 import { axe } from 'vitest-axe';
 import PluginsPage from './PluginsPage';
 
-const mocks = vi.hoisted(() => ({ repos: vi.fn(), catalogPreview: vi.fn(), lifecycle: vi.fn(), sync: vi.fn(), register: vi.fn(), remove: vi.fn(), confirm: vi.fn(), list: vi.fn(), components: vi.fn(), toggle: vi.fn(), preview: vi.fn(), install: vi.fn(), discard: vi.fn(), announce: vi.fn(), announceRequest: vi.fn() }));
-vi.mock('@wailsjs/go/wailsapi/Plugins', () => ({ ListRepositories: mocks.repos, PreviewRepositoryEntry: mocks.catalogPreview, ChangeInstallation: mocks.lifecycle, SyncMCP: mocks.sync, RegisterMCP: mocks.register, RemoveMCP: mocks.remove, InstalledComponents: mocks.components, SetSkillActive: mocks.toggle, DiscardPreview: mocks.discard, ListInstalled: mocks.list, PreviewLocal: mocks.preview, InstallReviewed: mocks.install }));
+const mocks = vi.hoisted(() => ({ createList: vi.fn(), repos: vi.fn(), catalogPreview: vi.fn(), lifecycle: vi.fn(), sync: vi.fn(), register: vi.fn(), remove: vi.fn(), confirm: vi.fn(), list: vi.fn(), components: vi.fn(), toggle: vi.fn(), preview: vi.fn(), install: vi.fn(), discard: vi.fn(), announce: vi.fn(), announceRequest: vi.fn() }));
+vi.mock('@wailsjs/go/wailsapi/Plugins', () => ({ CreateListFromTemplate: mocks.createList, ListRepositories: mocks.repos, PreviewRepositoryEntry: mocks.catalogPreview, ChangeInstallation: mocks.lifecycle, SyncMCP: mocks.sync, RegisterMCP: mocks.register, RemoveMCP: mocks.remove, InstalledComponents: mocks.components, SetSkillActive: mocks.toggle, DiscardPreview: mocks.discard, ListInstalled: mocks.list, PreviewLocal: mocks.preview, InstallReviewed: mocks.install }));
 vi.mock('../hooks/useConfirm', () => ({ useConfirm: () => mocks.confirm }));
 vi.mock('../store/authStore', async importOriginal => {
   const actual = await importOriginal<typeof import('../store/authStore')>();
@@ -196,5 +196,32 @@ describe('PluginsPage', () => {
     expect(mocks.discard).toHaveBeenCalledWith('reviewed');
     expect(choose).toHaveFocus();
     expect(screen.queryByRole('button', { name: 'plugins.install' })).toBeNull();
+  });
+  it('reuses the request when retrying creation from a task list template', async () => {
+    const user = userEvent.setup();
+    mocks.list.mockResolvedValue([{id: 'one', name: 'Demo', digest: 'sha'}]);
+    mocks.components.mockResolvedValue([{name:'Release',key:'tasklists/release',kind:'tasklistTemplate'}]);
+    mocks.createList.mockRejectedValueOnce(new Error('connection')).mockResolvedValueOnce('list-id');
+    render(<PluginsPage />);
+    const cell = await screen.findByRole('gridcell', {name:/Demo/});
+    cell.focus();
+    await user.keyboard('{Enter}');
+    const button = await screen.findByRole('button', {name:'plugins.createList'});
+    await user.click(button);
+    await waitFor(() => expect(mocks.createList).toHaveBeenCalledTimes(1));
+    await user.click(button);
+    await screen.findByText('plugins.createdList');
+    expect(mocks.createList.mock.calls[1]).toEqual(mocks.createList.mock.calls[0]);
+    expect(mocks.createList.mock.calls[1]).toEqual(['one','sha','tasklists/release',expect.any(String)]);
+  });
+  it('reports a supported template in preview before installation', async () => {
+    mocks.preview.mockResolvedValue({token:'reviewed',name:'planner',digest:'sha',files:[],diagnostics:[],components:[{kind:'tasklistTemplate',key:'tasklists/release',name:'Release'}]});
+    const user = userEvent.setup();
+    render(<PluginsPage />);
+    const choose = await screen.findByRole('button', {name:'plugins.choose'});
+    await waitFor(() => expect(choose).toBeEnabled());
+    await user.click(choose);
+    await screen.findByText(/plugins.tasklistTemplate/);
+    expect(screen.queryByText('plugins.unavailable')).toBeNull();
   });
 });

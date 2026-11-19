@@ -266,3 +266,13 @@ func (api *Plugins) ChangeInstallation(id, digest, action string) error {
 	})
 	return err
 }
+
+func (api *Plugins) CreateListFromTemplate(id, digest, key, request string) (string, error) {
+	var listID string
+	err := api.withRepositorySession(func(ctx context.Context, inventory *plugins.Inventory, _ func() (string, error), admit commandsecurity.Admission) error {
+		var err error
+		listID, err = inventory.CreateListFromTemplate(ctx, id, digest, key, request, admit)
+		return err
+	})
+	return listID, err
+}

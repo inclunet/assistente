@@ -47,7 +47,7 @@ func (a *App) wirePlugins() {
 			return a.mcpMgr.ReloadPackagedConfigs(ctx)
 		}).WithRemoteClient(func(ref string) *http.Client {
 			return plugins.RepositoryHTTPClient(a.credMgr, ref)
-		}), a.dialogPort.OpenDirectoryDialog, a.captureDialogAdmission)
+		}).WithListCreated(a.taskSvc.NotifyTemplateListCreated), a.dialogPort.OpenDirectoryDialog, a.captureDialogAdmission)
 	}
 }
 
