@@ -23,6 +23,7 @@ type BuilderTaskList struct {
 }
 
 type BuilderRequest struct {
+	Profiles  []string          `json:"profiles,omitempty"`
 	Skills    []string          `json:"skills,omitempty"`
 	Name      string            `json:"name"`
 	Version   string            `json:"version"`
@@ -37,6 +38,13 @@ func reservedDevice(name string) bool {
 		return true
 	}
 	return len(base) == 4 && (base[:3] == "COM" || base[:3] == "LPT") && base[3] >= '1' && base[3] <= '9'
+}
+
+func (i *Inventory) WithProfileDefinition(read func(string) ([]byte, error), names func() ([]string, error)) *Inventory {
+	copy := *i
+	copy.profileDefinition = read
+	copy.profileNames = names
+	return &copy
 }
 
 func (i *Inventory) WithSkillDefinition(read func(string) ([]byte, error), names func() []string) *Inventory {
@@ -57,12 +65,33 @@ func (i *Inventory) BuildPackage(ctx context.Context, request BuilderRequest) ([
 	if _, err := database.RequireUserID(ctx); err != nil {
 		return nil, nil, err
 	}
-	if len(request.TaskLists)+len(request.Skills) == 0 || len(request.TaskLists)+len(request.Skills) > 100 || strings.TrimSpace(request.Name) == "" || reservedDevice(request.Name) {
+	count := len(request.TaskLists) + len(request.Skills) + len(request.Profiles)
+	if count == 0 || count > 100 || strings.TrimSpace(request.Name) == "" || reservedDevice(request.Name) {
 		return nil, nil, errors.New("PLUGIN_BUILDER_SELECTION")
 	}
 	files := map[string][]byte{}
 	extension := nativeResources{Version: 1}
 	total := 0
+	for _, key := range request.Profiles {
+		if !portableSkillName.MatchString(key) || len(key) > 64 || reservedDevice(key) || i.profileDefinition == nil {
+			return nil, nil, errors.New("PLUGIN_BUILDER_KEY")
+		}
+		file := path.Join(nativeExtension, "profiles", key+".json")
+		if _, exists := files[file]; exists {
+			return nil, nil, errors.New("PLUGIN_BUILDER_KEY")
+		}
+		raw, err := i.profileDefinition(key)
+		if err != nil {
+			return nil, nil, err
+		}
+		total += len(raw)
+		if total > 31<<20 {
+			return nil, nil, errors.New("PLUGIN_BUILDER_SIZE")
+		}
+		files[file] = raw
+		extension.Profiles = append(extension.Profiles, key)
+	}
+	sort.Strings(extension.Profiles)
 	for _, key := range request.Skills {
 		if !portableSkillName.MatchString(key) || len(key) > 64 || reservedDevice(key) || i.skillDefinition == nil {
 			return nil, nil, errors.New("PLUGIN_BUILDER_KEY")
@@ -115,7 +144,7 @@ func (i *Inventory) BuildPackage(ctx context.Context, request BuilderRequest) ([
 	}
 	sort.Strings(extension.TaskLists)
 	manifest := map[string]any{"$schema": pluginpackage.ManifestSchema, "name": request.Name}
-	if len(extension.TaskLists) > 0 {
+	if len(extension.TaskLists)+len(extension.Profiles) > 0 {
 		manifest["extensions"] = map[string]nativeResources{nativeExtension: extension}
 	}
 	if request.Version != "" {
@@ -157,9 +186,26 @@ func (i *Inventory) BuildPackage(ctx context.Context, request BuilderRequest) ([
 		if (c.Kind == "skill" && c.Reason != "") || c.Kind == "invalidSkill" {
 			return nil, nil, errors.New("PLUGIN_BUILDER_SKILL_UNAVAILABLE")
 		}
-		if c.Reason != "" || (c.Kind != "tasklistTemplate" && c.Kind != "skill") {
+		if c.Reason != "" || (c.Kind != "tasklistTemplate" && c.Kind != "skill" && c.Kind != "profile") {
 			return nil, nil, ErrComponentUnavailable
 		}
 	}
 	return output.Bytes(), snapshot, nil
+}
+
+func (i *Inventory) BuilderProfileNames() ([]string, error) {
+	if i.profileNames == nil {
+		return nil, nil
+	}
+	names, err := i.profileNames()
+	if err != nil {
+		return nil, err
+	}
+	keys := make([]string, 0, len(names))
+	for _, key := range names {
+		if portableSkillName.MatchString(key) && len(key) <= 64 && !reservedDevice(key) {
+			keys = append(keys, key)
+		}
+	}
+	return keys, nil
 }

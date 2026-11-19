@@ -162,6 +162,8 @@ notSaved: 'A decisão vale somente para esta operação: não foi possível lemb
       packageName: 'Identificador do plugin',
       builderSkillError: 'Uma skill selecionada exige arquivos auxiliares ou recursos de execução sem suporte no pacote. Revise a seleção.',
       builderSourcesError: 'Alguns recursos não puderam ser carregados. Os recursos disponíveis podem ser selecionados.',
+      builderProfiles: 'Perfis de conversa',
+      builderProfileFields: 'O pacote inclui nome, descrição, temperatura, top-p e limite de tokens. O perfil instalado usa o provedor padrão, com ferramentas e skills desativadas.',
       builderSkills: 'Skills de instrução para incluir no pacote',
       builderLists: 'Listas para exportar como modelos',
       templateKey: 'Identificador do modelo {{name}}',

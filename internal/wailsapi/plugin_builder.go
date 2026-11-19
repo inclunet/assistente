@@ -108,3 +108,19 @@ func (api *Plugins) BuilderSkillNames() ([]string, error) {
 	}
 	return names, nil
 }
+
+func (api *Plugins) BuilderProfileNames() ([]string, error) {
+	var names []string
+	err := api.withRepositorySession(func(ctx context.Context, i *plugins.Inventory, _ func() (string, error), admit commandsecurity.Admission) error {
+		var err error
+		names, err = i.BuilderProfileNames()
+		if err != nil {
+			return err
+		}
+		return admit.Check()
+	})
+	if err != nil {
+		return nil, err
+	}
+	return names, nil
+}

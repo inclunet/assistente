@@ -19,12 +19,14 @@ var ErrPackageChanged = errors.New("o pacote mudou desde a prévia")
 var ErrInstallationChanged = errors.New("a instalação mudou desde a prévia")
 
 type Inventory struct {
-	skillNames      func() []string
-	skillDefinition func(string) ([]byte, error)
-	listCreated     func(context.Context, *database.TaskList, commandsecurity.Admission)
-	remote          RemoteClient
-	db              *gorm.DB
-	syncMCP         func(context.Context) error
+	profileNames      func() ([]string, error)
+	profileDefinition func(string) ([]byte, error)
+	skillNames        func() []string
+	skillDefinition   func(string) ([]byte, error)
+	listCreated       func(context.Context, *database.TaskList, commandsecurity.Admission)
+	remote            RemoteClient
+	db                *gorm.DB
+	syncMCP           func(context.Context) error
 }
 
 func NewInventory(db *gorm.DB) *Inventory { return &Inventory{db: db} }
