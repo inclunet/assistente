@@ -47,7 +47,7 @@ describe('PluginRepositories', () => {
     mocks.list.mockResolvedValue([]);
     const user = userEvent.setup();
     render(<PluginRepositories catalog={false} onPreview={vi.fn()} />);
-    const address = screen.getByLabelText('plugins.archiveURL');
+    const address = screen.getByRole('textbox', {name:'plugins.archiveURL'});
     await waitFor(() => expect(address).toBeEnabled());
     await user.type(address, 'https://first.example/store.zip');
     const credential = screen.getByLabelText('plugins.archiveCredential');
