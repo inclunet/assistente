@@ -60,7 +60,7 @@ func nativeComponents(snap *pluginpackage.LocalSnapshot) []Component {
 		key := "profiles/" + name
 		seen[key] = true
 		entry := path.Join(nativeExtension, key+".json")
-		c := Component{Key: key, Kind: "profile", Name: name, Entry: entry, Reason: "profileActivationPending"}
+		c := Component{Key: key, Kind: "profile", Name: name, Entry: entry}
 		definition, err := profiles.ReadPortableDefinition(snap.Files[entry])
 		if err != nil {
 			c.Reason = "invalidProfile"

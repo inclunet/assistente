@@ -1,9 +1,12 @@
 package chat
 
 import (
+	"assistente/internal/plugins"
+	"assistente/internal/sqlite"
 	"context"
 	"encoding/json"
 	"errors"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -1898,5 +1901,46 @@ func TestSlashCommandRequiresActiveProviderAndShellAccess(t *testing.T) {
 				t.Fatalf("calls=%d err=%v", count, result.Err)
 			}
 		})
+	}
+}
+
+func TestPrepareContextUsesInstalledTabProfile(t *testing.T) {
+	manager := setupProfileTestEnv(t)
+	db, err := gorm.Open(sqlite.Open(filepath.Join(t.TempDir(), "profile.db")), &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	conn, err := db.DB()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = conn.Close() })
+	if err := db.AutoMigrate(&database.PluginInstallation{}, &database.PluginProfileActivation{}); err != nil {
+		t.Fatal(err)
+	}
+	install := database.PluginInstallation{UserID: "alice", Origin: "local", Name: "example", Digest: "v1"}
+	if err := db.Create(&install).Error; err != nil {
+		t.Fatal(err)
+	}
+	row := database.PluginProfileActivation{InstallationID: install.ID, ComponentKey: "profiles/test", Digest: "v1", Slug: "plugin--test", Definition: []byte(`{"name":"Portable","maxTokens":123}`)}
+	if err := db.Create(&row).Error; err != nil {
+		t.Fatal(err)
+	}
+	manager.SetPluginSource(plugins.NewInventory(db))
+	inter := NewInteractor(InteractorConfig{Emitter: &spyEmitter{}, ConvRepo: noopConvRepo{}, ProfileMgr: manager, Workspace: staticWorkspaceProvider{ws: &workspace.Workspace{Tabs: workspace.TabsState{Active: "tab", Items: []workspace.Tab{{ID: "tab", Type: workspace.TabTypeChat, ConversationID: "conv", ProfileOverride: map[string]any{"slug": row.Slug}}}}}}})
+	req := PrepareContextRequest{ConversationID: "conv", Source: "wails", Params: ChatParams{SurfaceTabID: "tab"}}
+	ctx := database.WithUserID(t.Context(), "alice")
+	resp, err := inter.PrepareContext(ctx, req)
+	if err != nil || resp.Params.ProfileSlug != row.Slug || *resp.Params.MaxTokens != 123 {
+		t.Fatal(resp, err)
+	}
+	if resp, err := inter.PrepareContext(database.WithUserID(t.Context(), "bob"), req); err == nil || resp != nil {
+		t.Fatal("foreign tab profile", resp, err)
+	}
+	if err := db.Delete(&row).Error; err != nil {
+		t.Fatal(err)
+	}
+	if resp, err := inter.PrepareContext(ctx, req); err == nil || resp != nil {
+		t.Fatal("revoked tab profile", resp, err)
 	}
 }

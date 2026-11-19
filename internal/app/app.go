@@ -1083,8 +1083,8 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 	}
 
 	// Callback reutilizado pelo agent.Service e ChatController
-	speechDispatcher := func(conversationID string, messageID string, role, text, origin, profileSlug string, interrupt bool) {
-		if _, err := a.dispatchSpeechEvent(ChatSpeakRequest{
+	speechDispatcher := func(ctx context.Context, conversationID string, messageID string, role, text, origin, profileSlug string, interrupt bool) {
+		if _, err := a.dispatchSpeechEvent(ctx, ChatSpeakRequest{
 			ConversationID: conversationID,
 			MessageID:      messageID,
 			ProfileSlug:    profileSlug,

@@ -105,7 +105,7 @@ func TestSaveAndFinish_CallsOnSpeechRequestBeforeChatDone(t *testing.T) {
 	svc := newTestAgentService(ServiceConfig{
 		Emitter: emitter,
 		MsgRepo: repo,
-		OnSpeechRequest: func(convID, msgID string, role, text, origin, profileSlug string, interrupt bool) {
+		OnSpeechRequest: func(_ context.Context, convID, msgID string, role, text, origin, profileSlug string, interrupt bool) {
 			speechAtEventCount = len(emitter.getEvents())
 			speechCalls = append(speechCalls, speechCall{convID, msgID, role, text, origin, profileSlug, interrupt})
 		},
@@ -193,7 +193,7 @@ func TestSaveAndFinish_EmptyResponse_NoSpeechCall(t *testing.T) {
 	svc := newTestAgentService(ServiceConfig{
 		Emitter: emitter,
 		MsgRepo: repo,
-		OnSpeechRequest: func(string, string, string, string, string, string, bool) {
+		OnSpeechRequest: func(context.Context, string, string, string, string, string, string, bool) {
 			called = true
 		},
 	})
@@ -216,7 +216,7 @@ func TestSaveAndFinish_SpeechGetsCorrectMessageID(t *testing.T) {
 	svc := newTestAgentService(ServiceConfig{
 		Emitter: emitter,
 		MsgRepo: repo,
-		OnSpeechRequest: func(convID, msgID string, role, text, origin, profileSlug string, interrupt bool) {
+		OnSpeechRequest: func(_ context.Context, convID, msgID string, role, text, origin, profileSlug string, interrupt bool) {
 			gotMsgID = msgID
 		},
 	})

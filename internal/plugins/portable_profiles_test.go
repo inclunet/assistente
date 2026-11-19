@@ -17,7 +17,7 @@ func TestDiscoverPortableProfile(t *testing.T) {
 		Files: map[string][]byte{entry: []byte(`{"name":"Writer","temperature":0,"maxTokens":250,"topP":0.8}`)},
 	}
 	components := DiscoverComponents(snap)
-	if len(components) != 1 || components[0].Kind != "profile" || components[0].Name != "Writer" || components[0].Reason != "profileActivationPending" {
+	if len(components) != 1 || components[0].Kind != "profile" || components[0].Name != "Writer" || components[0].Reason != "" {
 		t.Fatal(components)
 	}
 	p, err := profiles.ReadPortableDefinition(snap.Files[entry])

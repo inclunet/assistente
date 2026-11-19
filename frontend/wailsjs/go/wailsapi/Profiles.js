@@ -30,6 +30,10 @@ export function GetContextProviders() {
   return window['go']['wailsapi']['Profiles']['GetContextProviders']();
 }
 
+export function GetConversationProfiles() {
+  return window['go']['wailsapi']['Profiles']['GetConversationProfiles']();
+}
+
 export function GetProfile(arg1) {
   return window['go']['wailsapi']['Profiles']['GetProfile'](arg1);
 }

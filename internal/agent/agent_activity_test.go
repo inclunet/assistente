@@ -14,7 +14,7 @@ func novoHandlerDeAgente(t *testing.T, emitter *mockEmitter, fala *[]speechCall)
 	t.Helper()
 	cfg := ServiceConfig{Emitter: emitter, MsgRepo: &mockMsgRepo{}}
 	if fala != nil {
-		cfg.OnSpeechRequest = func(convID, msgID, role, text, origin, profileSlug string, interrupt bool) {
+		cfg.OnSpeechRequest = func(_ context.Context, convID, msgID, role, text, origin, profileSlug string, interrupt bool) {
 			*fala = append(*fala, speechCall{convID, msgID, role, text, origin, profileSlug, interrupt})
 		}
 	}

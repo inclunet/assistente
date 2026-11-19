@@ -1536,6 +1536,15 @@ describe('ChatToolbar menu de perfil', () => {
     expect(requestResourceEditMock).toHaveBeenCalledWith('profiles', 'custom', 'edit');
   });
 
+  it('omite a edição de perfil de plugin no menu de teclado', async () => {
+    mockPanelTabRef.current = { id: 'tab-chat', title: 'Chat', type: 'chat', profileOverride: { slug: 'plugin--writer' } };
+    renderToolbar();
+    fireEvent.keyDown(screen.getByTestId('profile-picker-container'), {key: 'F10', shiftKey: true});
+    await waitFor(() => expect(openAtPointMock).toHaveBeenCalled());
+    const items = openAtPointMock.mock.calls[0][3] as Array<{id: string}>;
+    expect(items.map(item => item.id)).toEqual(['manage-profiles']);
+  });
+
   it('edita o perfil padrão quando não há override', async () => {
     mockPanelTabRef.current = { id: 'tab-chat', title: 'Chat', type: 'chat' } as unknown as Record<string, unknown>;
 

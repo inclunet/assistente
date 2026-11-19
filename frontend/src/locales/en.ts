@@ -174,7 +174,6 @@ notSaved: 'The decision applies only to this operation: it could not be remember
       builderError: 'Could not prepare or save the package. Check the identifiers and review the selected resources.',
       profile: 'Conversation profile',
       invalidProfile: 'Invalid profile definition. Check the JSON file declared by the package.',
-      profileActivationPending: 'Activation of this plugin profile is still in development.',
       tasklistTemplate: 'Task list template',
       createList: 'Create a list from {{name}}',
       createdList: 'Created {{name}}. Open it in Task lists.',

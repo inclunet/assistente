@@ -17,8 +17,9 @@ import (
 // Manager gerencia perfis de conversa armazenados em arquivos JSON.
 // Usa configdir.Resolver para resolução multi-diretório.
 type Manager struct {
-	resolver *configdir.Resolver
-	mu       sync.RWMutex
+	pluginSource PluginSource
+	resolver     *configdir.Resolver
+	mu           sync.RWMutex
 }
 
 // NewManager cria um novo gerenciador de perfis
@@ -47,7 +48,7 @@ func (m *Manager) listLocked() ([]ProfileInfo, error) {
 	infos := make([]ProfileInfo, 0, len(files))
 	for _, f := range files {
 		// Só arquivos .json
-		if !strings.HasSuffix(f.Filename, ".json") {
+		if IsPluginProfile(f.Name) || !strings.HasSuffix(f.Filename, ".json") {
 			continue
 		}
 
@@ -99,6 +100,9 @@ func (m *Manager) Get(slug string) (*Profile, error) {
 }
 
 func (m *Manager) getLocked(slug string) (*Profile, error) {
+	if IsPluginProfile(slug) {
+		return nil, fmt.Errorf("plugin profile requires account scope")
+	}
 	filename := slug + ".json"
 
 	data, _, err := m.resolver.Read(filename)

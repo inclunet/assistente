@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"fmt"
 	"runtime"
 	"strings"
@@ -59,12 +60,12 @@ func effectiveVoiceProviderID(cfg profiles.VoiceRoleConfig) string {
 // speechDispatcher adapta helpers lowercase do App para o bind wailsapi.Speech.
 type speechDispatcher struct{ app *App }
 
-func (d speechDispatcher) DispatchSpeech(req apidto.ChatSpeakRequest) error {
-	_, err := d.app.dispatchSpeechEvent(req)
+func (d speechDispatcher) DispatchSpeech(ctx context.Context, req apidto.ChatSpeakRequest) error {
+	_, err := d.app.dispatchSpeechEvent(ctx, req)
 	return err
 }
 
-func (a *App) dispatchSpeechEvent(req ChatSpeakRequest) (*ChatSpeakEvent, error) {
+func (a *App) dispatchSpeechEvent(ctx context.Context, req ChatSpeakRequest) (*ChatSpeakEvent, error) {
 	if strings.TrimSpace(req.Text) == "" {
 		return nil, nil
 	}
@@ -76,7 +77,7 @@ func (a *App) dispatchSpeechEvent(req ChatSpeakRequest) (*ChatSpeakEvent, error)
 
 	// O perfil é resolvido antes do strip para localizar o marcador de bloco
 	// de código no idioma da fala.
-	profile, err := a.resolveSpeechProfile(req.ConversationID, req.ProfileSlug)
+	profile, err := a.resolveSpeechProfile(ctx, req.ProfileSlug)
 	if err != nil {
 		return nil, err
 	}
@@ -108,20 +109,21 @@ func (a *App) dispatchSpeechEvent(req ChatSpeakRequest) (*ChatSpeakEvent, error)
 	return &event, nil
 }
 
-func (a *App) resolveSpeechProfile(conversationID string, profileSlug string) (*profiles.Profile, error) {
+func (a *App) resolveSpeechProfile(ctx context.Context, profileSlug string) (*profiles.Profile, error) {
+	var p *profiles.Profile
+	var err error
 	if profileSlug != "" {
-		p, err := a.profileManager.Get(profileSlug)
-		if err != nil {
-			return nil, fmt.Errorf("perfil %q não encontrado: %w", profileSlug, err)
-		}
-		return a.resolveProfileDefaults(p), nil
+		p, err = a.profileManager.GetForContext(ctx, profileSlug)
+	} else {
+		p, err = a.profileManager.GetActive()
 	}
-
-	p, err := a.profileManager.GetActive()
 	if err != nil {
-		return nil, fmt.Errorf("perfil ativo não encontrado: %w", err)
+		return nil, fmt.Errorf("falha ao resolver perfil de fala %q: %w", profileSlug, err)
 	}
-	return a.resolveProfileDefaults(p), nil
+	if a.providerSvc != nil {
+		p = a.providerSvc.ResolveProfileDefaults(ctx, p)
+	}
+	return p, nil
 }
 
 func (a *App) buildChatSpeakEvent(req ChatSpeakRequest, role, text string, cfg profiles.VoiceRoleConfig) ChatSpeakEvent {
