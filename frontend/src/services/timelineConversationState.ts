@@ -4,6 +4,7 @@ import { TimelineCacheBudget } from './timelineCacheBudget';
 
 /** Wire normalizado pelo adaptador RPC; nullable não usa os tipos de evento gerados. */
 export interface TimelineSnapshot extends TimelineWindowMetadata {
+  storageIncarnation?: string;
   conversationId: string;
   scopeParentId: string | null;
   windowId: string;
@@ -21,6 +22,7 @@ export interface TimelineSnapshotRequest {
 }
 
 export interface TimelineSurfaceWindow extends TimelineBatchWindow {
+  storageIncarnation?: string;
   snapshotRevision: string;
   mode: string;
 }
@@ -195,6 +197,7 @@ export class TimelineConversationState {
     surface.window = {
       conversationId: this.conversationId, scopeParentId: snapshot.scopeParentId,
       windowId: snapshot.windowId, epoch: snapshot.epoch, revision: snapshot.windowRevision,
+      storageIncarnation: snapshot.storageIncarnation,
       snapshotRevision: snapshot.windowRevision, sequence: snapshot.sequence,
       mode: snapshot.mode, orderedItemIds: [...snapshot.orderedItemIds],
       metadata: {
