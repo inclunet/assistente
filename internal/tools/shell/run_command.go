@@ -21,6 +21,7 @@ const (
 	// FailureCommandRefused identifica uma decisão de autorização definitiva para esta tentativa.
 	FailureCommandRefused          = "shell_command_refused"
 	FailureConfirmationUnavailable = "shell_confirmation_unavailable"
+	FailurePrerequisiteUnavailable = "shell_prerequisite_unavailable"
 	// defaultTimeout é o timeout padrão para execução de comandos (15s)
 	defaultTimeout = 15 * time.Second
 
@@ -242,24 +243,24 @@ func (rc *RunCommand) Execute(ctx context.Context, args json.RawMessage) (tools.
 		// confirmFn recebe o comando bruto: o usuario precisa ver tudo na
 		// UI local para decidir, e esse caminho nao vai para o LLM.
 		ctx = invocationctx.WithPersistentShell(ctx, a.Persistent || a.TerminalID != "")
-		clearPending := tools.PendingConfirmation(ctx, FailureConfirmationUnavailable)
+		resolveConfirmation := tools.PendingConfirmation(ctx, FailureConfirmationUnavailable)
 		approved, err := rc.confirmFn(ctx, a.Command, workDir)
-		if ctx.Err() != nil {
-			return unavailableShellAuthorization("Confirmação encerrada sem autorização válida."), nil
+		if err == nil && !approved {
+			denied := tools.ToolResult{
+				Failure: &tools.ToolFailure{Code: FailureCommandRefused, Kind: tools.ErrorKindAuthorization, Retryable: false},
+				Content: fmt.Sprintf("Comando negado pelo usuário: %s", commandSummary),
+				IsError: true,
+			}
+			resolveConfirmation(&denied)
+			return denied, nil
 		}
 		if err != nil {
 			return unavailableShellAuthorization(fmt.Sprintf("Erro ao solicitar confirmação: %v", err)), nil
 		}
-		if !approved {
-			// Mesmo motivo do deny acima: a string vai para o LLM, nao
-			// repetimos o comando bruto aqui.
-			return tools.ToolResult{
-				Failure: &tools.ToolFailure{Code: FailureCommandRefused, Kind: tools.ErrorKindAuthorization, Retryable: false},
-				Content: fmt.Sprintf("Comando negado pelo usuário: %s", commandSummary),
-				IsError: true,
-			}, nil
+		if ctx.Err() != nil {
+			return unavailableShellAuthorization("Confirmação encerrada sem autorização válida."), nil
 		}
-		clearPending()
+		resolveConfirmation(nil)
 	}
 
 	if decision == allowlist.DecisionConfirm && !a.Persistent && a.TerminalID == "" {
@@ -472,7 +473,7 @@ func logPolicyDecision(
 
 func unavailableShellPrerequisite(message string) tools.ToolResult {
 	return tools.ToolResult{IsError: true, Content: message,
-		Failure: &tools.ToolFailure{Code: "shell_prerequisite_unavailable", Kind: tools.ErrorKindUnavailable, Retryable: false},
+		Failure: &tools.ToolFailure{Code: FailurePrerequisiteUnavailable, Kind: tools.ErrorKindUnavailable, Retryable: false},
 	}
 }
 

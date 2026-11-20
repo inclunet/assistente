@@ -349,3 +349,10 @@ func TestBaseProviderKeepsRemainderInLastSkill(t *testing.T) {
 		t.Fatalf("blocos=%v erro=%v", got, err)
 	}
 }
+
+func TestInterpolatedCommandNeedsParsedOperand(t *testing.T) {
+	expand := argumentExpander(".", []string{"."})
+	if validInterpolatedCommand(".", "VALUE=$0", expand) {
+		t.Fatal("template sem comando aceito")
+	}
+}

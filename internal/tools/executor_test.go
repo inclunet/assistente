@@ -646,3 +646,22 @@ func TestBoundedMachineFailurePreservesAuthorization(t *testing.T) {
 		t.Fatalf("resultado=%+v", got)
 	}
 }
+
+func TestExecutorTimeoutPreservesPublishedRefusal(t *testing.T) {
+	release := make(chan struct{})
+	defer close(release)
+	tool := &mockTool{name: "ask", exec: func(ctx context.Context, _ json.RawMessage) (ToolResult, error) {
+		resolve := PendingConfirmation(ctx, "unavailable")
+		denied := ToolResult{IsError: true, Content: strings.Repeat("negado ", 30), Failure: &ToolFailure{Code: "refused", Kind: ErrorKindAuthorization}}
+		resolve(&denied)
+		<-release // simula pós-processamento ainda pendente após a decisão
+		return denied, nil
+	}}
+	cfg := DefaultExecutorConfig()
+	cfg.ToolTimeout = 200 * time.Millisecond
+	cfg.MaxResultSize = 40
+	got := NewExecutor(newRegistry(tool), cfg).ExecuteOne(t.Context(), ToolCall{ID: "race", Function: FunctionCall{Name: "ask", Arguments: "{}"}})
+	if got.ErrorCode != "refused" || got.Retryable || len(ContentForModel(got.Result)) > 40 {
+		t.Fatalf("resultado=%+v", got)
+	}
+}

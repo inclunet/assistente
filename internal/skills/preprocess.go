@@ -100,7 +100,11 @@ func validInterpolatedCommand(rawArgs, template string, expand func(string) stri
 	}
 	// Para verificação de componentes, ambos os separadores de caminho têm o
 	// mesmo significado. O texto enviado ao executor conserva a grafia original.
-	for _, cmd := range commandpolicy.Parse(strings.ReplaceAll(template, "\\", "/")).Commands {
+	parsed := commandpolicy.Parse(strings.ReplaceAll(template, "\\", "/"))
+	if len(parsed.Commands) == 0 || len(parsed.Errors) > 0 {
+		return false
+	}
+	for _, cmd := range parsed.Commands {
 		if shellArgumentReference.MatchString(cmd.Program) {
 			return false
 		}

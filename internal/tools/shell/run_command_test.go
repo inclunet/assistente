@@ -61,7 +61,7 @@ func TestFalhaDeLeituraNaoViraConfirmacaoOuExecucao(t *testing.T) {
 		return true, nil
 	}, func(context.Context) (*allowlist.Allowlist, error) { return nil, fmt.Errorf("banco indisponível") }, ".")
 	result, err := rc.Execute(context.Background(), json.RawMessage(`{"command":"git status"}`))
-	if err != nil || !result.IsError || result.Failure == nil || result.Failure.Code != "shell_prerequisite_unavailable" || result.Failure.Kind != tools.ErrorKindUnavailable {
+	if err != nil || !result.IsError || result.Failure == nil || result.Failure.Code != FailurePrerequisiteUnavailable || result.Failure.Kind != tools.ErrorKindUnavailable {
 		t.Fatalf("não bloqueou: %+v, %v", result, err)
 	}
 }
@@ -463,5 +463,15 @@ func TestExecutorTimeoutDuringShellConfirmationDoesNotRetry(t *testing.T) {
 	result := tools.NewExecutor(reg, cfg).ExecuteOne(t.Context(), tools.ToolCall{ID: "ask", Function: tools.FunctionCall{Name: "run_command", Arguments: `{"command":"example check"}`}})
 	if result.ErrorCode != FailureConfirmationUnavailable || result.ErrorKind != tools.ErrorKindAuthorization || result.Retryable || !result.RetryabilityKnown {
 		t.Fatalf("resultado=%+v", result)
+	}
+}
+
+func TestRefusalReceivedWhenConfirmationContextEnds(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	rc := NewRunCommand(nil, func(context.Context, string, string) (bool, error) { cancel(); return false, nil }, nil, t.TempDir())
+	got, err := rc.Execute(ctx, json.RawMessage(`{"command":"example check"}`))
+	if err != nil || got.Failure == nil || got.Failure.Code != FailureCommandRefused {
+		t.Fatalf("recusa=%+v err=%v", got, err)
 	}
 }

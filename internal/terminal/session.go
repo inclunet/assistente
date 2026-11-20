@@ -538,6 +538,34 @@ func (s *Session) RunCommand(ctx context.Context, command string, timeout time.D
 // waitForMarker espera até que o end marker apareça no output do PTY.
 // Emite chunks de output limpo via onOutput callback para streaming em tempo real,
 // filtrando echo do comando e markers.
+func (s *Session) exitedCommandResult(ctx context.Context, raw string, marker *CommandMarker) (string, int, bool) {
+	select {
+	case <-s.processDone:
+	default:
+		return "", -1, false
+	}
+	s.mu.Lock()
+	closed := s.explicitClose
+	s.mu.Unlock()
+	if closed || ctx.Err() != nil {
+		return "", -1, false
+	}
+	text := "\n" + strings.ReplaceAll(StripANSI(raw), "\r\n", "\n")
+	_, output, started := strings.Cut(text, "\n"+marker.StartTag()+"\n")
+	if !started {
+		return "", -1, false
+	}
+	output = strings.TrimRight(output, "\n")
+	if s.processErr == nil {
+		return output, 0, true
+	}
+	var exit *ptyx.ExitError
+	if errors.As(s.processErr, &exit) && exit.ExitCode >= 0 {
+		return output, exit.ExitCode, true
+	}
+	return output, -1, false
+}
+
 func (s *Session) waitForMarker(ctx context.Context, marker *CommandMarker, commandID string) (string, int, error) {
 	ticker := time.NewTicker(50 * time.Millisecond) // polling a cada 50ms
 	defer ticker.Stop()
@@ -583,6 +611,25 @@ func (s *Session) waitForMarker(ctx context.Context, marker *CommandMarker, comm
 			}
 
 			return output, -1, fmt.Errorf("fim do comando não observado: %w", ctx.Err())
+
+		case <-s.readerDone:
+			// Um comando pode encerrar o próprio shell antes do marcador final.
+			// Só aceite o status do processo após drenar o leitor e observar o
+			// marcador de início. Fechamento externo e cancelamento são erros.
+			s.outputMu.Lock()
+			raw := s.outputBuf.String()
+			s.outputMu.Unlock()
+			result := marker.ParseOutput(raw)
+			if !result.Found {
+				result.Output, result.ExitCode, result.Found = s.exitedCommandResult(ctx, raw, marker)
+			}
+			if !result.Found {
+				return result.Output, -1, fmt.Errorf("sessão encerrada sem resultado do comando")
+			}
+			if s.onOutput != nil && len(result.Output) > streamSentLen {
+				s.onOutput(s.id, commandID, result.Output[streamSentLen:])
+			}
+			return result.Output, result.ExitCode, nil
 
 		case <-ticker.C:
 			s.outputMu.Lock()

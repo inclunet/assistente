@@ -139,3 +139,29 @@ func TestPowerShellPipelineAndGroupedStatus(t *testing.T) {
 		})
 	}
 }
+
+func TestPowerShellHashPreservesOutputAndExitCode(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("Windows PowerShell")
+	}
+	cfg := DefaultManagerConfig()
+	cfg.DefaultShell = "powershell.exe"
+	for _, tc := range []struct {
+		name, command, output string
+		code                  int
+	}{
+		{"literal", "Write-Output 'issue #42'", "issue #42", 0},
+		{"stderr", "cmd /c 'echo diagnostic 1>&2 & exit 0' 2>&1 # nota", "diagnostic", 0},
+		{"exit", "exit 3 # nota", "", 3},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			entry, err := NewManager(cfg, nil).RunEphemeral(t.Context(), t.TempDir(), tc.command, 10*time.Second, "test")
+			if err != nil || entry == nil || entry.ExitCode != tc.code {
+				t.Fatalf("status inesperado: %v; erro=%v", entry != nil && entry.ExitCode == tc.code, err)
+			}
+			if tc.name == "stderr" && !strings.Contains(entry.Output, tc.output) || tc.name != "stderr" && strings.TrimSpace(entry.Output) != tc.output {
+				t.Fatalf("output=%q", entry.Output)
+			}
+		})
+	}
+}

@@ -16,14 +16,15 @@ import (
 type pendingConfirmationKey struct{}
 
 // PendingConfirmation registra a falha que o executor deve devolver se o
-// próprio prazo acabar durante a decisão. A aprovação libera o timeout normal.
-func PendingConfirmation(ctx context.Context, failureCode string) func() {
+// próprio prazo acabar durante a decisão. O callback publica a recusa definitiva
+// ou, após aprovação válida, restaura o timeout normal com nil.
+func PendingConfirmation(ctx context.Context, failureCode string) func(*ToolResult) {
 	state, _ := ctx.Value(pendingConfirmationKey{}).(*atomic.Pointer[ToolResult])
 	if state == nil {
-		return func() {}
+		return func(*ToolResult) {}
 	}
 	state.Store(&ToolResult{IsError: true, Content: "Prazo encerrado durante a confirmação.", Failure: &ToolFailure{Code: failureCode, Kind: ErrorKindAuthorization, Retryable: false}})
-	return func() { state.Store(nil) }
+	return func(decision *ToolResult) { state.Store(decision) }
 }
 
 // Limites padrão do executor
@@ -432,7 +433,7 @@ func (e *Executor) executeSingle(ctx context.Context, call ToolCall) (execution 
 			DurationMs:        elapsed,
 		}
 		if confirmation := pending.Load(); confirmation != nil {
-			timedOut.Result = *confirmation
+			timedOut.Result = boundFailureResult(*confirmation, e.config.MaxResultSize)
 			timedOut.ErrorKind = confirmation.Failure.Kind
 			timedOut.ErrorCode = confirmation.Failure.Code
 			timedOut.Retryable = false
