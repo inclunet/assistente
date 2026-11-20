@@ -31,7 +31,7 @@ beforeEach(() => {
   observed.clear();
   observedNodes.length = 0;
   fixture = canonicalTestFixture([canonicalTestItem('reply')]);
-  useChatStore.setState({ conversationInfoById: {}, surfaceSessionsByKey: {} });
+  useChatStore.setState({ conversationInfoById: {}, surfaceSessionsByKey: {}, loadingConversationIds: new Set() });
   useAuthStore.setState({ isAuthenticated: true, user: { userId: 'user', sessionId: 'session', role: 'admin' } });
   const open = fixture.port.open;
   fixture.port.open = vi.fn(async (...args: Parameters<typeof open>) => {
@@ -96,6 +96,54 @@ it('retoma histórico após desmontar o chat e voltar com nova época do backend
   });
 });
 
+it('retoma execução e deltas ao voltar de outra tela durante streaming', async () => {
+  const item = canonicalTestItem('reply', 'primeiro trecho', { state: 'streaming', durability: 'live' });
+  fixture.setItems([item]);
+  useChatStore.setState({ loadingConversationIds: new Set(['conversation']) });
+  const surface = createChatSurfaceIdentity({ surfaceId: 'workspace-stream', conversationId: 'conversation' });
+  const view = () => <ChatSessionProvider surface={surface}><Probe name="stream" /></ChatSessionProvider>;
+  const { rerender } = render(view());
+  await waitFor(() => expect(observed.get('stream')?.isLoadingMessageWindow).toBe(false));
+  await waitFor(() => expect(observed.get('stream')?.threadedMessages).toHaveLength(1));
+  rerender(<></>);
+  await waitFor(() => expect(fixture.port.close).toHaveBeenCalledTimes(1));
+  const current = { ...item, revision: '2', segments: [{ segmentId: 'text', kind: 'text', conclusion: true, text: 'recebido fora da tela' }] };
+  fixture.setItems([current]);
+  const open = fixture.port.open;
+  fixture.port.open = vi.fn(async (...args: Parameters<typeof open>) => {
+    const snapshot = { ...await open(...args), sequence: '2' };
+    fixture.windows.set(snapshot.windowId, snapshot);
+    return snapshot;
+  });
+  rerender(view());
+  await waitFor(() => expect(observed.get('stream')?.threadedMessages[0]?.message.content).toBe('recebido fora da tela'));
+  const returned = observed.get('stream')!;
+  act(() => { fixture.publish(returned.presentation!.surfaceId, { ...current, segments: [{ segmentId: 'text', kind: 'text', conclusion: true, text: 'novo delta após retornar' }] }); });
+  expect(observed.get('stream')?.threadedMessages[0]?.message.content).toBe('novo delta após retornar');
+  expect(observed.get('stream')?.isLoading).toBe(true);
+  expect(observed.get('stream')?.session?.isLoading).toBe(true);
+  act(() => {
+    fixture.publish(returned.presentation!.surfaceId, { ...current, state: 'completed', durability: 'persisted' });
+    useChatStore.setState({ loadingConversationIds: new Set() });
+  });
+  expect(observed.get('stream')?.isLoading).toBe(false);
+  expect(observed.get('stream')?.threadedMessages[0]?.message.isStreaming).toBe(false);
+});
+
+it('compartilha a execução entre superfícies da conversa sem afetar outra conversa', async () => {
+  render(<>{['first', 'second', 'other'].map(name => <ChatSessionProvider key={name}
+    surface={createChatSurfaceIdentity({ surfaceId: name, conversationId: name === 'other' ? 'other-conversation' : 'conversation' })}>
+    <Probe name={name} />
+  </ChatSessionProvider>)}</>);
+  await waitFor(() => expect(observed.size).toBe(3));
+  act(() => useChatStore.setState({ loadingConversationIds: new Set(['conversation']) }));
+  expect(observed.get('first')?.isLoading).toBe(true);
+  expect(observed.get('second')?.isLoading).toBe(true);
+  expect(observed.get('other')?.isLoading).toBe(false);
+  act(() => useChatStore.setState({ loadingConversationIds: new Set() }));
+  expect([...observed.values()].every(value => !value.isLoading)).toBe(true);
+});
+
 it('usa a janela do backend para posição, fronteiras e carregamento isolado por superfície', async () => {
   render(<>{['first', 'second'].map(name => <ChatSessionProvider key={name}
     surface={createChatSurfaceIdentity({ surfaceId: name, conversationId: 'conversation' })}>
@@ -131,6 +179,7 @@ it('usa a janela do backend para posição, fronteiras e carregamento isolado po
   expect(observed.get('second')!.messageWindow).toBe(priorSecond);
 
   vi.mocked(fixture.port.navigate).mockRejectedValueOnce(new Error('offline'));
+  vi.spyOn(fixture.port, 'refresh').mockRejectedValue(new Error('offline'));
   const currentWindow = observed.get('first')!.messageWindow;
   await act(async () => {
     await expect(observed.get('first')!.loadNewerMessages()).rejects.toThrow('offline');
