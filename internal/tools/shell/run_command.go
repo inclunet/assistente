@@ -3,6 +3,7 @@ package shell
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strconv"
@@ -12,6 +13,7 @@ import (
 	"assistente/internal/allowlist"
 	"assistente/internal/commandpolicy"
 	"assistente/internal/logging"
+	"assistente/internal/shelltrust"
 	"assistente/internal/terminal"
 	"assistente/internal/tools"
 	"assistente/internal/tools/invocationctx"
@@ -253,6 +255,9 @@ func (rc *RunCommand) Execute(ctx context.Context, args json.RawMessage) (tools.
 			}
 			resolveConfirmation(&denied)
 			return denied, nil
+		}
+		if errors.Is(err, shelltrust.ErrPrerequisiteUnavailable) {
+			return unavailableShellPrerequisite("Não foi possível validar os pré-requisitos da autorização shell."), nil
 		}
 		if err != nil {
 			return unavailableShellAuthorization(fmt.Sprintf("Erro ao solicitar confirmação: %v", err)), nil

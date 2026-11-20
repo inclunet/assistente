@@ -3,6 +3,7 @@ package shell
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -87,5 +88,26 @@ func TestPersistentTerminalNeverReusesInitialDirectoryGrant(t *testing.T) {
 	// A concessão continua válida para execução efêmera com diretório garantido.
 	if allowed, err := authorizer.Authorize(ctx, "git push", dir); err != nil || !allowed || prompts != 4 {
 		t.Fatalf("execução efêmera: %v %v perguntas=%d", allowed, err, prompts)
+	}
+}
+
+func TestPolicyUnavailableAfterApproval(t *testing.T) {
+	dir := t.TempDir()
+	approved := false
+	policy := func(context.Context) (*allowlist.Allowlist, error) {
+		if approved {
+			return nil, errors.New("store offline")
+		}
+		return &allowlist.Allowlist{DefaultAction: "confirm"}, nil
+	}
+	authorizer := shelltrust.Authorizer{Policy: policy, Prompt: func(context.Context, shelltrust.PromptRequest) (shelltrust.PromptDecision, error) {
+		approved = true
+		return shelltrust.PromptDecision{Approve: true, Scope: authorization.ScopeOnce}, nil
+	}}
+	terminal := &MockSessionManager{}
+	rc := NewRunCommand(terminal, authorizer.Authorize, policy, dir)
+	result, err := rc.Execute(authorizationfixture.Context(), json.RawMessage(`{"command":"example check"}`))
+	if !approved || err != nil || result.Failure == nil || result.Failure.Code != FailurePrerequisiteUnavailable || terminal.runEphemeralCalls != 0 {
+		t.Fatalf("approved=%t result=%+v err=%v calls=%d", approved, result, err, terminal.runEphemeralCalls)
 	}
 }

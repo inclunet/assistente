@@ -12,6 +12,8 @@ import (
 	"assistente/internal/tools/invocationctx"
 )
 
+var ErrPrerequisiteUnavailable = errors.New("pré-requisito de autorização shell indisponível")
+
 type PromptRequest struct {
 	PersistentTerminal bool
 	Command            string
@@ -42,7 +44,7 @@ func (a *Authorizer) Authorize(ctx context.Context, command, directory string) (
 		var err error
 		scopes, err = a.Manager.AvailableScopes(ctx)
 		if err != nil {
-			return false, err
+			return false, errors.Join(ErrPrerequisiteUnavailable, err)
 		}
 	}
 	flow := authorization.Flow[Entry]{
@@ -50,12 +52,12 @@ func (a *Authorizer) Authorize(ctx context.Context, command, directory string) (
 			if reusable {
 				current, valid := Represent(command, directory)
 				if !valid || current.Directory != selector.Directory {
-					return authorization.Decision{}, errors.New("diretório shell mudou durante a autorização")
+					return authorization.Decision{}, errors.Join(ErrPrerequisiteUnavailable, errors.New("diretório shell mudou durante a autorização"))
 				}
 			}
 			if a.Manager != nil {
 				if _, err := a.Manager.AvailableScopes(ctx); err != nil {
-					return authorization.Decision{}, err
+					return authorization.Decision{}, errors.Join(ErrPrerequisiteUnavailable, err)
 				}
 			}
 			var policy *allowlist.Allowlist
@@ -63,7 +65,7 @@ func (a *Authorizer) Authorize(ctx context.Context, command, directory string) (
 				var err error
 				policy, err = a.Policy(ctx)
 				if err != nil {
-					return authorization.Decision{}, err
+					return authorization.Decision{}, errors.Join(ErrPrerequisiteUnavailable, err)
 				}
 			}
 			result := commandpolicy.Evaluate(command, policy)
@@ -76,7 +78,7 @@ func (a *Authorizer) Authorize(ctx context.Context, command, directory string) (
 			if reusable && a.Manager != nil {
 				match := a.Manager.Find(ctx, selector)
 				if match.Err != nil {
-					return authorization.Decision{}, match.Err
+					return authorization.Decision{}, errors.Join(ErrPrerequisiteUnavailable, match.Err)
 				}
 				if match.Found {
 					return authorization.Decision{Effect: "allow", Scope: match.Scope}, nil
