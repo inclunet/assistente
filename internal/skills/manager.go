@@ -369,7 +369,10 @@ func (*Manager) listSupportingFiles(skillPath string) ([]string, error) {
 
 	err := filepath.Walk(skillDir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
-			return nil // ignora erros de leitura
+			if path == skillDir {
+				return err
+			}
+			return nil // ignora arquivos auxiliares individuais ilegíveis
 		}
 		if info.IsDir() {
 			return nil

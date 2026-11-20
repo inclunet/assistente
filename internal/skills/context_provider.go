@@ -44,13 +44,14 @@ func (p *ContextProvider) Metadata() contextprovider.ProviderMetadata {
 // A primeira construção prepara as saídas admitidas. Cada construção aplica
 // a seleção e o orçamento atuais, inclusive a distinção entre seleção nil e vazia.
 type preparedSkillContext struct {
-	filesAt func(string) ([]string, error)
-	skills  []Skill
-	paths   map[string]string // caminho do manifesto selecionado na preparação
-	files   map[string][]string
-	outputs map[string]map[int]string // slug e posição da diretiva no documento
-	ready   bool
-	err     error
+	filesAt      func(string) ([]string, error)
+	skills       []Skill
+	paths        map[string]string // caminho do manifesto selecionado na preparação
+	files        map[string][]string
+	sourceErrors map[string]error          // fontes sem caminho só podem ser consultadas novamente na próxima preparação
+	outputs      map[string]map[int]string // slug e posição da diretiva no documento
+	ready        bool
+	err          error
 }
 
 func (s *preparedSkillContext) GetAllSkillsFull() ([]Skill, error) {
@@ -63,11 +64,14 @@ func (s *preparedSkillContext) GetSkillFiles(slug string) ([]string, error) {
 	}
 	path := s.paths[slug]
 	if path == "" {
-		return nil, nil
+		return nil, s.sourceErrors[slug]
 	}
 	files, err := s.filesAt(path)
+	if err != nil {
+		return nil, err
+	}
 	s.files[slug] = slices.Clone(files)
-	return s.files[slug], err
+	return s.files[slug], nil
 }
 
 // A fatia e as permissões consultadas na seleção e no planejamento são
@@ -132,7 +136,14 @@ func (p *ContextProvider) Build(ctx context.Context, req contextprovider.BuildRe
 				prepared.paths[skill.Slug] = skill.Path
 			} else {
 				// Fontes que listam só por slug devem ser lidas enquanto o catálogo é o original.
-				files, _ := p.source.GetSkillFiles(skill.Slug)
+				files, err := p.source.GetSkillFiles(skill.Slug)
+				if err != nil {
+					if prepared.sourceErrors == nil {
+						prepared.sourceErrors = make(map[string]error)
+					}
+					prepared.sourceErrors[skill.Slug] = err
+					continue
+				}
 				prepared.files[skill.Slug] = slices.Clone(files)
 			}
 		}
