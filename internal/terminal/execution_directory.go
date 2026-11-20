@@ -5,7 +5,7 @@ import (
 	"strings"
 )
 
-const powershellDirectoryCatch = " } catch { Write-Error $_; $global:LASTEXITCODE = 1 }"
+const powershellDirectoryCatch = " } catch { $global:LASTEXITCODE = 1; Microsoft.PowerShell.Utility\\Write-Error -ErrorRecord $_ -ErrorAction Continue }"
 
 // A falha ao entrar no diretório impede a execução do comando do usuário.
 // Aspas são escapadas segundo o shell, sem interpolação de caminhos.

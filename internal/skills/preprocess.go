@@ -59,37 +59,6 @@ func CommandTurnError(ctx context.Context) error {
 	return turn.err
 }
 
-func prepareBaseCommands(ctx context.Context, skill *Skill) (string, error) {
-	turn, _ := ctx.Value(commandTurnKey{}).(*commandTurn)
-	var run SkillCommandRunner
-	if turn != nil {
-		if turn.err != nil {
-			return "", turn.err
-		}
-		if content, ok := turn.base[skill.Slug]; ok {
-			return content, nil
-		}
-		run = turn.run
-	}
-	content, err := renderCommands(ctx, skill, skill.Content, true, run, nil)
-	if turn != nil {
-		if err != nil {
-			turn.err = err
-		} else {
-			turn.base[skill.Slug] = content
-		}
-	}
-	return content, err
-}
-
-func renderCommands(ctx context.Context, skill *Skill, content string, base bool, run SkillCommandRunner, expand func(string) string) (string, error) {
-	doc, err := planCommandLines(ctx, skill, content, base, run, expand, "")
-	if err != nil {
-		return "", err
-	}
-	return doc.render(ctx, skill, run, base, -1)
-}
-
 type commandLine struct {
 	index   int
 	command string

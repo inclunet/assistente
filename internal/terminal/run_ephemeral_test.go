@@ -116,6 +116,7 @@ func TestPowerShellPipelineAndGroupedStatus(t *testing.T) {
 	}{
 		{"cmd /c 'echo sample 1>&2 & exit 0' 2>&1 | Out-String", 0},
 		{"cmd /c 'echo sample 1>&2 & exit 0' 2>&1 | Get-Item -ErrorAction Ignore", 1},
+		{"throw 'falha de teste'", 1},
 		{"(cmd /c exit 7)", 7},
 		{"(cmd /c exit 7);", 7},
 		{"cmd /c exit 7; (Write-Output ok)", 0},

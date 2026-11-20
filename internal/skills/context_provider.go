@@ -54,10 +54,6 @@ func (p *ContextProvider) Build(ctx context.Context, req contextprovider.BuildRe
 	}
 
 	budget := req.Budget(p.Name(), defaultContextProviderBudget)
-	baseContent, err := buildBaseSkillBlock(ctx, baseSkills, p.source)
-	if err != nil {
-		return nil, err
-	}
 	catalogContent := buildAvailableSkillsBlock(onDemandSkills, p.source)
 	blocks := make([]contextprovider.Block, 0, 2)
 	baseBudget := budget
@@ -66,6 +62,10 @@ func (p *ContextProvider) Build(ctx context.Context, req contextprovider.BuildRe
 		if budget > reserve {
 			baseBudget = budget - reserve
 		}
+	}
+	baseContent, err := buildBaseSkillBlock(ctx, baseSkills, p.source, baseBudget)
+	if err != nil {
+		return nil, err
 	}
 	if baseContent != "" {
 		baseContent = contextprovider.TrimTaggedBlockToBudget(baseContent, "base_skill", baseSkillTruncationNotice, baseBudget)
@@ -118,26 +118,79 @@ func selectPromptSkills(allSkills []Skill, req contextprovider.BuildRequest) ([]
 	return baseSkills, availableSkills
 }
 
-func buildBaseSkillBlock(ctx context.Context, baseSkills []Skill, source ContextProviderSource) (string, error) {
+func buildBaseSkillBlock(ctx context.Context, baseSkills []Skill, source ContextProviderSource, budget int) (string, error) {
 	if len(baseSkills) == 0 {
 		return "", nil
 	}
-	var sb strings.Builder
-	sb.WriteString("<base_skill>\n")
-	for i, skill := range baseSkills {
-		if i > 0 {
-			sb.WriteString("\n")
+	turn, _ := ctx.Value(commandTurnKey{}).(*commandTurn)
+	var runner SkillCommandRunner
+	if turn != nil {
+		if turn.err != nil {
+			return "", turn.err
 		}
-		writeSkillHeading(&sb, skill)
-		content, err := prepareBaseCommands(ctx, &skill)
-		if err != nil {
-			return "", err
-		}
-		sb.WriteString(content)
-		sb.WriteString("\n")
-		writeSupportingFiles(&sb, source, skill.Slug, "Supporting files (use read_file to access when needed):", "- `", "`")
+		runner = turn.run
 	}
-	sb.WriteString("</base_skill>")
+
+	// Reserve o quadro completo e as instruções de todas as skills antes do
+	// primeiro efeito externo, inclusive o catálogo já reservado pelo chamador.
+	const open, close = "<base_skill>\n", "</base_skill>"
+	type section struct {
+		heading, content, files string
+		doc                     commandDocument
+	}
+	sections := make([]section, len(baseSkills))
+	remaining := budget - contextprovider.RuneLen(open+close)
+	commands := 0
+	for i := range baseSkills {
+		skill := &baseSkills[i]
+		part := &sections[i]
+		var heading, files strings.Builder
+		if i > 0 {
+			heading.WriteByte('\n')
+		}
+		writeSkillHeading(&heading, *skill)
+		files.WriteByte('\n')
+		writeSupportingFiles(&files, source, skill.Slug, "Supporting files (use read_file to access when needed):", "- `", "`")
+		part.heading, part.files = heading.String(), files.String()
+		content, cached := "", false
+		if turn != nil {
+			content, cached = turn.base[skill.Slug]
+		}
+		if !cached {
+			doc, err := planCommandLines(ctx, skill, skill.Content, true, runner, nil, "")
+			if err != nil {
+				return "", err
+			}
+			part.doc = doc
+			content = strings.Join(doc.lines, "\n")
+			commands += len(doc.commands)
+		}
+		part.content = content
+		remaining -= contextprovider.RuneLen(part.heading) + contextprovider.RuneLen(content) + contextprovider.RuneLen(part.files)
+	}
+
+	var sb strings.Builder
+	sb.WriteString(open)
+	admitted := commands > 0 && remaining/commands >= 2
+	for i, part := range sections {
+		count := len(part.doc.commands)
+		if admitted && count > 0 {
+			quota := (remaining / commands) * count
+			content, err := part.doc.render(ctx, &baseSkills[i], runner, true, quota)
+			if err != nil {
+				turn.err = err
+				return "", err
+			}
+			remaining -= contextprovider.RuneLen(content) - contextprovider.RuneLen(part.content)
+			commands -= count
+			part.content = content
+			turn.base[baseSkills[i].Slug] = content
+		}
+		sb.WriteString(part.heading)
+		sb.WriteString(part.content)
+		sb.WriteString(part.files)
+	}
+	sb.WriteString(close)
 	return sb.String(), nil
 }
 

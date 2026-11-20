@@ -35,7 +35,7 @@ var validDifficulties = map[string]bool{
 // Parse extrai metadados (frontmatter YAML) e conteúdo (Markdown) de um SKILL.md.
 // Valida campos obrigatórios conforme a especificação SKILL.md.
 func Parse(raw string) (*SkillMetadata, string, error) {
-	raw = strings.TrimSpace(raw)
+	raw = strings.TrimLeft(raw, " \t\r\n")
 
 	if !strings.HasPrefix(raw, frontmatterDelimiter) {
 		return nil, "", fmt.Errorf("skill must start with YAML frontmatter (---)")
@@ -49,7 +49,10 @@ func Parse(raw string) (*SkillMetadata, string, error) {
 	}
 
 	frontmatterRaw := strings.TrimSpace(rest[:closingIndex])
-	content := strings.TrimSpace(rest[closingIndex+len("\n"+frontmatterDelimiter):])
+	body := rest[closingIndex+len("\n"+frontmatterDelimiter):]
+	// O recuo da primeira linha e os espaços finais fazem parte do Markdown.
+	body = strings.TrimLeft(body, " \t") // espaços na linha do delimitador
+	content := strings.Trim(body, "\r\n")
 
 	var meta SkillMetadata
 	if err := yaml.Unmarshal([]byte(frontmatterRaw), &meta); err != nil {

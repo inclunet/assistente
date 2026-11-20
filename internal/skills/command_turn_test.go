@@ -169,7 +169,7 @@ func TestBaseStopsWhenConfirmationIsUnavailable(t *testing.T) {
 		}
 		return "", contextprovider.ErrCommandNotAuthorized
 	})
-	if _, err := prepareBaseCommands(ctx, s); !errors.Is(err, contextprovider.ErrCommandNotAuthorized) || errors.Is(err, contextprovider.ErrCommandRefused) {
+	if _, err := buildBaseSkillBlock(ctx, []Skill{*s}, contextProviderSourceStub{}, 500); !errors.Is(err, contextprovider.ErrCommandNotAuthorized) || errors.Is(err, contextprovider.ErrCommandRefused) {
 		t.Fatalf("erro de confirmação: %v", err)
 	}
 }
@@ -251,5 +251,34 @@ func TestCodeExamplesExpandArgumentsAsText(t *testing.T) {
 	got, err := renderCommands(t.Context(), s, s.Content, false, func(context.Context, *Skill, string) (string, error) { t.Fatal("exemplo executado"); return "", nil }, argumentExpander("log", []string{"log"}))
 	if err != nil || strings.Count(got, "!git log") != 3 {
 		t.Fatal(got, err)
+	}
+}
+
+func TestBaseBudgetBeforeCommands(t *testing.T) {
+	s := providerSkill("base", "cabeçalho\n!git status\ninstrução final", false)
+	s.Tools = &ToolPermissions{BashCommands: &BashCommands{Allowed: []string{"git"}}}
+	provider := NewContextProvider(contextProviderSourceStub{skills: []Skill{s}})
+	ctx := WithCommandTurn(t.Context(), func(context.Context, *Skill, string) (string, error) {
+		t.Fatal("comando chamado sem espaço para saída")
+		return "", nil
+	})
+	_, err := provider.Build(ctx, contextprovider.BuildRequest{EnabledSkills: []string{"base"}, ToolCallingEnabled: true, ProviderBudgets: map[string]int{"skills": 1}})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestParsedFirstIndentedExampleRemainsLiteral(t *testing.T) {
+	for _, indent := range []string{"    ", "\t"} {
+		_, body, err := Parse("---\r\nname: example\r\n---\r\n" + indent + "!git status\r\n")
+		if err != nil {
+			t.Fatal(err)
+		}
+		s := invocableSkill(body)
+		s.Tools = &ToolPermissions{BashCommands: &BashCommands{Allowed: []string{"git"}}}
+		got, err := renderCommands(t.Context(), s, body, false, func(context.Context, *Skill, string) (string, error) { t.Fatal("exemplo executado"); return "", nil }, nil)
+		if err != nil || got != indent+"!git status" {
+			t.Fatalf("%q %v", got, err)
+		}
 	}
 }

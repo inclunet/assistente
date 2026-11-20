@@ -335,3 +335,11 @@ func executeCommand(cmd string) (string, error) {
 
 	return output, nil
 }
+
+func renderCommands(ctx context.Context, skill *Skill, content string, base bool, run SkillCommandRunner, expand func(string) string) (string, error) {
+	doc, err := planCommandLines(ctx, skill, content, base, run, expand, "")
+	if err != nil {
+		return "", err
+	}
+	return doc.render(ctx, skill, run, base, -1)
+}
