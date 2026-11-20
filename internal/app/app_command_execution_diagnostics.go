@@ -19,14 +19,26 @@ import (
 var diagnosticCommandID = regexp.MustCompile(`^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$`)
 
 const localActionAccepted commandledger.Status = "accepted"
+const localActionNotCompleted commandledger.Status = "not_completed"
 
 func diagnosticRegisteredCommand(a *App, commandID string) string {
 	if a != nil {
-		if p := a.commandProduct.Load(); p != nil && p.registry != nil {
-			if _, ok := p.registry.Lookup(commandID); ok {
-				return commandID
-			}
+		return diagnosticCommandForProduct(a.commandProduct.Load(), commandID)
+	}
+	return diagnosticCommandForProduct(nil, commandID)
+}
+
+func diagnosticCommandForProduct(p *commandProductRuntime, commandID string) string {
+	if p != nil && p.registry != nil {
+		if _, ok := p.registry.Lookup(commandID); ok {
+			return commandID
 		}
+		return "unknown"
+	}
+	// Política fechada e independente do lifecycle: nunca aceite prefixos ou
+	// identificadores dinâmicos quando o catálogo estiver indisponível.
+	if isWorkspaceMutationCommand(commandID) || commandExecutionClassForID(commandID) == commandExecutionLocalUI || commandID == commandProductWorkspaceListID || isCommandLayerAction(commandID) || isEditorFormatCommand(commandID) || isChatMessageCommand(commandID) {
+		return commandID
 	}
 	return "unknown"
 }
@@ -126,33 +138,36 @@ func (a *App) ReportLocalPaletteCommand(commandID, invocationID, outcome string,
 		return commandexecution.ErrDenied
 	}
 	p := a.commandProduct.Load()
-	if p == nil || p.registry == nil || p.sessionSvc == nil {
-		return commandexecution.ErrDenied
-	}
 	principal, err := a.currentCommandPrincipal()
-	if err != nil || principal != p.principal {
+	if err != nil {
 		return commandexecution.ErrDenied
 	}
-	current, err := p.sessionSvc.RevalidateLocalSession(a.commandBridgeContext(), principal)
-	if err != nil || current != principal || a.commandProduct.Load() != p || !p.dependenciesMatch(a) || !a.commandPrincipalMatches(p.sessionSvc, p.credMgr, principal) {
+	a.authMu.RLock()
+	sessions, credentials := a.sessionSvc, a.credMgr
+	a.authMu.RUnlock()
+	if sessions == nil || credentials == nil || (p != nil && (p.registry == nil || p.principal != principal || p.sessionSvc != sessions || p.credMgr != credentials)) {
 		return commandexecution.ErrDenied
 	}
-	if stage != "local_ui" && stage != "creation_selection" && stage != "creation_catalog" {
+	current, err := sessions.RevalidateLocalSession(a.commandBridgeContext(), principal)
+	if err != nil || current != principal || a.commandProduct.Load() != p || !a.commandPrincipalMatches(sessions, credentials, principal) {
 		return commandexecution.ErrDenied
 	}
-	if (stage == "local_ui" && source != "palette") || (stage != "local_ui" && source != "keyboard.local" && source != "ui.action") {
+	if stage != "local_ui" && stage != "creation_selection" && stage != "creation_catalog" && stage != "context_target" && stage != "context_navigation" {
+		return commandexecution.ErrDenied
+	}
+	if (stage == "local_ui" && source != "palette") || ((stage == "creation_selection" || stage == "creation_catalog") && source != "keyboard.local" && source != "ui.action") || ((stage == "context_target" || stage == "context_navigation") && source != "ui.action" && source != "keyboard.local" && source != "palette" && source != "streamdeck.key" && source != "unknown") {
 		return commandexecution.ErrDenied
 	}
 	if stage == "creation_catalog" && commandID == "" {
 		commandID = "unknown"
-	} else if _, ok := p.registry.Lookup(commandID); !ok || len(commandID) > 128 || !diagnosticCommandID.MatchString(commandID) {
+	} else if diagnosticCommandForProduct(p, commandID) == "unknown" || len(commandID) > 128 || !diagnosticCommandID.MatchString(commandID) {
 		return commandexecution.ErrDenied
 	}
 	if _, err := uuid.Parse(invocationID); err != nil || elapsedMS < 0 || elapsedMS > 60000 {
 		return commandexecution.ErrDenied
 	}
 	status := commandledger.Status(outcome)
-	if status != commandledger.Succeeded && status != commandledger.Cancelled && status != commandledger.Failed && (stage != "local_ui" || status != localActionAccepted) {
+	if status != commandledger.Succeeded && status != commandledger.Cancelled && status != commandledger.Failed && (stage != "local_ui" || status != localActionAccepted) && (stage != "context_navigation" || status != localActionNotCompleted) {
 		return commandexecution.ErrDenied
 	}
 	logCommandExecution(commandID, invocationID, source, stage, time.Now().Add(-time.Duration(elapsedMS)*time.Millisecond), status, nil, nil)

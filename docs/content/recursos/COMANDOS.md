@@ -346,6 +346,11 @@ fila de diagnóstico estiver cheia.
 
 Para uma ação local, `status=accepted` indica que a interface aceitou a ação;
 uma persistência em segundo plano ainda pode falhar ou ser revertida.
+Uma recusa antes do envio ao executor pode aparecer nas etapas `context_target`
+ou `context_navigation`. Sem o catálogo carregado, identificadores de comandos
+internos conhecidos continuam disponíveis no diagnóstico.
+Na barreira de navegação, `status=not_completed` indica que a preparação não
+foi concluída, sem atribuir a causa a falha ou cancelamento.
 
 O menu **Nova aba**, aberto por **Ctrl+N**, não fecha por tempo. Você pode
 esperar e depois escolher com a letra indicada, setas e Enter ou clique.

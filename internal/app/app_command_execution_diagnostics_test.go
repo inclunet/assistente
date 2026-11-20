@@ -10,6 +10,7 @@ import (
 
 	"assistente/internal/commandledger"
 	"assistente/internal/database"
+	"assistente/internal/testutil/workspacefixture"
 	"assistente/internal/workspace"
 	"github.com/google/uuid"
 )
@@ -77,6 +78,70 @@ func TestCommandExecutionDiagnosticsBeginAdmissionFailure(t *testing.T) {
 			t.Fatal("recusa anterior à reserva não foi registrada")
 		}
 		time.Sleep(time.Millisecond)
+	}
+}
+
+func TestCommandExecutionDiagnosticsWithoutProduct(t *testing.T) {
+	a := readyCommandProduct(t)
+	p := a.commandProduct.Swap(nil)
+	defer a.commandProduct.Store(p)
+	b := captureCommandLoadLogs(t)
+	if _, err := a.BeginUICommand(commandWorkspaceTabChatCreateID); err == nil {
+		t.Fatal("comando aceito sem produto")
+	}
+	if diagnosticRegisteredCommand(a, "senha.cliente") != "unknown" {
+		t.Fatal("identificador arbitrário foi aceito")
+	}
+	id := uuid.NewString()
+	if err := a.ReportLocalPaletteCommand(commandWorkspaceTabChatCreateID, id, "cancelled", 12, "context_target", "ui.action"); err != nil {
+		t.Fatalf("diagnóstico sem produto foi recusado: %v", err)
+	}
+	waitDiagnostic(t, b, id)
+	output := b.text()
+	if !strings.Contains(output, commandWorkspaceTabChatCreateID) || !strings.Contains(output, `"stage":"admission"`) {
+		t.Fatal("identidade da admissão ausente")
+	}
+	if err := a.ReportLocalPaletteCommand("senha.cliente", uuid.NewString(), "failed", 1, "context_target", "ui.action"); err == nil {
+		t.Fatal("aceitou ID desconhecido sem catálogo")
+	}
+	if strings.Contains(b.text(), "senha.cliente") {
+		t.Fatal("registrou ID arbitrário")
+	}
+	if err := database.DB().Exec("UPDATE sessions SET revoked_at = CURRENT_TIMESTAMP WHERE id = ?", p.principal.SessionID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := a.ReportLocalPaletteCommand(commandWorkspaceTabChatCreateID, uuid.NewString(), "cancelled", 1, "context_target", "ui.action"); err == nil {
+		t.Fatal("aceitou sessão revogada sem produto")
+	}
+}
+
+func TestCommandExecutionDiagnosticsDuringWorkspaceSwitch(t *testing.T) {
+	a := readyCommandProduct(t)
+	p := a.commandProduct.Load()
+	other, err := workspacefixture.Create(t, a.workspaceMgr, "outro", t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.workspaceMgr.Switch(other.ID); err != nil {
+		t.Fatal(err)
+	}
+	if p.dependenciesMatch(a) {
+		t.Fatal("fixture não preservou o produto anterior")
+	}
+	b := captureCommandLoadLogs(t)
+	id := uuid.NewString()
+	if err := a.ReportLocalPaletteCommand(commandWorkspaceTabChatCreateID, id, "cancelled", 10, "context_target", "keyboard.local"); err != nil {
+		t.Fatalf("diagnóstico perdido na troca: %v", err)
+	}
+	waitDiagnostic(t, b, id)
+	if err := a.ReportLocalPaletteCommand(commandWorkspaceTabChatCreateID, uuid.NewString(), "not_completed", 10, "context_navigation", "palette"); err != nil {
+		t.Fatalf("status neutro recusado: %v", err)
+	}
+	if err := a.ReportLocalPaletteCommand(commandWorkspaceTabChatCreateID, uuid.NewString(), "not_completed", 10, "context_target", "palette"); err == nil {
+		t.Fatal("status neutro aceito em etapa incorreta")
+	}
+	if !strings.Contains(b.text(), `"source":"keyboard.local"`) {
+		t.Fatal("origem incorreta")
 	}
 }
 
