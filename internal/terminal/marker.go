@@ -105,29 +105,34 @@ func (m *CommandMarker) wrapPowerShell(command string) string {
 			$line = $MyInvocation.Line;
 			$start = $line.IndexOf('%s') + %d;
 			$end = $line.IndexOf('%s', $start);
-			if ($end -le $start) { return $false };
+			if ($end -le $start) { return $null };
 			$tokens = $null;
 			$errors = $null;
 			$ast = [System.Management.Automation.Language.Parser]::ParseInput($line.Substring($start, $end - $start), [ref]$tokens, [ref]$errors);
 			$last = $ast.EndBlock.Statements[-1];
 			if ($last -is [System.Management.Automation.Language.TryStatementAst]) { $last = $last.Body.Statements[-1] };
-			if ($last.PipelineElements.Count -ne 1 -or $last.PipelineElements[0].Expression -isnot [System.Management.Automation.Language.ParenExpressionAst]) { return $false };
+			if ($last.PipelineElements.Count -ne 1 -or $last.PipelineElements[0].Expression -isnot [System.Management.Automation.Language.ParenExpressionAst]) { return $null };
 			while ($last -is [System.Management.Automation.Language.PipelineAst] -and $last.PipelineElements.Count -eq 1 -and $last.PipelineElements[0].Expression -is [System.Management.Automation.Language.ParenExpressionAst]) { $last = $last.PipelineElements[0].Expression.Pipeline };
-			if ($last.PipelineElements.Count -ne 1) { return $false };
+			if ($last.PipelineElements.Count -ne 1) { return $null };
 			$cmd = $last.PipelineElements[0];
-			if ($cmd -isnot [System.Management.Automation.Language.CommandAst]) { return $false };
-			$name = $cmd.GetCommandName();
-			if (!$name -and $cmd.CommandElements[0] -is [System.Management.Automation.Language.VariableExpressionAst]) {
-				$value = $ExecutionContext.SessionState.PSVariable.GetValue($cmd.CommandElements[0].VariablePath.UserPath);
-				if ($value -is [System.Management.Automation.CommandInfo]) { return $value.CommandType -eq 'Application' };
-				if ($value -is [string]) { $name = $value }
-			};
-			return ($name -and $ExecutionContext.InvokeCommand.GetCommand($name, 'All').CommandType -eq 'Application')
+			if ($cmd -isnot [System.Management.Automation.Language.CommandAst]) { return $null };
+			return $cmd
 		}`
 		groupBoundary := "<#group-" + m.id + "#>"
 		command += " " + groupBoundary
 		group := fmt.Sprintf(singlePowerShellLine(grouped), m.startTag, len(m.startTag)+3, groupBoundary)
-		success = fmt.Sprintf("if ($LASTEXITCODE -and (%s)) { Write-Host ('%s' + $LASTEXITCODE) } else { %s }", group, m.endTag, success)
+		// Leia o nome/valor no escopo original, depois que as variáveis locais
+		// do parser saíram de escopo. O temporário é exclusivo desta execução.
+		target := "$__asstTarget" + m.id
+		const resolve = `if (TARGET) {
+			if (TARGET.CommandElements[0] -is [System.Management.Automation.Language.VariableExpressionAst]) {
+				TARGET = $ExecutionContext.SessionState.PSVariable.GetValue(TARGET.CommandElements[0].VariablePath.UserPath)
+			} else { TARGET = TARGET.GetCommandName() };
+			if (TARGET -is [string] -and TARGET) { TARGET = $ExecutionContext.InvokeCommand.GetCommand(TARGET, 'All') };
+			if (TARGET -is [System.Management.Automation.AliasInfo]) { TARGET = TARGET.ResolvedCommand }
+		}`
+		lookup := strings.ReplaceAll(singlePowerShellLine(resolve), "TARGET", target)
+		success = fmt.Sprintf("if ($LASTEXITCODE) { %s = (%s); %s; if (%s -is [System.Management.Automation.ApplicationInfo]) { Write-Host ('%s' + $LASTEXITCODE) } else { %s }; Microsoft.PowerShell.Utility\\Remove-Variable -Name %s } else { %s }", target, group, lookup, target, m.endTag, success, target[1:], success)
 	}
 	return fmt.Sprintf("Write-Host '%s'; %s; if ($?) { %s } elseif ($LASTEXITCODE) { Write-Host ('%s' + $LASTEXITCODE) } elseif ($LASTEXITCODE -eq 0 -and (%s)) { Write-Host '%s0' } else { Write-Host '%s1' }", m.startTag, command, success, m.endTag, check, m.endTag, m.endTag)
 }
