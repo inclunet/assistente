@@ -15,16 +15,27 @@ import (
 
 type pendingConfirmationKey struct{}
 
+type confirmationState struct {
+	result ToolResult
+	final  bool
+}
+
 // PendingConfirmation registra a falha que o executor deve devolver se o
 // próprio prazo acabar durante a decisão. O callback publica a recusa definitiva
 // ou, após aprovação válida, restaura o timeout normal com nil.
 func PendingConfirmation(ctx context.Context, failureCode string) func(*ToolResult) {
-	state, _ := ctx.Value(pendingConfirmationKey{}).(*atomic.Pointer[ToolResult])
+	state, _ := ctx.Value(pendingConfirmationKey{}).(*atomic.Pointer[confirmationState])
 	if state == nil {
 		return func(*ToolResult) {}
 	}
-	state.Store(&ToolResult{IsError: true, Content: "Prazo encerrado durante a confirmação.", Failure: &ToolFailure{Code: failureCode, Kind: ErrorKindAuthorization, Retryable: false}})
-	return func(decision *ToolResult) { state.Store(decision) }
+	state.Store(&confirmationState{result: ToolResult{IsError: true, Content: "Prazo encerrado durante a confirmação.", Failure: &ToolFailure{Code: failureCode, Kind: ErrorKindAuthorization, Retryable: false}}})
+	return func(decision *ToolResult) {
+		if decision == nil {
+			state.Store(nil)
+			return
+		}
+		state.Store(&confirmationState{result: *decision, final: true})
+	}
 }
 
 // Limites padrão do executor
@@ -207,7 +218,7 @@ func (e *Executor) executeSingle(ctx context.Context, call ToolCall) (execution 
 	// o executor devolve imediatamente.
 	collector := &securitySignalCollector{}
 	execCtx := withSecuritySignalCollector(WithMaxResultSize(toolCtx, e.config.MaxResultSize), collector)
-	var pending atomic.Pointer[ToolResult]
+	var pending atomic.Pointer[confirmationState]
 	execCtx = context.WithValue(execCtx, pendingConfirmationKey{}, &pending)
 	resultCh := make(chan ToolExecutionResult, 1)
 	go func() {
@@ -400,7 +411,8 @@ func (e *Executor) executeSingle(ctx context.Context, call ToolCall) (execution 
 		return result
 	case <-toolCtx.Done():
 		elapsed := time.Since(start).Milliseconds()
-		if ctx.Err() != nil {
+		confirmation := pending.Load()
+		if ctx.Err() != nil && (confirmation == nil || !confirmation.final) {
 			// Contexto pai cancelado (usuário cancelou) — não é timeout
 			cancelled := ToolExecutionResult{
 				CallID:   call.ID,
@@ -432,11 +444,14 @@ func (e *Executor) executeSingle(ctx context.Context, call ToolCall) (execution 
 			RetryabilityKnown: true,
 			DurationMs:        elapsed,
 		}
-		if confirmation := pending.Load(); confirmation != nil {
-			timedOut.Result = boundFailureResult(*confirmation, e.config.MaxResultSize)
-			timedOut.ErrorKind = confirmation.Failure.Kind
-			timedOut.ErrorCode = confirmation.Failure.Code
+		if confirmation != nil {
+			timedOut.Result = boundFailureResult(confirmation.result, e.config.MaxResultSize)
+			timedOut.ErrorKind = confirmation.result.Failure.Kind
+			timedOut.ErrorCode = confirmation.result.Failure.Code
 			timedOut.Retryable = false
+			if confirmation.final {
+				timedOut.Error = nil
+			}
 		}
 		attachSecuritySignals(&timedOut.Result, collector)
 		return timedOut

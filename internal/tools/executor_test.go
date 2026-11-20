@@ -665,3 +665,32 @@ func TestExecutorTimeoutPreservesPublishedRefusal(t *testing.T) {
 		t.Fatalf("resultado=%+v", got)
 	}
 }
+
+func TestExecutorParentCancelDuringConfirmation(t *testing.T) {
+	for _, published := range []bool{false, true} {
+		t.Run(map[bool]string{false: "aguardando", true: "recusado"}[published], func(t *testing.T) {
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			release := make(chan struct{})
+			defer close(release)
+			tool := &mockTool{name: "ask", exec: func(ctx context.Context, _ json.RawMessage) (ToolResult, error) {
+				resolve := PendingConfirmation(ctx, "unavailable")
+				denied := ToolResult{IsError: true, Content: "negado", Failure: &ToolFailure{Code: "refused", Kind: ErrorKindAuthorization}}
+				if published {
+					resolve(&denied)
+				}
+				cancel()
+				<-release
+				return denied, nil
+			}}
+			got := NewExecutor(newRegistry(tool), DefaultExecutorConfig()).ExecuteOne(ctx, ToolCall{ID: "cancel", Function: FunctionCall{Name: "ask", Arguments: "{}"}})
+			if published {
+				if got.ErrorCode != "refused" || got.ErrorKind != ErrorKindAuthorization || got.Retryable {
+					t.Fatalf("recusa=%+v", got)
+				}
+			} else if got.ErrorKind != ErrorKindCancelled || got.Retryable {
+				t.Fatalf("cancelamento=%+v", got)
+			}
+		})
+	}
+}
