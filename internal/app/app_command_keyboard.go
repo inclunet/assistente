@@ -1108,6 +1108,13 @@ func (a *App) BeginEditorMermaidUIKey(generation string, shortcut LocalCommandSh
 
 func (a *App) beginLocalCommandUIKey(generation string, shortcut LocalCommandShortcut, repeat, mermaid bool, observed *LocalCommandKeyboardContext) (result *commandui.Reservation, err error) {
 	defer func() { err = safeCommandSettingsError(err) }()
+	started := time.Now()
+	commandID := "unknown"
+	defer func() {
+		if err != nil {
+			logCommandExecution(diagnosticRegisteredCommand(a, commandID), "", "keyboard.local", "admission", started, "", nil, err)
+		}
+	}()
 	var proof *localCommandKeyboardContextProof
 	if observed != nil {
 		proof, err = a.captureLocalKeyboardContext(*observed)
@@ -1126,6 +1133,7 @@ func (a *App) beginLocalCommandUIKey(generation string, shortcut LocalCommandSho
 		}
 	}()
 	binding, _ := localKeyboardOccurrenceBinding(s, p.registry, identity, shortcut, proof)
+	commandID = binding.CommandID
 	var mermaidSnapshot workspace.CommandSnapshot
 	if mermaid {
 		binding = LocalCommandKeyboardBinding{Shortcut: shortcut, CommandID: commandEditorMermaidApplyID, Handler: "ui"}
