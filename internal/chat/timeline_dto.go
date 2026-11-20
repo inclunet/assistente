@@ -14,6 +14,7 @@ type TimelineWindowSplice = apidto.TimelineWindowSplice
 type SubscribedTimelineSnapshot = apidto.SubscribedTimelineSnapshot
 type TimelineWindowNavigation = apidto.TimelineWindowNavigation
 type TimelineWindowPosition = apidto.TimelineWindowPosition
+type TimelineWindowResume = apidto.TimelineWindowResume
 type TimelineRetentionRequest = apidto.TimelineRetentionRequest
 type TimelineWindowMode = apidto.TimelineWindowMode
 
