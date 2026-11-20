@@ -27,6 +27,7 @@ type commandUIRun struct {
 	deckPage                   bool
 	pageMutation               *commandPageMutationPreparation
 	reservation                commandui.Reservation
+	diagnosticSource           string
 	done                       chan struct{}
 	cancel                     context.CancelFunc
 	expiresAt                  time.Time
@@ -216,15 +217,21 @@ func (a *App) beginCommandUIWithCleanup(p *commandProductRuntime, commandID stri
 	sourceValid func() bool,
 	paletteContext *localCommandKeyboardContextProof,
 	cleanup func(),
-) (commandui.Reservation, error) {
+) (result commandui.Reservation, err error) {
+	started := time.Now()
+	var reservation commandui.Reservation
+	source := "unknown"
+	defer func() {
+		if err != nil {
+			logCommandExecution(diagnosticRegisteredCommand(a, commandID), reservation.InvocationID, source, "prepare", started, "", nil, err)
+		}
+	}()
 	if p == nil || p.ui == nil || prepare == nil || execute == nil {
 		return commandui.Reservation{}, commandexecution.ErrDenied
 	}
 	if (commandID == commandWorkspaceTabTerminalCreateID || commandID == commandTerminalSessionCreateID || commandID == commandTerminalSessionCloseID) && a.currentTerminalManager() == nil {
 		return commandui.Reservation{}, commandruntime.ErrNotReady
 	}
-	var reservation commandui.Reservation
-	var err error
 	var clearSnapshot workspace.CommandSnapshot
 	var clearFingerprint string
 	var chatGeneration uint64
@@ -309,10 +316,12 @@ func (a *App) beginCommandUIWithCleanup(p *commandProductRuntime, commandID stri
 		_ = p.ui.Cancel(p.uiOwner(), reservation.Ticket)
 		return commandui.Reservation{}, err
 	}
+	source = candidate.TriggerType
 	runTimeout := commandUIRunTimeout(commandID)
 	runCtx, cancel := context.WithTimeout(a.commandBridgeContext(), runTimeout)
 	deckOccurrence, _ := commandDeckOccurrenceFor(p, candidate.InvocationID)
 	run := &commandUIRun{
+		diagnosticSource:        source,
 		deckPage:                candidate.TriggerType == string(commandcatalog.StreamDeck) && deckOccurrence.page,
 		paletteContext:          paletteContext,
 		reservation:             reservation,
@@ -400,6 +409,7 @@ func (a *App) beginCommandUIWithCleanup(p *commandProductRuntime, commandID stri
 			record, executeErr = execute(runCtx, candidate)
 		}
 		run.result, run.err = commandProductResult(record), executeErr
+		logCommandExecution(diagnosticRegisteredCommand(a, commandID), reservation.InvocationID, source, "execution", started, record.Status, record.ErrorCode, executeErr)
 		p.mu.Lock()
 		if run.pageMutation != nil {
 			run.pageMutation.mutation = nil
@@ -455,11 +465,17 @@ func (a *App) commandUIRun(ticket string) (*commandProductRuntime, *commandUIRun
 
 // TakeUICommand aguarda fora do DispatchGate e consome o handoff uma única vez.
 // O ticket só localiza uma reserva; não substitui a autenticação acima.
-func (a *App) TakeUICommand(ticket string) (commandui.Handoff, error) {
+func (a *App) TakeUICommand(ticket string) (result commandui.Handoff, err error) {
+	started := time.Now()
 	p, run, err := a.commandUIRun(ticket)
 	if err != nil {
 		return commandui.Handoff{}, err
 	}
+	defer func() {
+		if err != nil {
+			logCommandExecution(diagnosticRegisteredCommand(a, run.reservation.CommandID), run.reservation.InvocationID, run.diagnosticSource, "handoff", started, "", nil, err)
+		}
+	}()
 	if run.sourceValid != nil && !run.sourceValid() {
 		run.cancel()
 		_ = p.ui.Cancel(p.uiOwner(), ticket)
@@ -519,11 +535,17 @@ func (a *App) CommitWorkspaceTabCommand(ticket, handoffID string) error {
 	return a.commitWorkspaceTabCommand(ticket, handoffID)
 }
 
-func (a *App) commitWorkspaceTabCommand(ticket, handoffID string) error {
+func (a *App) commitWorkspaceTabCommand(ticket, handoffID string) (err error) {
+	started := time.Now()
 	p, run, err := a.commandUIRun(ticket)
 	if err != nil {
 		return err
 	}
+	defer func() {
+		if err != nil {
+			logCommandExecution(diagnosticRegisteredCommand(a, run.reservation.CommandID), run.reservation.InvocationID, run.diagnosticSource, "commit", started, "", nil, err)
+		}
+	}()
 	if isPageMutationCommand(run.reservation.CommandID) {
 		return a.commitPageMutationCommand(ticket, handoffID)
 	}
