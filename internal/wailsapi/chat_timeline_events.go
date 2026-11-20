@@ -3,6 +3,7 @@ package wailsapi
 import (
 	"context"
 	"sync"
+	"sync/atomic"
 
 	"assistente/internal/apidto"
 	"assistente/internal/chat"
@@ -12,6 +13,7 @@ import (
 // a autorização vigente, respeitar cancelamento e não reentrar neste handle.
 type TimelineEventEmitter interface {
 	Emit(context.Context, apidto.TimelineEvent) error
+	NotifyClosed(apidto.TimelineClosedEvent)
 	Close()
 }
 
@@ -35,17 +37,19 @@ type timelineDeliveryFeed interface {
 // A exclusão protege somente entrega e troca da base, nunca a espera em Next.
 // Ela também permite drenar uma emissão já admitida ao fechar a inscrição.
 type timelineEventStream struct {
-	mu        sync.Mutex
-	ctx       context.Context
-	cancel    context.CancelFunc
-	done      chan struct{}
-	feed      timelineDeliveryFeed
-	emitter   TimelineEventEmitter
-	epoch     string
-	baseline  string
-	surfaceID string
-	closed    bool
-	released  func()
+	mu             sync.Mutex
+	ctx            context.Context
+	cancel         context.CancelFunc
+	done           chan struct{}
+	feed           timelineDeliveryFeed
+	emitter        TimelineEventEmitter
+	epoch          string
+	baseline       string
+	surfaceID      string
+	closed         bool
+	released       func()
+	closeRequested atomic.Bool
+	identity       apidto.TimelineClosedEvent
 }
 
 // O caller registra o handle sob a registry antes de liberar seu mutex; released
@@ -53,16 +57,22 @@ type timelineEventStream struct {
 func newTimelineEventStream(ctx context.Context, feed timelineDeliveryFeed, emitter TimelineEventEmitter, surfaceID string, snapshot *apidto.SubscribedTimelineSnapshot, released func()) *timelineEventStream {
 	ctx, cancel := context.WithCancel(ctx)
 	s := &timelineEventStream{ctx: ctx, cancel: cancel, done: make(chan struct{}), feed: feed, emitter: emitter, surfaceID: surfaceID, epoch: snapshot.Epoch, baseline: snapshot.WindowRevision, released: released}
+	s.identity = apidto.TimelineClosedEvent{ConversationID: snapshot.ConversationID, SurfaceID: surfaceID, WindowID: snapshot.WindowID}
 	go s.run()
 	return s
 }
 
 func (s *timelineEventStream) run() {
-	defer close(s.done)
-	defer s.released()
-	defer s.emitter.Close()
-	defer s.feed.Close()
-	defer s.cancel()
+	defer func() {
+		s.cancel()
+		s.feed.Close()
+		s.released()
+		if !s.closeRequested.Load() {
+			s.emitter.NotifyClosed(s.identity)
+		}
+		s.emitter.Close()
+		close(s.done)
+	}()
 	for {
 		delivery, err := s.feed.Next(s.ctx)
 		if err != nil {
@@ -127,10 +137,15 @@ func (s *timelineEventStream) queryContext(ctx context.Context) (context.Context
 // estar adquirido pelo caller. Uma emissão já enfileirada no runtime não pode
 // ser desfeita; o frontend precisa descartar capabilities encerradas.
 func (s *timelineEventStream) close() {
-	s.cancel()
+	s.stop()
 	s.mu.Lock()
 	s.closed = true
 	s.mu.Unlock()
 	s.feed.Close()
 	<-s.done
+}
+
+func (s *timelineEventStream) stop() {
+	s.closeRequested.Store(true)
+	s.cancel()
 }
