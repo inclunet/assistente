@@ -64,6 +64,12 @@ func (a *App) BeginContextualPagePaletteUICommand(generation, commandID string, 
 // those remain UI guards at submission. No mutation occurs at Begin or Take.
 func (a *App) BeginContextualPaletteUICommand(generation, commandID string, observed LocalCommandKeyboardContext) (result commandui.Reservation, err error) {
 	defer func() { err = safeCommandSettingsError(err) }()
+	started := time.Now()
+	defer func() {
+		if err != nil {
+			logCommandExecution(diagnosticRegisteredCommand(a, commandID), result.InvocationID, "palette", "admission", started, "", nil, err)
+		}
+	}()
 	if !isContextualPaletteWorkspaceCommand(commandID) || generation == "" {
 		return result, commandexecution.ErrDenied
 	}

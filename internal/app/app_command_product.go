@@ -110,7 +110,13 @@ func commandProductResult(record commandledger.FullRecord) CommandExecutionResul
 
 // ExecutePaletteCommand fixa a origem e cria IDs na borda Wails. A seleção
 // passa pela configuração publicada; o chamador não escolhe o binding vencedor.
-func (a *App) ExecutePaletteCommand(commandID string, arguments json.RawMessage) (CommandExecutionResult, error) {
+func (a *App) ExecutePaletteCommand(commandID string, arguments json.RawMessage) (result CommandExecutionResult, err error) {
+	started := time.Now()
+	stage := "prepare"
+	invocation := ""
+	defer func() {
+		logCommandExecution(diagnosticRegisteredCommand(a, commandID), invocation, "palette", stage, started, commandledger.Status(result.Status), result.ErrorCode, err)
+	}()
 	if a == nil {
 		return CommandExecutionResult{}, commandexecution.ErrDenied
 	}
@@ -131,6 +137,7 @@ func (a *App) ExecutePaletteCommand(commandID string, arguments json.RawMessage)
 	if err != nil {
 		return CommandExecutionResult{}, err
 	}
+	invocation = invocationID.String()
 	correlationID, err := uuid.NewV7()
 	if err != nil {
 		return CommandExecutionResult{}, err
@@ -159,8 +166,9 @@ func (a *App) ExecutePaletteCommand(commandID string, arguments json.RawMessage)
 	if err := p.refreshCommandJobProjection(ctx); err != nil {
 		return CommandExecutionResult{}, err
 	}
+	stage = "execution"
 	record, output, err := p.service.ExecuteEnvelopeWithResult(ctx, "", candidate)
-	result := commandProductResult(record)
+	result = commandProductResult(record)
 	if err != nil || record.Status != commandledger.Succeeded || len(output) == 0 {
 		return result, err
 	}
