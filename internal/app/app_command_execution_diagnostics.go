@@ -152,7 +152,7 @@ func (a *App) ReportLocalPaletteCommand(commandID, invocationID, outcome string,
 		return commandexecution.ErrDenied
 	}
 	status := commandledger.Status(outcome)
-	if status != commandledger.Succeeded && status != commandledger.Cancelled && status != commandledger.Failed && !(stage == "local_ui" && status == localActionAccepted) {
+	if status != commandledger.Succeeded && status != commandledger.Cancelled && status != commandledger.Failed && (stage != "local_ui" || status != localActionAccepted) {
 		return commandexecution.ErrDenied
 	}
 	logCommandExecution(commandID, invocationID, source, stage, time.Now().Add(-time.Duration(elapsedMS)*time.Millisecond), status, nil, nil)
