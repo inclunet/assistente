@@ -1904,7 +1904,7 @@ func TestSlashCommandRequiresActiveProviderAndShellAccess(t *testing.T) {
 }
 
 func TestPrepareMessagesBaseSkillRefusalPreservesOriginAndMessages(t *testing.T) {
-	denied := errors.New("negado")
+	denied := contextprovider.ErrCommandRefused
 	origin := ports.NewChatSurfaceOrigin("conversation", "session", "surface", "chat", "tab")
 	source := staticSkillRuntimeManager{skills: map[string]*skills.Skill{"base": {Slug: "base", Content: "!echo test", SkillMetadata: skills.SkillMetadata{Name: "base", Tools: &skills.ToolPermissions{BashCommands: &skills.BashCommands{Allowed: []string{"echo"}}}}}}}
 	emitter := &spyEmitter{}
@@ -1924,5 +1924,26 @@ func TestPrepareMessagesBaseSkillRefusalPreservesOriginAndMessages(t *testing.T)
 	event := emitter.findError()
 	if !errors.Is(result.Err, denied) || len(result.Messages) != 1 || result.Messages[0].Content != "hello" || event == nil || event.Error != denied.Error() || event.ConversationID != "conversation" || event.SurfaceOrigin != origin {
 		t.Fatalf("result=%+v event=%+v", result, event)
+	}
+}
+
+func TestBaseRefusalPrecedesSlashCommand(t *testing.T) {
+	base := &skills.Skill{Slug: "base", Content: "!echo base", SkillMetadata: skills.SkillMetadata{Name: "base", Tools: &skills.ToolPermissions{BashCommands: &skills.BashCommands{Allowed: []string{"echo"}}}}}
+	slash := *base
+	slash.Slug = "helper"
+	slash.Name = "helper"
+	slash.Content = "!echo slash"
+	src := staticSkillRuntimeManager{skills: map[string]*skills.Skill{"base": base, "helper": &slash}}
+	profile := &profiles.Profile{}
+	profile.Chat.EnabledSkills = []string{"base", "helper"}
+	var calls []string
+	i := NewInteractor(InteractorConfig{SkillMgr: src, ContextProviders: contextprovider.NewRegistry(skills.NewContextProvider(src), slashskill.NewContextProvider()), PromptBuilder: &capturingPromptBuilder{baseToolCallingEnabled: true}, SkillCommands: func(ctx context.Context, s *skills.Skill, cmd string) (string, error) {
+		calls = append(calls, s.Slug)
+		return "", contextprovider.ErrCommandRefused
+	}})
+	msgs := []llm.Message{{Role: "user", Content: "/helper"}}
+	result := i.PrepareMessages(t.Context(), PrepareMessagesRequest{Messages: msgs, ConversationID: "conv", TurnID: "turn", UserContent: "/helper", ActiveProfile: profile, AllowSkillShell: true})
+	if !errors.Is(result.Err, contextprovider.ErrCommandRefused) || strings.Join(calls, ",") != "base" {
+		t.Fatalf("calls=%v err=%v", calls, result.Err)
 	}
 }

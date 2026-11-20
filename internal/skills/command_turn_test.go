@@ -57,7 +57,7 @@ func TestCommandTurnArgumentIsText(t *testing.T) {
 }
 
 func TestBaseSkillUnavailableShellPreservesMarkdownAndInstructions(t *testing.T) {
-	const body = "![guia](imagem.png)\n!echo private\nContinue."
+	const body = "![guia](imagem.png)\n!`echo private`\nContinue."
 	for _, config := range []string{"no-policy", "no-runner", "other-program", "tools-exclude-shell", "tools-deny-shell"} {
 		t.Run(config, func(t *testing.T) {
 			s := providerSkill("base", body, false)
@@ -99,7 +99,7 @@ func TestBaseSkillUnavailableShellPreservesMarkdownAndInstructions(t *testing.T)
 func TestBaseSkillShellDenialStopsPromptAndIsCached(t *testing.T) {
 	s := providerSkill("base", "!echo first\n!echo second", false)
 	s.Tools = &ToolPermissions{BashCommands: &BashCommands{Allowed: []string{"echo"}}}
-	denied := errors.New("negado")
+	denied := contextprovider.ErrCommandRefused
 	calls := 0
 	provider := NewContextProvider(contextProviderSourceStub{skills: []Skill{s}})
 	ctx := WithCommandTurn(t.Context(), func(context.Context, *Skill, string) (string, error) { calls++; return "", denied })
@@ -123,5 +123,94 @@ func TestComposePreservesToolRestrictionsForEditedSkill(t *testing.T) {
 	}
 	if !reflect.DeepEqual(got.Tools, meta.Tools) {
 		t.Fatalf("policy round trip: %+v", got.Tools)
+	}
+}
+
+func TestBaseSkillOperationalErrorsOmitOnlyCommandLine(t *testing.T) {
+	for _, failure := range []error{errors.New("exit status 128"), context.DeadlineExceeded, errors.New("ledger unavailable"), errors.New("turn missing"), nil} {
+		s := providerSkill("base", "antes\n!git status\ndepois", false)
+		s.Tools = &ToolPermissions{BashCommands: &BashCommands{Allowed: []string{"git"}}}
+		calls := 0
+		ctx := WithCommandTurn(t.Context(), func(context.Context, *Skill, string) (string, error) {
+			calls++
+			if failure == nil {
+				return strings.Repeat("x", MaxCommandOutputSize+1), nil
+			}
+			return "private partial", failure
+		})
+		provider := NewContextProvider(contextProviderSourceStub{skills: []Skill{s}})
+		for range 2 {
+			blocks, err := provider.Build(ctx, contextprovider.BuildRequest{EnabledSkills: []string{"base"}, ToolCallingEnabled: true})
+			if err != nil || CommandTurnError(ctx) != nil || calls != 1 || len(blocks) != 1 || !strings.Contains(blocks[0].Content, "antes\n\ndepois") {
+				t.Fatalf("failure=%v calls=%d err=%v", failure, calls, err)
+			}
+		}
+	}
+}
+
+func TestFencedExamplesAndExclamationsRemainText(t *testing.T) {
+	const body = "!IMPORTANTE: veja abaixo\n!atenção\n~~~sh\n!git status\n~~~\n!unknown example"
+	for _, base := range []bool{true, false} {
+		s := invocableSkill(body)
+		s.Tools = &ToolPermissions{BashCommands: &BashCommands{Allowed: []string{"git"}}}
+		got, err := renderCommands(t.Context(), s, body, base, func(context.Context, *Skill, string) (string, error) { t.Fatal("texto executado"); return "", nil }, nil)
+		if err != nil || got != body {
+			t.Fatalf("%q %v", got, err)
+		}
+	}
+}
+
+func TestSlashBudgetPreservesInstructionsAroundOutput(t *testing.T) {
+	s := invocableSkill("Cabeçalho\n!git status\nInstruções finais")
+	s.Tools = &ToolPermissions{BashCommands: &BashCommands{Allowed: []string{"git"}}}
+	mgr := &stubInvokerManager{skill: s}
+	calls := 0
+	run := func(context.Context, *Skill, string) (string, error) { calls++; return strings.Repeat("á", 1000), nil }
+	for _, budget := range []int{2, 256} {
+		result, _, err := InvokeContext(WithSlashCommandTurn(t.Context(), run, budget), "/test-skill", mgr, "turn", invocablePolicy(s))
+		if budget == 2 {
+			if err == nil || calls != 0 {
+				t.Fatal("execução sem espaço")
+			}
+			continue
+		}
+		if err != nil || calls != 1 || len([]rune(result.Content)) > budget || !strings.Contains(result.Content, "á…\nInstruções finais") {
+			t.Fatalf("%+v err=%v", result, err)
+		}
+	}
+}
+
+func TestSlashCommandRejectsShellSyntaxFromArguments(t *testing.T) {
+	s := invocableSkill("!git log $ARGUMENTS")
+	s.Tools = &ToolPermissions{BashCommands: &BashCommands{Allowed: []string{"git"}}}
+	for _, arg := range []string{"a; git status", "$(echo test)", "a'b", "a\"b"} {
+		ctx := WithCommandTurn(t.Context(), func(context.Context, *Skill, string) (string, error) { t.Fatal("argumento executado"); return "", nil })
+		if _, _, err := InvokeContext(ctx, "/test-skill "+arg, &stubInvokerManager{skill: s}, "turn", invocablePolicy(s)); err == nil {
+			t.Fatalf("argumento aceito: %q", arg)
+		}
+	}
+}
+
+func TestComposeImportedAllowedToolsUsesStructuredPermissions(t *testing.T) {
+	meta, body, err := Parse("---\nname: example\nallowed-tools: Read, Grep\n---\nTexto")
+	if err != nil {
+		t.Fatal(err)
+	}
+	saved, err := Compose(meta, body)
+	if err != nil || strings.Contains(saved, "allowed-tools:") || !strings.Contains(saved, "tools:") {
+		t.Fatal(saved, err)
+	}
+	reread, _, err := Parse(saved)
+	if err != nil || !reflect.DeepEqual(reread.Tools, meta.Tools) {
+		t.Fatal(reread, err)
+	}
+}
+
+func TestCodeExamplesExpandArgumentsAsText(t *testing.T) {
+	s := invocableSkill("    !git $0\n\t!git $0\n~~~sh\n!git $0\n~~~")
+	s.Tools = &ToolPermissions{BashCommands: &BashCommands{Allowed: []string{"git"}}}
+	got, err := renderCommands(t.Context(), s, s.Content, false, func(context.Context, *Skill, string) (string, error) { t.Fatal("exemplo executado"); return "", nil }, argumentExpander("log", []string{"log"}))
+	if err != nil || strings.Count(got, "!git log") != 3 {
+		t.Fatal(got, err)
 	}
 }

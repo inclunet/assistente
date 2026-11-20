@@ -78,6 +78,7 @@ function buildSkillRequest(data: SkillFormData) {
     content: data.content || '',
   });
   if (data.toolPolicy || allowed.length) {
+    // O binding Wails v2 não tem construtor para tools aninhado. O IPC recebe a política como JSON.
     request.tools = { ...data.toolPolicy, allowed };
   }
   return request;

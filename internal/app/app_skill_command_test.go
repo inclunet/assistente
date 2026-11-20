@@ -3,13 +3,16 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"runtime"
 	"strings"
 	"testing"
 	"time"
 
 	"assistente/internal/agent"
+	"assistente/internal/allowlist"
 	"assistente/internal/chat"
+	"assistente/internal/contextprovider"
 	"assistente/internal/database"
 	"assistente/internal/events"
 	"assistente/internal/skills"
@@ -36,9 +39,23 @@ func (s *skillTestTerminal) RunEphemeral(ctx context.Context, dir, command strin
 }
 
 func TestSkillCommandInAdmittedTurn(t *testing.T) {
-	for _, decision := range []string{"allow", "deny", "posix", "nonzero", "partial", "no-turn", "origin-denied", "ledger-unavailable"} {
-		t.Run(decision, func(t *testing.T) {
-			if decision == "posix" && runtime.GOOS == "windows" {
+	cases := []struct {
+		name, policy                    string
+		exitCode, prompts, calls        int
+		success, refused, ledger, posix bool
+	}{
+		{name: "preapproved", policy: "approve", calls: 1, success: true, ledger: true},
+		{name: "policy-denied", policy: "deny", refused: true, ledger: true},
+		{name: "allow", prompts: 1, calls: 1, success: true, ledger: true},
+		{name: "deny", prompts: 1, refused: true, ledger: true},
+		{name: "posix", prompts: 1, success: true, ledger: true, posix: true},
+		{name: "nonzero", exitCode: 13, prompts: 1, calls: 1, ledger: true},
+		{name: "partial", exitCode: -1, prompts: 1, calls: 1, ledger: true},
+		{name: "no-turn"}, {name: "origin-denied"}, {name: "ledger-unavailable"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if tc.posix && runtime.GOOS == "windows" {
 				t.Skip("PTY POSIX exercitado no CI Linux")
 			}
 			db := setupAuthAppTestDB(t)
@@ -60,15 +77,21 @@ func TestSkillCommandInAdmittedTurn(t *testing.T) {
 			}
 			defer svc.EndUnfinishedTurn(ctx, cid, question.ID, nil)
 			ctx = invocationctx.With(ctx, invocationctx.InvocationContext{ConversationID: cid, TurnID: question.ID, Source: "wails"})
-			term := &skillTestTerminal{}
+			term := &skillTestTerminal{exitCode: tc.exitCode}
 			prompts := 0
 			command := "example-tool private-argument"
 			var sessions shell.SessionManager = term
-			if decision == "posix" {
+			if tc.posix {
 				config := terminal.DefaultManagerConfig()
 				config.DefaultShell = "/bin/sh"
 				sessions = terminal.NewManager(config, nil)
 				command = "printf private-output"
+			}
+			var policy shell.GetAllowlistFunc
+			if tc.policy != "" {
+				policy = func(context.Context) (*allowlist.Allowlist, error) {
+					return &allowlist.Allowlist{DefaultAction: "confirm", CommandRules: []allowlist.CommandRule{{Program: "example-tool", Subcommands: []string{"*"}, Decision: tc.policy}}}, nil
+				}
 			}
 			registry := tools.NewRegistry()
 			registry.MustRegister(shell.NewRunCommand(sessions, func(ctx context.Context, raw, dir string) (bool, error) {
@@ -76,14 +99,10 @@ func TestSkillCommandInAdmittedTurn(t *testing.T) {
 				if raw != command {
 					t.Fatalf("unexpected command %q", raw)
 				}
-				return decision != "deny", nil
-			}, nil, t.TempDir()))
+				return !tc.refused, nil
+			}, policy, t.TempDir()))
 			a.toolInvocationSvc = toolinvocations.NewService(toolinvocations.NewDBRepository(db), tools.NewExecutor(registry, tools.DefaultExecutorConfig()))
-			switch decision {
-			case "partial":
-				term.exitCode = -1
-			case "nonzero":
-				term.exitCode = 13
+			switch tc.name {
 			case "no-turn":
 				ctx = context.Background()
 			case "origin-denied":
@@ -94,28 +113,14 @@ func TestSkillCommandInAdmittedTurn(t *testing.T) {
 				}
 			}
 			output, err := a.runSkillCommand(ctx, &skills.Skill{Slug: "example"}, command)
-			switch decision {
-			case "no-turn", "origin-denied", "ledger-unavailable":
-				if err == nil || output != "" || prompts != 0 || term.calls != 0 {
-					t.Fatalf("output=%q prompts=%d calls=%d err=%v", output, prompts, term.calls, err)
-				}
+			if (err == nil) != tc.success || errors.Is(err, contextprovider.ErrCommandRefused) != tc.refused || prompts != tc.prompts || term.calls != tc.calls {
+				t.Fatalf("output=%q prompts=%d calls=%d err=%v", output, prompts, term.calls, err)
+			}
+			if tc.success && !strings.Contains(output, "private-output") || !tc.success && output != "" {
+				t.Fatalf("output=%q", output)
+			}
+			if !tc.ledger {
 				return
-			case "nonzero", "partial":
-				if err == nil || output != "" || term.calls != 1 {
-					t.Fatalf("output=%q calls=%d err=%v", output, term.calls, err)
-				}
-			}
-			if prompts != 1 {
-				t.Fatalf("prompts=%d err=%v", prompts, err)
-			}
-			if decision == "allow" && (err != nil || !strings.Contains(output, "private-output") || term.calls != 1) {
-				t.Fatalf("allow: output=%q calls=%d err=%v", output, term.calls, err)
-			}
-			if decision == "posix" && (err != nil || !strings.Contains(output, "private-output")) {
-				t.Fatalf("POSIX: output=%q err=%v", output, err)
-			}
-			if decision == "deny" && (err == nil || term.calls != 0) {
-				t.Fatalf("deny: calls=%d err=%v", term.calls, err)
 			}
 			var entries []database.ToolInvocation
 			if err := db.Where("origin_id = ?", question.ID).Find(&entries).Error; err != nil {

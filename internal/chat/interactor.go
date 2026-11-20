@@ -1,7 +1,6 @@
 package chat
 
 import (
-	"assistente/internal/logging"
 	"context"
 	"errors"
 	"fmt"
@@ -13,10 +12,10 @@ import (
 	"assistente/internal/database"
 	"assistente/internal/events"
 	"assistente/internal/llm"
+	"assistente/internal/logging"
 	"assistente/internal/profiles"
 	"assistente/internal/providers"
 	"assistente/internal/skills"
-	"assistente/internal/slashskill"
 	"assistente/internal/tools"
 	"assistente/internal/tools/invocationctx"
 	"assistente/internal/workspace"
@@ -890,13 +889,27 @@ func (i *Interactor) PrepareMessages(ctx context.Context, req PrepareMessagesReq
 		slashCtx := ctx
 		if isSlashCommand && runner != nil {
 			budgets, enabled, _ := resolveContextProviderProfileConfig(i.contextProviders.Metadata(), req.ActiveProfile)
-			if !enabled["slash_skill"] {
-				slashCtx = skills.WithCommandTurn(ctx, nil)
-			} else if !slashskill.CanIncludeCommandResult(budgets["slash_skill"]) {
-				slashCtx = skills.WithCommandTurn(ctx, func(context.Context, *skills.Skill, string) (string, error) {
-					return "", errors.New("orçamento de contexto insuficiente para incluir o resultado do comando da skill")
-				})
+			var slashRunner skills.SkillCommandRunner
+			if enabled["slash_skill"] {
+				baseReady := false
+				slashRunner = func(call context.Context, skill *skills.Skill, command string) (string, error) {
+					if !baseReady {
+						// Use the same request and turn cache as the final prompt. Other
+						// providers may depend on the slash result and are built later.
+						baseRequest := i.dynamicContextRequest(skillTplData, req.UserContent, req.ConversationSummary, "", nil, taskListContextEnabled, req.ActiveProfile)
+						for _, provider := range i.contextProviders.Providers() {
+							if provider.Name() == "skills" && baseRequest.Enabled("skills") {
+								if _, err := provider.Build(ctx, baseRequest); err != nil {
+									return "", err
+								}
+							}
+						}
+						baseReady = true
+					}
+					return runner(call, skill, command)
+				}
 			}
+			slashCtx = skills.WithSlashCommandTurn(ctx, slashRunner, budgets["slash_skill"])
 		}
 		inv, found, err = skills.InvokeContext(slashCtx, req.UserContent, i.skillMgr, req.ConversationID, skillPolicy)
 	}
@@ -1144,6 +1157,18 @@ func (i *Interactor) buildDynamicContext(ctx context.Context, data TemplateData,
 	if i.contextProviders == nil {
 		return nil
 	}
+	req := i.dynamicContextRequest(data, currentUserText, conversationSummary, slashSkillContent, linkedTaskLists, taskListContextEnabled, activeProfile)
+	blocks, err := i.contextProviders.Build(ctx, req)
+	if err != nil {
+		if !errors.Is(err, contextprovider.ErrCommandRefused) {
+			logging.Errorf(ctx, "chat.interactor", "[context/providers] erro ao montar blocos dinâmicos: %v", err)
+		}
+		return nil
+	}
+	return blocks
+}
+
+func (i *Interactor) dynamicContextRequest(data TemplateData, currentUserText, conversationSummary, slashSkillContent string, linkedTaskLists []contextprovider.LinkedTaskList, taskListContextEnabled bool, activeProfile *profiles.Profile) contextprovider.BuildRequest {
 	providerBudgets, providerEnabled, providerSettings := resolveContextProviderProfileConfig(i.contextProviders.Metadata(), activeProfile)
 	req := contextprovider.BuildRequest{
 		ConversationID:                   data.ConversationID,
@@ -1186,12 +1211,7 @@ func (i *Interactor) buildDynamicContext(ctx context.Context, data TemplateData,
 			Context: data.Surface.Context,
 		}
 	}
-	blocks, err := i.contextProviders.Build(ctx, req)
-	if err != nil {
-		logging.Errorf(ctx, "chat.interactor", "[context/providers] erro ao montar blocos dinâmicos: %v", err)
-		return nil
-	}
-	return blocks
+	return req
 }
 
 func enabledSkillList(activeProfile *profiles.Profile) []string {

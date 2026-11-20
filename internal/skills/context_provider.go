@@ -127,7 +127,7 @@ func buildBaseSkillBlock(ctx context.Context, baseSkills []Skill, source Context
 			sb.WriteString("\n")
 		}
 		writeSkillHeading(&sb, skill)
-		content, err := prepareCommands(ctx, &skill, skill.Content, true, nil)
+		content, err := prepareBaseCommands(ctx, &skill)
 		if err != nil {
 			return "", err
 		}

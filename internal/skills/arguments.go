@@ -23,21 +23,14 @@ func SubstituteArguments(content string, rawArgs string, vars ...map[string]stri
 		return ""
 	}
 
-	// Detecta se $ARGUMENTS (plain, não bracket) existe no conteúdo
-	// Para o fallback: se NÃO existe e há args, appenda "ARGUMENTS: <value>"
-	hasArgumentsPlaceholder := containsPlainArguments(content)
+	return argumentExpander(rawArgs, parseArgs(rawArgs), vars...)(content) + argumentFallback(content, rawArgs)
+}
 
-	// Faz parse dos argumentos posicionais (respeitando aspas)
-	args := parseArgs(rawArgs)
-
-	expand := argumentExpander(rawArgs, args, vars...)
-	result := expand(content)
-	// 5. Fallback: se $ARGUMENTS não estava no conteúdo original e há args, appenda
-	if !hasArgumentsPlaceholder && rawArgs != "" {
-		result = result + "\n\nARGUMENTS: " + rawArgs
+func argumentFallback(content, args string) string {
+	if args != "" && !containsPlainArguments(content) {
+		return "\n\nARGUMENTS: " + args
 	}
-
-	return result
+	return ""
 }
 
 // argumentExpander applies substitutions to a single piece of skill-authored text.

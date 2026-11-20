@@ -77,12 +77,12 @@ func TestContextProviderPreservesInvokedSkillArgumentsTag(t *testing.T) {
 	}
 }
 
-func TestCommandBudgetMatchesRenderedBlock(t *testing.T) {
+func TestTaggedBlockBudgetBoundary(t *testing.T) {
 	skill := "<invoked_skill>\n" + strings.Repeat("resultado ", 100) + "\n</invoked_skill>"
 	limit := contextprovider.MinimalTaggedBlockLen("invoked_skill", slashSkillTruncationNotice)
 	for _, budget := range []int{1, limit - 1, limit, limit + 1, defaultPromptBudget} {
 		blocks, err := NewContextProvider().Build(t.Context(), contextprovider.BuildRequest{SlashSkillContent: skill, ProviderBudgets: map[string]int{"slash_skill": budget}})
-		if err != nil || CanIncludeCommandResult(budget) != (len(blocks) == 1) {
+		if err != nil || (budget >= limit) != (len(blocks) == 1) {
 			t.Fatalf("budget %d blocks %v err %v", budget, blocks, err)
 		}
 	}

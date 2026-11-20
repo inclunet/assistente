@@ -1,10 +1,12 @@
 package skills
 
 import (
-	"assistente/internal/logging"
 	"context"
 	"fmt"
 	"strings"
+	"unicode/utf8"
+
+	"assistente/internal/logging"
 )
 
 // InvokerManager é a interface mínima necessária para invocar um skill via slash command.
@@ -93,55 +95,39 @@ func InvokeContext(ctx context.Context, userContent string, mgr InvokerManager, 
 
 	logging.Logger(ctx, "skills.invocation").Info("Slash command detectado", "skill", slug)
 
-	// Substitui $ARGUMENTS, $N e variáveis de sessão no conteúdo
-	sessionVars := map[string]string{
-		"CLAUDE_SESSION_ID": sessionID,
-	}
-	processedContent := skill.Content
-
-	// Base content is rendered once by the context provider.
+	var content string
 	if mode != SkillModeBase {
-		processedContent, err = prepareCommands(ctx, skill, processedContent, false, argumentExpander(args, parseArgs(args), sessionVars))
+		turn, _ := ctx.Value(commandTurnKey{}).(*commandTurn)
+		var run SkillCommandRunner
+		budget := -1
+		if turn != nil {
+			run = turn.run
+			budget = turn.budget
+		}
+		doc, err := planCommandLines(ctx, skill, skill.Content, false, run, argumentExpander(args, parseArgs(args), map[string]string{"CLAUDE_SESSION_ID": sessionID}), args)
 		if err != nil {
 			return nil, true, err
 		}
-	}
-
-	if mode == SkillModeBase {
-		processedContent = SubstituteArguments(processedContent, args, sessionVars)
-	} else if args != "" && !containsPlainArguments(skill.Content) {
-		processedContent += "\n\nARGUMENTS: " + args
-	}
-
-	// Monta seção XML do skill invocado
-	var sb strings.Builder
-	sb.WriteString("<invoked_skill>\n## ")
-	sb.WriteString(skill.GetDisplayName())
-	if skill.Type != "" {
-		sb.WriteString(" [")
-		sb.WriteString(skill.Type)
-		sb.WriteString("]")
-	}
-	sb.WriteString("\n")
-	sb.WriteString(processedContent)
-	sb.WriteString("\n")
-
-	// Progressive file loading: lista arquivos complementares do skill
-	supplementary, _ := mgr.GetSkillFiles(slug)
-	if len(supplementary) > 0 {
-		sb.WriteString("\nSupporting files (use read_file to access when needed):\n")
-		for _, f := range supplementary {
-			sb.WriteString("- `")
-			sb.WriteString(f)
-			sb.WriteString("`\n")
+		before, after := invocationFrame(skill, mgr, slug)
+		after = argumentFallback(skill.Content, args) + after
+		quota := -1
+		if len(doc.commands) > 0 && budget >= 0 {
+			static := utf8.RuneCountInString(before) + utf8.RuneCountInString(strings.Join(doc.lines, "\n")) + utf8.RuneCountInString(after)
+			quota = (budget - static) / len(doc.commands)
+			if quota < 2 {
+				return nil, true, fmt.Errorf("orçamento insuficiente para as instruções e os resultados da skill %q", slug)
+			}
 		}
+		body, err := doc.render(ctx, skill, run, false, quota)
+		if err != nil {
+			return nil, true, err
+		}
+		content = before + body + after
 	}
-	sb.WriteString("</invoked_skill>")
-
 	result := &InvocationResult{
 		SkillSlug:   slug,
 		DisplayName: skill.GetDisplayName(),
-		Content:     sb.String(),
+		Content:     content,
 		Arguments:   args,
 		Mode:        mode,
 	}
@@ -156,4 +142,33 @@ func InvokeContext(ctx context.Context, userContent string, mgr InvokerManager, 
 	}
 
 	return result, true, nil
+}
+
+func invocationFrame(skill *Skill, mgr InvokerManager, slug string) (string, string) {
+	var sb strings.Builder
+	sb.WriteString("<invoked_skill>\n## ")
+	sb.WriteString(skill.GetDisplayName())
+	if skill.Type != "" {
+		sb.WriteString(" [")
+		sb.WriteString(skill.Type)
+		sb.WriteString("]")
+	}
+	sb.WriteString("\n")
+	before := sb.String()
+	sb.Reset()
+	sb.WriteString("\n")
+
+	// Progressive file loading: lista arquivos complementares do skill
+	supplementary, _ := mgr.GetSkillFiles(slug)
+	if len(supplementary) > 0 {
+		sb.WriteString("\nSupporting files (use read_file to access when needed):\n")
+		for _, f := range supplementary {
+			sb.WriteString("- `")
+			sb.WriteString(f)
+			sb.WriteString("`\n")
+		}
+	}
+	sb.WriteString("</invoked_skill>")
+
+	return before, sb.String()
 }

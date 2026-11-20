@@ -10,11 +10,13 @@ import (
 
 	"assistente/internal/agent"
 	"assistente/internal/commandcatalog"
+	"assistente/internal/contextprovider"
 	"assistente/internal/logging"
 	"assistente/internal/skills"
 	"assistente/internal/toolinvocations"
 	"assistente/internal/tools"
 	"assistente/internal/tools/invocationctx"
+	"assistente/internal/tools/shell"
 	skillloadertool "assistente/internal/tools/skillloader"
 )
 
@@ -62,9 +64,7 @@ func (a *App) runSkillCommand(ctx context.Context, skill *skills.Skill, command 
 	if skill.Tools != nil {
 		ec.AllowedTools = skill.Tools.Allowed
 		ec.DeniedTools = skill.Tools.Denied
-		if skill.Tools.BashCommands != nil {
-			ec.DeniedBash = skill.Tools.BashCommands.Denied
-		}
+		// Os programas declarados pela skill já passaram por commandpolicy.
 	}
 	ctx = tools.WithExecutionContext(ctx, ec)
 	args, err := json.Marshal(map[string]any{"command": command, "timeout_seconds": int(skills.DefaultCommandTimeout.Seconds())})
@@ -89,6 +89,9 @@ func (a *App) runSkillCommand(ctx context.Context, skill *skills.Skill, command 
 		SensitivePaths:        commandcatalog.SensitivePaths{Output: []string{""}},
 		RequireCompleteResult: true, ExecutionMaxResultSize: skills.MaxCommandOutputSize,
 	})
+	if failure := receipt.Execution.Result.Failure; failure != nil && failure.Code == shell.FailureCommandRefused {
+		return "", fmt.Errorf("skill %q: %w", skill.Slug, contextprovider.ErrCommandRefused)
+	}
 	if !receipt.Persisted {
 		logging.Warnf(ctx, "app.app-skills", "Skill %q, chamada %s: falha de persistência", skill.Slug, id)
 		return "", fmt.Errorf("falha ao registrar o comando da skill %q", skill.Slug)

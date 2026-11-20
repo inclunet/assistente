@@ -26,8 +26,7 @@ durante a navegação, e a opção ativa é anunciada pelo leitor de telas.
 
 ## Gestão
 
-Uma linha iniciada por `!` no corpo de uma skill base ou invocada por barra
-pede a execução de um comando durante a preparação do turno. O comando precisa
+Use um ponto de exclamação seguido de um comando entre crases para declarar uma execução. A forma legada sem crases é reconhecida quando começa pelo nome de um programa declarado em `bashCommands.allowed`. Imagens, exclamações no texto e exemplos em blocos cercados por crases ou tis permanecem no Markdown. O comando precisa
 estar no escopo da skill e o perfil precisa permitir a ferramenta de shell.
 O Assistente consulta a política do comando no contexto da conversa. Quando
 é preciso decidir, o diálogo de shell mostra o comando, o diretório e as
@@ -45,4 +44,8 @@ Built-ins incluem `coding`, `job-manager` e outras já sem templates.
 
 Uma imagem Markdown permanece no conteúdo da skill. Nas skills base selecionadas para o turno, quando o perfil não disponibiliza o shell ou o programa solicitado fica fora da política da skill, o Assistente omite a linha de comando e mantém as demais instruções. Uma recusa de autorização interrompe o turno. Para usar um comando, a skill precisa permitir tanto o programa em `bashCommands.allowed` quanto a ferramenta `run_command`, caso declare uma lista de ferramentas permitidas. O editor avisa quando essas permissões entram em conflito. Se a origem impõe uma lista de linhas de comando, apenas as linhas autorizadas por ela podem ser executadas. Uma nova tentativa explícita consulta novamente a política vigente.
 
-Para uma skill invocada por barra, o orçamento de contexto de **Slash Skill** precisa comportar o bloco de instruções, mesmo que o resultado do shell precise ser truncado. Com um orçamento menor, o Assistente interrompe a preparação antes de solicitar autorização ou executar o comando.
+A skill base é preparada uma vez a cada tentativa de envio, antes do primeiro comando da skill por barra. Se o programa falhar, atingir o timeout de cinco segundos ou produzir saída excessiva, o Assistente omite a linha da base e conserva as demais instruções. Uma falha na execução da skill por barra interrompe a invocação. Em ambos os casos, uma recusa do usuário ou negativa vigente interrompe o turno.
+
+O orçamento de **Slash Skill** reserva espaço para todas as instruções estáticas, os argumentos, a lista de arquivos e uma parcela da saída de cada comando. Quando essa reserva não cabe, a preparação termina antes da autorização. Uma saída que excede a parcela disponível aparece abreviada com reticências.
+
+Mensagens de canais conectados também podem chegar à preparação do turno. Nas linhas de shell que usam argumentos, use letras, números, espaços ou pontuação simples de nomes e caminhos. Aspas e operadores de shell fornecidos nos argumentos impedem a execução. O editor grava as permissões no formato estruturado `tools`, inclusive ao salvar uma skill importada que usava `allowed-tools`.

@@ -2,6 +2,9 @@ import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { SkillToolsSection } from './SkillToolsSection';
 
+const announce = vi.hoisted(() => vi.fn());
+vi.mock('../../hooks/useAnnouncer', () => ({ useAnnouncer: () => ({ announce }) }));
+
 vi.mock('react-i18next', () => ({
   initReactI18next: { type: '3rdParty', init: () => {} },
   useTranslation: () => ({
@@ -25,6 +28,16 @@ describe('SkillToolsSection', () => {
     expect(screen.queryByText('skills.toolsSection.shellConflict')).toBeNull();
     rerender(<SkillToolsSection toolsString="run_command" declaresShellPrograms deniesShell onToolsChange={vi.fn()} />);
     expect(screen.getByText('skills.toolsSection.shellConflict')).toBeInTheDocument();
+  });
+
+  it('descreve o conflito inicial e anuncia uma nova incompatibilidade durante a edição', () => {
+    announce.mockClear();
+    const { rerender } = render(<SkillToolsSection toolsString="read_file" declaresShellPrograms onToolsChange={vi.fn()} />);
+    expect(screen.getByRole('textbox')).toHaveAccessibleDescription('skills.toolsSection.shellConflict');
+    expect(announce).not.toHaveBeenCalled();
+    rerender(<SkillToolsSection toolsString="run_command" declaresShellPrograms onToolsChange={vi.fn()} />);
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'read_file' } });
+    expect(announce).toHaveBeenCalledTimes(1);
   });
 
   it('renderiza string de ferramentas e dica', () => {

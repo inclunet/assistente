@@ -1,7 +1,6 @@
 package shell
 
 import (
-	"assistente/internal/logging"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -12,12 +11,15 @@ import (
 
 	"assistente/internal/allowlist"
 	"assistente/internal/commandpolicy"
+	"assistente/internal/logging"
 	"assistente/internal/terminal"
 	"assistente/internal/tools"
 	"assistente/internal/tools/invocationctx"
 )
 
 const (
+	// FailureCommandRefused identifica uma decisão de autorização definitiva para esta tentativa.
+	FailureCommandRefused = "shell_command_refused"
 	// defaultTimeout é o timeout padrão para execução de comandos (15s)
 	defaultTimeout = 15 * time.Second
 
@@ -224,6 +226,7 @@ func (rc *RunCommand) Execute(ctx context.Context, args json.RawMessage) (tools.
 		// nunca interpolamos pattern bruto, subcommands/args/description que o
 		// usuario possa ter colocado na allowlist com dados sensiveis.
 		return tools.ToolResult{
+			Failure: &tools.ToolFailure{Code: FailureCommandRefused, Kind: tools.ErrorKindAuthorization},
 			Content: fmt.Sprintf("Comando bloqueado pela política de comandos: %s\nMotivos: %s", commandSummary, strings.Join(policyResult.Reasons, "; ")),
 			IsError: true,
 		}, nil
@@ -246,6 +249,7 @@ func (rc *RunCommand) Execute(ctx context.Context, args json.RawMessage) (tools.
 			// Mesmo motivo do deny acima: a string vai para o LLM, nao
 			// repetimos o comando bruto aqui.
 			return tools.ToolResult{
+				Failure: &tools.ToolFailure{Code: FailureCommandRefused, Kind: tools.ErrorKindAuthorization},
 				Content: fmt.Sprintf("Comando negado pelo usuário: %s", commandSummary),
 				IsError: true,
 			}, nil

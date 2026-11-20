@@ -63,7 +63,7 @@ Entrada própria no menu principal, no mesmo nível de Jobs. **Instalados** abre
 Preparação da fase 1: a execução de comandos embutidos em skills pelo chat
 usa a autorização de shell do AEP-0117 e o executor de invocações do turno.
 Testes de regressão em `internal/skills/command_turn_test.go` exercitam
-recusa, argumentos como texto e reconstrução do prompt sem repetir a execução. O caso POSIX de `TestSkillCommandInAdmittedTurn` usa o terminal real com saída sem quebra de linha.
+recusa, expansão de argumentos no texto e reconstrução do prompt sem repetir a execução. O caso POSIX de `TestSkillCommandInAdmittedTurn` usa o terminal real com saída sem quebra de linha.
 A instalação de pacotes e as demais entregas das fases abaixo permanecem pendentes.
 
 1. Contrato de pacote, instalação local, identidade, inventário no banco, recuperação e primeira instalação de skill e MCP.
@@ -72,7 +72,9 @@ A instalação de pacotes e as demais entregas das fases abaixo permanecem pende
 4. Extensões próprias e portabilidade de definições, incluindo dependências, atualização e preservação dos dados de trabalho.
 5. Builder e validação do pacote produzido em outra conta. Documentar cada entrega visível em `docs/content` e registrar evidências neste AEP e no índice.
 
-O teste `TestBaseSkillUnavailableShellPreservesMarkdownAndInstructions` cobre a preservação de imagens e instruções de skills base quando o perfil não oferece shell ou a skill não declara programas permitidos. Uma recusa na autorização de comandos continua interrompendo a execução. A reconstrução do prompt usa o cache da preparação corrente. Uma nova tentativa explícita passa novamente pela política de comandos. O teste `TestSlashCommandRequiresActiveProviderAndShellAccess` verifica também que um orçamento incapaz de acomodar o bloco truncado impede a execução do comando antes da autorização.
+A base é preparada por tentativa antes dos comandos de barra. Uma negativa de autorização interrompe o turno. Falhas operacionais omitem a linha da base e descartam saída parcial. **TestBaseSkillOperationalErrorsOmitOnlyCommandLine**, **TestBaseRefusalPrecedesSlashCommand** e **TestSkillCommandInAdmittedTurn** exercitam esses caminhos. O orçamento inclui as instruções expandidas e uma parcela de saída para cada comando antes da autorização (**TestSlashBudgetPreservesInstructionsAroundOutput**). Fora de blocos de código, o parser aceita a diretiva explícita ou a forma legada iniciada por um programa declarado. Argumentos interpolados em comandos têm conjunto de caracteres restrito antes da avaliação da política. Em prosa, permanecem texto.
+
+O protocolo compartilhado do terminal exige uma linha de status completa e numérica, tolera espaços e usa o modo ConPTY definido na criação do marcador. O wrapper preserva o status de executáveis nativos que escrevem em stderr no Windows PowerShell e sinaliza falhas de cmdlets. A mudança também se aplica a run_command fora de skills.
 
 ## Riscos
 

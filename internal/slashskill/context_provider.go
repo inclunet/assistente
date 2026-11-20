@@ -51,12 +51,6 @@ func (p *ContextProvider) Build(_ context.Context, req contextprovider.BuildRequ
 	}}, nil
 }
 
-// CanIncludeCommandResult reports whether the invoked_skill block can survive truncation
-// for any command output. The exact output length is unknown until execution.
-func CanIncludeCommandResult(budget int) bool {
-	return budget >= contextprovider.MinimalTaggedBlockLen("invoked_skill", slashSkillTruncationNotice)
-}
-
 func outerTag(content string) string {
 	if !strings.HasPrefix(content, "<") {
 		return ""

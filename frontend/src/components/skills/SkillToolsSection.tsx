@@ -1,4 +1,3 @@
-import { useEffect } from 'react';
 import { useAnnouncer } from '../../hooks/useAnnouncer';
 import { useTranslation } from 'react-i18next';
 
@@ -16,13 +15,13 @@ export function SkillToolsSection({
   onToolsChange,
 }: SkillToolsSectionProps) {
   const { t } = useTranslation();
-  const allowed = toolsString.split(',').map(name => name.trim()).filter(Boolean);
-  const shellConflict = declaresShellPrograms && (deniesShell || (allowed.length > 0 && !allowed.includes('run_command')));
+  function conflictsWithShell(value: string) {
+    const allowed = value.split(',').map(name => name.trim()).filter(Boolean);
+    return declaresShellPrograms && (deniesShell || (allowed.length > 0 && !allowed.includes('run_command')));
+  }
+  const shellConflict = conflictsWithShell(toolsString);
   const { announce } = useAnnouncer();
-  const warning = shellConflict ? t('skills.toolsSection.shellConflict') : '';
-  useEffect(() => {
-    if (warning) announce(warning);
-  }, [announce, warning]);
+  const warning = t('skills.toolsSection.shellConflict');
   return (
     <section className="skills-section" data-testid="skill-tools-section">
       <h3 className="skills-section__title">{t('skills.toolsSection.title')}</h3>
@@ -37,10 +36,14 @@ export function SkillToolsSection({
             className="skills-field__input"
             aria-describedby={shellConflict ? 'sk-shell-conflict' : undefined}
             value={toolsString}
-            onChange={(e) => onToolsChange(e.target.value)}
+            onChange={(e) => {
+              const next = e.target.value;
+              if (!shellConflict && conflictsWithShell(next)) announce(warning);
+              onToolsChange(next);
+            }}
             placeholder={t('skills.toolsSection.placeholder')}
           />
-          {shellConflict && <p id="sk-shell-conflict">{warning}</p>}
+          {shellConflict && <p id="sk-shell-conflict" className="skills-field-warning">{warning}</p>}
           <span className="skills-field__hint">
             {t('skills.toolsSection.hint')}
           </span>

@@ -1,11 +1,16 @@
 package contextprovider
 
 import (
-	"assistente/internal/logging"
 	"context"
+	"errors"
 	"sort"
 	"strings"
+
+	"assistente/internal/logging"
 )
+
+// ErrCommandRefused signals an authorization decision that stops prompt preparation.
+var ErrCommandRefused = errors.New("execução do comando recusada")
 
 type Registry struct {
 	providers []Provider
@@ -72,6 +77,9 @@ func (r *Registry) Build(ctx context.Context, req BuildRequest) ([]Block, error)
 		providerBlocks, err := provider.Build(ctx, req)
 		blocks = appendProviderBlocks(blocks, provider.Name(), providerBlocks)
 		if err != nil {
+			if errors.Is(err, ErrCommandRefused) {
+				return nil, err
+			}
 			logging.Errorf(ctx, "contextprovider.registry", "[context/providers] provider %q ignorado após erro: %v", provider.Name(), err)
 			continue
 		}

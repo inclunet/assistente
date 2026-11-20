@@ -1,7 +1,6 @@
 package skills
 
 import (
-	"assistente/internal/osutil"
 	"bytes"
 	"context"
 	"errors"
@@ -9,6 +8,8 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	"assistente/internal/osutil"
 )
 
 func TestPreprocessCommands_BasicEcho(t *testing.T) {
@@ -58,7 +59,7 @@ func TestPreprocessCommands_FailedCommandDoesNotEchoCommand(t *testing.T) {
 }
 
 func TestPreprocessCommands_BlockedCommand(t *testing.T) {
-	content := "!echo blocked"
+	content := "!`echo blocked`"
 	result := renderWithLocalShell(content, []string{"git", "ls"})
 	if !strings.Contains(result, "comando bloqueado para a skill") {
 		t.Errorf("expected blocked error, got: %q", result)
@@ -171,7 +172,7 @@ func TestStripBackticks(t *testing.T) {
 // --- Default-deny e integração com commandpolicy (issue #235) ---
 
 func TestPreprocessCommands_NilAllowlistBlocksAll(t *testing.T) {
-	content := "!echo should-not-run"
+	content := "!`echo should-not-run`"
 	result := renderWithLocalShell(content, nil)
 	if !strings.Contains(result, "comando bloqueado para a skill") {
 		t.Errorf("nil allowlist must block all commands (default-deny), got: %q", result)
@@ -183,7 +184,7 @@ func TestPreprocessCommands_NilAllowlistBlocksAll(t *testing.T) {
 }
 
 func TestPreprocessCommands_EmptyAllowlistBlocksAll(t *testing.T) {
-	content := "!echo should-not-run"
+	content := "!`echo should-not-run`"
 	result := renderWithLocalShell(content, []string{})
 	if !strings.Contains(result, "comando bloqueado para a skill") {
 		t.Errorf("empty allowlist must block all commands (default-deny), got: %q", result)
@@ -234,7 +235,7 @@ func TestPreprocessCommands_ShellFeaturesBlocked(t *testing.T) {
 		{"redirect output", "!echo a > out.txt", []string{"echo"}},
 		{"redirect append", "!echo a >> out.txt", []string{"echo"}},
 		{"command substitution", "!echo $(whoami)", []string{"echo"}},
-		{"env assignment", "!FOO=bar echo x", []string{"echo"}},
+		{"env assignment", "!`FOO=bar echo x`", []string{"echo"}},
 		{"background", "!echo a &", []string{"echo"}},
 	}
 	for _, tc := range cases {
