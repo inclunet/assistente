@@ -2,6 +2,7 @@ import { useWorkspaceList } from '../workspace/useWorkspaceList';
 import { WorkspaceListDialog } from '../workspace/WorkspaceListDialog';
 import { isProviderSettingsPath } from '../../lib/commandAppPage';
 import { logger } from '../../utils/logger';
+import { beginLocalPaletteDiagnostic } from '../../lib/commandLocalDiagnostics';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
@@ -1788,6 +1789,7 @@ export function Topbar() {
       const ids = bindings ? new Set(bindings.map((binding) => binding.commandId)) : new Set<string>(WORKSPACE_TAB_CREATE_COMMAND_IDS);
       const failCatalogLoad = (error: unknown) => {
         if (!creationIntentCurrent(intent)) return;
+        beginLocalPaletteDiagnostic('', 'creation_catalog', bindings ? 'keyboard.local' : 'ui.action')('failed');
         cancelCreationMenu();
         logger.error('[Commands] Falha ao carregar comandos de criação', error);
         creationPresentationRef.current.announce(creationPresentationRef.current.t('commandPalette.error'));
@@ -1813,9 +1815,11 @@ export function Topbar() {
         const shown = tabCreationMenu.show({ origin: bindings ? 'keyboard' : 'toolbar', intent, items }, (commandID, selectedIntent) => {
           if (selectedIntent !== intent || !creationIntentCurrent(intent) ||
               !items.some((item) => item.commandID === commandID && !item.disabled)) {
+            beginLocalPaletteDiagnostic(commandID, 'creation_selection', bindings ? 'keyboard.local' : 'ui.action')('cancelled');
             cancelCreationMenu();
             return;
           }
+          beginLocalPaletteDiagnostic(commandID, 'creation_selection', bindings ? 'keyboard.local' : 'ui.action')('succeeded');
           closeCreationMenu(true);
           localCommandKeyboardRef.current?.cancelSequence();
           // Click/Enter are palette selections, never synthetic key events.
@@ -3089,6 +3093,7 @@ export function Topbar() {
       (currentWorkspace?.activeTabId ?? null) === intent.activeTabId &&
       commandRouteIdentityRef.current === intent.routeIdentity;
     if (!intentStillCurrent || !commandPickerMountedRef.current || isModalOpen()) {
+      if (intent && isLocalUICommand(intent.commandID)) beginLocalPaletteDiagnostic(intent.commandID)('cancelled');
       pendingPageMutationRef.current?.dispose(); pendingPageMutationRef.current = null;
       pendingMermaidRef.current?.dispose(); pendingMermaidRef.current = null;
       pendingEditorFormatTargetRef.current?.dispose();
@@ -3111,6 +3116,7 @@ export function Topbar() {
     // específico (inclusive Mermaid); um alvo capturado não substitui essa
     // revalidação final.
     if (isLocalUICommand(intent.commandID) && !hasCurrentLocalPaletteCommand(intent.commandID)) {
+      beginLocalPaletteDiagnostic(intent.commandID)('cancelled');
       pendingMermaidRef.current?.dispose(); pendingMermaidRef.current = null;
       pendingChatMessagingRef.current?.dispose(); pendingChatMessagingRef.current = null;
       pendingCommandExecutionRef.current = null;
@@ -3177,6 +3183,7 @@ export function Topbar() {
       return;
     }
     if (isLocalUICommand(intent.commandID) && !isChatMessagingCommand(intent.commandID)) {
+      const reportLocal = beginLocalPaletteDiagnostic(intent.commandID);
       const currentAuth = useAuthStore.getState();
       const currentWorkspace = useWorkspaceStore.getState().workspace;
       const mapOwner = localKeyboardOwnerRef.current;
@@ -3184,18 +3191,26 @@ export function Topbar() {
           !currentAuth.isAuthenticated || !currentAuth.user || !currentWorkspace || !mapOwner ||
           mapOwner.ownerId !== currentAuth.user.userId || mapOwner.sessionId !== currentAuth.user.sessionId ||
           mapOwner.workspaceId !== currentWorkspace.id) {
+        reportLocal('cancelled');
         activeCommandIntentRef.current = null;
         return;
       }
       // A paleta já capturou a instância e o alvo antes de abrir sua busca.
       // Ausência/invalidação dessa lease nunca permite procurar outra origem.
-      if (isCapturedPresentationCommand(intent.commandID)) {
-        const target = palettePresentationCommandsRef.current.get(intent.commandID);
-        if (target) executeLocalUICommand(intent.commandID, false, target);
-      } else if (isLandmarkNavigationCommand(intent.commandID)) {
-        if (paletteLandmarkTargetRef.current) executeLocalUICommand(intent.commandID, false, paletteLandmarkTargetRef.current);
-      } else if ((!isChatPickerCommand(intent.commandID) && !isEditorPresentationCommand(intent.commandID)) || paletteSurfaceTargetRef.current) {
-        executeLocalUICommand(intent.commandID, false, paletteSurfaceTargetRef.current, intent.arguments);
+      let accepted = false;
+      try {
+        if (isCapturedPresentationCommand(intent.commandID)) {
+          const target = palettePresentationCommandsRef.current.get(intent.commandID);
+          if (target) accepted = executeLocalUICommand(intent.commandID, false, target);
+        } else if (isLandmarkNavigationCommand(intent.commandID)) {
+          if (paletteLandmarkTargetRef.current) accepted = executeLocalUICommand(intent.commandID, false, paletteLandmarkTargetRef.current);
+        } else if ((!isChatPickerCommand(intent.commandID) && !isEditorPresentationCommand(intent.commandID)) || paletteSurfaceTargetRef.current) {
+          accepted = executeLocalUICommand(intent.commandID, false, paletteSurfaceTargetRef.current, intent.arguments);
+        }
+        reportLocal(accepted ? 'succeeded' : 'cancelled');
+      } catch (error) {
+        reportLocal('failed');
+        throw error;
       }
       if (activeCommandIntentRef.current === intent) activeCommandIntentRef.current = null;
       return;
