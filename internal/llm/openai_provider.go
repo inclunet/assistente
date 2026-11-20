@@ -77,6 +77,7 @@ func NewOpenAIResponsesProvider(provider *ProviderConfig, credMgr *credentials.M
 func newOpenAIProviderBase(provider *ProviderConfig, credMgr *credentials.Manager, useResponses bool) *OpenAIProvider {
 	httpClient := newHTTPClientForProvider(provider, credMgr)
 	streamHTTPClient := newStreamingHTTPClientForProvider(provider, credMgr)
+	streamHTTPClient.Transport = streamDiagnosticTransport{base: streamHTTPClient.Transport}
 
 	opts := []option.RequestOption{
 		option.WithHTTPClient(httpClient),
