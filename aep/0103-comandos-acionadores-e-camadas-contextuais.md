@@ -207,6 +207,17 @@ A remontagem por workspace também reconcilia recibos elegíveis da própria
 sessão antes da projeção/preflight, pela mesma rotina autenticada do login e
 do hot-swap. O teste de remontagem inclui confirmação aceita já vencida.
 
+**Diagnóstico de execução de comandos: In Progress.** A reserva UI compartilhada,
+o handoff e a confirmação de mutações do workspace registram etapas e resultados
+com ID de invocação, origem, duração e classificação de erro redigida. Comandos
+duráveis da paleta também registram seu resultado; ações locais selecionadas
+na paleta informam apenas sucesso, cancelamento ou falha de apresentação.
+Argumentos, tickets, conteúdo, caminhos e mensagens arbitrárias não são
+registrados. Uma fila limitada evita espera pelo disco; sob saturação, o
+diagnóstico pode ser descartado e nunca impede ou repete a ação. A cobertura
+não inclui gestos nem todo ingresso local fora da paleta; validação na instalação
+que apresentou a falha continua pendente.
+
 **Contenção ao configurar comandos (16/10/2026): In Progress.** O coordenador
 aplica recuo de 30s até 5min após falha na retenção/compactação, sem atrasar
 heartbeat, outbox ou recuperação. A pausa não muda autorização, proteção de
