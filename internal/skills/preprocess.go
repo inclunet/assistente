@@ -15,6 +15,7 @@ import (
 	"github.com/yuin/goldmark"
 	"github.com/yuin/goldmark/ast"
 	"github.com/yuin/goldmark/text"
+	"golang.org/x/net/html"
 
 	"assistente/internal/allowlist"
 	"assistente/internal/commandpolicy"
@@ -69,9 +70,8 @@ type commandDocument struct {
 	commands []commandLine
 }
 
-var preformattedHTML = regexp.MustCompile(`(?i)^[ \t]*<pre(?:[ \t\r\n>]|$)`)
 var shellArgumentReference = regexp.MustCompile(`\$(?:ARGUMENTS|[0-9]+)`)
-var shellPosition = regexp.MustCompile(`\$(?:ARGUMENTS\[([0-9]+)\]|([0-9]+))`)
+var shellPosition = regexp.MustCompile(`\$(?:ARGUMENTS\[([0-9]+)\]|ARGUMENTS\[|([0-9]+))`)
 var parentArgumentSegment = regexp.MustCompile(`(?:^|[ /\\=:"'])\.\.(?:[ /\\:"']|$)`)
 var shellArgumentText = regexp.MustCompile(`^(?:[\pL\pN._][\pL\pN._/-]*(?: +[\pL\pN._][\pL\pN._/-]*)*)?$`)
 
@@ -83,17 +83,65 @@ func codeLineStarts(content string) map[int]bool {
 	source := []byte(content)
 	root := goldmark.DefaultParser().Parse(text.NewReader(source))
 	starts := make(map[int]bool)
+	// O CommonMark delimita os trechos HTML; o tokenizador distingue tags de
+	// comentários, valores de atributos e texto cru em script/style. Um <pre>
+	// pode atravessar mais de um nó Markdown, por exemplo após uma linha vazia.
+	preStart := -1
+	markPre := func(end int) {
+		for pos := preStart; pos < end; {
+			next := bytes.IndexByte(source[pos:end], '\n')
+			if next < 0 {
+				break
+			}
+			pos += next + 1
+			starts[pos] = true
+		}
+	}
+	scanHTML := func(start, end int) {
+		tokens := html.NewTokenizer(bytes.NewReader(source[start:end]))
+		for offset := start; ; {
+			kind := tokens.Next()
+			if kind == html.ErrorToken {
+				return
+			}
+			size := len(tokens.Raw())
+			if kind == html.StartTagToken || kind == html.EndTagToken || kind == html.SelfClosingTagToken {
+				tag, _ := tokens.TagName()
+				if bytes.EqualFold(tag, []byte("pre")) {
+					if kind == html.EndTagToken && preStart >= 0 {
+						markPre(offset)
+						preStart = -1
+					} else if kind != html.EndTagToken && preStart < 0 {
+						preStart = offset
+					}
+				}
+			}
+			offset += size
+		}
+	}
 	_ = ast.Walk(root, func(node ast.Node, entering bool) (ast.WalkStatus, error) {
 		if !entering {
 			return ast.WalkContinue, nil
 		}
 		literal := node.Kind() == ast.KindFencedCodeBlock || node.Kind() == ast.KindCodeBlock
-		if block, ok := node.(*ast.HTMLBlock); ok && block.HTMLBlockType == ast.HTMLBlockType1 && block.Lines().Len() > 0 {
-			first := block.Lines().At(0)
-			literal = preformattedHTML.Match(first.Value(source))
-			if literal && block.HasClosure() {
-				starts[bytes.LastIndexByte(source[:block.ClosureLine.Start], '\n')+1] = true
+		switch n := node.(type) {
+		case *ast.Text:
+			// Goldmark cria um segmento por linha do code span. A primeira
+			// linha pode ter uma diretiva antes das crases, como !`echo ok`.
+			if node.Parent().Kind() == ast.KindCodeSpan && node.PreviousSibling() != nil {
+				starts[bytes.LastIndexByte(source[:n.Segment.Start], '\n')+1] = true
 			}
+		case *ast.HTMLBlock:
+			if lines := n.Lines(); lines.Len() > 0 {
+				end := lines.At(lines.Len() - 1).Stop
+				if n.HasClosure() {
+					end = n.ClosureLine.Stop
+				}
+				scanHTML(lines.At(0).Start, end)
+			}
+		case *ast.RawHTML:
+			segments := n.Segments
+			scanHTML(segments.At(0).Start, segments.At(segments.Len()-1).Stop)
 		}
 		if literal {
 			for i := 0; i < node.Lines().Len(); i++ {
@@ -103,6 +151,9 @@ func codeLineStarts(content string) map[int]bool {
 		}
 		return ast.WalkContinue, nil
 	})
+	if preStart >= 0 {
+		markPre(len(source))
+	}
 	return starts
 }
 
@@ -115,8 +166,9 @@ func validInterpolatedCommand(rawArgs, template string, expand func(string) stri
 	if positions := shellPosition.FindAllStringSubmatch(template, -1); len(positions) > 0 {
 		count := len(parseArgs(rawArgs))
 		for _, pos := range positions {
-			index, err := strconv.Atoi(pos[1] + pos[2])
-			if err != nil || index >= count {
+			digits := pos[1] + pos[2]
+			index, err := strconv.Atoi(digits)
+			if err != nil || index >= count || strconv.Itoa(index) != digits {
 				return false
 			}
 		}

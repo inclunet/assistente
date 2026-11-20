@@ -3,10 +3,13 @@ package skills
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
 
+	"assistente/internal/configdir"
 	"assistente/internal/contextprovider"
 )
 
@@ -520,5 +523,90 @@ func TestExplicitCommandRefusalPrecedesConcurrentCancellation(t *testing.T) {
 				t.Fatalf("chamadas=%d", calls)
 			}
 		})
+	}
+}
+
+func TestPreparedFilesFollowOriginalSourceForLateSelection(t *testing.T) {
+	root := t.TempDir()
+	for _, origin := range []string{"home", "workdir"} {
+		dir := filepath.Join(root, origin, "report")
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte("---\nname: report\n---\n"+origin), 0600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, origin+".md"), []byte("aux"), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mgr := &Manager{resolver: configdir.NewResolverWithBase(filepath.Join(root, "home"))}
+	p := NewContextProvider(mgr)
+	ctx := WithCommandTurn(t.Context(), nil)
+	if _, err := p.Build(ctx, contextprovider.BuildRequest{DisableSkills: true}); err != nil {
+		t.Fatal(err)
+	}
+	mgr.resolver = configdir.NewResolverWithBase(filepath.Join(root, "workdir"))
+	mgr.invalidateFullSkillsCache()
+	req := contextprovider.BuildRequest{EnabledSkills: []string{"report"}, ToolCallingEnabled: true}
+	for _, test := range []struct {
+		ctx          context.Context
+		want, reject string
+	}{
+		{ctx, "home.md", "workdir.md"}, {WithCommandTurn(t.Context(), nil), "workdir.md", "home.md"},
+	} {
+		blocks, err := p.Build(test.ctx, req)
+		if err != nil || len(blocks) != 1 || !strings.Contains(blocks[0].Content, test.want) || strings.Contains(blocks[0].Content, test.reject) {
+			t.Fatalf("esperado %q: %v, %v", test.want, blocks, err)
+		}
+	}
+}
+
+func TestNestedHTMLPreKeepsOnlyExamplesLiteral(t *testing.T) {
+	content := "<div title='<pre>'>\n<!-- <pre> -->\n!echo before\n<PRE class='example'>\n!echo literal\n\n!echo still-literal\n</PRE>\n!echo sibling\n</div>\n\n!echo outside"
+	for _, base := range []bool{true, false} {
+		s := invocableSkill(content)
+		s.Tools = &ToolPermissions{BashCommands: &BashCommands{Allowed: []string{"echo"}}}
+		var calls []string
+		got, err := renderCommands(t.Context(), s, content, base, func(_ context.Context, _ *Skill, command string) (string, error) {
+			calls = append(calls, command)
+			return "resultado", nil
+		}, nil)
+		if err != nil || !reflect.DeepEqual(calls, []string{"echo before", "echo sibling", "echo outside"}) ||
+			!strings.Contains(got, "!echo literal\n\n!echo still-literal") {
+			t.Fatalf("base=%v chamadas=%v texto=%q erro=%v", base, calls, got, err)
+		}
+	}
+}
+
+func TestSlashCommandRejectsNonCanonicalPositionBeforeAuthorization(t *testing.T) {
+	for _, placeholder := range []string{"$ARGUMENTS[01]", "$01", "$ARGUMENTS[x]", "$ARGUMENTS[1"} {
+		s := invocableSkill("!echo " + placeholder)
+		s.Tools = &ToolPermissions{BashCommands: &BashCommands{Allowed: []string{"echo"}}}
+		ctx := WithCommandTurn(t.Context(), func(context.Context, *Skill, string) (string, error) {
+			t.Fatalf("autorização solicitada para %s", placeholder)
+			return "", nil
+		})
+		result, found, err := InvokeContext(ctx, "/test-skill um dois", &stubInvokerManager{skill: s}, "turn", invocablePolicy(s))
+		if err == nil || result != nil || !found {
+			t.Fatalf("%s: %v, %v, %v", placeholder, result, found, err)
+		}
+	}
+}
+
+func TestMultilineCodeSpanKeepsCommandsLiteral(t *testing.T) {
+	const example = "Exemplo ``início\n!echo literal\n!`echo example`\nfim``."
+	const body = "!`echo before`\n" + example + "\n!echo after"
+	for _, base := range []bool{true, false} {
+		s := invocableSkill(body)
+		s.Tools = &ToolPermissions{BashCommands: &BashCommands{Allowed: []string{"echo"}}}
+		var calls []string
+		got, err := renderCommands(t.Context(), s, body, base, func(_ context.Context, _ *Skill, cmd string) (string, error) {
+			calls = append(calls, cmd)
+			return "saída", nil
+		}, nil)
+		if err != nil || got != "saída\n"+example+"\nsaída" || !reflect.DeepEqual(calls, []string{"echo before", "echo after"}) {
+			t.Fatalf("base=%v chamadas=%v corpo=%q erro=%v", base, calls, got, err)
+		}
 	}
 }

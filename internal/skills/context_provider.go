@@ -44,19 +44,28 @@ func (p *ContextProvider) Metadata() contextprovider.ProviderMetadata {
 // A primeira construção prepara as saídas admitidas. Cada construção aplica
 // a seleção e o orçamento atuais, inclusive a distinção entre seleção nil e vazia.
 type preparedSkillContext struct {
-	ContextProviderSource
+	filesAt func(string) ([]string, error)
 	skills  []Skill
+	paths   map[string]string // caminho do manifesto selecionado na preparação
 	files   map[string][]string
 	outputs map[string]map[int]string // slug e posição da diretiva no documento
 	ready   bool
 	err     error
 }
 
+func (s *preparedSkillContext) GetAllSkillsFull() ([]Skill, error) {
+	return s.skills, s.err
+}
+
 func (s *preparedSkillContext) GetSkillFiles(slug string) ([]string, error) {
 	if files, ok := s.files[slug]; ok {
 		return files, nil
 	}
-	files, err := s.ContextProviderSource.GetSkillFiles(slug)
+	path := s.paths[slug]
+	if path == "" {
+		return nil, nil
+	}
+	files, err := s.filesAt(path)
 	s.files[slug] = slices.Clone(files)
 	return s.files[slug], err
 }
@@ -107,8 +116,25 @@ func (p *ContextProvider) Build(ctx context.Context, req contextprovider.BuildRe
 	if turn.prepared == nil {
 		skills, err := p.source.GetAllSkillsFull()
 		turn.prepared = &preparedSkillContext{
-			ContextProviderSource: p.source, skills: snapshotPromptSkills(skills), err: err,
+			skills: snapshotPromptSkills(skills), err: err,
 			files: make(map[string][]string), outputs: make(map[string]map[int]string),
+		}
+		prepared := turn.prepared
+		if src, ok := p.source.(interface {
+			listSupportingFiles(string) ([]string, error)
+		}); ok {
+			prepared.filesAt = src.listSupportingFiles
+			prepared.paths = make(map[string]string)
+		}
+		for _, skill := range prepared.skills {
+			if prepared.filesAt != nil && skill.Path != "" {
+				// O manager já resolveu a precedência de origem para este slug.
+				prepared.paths[skill.Slug] = skill.Path
+			} else {
+				// Fontes que listam só por slug devem ser lidas enquanto o catálogo é o original.
+				files, _ := p.source.GetSkillFiles(skill.Slug)
+				prepared.files[skill.Slug] = slices.Clone(files)
+			}
 		}
 	}
 	prepared := turn.prepared

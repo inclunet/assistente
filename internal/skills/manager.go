@@ -358,32 +358,35 @@ func (m *Manager) GetSkillFiles(slug string) ([]string, error) {
 			continue
 		}
 
-		skillDir := filepath.Dir(ds.path)
-		var files []string
+		return m.listSupportingFiles(ds.path)
+	}
+	return nil, fmt.Errorf("skill not found: %s", slug)
+}
 
-		err := filepath.Walk(skillDir, func(path string, info os.FileInfo, err error) error {
-			if err != nil {
-				return nil // ignora erros de leitura
-			}
-			if info.IsDir() {
-				return nil
-			}
-			// Ignora o próprio SKILL.md
-			if filepath.Base(path) == skillFile {
-				return nil
-			}
-			files = append(files, path)
-			return nil
-		})
+func (*Manager) listSupportingFiles(skillPath string) ([]string, error) {
+	skillDir := filepath.Dir(skillPath)
+	var files []string
+
+	err := filepath.Walk(skillDir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
-			return nil, fmt.Errorf("failed to list skill files: %w", err)
+			return nil // ignora erros de leitura
 		}
-
-		sort.Strings(files)
-		return files, nil
+		if info.IsDir() {
+			return nil
+		}
+		// Ignora o próprio SKILL.md
+		if filepath.Base(path) == skillFile {
+			return nil
+		}
+		files = append(files, path)
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to list skill files: %w", err)
 	}
 
-	return nil, fmt.Errorf("skill not found: %s", slug)
+	sort.Strings(files)
+	return files, nil
 }
 
 // FilterByNames filtra uma lista de skills pelos identificadores fornecidos.
