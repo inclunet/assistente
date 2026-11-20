@@ -327,13 +327,13 @@ são explicitamente enumerados. Nenhum PR é mergeado pelo agente.
 
 ### Evidências da segunda implementação
 
+Uma resposta pontual negativa encerra a tentativa nos quatro domínios, inclusive quando o contexto termina ou a política fica indisponível logo depois. Um escopo ausente nessa resposta equivale a `once`. Aprovações e decisões persistentes passam pela revalidação. Erros ao obter a resposta chegam ao chamador antes de interpretar efeito ou escopo. Os testes `TestRecusaUnicaSobreviveIndisponibilidadeDaPolitica` e `TestACPRecusaUnicaSobreviveIndisponibilidadeDaPolitica` exercitam o contrato de `authorization.Resolve` com os identificadores dos quatro domínios. A cobertura dos adaptadores depende dos testes de integração de cada domínio.
+
 - O gerenciador de políticas licencia somente `allowlists.create.open` no modal
   proprietário. `Ctrl+N` usa catálogo/binding/resolvedor do AEP-0103, sem listener
   legado; modal filho, IME, logout, supressão e foco externo recusam a ação.
   Testes do mapa backend, integração Topbar e E2E do formulário real cobrem
   abertura por teclado/botão e preservação da edição no modal filho.
-
-Uma resposta pontual negativa encerra a tentativa nos quatro domínios, inclusive quando o contexto termina ou a política fica indisponível logo depois. Um escopo ausente nessa resposta equivale a `once`. Aprovações e decisões persistentes passam pela revalidação. Erros ao obter a resposta chegam ao chamador antes de interpretar efeito ou escopo. O teste `TestRecusaUnicaSobreviveIndisponibilidadeDaPolitica` cobre os quatro domínios.
 
 - `authorization.Resolve` concentra avaliação, pergunta, revalidação, gravação e degradação explícita para uma operação. Rede, filesystem, shell e ACP o utilizam; `questionnaire.AuthorizationActions` fornece IDs e rótulos comuns.
 - `shelltrust` representa operações reconhecidas sem persistir comandos livres; testes cobrem argumentos secretos/compostos, diretório exato, negativas e conversa limpa durante pergunta. O perfil é capturado antes de aguardar consentimento.

@@ -446,8 +446,8 @@ func (e *Executor) finishExecution(ctx, toolCtx context.Context, call ToolCall, 
 		attachSecuritySignals(&cancelled.Result, collector)
 		return cancelled
 	}
-	// Timeout da tool
-	timedOut := ToolExecutionResult{
+	// A decisão já publicada pode ser definitiva mesmo que a entrega termine no prazo do executor.
+	outcome := ToolExecutionResult{
 		CallID:   call.ID,
 		ToolName: toolName,
 		Result: ToolResult{
@@ -461,16 +461,16 @@ func (e *Executor) finishExecution(ctx, toolCtx context.Context, call ToolCall, 
 		DurationMs:        elapsed,
 	}
 	if confirmation != nil {
-		timedOut.Result = boundFailureResult(confirmation.result, e.config.MaxResultSize)
-		timedOut.ErrorKind = confirmation.result.Failure.Kind
-		timedOut.ErrorCode = confirmation.result.Failure.Code
-		timedOut.Retryable = false
+		outcome.Result = boundFailureResult(confirmation.result, e.config.MaxResultSize)
+		outcome.ErrorKind = confirmation.result.Failure.Kind
+		outcome.ErrorCode = confirmation.result.Failure.Code
+		outcome.Retryable = false
 		if confirmation.final {
-			timedOut.Error = nil
+			outcome.Error = nil
 		}
 	}
-	attachSecuritySignals(&timedOut.Result, collector)
-	return timedOut
+	attachSecuritySignals(&outcome.Result, collector)
+	return outcome
 }
 
 func attachSecuritySignals(result *ToolResult, collector *securitySignalCollector) {
