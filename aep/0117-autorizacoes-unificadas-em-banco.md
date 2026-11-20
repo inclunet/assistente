@@ -333,6 +333,8 @@ são explicitamente enumerados. Nenhum PR é mergeado pelo agente.
   Testes do mapa backend, integração Topbar e E2E do formulário real cobrem
   abertura por teclado/botão e preservação da edição no modal filho.
 
+Uma resposta pontual negativa encerra a tentativa nos quatro domínios, inclusive quando o contexto termina ou a política fica indisponível logo depois. Um escopo ausente nessa resposta equivale a `once`. Aprovações e decisões persistentes passam pela revalidação. Erros ao obter a resposta chegam ao chamador antes de interpretar efeito ou escopo. O teste `TestRecusaUnicaSobreviveIndisponibilidadeDaPolitica` cobre os quatro domínios.
+
 - `authorization.Resolve` concentra avaliação, pergunta, revalidação, gravação e degradação explícita para uma operação. Rede, filesystem, shell e ACP o utilizam; `questionnaire.AuthorizationActions` fornece IDs e rótulos comuns.
 - `shelltrust` representa operações reconhecidas sem persistir comandos livres; testes cobrem argumentos secretos/compostos, diretório exato, negativas e conversa limpa durante pergunta. O perfil é capturado antes de aguardar consentimento.
 - Terminais persistentes não consultam nem criam concessões reutilizáveis: o diretório inicial não comprova o diretório após um `cd`. A regressão executa chamadas via `RunCommand`, confirma cada operação e preserva a concessão para execução efêmera.

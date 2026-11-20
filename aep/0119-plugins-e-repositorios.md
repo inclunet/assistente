@@ -82,7 +82,7 @@ Fora de blocos de código, a diretiva pode ser explícita ou começar por um pro
 
 #### Classificação das falhas
 
-Uma negativa expressa do usuário ou da política usa `shell_command_refused` e interrompe o turno. Se faltar confirmação, o código é `shell_confirmation_unavailable`. Falhas de política ou de diretório usam `shell_prerequisite_unavailable`. A base omite a linha e sua saída parcial nesses casos; a barra encerra a invocação. Expirar o prazo durante a confirmação não permite repetição automática.
+Uma negativa expressa do usuário ou da política usa `shell_command_refused` e interrompe o turno. Se faltar confirmação, o código é `shell_confirmation_unavailable`. Falhas de política ou de diretório usam `shell_prerequisite_unavailable`. A base omite a linha e sua saída parcial nesses casos; a barra encerra a invocação. Fechar o diálogo pela ação de cancelar conta como negativa pontual. O fechamento automático por prazo sem resposta devolve erro de confirmação indisponível. Expirar o prazo durante a confirmação não permite repetição automática.
 
 Os testes `TestBaseSkillOperationalErrorsOmitOnlyCommandLine`, `TestBaseRefusalPrecedesSlashCommand` e `TestSkillCommandInAdmittedTurn` cobrem essas decisões.
 

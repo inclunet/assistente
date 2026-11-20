@@ -453,7 +453,7 @@ func TestExecutorTimeoutDuringShellConfirmationDoesNotRetry(t *testing.T) {
 	defer close(release)
 	rc := NewRunCommand(nil, func(ctx context.Context, _, _ string) (bool, error) {
 		<-ctx.Done()
-		<-release // o executor vence antes de confirmFn devolver
+		<-release // A goroutine fica aqui até o defer fechar release depois da verificação do timeout.
 		return false, ctx.Err()
 	}, nil, t.TempDir())
 	reg := tools.NewRegistry()
