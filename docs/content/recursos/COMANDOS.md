@@ -344,6 +344,9 @@ resultado e classificação do erro. O registro não inclui argumentos nem o
 conteúdo da conversa. A gravação é oportunista e pode ser descartada quando a
 fila de diagnóstico estiver cheia.
 
+Para uma ação local, `status=accepted` indica que a interface aceitou a ação;
+uma persistência em segundo plano ainda pode falhar ou ser revertida.
+
 O menu **Nova aba**, aberto por **Ctrl+N**, não fecha por tempo. Você pode
 esperar e depois escolher com a letra indicada, setas e Enter ou clique.
 **Escape** cancela e devolve o foco ao botão. Sair do contexto, abrir um modal

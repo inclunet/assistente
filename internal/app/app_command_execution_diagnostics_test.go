@@ -57,6 +57,29 @@ func TestCommandExecutionDiagnosticsFullQueueDoesNotWait(t *testing.T) {
 	}
 }
 
+func TestCommandExecutionDiagnosticsBeginAdmissionFailure(t *testing.T) {
+	a := readyCommandProduct(t)
+	if err := a.commandProduct.Load().host.SetVaultUnlocked(context.Background(), false); err != nil {
+		t.Fatal(err)
+	}
+	b := captureCommandLoadLogs(t)
+	if _, err := a.BeginUICommand(commandWorkspaceTabChatCreateID); err == nil {
+		t.Fatal("comando aceito com cofre bloqueado")
+	}
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		for _, line := range strings.Split(b.text(), "\n") {
+			if strings.Contains(line, `"stage":"admission"`) && strings.Contains(line, commandWorkspaceTabChatCreateID) && strings.Contains(line, `"error_class":`) {
+				return
+			}
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("recusa anterior à reserva não foi registrada")
+		}
+		time.Sleep(time.Millisecond)
+	}
+}
+
 func waitDiagnostic(t *testing.T, b *commandLoadLogBuffer, needle string) {
 	t.Helper()
 	deadline := time.Now().Add(3 * time.Second)
@@ -120,6 +143,17 @@ func TestCommandExecutionDiagnosticsUnknownCommandAndLocalPalette(t *testing.T) 
 		t.Fatal(err)
 	}
 	waitDiagnostic(t, b, id)
+	acceptedID := uuid.NewString()
+	if err := a.ReportLocalPaletteCommand("workspace.tab.next", acceptedID, "accepted", 1, "local_ui", "palette"); err != nil {
+		t.Fatal(err)
+	}
+	waitDiagnostic(t, b, acceptedID)
+	if !strings.Contains(b.text(), `"status":"accepted"`) {
+		t.Fatal("aceitação local ausente")
+	}
+	if err := a.ReportLocalPaletteCommand(commandWorkspaceTabChatCreateID, uuid.NewString(), "accepted", 1, "creation_selection", "keyboard.local"); err == nil {
+		t.Fatal("aceitação em etapa inválida foi permitida")
+	}
 	if strings.Contains(b.text(), secret) {
 		t.Fatal("comando desconhecido foi registrado literalmente")
 	}

@@ -1785,9 +1785,10 @@ export function Topbar() {
       if (!tabCreationMenu || !canShowCreationMenu) return false;
       const openingFocus = document.activeElement;
       const ids = bindings ? new Set(bindings.map((binding) => binding.commandId)) : new Set<string>(WORKSPACE_TAB_CREATE_COMMAND_IDS);
+      const reportCatalog = beginLocalPaletteDiagnostic('', 'creation_catalog', bindings ? 'keyboard.local' : 'ui.action');
       const failCatalogLoad = (error: unknown) => {
         if (!creationIntentCurrent(intent)) return;
-        beginLocalPaletteDiagnostic('', 'creation_catalog', bindings ? 'keyboard.local' : 'ui.action')('failed');
+        reportCatalog('failed');
         cancelCreationMenu();
         logger.error('[Commands] Falha ao carregar comandos de criação', error);
         creationPresentationRef.current.announce(creationPresentationRef.current.t('commandPalette.error'));
@@ -3205,7 +3206,7 @@ export function Topbar() {
         } else if ((!isChatPickerCommand(intent.commandID) && !isEditorPresentationCommand(intent.commandID)) || paletteSurfaceTargetRef.current) {
           accepted = executeLocalUICommand(intent.commandID, false, paletteSurfaceTargetRef.current, intent.arguments);
         }
-        reportLocal(accepted ? 'succeeded' : 'cancelled');
+        reportLocal(accepted ? 'accepted' : 'cancelled');
       } catch (error) {
         reportLocal('failed');
         throw error;

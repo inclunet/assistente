@@ -1,4 +1,4 @@
-type Outcome = 'succeeded' | 'cancelled' | 'failed';
+type Outcome = 'succeeded' | 'accepted' | 'cancelled' | 'failed';
 type Stage = 'local_ui' | 'creation_selection' | 'creation_catalog';
 type Source = 'palette' | 'keyboard.local' | 'ui.action';
 

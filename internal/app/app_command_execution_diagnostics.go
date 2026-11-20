@@ -18,6 +18,8 @@ import (
 
 var diagnosticCommandID = regexp.MustCompile(`^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$`)
 
+const localActionAccepted commandledger.Status = "accepted"
+
 func diagnosticRegisteredCommand(a *App, commandID string) string {
 	if a != nil {
 		if p := a.commandProduct.Load(); p != nil && p.registry != nil {
@@ -82,7 +84,7 @@ func logCommandExecution(commandID, invocationID, source, stage string, start ti
 	if err != nil {
 		level = slog.LevelWarn
 		attrs = append(attrs, slog.String("error_class", commandExecutionErrorClass(err)))
-	} else if status != "" && status != commandledger.Succeeded {
+	} else if status != "" && status != commandledger.Succeeded && status != localActionAccepted {
 		level = slog.LevelWarn
 	}
 	enqueueCommandDiagnostic(commandDiagnostics, commandDiagnosticRecord{level: level, attrs: attrs})
@@ -150,7 +152,7 @@ func (a *App) ReportLocalPaletteCommand(commandID, invocationID, outcome string,
 		return commandexecution.ErrDenied
 	}
 	status := commandledger.Status(outcome)
-	if status != commandledger.Succeeded && status != commandledger.Cancelled && status != commandledger.Failed {
+	if status != commandledger.Succeeded && status != commandledger.Cancelled && status != commandledger.Failed && !(stage == "local_ui" && status == localActionAccepted) {
 		return commandexecution.ErrDenied
 	}
 	logCommandExecution(commandID, invocationID, source, stage, time.Now().Add(-time.Duration(elapsedMS)*time.Millisecond), status, nil, nil)

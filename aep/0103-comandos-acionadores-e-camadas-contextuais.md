@@ -211,7 +211,10 @@ do hot-swap. O teste de remontagem inclui confirmação aceita já vencida.
 o handoff e a confirmação de mutações do workspace registram etapas e resultados
 com ID de invocação, origem, duração e classificação de erro redigida. Comandos
 duráveis da paleta também registram seu resultado; ações locais selecionadas
-na paleta informam apenas sucesso, cancelamento ou falha de apresentação.
+na paleta informam aceitação, cancelamento ou falha de apresentação. Aceitação
+não confirma persistência assíncrona, como a mudança de aba que pode ser revertida.
+Recusas anteriores à reserva registram a etapa de admissão; a duração de falha
+do catálogo inclui a espera desde o início da consulta.
 Argumentos, tickets, conteúdo, caminhos e mensagens arbitrárias não são
 registrados. Uma fila limitada evita espera pelo disco; sob saturação, o
 diagnóstico pode ser descartado e nunca impede ou repete a ação. A cobertura
