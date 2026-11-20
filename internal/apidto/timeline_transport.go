@@ -1,10 +1,20 @@
 package apidto
 
 type OpenTimelineRequest struct {
-	ConversationID string  `json:"conversationId"`
-	ScopeParentID  *string `json:"scopeParentId"`
-	SurfaceID      string  `json:"surfaceId"`
+	ConversationID string                `json:"conversationId"`
+	ScopeParentID  *string               `json:"scopeParentId"`
+	SurfaceID      string                `json:"surfaceId"`
+	Resume         *TimelineWindowResume `json:"resume,omitempty"`
 	TimelineWindowPosition
+}
+
+// Contexto visual anterior; a seleção e a retenção são revalidadas pelo backend.
+type TimelineWindowResume struct {
+	StorageIncarnation string             `json:"storageIncarnation"`
+	Mode               TimelineWindowMode `json:"mode"`
+	BeforeCursor       string             `json:"beforeCursor"`
+	AfterCursor        string             `json:"afterCursor"`
+	RetainedItemIDs    []string           `json:"retainedItemIds"`
 }
 
 type RefreshTimelineRequest struct {
