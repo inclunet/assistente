@@ -79,11 +79,11 @@ func TestCommandMarker_WrapPowerShell(t *testing.T) {
 
 	wrapped := m.WrapCommand("Get-Process", "powershell")
 
-	if !strings.Contains(wrapped, m.StartTag()) {
-		t.Errorf("wrapped command should contain start tag, got: %s", wrapped)
+	if strings.Contains(wrapped, m.StartTag()) || strings.Contains(wrapped, m.EndTag()) {
+		t.Fatal("o eco do comando contém um marcador completo")
 	}
-	if !strings.Contains(wrapped, m.EndTag()) {
-		t.Errorf("wrapped command should contain end tag, got: %s", wrapped)
+	if !strings.Contains(wrapped, markerStart) || !strings.Contains(wrapped, markerEnd) || !strings.Contains(wrapped, m.id+markerSuffix) {
+		t.Fatal("faltam fragmentos dos marcadores")
 	}
 	if !strings.Contains(wrapped, base64.StdEncoding.EncodeToString([]byte("Get-Process"))) {
 		t.Errorf("wrapped command should contain original command, got: %s", wrapped)
@@ -470,5 +470,35 @@ func TestCursorRedrawPreservesControlsAndUnixPTY(t *testing.T) {
 	marker.conPTY = false
 	if got := marker.cleanOutput("abc\r\n\x1b[2;3Hcde"); got != "abc\ncde" {
 		t.Fatalf("saída alterada em PTY Unix: %q", got)
+	}
+}
+
+func TestConPTYStartAfterRedrawnEcho(t *testing.T) {
+	m := newCommandMarkerForShell("powershell")
+	m.conPTY = true
+	old := newCommandMarkerForShell("powershell")
+	echo := old.WrapCommand("Write-Output anterior", "powershell") + old.StartTag() + "\r\nanterior\r\n" + old.EndTag() + "0\r\n" +
+		m.WrapCommand("cmd /c exit 4; Write-Output ok; return", "powershell")
+	start := m.StartTag() + "\r\n"
+	for split := range len(start) {
+		if _, started := m.afterStart(m.cleanStreamingOutput(echo + start[:split])); started {
+			t.Fatalf("eco ou início parcial reconhecido no byte %d", split)
+		}
+	}
+	partial := echo + start + "ok"
+	if output, started := m.afterStart(m.cleanStreamingOutput(partial)); !started || output != "ok" {
+		t.Fatalf("streaming iniciado=%t saída=%q", started, output)
+	}
+	if output := partialCommandOutput(partial, m); output != "ok" {
+		t.Fatalf("cancelamento trouxe %q", output)
+	}
+	session := &Session{processDone: make(chan struct{})}
+	close(session.processDone)
+	if output, code, ok := session.exitedCommandResult(partial, m); !ok || output != "ok" || code != 0 {
+		t.Fatalf("término do shell=%t saída=%q código=%d", ok, output, code)
+	}
+	raw := partial + "\r\n" + m.EndTag() + "0\r\n"
+	if result := m.ParseOutput(raw); !result.Found || result.Output != "ok" || result.ExitCode != 0 {
+		t.Fatalf("resultado=%t saída=%q código=%d", result.Found, result.Output, result.ExitCode)
 	}
 }

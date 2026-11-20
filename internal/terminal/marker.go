@@ -69,7 +69,10 @@ func (m *CommandMarker) wrapBash(command string) string {
 
 // wrapPowerShell gera comando wrapped para PowerShell.
 func (m *CommandMarker) wrapPowerShell(command string) string {
-	start := fmt.Sprintf("Write-Host ([Environment]::NewLine + [Environment]::NewLine + '%s')", m.startTag)
+	// O ConPTY pode colar a saída ao eco ou redesenhar o comando anterior.
+	// Só o shell concatena os fragmentos: o eco nunca contém as tags deste comando.
+	start := fmt.Sprintf("Write-Host ([Environment]::NewLine + '%s' + '%s')", markerStart, m.id+markerSuffix)
+	end := fmt.Sprintf("('%s' + '%s')", markerEnd, m.id+markerSuffix)
 	// No Windows PowerShell 5.1, stderr redirecionado pode deixar $? falso
 	// mesmo com exit 0. Um NativeCommandError anterior não identifica o
 	// comando que acabou de terminar. Delimite o trecho entre a posição do
@@ -133,7 +136,7 @@ func (m *CommandMarker) wrapPowerShell(command string) string {
 	if strings.HasSuffix(strings.TrimRight(body, "; \r\n\t"), ")") || strings.Contains(body, ")") && strings.Contains(body, "#") {
 		script = fmt.Sprintf("%s (%s) {%s}", singlePowerShellLine(prepareGroupedPowerShell), source, status)
 	}
-	return fmt.Sprintf("%s; try { . (%s) } catch { Microsoft.PowerShell.Utility\\Write-Error -ErrorRecord $_ -ErrorAction Continue; %s=1 }; Write-Host ('%s' + %s); Microsoft.PowerShell.Utility\\Remove-Variable -Name %s -ErrorAction SilentlyContinue", start, script, code, m.endTag, code, code[1:])
+	return fmt.Sprintf("%s; try { . (%s) } catch { Microsoft.PowerShell.Utility\\Write-Error -ErrorRecord $_ -ErrorAction Continue; %s=1 }; Write-Host (%s + %s); Microsoft.PowerShell.Utility\\Remove-Variable -Name %s -ErrorAction SilentlyContinue", start, script, code, end, code, code[1:])
 }
 
 // No Windows PowerShell 5.1, parênteses restauram $? para true mesmo após uma
@@ -187,10 +190,22 @@ type ParseResult struct {
 	Raw string
 }
 
-// ParseOutput extrai o output e exit code do texto bruto do PTY.
-// O parser busca markers apenas no início de linhas para ignorar o echo
-// da linha de comando que o PTY produz (onde os markers aparecem embutidos
-// dentro do texto do comando, não em linhas próprias).
+// afterStart exige a tag completa e a quebra que precede a saída do comando.
+// No ConPTY, a tag montada pelo shell pode aparecer logo após o eco da entrada.
+func (m *CommandMarker) afterStart(cleaned string) (string, bool) {
+	start := m.startTag + "\n"
+	if m.conPTY {
+		_, output, ok := strings.Cut(cleaned, start)
+		return output, ok
+	}
+	if output, ok := strings.CutPrefix(cleaned, start); ok {
+		return output, true
+	}
+	_, output, ok := strings.Cut(cleaned, "\n"+start)
+	return output, ok
+}
+
+// ParseOutput extrai a saída e o código após observar ambos os marcadores.
 func (m *CommandMarker) ParseOutput(raw string) ParseResult {
 	result := m.parseCleanOutput(m.cleanOutput(raw))
 	result.Raw = raw
@@ -200,44 +215,30 @@ func (m *CommandMarker) ParseOutput(raw string) ParseResult {
 func (m *CommandMarker) parseCleanOutput(cleaned string) ParseResult {
 	var result ParseResult
 
-	// Encontra o start marker no INÍCIO de uma linha (após \n ou no início do texto).
-	// Isso ignora ocorrências dentro do echo da linha de comando.
-	startIdx := -1
-	nlStart := strings.Index(cleaned, "\n"+m.startTag)
-	if nlStart != -1 {
-		startIdx = nlStart + 1 // pula o \n
-	} else if strings.HasPrefix(cleaned, m.startTag) {
-		startIdx = 0
-	}
-	if startIdx == -1 {
+	output, started := m.afterStart(cleaned)
+	if !started {
 		return result
-	}
-
-	// Pula o start marker + newline
-	contentStart := startIdx + len(m.startTag)
-	if contentStart < len(cleaned) && cleaned[contentStart] == '\n' {
-		contentStart++
 	}
 
 	// Encontra o end marker no início de uma linha (última ocorrência).
 	endIdx := -1
-	nlEnd := strings.LastIndex(cleaned, "\n"+m.endTag)
+	nlEnd := strings.LastIndex(output, "\n"+m.endTag)
 	if nlEnd != -1 {
 		endIdx = nlEnd + 1 // pula o \n
-	} else if strings.HasPrefix(cleaned, m.endTag) {
+	} else if strings.HasPrefix(output, m.endTag) {
 		endIdx = 0
 	}
 	if m.inlineEnd {
 		// Só o marcador desta execução depois do start real pode fechar o comando.
 		// A linha de status completa, validada abaixo, distingue o eco e leituras parciais.
-		endIdx = strings.LastIndex(cleaned, m.endTag)
+		endIdx = strings.LastIndex(output, m.endTag)
 	}
-	if endIdx == -1 || endIdx < contentStart {
+	if endIdx == -1 {
 		return result
 	}
 
 	// O PTY pode dividir o próprio código de saída entre duas leituras.
-	status, _, complete := strings.Cut(cleaned[endIdx+len(m.endTag):], "\n")
+	status, _, complete := strings.Cut(output[endIdx+len(m.endTag):], "\n")
 	if !complete {
 		return result
 	}
@@ -249,11 +250,7 @@ func (m *CommandMarker) parseCleanOutput(cleaned string) ParseResult {
 	result.Found = true
 
 	// Extrai o output entre os markers
-	if contentStart < endIdx {
-		result.Output = cleaned[contentStart:endIdx]
-		// Remove trailing newline
-		result.Output = strings.TrimRight(result.Output, "\n")
-	}
+	result.Output = strings.TrimRight(output[:endIdx], "\n")
 
 	return result
 }

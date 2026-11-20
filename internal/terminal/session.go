@@ -566,8 +566,7 @@ func (s *Session) exitedCommandResult(raw string, marker *CommandMarker) (string
 	if closed {
 		return "", -1, false
 	}
-	text := "\n" + marker.cleanOutput(raw)
-	_, output, started := strings.Cut(text, "\n"+marker.StartTag()+"\n")
+	output, started := marker.afterStart(marker.cleanOutput(raw))
 	if !started {
 		return "", -1, false
 	}
@@ -592,8 +591,6 @@ func (s *Session) waitForMarker(ctx context.Context, marker *CommandMarker, comm
 	streamSentLen := 0
 	read := 0
 	stream := markerStream{marker: *marker}
-	// startFound indica se já encontramos o start marker (para começar a emitir output).
-	startFound := false
 
 	for {
 		select {
@@ -647,32 +644,7 @@ func (s *Session) waitForMarker(ctx context.Context, marker *CommandMarker, comm
 			// Se ainda não encontrou o end marker, tenta emitir output parcial
 			// entre o start marker e o final do buffer atual (sem incluir echo/markers).
 			if s.onOutput != nil {
-				if !startFound {
-					// Procura start marker no início de linha
-					nlStart := strings.Index(cleaned, "\n"+marker.StartTag())
-					if nlStart != -1 {
-						startFound = true
-					} else if strings.HasPrefix(cleaned, marker.StartTag()) {
-						startFound = true
-					}
-				}
-
-				if startFound {
-					// Extrai output parcial: tudo após (start marker + \n) até o fim do buffer
-					startTag := marker.StartTag()
-					idx := strings.Index(cleaned, "\n"+startTag)
-					contentStart := 0
-					if idx != -1 {
-						contentStart = idx + 1 + len(startTag)
-					} else if strings.HasPrefix(cleaned, startTag) {
-						contentStart = len(startTag)
-					}
-					if contentStart < len(cleaned) && cleaned[contentStart] == '\n' {
-						contentStart++
-					}
-
-					// O output parcial é do contentStart até o fim (excluindo linhas com end marker)
-					partial := cleaned[contentStart:]
+				if partial, started := marker.afterStart(cleaned); started {
 					// Remove linhas que contêm o end marker (se parcialmente recebido)
 					if endIdx := strings.Index(partial, marker.EndTag()); endIdx >= 0 {
 						partial = partial[:endIdx]
@@ -704,7 +676,7 @@ func (s *Session) outputSince(read int) string {
 
 func partialCommandOutput(raw string, marker *CommandMarker) string {
 	cleaned := marker.cleanOutput(raw)
-	if _, output, started := strings.Cut("\n"+cleaned, "\n"+marker.StartTag()+"\n"); started {
+	if output, started := marker.afterStart(cleaned); started {
 		output, _, _ = strings.Cut(output, marker.EndTag())
 		return strings.TrimSpace(output)
 	}
