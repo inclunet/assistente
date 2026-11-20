@@ -92,15 +92,20 @@ func codeLineStarts(content string) map[int]bool {
 	return starts
 }
 
-// Confere os operandos após a composição da linha e a remoção das aspas
-// pelo mesmo parser usado na política, inclusive em opções com valor.
-func validInterpolatedCommand(rawArgs, expanded string) bool {
-	if !shellArgumentText.MatchString(strings.Trim(rawArgs, " ")) || parentArgumentSegment.MatchString(rawArgs) || parentArgumentSegment.MatchString(expanded) {
+// Inspecione só os operandos que recebem dados da invocação. A análise da
+// política sobre a linha inteira continua obrigatória depois da substituição.
+func validInterpolatedCommand(rawArgs, template string, expand func(string) string) bool {
+	if !shellArgumentText.MatchString(strings.Trim(rawArgs, " ")) || parentArgumentSegment.MatchString(rawArgs) {
 		return false
 	}
-	for _, cmd := range commandpolicy.Parse(expanded).Commands {
-		for _, arg := range cmd.Args {
-			if parentArgumentSegment.MatchString(arg) {
+	// Para verificação de componentes, ambos os separadores de caminho têm o
+	// mesmo significado. O texto enviado ao executor conserva a grafia original.
+	for _, cmd := range commandpolicy.Parse(strings.ReplaceAll(template, "\\", "/")).Commands {
+		if shellArgumentReference.MatchString(cmd.Program) {
+			return false
+		}
+		for _, operand := range cmd.Args {
+			if shellArgumentReference.MatchString(operand) && parentArgumentSegment.MatchString(expand(operand)) {
 				return false
 			}
 		}
@@ -150,7 +155,7 @@ func planCommandLines(ctx context.Context, skill *Skill, content string, base bo
 		}
 		if expand != nil {
 			expanded := expand(command)
-			if expanded != command && shellArgumentReference.MatchString(command) && !validInterpolatedCommand(rawArgs, expanded) {
+			if expanded != command && shellArgumentReference.MatchString(command) && !validInterpolatedCommand(rawArgs, command, expand) {
 				return commandDocument{}, fmt.Errorf("argumentos incompatíveis com uma linha de comando da skill %q", skill.Slug)
 			}
 			command = expanded

@@ -239,6 +239,7 @@ func TestSlashValidatesComposedPathOperand(t *testing.T) {
 		{"notas/.$0/arquivo", ".", false},
 		{"notas/$0$1/arquivo", ". .", false},
 		{"notas/$0.md", "minha-nota", true},
+		{"../repositorio $0", "main", true},
 	} {
 		s := invocableSkill("!git log " + tc.path)
 		s.Tools = &ToolPermissions{BashCommands: &BashCommands{Allowed: []string{"git"}}}

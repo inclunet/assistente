@@ -284,7 +284,12 @@ func (e *Executor) executeSingle(ctx context.Context, call ToolCall) (execution 
 		modelBytes := len(ContentForModel(result))
 		outputWindow := outputWindowOf(result)
 		incompleteMachineResult := e.config.RequireCompleteResult && outputWindow != nil && outputWindow.HasMore
-		if modelBytes > e.config.MaxResultSize || incompleteMachineResult {
+		oversized := modelBytes > e.config.MaxResultSize || incompleteMachineResult
+		if oversized && e.config.RequireCompleteResult && result.Failure != nil {
+			// A recusa já é o resultado definitivo. Limite apenas seu diagnóstico.
+			result = boundFailureResult(ToolResult{Content: result.Content, Failure: result.Failure, IsError: true,
+				Metadata: metadataForFailure(result.Metadata), Annotations: annotationsForFailure(result.Annotations)}, e.config.MaxResultSize)
+		} else if oversized {
 			// json.Valid varre o payload inteiro; só precisamos inferir JSON
 			// canônico quando a barreira realmente precisaria cortá-lo.
 			structured := result.Structured

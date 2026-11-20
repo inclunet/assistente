@@ -633,3 +633,16 @@ func TestExecuteNormalizesFailureAsError(t *testing.T) {
 		t.Fatalf("Failure deveria implicar IsError: %#v", res)
 	}
 }
+
+func TestBoundedMachineFailurePreservesAuthorization(t *testing.T) {
+	tool := &mockTool{name: "authorize", exec: func(context.Context, json.RawMessage) (ToolResult, error) {
+		return ToolResult{Failure: &ToolFailure{Code: "shell_command_refused", Kind: ErrorKindAuthorization}, Content: strings.Repeat("motivo ", 50)}, nil
+	}}
+	cfg := DefaultExecutorConfig()
+	cfg.MaxResultSize = 40
+	cfg.RequireCompleteResult = true
+	got := NewExecutor(newRegistry(tool), cfg).ExecuteOne(t.Context(), ToolCall{ID: "bounded", Function: FunctionCall{Name: "authorize", Arguments: "{}"}})
+	if !got.Result.IsError || got.ErrorCode != "shell_command_refused" || got.ErrorKind != ErrorKindAuthorization || got.Retryable || len(ContentForModel(got.Result)) > cfg.MaxResultSize {
+		t.Fatalf("resultado=%+v", got)
+	}
+}
