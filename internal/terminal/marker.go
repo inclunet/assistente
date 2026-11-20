@@ -67,20 +67,14 @@ func (m *CommandMarker) wrapPowerShell(command string) string {
 	// mesmo com exit 0. Um NativeCommandError anterior não identifica o
 	// comando que acabou de terminar. Delimite o trecho entre a posição do
 	// erro e o fim do código do usuário e peça ao parser nativo para conferir.
-	original := command
 	boundary := "<#" + m.id + "#>"
-	if body, ok := strings.CutSuffix(command, powershellDirectoryCatch); ok {
-		command = body + " " + boundary + powershellDirectoryCatch
-	} else {
-		command += " " + boundary
-	}
 	const nativeStderr = `& {
     $e = $Error[0];
     if (!$e -or $e.FullyQualifiedErrorId -notlike 'NativeCommandError*') { return $false };
     $i = $e.InvocationInfo;
     $line = $i.Line;
     if (!$line) { return $false };
-    $end = $line.IndexOf('%s');
+    $end = $line.IndexOf('%[1]s');
     $start = $i.OffsetInLine - 1;
     if ($end -lt 0) {
         $full = (Microsoft.PowerShell.Utility\Get-PSCallStack)[0].Position.StartScriptPosition.GetFullScript();
@@ -113,29 +107,25 @@ func (m *CommandMarker) wrapPowerShell(command string) string {
 }`
 	// O ConPTY recebe uma única linha de entrada.
 	check := fmt.Sprintf(singlePowerShellLine(nativeStderr), boundary)
-	status := fmt.Sprintf("if ($?) { Write-Host '%s0' } elseif ($LASTEXITCODE) { Write-Host ('%s' + $LASTEXITCODE) } elseif ($LASTEXITCODE -eq 0 -and (%s)) { Write-Host '%s0' } else { Write-Host '%s1' }", m.endTag, m.endTag, check, m.endTag, m.endTag)
-	// O ConPTY pode colar o eco do comando na primeira saída. Inicie a
-	// linha explicitamente para que o parser reconheça o marcador real.
+	// Capture $? dentro do finally. Um return pode deixar o bloco antes do
+	// rodapé e o dot-source já terá restaurado $? quando devolver o controle.
+	code := "$__asstCode" + m.id
+	status := fmt.Sprintf("%s = if ($?) { 0 } elseif ($LASTEXITCODE) { $LASTEXITCODE } elseif ($LASTEXITCODE -eq 0 -and (%s)) { 0 } else { 1 }", code, check)
 	start := fmt.Sprintf("Write-Host ([Environment]::NewLine + '%s')", m.startTag)
-	// Uma linha comentada pode engolir o delimitador do try ou o marcador.
-	// Entregue o texto ao parser como dado, sem interpolá-lo na linha do PTY.
-	hasHash := strings.Contains(original, "#")
-	grouped := strings.HasSuffix(strings.TrimRight(strings.TrimSuffix(original, powershellDirectoryCatch), "; \r\n\t"), ")")
-	if hasHash || grouped {
-		body := "{" + command + "}"
-		tail := ""
-		if hasHash {
-			prefix := strings.TrimSuffix(original, powershellDirectoryCatch)
-			encoded := base64.StdEncoding.EncodeToString([]byte(prefix))
-			body = fmt.Sprintf("([Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('%s')))", encoded)
-			tail = " '" + strings.ReplaceAll(" "+boundary+strings.TrimPrefix(original, prefix), "'", "''") + "'"
-		}
-		// return pode sair do bloco antes de status; erro de sintaxe pode impedir
-		// até a criação do bloco. A moldura externa conclui esses dois caminhos.
-		done := "$__asstEnded" + m.id
-		return fmt.Sprintf("%s; %s=$false; try { . (%s %s {%s; %s=$true}%s); if (!$?) { if (!%s) { Write-Host '%s1' } } elseif (!%s) { Write-Host '%s0' } } catch { Microsoft.PowerShell.Utility\\Write-Error -ErrorRecord $_ -ErrorAction Continue; Write-Host '%s1' } finally { Microsoft.PowerShell.Utility\\Remove-Variable -Name %s -ErrorAction SilentlyContinue }", start, done, singlePowerShellLine(prepareGroupedPowerShell), body, status, done, tail, done, m.endTag, done, m.endTag, m.endTag, done[1:])
+	// O parser do shell recebe o comando como dado. Assim até uma falha de
+	// sintaxe ou comentário no fim da linha deixa a moldura externa executável.
+	body := strings.TrimSuffix(command, powershellDirectoryCatch)
+	encoded := base64.StdEncoding.EncodeToString([]byte(body))
+	tail := " " + boundary + strings.TrimPrefix(command, body)
+	source := fmt.Sprintf("[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('%s'))", encoded)
+	// A AST só é necessária para tratar comentários ou desagrupar o pipeline.
+	// Evite enviar o preparador completo no eco do ConPTY a cada comando.
+	frame := fmt.Sprintf("'try { ' + %s + '%s } finally { ' + {%s}.ToString() + ' }'", source, strings.ReplaceAll(tail, "'", "''"), status)
+	script := "[scriptblock]::Create(" + frame + ")"
+	if strings.Contains(body, "#") || strings.HasSuffix(strings.TrimRight(body, "; \r\n\t"), ")") {
+		script = fmt.Sprintf("%s (%s) {%s} '%s'", singlePowerShellLine(prepareGroupedPowerShell), source, status, strings.ReplaceAll(tail, "'", "''"))
 	}
-	return fmt.Sprintf("%s; %s; %s", start, command, status)
+	return fmt.Sprintf("%s; try { . (%s) } catch { Microsoft.PowerShell.Utility\\Write-Error -ErrorRecord $_ -ErrorAction Continue; %s=1 }; Write-Host ('%s' + %s); Microsoft.PowerShell.Utility\\Remove-Variable -Name %s -ErrorAction SilentlyContinue", start, script, code, m.endTag, code, code[1:])
 }
 
 // No Windows PowerShell 5.1, parênteses restauram $? para true mesmo após uma
@@ -149,12 +139,10 @@ const prepareGroupedPowerShell = `& {
 	$source = $body.ToString();
 	$tokens = $null;
 	$errors = $null;
-	if ($tail) {
-		$null = [System.Management.Automation.Language.Parser]::ParseInput($source, [ref]$tokens, [ref]$errors);
-		$comment = $tokens | Microsoft.PowerShell.Core\Where-Object { $_.Kind -eq 'Comment' -and $_.Text.StartsWith('#') -and !$source.Substring($_.Extent.EndOffset).Trim() } | Microsoft.PowerShell.Utility\Select-Object -Last 1;
-		if ($comment) { $source = $comment.Text + [Environment]::NewLine + $source.Substring(0, $comment.Extent.StartOffset) };
-		$source += $tail
-	};
+	$null = [System.Management.Automation.Language.Parser]::ParseInput($source, [ref]$tokens, [ref]$errors);
+	$comment = $tokens | Microsoft.PowerShell.Core\Where-Object { $_.Kind -eq 'Comment' -and $_.Text.StartsWith('#') -and !$source.Substring($_.Extent.EndOffset).Trim() } | Microsoft.PowerShell.Utility\Select-Object -Last 1;
+	if ($comment) { $source = $comment.Text + [Environment]::NewLine + $source.Substring(0, $comment.Extent.StartOffset) };
+	$source += $tail;
 	$ast = [System.Management.Automation.Language.Parser]::ParseInput($source, [ref]$tokens, [ref]$errors);
 	$last = $ast.EndBlock.Statements[-1];
 	if ($last -is [System.Management.Automation.Language.TryStatementAst]) { $last = $last.Body.Statements[-1] };
@@ -169,7 +157,7 @@ const prepareGroupedPowerShell = `& {
 		$last = $group.Pipeline
 	};
 	if ($last -is [System.Management.Automation.Language.PipelineAst] -and $last.PipelineElements[-1] -is [System.Management.Automation.Language.CommandAst]) { $source = -join $chars };
-	return [scriptblock]::Create($source + '; ' + $status.ToString())
+	return [scriptblock]::Create('try { ' + $source + ' } finally { ' + $status.ToString() + ' }')
 }`
 
 // Preserva espaços dentro de literais do script ao remover o recuo das linhas.

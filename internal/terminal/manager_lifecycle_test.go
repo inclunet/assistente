@@ -2,10 +2,12 @@ package terminal
 
 import (
 	"context"
+	"errors"
 	"io"
 	"strings"
 	"sync"
 	"testing"
+	"testing/iotest"
 	"time"
 
 	"github.com/KennethanCeyer/ptyx"
@@ -268,5 +270,41 @@ func TestCompleteCommandEntryMarksFailureWithoutResult(t *testing.T) {
 	}
 	if got.EndedAt.IsZero() || got.EndedAt.Before(startedAt) {
 		t.Fatalf("endedAt inválido: %v", got.EndedAt)
+	}
+}
+
+func TestWaitForMarkerPreservesReadFailureAndCancellation(t *testing.T) {
+	readErr := errors.New("falha de leitura do PTY")
+	for _, tc := range []struct {
+		name      string
+		readerErr error
+		cancel    bool
+		wantErr   error
+		code      int
+	}{
+		{"eof", io.EOF, false, nil, 0},
+		{"leitura", readErr, false, readErr, -1},
+		{"cancelado_ao_drenar", io.EOF, true, context.Canceled, -1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			marker := newCommandMarkerForShell("bash")
+			reader := io.MultiReader(strings.NewReader(marker.StartTag()+"\nparcial"), iotest.ErrReader(tc.readerErr))
+			session := &Session{
+				ptySession: &fakePTYSession{},
+				ptyReader:  reader,
+				readerCtx:  t.Context(),
+			}
+			session.Start()
+			<-session.readerDone
+			ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+			defer cancel()
+			if tc.cancel {
+				cancel()
+			}
+			output, code, err := session.waitForMarker(ctx, marker, "test")
+			if !errors.Is(err, tc.wantErr) || code != tc.code || output != "parcial" {
+				t.Fatalf("output=%q code=%d err=%v", output, code, err)
+			}
+		})
 	}
 }

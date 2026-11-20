@@ -1,6 +1,7 @@
 package terminal
 
 import (
+	"encoding/base64"
 	"os/exec"
 	"strings"
 	"testing"
@@ -84,7 +85,7 @@ func TestCommandMarker_WrapPowerShell(t *testing.T) {
 	if !strings.Contains(wrapped, m.EndTag()) {
 		t.Errorf("wrapped command should contain end tag, got: %s", wrapped)
 	}
-	if !strings.Contains(wrapped, "Get-Process") {
+	if !strings.Contains(wrapped, base64.StdEncoding.EncodeToString([]byte("Get-Process"))) {
 		t.Errorf("wrapped command should contain original command, got: %s", wrapped)
 	}
 	if !strings.Contains(wrapped, "$LASTEXITCODE") {
