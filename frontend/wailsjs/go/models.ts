@@ -1566,10 +1566,31 @@ export namespace apidto {
 	        this.authType = source["authType"];
 	    }
 	}
+	export class TimelineWindowResume {
+	    storageIncarnation: string;
+	    mode: string;
+	    beforeCursor: string;
+	    afterCursor: string;
+	    retainedItemIds: string[];
+	
+	    static createFrom(source: any = {}) {
+	        return new TimelineWindowResume(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.storageIncarnation = source["storageIncarnation"];
+	        this.mode = source["mode"];
+	        this.beforeCursor = source["beforeCursor"];
+	        this.afterCursor = source["afterCursor"];
+	        this.retainedItemIds = source["retainedItemIds"];
+	    }
+	}
 	export class OpenTimelineRequest {
 	    conversationId: string;
 	    scopeParentId?: string;
 	    surfaceId: string;
+	    resume?: TimelineWindowResume;
 	    cursor: string;
 	    anchor: string;
 	    anchorItemId: string;
@@ -1585,12 +1606,31 @@ export namespace apidto {
 	        this.conversationId = source["conversationId"];
 	        this.scopeParentId = source["scopeParentId"];
 	        this.surfaceId = source["surfaceId"];
+	        this.resume = this.convertValues(source["resume"], TimelineWindowResume);
 	        this.cursor = source["cursor"];
 	        this.anchor = source["anchor"];
 	        this.anchorItemId = source["anchorItemId"];
 	        this.direction = source["direction"];
 	        this.limit = source["limit"];
 	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
 	}
 	export class TimelineWindowPosition {
 	    cursor: string;
@@ -1915,6 +1955,7 @@ export namespace apidto {
 	    mode: string;
 	    windowId: string;
 	    windowRevision: string;
+	    storageIncarnation: string;
 	    epoch: string;
 	    sequence: string;
 	    items: CanonicalItem[];
@@ -1940,6 +1981,7 @@ export namespace apidto {
 	        this.mode = source["mode"];
 	        this.windowId = source["windowId"];
 	        this.windowRevision = source["windowRevision"];
+	        this.storageIncarnation = source["storageIncarnation"];
 	        this.epoch = source["epoch"];
 	        this.sequence = source["sequence"];
 	        this.items = this.convertValues(source["items"], CanonicalItem);
@@ -2514,6 +2556,7 @@ export namespace apidto {
 	        this.limit = source["limit"];
 	    }
 	}
+	
 	
 	
 	
