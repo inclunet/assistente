@@ -3,6 +3,7 @@ package terminal
 import (
 	"context"
 	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -151,6 +152,8 @@ func TestPowerShellHashPreservesOutputAndExitCode(t *testing.T) {
 		code                  int
 		comparison            string
 	}{
+		{"stop_parsing", "cmd.exe /c --% echo sample", "sample", 0, "exact"},
+		{"stop_parsing_falha", "cmd.exe /c --% exit 7", "", 7, "exact"},
 		{"literal", "Write-Output 'issue #42'", "issue #42", 0, "exact"},
 		{"stderr", "cmd /c 'echo diagnostic 1>&2 & exit 0' 2>&1 # nota", "diagnostic", 0, "contains"},
 		{"stderr_multilinha", "cmd /c 'echo diagnostic 1>&2 & exit 0' 2>&1\n# nota", "diagnostic", 0, "contains"},
@@ -222,7 +225,8 @@ func TestProcessExitBeforeStartMarker(t *testing.T) {
 func TestExplicitCloseAfterStartDoesNotCompleteCommand(t *testing.T) {
 	started := make(chan struct{}, 1)
 	manager := NewManager(DefaultManagerConfig(), func(event string, data any) {
-		if event == "terminal:command_output" && strings.Contains(data.(map[string]string)["output"], "pronto") {
+		payload, ok := data.(map[string]string)
+		if event == "terminal:command_output" && ok && strings.Contains(payload["output"], "pronto") {
 			select {
 			case started <- struct{}{}:
 			default:
@@ -272,7 +276,12 @@ func TestPowerShellReturnInPersistentSession(t *testing.T) {
 	}
 	cfg := DefaultManagerConfig()
 	cfg.DefaultShell = "powershell.exe"
-	manager := NewManager(cfg, nil)
+	var streamed strings.Builder
+	manager := NewManager(cfg, func(event string, data any) {
+		if payload, ok := data.(map[string]string); event == "terminal:command_output" && ok {
+			streamed.WriteString(payload["output"])
+		}
+	})
 	session, err := manager.Create("persistente", t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -282,14 +291,23 @@ func TestPowerShellReturnInPersistentSession(t *testing.T) {
 		command, output string
 		code            int
 	}{
+		{"$Host.UI.RawUI.WindowSize.Width", strconv.Itoa(session.viewportColumns), 0},
+		{"cmd.exe /c --% echo sample", "sample", 0},
 		{"cmd /c exit 7; return", "", 7},
 		{"Write-Output pronto", "pronto", 0},
 		{"Write-Output '" + strings.Repeat("abcdefghij", 90) + "'", strings.Repeat("abcdefghij", 90), 0},
 		{"cmd /c exit 4; Write-Output ok; return", "ok", 0},
+		{"mode.com con cols=80; Write-Output ('x' * 161)", strings.Repeat("x", 161), 0},
+		{"$Host.UI.RawUI.WindowSize.Width", "80", 0},
+		{"Write-Output ('y' * 161)", strings.Repeat("y", 161), 0},
 	} {
+		streamed.Reset()
 		entry, err := manager.RunCommand(t.Context(), session.ID(), tc.command, 10*time.Second, "test")
 		if err != nil || entry == nil || entry.ExitCode != tc.code || strings.TrimSpace(entry.Output) != tc.output {
 			t.Fatalf("comando=%q entry=%+v err=%v", tc.command, entry, err)
+		}
+		if strings.TrimSpace(streamed.String()) != tc.output {
+			t.Fatalf("comando=%q streaming=%q", tc.command, streamed.String())
 		}
 	}
 }

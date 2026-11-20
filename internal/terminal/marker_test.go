@@ -357,6 +357,8 @@ func TestPowerShellMarkerAfterEchoWithoutNewline(t *testing.T) {
 
 func TestPowerShellConPTYRedrawPreservesOutput(t *testing.T) {
 	marker := newCommandMarkerForShell("powershell")
+	marker.conPTY = true
+	marker.viewportColumns = 3
 	for _, tc := range []struct{ raw, want string }{
 		{"abc\r\n\x1b[39;3Hcdef\r\n\x1b[39;3Hfgh", "abcdefgh"},
 		{"界a\r\n\x1b[39;3Hab", "界ab"},
@@ -372,6 +374,8 @@ func TestPowerShellConPTYRedrawPreservesOutput(t *testing.T) {
 
 func TestPowerShellSplitRedrawDoesNotLeakControlBytes(t *testing.T) {
 	marker := newCommandMarkerForShell("powershell")
+	marker.conPTY = true
+	marker.viewportColumns = 3
 	for _, glyph := range []string{"é", "e\u0301"} {
 		raw := "ab" + glyph + "\r\n\x1b[39;3H" + glyph + "c"
 		want := "ab" + glyph + "c"
@@ -386,11 +390,85 @@ func TestPowerShellSplitRedrawDoesNotLeakControlBytes(t *testing.T) {
 
 func TestProcessExitPreservesIncompleteConPTYRedraw(t *testing.T) {
 	marker := newCommandMarkerForShell("powershell")
+	marker.conPTY = true
+	marker.viewportColumns = 3
 	raw := marker.StartTag() + "\r\nabe\u0301\r\n\x1b[39;3He"
 	session := &Session{processDone: make(chan struct{})}
 	close(session.processDone)
 	output, code, ok := session.exitedCommandResult(raw, marker)
 	if !ok || code != 0 || output != "abe\u0301\ne" {
 		t.Fatalf("output=%q code=%d ok=%t", output, code, ok)
+	}
+}
+
+func TestConPTYInteriorColumnPreservesLineBreak(t *testing.T) {
+	marker := newCommandMarkerForShell("powershell")
+	marker.conPTY = true
+	marker.viewportColumns = 80
+	raw := "abc\r\n\x1b[2;3Hcde"
+	if got := marker.cleanOutput(raw); got != "abc\ncde" {
+		t.Errorf("saída mudou na coluna interior: %q", got)
+	}
+}
+
+func TestConPTYViewportChangesWithinOutput(t *testing.T) {
+	m := newCommandMarkerForShell("powershell")
+	m.conPTY = true
+	m.viewportColumns = 80
+	raw := "abc\r\n\x1b[2;3Hcde\r\n\x1b[8;40;3tabc\r\n\x1b[2;3Hcde\r\n\x1b[8;40;80tabc\r\n\x1b[2;3Hcde"
+	if got := m.cleanOutput(raw); got != "abc\ncde\nabcde\nabc\ncde" {
+		t.Fatal(got)
+	}
+}
+
+func TestPowerShellOnlyPreparesGroupedCommands(t *testing.T) {
+	for _, tc := range []struct {
+		cmd     string
+		grouped bool
+	}{
+		{"Write-Output ok", false}, {"cmd /c exit 7; return", false},
+		{"cmd.exe /c --% echo sample", false}, {"throw 'falhou'", false},
+		{"(cmd /c exit 7) # anotação", true},
+	} {
+		script := newCommandMarkerForShell("powershell").WrapCommand(tc.cmd, "powershell")
+		if strings.Contains(script, "$chars = $source.ToCharArray()") != tc.grouped || !strings.Contains(script, "finally") {
+			t.Errorf("moldura inesperada para %q", tc.cmd)
+		}
+	}
+}
+
+func TestMarkerStreamConsumesOnlyNewBytes(t *testing.T) {
+	marker := newCommandMarkerForShell("powershell")
+	marker.conPTY = true
+	marker.viewportColumns = 80
+	stream := markerStream{marker: *marker}
+	session := Session{}
+	raw := "primeira\r\n\x1b[8;40;3tabé\r\n\x1b[2;3Héc\r\nsegunda\r\n\x1b[31mvermelha\x1b[0m\r\nfim"
+	for read := range len(raw) {
+		session.outputBuf.WriteByte(raw[read])
+		chunk := session.outputSince(read)
+		if chunk != raw[read:read+1] || session.outputSince(read+1) != "" {
+			t.Fatalf("offset %d, chunk %q", read, chunk)
+		}
+		if got, want := stream.append(chunk), marker.cleanStreamingOutput(raw[:read+1]); got != want {
+			t.Fatalf("offset %d, saída %q, esperada %q", read, got, want)
+		}
+	}
+	if stream.pending.String() != "fim" {
+		t.Fatalf("cauda inesperada %q", stream.pending.String())
+	}
+}
+
+func TestCursorRedrawPreservesControlsAndUnixPTY(t *testing.T) {
+	marker := newCommandMarkerForShell("powershell")
+	marker.viewportColumns = 3
+	marker.conPTY = true
+	raw := "abc\r\r\n\x1b[2;3H\r\n\x1b[2;3Hcde"
+	if got := marker.cleanOutput(raw); got != "abc\r\n\ncde" {
+		t.Fatalf("controle perdido: %q", got)
+	}
+	marker.conPTY = false
+	if got := marker.cleanOutput("abc\r\n\x1b[2;3Hcde"); got != "abc\ncde" {
+		t.Fatalf("saída alterada em PTY Unix: %q", got)
 	}
 }

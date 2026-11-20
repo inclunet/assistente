@@ -98,6 +98,7 @@ type Session struct {
 	ptySession        ptyx.Session
 	ptyReader         io.Reader
 	ptyWriter         io.Writer
+	viewportColumns   int // sob outputMu, largura no início de outputBuf
 	state             SessionState
 	commandGeneration uint64
 	// commandPending cobre a janela entre beginCommand e o write inicial.
@@ -221,26 +222,27 @@ func newSession(name, workDir, shell string, onOutput outputCallback, onRawOutpu
 	ptyWriter := ptySession.PtyWriter()
 
 	s := &Session{
-		id:             uuid.NewString(),
-		sessionVersion: newSessionVersion(),
-		name:           name,
-		ptySession:     ptySession,
-		ptyReader:      ptyReader,
-		ptyWriter:      ptyWriter,
-		state:          StateIdle,
-		shell:          shell,
-		cwd:            workDir,
-		history:        make([]HistoryEntry, 0, 32),
-		createdAt:      time.Now(),
-		lastUsed:       time.Now(),
-		onOutput:       onOutput,
-		onRawOutput:    onRawOutput,
-		onCommandStart: onCommandStart,
-		cancelReader:   cancel,
-		readerCtx:      ctx,
-		readerDone:     make(chan struct{}),
-		processDone:    make(chan struct{}),
-		onExit:         onExit,
+		id:              uuid.NewString(),
+		sessionVersion:  newSessionVersion(),
+		name:            name,
+		ptySession:      ptySession,
+		ptyReader:       ptyReader,
+		ptyWriter:       ptyWriter,
+		viewportColumns: opts.Cols,
+		state:           StateIdle,
+		shell:           shell,
+		cwd:             workDir,
+		history:         make([]HistoryEntry, 0, 32),
+		createdAt:       time.Now(),
+		lastUsed:        time.Now(),
+		onOutput:        onOutput,
+		onRawOutput:     onRawOutput,
+		onCommandStart:  onCommandStart,
+		cancelReader:    cancel,
+		readerCtx:       ctx,
+		readerDone:      make(chan struct{}),
+		processDone:     make(chan struct{}),
+		onExit:          onExit,
 	}
 
 	logging.Infof(ctx, "terminal.session", "[Terminal] Sessão criada: id=%s name=%s shell=%s cwd=%s", s.id, s.name, s.shell, s.cwd)
@@ -477,7 +479,18 @@ func (s *Session) RunCommand(ctx context.Context, command string, timeout time.D
 
 	// Suprime raw output durante execução com markers (para não poluir o Terminal Page)
 	s.outputMu.Lock()
+	var pendingEscape string
+	if marker.conPTY {
+		previous := s.outputBuf.String()
+		s.viewportColumns = viewportAfterOutput(previous, s.viewportColumns)
+		marker.viewportColumns = s.viewportColumns
+		if esc := strings.LastIndexByte(previous, '\x1b'); esc >= 0 && partialCSI.MatchString(previous[esc:]) {
+			// A próxima leitura pode completar um resize iniciado antes do comando.
+			pendingEscape = previous[esc:]
+		}
+	}
 	s.outputBuf.Reset()
+	s.outputBuf.WriteString(pendingEscape)
 	s.suppressRawOutput = true
 	s.outputMu.Unlock()
 
@@ -577,6 +590,8 @@ func (s *Session) waitForMarker(ctx context.Context, marker *CommandMarker, comm
 
 	// streamSentLen rastreia quanto do output "real" (entre markers) já foi enviado via callback.
 	streamSentLen := 0
+	read := 0
+	stream := markerStream{marker: *marker}
 	// startFound indica se já encontramos o start marker (para começar a emitir output).
 	startFound := false
 
@@ -614,12 +629,13 @@ func (s *Session) waitForMarker(ctx context.Context, marker *CommandMarker, comm
 			if ctx.Err() != nil {
 				return s.canceledCommandResult(ctx, marker)
 			}
-			s.outputMu.Lock()
-			raw := s.outputBuf.String()
-			s.outputMu.Unlock()
-
-			// Tenta parsear markers (detecta conclusão)
-			result := marker.ParseOutput(raw)
+			chunk := s.outputSince(read)
+			if chunk == "" {
+				continue
+			}
+			read += len(chunk)
+			cleaned := stream.append(chunk)
+			result := marker.parseCleanOutput(cleaned)
 			if result.Found {
 				// Emite o trecho final de output que ainda não foi enviado
 				if s.onOutput != nil && len(result.Output) > streamSentLen {
@@ -631,8 +647,6 @@ func (s *Session) waitForMarker(ctx context.Context, marker *CommandMarker, comm
 			// Se ainda não encontrou o end marker, tenta emitir output parcial
 			// entre o start marker e o final do buffer atual (sem incluir echo/markers).
 			if s.onOutput != nil {
-				cleaned := marker.cleanStreamingOutput(raw)
-
 				if !startFound {
 					// Procura start marker no início de linha
 					nlStart := strings.Index(cleaned, "\n"+marker.StartTag())
@@ -662,6 +676,13 @@ func (s *Session) waitForMarker(ctx context.Context, marker *CommandMarker, comm
 					// Remove linhas que contêm o end marker (se parcialmente recebido)
 					if endIdx := strings.Index(partial, marker.EndTag()); endIdx >= 0 {
 						partial = partial[:endIdx]
+					} else {
+						for n := min(len(partial), len(marker.EndTag())-1); n > 0; n-- {
+							if strings.HasSuffix(partial, marker.EndTag()[:n]) {
+								partial = partial[:len(partial)-n]
+								break
+							}
+						}
 					}
 					partial = strings.TrimRight(partial, "\r\n")
 
@@ -673,6 +694,12 @@ func (s *Session) waitForMarker(ctx context.Context, marker *CommandMarker, comm
 			}
 		}
 	}
+}
+
+func (s *Session) outputSince(read int) string {
+	s.outputMu.Lock()
+	defer s.outputMu.Unlock()
+	return string(s.outputBuf.Bytes()[read:])
 }
 
 func partialCommandOutput(raw string, marker *CommandMarker) string {

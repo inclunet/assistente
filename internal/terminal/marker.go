@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"regexp"
+	"runtime"
 	"strconv"
 	"strings"
 	"unicode/utf8"
@@ -25,16 +26,19 @@ var ansiEscape = regexp.MustCompile(`\x1b\[[0-9;]*[a-zA-Z]|\x1b\].*?\x07|\x1b\[[
 // CommandMarker gera e parseia markers para detectar início/fim de comandos em PTY.
 // Cada execução recebe um UUID único para evitar conflitos.
 type CommandMarker struct {
-	id        string
-	startTag  string
-	endTag    string
-	inlineEnd bool
+	id              string
+	startTag        string
+	endTag          string
+	inlineEnd       bool
+	conPTY          bool
+	viewportColumns int
 }
 
 func newCommandMarkerForShell(shell string) *CommandMarker {
 	id := uuid.New().String()[:8] // usa só os primeiros 8 chars para markers mais curtos
 	return &CommandMarker{
 		inlineEnd: shell == "powershell",
+		conPTY:    runtime.GOOS == "windows" && shell == "powershell",
 		id:        id,
 		startTag:  markerStart + id + markerSuffix,
 		endTag:    markerEnd + id + markerSuffix,
@@ -65,7 +69,7 @@ func (m *CommandMarker) wrapBash(command string) string {
 
 // wrapPowerShell gera comando wrapped para PowerShell.
 func (m *CommandMarker) wrapPowerShell(command string) string {
-	start := fmt.Sprintf("Write-Host ([Environment]::NewLine + '%s')", m.startTag)
+	start := fmt.Sprintf("Write-Host ([Environment]::NewLine + [Environment]::NewLine + '%s')", m.startTag)
 	// No Windows PowerShell 5.1, stderr redirecionado pode deixar $? falso
 	// mesmo com exit 0. Um NativeCommandError anterior não identifica o
 	// comando que acabou de terminar. Delimite o trecho entre a posição do
@@ -114,13 +118,22 @@ func (m *CommandMarker) wrapPowerShell(command string) string {
 	// rodapé e o dot-source já terá restaurado $? quando devolver o controle.
 	code := "$__asstCode" + m.id
 	status := fmt.Sprintf("%s = if ($?) { 0 } elseif ($LASTEXITCODE) { $LASTEXITCODE } elseif ($LASTEXITCODE -eq 0 -and (%s)) { 0 } else { 1 }", code, check)
-
 	// O parser do shell recebe o comando como dado. Assim até uma falha de
 	// sintaxe ou comentário no fim da linha deixa a moldura externa executável.
 	body := strings.TrimSuffix(command, powershellDirectoryCatch)
 	encoded := base64.StdEncoding.EncodeToString([]byte(body))
-	tail := " " + boundary + strings.TrimPrefix(command, body)
-	return fmt.Sprintf("%s; try { . (%s ([Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('%s'))) {%s} '%s') } catch { Microsoft.PowerShell.Utility\\Write-Error -ErrorRecord $_ -ErrorAction Continue; %s=1 }; Write-Host ('%s' + %s); Microsoft.PowerShell.Utility\\Remove-Variable -Name %s -ErrorAction SilentlyContinue", start, singlePowerShellLine(prepareGroupedPowerShell), encoded, status, strings.ReplaceAll(tail, "'", "''"), code, m.endTag, code, code[1:])
+	tail := strings.ReplaceAll(" "+boundary+strings.TrimPrefix(command, body), "'", "''")
+	source := fmt.Sprintf("[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('%s'))", encoded)
+	// A nova linha separa o rodapé até de comentários e do stop-parsing --%.
+	source += " + [Environment]::NewLine + '" + tail + "'"
+	frame := fmt.Sprintf("'try { ' + %s + ' } finally { ' + {%s}.ToString() + ' }'", source, status)
+	script := "[scriptblock]::Create(" + frame + ")"
+	// Só o agrupamento final pode exigir a reescrita da AST no PowerShell 5.1.
+	// Um comentário após os parênteses também pode ocultar o fim do agrupamento.
+	if strings.HasSuffix(strings.TrimRight(body, "; \r\n\t"), ")") || strings.Contains(body, ")") && strings.Contains(body, "#") {
+		script = fmt.Sprintf("%s (%s) {%s}", singlePowerShellLine(prepareGroupedPowerShell), source, status)
+	}
+	return fmt.Sprintf("%s; try { . (%s) } catch { Microsoft.PowerShell.Utility\\Write-Error -ErrorRecord $_ -ErrorAction Continue; %s=1 }; Write-Host ('%s' + %s); Microsoft.PowerShell.Utility\\Remove-Variable -Name %s -ErrorAction SilentlyContinue", start, script, code, m.endTag, code, code[1:])
 }
 
 // No Windows PowerShell 5.1, parênteses restauram $? para true mesmo após uma
@@ -130,14 +143,9 @@ func (m *CommandMarker) wrapPowerShell(command string) string {
 // de $? logo após a operação. O parser trabalha no texto original para que os
 // offsets coincidam mesmo quando o comando foi envolvido no try de diretório.
 const prepareGroupedPowerShell = `& {
-	param($body, $status, $tail);
-	$source = $body.ToString();
+	param($source, $status);
 	$tokens = $null;
 	$errors = $null;
-	$null = [System.Management.Automation.Language.Parser]::ParseInput($source, [ref]$tokens, [ref]$errors);
-	$comment = $tokens | Microsoft.PowerShell.Core\Where-Object { $_.Kind -eq 'Comment' -and $_.Text.StartsWith('#') -and !$source.Substring($_.Extent.EndOffset).Trim() } | Microsoft.PowerShell.Utility\Select-Object -Last 1;
-	if ($comment) { $source = $comment.Text + [Environment]::NewLine + $source.Substring(0, $comment.Extent.StartOffset) };
-	$source += $tail;
 	$ast = [System.Management.Automation.Language.Parser]::ParseInput($source, [ref]$tokens, [ref]$errors);
 	$last = $ast.EndBlock.Statements[-1];
 	if ($last -is [System.Management.Automation.Language.TryStatementAst]) { $last = $last.Body.Statements[-1] };
@@ -184,10 +192,13 @@ type ParseResult struct {
 // da linha de comando que o PTY produz (onde os markers aparecem embutidos
 // dentro do texto do comando, não em linhas próprias).
 func (m *CommandMarker) ParseOutput(raw string) ParseResult {
-	result := ParseResult{Raw: raw}
+	result := m.parseCleanOutput(m.cleanOutput(raw))
+	result.Raw = raw
+	return result
+}
 
-	// Remove ANSI escapes para facilitar o parsing
-	cleaned := m.cleanOutput(raw)
+func (m *CommandMarker) parseCleanOutput(cleaned string) ParseResult {
+	var result ParseResult
 
 	// Encontra o start marker no INÍCIO de uma linha (após \n ou no início do texto).
 	// Isso ignora ocorrências dentro do echo da linha de comando.
@@ -257,6 +268,33 @@ func (m *CommandMarker) EndTag() string {
 	return m.endTag
 }
 
+// O prefixo até uma quebra seguida de texto não pode mais ser redesenhado pelo
+// ConPTY. Guarde-o já normalizado e reavalie só a cauda ainda ambígua.
+type markerStream struct {
+	marker  CommandMarker
+	stable  strings.Builder
+	pending strings.Builder
+}
+
+func (stream *markerStream) append(chunk string) string {
+	previous := stream.pending.Len()
+	stream.pending.WriteString(chunk)
+	raw := stream.pending.String()
+	for i := len(raw) - 2; i >= max(previous-1, 0); i-- {
+		if raw[i] != '\n' || raw[i+1] == '\x1b' {
+			continue
+		}
+		prefix := raw[:i+1]
+		stream.stable.WriteString(stream.marker.cleanOutput(prefix))
+		stream.marker.viewportColumns = viewportAfterOutput(prefix, stream.marker.viewportColumns)
+		raw = raw[i+1:]
+		stream.pending.Reset()
+		stream.pending.WriteString(raw)
+		break
+	}
+	return stream.stable.String() + stream.marker.cleanStreamingOutput(raw)
+}
+
 var partialCSI = regexp.MustCompile("\x1b(?:\\[[?0-9;]*)?$")
 
 // O próximo chunk pode completar um escape ou um grafema redesenhado.
@@ -276,6 +314,19 @@ func (m *CommandMarker) cleanStreamingOutput(raw string) string {
 	return m.normalizeOutput(raw, true)
 }
 
+var conPTYResize = regexp.MustCompile("\x1b\\[8;[0-9]+;([0-9]+)t")
+
+// O ConPTY emite CSI 8;linhas;colunas t quando o próprio shell muda o viewport.
+func viewportAfterOutput(raw string, columns int) int {
+	if !strings.Contains(raw, "\x1b[8;") {
+		return columns
+	}
+	for _, match := range conPTYResize.FindAllStringSubmatch(raw, -1) {
+		columns, _ = strconv.Atoi(match[1]) // largura inválida desativa a reconstrução
+	}
+	return columns
+}
+
 var conPTYCursorAfterWrap = regexp.MustCompile("\r\n\x1b\\[[0-9]+;([1-9][0-9]*)H")
 
 func (m *CommandMarker) cleanOutput(raw string) string {
@@ -286,24 +337,31 @@ func (m *CommandMarker) cleanOutput(raw string) string {
 // CRLF, cursor na última coluna, cópia do grafema e continuação da saída.
 // Confira a coluna e o grafema antes de unir as linhas.
 func (m *CommandMarker) normalizeOutput(raw string, streaming bool) string {
-	if m.inlineEnd && strings.Contains(raw, "\r\n\x1b[") {
+	if m.conPTY && strings.Contains(raw, "\r\n\x1b[") {
 		var joined strings.Builder
-		consumed := 0
+		consumed, scanned := 0, 0
+		columns := m.viewportColumns
 		for _, match := range conPTYCursorAfterWrap.FindAllStringSubmatchIndex(raw, -1) {
+			if match[0] < consumed {
+				continue
+			}
+			columns = viewportAfterOutput(raw[scanned:match[0]], columns)
+			scanned = match[1]
 			before := raw[consumed:match[0]]
 			row := StripANSI(before[strings.LastIndexByte(before, '\n')+1:])
 			column, err := strconv.Atoi(raw[match[2]:match[3]])
-			if err != nil || row == "" {
+			if err != nil || column != columns || row == "" {
 				continue
 			}
 			graphemes := uniseg.NewGraphemes(row)
-			cells := 0
+			cells, lastWidth := 0, 0
 			var last string
 			for graphemes.Next() {
 				last = graphemes.Str()
-				cells += graphemes.Width()
+				lastWidth = graphemes.Width()
+				cells += lastWidth
 			}
-			if cells != column {
+			if lastWidth == 0 || cells != column {
 				continue
 			}
 			replay := raw[match[1]:]
