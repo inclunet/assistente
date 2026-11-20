@@ -1109,6 +1109,40 @@ describe('Criação de abas — Topbar, Toolbar e Menu reais', () => {
     expect(destination).toHaveFocus();
   });
 
+  it('registra a escolha de chat por Ctrl+N e Enter quando a execução falha', async () => {
+    const report = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(window, 'go', { configurable: true, value: { app: { App: { ReportLocalPaletteCommand: report } } } });
+    const view = await mountCreation();
+    try {
+      getUICommandResult.mockResolvedValue({ invocationId: 'invocation', status: 'failed', errorCode: 'command_failed' });
+      fireEvent.keyDown(document.activeElement!, { key: 'n', code: 'KeyN', ctrlKey: true });
+      await screen.findByRole('menu', { name: 'workspace.newTabMenu' });
+      await waitFor(() => expect(screen.getByRole('menuitem', { name: /chat/ })).toHaveFocus());
+      fireEvent.keyDown(document.activeElement!, { key: 'Enter', code: 'Enter' });
+      await waitFor(() => expect(state.commitBackendCommand).toHaveBeenCalledOnce());
+      await waitFor(() => expect(state.announce).toHaveBeenCalledWith('commandPalette.executionFailed'));
+      expect(report).toHaveBeenCalledWith('workspace.tab.chat.create', expect.any(String), 'succeeded', expect.any(Number), 'creation_selection', 'keyboard.local');
+    } finally {
+      view.unmount();
+      Reflect.deleteProperty(window, 'go');
+    }
+  });
+
+  it('identifica a escolha de chat aberta pela barra', async () => {
+    const report = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(window, 'go', { configurable: true, value: { app: { App: { ReportLocalPaletteCommand: report } } } });
+    const view = await mountCreation();
+    try {
+      fireEvent.click(screen.getByRole('button', { name: 'workspace.newTab, Ctrl+N' }));
+      fireEvent.click(await screen.findByRole('menuitem', { name: /^chat,/ }));
+      await waitFor(() => expect(state.commitBackendCommand).toHaveBeenCalledOnce());
+      expect(report).toHaveBeenCalledWith('workspace.tab.chat.create', expect.any(String), 'succeeded', expect.any(Number), 'creation_selection', 'ui.action');
+    } finally {
+      view.unmount();
+      Reflect.deleteProperty(window, 'go');
+    }
+  });
+
   it.each(['chat', 'editor', 'terminal', 'tasklist'])('criar %s pelo menu entrega o foco à área default da nova aba', async type => {
     const originalWorkspace = state.workspace.workspace;
     const view = await mountCreation();
