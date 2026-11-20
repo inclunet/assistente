@@ -312,3 +312,63 @@ func TestPreparedFilesWithoutPathRecoverOnNewAttempt(t *testing.T) {
 		t.Fatalf("nova preparação: %v, %v", next, err)
 	}
 }
+
+type retryableFileSource struct {
+	contextProviderSourceStub
+	calls int
+}
+
+func (s *retryableFileSource) listSupportingFiles(path string) ([]string, error) {
+	s.calls++
+	if s.calls == 1 {
+		return nil, errors.New("falha temporária")
+	}
+	return []string{path + ".aux"}, nil
+}
+
+func TestIdenticalPreparedRequestCachesOnlyCompleteRender(t *testing.T) {
+	skill := providerSkill("base", "instruções", true)
+	skill.Path = "base/SKILL.md"
+	src := &retryableFileSource{contextProviderSourceStub: contextProviderSourceStub{skills: []Skill{skill}}}
+	p := NewContextProvider(src)
+	ctx := WithCommandTurn(t.Context(), nil)
+	req := contextprovider.BuildRequest{EnabledSkills: []string{"base"}, ToolCallingEnabled: true}
+	build := func() []contextprovider.Block {
+		t.Helper()
+		blocks, err := p.Build(ctx, req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return blocks
+	}
+	before := build()
+	if len(before) != 1 || strings.Contains(before[0].Content, ".aux") {
+		t.Fatalf("falha transitória: %v", before)
+	}
+	after := build()
+	if len(after) != 1 || !strings.Contains(after[0].Content, skill.Path+".aux") {
+		t.Fatalf("recuperação: %v", after)
+	}
+	saved := ctx.Value(commandTurnKey{}).(*commandTurn).prepared
+	entry := saved.last
+	if entry == nil {
+		t.Fatal("renderização completa ausente")
+	}
+	after[0].Content = "alterado na origem"
+	// O orçamento efetivo continua o mesmo.
+	req.ProviderBudgets = map[string]int{ContextProviderName: defaultContextProviderBudget}
+	for range 2 {
+		same := build()
+		if entry != saved.last || len(same) != 1 || !strings.Contains(same[0].Content, skill.Path+".aux") {
+			t.Fatalf("renderização repetida: %v", same)
+		}
+		same[0].Content = "alterado após reuso"
+	}
+	req.EnabledSkills[0] = "outra"
+	if changed := build(); len(changed) != 0 {
+		t.Fatalf("seleção alterada: %v", changed)
+	}
+	if src.calls != 2 {
+		t.Fatalf("leituras de arquivo: %d", src.calls)
+	}
+}

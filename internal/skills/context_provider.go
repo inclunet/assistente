@@ -44,14 +44,29 @@ func (p *ContextProvider) Metadata() contextprovider.ProviderMetadata {
 // A primeira construção prepara as saídas admitidas. Cada construção aplica
 // a seleção e o orçamento atuais, inclusive a distinção entre seleção nil e vazia.
 type preparedSkillContext struct {
-	filesAt      func(string) ([]string, error)
-	skills       []Skill
-	paths        map[string]string // caminho do manifesto selecionado na preparação
-	files        map[string][]string
-	sourceErrors map[string]error          // fontes sem caminho só podem ser consultadas novamente na próxima preparação
-	outputs      map[string]map[int]string // slug e posição da diretiva no documento
-	ready        bool
-	err          error
+	filesAt       func(string) ([]string, error)
+	skills        []Skill
+	paths         map[string]string // caminho do manifesto selecionado na preparação
+	files         map[string][]string
+	sourceErrors  map[string]error          // fontes sem caminho só podem ser consultadas novamente na próxima preparação
+	outputs       map[string]map[int]string // slug e posição da diretiva no documento
+	last          *preparedPrompt
+	listingFailed bool
+	ready         bool
+	err           error
+}
+
+type preparedPrompt struct {
+	enabledSkills                               []string
+	disableSkills, disableOnDemand, toolCalling bool
+	budget                                      int
+	blocks                                      []contextprovider.Block
+}
+
+func (p *preparedPrompt) matches(req contextprovider.BuildRequest, budget int) bool {
+	return p != nil && p.disableSkills == req.DisableSkills && p.disableOnDemand == req.DisableOnDemand &&
+		p.toolCalling == req.ToolCallingEnabled && p.budget == budget &&
+		(p.enabledSkills == nil) == (req.EnabledSkills == nil) && slices.Equal(p.enabledSkills, req.EnabledSkills)
 }
 
 func (s *preparedSkillContext) GetAllSkillsFull() ([]Skill, error) {
@@ -64,10 +79,15 @@ func (s *preparedSkillContext) GetSkillFiles(slug string) ([]string, error) {
 	}
 	path := s.paths[slug]
 	if path == "" {
-		return nil, s.sourceErrors[slug]
+		err := s.sourceErrors[slug]
+		if err != nil {
+			s.listingFailed = true
+		}
+		return nil, err
 	}
 	files, err := s.filesAt(path)
 	if err != nil {
+		s.listingFailed = true
 		return nil, err
 	}
 	s.files[slug] = slices.Clone(files)
@@ -152,10 +172,24 @@ func (p *ContextProvider) Build(ctx context.Context, req contextprovider.BuildRe
 	if prepared.err != nil {
 		return nil, prepared.err
 	}
+	budget := req.Budget(p.Name(), defaultContextProviderBudget)
+	if ctx.Err() == nil && prepared.last.matches(req, budget) {
+		return slices.Clone(prepared.last.blocks), nil
+	}
+	prepared.listingFailed = false
 	provider := ContextProvider{source: prepared}
 	blocks, err := provider.build(ctx, req, prepared.skills)
 	prepared.err = err
 	prepared.ready = true
+	if err == nil && !prepared.listingFailed {
+		// Seleção e blocos retornados pertencem ao chamador. Os campos dos
+		// blocos são escalares e strings imutáveis.
+		prepared.last = &preparedPrompt{
+			enabledSkills: slices.Clone(req.EnabledSkills), disableSkills: req.DisableSkills,
+			disableOnDemand: req.DisableOnDemand, toolCalling: req.ToolCallingEnabled,
+			budget: budget, blocks: slices.Clone(blocks),
+		}
+	}
 	return blocks, err
 }
 
