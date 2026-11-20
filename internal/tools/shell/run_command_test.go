@@ -11,6 +11,7 @@ import (
 
 	"assistente/internal/allowlist"
 	"assistente/internal/commandpolicy"
+	"assistente/internal/tools"
 )
 
 func TestRunCommand_RejectsMissingCommand(t *testing.T) {
@@ -33,7 +34,7 @@ func TestPolicyLoadFailureDoesNotLogEditableValues(t *testing.T) {
 	rc := NewRunCommand(nil, nil, func(context.Context) (*allowlist.Allowlist, error) {
 		return nil, fmt.Errorf("argumento inválido: secret-token")
 	}, ".")
-	if result := rc.evaluateCommand(context.Background(), "git status"); result.Decision != allowlist.DecisionDeny {
+	if result, err := rc.evaluateCommand(context.Background(), "git status"); err == nil || result.Decision != allowlist.DecisionDeny {
 		t.Fatalf("falha não bloqueou: %+v", result)
 	}
 	if output.Len() == 0 || strings.Contains(output.String(), "secret-token") {
@@ -59,7 +60,7 @@ func TestFalhaDeLeituraNaoViraConfirmacaoOuExecucao(t *testing.T) {
 		return true, nil
 	}, func(context.Context) (*allowlist.Allowlist, error) { return nil, fmt.Errorf("banco indisponível") }, ".")
 	result, err := rc.Execute(context.Background(), json.RawMessage(`{"command":"git status"}`))
-	if err != nil || !result.IsError {
+	if err != nil || !result.IsError || result.Failure == nil || result.Failure.Code != FailureConfirmationUnavailable {
 		t.Fatalf("não bloqueou: %+v, %v", result, err)
 	}
 }
@@ -77,8 +78,8 @@ func TestRunCommand_DeniedByAllowlist(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected nil error, got %v", err)
 	}
-	if !result.IsError {
-		t.Fatalf("expected error result when denied by allowlist")
+	if !result.IsError || result.Failure == nil || result.Failure.Code != FailureCommandRefused || result.Failure.Kind != tools.ErrorKindAuthorization || result.Failure.Retryable {
+		t.Fatalf("classificação da negativa: %+v", result.Failure)
 	}
 }
 
@@ -108,7 +109,10 @@ func TestRunCommand_CompoundAllowedAtomsApprove(t *testing.T) {
 
 	rc := NewRunCommand(nil, nil, func(context.Context) (*allowlist.Allowlist, error) { return al, nil }, ".")
 
-	result := rc.evaluateCommand(context.Background(), "git status && git diff")
+	result, err := rc.evaluateCommand(context.Background(), "git status && git diff")
+	if err != nil {
+		t.Fatal(err)
+	}
 	if result.Decision != allowlist.DecisionApprove {
 		t.Fatalf("decision = %s, want approve; reasons=%v", result.Decision, result.Reasons)
 	}
@@ -438,7 +442,7 @@ func TestRunCommand_ConfirmRejected(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected nil error, got %v", err)
 	}
-	if !result.IsError {
-		t.Fatalf("expected error result when user rejects confirmation")
+	if !result.IsError || result.Failure == nil || result.Failure.Code != FailureCommandRefused || result.Failure.Kind != tools.ErrorKindAuthorization || result.Failure.Retryable {
+		t.Fatalf("classificação da negativa: %+v", result.Failure)
 	}
 }

@@ -160,6 +160,32 @@ func TestFencedExamplesAndExclamationsRemainText(t *testing.T) {
 	}
 }
 
+func TestBaseStopsWhenConfirmationIsUnavailable(t *testing.T) {
+	s := invocableSkill("!git first\n!git second")
+	s.Tools = &ToolPermissions{BashCommands: &BashCommands{Allowed: []string{"git"}}}
+	ctx := WithCommandTurn(t.Context(), func(_ context.Context, _ *Skill, command string) (string, error) {
+		if command != "git first" {
+			t.Fatalf("comando posterior: %s", command)
+		}
+		return "", contextprovider.ErrCommandNotAuthorized
+	})
+	if _, err := prepareBaseCommands(ctx, s); !errors.Is(err, contextprovider.ErrCommandNotAuthorized) || errors.Is(err, contextprovider.ErrCommandRefused) {
+		t.Fatalf("erro de confirmação: %v", err)
+	}
+}
+
+func TestListFenceKeepsOnlyExampleLiteral(t *testing.T) {
+	const body = "!git status\n- ~~~sh\n  !git status\n  ~~~\n!git status"
+	s := invocableSkill(body)
+	s.Tools = &ToolPermissions{BashCommands: &BashCommands{Allowed: []string{"git"}}}
+	for _, base := range []bool{true, false} {
+		got, err := renderCommands(t.Context(), s, body, base, func(context.Context, *Skill, string) (string, error) { return "executado", nil }, nil)
+		if err != nil || got != "executado\n- ~~~sh\n  !git status\n  ~~~\nexecutado" {
+			t.Fatalf("base=%t conteúdo=%q erro=%v", base, got, err)
+		}
+	}
+}
+
 func TestSlashBudgetPreservesInstructionsAroundOutput(t *testing.T) {
 	s := invocableSkill("Cabeçalho\n!git status\nInstruções finais")
 	s.Tools = &ToolPermissions{BashCommands: &BashCommands{Allowed: []string{"git"}}}
@@ -180,10 +206,23 @@ func TestSlashBudgetPreservesInstructionsAroundOutput(t *testing.T) {
 	}
 }
 
+func TestCommandOutputUsesRemainingBudget(t *testing.T) {
+	doc := commandDocument{lines: []string{"", ""}, commands: []commandLine{{0, "first"}, {1, "second"}}}
+	got, err := doc.render(t.Context(), &Skill{}, func(_ context.Context, _ *Skill, command string) (string, error) {
+		if command == "first" {
+			return "a", nil
+		}
+		return "1234567890", nil
+	}, false, 10)
+	if err != nil || got != "a\n12345678…" {
+		t.Fatalf("conteúdo=%q err=%v", got, err)
+	}
+}
+
 func TestSlashCommandRejectsShellSyntaxFromArguments(t *testing.T) {
 	s := invocableSkill("!git log $ARGUMENTS")
 	s.Tools = &ToolPermissions{BashCommands: &BashCommands{Allowed: []string{"git"}}}
-	for _, arg := range []string{"a; git status", "$(echo test)", "a'b", "a\"b"} {
+	for _, arg := range []string{"--version", "nome -q", "--output=file", "nome -c core.pager=x", "@x", "/switch", "a; git status", "$(echo test)", "a'b", "a\"b"} {
 		ctx := WithCommandTurn(t.Context(), func(context.Context, *Skill, string) (string, error) { t.Fatal("argumento executado"); return "", nil })
 		if _, _, err := InvokeContext(ctx, "/test-skill "+arg, &stubInvokerManager{skill: s}, "turn", invocablePolicy(s)); err == nil {
 			t.Fatalf("argumento aceito: %q", arg)

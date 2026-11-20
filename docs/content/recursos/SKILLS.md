@@ -26,7 +26,7 @@ durante a navegação, e a opção ativa é anunciada pelo leitor de telas.
 
 ## Gestão
 
-Use um ponto de exclamação seguido de um comando entre crases para declarar uma execução. A forma legada sem crases é reconhecida quando começa pelo nome de um programa declarado em `bashCommands.allowed`. Imagens, exclamações no texto e exemplos em blocos cercados por crases ou tis permanecem no Markdown. O comando precisa
+Use um ponto de exclamação seguido de um comando entre crases para declarar uma execução. A forma legada sem crases é reconhecida quando começa pelo nome de um programa declarado em `bashCommands.allowed`. Imagens, exclamações no texto e exemplos em blocos cercados por crases ou tis permanecem no Markdown, inclusive quando o bloco está dentro de uma lista. O comando precisa
 estar no escopo da skill e o perfil precisa permitir a ferramenta de shell.
 O Assistente consulta a política do comando no contexto da conversa. Quando
 é preciso decidir, o diálogo de shell mostra o comando, o diretório e as
@@ -46,6 +46,6 @@ Uma imagem Markdown permanece no conteúdo da skill. Nas skills base selecionada
 
 A skill base é preparada uma vez a cada tentativa de envio, antes do primeiro comando da skill por barra. Se o programa falhar, atingir o timeout de cinco segundos ou produzir saída excessiva, o Assistente omite a linha da base e conserva as demais instruções. Uma falha na execução da skill por barra interrompe a invocação. Em ambos os casos, uma recusa do usuário ou negativa vigente interrompe o turno.
 
-O orçamento de **Slash Skill** reserva espaço para todas as instruções estáticas, os argumentos, a lista de arquivos e uma parcela da saída de cada comando. Quando essa reserva não cabe, a preparação termina antes da autorização. Uma saída que excede a parcela disponível aparece abreviada com reticências.
+O orçamento de **Slash Skill** reserva espaço para todas as instruções estáticas, os argumentos, a lista de arquivos e uma parcela da saída de cada comando. Quando essa reserva não cabe, a preparação termina antes da autorização. Uma saída que excede a parcela disponível aparece abreviada com reticências. Os comandos seguintes podem usar o espaço que sobrou dos anteriores. O recuo de exemplos segue o Markdown relativo ao item da lista. Uma cerca aberta se estende até o fim do bloco.
 
-Mensagens de canais conectados também podem chegar à preparação do turno. Nas linhas de shell que usam argumentos, use letras, números, espaços ou pontuação simples de nomes e caminhos. Aspas e operadores de shell fornecidos nos argumentos impedem a execução. O editor grava as permissões no formato estruturado `tools`, inclusive ao salvar uma skill importada que usava `allowed-tools`.
+Mensagens de canais conectados também podem chegar à preparação do turno. Nas linhas de shell que usam argumentos, cada palavra começa com letra, número, ponto ou sublinhado e pode conter hífen e barra internamente. Escreva as opções fixas na própria skill. O Assistente valida os argumentos antes da autorização, inclusive nos canais externos. Se a confirmação expirar ou faltar um interlocutor, a tentativa termina. O editor grava as permissões no formato estruturado `tools`, inclusive ao salvar uma skill importada que usava `allowed-tools`.

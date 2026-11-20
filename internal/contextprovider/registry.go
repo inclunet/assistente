@@ -3,14 +3,17 @@ package contextprovider
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sort"
 	"strings"
 
 	"assistente/internal/logging"
 )
 
-// ErrCommandRefused signals an authorization decision that stops prompt preparation.
-var ErrCommandRefused = errors.New("execução do comando recusada")
+// ErrCommandNotAuthorized é o contrato compartilhado entre providers e consumidor do prompt.
+// Mantê-lo aqui evita acoplar o registry ao shell ou a uma implementação de provider.
+var ErrCommandNotAuthorized = errors.New("execução do comando sem autorização")
+var ErrCommandRefused = fmt.Errorf("comando recusado: %w", ErrCommandNotAuthorized)
 
 type Registry struct {
 	providers []Provider
@@ -77,7 +80,7 @@ func (r *Registry) Build(ctx context.Context, req BuildRequest) ([]Block, error)
 		providerBlocks, err := provider.Build(ctx, req)
 		blocks = appendProviderBlocks(blocks, provider.Name(), providerBlocks)
 		if err != nil {
-			if errors.Is(err, ErrCommandRefused) {
+			if errors.Is(err, ErrCommandNotAuthorized) {
 				return nil, err
 			}
 			logging.Errorf(ctx, "contextprovider.registry", "[context/providers] provider %q ignorado após erro: %v", provider.Name(), err)

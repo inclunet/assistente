@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react';
 import { useAnnouncer } from '../../hooks/useAnnouncer';
 import { useTranslation } from 'react-i18next';
 
@@ -22,6 +23,11 @@ export function SkillToolsSection({
   const shellConflict = conflictsWithShell(toolsString);
   const { announce } = useAnnouncer();
   const warning = t('skills.toolsSection.shellConflict');
+  const previousConflict = useRef(shellConflict);
+  useEffect(() => {
+    if (!previousConflict.current && shellConflict) announce(warning);
+    previousConflict.current = shellConflict;
+  }, [announce, shellConflict, warning]);
   return (
     <section className="skills-section" data-testid="skill-tools-section">
       <h3 className="skills-section__title">{t('skills.toolsSection.title')}</h3>
@@ -36,11 +42,7 @@ export function SkillToolsSection({
             className="skills-field__input"
             aria-describedby={shellConflict ? 'sk-shell-conflict' : undefined}
             value={toolsString}
-            onChange={(e) => {
-              const next = e.target.value;
-              if (!shellConflict && conflictsWithShell(next)) announce(warning);
-              onToolsChange(next);
-            }}
+            onChange={(e) => onToolsChange(e.target.value)}
             placeholder={t('skills.toolsSection.placeholder')}
           />
           {shellConflict && <p id="sk-shell-conflict" className="skills-field-warning">{warning}</p>}

@@ -40,13 +40,14 @@ func (s *skillTestTerminal) RunEphemeral(ctx context.Context, dir, command strin
 
 func TestSkillCommandInAdmittedTurn(t *testing.T) {
 	cases := []struct {
-		name, policy                    string
-		exitCode, prompts, calls        int
-		success, refused, ledger, posix bool
+		name, policy                                 string
+		exitCode, prompts, calls                     int
+		success, refused, ledger, posix, unavailable bool
 	}{
 		{name: "preapproved", policy: "approve", calls: 1, success: true, ledger: true},
 		{name: "policy-denied", policy: "deny", refused: true, ledger: true},
 		{name: "allow", prompts: 1, calls: 1, success: true, ledger: true},
+		{name: "confirmation-unavailable", prompts: 1, unavailable: true, ledger: true},
 		{name: "deny", prompts: 1, refused: true, ledger: true},
 		{name: "posix", prompts: 1, success: true, ledger: true, posix: true},
 		{name: "nonzero", exitCode: 13, prompts: 1, calls: 1, ledger: true},
@@ -99,6 +100,9 @@ func TestSkillCommandInAdmittedTurn(t *testing.T) {
 				if raw != command {
 					t.Fatalf("unexpected command %q", raw)
 				}
+				if tc.unavailable {
+					return false, context.DeadlineExceeded
+				}
 				return !tc.refused, nil
 			}, policy, t.TempDir()))
 			a.toolInvocationSvc = toolinvocations.NewService(toolinvocations.NewDBRepository(db), tools.NewExecutor(registry, tools.DefaultExecutorConfig()))
@@ -113,7 +117,7 @@ func TestSkillCommandInAdmittedTurn(t *testing.T) {
 				}
 			}
 			output, err := a.runSkillCommand(ctx, &skills.Skill{Slug: "example"}, command)
-			if (err == nil) != tc.success || errors.Is(err, contextprovider.ErrCommandRefused) != tc.refused || prompts != tc.prompts || term.calls != tc.calls {
+			if (err == nil) != tc.success || errors.Is(err, contextprovider.ErrCommandRefused) != tc.refused || errors.Is(err, contextprovider.ErrCommandNotAuthorized) != (tc.refused || tc.unavailable) || prompts != tc.prompts || term.calls != tc.calls {
 				t.Fatalf("output=%q prompts=%d calls=%d err=%v", output, prompts, term.calls, err)
 			}
 			if tc.success && !strings.Contains(output, "private-output") || !tc.success && output != "" {

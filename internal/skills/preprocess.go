@@ -1,6 +1,7 @@
 package skills
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -9,6 +10,10 @@ import (
 	"strings"
 	"time"
 	"unicode/utf8"
+
+	"github.com/yuin/goldmark"
+	"github.com/yuin/goldmark/ast"
+	"github.com/yuin/goldmark/text"
 
 	"assistente/internal/allowlist"
 	"assistente/internal/commandpolicy"
@@ -95,7 +100,27 @@ type commandDocument struct {
 }
 
 var shellArgumentReference = regexp.MustCompile(`\$(?:ARGUMENTS|[0-9]+)`)
-var shellArgumentText = regexp.MustCompile(`^[\pL\pN ._/@:+,=-]*$`)
+var shellArgumentText = regexp.MustCompile(`^(?:[\pL\pN._][\pL\pN._/-]*(?: +[\pL\pN._][\pL\pN._/-]*)*)?$`)
+
+// O parser CommonMark resolve o recuo relativo de cercas em listas e citações.
+func codeLineStarts(content string) map[int]bool {
+	if !strings.Contains(content, "!") {
+		return nil
+	}
+	source := []byte(content)
+	root := goldmark.DefaultParser().Parse(text.NewReader(source))
+	starts := make(map[int]bool)
+	_ = ast.Walk(root, func(node ast.Node, entering bool) (ast.WalkStatus, error) {
+		if entering && (node.Kind() == ast.KindFencedCodeBlock || node.Kind() == ast.KindCodeBlock) {
+			for i := 0; i < node.Lines().Len(); i++ {
+				pos := node.Lines().At(i).Start
+				starts[bytes.LastIndexByte(source[:pos], '\n')+1] = true
+			}
+		}
+		return ast.WalkContinue, nil
+	})
+	return starts
+}
 
 func planCommandLines(ctx context.Context, skill *Skill, content string, base bool, run SkillCommandRunner, expand func(string) string, rawArgs string) (commandDocument, error) {
 	var commands []commandLine
@@ -113,21 +138,12 @@ func planCommandLines(ctx context.Context, skill *Skill, content string, base bo
 	}
 	shellToolAllowed := skill.Tools == nil || (!slices.Contains(skill.Tools.Denied, "run_command") &&
 		(len(skill.Tools.Allowed) == 0 || slices.Contains(skill.Tools.Allowed, "run_command")))
-	var fence string
+	fenced := codeLineStarts(content)
+	offset := 0
 	for idx, line := range lines {
 		trimmed := strings.TrimSpace(line)
-		indent := line[:len(line)-len(strings.TrimLeft(line, " \t"))]
-		indented := len(indent) >= 4 || strings.Contains(indent, "\t")
-		literal := indented || fence != ""
-		if !indented && len(trimmed) > 0 && (trimmed[0] == '~' || trimmed[0] == '`') {
-			n := len(trimmed) - len(strings.TrimLeft(trimmed, string(trimmed[0])))
-			if n >= 3 && fence == "" {
-				fence = trimmed[:n]
-				literal = true
-			} else if n >= len(fence) && fence != "" && trimmed[0] == fence[0] && strings.TrimSpace(trimmed[n:]) == "" {
-				fence = ""
-			}
-		}
+		literal := fenced[offset]
+		offset += len(line) + 1
 		if literal || len(trimmed) < 2 || trimmed[0] != '!' || strings.HasPrefix(trimmed, "![") {
 			if expand != nil {
 				lines[idx] = expand(line)
@@ -148,7 +164,7 @@ func planCommandLines(ctx context.Context, skill *Skill, content string, base bo
 		}
 		if expand != nil {
 			expanded := expand(command)
-			if expanded != command && shellArgumentReference.MatchString(command) && !shellArgumentText.MatchString(rawArgs) {
+			if expanded != command && shellArgumentReference.MatchString(command) && !shellArgumentText.MatchString(strings.Trim(rawArgs, " ")) {
 				return commandDocument{}, fmt.Errorf("argumentos incompatíveis com uma linha de comando da skill %q", skill.Slug)
 			}
 			command = expanded
@@ -174,8 +190,8 @@ func planCommandLines(ctx context.Context, skill *Skill, content string, base bo
 	return commandDocument{lines, commands}, nil
 }
 
-func (d commandDocument) render(ctx context.Context, skill *Skill, run SkillCommandRunner, base bool, quota int) (string, error) {
-	for _, line := range d.commands {
+func (d commandDocument) render(ctx context.Context, skill *Skill, run SkillCommandRunner, base bool, remaining int) (string, error) {
+	for idx, line := range d.commands {
 		if ctx.Err() != nil {
 			return "", ctx.Err()
 		}
@@ -188,7 +204,7 @@ func (d commandDocument) render(ctx context.Context, skill *Skill, run SkillComm
 			err = fmt.Errorf("saída excedeu o limite da skill %q", skill.Slug)
 		}
 		if err != nil {
-			if !base || errors.Is(err, contextprovider.ErrCommandRefused) {
+			if !base || errors.Is(err, contextprovider.ErrCommandNotAuthorized) {
 				return "", err
 			}
 			logging.Logger(ctx, "skills.preprocess").Warn("Linha omitida após falha do comando da skill base", "skill", skill.Slug)
@@ -196,8 +212,14 @@ func (d commandDocument) render(ctx context.Context, skill *Skill, run SkillComm
 			continue
 		}
 		output = strings.TrimRight(output, "\r\n")
-		if quota >= 0 && utf8.RuneCountInString(output) > quota {
-			output = string([]rune(output)[:quota-1]) + "…"
+		if remaining >= 0 {
+			quota := remaining / (len(d.commands) - idx)
+			size := utf8.RuneCountInString(output)
+			if size > quota {
+				output = string([]rune(output)[:quota-1]) + "…"
+				size = quota
+			}
+			remaining -= size
 		}
 		d.lines[line.index] = output
 	}

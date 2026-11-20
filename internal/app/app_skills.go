@@ -89,8 +89,13 @@ func (a *App) runSkillCommand(ctx context.Context, skill *skills.Skill, command 
 		SensitivePaths:        commandcatalog.SensitivePaths{Output: []string{""}},
 		RequireCompleteResult: true, ExecutionMaxResultSize: skills.MaxCommandOutputSize,
 	})
-	if failure := receipt.Execution.Result.Failure; failure != nil && failure.Code == shell.FailureCommandRefused {
-		return "", fmt.Errorf("skill %q: %w", skill.Slug, contextprovider.ErrCommandRefused)
+	if failure := receipt.Execution.Result.Failure; failure != nil {
+		switch failure.Code {
+		case shell.FailureCommandRefused:
+			return "", fmt.Errorf("skill %q: %w", skill.Slug, contextprovider.ErrCommandRefused)
+		case shell.FailureConfirmationUnavailable:
+			return "", fmt.Errorf("skill %q: %w", skill.Slug, contextprovider.ErrCommandNotAuthorized)
+		}
 	}
 	if !receipt.Persisted {
 		logging.Warnf(ctx, "app.app-skills", "Skill %q, chamada %s: falha de persistência", skill.Slug, id)

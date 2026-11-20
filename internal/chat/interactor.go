@@ -894,15 +894,17 @@ func (i *Interactor) PrepareMessages(ctx context.Context, req PrepareMessagesReq
 				baseReady := false
 				slashRunner = func(call context.Context, skill *skills.Skill, command string) (string, error) {
 					if !baseReady {
-						// Use the same request and turn cache as the final prompt. Other
-						// providers may depend on the slash result and are built later.
+						// Prepara a base no cache desta tentativa, antes de existir resultado da barra.
 						baseRequest := i.dynamicContextRequest(skillTplData, req.UserContent, req.ConversationSummary, "", nil, taskListContextEnabled, req.ActiveProfile)
 						for _, provider := range i.contextProviders.Providers() {
-							if provider.Name() == "skills" && baseRequest.Enabled("skills") {
-								if _, err := provider.Build(ctx, baseRequest); err != nil {
+							if provider.Name() == skills.ContextProviderName && baseRequest.Enabled(skills.ContextProviderName) {
+								if _, err := provider.Build(ctx, baseRequest); errors.Is(err, contextprovider.ErrCommandNotAuthorized) {
 									return "", err
 								}
 							}
+						}
+						if err := ctx.Err(); err != nil {
+							return "", err
 						}
 						baseReady = true
 					}

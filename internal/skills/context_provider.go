@@ -25,7 +25,9 @@ func NewContextProvider(source ContextProviderSource) *ContextProvider {
 	return &ContextProvider{source: source}
 }
 
-func (p *ContextProvider) Name() string { return "skills" }
+const ContextProviderName = "skills"
+
+func (p *ContextProvider) Name() string { return ContextProviderName }
 
 func (p *ContextProvider) Metadata() contextprovider.ProviderMetadata {
 	return contextprovider.ProviderMetadata{

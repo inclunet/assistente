@@ -5,27 +5,6 @@ import (
 	"strings"
 )
 
-// SubstituteArguments substitui variáveis de argumento no conteúdo de um skill.
-// Compatível com a spec oficial do Claude Code:
-//   - $ARGUMENTS → string completa de argumentos
-//   - $ARGUMENTS[N] → argumento posicional 0-based (bracket syntax)
-//   - $N → shorthand para $ARGUMENTS[N] (0-based: $0 = primeiro arg)
-//   - ${CLAUDE_SESSION_ID} → ID da sessão corrente
-//
-// Se $ARGUMENTS NÃO está presente no conteúdo, os argumentos são appendados como "ARGUMENTS: <value>".
-//
-// vars: variáveis de sessão adicionais (ex: {"CLAUDE_SESSION_ID": "123"}).
-//
-// Argumentos entre aspas (simples ou duplas) são tratados como um único argumento.
-// Exemplo: `/fix-issue 42 "my description"` → $0=42, $1=my description, $ARGUMENTS=42 "my description"
-func SubstituteArguments(content string, rawArgs string, vars ...map[string]string) string {
-	if content == "" {
-		return ""
-	}
-
-	return argumentExpander(rawArgs, parseArgs(rawArgs), vars...)(content) + argumentFallback(content, rawArgs)
-}
-
 func argumentFallback(content, args string) string {
 	if args != "" && !containsPlainArguments(content) {
 		return "\n\nARGUMENTS: " + args

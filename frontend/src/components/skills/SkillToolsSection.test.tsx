@@ -22,12 +22,14 @@ vi.mock('react-i18next', () => ({
 
 describe('SkillToolsSection', () => {
   it('avisa quando as ferramentas impedem o uso dos programas de shell declarados', () => {
+    announce.mockClear();
     const { rerender } = render(<SkillToolsSection toolsString="read_file" declaresShellPrograms onToolsChange={vi.fn()} />);
     expect(screen.getByText('skills.toolsSection.shellConflict')).toHaveTextContent('skills.toolsSection.shellConflict');
     rerender(<SkillToolsSection toolsString="read_file, run_command" declaresShellPrograms onToolsChange={vi.fn()} />);
     expect(screen.queryByText('skills.toolsSection.shellConflict')).toBeNull();
     rerender(<SkillToolsSection toolsString="run_command" declaresShellPrograms deniesShell onToolsChange={vi.fn()} />);
     expect(screen.getByText('skills.toolsSection.shellConflict')).toBeInTheDocument();
+    expect(announce).toHaveBeenCalledTimes(1);
   });
 
   it('descreve o conflito inicial e anuncia uma nova incompatibilidade durante a edição', () => {
@@ -36,7 +38,7 @@ describe('SkillToolsSection', () => {
     expect(screen.getByRole('textbox')).toHaveAccessibleDescription('skills.toolsSection.shellConflict');
     expect(announce).not.toHaveBeenCalled();
     rerender(<SkillToolsSection toolsString="run_command" declaresShellPrograms onToolsChange={vi.fn()} />);
-    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'read_file' } });
+    rerender(<SkillToolsSection toolsString="read_file" declaresShellPrograms onToolsChange={vi.fn()} />);
     expect(announce).toHaveBeenCalledTimes(1);
   });
 
