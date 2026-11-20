@@ -274,6 +274,10 @@ export function RefreshAuth(arg1) {
   return window['go']['app']['App']['RefreshAuth'](arg1);
 }
 
+export function ReportLocalPaletteCommand(arg1, arg2, arg3, arg4, arg5, arg6) {
+  return window['go']['app']['App']['ReportLocalPaletteCommand'](arg1, arg2, arg3, arg4, arg5, arg6);
+}
+
 export function ResetLocalCommandKeyboard(arg1) {
   return window['go']['app']['App']['ResetLocalCommandKeyboard'](arg1);
 }
