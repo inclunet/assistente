@@ -59,6 +59,7 @@ vi.mock('../services/tts', () => ({
 }));
 
 const chatStoreState = {
+  loadingConversationIds: new Set<string>(),
   getDraftRevision: () => 0,
   getMessagingPipelineRevision: () => 0,
   waitForMessagingAdmission: async () => {},

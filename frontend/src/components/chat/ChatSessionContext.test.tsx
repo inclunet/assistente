@@ -17,6 +17,7 @@ type TestMessageNode = import('../../lib/chatMessageTree').MessageNode;
 const testMessageNode = (id: string): TestMessageNode => nodeFixture({ message: { id } });
 
 const chatStoreState = {
+  loadingConversationIds: new Set<string>(),
   ensureConversationSurfaceSession: ensureConversationSurfaceSessionMock,
   removeConversationSurfaceSession: removeConversationSurfaceSessionMock,
   retryMessageToConversation: retryMessageToConversationMock,
