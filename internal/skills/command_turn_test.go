@@ -187,6 +187,18 @@ func TestListFenceKeepsOnlyExampleLiteral(t *testing.T) {
 	}
 }
 
+func TestPreformattedHTMLKeepsOnlyExampleLiteral(t *testing.T) {
+	const body = "<PRE class='example'>\n!git status\n</PRE>\n\n!git status"
+	s := invocableSkill(body)
+	s.Tools = &ToolPermissions{BashCommands: &BashCommands{Allowed: []string{"git"}}}
+	for _, base := range []bool{true, false} {
+		got, err := renderCommands(t.Context(), s, body, base, func(context.Context, *Skill, string) (string, error) { return "executado", nil }, nil)
+		if err != nil || got != "<PRE class='example'>\n!git status\n</PRE>\n\nexecutado" {
+			t.Fatalf("base=%t conteudo=%q erro=%v", base, got, err)
+		}
+	}
+}
+
 func TestSlashBudgetPreservesInstructionsAroundOutput(t *testing.T) {
 	s := invocableSkill("Cabeçalho\n!git status\nInstruções finais")
 	s.Tools = &ToolPermissions{BashCommands: &BashCommands{Allowed: []string{"git"}}}

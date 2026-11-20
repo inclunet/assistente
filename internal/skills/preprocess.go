@@ -69,6 +69,7 @@ type commandDocument struct {
 	commands []commandLine
 }
 
+var preformattedHTML = regexp.MustCompile(`(?i)^[ \t]*<pre(?:[ \t\r\n>]|$)`)
 var shellArgumentReference = regexp.MustCompile(`\$(?:ARGUMENTS|[0-9]+)`)
 var shellPosition = regexp.MustCompile(`\$(?:ARGUMENTS\[([0-9]+)\]|([0-9]+))`)
 var parentArgumentSegment = regexp.MustCompile(`(?:^|[ /\\=:"'])\.\.(?:[ /\\:"']|$)`)
@@ -83,7 +84,15 @@ func codeLineStarts(content string) map[int]bool {
 	root := goldmark.DefaultParser().Parse(text.NewReader(source))
 	starts := make(map[int]bool)
 	_ = ast.Walk(root, func(node ast.Node, entering bool) (ast.WalkStatus, error) {
-		if entering && (node.Kind() == ast.KindFencedCodeBlock || node.Kind() == ast.KindCodeBlock) {
+		if !entering {
+			return ast.WalkContinue, nil
+		}
+		literal := node.Kind() == ast.KindFencedCodeBlock || node.Kind() == ast.KindCodeBlock
+		if block, ok := node.(*ast.HTMLBlock); ok && block.HTMLBlockType == ast.HTMLBlockType1 && block.Lines().Len() > 0 {
+			first := block.Lines().At(0)
+			literal = preformattedHTML.Match(first.Value(source))
+		}
+		if literal {
 			for i := 0; i < node.Lines().Len(); i++ {
 				pos := node.Lines().At(i).Start
 				starts[bytes.LastIndexByte(source[:pos], '\n')+1] = true

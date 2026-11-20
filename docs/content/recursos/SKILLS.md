@@ -26,7 +26,7 @@ durante a navegação, e a opção ativa é anunciada pelo leitor de telas.
 
 ## Gestão
 
-Use um ponto de exclamação seguido de um comando entre crases para declarar uma execução. A forma legada sem crases é reconhecida quando começa pelo nome de um programa declarado em `bashCommands.allowed`. Imagens, exclamações no texto e exemplos em blocos cercados por crases ou tis permanecem no Markdown, inclusive quando o bloco está dentro de uma lista. O comando precisa
+Use um ponto de exclamação seguido de um comando entre crases para declarar uma execução. A forma legada sem crases é reconhecida quando começa pelo nome de um programa declarado em `bashCommands.allowed`. Imagens, exclamações no texto e exemplos em blocos cercados por crases ou tis permanecem no Markdown, inclusive quando o bloco está dentro de uma lista. Exemplos em blocos HTML `<pre>` também preservam as linhas de comando como texto. O comando precisa
 estar no escopo da skill e o perfil precisa permitir a ferramenta de shell.
 O Assistente consulta a política do comando no contexto da conversa. Quando
 é preciso decidir, o diálogo de shell mostra o comando, o diretório e as

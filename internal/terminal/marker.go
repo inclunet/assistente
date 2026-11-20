@@ -82,6 +82,21 @@ func (m *CommandMarker) wrapPowerShell(command string) string {
     if (!$line) { return $false };
     $end = $line.IndexOf('%s');
     $start = $i.OffsetInLine - 1;
+    if ($end -lt 0) {
+        $full = (Microsoft.PowerShell.Utility\Get-PSCallStack)[0].Position.StartScriptPosition.GetFullScript();
+        if (!$full -or $i.ScriptLineNumber -lt 1) { return $false };
+        $offset = 0;
+        for ($n = 1; $n -lt $i.ScriptLineNumber; $n++) {
+            $offset = $full.IndexOf([char]10, $offset) + 1;
+            if (!$offset) { return $false }
+        };
+        $next = $full.IndexOf([char]10, $offset);
+        if ($next -lt 0) { $next = $full.Length };
+        if ($full.Substring($offset, $next - $offset).TrimEnd([char]13) -cne $line.TrimEnd([char]13, [char]10)) { return $false };
+        $line = $full;
+        $start += $offset;
+        $end = $line.IndexOf('%[1]s')
+    };
     if ($start -lt 0 -or $end -le $start) { return $false };
     $tokens = $null;
     $errors = $null;
