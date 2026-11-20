@@ -18,6 +18,15 @@ vi.mock('react-i18next', () => ({
 }));
 
 describe('SkillToolsSection', () => {
+  it('avisa quando as ferramentas impedem o uso dos programas de shell declarados', () => {
+    const { rerender } = render(<SkillToolsSection toolsString="read_file" declaresShellPrograms onToolsChange={vi.fn()} />);
+    expect(screen.getByText('skills.toolsSection.shellConflict')).toHaveTextContent('skills.toolsSection.shellConflict');
+    rerender(<SkillToolsSection toolsString="read_file, run_command" declaresShellPrograms onToolsChange={vi.fn()} />);
+    expect(screen.queryByText('skills.toolsSection.shellConflict')).toBeNull();
+    rerender(<SkillToolsSection toolsString="run_command" declaresShellPrograms deniesShell onToolsChange={vi.fn()} />);
+    expect(screen.getByText('skills.toolsSection.shellConflict')).toBeInTheDocument();
+  });
+
   it('renderiza string de ferramentas e dica', () => {
     const onToolsChange = vi.fn();
     render(

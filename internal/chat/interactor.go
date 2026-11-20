@@ -827,11 +827,21 @@ func (i *Interactor) PrepareMessages(ctx context.Context, req PrepareMessagesReq
 		return i.prepareAgentMessages(ctx, req)
 	}
 	invocation, _ := invocationctx.Get(ctx)
-	invocation.Source = req.Params.Source
-	invocation.SurfaceTabID = req.Params.SurfaceTabID
-	invocation.ConversationID = req.ConversationID
-	invocation.TurnID = req.TurnID
-	invocation.ProfileSlug = req.Params.ProfileSlug
+	if req.Params.Source != "" {
+		invocation.Source = req.Params.Source
+	}
+	if req.Params.SurfaceTabID != "" {
+		invocation.SurfaceTabID = req.Params.SurfaceTabID
+	}
+	if req.ConversationID != "" {
+		invocation.ConversationID = req.ConversationID
+	}
+	if req.TurnID != "" {
+		invocation.TurnID = req.TurnID
+	}
+	if req.Params.ProfileSlug != "" {
+		invocation.ProfileSlug = req.Params.ProfileSlug
+	}
 	runner := i.skillCommands
 	if !req.AllowSkillShell || i.promptBuilder == nil {
 		runner = nil
@@ -932,7 +942,10 @@ func (i *Interactor) PrepareMessages(ctx context.Context, req PrepareMessagesReq
 
 	contextBlocks := i.buildDynamicContext(ctx, skillTplData, req.UserContent, req.ConversationSummary, slashSkillContent, linkedTaskLists, taskListContextEnabled, req.ActiveProfile)
 	if err := skills.CommandTurnError(ctx); err != nil {
-		return PrepareMessagesResponse{Err: err}
+		if i.emitter != nil {
+			i.emitter.Emit("chat:error", ports.ErrorEvent{ConversationID: req.ConversationID, Error: err.Error(), SurfaceOrigin: req.SurfaceOrigin})
+		}
+		return PrepareMessagesResponse{Messages: req.Messages, Err: err}
 	}
 	slashSkillInjected := strings.TrimSpace(slashSkillContent) == "" || (i.promptBuilder != nil && hasContextBlock(contextBlocks, "slash_skill", "slash_skill"))
 

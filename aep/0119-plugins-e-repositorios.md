@@ -72,6 +72,8 @@ A instalação de pacotes e as demais entregas das fases abaixo permanecem pende
 4. Extensões próprias e portabilidade de definições, incluindo dependências, atualização e preservação dos dados de trabalho.
 5. Builder e validação do pacote produzido em outra conta. Documentar cada entrega visível em `docs/content` e registrar evidências neste AEP e no índice.
 
+O teste `TestBaseSkillUnavailableShellPreservesMarkdownAndInstructions` cobre a preservação de imagens e instruções de skills base quando o perfil não oferece shell ou a skill não declara programas permitidos. Uma recusa na autorização de comandos continua interrompendo a execução. A reconstrução do prompt usa o cache da preparação corrente. Uma nova tentativa explícita passa novamente pela política de comandos.
+
 ## Riscos
 
 Um nome igual em duas lojas pode induzir troca de origem. Uma tradução incompleta pode remover uma restrição de ferramenta ou um veto. Uma atualização interrompida pode deixar um job ativo com arquivos de outra versão. A prévia, as verificações no destino e as provas de recuperação cobrem esses casos. Arquivos de backup podem conter dados privados, por isso o builder precisa de seleção explícita de campos publicáveis por tipo.

@@ -3,6 +3,7 @@ package terminal
 import (
 	"context"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 )
@@ -56,5 +57,23 @@ func TestRunEphemeralTimeoutCompletesCleanupBeforeReturning(t *testing.T) {
 	}
 	if got := manager.Stats().TotalSessions; got != 0 {
 		t.Fatalf("sessão efêmera vazou para o pool: %d", got)
+	}
+}
+
+func TestPowerShellNoNewlineThroughPTY(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("PowerShell ConPTY")
+	}
+	cfg := DefaultManagerConfig()
+	cfg.DefaultShell = "powershell.exe"
+	mgr := NewManager(cfg, nil)
+	for _, tc := range []struct {
+		cmd  string
+		code int
+	}{{"Write-Host -NoNewline 'sample'", 0}, {"Write-Host -NoNewline 'sample'; cmd /c exit 7", 7}} {
+		entry, err := mgr.RunEphemeral(t.Context(), "", tc.cmd, 15*time.Second, "test")
+		if err != nil || entry == nil || strings.TrimSpace(entry.Output) != "sample" || entry.ExitCode != tc.code {
+			t.Fatalf("entry=%+v err=%v", entry, err)
+		}
 	}
 }

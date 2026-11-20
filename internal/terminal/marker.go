@@ -22,9 +22,10 @@ var ansiEscape = regexp.MustCompile(`\x1b\[[0-9;]*[a-zA-Z]|\x1b\].*?\x07|\x1b\[[
 // CommandMarker gera e parseia markers para detectar início/fim de comandos em PTY.
 // Cada execução recebe um UUID único para evitar conflitos.
 type CommandMarker struct {
-	id       string
-	startTag string
-	endTag   string
+	id        string
+	startTag  string
+	endTag    string
+	inlineEnd bool
 }
 
 // NewCommandMarker cria um novo marker com UUID único.
@@ -61,10 +62,9 @@ func (m *CommandMarker) wrapBash(command string) string {
 
 // wrapPowerShell gera comando wrapped para PowerShell.
 func (m *CommandMarker) wrapPowerShell(command string) string {
-	return fmt.Sprintf(
-		"Write-Host '%s'; %s; Write-Host ('%s' + $LASTEXITCODE)",
-		m.startTag, command, m.endTag,
-	)
+	// ConPTY pode entregar o marcador logo após a saída sem newline físico.
+	m.inlineEnd = true
+	return fmt.Sprintf("Write-Host '%s'; %s; if ($?) { Write-Host '%s0' } elseif ($LASTEXITCODE) { Write-Host ('%s' + $LASTEXITCODE) } else { Write-Host '%s1' }", m.startTag, command, m.endTag, m.endTag, m.endTag)
 }
 
 // ParseResult representa o resultado do parsing de output com markers.
@@ -122,10 +122,25 @@ func (m *CommandMarker) ParseOutput(raw string) ParseResult {
 	} else if strings.HasPrefix(cleaned, m.endTag) {
 		endIdx = 0
 	}
-	if endIdx == -1 || endIdx <= startIdx {
+	if m.inlineEnd {
+		// Só o marcador desta execução depois do start real pode fechar o comando.
+		// A linha de status completa, validada abaixo, distingue o eco e leituras parciais.
+		endIdx = strings.LastIndex(cleaned, m.endTag)
+	}
+	if endIdx == -1 || endIdx < contentStart {
 		return result
 	}
 
+	// O PTY pode dividir o próprio código de saída entre duas leituras.
+	status, _, complete := strings.Cut(cleaned[endIdx+len(m.endTag):], "\n")
+	if !complete {
+		return result
+	}
+	code, err := strconv.Atoi(status)
+	if err != nil {
+		return result
+	}
+	result.ExitCode = code
 	result.Found = true
 
 	// Extrai o output entre os markers
@@ -133,19 +148,6 @@ func (m *CommandMarker) ParseOutput(raw string) ParseResult {
 		result.Output = cleaned[contentStart:endIdx]
 		// Remove trailing newline
 		result.Output = strings.TrimRight(result.Output, "\n")
-	}
-
-	// Extrai o exit code após o end marker
-	exitCodeStr := cleaned[endIdx+len(m.endTag):]
-	exitCodeStr = strings.TrimSpace(exitCodeStr)
-	// Pega só a primeira linha (pode ter lixo depois)
-	if nlIdx := strings.Index(exitCodeStr, "\n"); nlIdx >= 0 {
-		exitCodeStr = exitCodeStr[:nlIdx]
-	}
-	if exitCodeStr != "" {
-		if code, err := strconv.Atoi(exitCodeStr); err == nil {
-			result.ExitCode = code
-		}
 	}
 
 	return result

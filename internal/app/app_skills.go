@@ -1,6 +1,13 @@
 package app
 
 import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"slices"
+
+	"github.com/google/uuid"
+
 	"assistente/internal/agent"
 	"assistente/internal/commandcatalog"
 	"assistente/internal/logging"
@@ -9,11 +16,6 @@ import (
 	"assistente/internal/tools"
 	"assistente/internal/tools/invocationctx"
 	skillloadertool "assistente/internal/tools/skillloader"
-	"context"
-	"encoding/json"
-	"fmt"
-	"github.com/google/uuid"
-	"slices"
 )
 
 // ============================================================================
@@ -49,6 +51,8 @@ func (a *App) runSkillCommand(ctx context.Context, skill *skills.Skill, command 
 	if err := tools.ValidateExecutionContextToolAccess(ctx, "run_command"); err != nil {
 		return "", err
 	}
+	// O escopo herdado de run_command restringe linhas completas. A lista local
+	// de programas da skill só pode restringir esse escopo adicionalmente.
 	if parent, ok := tools.GetExecutionContext(ctx); ok {
 		if slices.Contains(parent.DeniedBash, command) || (len(parent.AllowedBash) > 0 && !slices.Contains(parent.AllowedBash, command)) {
 			return "", fmt.Errorf("comando bloqueado pelo escopo de origem")
@@ -78,21 +82,31 @@ func (a *App) runSkillCommand(ctx context.Context, skill *skills.Skill, command 
 	}
 	redacted := "{}"
 	receipt := a.toolInvocationSvc.Execute(ctx, toolinvocations.ExecuteRequest{
-		Call:                  tools.ToolCall{ID: id.String(), Type: "function", Function: tools.FunctionCall{Name: "run_command", Arguments: string(args)}},
-		Origin:                toolinvocations.Origin{Type: toolinvocations.OriginChat, ID: inv.TurnID, TurnID: inv.TurnID, ConversationID: inv.ConversationID, ChatExecutionID: &execID},
-		PersistedArguments:    &redacted,
+		Call:               tools.ToolCall{ID: id.String(), Type: "function", Function: tools.FunctionCall{Name: "run_command", Arguments: string(args)}},
+		Origin:             toolinvocations.Origin{Type: toolinvocations.OriginChat, ID: inv.TurnID, TurnID: inv.TurnID, ConversationID: inv.ConversationID, ChatExecutionID: &execID},
+		PersistedArguments: &redacted,
+		// O caminho JSON vazio protege a saída inteira no histórico técnico.
 		SensitivePaths:        commandcatalog.SensitivePaths{Output: []string{""}},
 		RequireCompleteResult: true, ExecutionMaxResultSize: skills.MaxCommandOutputSize,
 	})
 	if !receipt.Persisted {
+		logging.Warnf(ctx, "app.app-skills", "Skill %q, chamada %s: falha de persistência", skill.Slug, id)
 		return "", fmt.Errorf("falha ao registrar o comando da skill %q", skill.Slug)
 	}
 	result := receipt.Execution
 	if result.Error != nil || result.Result.IsError {
+		code := "execution_error"
+		if failure := result.Result.Failure; failure != nil {
+			code = string(failure.Code)
+		}
+		logging.Warnf(ctx, "app.app-skills", "Skill %q, chamada %s: %s", skill.Slug, id, code)
 		return "", fmt.Errorf("execução do comando da skill %q interrompida", skill.Slug)
 	}
-	if code, ok := result.Result.Metadata["exitCode"].(int); ok && code != 0 {
-		return "", fmt.Errorf("comando da skill %q terminou com código %d", skill.Slug, code)
+	switch result.Result.Metadata["exitCode"] {
+	case int(0), int64(0), float64(0):
+	default:
+		logging.Warnf(ctx, "app.app-skills", "Skill %q, chamada %s: código de saída inválido ou diferente de zero", skill.Slug, id)
+		return "", fmt.Errorf("comando da skill %q não concluiu com sucesso", skill.Slug)
 	}
 	return result.Result.Content, nil
 }

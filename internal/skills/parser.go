@@ -169,7 +169,13 @@ func validateSpecStrict(meta *SkillMetadata, strict bool) error {
 
 // Compose gera o conteúdo completo do SKILL.md (frontmatter + corpo Markdown).
 func Compose(meta *SkillMetadata, content string) (string, error) {
-	yamlBytes, err := yaml.Marshal(meta)
+	// Tools é a representação resolvida usada pela API e não é serializada diretamente.
+	normalized := *meta
+	if normalized.Tools != nil {
+		normalized.ToolsRaw = normalized.Tools
+		normalized.AllowedTools = ""
+	}
+	yamlBytes, err := yaml.Marshal(&normalized)
 	if err != nil {
 		return "", fmt.Errorf("failed to marshal frontmatter: %w", err)
 	}

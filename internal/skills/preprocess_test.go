@@ -4,7 +4,7 @@ import (
 	"assistente/internal/osutil"
 	"bytes"
 	"context"
-	"fmt"
+	"errors"
 	"os/exec"
 	"runtime"
 	"strings"
@@ -19,7 +19,7 @@ func TestPreprocessCommands_BasicEcho(t *testing.T) {
 		content = "Before\n!echo hello\nAfter"
 	}
 
-	result := PreprocessCommands(content, []string{"echo"})
+	result := renderWithLocalShell(content, []string{"echo"})
 
 	if !strings.Contains(result, "hello") {
 		t.Errorf("expected output to contain 'hello', got: %q", result)
@@ -34,49 +34,40 @@ func TestPreprocessCommands_BasicEcho(t *testing.T) {
 
 func TestPreprocessCommands_NoCommands(t *testing.T) {
 	content := "This is normal content\nNo commands here"
-	result := PreprocessCommands(content, nil)
+	result := renderWithLocalShell(content, nil)
 	if result != content {
 		t.Errorf("expected unchanged content, got: %q", result)
 	}
 }
 
 func TestPreprocessCommands_EmptyContent(t *testing.T) {
-	result := PreprocessCommands("", nil)
+	result := renderWithLocalShell("", nil)
 	if result != "" {
 		t.Errorf("expected empty string, got: %q", result)
 	}
 }
 
-func TestPreprocessCommands_FailedCommand(t *testing.T) {
-	content := "!thiscommanddoesnotexist12345"
-	result := PreprocessCommands(content, []string{"thiscommanddoesnotexist12345"})
-	if !strings.Contains(result, "<!-- command failed") {
-		t.Errorf("expected error comment, got: %q", result)
-	}
-}
-
 func TestPreprocessCommands_FailedCommandDoesNotEchoCommand(t *testing.T) {
-	content := "!thiscommanddoesnotexist12345 --token secret-value"
-	result := PreprocessCommands(content, []string{"thiscommanddoesnotexist12345"})
-	if !strings.Contains(result, "<!-- command failed") {
-		t.Errorf("expected failure comment, got: %q", result)
-	}
-	if strings.Contains(result, "thiscommanddoesnotexist12345") || strings.Contains(result, "secret-value") {
-		t.Errorf("failure comment must not echo command line or secrets, got: %q", result)
+	failure := errors.New("falha de execução")
+	skill := Skill{}
+	skill.Tools = &ToolPermissions{BashCommands: &BashCommands{Allowed: []string{"example"}}}
+	output, err := renderCommands(t.Context(), &skill, "!example --token secret-value", false, func(context.Context, *Skill, string) (string, error) { return "private-output", failure }, nil)
+	if !errors.Is(err, failure) || output != "" || strings.Contains(err.Error(), "secret-value") {
+		t.Fatalf("output=%q err=%v", output, err)
 	}
 }
 
 func TestPreprocessCommands_BlockedCommand(t *testing.T) {
 	content := "!echo blocked"
-	result := PreprocessCommands(content, []string{"git", "ls"})
+	result := renderWithLocalShell(content, []string{"git", "ls"})
 	if !strings.Contains(result, "comando bloqueado para a skill") {
-		t.Errorf("expected blocked comment, got: %q", result)
+		t.Errorf("expected blocked error, got: %q", result)
 	}
 }
 
 func TestPreprocessCommands_AllowedCommand(t *testing.T) {
 	content := "!echo allowed"
-	result := PreprocessCommands(content, []string{"echo", "git"})
+	result := renderWithLocalShell(content, []string{"echo", "git"})
 	if !strings.Contains(result, "allowed") {
 		t.Errorf("expected 'allowed' in output, got: %q", result)
 	}
@@ -87,7 +78,7 @@ func TestPreprocessCommands_AllowedCommand(t *testing.T) {
 
 func TestPreprocessCommands_OnlyExclamationMark(t *testing.T) {
 	content := "!\nNormal line"
-	result := PreprocessCommands(content, nil)
+	result := renderWithLocalShell(content, nil)
 	if !strings.Contains(result, "!") {
 		t.Errorf("lone '!' should be preserved, got: %q", result)
 	}
@@ -98,7 +89,7 @@ func TestPreprocessCommands_OnlyExclamationMark(t *testing.T) {
 
 func TestPreprocessCommands_PreservesIndentation(t *testing.T) {
 	content := "  Normal indented line\nAnother line"
-	result := PreprocessCommands(content, nil)
+	result := renderWithLocalShell(content, nil)
 	if result != content {
 		t.Errorf("indented non-command lines should be preserved, got: %q", result)
 	}
@@ -112,7 +103,7 @@ func TestPreprocessCommands_MultipleCommands(t *testing.T) {
 		content = "!echo first\nMiddle\n!echo second"
 	}
 
-	result := PreprocessCommands(content, []string{"echo"})
+	result := renderWithLocalShell(content, []string{"echo"})
 
 	if !strings.Contains(result, "first") {
 		t.Errorf("expected 'first' in output, got: %q", result)
@@ -128,7 +119,7 @@ func TestPreprocessCommands_MultipleCommands(t *testing.T) {
 func TestPreprocessCommands_BacktickSyntax(t *testing.T) {
 	// Formato oficial Claude Code: !`command`
 	content := "PR diff:\n!`echo backtick-works`\nDone"
-	result := PreprocessCommands(content, []string{"echo"})
+	result := renderWithLocalShell(content, []string{"echo"})
 
 	if !strings.Contains(result, "backtick-works") {
 		t.Errorf("expected backtick command output, got: %q", result)
@@ -146,7 +137,7 @@ func TestPreprocessCommands_BacktickAndPlain(t *testing.T) {
 	} else {
 		content = "!echo plain\n!`echo backtick`"
 	}
-	result := PreprocessCommands(content, []string{"echo"})
+	result := renderWithLocalShell(content, []string{"echo"})
 
 	if !strings.Contains(result, "plain") {
 		t.Errorf("expected plain command output, got: %q", result)
@@ -181,7 +172,7 @@ func TestStripBackticks(t *testing.T) {
 
 func TestPreprocessCommands_NilAllowlistBlocksAll(t *testing.T) {
 	content := "!echo should-not-run"
-	result := PreprocessCommands(content, nil)
+	result := renderWithLocalShell(content, nil)
 	if !strings.Contains(result, "comando bloqueado para a skill") {
 		t.Errorf("nil allowlist must block all commands (default-deny), got: %q", result)
 	}
@@ -193,7 +184,7 @@ func TestPreprocessCommands_NilAllowlistBlocksAll(t *testing.T) {
 
 func TestPreprocessCommands_EmptyAllowlistBlocksAll(t *testing.T) {
 	content := "!echo should-not-run"
-	result := PreprocessCommands(content, []string{})
+	result := renderWithLocalShell(content, []string{})
 	if !strings.Contains(result, "comando bloqueado para a skill") {
 		t.Errorf("empty allowlist must block all commands (default-deny), got: %q", result)
 	}
@@ -203,30 +194,28 @@ func TestPreprocessCommands_CompositeWithDisallowedPartBlocked(t *testing.T) {
 	// "echo" está na allowlist, mas "rm" não: a linha composta inteira deve
 	// ser bloqueada (cada átomo precisa ser aprovado pela política).
 	content := "!echo hello; rm -rf x"
-	result := PreprocessCommands(content, []string{"echo"})
+	result := renderWithLocalShell(content, []string{"echo"})
 	if !strings.Contains(result, "comando bloqueado para a skill") {
 		t.Errorf("composite command with disallowed part must be blocked, got: %q", result)
 	}
-	if strings.Contains(result, "<!-- command failed") {
-		t.Errorf("command must be blocked before execution, got: %q", result)
-	}
+
 }
 
-func TestPreprocessCommands_BlockedCommentDoesNotEchoCommand(t *testing.T) {
+func TestPreprocessCommands_BlockedErrorDoesNotEchoCommand(t *testing.T) {
 	content := "!echo token=secret-value; rm -rf x"
-	result := PreprocessCommands(content, []string{"echo"})
+	result := renderWithLocalShell(content, []string{"echo"})
 	if !strings.Contains(result, "comando bloqueado para a skill") {
-		t.Errorf("expected blocked comment, got: %q", result)
+		t.Errorf("expected blocked error, got: %q", result)
 	}
 	if strings.Contains(result, "secret-value") || strings.Contains(result, "rm -rf") {
-		t.Errorf("blocked comment must not echo the command line or secrets, got: %q", result)
+		t.Errorf("blocked error must not echo the command line or secrets, got: %q", result)
 	}
 }
 
 func TestPreprocessCommands_CompositeAllAllowedExecutes(t *testing.T) {
 	// Composição com && onde todos os átomos são permitidos deve executar.
 	content := "!echo first && echo second"
-	result := PreprocessCommands(content, []string{"echo"})
+	result := renderWithLocalShell(content, []string{"echo"})
 	if strings.Contains(result, "comando bloqueado para a skill") {
 		t.Errorf("composite command with all parts allowed should execute, got: %q", result)
 	}
@@ -250,7 +239,7 @@ func TestPreprocessCommands_ShellFeaturesBlocked(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			result := PreprocessCommands(tc.content, tc.allowed)
+			result := renderWithLocalShell(tc.content, tc.allowed)
 			if !strings.Contains(result, "comando bloqueado para a skill") {
 				t.Errorf("unsupported shell feature must be blocked, got: %q", result)
 			}
@@ -285,21 +274,6 @@ func TestEvaluateSkillCommand_MatchesExecutable(t *testing.T) {
 	}
 }
 
-func TestSanitizeHTMLCommentText(t *testing.T) {
-	result := sanitizeHTMLCommentText("program --flag closed --> visible")
-	if strings.Contains(result, "--") || strings.Contains(result, ">") {
-		t.Fatalf("sanitized text must not contain HTML comment delimiters, got: %q", result)
-	}
-	if !strings.Contains(result, "&gt;") {
-		t.Fatalf("expected greater-than signs to be escaped, got: %q", result)
-	}
-
-	result = sanitizeHTMLCommentText("---->")
-	if strings.Contains(result, "--") || strings.Contains(result, ">") {
-		t.Fatalf("runs of hyphens must not leave HTML comment delimiters, got: %q", result)
-	}
-}
-
 func TestBuildSkillPolicy_NilOrEmptyReturnsNil(t *testing.T) {
 	if buildSkillPolicy(nil) != nil {
 		t.Error("nil allowedCommands should produce nil policy")
@@ -313,15 +287,11 @@ func TestBuildSkillPolicy_NilOrEmptyReturnsNil(t *testing.T) {
 }
 
 // Exercise the renderer with a real, test-only shell for the integration cases above.
-func PreprocessCommands(content string, allowed []string) string {
+func renderWithLocalShell(content string, allowed []string) string {
 	skill := Skill{}
 	skill.Tools = &ToolPermissions{BashCommands: &BashCommands{Allowed: allowed}}
-	value, err := renderCommands(context.Background(), &skill, content, func(_ context.Context, _ *Skill, cmd string) (string, error) {
-		out, err := executeCommand(cmd)
-		if err != nil {
-			return "", fmt.Errorf("<!-- command failed -->")
-		}
-		return out, nil
+	value, err := renderCommands(context.Background(), &skill, content, false, func(_ context.Context, _ *Skill, cmd string) (string, error) {
+		return executeCommand(cmd)
 	}, nil)
 	if err != nil {
 		return err.Error()
@@ -350,11 +320,7 @@ func executeCommand(cmd string) (string, error) {
 	err := c.Run()
 	if err != nil {
 		if ctx.Err() == context.DeadlineExceeded {
-			return "", fmt.Errorf("timeout after %v", DefaultCommandTimeout)
-		}
-		errMsg := strings.TrimSpace(stderr.String())
-		if errMsg != "" {
-			return "", fmt.Errorf("exit %v: %s", err, errMsg)
+			return "", ctx.Err()
 		}
 		return "", err
 	}

@@ -19,6 +19,7 @@ import (
 	"assistente/internal/slashskill"
 	"assistente/internal/tasklist"
 	"assistente/internal/tools"
+	"assistente/internal/tools/invocationctx"
 	"assistente/internal/workspace"
 	"gorm.io/gorm"
 )
@@ -1898,5 +1899,29 @@ func TestSlashCommandRequiresActiveProviderAndShellAccess(t *testing.T) {
 				t.Fatalf("calls=%d err=%v", count, result.Err)
 			}
 		})
+	}
+}
+
+func TestPrepareMessagesBaseSkillRefusalPreservesOriginAndMessages(t *testing.T) {
+	denied := errors.New("negado")
+	origin := ports.NewChatSurfaceOrigin("conversation", "session", "surface", "chat", "tab")
+	source := staticSkillRuntimeManager{skills: map[string]*skills.Skill{"base": {Slug: "base", Content: "!echo test", SkillMetadata: skills.SkillMetadata{Name: "base", Tools: &skills.ToolPermissions{BashCommands: &skills.BashCommands{Allowed: []string{"echo"}}}}}}}
+	emitter := &spyEmitter{}
+	runner := func(ctx context.Context, _ *skills.Skill, _ string) (string, error) {
+		inv, _ := invocationctx.Get(ctx)
+		if inv.Source != "cli" || inv.SurfaceTabID != "tab" || inv.ProfileSlug != "profile" {
+			t.Fatalf("lost origin: %+v", inv)
+		}
+		return "", denied
+	}
+	i := NewInteractor(InteractorConfig{Emitter: emitter, SkillMgr: source, ContextProviders: contextprovider.NewRegistry(skills.NewContextProvider(source)), PromptBuilder: &capturingPromptBuilder{baseToolCallingEnabled: true}, SkillCommands: runner})
+	profile := &profiles.Profile{}
+	profile.Chat.EnabledSkills = []string{"base"}
+	ctx := invocationctx.With(t.Context(), invocationctx.InvocationContext{Source: "cli", SurfaceTabID: "tab", ProfileSlug: "profile"})
+	msgs := []llm.Message{{Role: "user", Content: "hello"}}
+	result := i.PrepareMessages(ctx, PrepareMessagesRequest{Messages: msgs, ConversationID: "conversation", TurnID: "turn", UserContent: "hello", ActiveProfile: profile, AllowSkillShell: true, SurfaceOrigin: origin})
+	event := emitter.findError()
+	if !errors.Is(result.Err, denied) || len(result.Messages) != 1 || result.Messages[0].Content != "hello" || event == nil || event.Error != denied.Error() || event.ConversationID != "conversation" || event.SurfaceOrigin != origin {
+		t.Fatalf("result=%+v event=%+v", result, event)
 	}
 }

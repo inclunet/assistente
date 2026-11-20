@@ -70,18 +70,7 @@ func ParseSlashCommand(content string) (slug string, args string, ok bool) {
 	return slug, args, true
 }
 
-// Invoke tenta invocar um skill via slash command no conteúdo da mensagem do usuário.
-//
-//   - mgr: repositório de skills para busca e listagem de arquivos complementares.
-//   - tplData: parâmetro legado mantido para compatibilidade de assinatura; templates não são executados no runtime novo.
-//   - sessionID: ID numérico da conversa, disponibilizado como variável $CLAUDE_SESSION_ID.
-//
-// Retorna (resultado, encontrado, erro).
-// found=false significa que o conteúdo não é um slash command ou o skill não existe.
-func Invoke(userContent string, mgr InvokerManager, tplData any, sessionID string, policy SelectionPolicy) (*InvocationResult, bool, error) {
-	return InvokeContext(context.Background(), userContent, mgr, sessionID, policy)
-}
-
+// InvokeContext prepara a skill invocada dentro do contexto do turno.
 func InvokeContext(ctx context.Context, userContent string, mgr InvokerManager, sessionID string, policy SelectionPolicy) (*InvocationResult, bool, error) {
 	slug, args, ok := ParseSlashCommand(userContent)
 	if !ok || mgr == nil {
@@ -102,7 +91,7 @@ func InvokeContext(ctx context.Context, userContent string, mgr InvokerManager, 
 		return nil, true, fmt.Errorf("skill /%s está desabilitada no perfil ativo", slug)
 	}
 
-	logging.Infof(context.Background(), "skills.invocation", "[Skills] Slash command detectado: /%s args=%q", slug, args)
+	logging.Logger(ctx, "skills.invocation").Info("Slash command detectado", "skill", slug)
 
 	// Substitui $ARGUMENTS, $N e variáveis de sessão no conteúdo
 	sessionVars := map[string]string{

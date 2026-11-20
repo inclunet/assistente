@@ -2363,6 +2363,7 @@ notSaved: 'A decisão vale somente para esta operação: não foi possível lemb
         hint: 'Este conteúdo será incluído no system prompt quando o skill estiver ativo.',
       },
       toolsSection: {
+        shellConflict: 'Esta skill declara programas de shell. Para executá-los, as permissões de ferramentas precisam permitir run_command.',
         title: 'Ferramentas Associadas',
         label: 'Ferramentas (separadas por vírgula)',
         placeholder: 'Ex: tool1, tool2, tool3',

@@ -1,6 +1,7 @@
 package terminal
 
 import (
+	"os/exec"
 	"strings"
 	"testing"
 )
@@ -214,7 +215,7 @@ func TestCommandMarker_ParseOutput_WithPTYEcho(t *testing.T) {
 	raw := "PS C:\\Users\\test> Write-Host '" + m.StartTag() + "'; echo hello; Write-Host ('" + m.EndTag() + "' + $LASTEXITCODE)\r\n" +
 		m.StartTag() + "\r\n" +
 		"hello\r\n" +
-		m.EndTag() + "\r\n" +
+		m.EndTag() + "0\r\n" +
 		"PS C:\\Users\\test> "
 
 	result := m.ParseOutput(raw)
@@ -225,7 +226,7 @@ func TestCommandMarker_ParseOutput_WithPTYEcho(t *testing.T) {
 	if result.Output != "hello" {
 		t.Errorf("expected output 'hello', got: %q", result.Output)
 	}
-	// $LASTEXITCODE é null em PS para cmdlets, exitCode deve ser 0
+	// Um cmdlet bem-sucedido produz status explícito zero.
 	if result.ExitCode != 0 {
 		t.Errorf("expected exit code 0, got %d", result.ExitCode)
 	}
@@ -297,5 +298,31 @@ func TestCommandMarker_ParseOutput_WindowsLineEndings(t *testing.T) {
 	}
 	if result.Output != "line1\nline2" {
 		t.Errorf("expected normalized output, got: %q", result.Output)
+	}
+}
+
+func TestWrapCommandBashOutputWithoutFinalNewline(t *testing.T) {
+	sh, err := exec.LookPath("sh")
+	if err != nil {
+		t.Skip("shell POSIX indisponível")
+	}
+	marker := NewCommandMarker()
+	out, err := exec.Command(sh, "-c", marker.WrapCommand("printf sample; (exit 7)", "sh")).CombinedOutput()
+	if err != nil {
+		t.Fatal(err)
+	}
+	parsed := marker.ParseOutput(string(out))
+	if !parsed.Found || parsed.ExitCode != 7 || parsed.Output != "sample" {
+		t.Fatalf("%+v", parsed)
+	}
+}
+
+func TestCommandMarkerRequiresCompleteStatusLine(t *testing.T) {
+	m := NewCommandMarker()
+	raw := m.StartTag() + "\noutput\n" + m.EndTag()
+	for _, tail := range []string{"", "\n", "0", "12", "bad\n", "\n0\n"} {
+		if m.ParseOutput(raw + tail).Found {
+			t.Errorf("accepted incomplete status %q", tail)
+		}
 	}
 }

@@ -3,11 +3,13 @@ package skills
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
 	"assistente/internal/allowlist"
 	"assistente/internal/commandpolicy"
+	"assistente/internal/logging"
 )
 
 const (
@@ -54,7 +56,7 @@ func prepareCommands(ctx context.Context, skill *Skill, content string, base boo
 	if turn != nil {
 		run = turn.run
 	}
-	result, err := renderCommands(ctx, skill, content, run, expand)
+	result, err := renderCommands(ctx, skill, content, base, run, expand)
 	if turn != nil {
 		if err != nil {
 			turn.err = err
@@ -65,7 +67,7 @@ func prepareCommands(ctx context.Context, skill *Skill, content string, base boo
 	return result, err
 }
 
-func renderCommands(ctx context.Context, skill *Skill, content string, run SkillCommandRunner, expand func(string) string) (string, error) {
+func renderCommands(ctx context.Context, skill *Skill, content string, base bool, run SkillCommandRunner, expand func(string) string) (string, error) {
 	lines := strings.Split(content, "\n")
 	var allowed []string
 	if skill.Tools != nil && skill.Tools.BashCommands != nil {
@@ -78,9 +80,11 @@ func renderCommands(ctx context.Context, skill *Skill, content string, run Skill
 			policy.CommandRules = append(policy.CommandRules, allowlist.CommandRule{Program: name, Subcommands: []string{"*"}, Decision: allowlist.DecisionDeny.String()})
 		}
 	}
+	shellToolAllowed := skill.Tools == nil || (!slices.Contains(skill.Tools.Denied, "run_command") &&
+		(len(skill.Tools.Allowed) == 0 || slices.Contains(skill.Tools.Allowed, "run_command")))
 	for idx, line := range lines {
 		trimmed := strings.TrimSpace(line)
-		if len(trimmed) < 2 || trimmed[0] != '!' {
+		if len(trimmed) < 2 || trimmed[0] != '!' || strings.HasPrefix(trimmed, "![") {
 			if expand != nil {
 				lines[idx] = expand(line)
 			}
@@ -93,8 +97,14 @@ func renderCommands(ctx context.Context, skill *Skill, content string, run Skill
 		if strings.ContainsAny(command, "\r\n") {
 			return "", fmt.Errorf("comando de skill deve ocupar uma linha")
 		}
-		if ok, reason := evaluateSkillCommand(command, policy); !ok {
-			return "", fmt.Errorf("comando bloqueado para a skill %q: %s", skill.Slug, sanitizeHTMLCommentText(reason))
+		allowed, reason := evaluateSkillCommand(command, policy)
+		if base && (!allowed || !shellToolAllowed || run == nil) {
+			logging.Warnf(ctx, "skills.preprocess", "Comando omitido da skill base %q por incompatibilidade com as permissões disponíveis", skill.Slug)
+			lines[idx] = ""
+			continue
+		}
+		if !allowed {
+			return "", fmt.Errorf("comando bloqueado para a skill %q: %s", skill.Slug, reason)
 		}
 		if run == nil {
 			return "", fmt.Errorf("executor de comandos indisponível para a skill %q", skill.Slug)
@@ -103,6 +113,7 @@ func renderCommands(ctx context.Context, skill *Skill, content string, run Skill
 		if err != nil {
 			return "", err
 		}
+		// Runners supplied by callers must respect the same bound as run_command.
 		if len(output) > MaxCommandOutputSize {
 			return "", fmt.Errorf("saída excedeu o limite da skill %q", skill.Slug)
 		}
@@ -161,8 +172,7 @@ func buildSkillPolicy(allowedCommands []string) *allowlist.Allowlist {
 // Como o preprocess não tem fluxo de confirmação, só approve executa.
 //
 // O reason retornado usa exclusivamente EvaluationResult.Reasons (canal safe,
-// sem patterns/descrições da allowlist), pois o comentário de bloqueio é
-// injetado no system prompt enviado ao LLM.
+// sem patterns/descrições da allowlist) para a mensagem de erro do usuário.
 func evaluateSkillCommand(cmd string, policy *allowlist.Allowlist) (allowed bool, reason string) {
 	if policy == nil {
 		return false, "skill não declara comandos bash permitidos"
@@ -177,14 +187,4 @@ func evaluateSkillCommand(cmd string, policy *allowlist.Allowlist) (allowed bool
 		return false, "não permitido pela política de comandos"
 	}
 	return false, strings.Join(result.Reasons, "; ")
-}
-
-// sanitizeHTMLCommentText evita que texto vindo do parser/policy feche ou
-// quebre o comentário HTML injetado no prompt do LLM.
-func sanitizeHTMLCommentText(text string) string {
-	for strings.Contains(text, "--") {
-		text = strings.ReplaceAll(text, "--", "-")
-	}
-	text = strings.ReplaceAll(text, ">", "&gt;")
-	return text
 }

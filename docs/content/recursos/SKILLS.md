@@ -40,3 +40,7 @@ Em **Skills**: grid com nome/descrição/modo (Auto/Manual) e origem; crie, edit
 Toda skill salva pela interface possui uma versão semântica no formato `X.Y.Z`. Novas skills começam em `1.0.0`; ao editar, a versão existente é preservada. Skills legadas sem `version` recebem `1.0.0` no formulário e passam a persistir esse valor quando forem salvas.
 
 Built-ins incluem `coding`, `job-manager` e outras já sem templates.
+
+### Comandos em skills base
+
+Uma imagem Markdown permanece no conteúdo da skill. Nas skills base selecionadas para o turno, quando o perfil não disponibiliza o shell ou o programa solicitado fica fora da política da skill, o Assistente omite a linha de comando e mantém as demais instruções. Uma recusa de autorização interrompe o turno. Para usar um comando, a skill precisa permitir tanto o programa em `bashCommands.allowed` quanto a ferramenta `run_command`, caso declare uma lista de ferramentas permitidas. O editor avisa quando essas permissões entram em conflito. Se a origem impõe uma lista de linhas de comando, apenas as linhas autorizadas por ela podem ser executadas. Uma nova tentativa explícita consulta novamente a política vigente.
