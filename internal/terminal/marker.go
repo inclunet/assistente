@@ -29,12 +29,15 @@ type CommandMarker struct {
 }
 
 // NewCommandMarker cria um novo marker com UUID único.
-func NewCommandMarker() *CommandMarker {
+func NewCommandMarker() *CommandMarker { return newCommandMarkerForShell("") }
+
+func newCommandMarkerForShell(shell string) *CommandMarker {
 	id := uuid.New().String()[:8] // usa só os primeiros 8 chars para markers mais curtos
 	return &CommandMarker{
-		id:       id,
-		startTag: markerStart + id + markerSuffix,
-		endTag:   markerEnd + id + markerSuffix,
+		inlineEnd: shell == "powershell",
+		id:        id,
+		startTag:  markerStart + id + markerSuffix,
+		endTag:    markerEnd + id + markerSuffix,
 	}
 }
 
@@ -62,9 +65,34 @@ func (m *CommandMarker) wrapBash(command string) string {
 
 // wrapPowerShell gera comando wrapped para PowerShell.
 func (m *CommandMarker) wrapPowerShell(command string) string {
-	// ConPTY pode entregar o marcador logo após a saída sem newline físico.
-	m.inlineEnd = true
-	return fmt.Sprintf("Write-Host '%s'; %s; if ($?) { Write-Host '%s0' } elseif ($LASTEXITCODE) { Write-Host ('%s' + $LASTEXITCODE) } else { Write-Host '%s1' }", m.startTag, command, m.endTag, m.endTag, m.endTag)
+	// No Windows PowerShell 5.1, stderr redirecionado pode deixar $? falso
+	// mesmo com exit 0. Um NativeCommandError anterior não identifica o
+	// comando que acabou de terminar. Delimite o trecho entre a posição do
+	// erro e o fim do código do usuário e peça ao parser nativo para conferir.
+	boundary := "<#" + m.id + "#>"
+	if body, ok := strings.CutSuffix(command, powershellDirectoryCatch); ok {
+		command = body + " " + boundary + powershellDirectoryCatch
+	} else {
+		command += " " + boundary
+	}
+	const nativeStderr = `& {
+    $e = $Error[0];
+    if (!$e -or $e.FullyQualifiedErrorId -notlike 'NativeCommandError*') { return $false };
+    $i = $e.InvocationInfo;
+    $line = $i.Line;
+    if (!$line) { return $false };
+    $end = $line.IndexOf('%s');
+    $start = $i.OffsetInLine - 1;
+    if ($start -lt 0 -or $end -le $start) { return $false };
+    $tokens = $null;
+    $errors = $null;
+    $ast = [System.Management.Automation.Language.Parser]::ParseInput($line.Substring($start, $end - $start), [ref]$tokens, [ref]$errors);
+    $stmts = $ast.EndBlock.Statements;
+    return ($errors.Count -eq 0 -and $stmts.Count -eq 1 -and $stmts[0].PipelineElements.Count -eq 1 -and $stmts[0].PipelineElements[0] -is [System.Management.Automation.Language.CommandAst])
+}`
+	// O ConPTY recebe uma única linha de entrada.
+	check := fmt.Sprintf(strings.Join(strings.Fields(nativeStderr), " "), boundary)
+	return fmt.Sprintf("Write-Host '%s'; %s; if ($?) { Write-Host '%s0' } elseif ($LASTEXITCODE) { Write-Host ('%s' + $LASTEXITCODE) } elseif ($LASTEXITCODE -eq 0 -and (%s)) { Write-Host '%s0' } else { Write-Host '%s1' }", m.startTag, command, m.endTag, m.endTag, check, m.endTag, m.endTag)
 }
 
 // ParseResult representa o resultado do parsing de output com markers.
@@ -136,7 +164,7 @@ func (m *CommandMarker) ParseOutput(raw string) ParseResult {
 	if !complete {
 		return result
 	}
-	code, err := strconv.Atoi(status)
+	code, err := strconv.Atoi(strings.TrimSpace(status))
 	if err != nil {
 		return result
 	}

@@ -326,3 +326,14 @@ func TestCommandMarkerRequiresCompleteStatusLine(t *testing.T) {
 		}
 	}
 }
+
+func TestStatusWhitespaceRequiresCompleteNumericLine(t *testing.T) {
+	marker := NewCommandMarker()
+	prefix := marker.StartTag() + "\nhello\n" + marker.EndTag()
+	if got := marker.ParseOutput(prefix + " 7 \r\n"); !got.Found || got.ExitCode != 7 {
+		t.Fatal(got)
+	}
+	if got := marker.ParseOutput(prefix + " 7 "); got.Found {
+		t.Fatal(got)
+	}
+}

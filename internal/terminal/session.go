@@ -468,7 +468,7 @@ func (s *Session) RunCommand(ctx context.Context, command string, timeout time.D
 	}
 
 	// Cria marker único para esta execução
-	marker := NewCommandMarker()
+	marker := newCommandMarkerForShell(shellType(s.shell))
 
 	// Suprime raw output durante execução com markers (para não poluir o Terminal Page)
 	s.outputMu.Lock()
