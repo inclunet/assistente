@@ -383,3 +383,14 @@ func TestPowerShellSplitRedrawDoesNotLeakControlBytes(t *testing.T) {
 		}
 	}
 }
+
+func TestProcessExitPreservesIncompleteConPTYRedraw(t *testing.T) {
+	marker := newCommandMarkerForShell("powershell")
+	raw := marker.StartTag() + "\r\nabe\u0301\r\n\x1b[39;3He"
+	session := &Session{processDone: make(chan struct{})}
+	close(session.processDone)
+	output, code, ok := session.exitedCommandResult(raw, marker)
+	if !ok || code != 0 || output != "abe\u0301\ne" {
+		t.Fatalf("output=%q code=%d ok=%t", output, code, ok)
+	}
+}

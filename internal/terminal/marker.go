@@ -273,15 +273,19 @@ func (m *CommandMarker) cleanStreamingOutput(raw string) string {
 	if esc := strings.LastIndexByte(raw, '\x1b'); esc >= 0 && partialCSI.MatchString(raw[esc:]) {
 		raw = raw[:esc]
 	}
-	return m.cleanOutput(raw)
+	return m.normalizeOutput(raw, true)
 }
 
 var conPTYCursorAfterWrap = regexp.MustCompile("\r\n\x1b\\[[0-9]+;([1-9][0-9]*)H")
 
+func (m *CommandMarker) cleanOutput(raw string) string {
+	return m.normalizeOutput(raw, false)
+}
+
 // Ao rolar a tela, o ConPTY pode redesenhar a última célula da linha:
 // CRLF, cursor na última coluna, cópia do grafema e continuação da saída.
 // Confira a coluna e o grafema antes de unir as linhas.
-func (m *CommandMarker) cleanOutput(raw string) string {
+func (m *CommandMarker) normalizeOutput(raw string, streaming bool) string {
 	if m.inlineEnd && strings.Contains(raw, "\r\n\x1b[") {
 		var joined strings.Builder
 		consumed := 0
@@ -303,7 +307,7 @@ func (m *CommandMarker) cleanOutput(raw string) string {
 				continue
 			}
 			replay := raw[match[1]:]
-			if len(replay) < len(last) && strings.HasPrefix(last, replay) {
+			if streaming && len(replay) < len(last) && strings.HasPrefix(last, replay) {
 				// A próxima leitura completará o grafema ou revelará uma quebra real.
 				joined.WriteString(before)
 				consumed = len(raw)
