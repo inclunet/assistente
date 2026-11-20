@@ -90,7 +90,6 @@ func TestPowerShellCmdletFailureAfterNativeSuccess(t *testing.T) {
 			t.Fatalf("%+v %v", entry, err)
 		}
 	}
-
 }
 
 func TestPowerShellNativeStderrWithZeroExit(t *testing.T) {
@@ -102,5 +101,30 @@ func TestPowerShellNativeStderrWithZeroExit(t *testing.T) {
 	entry, err := NewManager(cfg, nil).RunEphemeral(t.Context(), "", "cmd /c 'echo sample 1>&2 & exit 0' 2>&1", 15*time.Second, "test")
 	if err != nil || entry == nil || entry.ExitCode != 0 || !strings.Contains(entry.Output, "sample") {
 		t.Fatalf("%+v %v", entry, err)
+	}
+}
+
+func TestPowerShellPipelineAndGroupedStatus(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("Windows PowerShell")
+	}
+	cfg := DefaultManagerConfig()
+	cfg.DefaultShell = "powershell.exe"
+	for _, tc := range []struct {
+		command string
+		exit    int
+	}{
+		{"cmd /c 'echo sample 1>&2 & exit 0' 2>&1 | Out-String", 0},
+		{"cmd /c 'echo sample 1>&2 & exit 0' 2>&1 | Get-Item -ErrorAction Ignore", 1},
+		{"(cmd /c exit 7)", 7},
+		{"(cmd /c exit 7);", 7},
+		{"cmd /c exit 7; (Write-Output ok)", 0},
+	} {
+		t.Run(tc.command, func(t *testing.T) {
+			entry, err := NewManager(cfg, nil).RunEphemeral(t.Context(), t.TempDir(), tc.command, 15*time.Second, "test")
+			if err != nil || entry == nil || entry.ExitCode != tc.exit {
+				t.Fatalf("esperado=%d entry=%+v err=%v", tc.exit, entry, err)
+			}
+		})
 	}
 }

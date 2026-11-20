@@ -562,6 +562,8 @@ jobs:
         with:
           go-version-file: go.mod
           cache: false
+      - name: Testar terminal e Windows PowerShell 5.1
+        run: go test ./internal/terminal/... -count=1
       - name: Testar registro isolado e comando interno
         shell: pwsh
         run: |

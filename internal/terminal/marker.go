@@ -28,9 +28,6 @@ type CommandMarker struct {
 	inlineEnd bool
 }
 
-// NewCommandMarker cria um novo marker com UUID único.
-func NewCommandMarker() *CommandMarker { return newCommandMarkerForShell("") }
-
 func newCommandMarkerForShell(shell string) *CommandMarker {
 	id := uuid.New().String()[:8] // usa só os primeiros 8 chars para markers mais curtos
 	return &CommandMarker{
@@ -69,6 +66,7 @@ func (m *CommandMarker) wrapPowerShell(command string) string {
 	// mesmo com exit 0. Um NativeCommandError anterior não identifica o
 	// comando que acabou de terminar. Delimite o trecho entre a posição do
 	// erro e o fim do código do usuário e peça ao parser nativo para conferir.
+	original := command
 	boundary := "<#" + m.id + "#>"
 	if body, ok := strings.CutSuffix(command, powershellDirectoryCatch); ok {
 		command = body + " " + boundary + powershellDirectoryCatch
@@ -88,11 +86,54 @@ func (m *CommandMarker) wrapPowerShell(command string) string {
     $errors = $null;
     $ast = [System.Management.Automation.Language.Parser]::ParseInput($line.Substring($start, $end - $start), [ref]$tokens, [ref]$errors);
     $stmts = $ast.EndBlock.Statements;
-    return ($errors.Count -eq 0 -and $stmts.Count -eq 1 -and $stmts[0].PipelineElements.Count -eq 1 -and $stmts[0].PipelineElements[0] -is [System.Management.Automation.Language.CommandAst])
+    if ($errors.Count -or $stmts.Count -ne 1) { return $false };
+    $stages = $stmts[0].PipelineElements;
+    if (!$stages.Count -or $stages[0] -isnot [System.Management.Automation.Language.CommandAst]) { return $false };
+    for ($n = 1; $n -lt $stages.Count; $n++) {
+        $stage = $stages[$n];
+        if ($stage.Extent.Text -ine 'Out-String' -or (Microsoft.PowerShell.Core\Get-Command Out-String).ImplementingType.FullName -ne 'Microsoft.PowerShell.Commands.OutStringCommand') { return $false }
+    };
+    return $true
 }`
 	// O ConPTY recebe uma única linha de entrada.
-	check := fmt.Sprintf(strings.Join(strings.Fields(nativeStderr), " "), boundary)
-	return fmt.Sprintf("Write-Host '%s'; %s; if ($?) { Write-Host '%s0' } elseif ($LASTEXITCODE) { Write-Host ('%s' + $LASTEXITCODE) } elseif ($LASTEXITCODE -eq 0 -and (%s)) { Write-Host '%s0' } else { Write-Host '%s1' }", m.startTag, command, m.endTag, m.endTag, check, m.endTag, m.endTag)
+	check := fmt.Sprintf(singlePowerShellLine(nativeStderr), boundary)
+	// Antes do PowerShell 7, parênteses podem restaurar $? para true. Só
+	// atribuímos LASTEXITCODE ao grupo se o comando final for um executável.
+	success := fmt.Sprintf("Write-Host '%s0'", m.endTag)
+	if strings.HasSuffix(strings.TrimRight(strings.TrimSuffix(original, powershellDirectoryCatch), "; \r\n\t"), ")") {
+		const grouped = `& {
+			$line = $MyInvocation.Line;
+			$start = $line.IndexOf('%s') + %d;
+			$end = $line.IndexOf('%s', $start);
+			if ($end -le $start) { return $false };
+			$tokens = $null;
+			$errors = $null;
+			$ast = [System.Management.Automation.Language.Parser]::ParseInput($line.Substring($start, $end - $start), [ref]$tokens, [ref]$errors);
+			$last = $ast.EndBlock.Statements[-1];
+			if ($last -is [System.Management.Automation.Language.TryStatementAst]) { $last = $last.Body.Statements[-1] };
+			if ($last.PipelineElements.Count -ne 1 -or $last.PipelineElements[0].Expression -isnot [System.Management.Automation.Language.ParenExpressionAst]) { return $false };
+			while ($last -is [System.Management.Automation.Language.PipelineAst] -and $last.PipelineElements.Count -eq 1 -and $last.PipelineElements[0].Expression -is [System.Management.Automation.Language.ParenExpressionAst]) { $last = $last.PipelineElements[0].Expression.Pipeline };
+			if ($last.PipelineElements.Count -ne 1) { return $false };
+			$cmd = $last.PipelineElements[0];
+			if ($cmd -isnot [System.Management.Automation.Language.CommandAst]) { return $false };
+			$name = $cmd.GetCommandName();
+			return ($name -and $ExecutionContext.InvokeCommand.GetCommand($name, 'All').CommandType -eq 'Application')
+		}`
+		groupBoundary := "<#group-" + m.id + "#>"
+		command += " " + groupBoundary
+		group := fmt.Sprintf(singlePowerShellLine(grouped), m.startTag, len(m.startTag)+3, groupBoundary)
+		success = fmt.Sprintf("if ($LASTEXITCODE -and (%s)) { Write-Host ('%s' + $LASTEXITCODE) } else { %s }", group, m.endTag, success)
+	}
+	return fmt.Sprintf("Write-Host '%s'; %s; if ($?) { %s } elseif ($LASTEXITCODE) { Write-Host ('%s' + $LASTEXITCODE) } elseif ($LASTEXITCODE -eq 0 -and (%s)) { Write-Host '%s0' } else { Write-Host '%s1' }", m.startTag, command, success, m.endTag, check, m.endTag, m.endTag)
+}
+
+// Preserva espaços dentro de literais do script ao remover o recuo das linhas.
+func singlePowerShellLine(script string) string {
+	lines := strings.Split(script, "\n")
+	for i := range lines {
+		lines[i] = strings.TrimSpace(lines[i])
+	}
+	return strings.Join(lines, " ")
 }
 
 // ParseResult representa o resultado do parsing de output com markers.

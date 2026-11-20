@@ -55,7 +55,7 @@ func TestStripANSI(t *testing.T) {
 }
 
 func TestCommandMarker_WrapBash(t *testing.T) {
-	m := NewCommandMarker()
+	m := newCommandMarkerForShell("bash")
 
 	wrapped := m.WrapCommand("ls -la", "bash")
 
@@ -74,7 +74,7 @@ func TestCommandMarker_WrapBash(t *testing.T) {
 }
 
 func TestCommandMarker_WrapPowerShell(t *testing.T) {
-	m := NewCommandMarker()
+	m := newCommandMarkerForShell("powershell")
 
 	wrapped := m.WrapCommand("Get-Process", "powershell")
 
@@ -93,7 +93,7 @@ func TestCommandMarker_WrapPowerShell(t *testing.T) {
 }
 
 func TestCommandMarker_ParseOutput_Success(t *testing.T) {
-	m := NewCommandMarker()
+	m := newCommandMarkerForShell("bash")
 
 	// Simula output com start marker no início de linha (após prompt)
 	raw := "some prompt text\n" +
@@ -118,7 +118,7 @@ func TestCommandMarker_ParseOutput_Success(t *testing.T) {
 }
 
 func TestCommandMarker_ParseOutput_NonZeroExit(t *testing.T) {
-	m := NewCommandMarker()
+	m := newCommandMarkerForShell("bash")
 
 	// Start marker no início de uma linha
 	raw := "prompt> some-cmd\n" +
@@ -140,7 +140,7 @@ func TestCommandMarker_ParseOutput_NonZeroExit(t *testing.T) {
 }
 
 func TestCommandMarker_ParseOutput_WithANSI(t *testing.T) {
-	m := NewCommandMarker()
+	m := newCommandMarkerForShell("bash")
 
 	raw := "prompt\n" +
 		"\x1b[32m" + m.StartTag() + "\x1b[0m\n" +
@@ -161,7 +161,7 @@ func TestCommandMarker_ParseOutput_WithANSI(t *testing.T) {
 }
 
 func TestCommandMarker_ParseOutput_NotFound(t *testing.T) {
-	m := NewCommandMarker()
+	m := newCommandMarkerForShell("bash")
 
 	result := m.ParseOutput("some random text without markers")
 
@@ -171,7 +171,7 @@ func TestCommandMarker_ParseOutput_NotFound(t *testing.T) {
 }
 
 func TestCommandMarker_ParseOutput_EmptyOutput(t *testing.T) {
-	m := NewCommandMarker()
+	m := newCommandMarkerForShell("bash")
 
 	// Start marker no início do texto
 	raw := m.StartTag() + "\n" +
@@ -191,8 +191,8 @@ func TestCommandMarker_ParseOutput_EmptyOutput(t *testing.T) {
 }
 
 func TestCommandMarker_UniqueIDs(t *testing.T) {
-	m1 := NewCommandMarker()
-	m2 := NewCommandMarker()
+	m1 := newCommandMarkerForShell("bash")
+	m2 := newCommandMarkerForShell("bash")
 
 	if m1.StartTag() == m2.StartTag() {
 		t.Error("different markers should have different start tags")
@@ -207,7 +207,7 @@ func TestCommandMarker_UniqueIDs(t *testing.T) {
 // O parser deve ignorar os markers embutidos no echo e usar apenas os que
 // aparecem no início de suas próprias linhas (output do Write-Host/printf).
 func TestCommandMarker_ParseOutput_WithPTYEcho(t *testing.T) {
-	m := NewCommandMarker()
+	m := newCommandMarkerForShell("powershell")
 
 	// Simula output real de um PTY com PowerShell:
 	// 1. Prompt + echo do comando wrappado (contém markers embutidos)
@@ -235,7 +235,7 @@ func TestCommandMarker_ParseOutput_WithPTYEcho(t *testing.T) {
 // TestCommandMarker_ParseOutput_WithPTYEcho_ExitCode testa echo do PTY
 // quando há um exit code numérico após o end marker.
 func TestCommandMarker_ParseOutput_WithPTYEcho_ExitCode(t *testing.T) {
-	m := NewCommandMarker()
+	m := newCommandMarkerForShell("powershell")
 
 	raw := "PS C:\\> Write-Host '" + m.StartTag() + "'; cmd /c exit 1; Write-Host ('" + m.EndTag() + "' + $LASTEXITCODE)\r\n" +
 		m.StartTag() + "\r\n" +
@@ -258,7 +258,7 @@ func TestCommandMarker_ParseOutput_WithPTYEcho_ExitCode(t *testing.T) {
 
 // TestCommandMarker_ParseOutput_BashEcho testa echo do PTY em bash.
 func TestCommandMarker_ParseOutput_BashEcho(t *testing.T) {
-	m := NewCommandMarker()
+	m := newCommandMarkerForShell("bash")
 
 	raw := "user@host:~$ printf '%s\\n' '" + m.StartTag() + "'; ls; printf '%s%s\\n' '" + m.EndTag() + "' $?\n" +
 		m.StartTag() + "\n" +
@@ -281,7 +281,7 @@ func TestCommandMarker_ParseOutput_BashEcho(t *testing.T) {
 
 // TestCommandMarker_ParseOutput_WindowsLineEndings verifica normalização de \r\n.
 func TestCommandMarker_ParseOutput_WindowsLineEndings(t *testing.T) {
-	m := NewCommandMarker()
+	m := newCommandMarkerForShell("powershell")
 
 	raw := "prompt\r\n" +
 		m.StartTag() + "\r\n" +
@@ -306,7 +306,7 @@ func TestWrapCommandBashOutputWithoutFinalNewline(t *testing.T) {
 	if err != nil {
 		t.Skip("shell POSIX indisponível")
 	}
-	marker := NewCommandMarker()
+	marker := newCommandMarkerForShell("bash")
 	out, err := exec.Command(sh, "-c", marker.WrapCommand("printf sample; (exit 7)", "sh")).CombinedOutput()
 	if err != nil {
 		t.Fatal(err)
@@ -318,7 +318,7 @@ func TestWrapCommandBashOutputWithoutFinalNewline(t *testing.T) {
 }
 
 func TestCommandMarkerRequiresCompleteStatusLine(t *testing.T) {
-	m := NewCommandMarker()
+	m := newCommandMarkerForShell("bash")
 	raw := m.StartTag() + "\noutput\n" + m.EndTag()
 	for _, tail := range []string{"", "\n", "0", "12", "bad\n", "\n0\n"} {
 		if m.ParseOutput(raw + tail).Found {
@@ -328,7 +328,7 @@ func TestCommandMarkerRequiresCompleteStatusLine(t *testing.T) {
 }
 
 func TestStatusWhitespaceRequiresCompleteNumericLine(t *testing.T) {
-	marker := NewCommandMarker()
+	marker := newCommandMarkerForShell("bash")
 	prefix := marker.StartTag() + "\nhello\n" + marker.EndTag()
 	if got := marker.ParseOutput(prefix + " 7 \r\n"); !got.Found || got.ExitCode != 7 {
 		t.Fatal(got)
