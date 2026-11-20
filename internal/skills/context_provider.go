@@ -171,11 +171,11 @@ func buildBaseSkillBlock(ctx context.Context, baseSkills []Skill, source Context
 
 	var sb strings.Builder
 	sb.WriteString(open)
-	admitted := commands > 0 && remaining/commands >= 2
+	admitted := turn != nil && commands > 0 && remaining/commands >= 2
 	for i, part := range sections {
 		count := len(part.doc.commands)
 		if admitted && count > 0 {
-			quota := (remaining / commands) * count
+			quota := (remaining/commands)*count + min(remaining%commands, count)
 			content, err := part.doc.render(ctx, &baseSkills[i], runner, true, quota)
 			if err != nil {
 				turn.err = err

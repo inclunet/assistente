@@ -541,7 +541,7 @@ jobs:
           retention-days: 7
 
   windows-installer:
-    name: Instalador Windows e PATH do usuário
+    name: Terminal, instalador Windows e PATH do usuário
     needs: scripts
     runs-on: windows-latest
     steps:

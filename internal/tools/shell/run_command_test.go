@@ -60,7 +60,7 @@ func TestFalhaDeLeituraNaoViraConfirmacaoOuExecucao(t *testing.T) {
 		return true, nil
 	}, func(context.Context) (*allowlist.Allowlist, error) { return nil, fmt.Errorf("banco indisponível") }, ".")
 	result, err := rc.Execute(context.Background(), json.RawMessage(`{"command":"git status"}`))
-	if err != nil || !result.IsError || result.Failure == nil || result.Failure.Code != FailureConfirmationUnavailable {
+	if err != nil || !result.IsError || result.Failure == nil || result.Failure.Code != "shell_prerequisite_unavailable" || result.Failure.Kind != tools.ErrorKindUnavailable {
 		t.Fatalf("não bloqueou: %+v, %v", result, err)
 	}
 }

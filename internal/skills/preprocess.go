@@ -69,6 +69,7 @@ type commandDocument struct {
 }
 
 var shellArgumentReference = regexp.MustCompile(`\$(?:ARGUMENTS|[0-9]+)`)
+var parentArgumentSegment = regexp.MustCompile(`(?:^|[ /])\.\.(?:[ /]|$)`)
 var shellArgumentText = regexp.MustCompile(`^(?:[\pL\pN._][\pL\pN._/-]*(?: +[\pL\pN._][\pL\pN._/-]*)*)?$`)
 
 // O parser CommonMark resolve o recuo relativo de cercas em listas e citações.
@@ -133,7 +134,7 @@ func planCommandLines(ctx context.Context, skill *Skill, content string, base bo
 		}
 		if expand != nil {
 			expanded := expand(command)
-			if expanded != command && shellArgumentReference.MatchString(command) && !shellArgumentText.MatchString(strings.Trim(rawArgs, " ")) {
+			if expanded != command && shellArgumentReference.MatchString(command) && (!shellArgumentText.MatchString(strings.Trim(rawArgs, " ")) || parentArgumentSegment.MatchString(rawArgs)) {
 				return commandDocument{}, fmt.Errorf("argumentos incompatíveis com uma linha de comando da skill %q", skill.Slug)
 			}
 			command = expanded
@@ -146,6 +147,9 @@ func planCommandLines(ctx context.Context, skill *Skill, content string, base bo
 			logging.Warnf(ctx, "skills.preprocess", "Comando omitido da skill base %q por incompatibilidade com as permissões disponíveis", skill.Slug)
 			lines[idx] = ""
 			continue
+		}
+		if !shellToolAllowed {
+			return commandDocument{}, fmt.Errorf("skill %q sem permissão para run_command", skill.Slug)
 		}
 		if !allowed {
 			return commandDocument{}, fmt.Errorf("comando bloqueado para a skill %q: %s", skill.Slug, reason)
@@ -173,7 +177,7 @@ func (d commandDocument) render(ctx context.Context, skill *Skill, run SkillComm
 			err = fmt.Errorf("saída excedeu o limite da skill %q", skill.Slug)
 		}
 		if err != nil {
-			if !base || errors.Is(err, contextprovider.ErrCommandNotAuthorized) {
+			if !base || errors.Is(err, contextprovider.ErrCommandRefused) {
 				return "", err
 			}
 			logging.Logger(ctx, "skills.preprocess").Warn("Linha omitida após falha do comando da skill base", "skill", skill.Slug)

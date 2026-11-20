@@ -1,6 +1,7 @@
 package terminal
 
 import (
+	"encoding/base64"
 	"fmt"
 	"regexp"
 	"strconv"
@@ -101,6 +102,14 @@ func (m *CommandMarker) wrapPowerShell(command string) string {
 	// O ConPTY pode colar o eco do comando na primeira saída. Inicie a
 	// linha explicitamente para que o parser reconheça o marcador real.
 	start := fmt.Sprintf("Write-Host ([Environment]::NewLine + '%s')", m.startTag)
+	// Uma linha comentada pode engolir o delimitador do try ou o marcador.
+	// Entregue o texto ao parser como dado, sem interpolá-lo na linha do PTY.
+	if strings.Contains(original, "#") {
+		body := strings.TrimSuffix(original, powershellDirectoryCatch)
+		tail := " " + boundary + strings.TrimPrefix(original, body)
+		encoded := base64.StdEncoding.EncodeToString([]byte(body))
+		return fmt.Sprintf("%s; . (%s ([Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('%s'))) {%s} '%s')", start, singlePowerShellLine(prepareGroupedPowerShell), encoded, status, strings.ReplaceAll(tail, "'", "''"))
+	}
 	if strings.HasSuffix(strings.TrimRight(strings.TrimSuffix(original, powershellDirectoryCatch), "; \r\n\t"), ")") {
 		return fmt.Sprintf("%s; . (%s {%s} {%s})", start, singlePowerShellLine(prepareGroupedPowerShell), command, status)
 	}
@@ -114,10 +123,16 @@ func (m *CommandMarker) wrapPowerShell(command string) string {
 // de $? logo após a operação. O parser trabalha no texto original para que os
 // offsets coincidam mesmo quando o comando foi envolvido no try de diretório.
 const prepareGroupedPowerShell = `& {
-	param($body, $status);
+	param($body, $status, $tail);
 	$source = $body.ToString();
 	$tokens = $null;
 	$errors = $null;
+	if ($tail) {
+		$null = [System.Management.Automation.Language.Parser]::ParseInput($source, [ref]$tokens, [ref]$errors);
+		$comment = $tokens | Microsoft.PowerShell.Core\Where-Object { $_.Kind -eq 'Comment' -and $_.Extent.EndOffset -eq $source.TrimEnd().Length } | Microsoft.PowerShell.Utility\Select-Object -Last 1;
+		if ($comment) { $source = $source.Substring(0, $comment.Extent.StartOffset) };
+		$source += $tail
+	};
 	$ast = [System.Management.Automation.Language.Parser]::ParseInput($source, [ref]$tokens, [ref]$errors);
 	$last = $ast.EndBlock.Statements[-1];
 	if ($last -is [System.Management.Automation.Language.TryStatementAst]) { $last = $last.Body.Statements[-1] };
@@ -131,7 +146,7 @@ const prepareGroupedPowerShell = `& {
 		$chars[$group.Extent.EndOffset - 1] = ' ';
 		$last = $group.Pipeline
 	};
-	if ($last -is [System.Management.Automation.Language.PipelineAst] -and $last.PipelineElements.Count -eq 1 -and $last.PipelineElements[0] -is [System.Management.Automation.Language.CommandAst]) { $source = -join $chars };
+	if ($last -is [System.Management.Automation.Language.PipelineAst] -and $last.PipelineElements[-1] -is [System.Management.Automation.Language.CommandAst]) { $source = -join $chars };
 	return [scriptblock]::Create($source + '; ' + $status.ToString())
 }`
 

@@ -160,17 +160,18 @@ func TestFencedExamplesAndExclamationsRemainText(t *testing.T) {
 	}
 }
 
-func TestBaseStopsWhenConfirmationIsUnavailable(t *testing.T) {
-	s := invocableSkill("!git first\n!git second")
+func TestBaseContinuesWhenConfirmationIsUnavailable(t *testing.T) {
+	s := invocableSkill("Antes\n!git first\nDepois\n!git second")
 	s.Tools = &ToolPermissions{BashCommands: &BashCommands{Allowed: []string{"git"}}}
 	ctx := WithCommandTurn(t.Context(), func(_ context.Context, _ *Skill, command string) (string, error) {
-		if command != "git first" {
-			t.Fatalf("comando posterior: %s", command)
+		if command == "git first" {
+			return "", contextprovider.ErrCommandNotAuthorized
 		}
-		return "", contextprovider.ErrCommandNotAuthorized
+		return "ok", nil
 	})
-	if _, err := buildBaseSkillBlock(ctx, []Skill{*s}, contextProviderSourceStub{}, 500); !errors.Is(err, contextprovider.ErrCommandNotAuthorized) || errors.Is(err, contextprovider.ErrCommandRefused) {
-		t.Fatalf("erro de confirmação: %v", err)
+	content, err := buildBaseSkillBlock(ctx, []Skill{*s}, contextProviderSourceStub{}, 500)
+	if err != nil || !strings.Contains(content, "Antes\n\nDepois\nok") || CommandTurnError(ctx) != nil {
+		t.Fatalf("conteúdo=%q err=%v", content, err)
 	}
 }
 
@@ -222,7 +223,7 @@ func TestCommandOutputUsesRemainingBudget(t *testing.T) {
 func TestSlashCommandRejectsShellSyntaxFromArguments(t *testing.T) {
 	s := invocableSkill("!git log $ARGUMENTS")
 	s.Tools = &ToolPermissions{BashCommands: &BashCommands{Allowed: []string{"git"}}}
-	for _, arg := range []string{"--version", "nome -q", "--output=file", "nome -c core.pager=x", "@x", "/switch", "a; git status", "$(echo test)", "a'b", "a\"b"} {
+	for _, arg := range []string{"a/../b", "..", "um ../dois", "--version", "nome -q", "--output=file", "nome -c core.pager=x", "@x", "/switch", "a; git status", "$(echo test)", "a'b", "a\"b"} {
 		ctx := WithCommandTurn(t.Context(), func(context.Context, *Skill, string) (string, error) { t.Fatal("argumento executado"); return "", nil })
 		if _, _, err := InvokeContext(ctx, "/test-skill "+arg, &stubInvokerManager{skill: s}, "turn", invocablePolicy(s)); err == nil {
 			t.Fatalf("argumento aceito: %q", arg)
@@ -280,5 +281,50 @@ func TestParsedFirstIndentedExampleRemainsLiteral(t *testing.T) {
 		if err != nil || got != indent+"!git status" {
 			t.Fatalf("%q %v", got, err)
 		}
+	}
+}
+
+func TestBaseBudgetReusesSpaceAcrossSkills(t *testing.T) {
+	ss := []Skill{providerSkill("first", "!git first", false), providerSkill("second", "!git second", false)}
+	for i := range ss {
+		ss[i].Tools = &ToolPermissions{BashCommands: &BashCommands{Allowed: []string{"git"}}}
+	}
+	source := contextProviderSourceStub{skills: ss}
+	static, err := buildBaseSkillBlock(t.Context(), ss, source, 500)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := WithCommandTurn(t.Context(), func(_ context.Context, _ *Skill, command string) (string, error) {
+		if command == "git first" {
+			return "a", nil
+		}
+		return strings.Repeat("ç", 12), nil
+	})
+	budget := contextprovider.RuneLen(static) + 10
+	content, err := buildBaseSkillBlock(ctx, ss, source, budget)
+	if err != nil || contextprovider.RuneLen(content) != budget || !strings.Contains(content, strings.Repeat("ç", 8)+"…") {
+		t.Fatalf("budget=%d conteúdo=%q err=%v", budget, content, err)
+	}
+}
+
+func TestBaseProviderKeepsRemainderInLastSkill(t *testing.T) {
+	s := providerSkill("base", "!git first\n!git second", false)
+	s.Tools = &ToolPermissions{BashCommands: &BashCommands{Allowed: []string{"git"}}}
+	provider := NewContextProvider(contextProviderSourceStub{skills: []Skill{s}})
+	req := contextprovider.BuildRequest{EnabledSkills: []string{"base"}, ToolCallingEnabled: true}
+	static, err := provider.Build(t.Context(), req)
+	if err != nil || len(static) != 1 {
+		t.Fatalf("blocos=%v erro=%v", static, err)
+	}
+	req.ProviderBudgets = map[string]int{"skills": contextprovider.RuneLen(static[0].Content) + 5}
+	ctx := WithCommandTurn(t.Context(), func(_ context.Context, _ *Skill, cmd string) (string, error) {
+		if cmd == "git first" {
+			return "a", nil
+		}
+		return "bcde", nil
+	})
+	got, err := provider.Build(ctx, req)
+	if err != nil || len(got) != 1 || !strings.Contains(got[0].Content, "a\nbcde") {
+		t.Fatalf("blocos=%v erro=%v", got, err)
 	}
 }

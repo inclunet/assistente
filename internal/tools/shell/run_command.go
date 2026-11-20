@@ -201,7 +201,7 @@ func (rc *RunCommand) Execute(ctx context.Context, args json.RawMessage) (tools.
 	// Avalia o comando contra a politica (allowlist + parser conservador)
 	policyResult, policyErr := rc.evaluateCommand(ctx, a.Command)
 	if policyErr != nil {
-		return unavailableShellAuthorization("Política de autorização shell indisponível."), nil
+		return unavailableShellPrerequisite("Política de autorização shell indisponível."), nil
 	}
 	decision := policyResult.Decision
 	// Nunca logamos a string crua de a.Command: ela pode conter tokens em
@@ -215,7 +215,7 @@ func (rc *RunCommand) Execute(ctx context.Context, args json.RawMessage) (tools.
 	if decision == allowlist.DecisionConfirm && !a.Persistent && a.TerminalID == "" {
 		resolved, err := canonicalizeProjectPath(workDir)
 		if err != nil {
-			return unavailableShellAuthorization("Não foi possível resolver o diretório para autorização."), nil
+			return unavailableShellPrerequisite("Não foi possível resolver o diretório para autorização."), nil
 		}
 		workDir = resolved
 	}
@@ -261,7 +261,7 @@ func (rc *RunCommand) Execute(ctx context.Context, args json.RawMessage) (tools.
 		current, err := canonicalizeProjectPath(originalWorkDir)
 		target, targetErr := canonicalizeProjectPath(workDir)
 		if err != nil || targetErr != nil || current != workDir || target != workDir {
-			return unavailableShellAuthorization("O diretório mudou durante a autorização; solicite novamente."), nil
+			return unavailableShellPrerequisite("O diretório mudou durante a autorização."), nil
 		}
 	}
 	var sessionID string
@@ -463,6 +463,12 @@ func logPolicyDecision(
 		attrs = append(attrs, slog.String("reasons", reasons))
 	}
 	logger.Log(ctx, slog.LevelInfo, message, attrs...)
+}
+
+func unavailableShellPrerequisite(message string) tools.ToolResult {
+	return tools.ToolResult{IsError: true, Content: message,
+		Failure: &tools.ToolFailure{Code: "shell_prerequisite_unavailable", Kind: tools.ErrorKindUnavailable, Retryable: false},
+	}
 }
 
 func unavailableShellAuthorization(message string) tools.ToolResult {

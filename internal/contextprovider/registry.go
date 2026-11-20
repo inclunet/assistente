@@ -13,6 +13,8 @@ import (
 // ErrCommandNotAuthorized é o contrato compartilhado entre providers e consumidor do prompt.
 // Mantê-lo aqui evita acoplar o registry ao shell ou a uma implementação de provider.
 var ErrCommandNotAuthorized = errors.New("execução do comando sem autorização")
+
+// ErrCommandRefused identifica uma negativa explícita do usuário ou da política.
 var ErrCommandRefused = fmt.Errorf("comando recusado: %w", ErrCommandNotAuthorized)
 
 type Registry struct {

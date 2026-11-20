@@ -1946,4 +1946,10 @@ func TestBaseRefusalPrecedesSlashCommand(t *testing.T) {
 	if !errors.Is(result.Err, contextprovider.ErrCommandRefused) || strings.Join(calls, ",") != "base" {
 		t.Fatalf("calls=%v err=%v", calls, result.Err)
 	}
+	calls = nil
+	slash.Tools = &skills.ToolPermissions{Denied: []string{"run_command"}, BashCommands: base.Tools.BashCommands}
+	result = i.PrepareMessages(t.Context(), PrepareMessagesRequest{Messages: msgs, ConversationID: "conv", TurnID: "turn", UserContent: "/helper", ActiveProfile: profile, AllowSkillShell: true})
+	if result.Err == nil || len(calls) != 0 {
+		t.Fatalf("barra incompatível: calls=%v err=%v", calls, result.Err)
+	}
 }
