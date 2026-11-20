@@ -147,6 +147,8 @@ export function ReadTaskListCommandTarget(arg1:string):Promise<app.CommandTaskLi
 
 export function RefreshAuth(arg1:app.RefreshRequest):Promise<app.AuthUser>;
 
+export function ReportLocalPaletteCommand(arg1:string,arg2:string,arg3:string,arg4:number,arg5:string,arg6:string):Promise<void>;
+
 export function ResetLocalCommandKeyboard(arg1:string):Promise<void>;
 
 export function RetryUserRuntimeInit():Promise<app.RuntimePartialInitPayload>;
