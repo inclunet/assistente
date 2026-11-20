@@ -152,6 +152,9 @@ export class ChatTimelinePresentation implements ChatMessageSource {
 
   retain(itemIds: string[]): Promise<void> {
     return this.run(async () => {
+      // Uma reconexão em curso pode substituir o handle; aplique a intenção
+      // atual depois dela, ou conserve-a para nova tentativa se ela falhar.
+      await this.client.recoverAutomatically(this.conversationId);
       const retained = new Set(itemIds);
       const ancestors = (nodes: MessageNode[], parents: string[]) => {
         for (const node of nodes) {

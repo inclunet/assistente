@@ -31,6 +31,25 @@ afterEach(() => {
 });
 
 describe('chatTimelineWails', () => {
+  it('encaminha contexto de retenção pelo DTO gerado sem navegar depois de Open', async () => {
+    auth.setState({ isAuthenticated: true, user: { userId: 'user', sessionId: 'retained-reopen' } });
+    mocks.eventsOn.mockReturnValue(mocks.unsubscribe);
+    const snapshot = (windowId: string) => new apidto.SubscribedTimelineSnapshot({ conversationId: 'chat',
+      windowId, windowRevision: '1', storageIncarnation: 'storage', epoch: 'epoch', sequence: '10', mode: 'followTail',
+      items: [canonicalTestItem('item', 'conteúdo em leitura')], orderedItemIds: ['item'], retainedItemIds: ['item'], retentionBlocked: true,
+      totalCount: 100, startIndex: 0, endIndex: 1, hasBefore: false, hasAfter: true, beforeCursor: 'before', afterCursor: 'after' });
+    mocks.open.mockResolvedValueOnce(snapshot('old')).mockResolvedValueOnce(snapshot('new'));
+    const { getChatTimelineClient } = await import('./chatTimelineWails');
+    const client = getChatTimelineClient();
+    await client.open('chat', 'surface', null, { cursor: '', anchor: 'end', anchorItemId: '', direction: 'before', limit: 80 });
+    const closed = mocks.eventsOn.mock.calls.find(([name]) => name === 'chat:timeline_closed')![1];
+    closed({ conversationId: 'chat', surfaceId: mocks.open.mock.calls[0][0].surfaceId, windowId: 'old' });
+    await client.refresh('chat');
+    expect(mocks.open.mock.calls[1][0].resume).toBeInstanceOf(apidto.TimelineWindowResume);
+    expect(mocks.open.mock.calls[1][0].resume).toMatchObject({ storageIncarnation: 'storage', mode: 'followTail', beforeCursor: 'before', afterCursor: 'after', retainedItemIds: ['item'] });
+    expect(mocks.navigate).not.toHaveBeenCalled();
+    expect(client.getWindow('chat', 'surface')?.metadata.retainedItemIds).toEqual(['item']);
+  });
   it('limpa a conversa excluída com o hook ainda montado e preserva outra conversa', async () => {
     auth.setState({ isAuthenticated: true, user: { userId: 'user', sessionId: 'deletion' } });
     mocks.eventsOn.mockReturnValue(mocks.unsubscribe);

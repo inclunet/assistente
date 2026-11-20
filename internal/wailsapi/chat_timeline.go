@@ -155,7 +155,7 @@ func (api *ChatTimeline) Open(request apidto.OpenTimelineRequest) (*apidto.Subsc
 			}
 		}()
 		query := database.MessageWindowQuery{ConversationID: request.ConversationID, ParentID: request.ScopeParentID, Cursor: request.Cursor, Anchor: request.Anchor, AnchorItemID: request.AnchorItemID, Direction: request.Direction, Limit: request.Limit}
-		subscription, snapshot, err := projection.SubscribeTimeline(ctx, principal, request.SurfaceID, query, reader)
+		subscription, snapshot, err := projection.SubscribeTimelineResuming(ctx, principal, request.SurfaceID, query, reader, request.Resume)
 		if err != nil {
 			return nil, err
 		}

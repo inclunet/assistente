@@ -35,8 +35,8 @@ const transport: TimelineTransport = {
     const unsubscribeClosed = EventsOn(CHAT_TIMELINE_CLOSED_EVENT, (event: ChatTimelineClosedEvent) => closed(event));
     return () => { unsubscribe(); unsubscribeClosed(); };
   },
-  open: async (conversationId, surfaceId, scopeParentId, position) => normalizeTimelineSnapshot(await rpc.Open(
-    new apidto.OpenTimelineRequest({ conversationId, surfaceId, scopeParentId, ...position }),
+  open: async (conversationId, surfaceId, scopeParentId, position, resume) => normalizeTimelineSnapshot(await rpc.Open(
+    new apidto.OpenTimelineRequest({ conversationId, surfaceId, scopeParentId, ...position, resume }),
   )),
   refresh: async (windowId, windowRevision, position) => normalizeTimelineSnapshot(await rpc.Refresh(
     windowId, new apidto.RefreshTimelineRequest({ windowRevision, position }),

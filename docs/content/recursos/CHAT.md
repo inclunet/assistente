@@ -17,6 +17,9 @@ retomar automaticamente, verificando novamente a autorização. Não é necessá
 clicar para iniciar essa tentativa. O aviso e a ação de sincronizar aparecem se
 a retomada falhar ou se o novo histórico ainda não puder ser reconciliado com o
 conteúdo exibido. Esse aviso não significa que as mensagens foram apagadas.
+Uma mensagem mantida na tela por foco ou interação também é preservada na
+retomada, mesmo que já esteja fora das mensagens mais recentes. Ao concluir a
+interação, a janela pode voltar a acompanhar a cauda da conversa.
 
 ## Ler uma mensagem pelo teclado
 

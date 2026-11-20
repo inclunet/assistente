@@ -42,6 +42,19 @@ da inscrição anterior e respostas RPC após encerramento não restauram ativid
 Fechar a inscrição não encerra a execução nem descarta turnos ativos/voláteis do
 projetor; o banco conserva o conteúdo persistido.
 
+Revisão ReviewPlease: a retomada de uma janela com foco/leitura retidos usa
+`Open.resume` opcional (`storageIncarnation`, `mode`, `beforeCursor`, `afterCursor`,
+`retainedItemIds`). O snapshot fornece `storageIncarnation`; a retomada retida
+exige a mesma encarnação e não transporta interações através de importação.
+O backend revalida versão, escopo, identidade e fronteiras, reutiliza a seleção
+de retenção e devolve atomicamente modo, janela e retenções. Não há sequência
+frontend Open → SetRetention → Navigate. IDs comprovadamente removidos deixam
+a retenção; consulta/cursor inválido recusa a retomada sem abandonar o visual.
+A intenção atual de foco pode ser liberada com a inscrição encerrada, sem RPC
+no handle morto; o próximo Open continua autorizando/reconciliando esses IDs.
+Provas: `TestTimelineResumePreservesRetainedWindowOutsideTail`,
+`TestTimelineResumeRevalidatesRetentionAndBounds` e regressões de cliente.
+
 Provas: `TestTimelineEventStreamTerminalControl`, testes de reconexão e corridas
 em `chatTimelineClient.test.ts` e integração em `chatTimelineWails.test.ts`.
 O caminho silencioso foi identificado no código e reproduzido com cancelamento;

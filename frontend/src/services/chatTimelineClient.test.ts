@@ -67,6 +67,37 @@ function fixture() {
 }
 
 describe('ChatTimelineClient', () => {
+  it('retoma atomicamente a janela retida em vez de navegar para a cauda', async () => {
+    const f = fixture();
+    const retained = { ...contentSnapshot(false), storageIncarnation: 'storage', mode: 'followTail', retainedItemIds: ['item'], retentionBlocked: true, beforeCursor: 'before', afterCursor: 'after', hasAfter: true };
+    f.port.open.mockResolvedValueOnce(retained);
+    await f.open();
+    f.ended();
+    f.port.open.mockResolvedValueOnce({ ...retained, windowId: 'new' });
+    await f.client.refresh('chat');
+    expect(f.port.open).toHaveBeenLastCalledWith('chat', 'a#2', null, position, { storageIncarnation: 'storage', mode: 'followTail', beforeCursor: 'before', afterCursor: 'after', retainedItemIds: ['item'] });
+    expect(f.port.navigate).not.toHaveBeenCalled();
+    expect(f.client.getWindow('chat', 'a')?.orderedItemIds).toEqual(['item']);
+    expect(f.client.getWindow('chat', 'a')?.metadata.retainedItemIds).toEqual(['item']);
+    expect(f.client.getWindow('chat', 'a')?.metadata.retentionBlocked).toBe(true);
+    await f.client.dispose();
+  });
+
+  it('libera intenção de interação após retomada recusada sem chamar handle morto', async () => {
+    const f = fixture();
+    f.port.open.mockResolvedValueOnce({ ...contentSnapshot(false), retainedItemIds: ['item'], beforeCursor: 'stale' });
+    await f.open();
+    f.ended();
+    f.port.open.mockRejectedValueOnce(new Error('stale cursor'));
+    await expect(f.client.refresh('chat')).rejects.toThrow('stale cursor');
+    expect(f.client.getItem('chat', 'a', 'item')).toBeDefined();
+    await f.client.setRetention('chat', 'a', []);
+    expect(f.port.retain).not.toHaveBeenCalled();
+    await f.client.refresh('chat');
+    expect(f.port.open).toHaveBeenLastCalledWith('chat', 'a#3', null, position);
+    expect(f.client.getError('chat')).toBeUndefined();
+    await f.client.dispose();
+  });
   it.each(['terminal', 'gap'] as const)('recuperação automática compartilha a tentativa para %s sem polling', async reason => {
     const f = fixture();
     await f.open();

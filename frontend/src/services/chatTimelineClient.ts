@@ -19,13 +19,21 @@ export interface TimelinePosition {
 }
 export interface TimelineTransport extends TimelineRecoveryTransport, RecoveryItemTransport {
   listen(receive: (event: ChatTimelineEvent) => void, closed: (event: ChatTimelineClosedEvent) => void): () => void;
-  open(conversationId: string, surfaceId: string, scope: string | null, position: TimelinePosition): Promise<TimelineSnapshot>;
+  open(conversationId: string, surfaceId: string, scope: string | null, position: TimelinePosition, resume?: TimelineWindowResume): Promise<TimelineSnapshot>;
   refresh(windowId: string, revision: string, position?: TimelinePosition): Promise<TimelineSnapshot>;
   navigate(windowId: string, epoch: string, revision: string, mode: string, position: TimelinePosition): Promise<TimelineSnapshot>;
   retain(windowId: string, epoch: string, revision: string, itemIds: string[]): Promise<{ windowId: string; epoch: string; windowRevision: string }>;
   close(windowId: string): Promise<void>;
 }
+export interface TimelineWindowResume {
+  storageIncarnation: string;
+  mode: string;
+  beforeCursor: string;
+  afterCursor: string;
+  retainedItemIds: string[];
+}
 interface Slot {
+  retentionIntent?: string[];
   position: TimelinePosition;
   disconnected?: boolean;
   recoveryItems?: Map<string, { identity: RecoveryItemIdentity; verified: boolean; transferred: boolean }>;
@@ -214,6 +222,16 @@ export class ChatTimelineClient {
   }
 
   async setRetention(conversationId: string, surfaceId: string, itemIds: string[]): Promise<void> {
+    this.assertActive();
+    const disconnected = this.conversations.get(conversationId)?.slots.get(surfaceId);
+    if (disconnected?.disconnected && !disconnected.closed) {
+      const window = this.getWindow(conversationId, surfaceId);
+      if (!window || itemIds.some(id => !window.orderedItemIds.includes(id))) throw new Error('Timeline retention unavailable');
+      // Intenção de foco/leitura, não metadados canônicos. O próximo Open
+      // autoriza e reconcilia esses IDs; liberar interação não usa handle morto.
+      disconnected.retentionIntent = [...itemIds];
+      return;
+    }
     const { slot, window } = this.ready(conversationId, surfaceId, itemIds.length === 0);
     // Liberação não recupera o visual. Usa somente checkpoints comprovados;
     // revisão desconhecida continua sujeita ao CAS do backend, sem retry implícito.
@@ -230,6 +248,7 @@ export class ChatTimelineClient {
       // lote atômico. A próxima operação pode usá-lo mesmo se o evento atrasar.
       slot.baseline = receipt.windowRevision;
       slot.epoch = receipt.epoch;
+      slot.retentionIntent = [...itemIds];
     });
   }
 
@@ -256,7 +275,7 @@ export class ChatTimelineClient {
     conversation.candidate = candidate;
     const requests = [...conversation.slots].filter(([, slot]) => !slot.closed).map(([surface, previous]) => {
       const slot: Slot = previous.disconnected
-        ? { scope: previous.scope, position: positions.get(surface) ?? previous.position, closed: false, registrationId: this.registrationId(surface) }
+        ? { scope: previous.scope, position: positions.get(surface) ?? previous.position, retentionIntent: previous.retentionIntent, closed: false, registrationId: this.registrationId(surface) }
         : previous;
       return { surface, slot, previous, token: candidate.beginSnapshot(surface, slot.scope) };
     });
@@ -298,15 +317,24 @@ export class ChatTimelineClient {
           if (previous !== slot) {
             await this.closeRemote(previous);
             if (previous.closed || this.disposed) { slot.closed = true; return; }
+            const oldWindow = conversation.state.getWindow(surface);
+            const retained = previous.retentionIntent ?? oldWindow?.metadata.retainedItemIds ?? [];
+            const resume = retained.length && oldWindow ? { mode: oldWindow.mode,
+              storageIncarnation: oldWindow.storageIncarnation ?? '',
+              beforeCursor: oldWindow.metadata.beforeCursor, afterCursor: oldWindow.metadata.afterCursor, retainedItemIds: [...retained] } : undefined;
             conversation.slots.set(surface, slot);
-            snapshot = await this.transport.open(conversationId, slot.registrationId, slot.scope, slot.position);
+            snapshot = resume
+              ? await this.transport.open(conversationId, slot.registrationId, slot.scope, slot.position, resume)
+              : await this.transport.open(conversationId, slot.registrationId, slot.scope, slot.position);
             slot.windowId = snapshot.windowId;
             if (slot.closed || this.disposed) { await this.closeRemote(slot); return; }
             if (slot.disconnected) throw new Error('Timeline subscription ended');
-            const mode = conversation.state.getWindow(surface)?.mode ?? snapshot.mode;
-            if (candidate.acceptSnapshot(token, snapshot).kind !== 'applied') throw new Error('Timeline recovery snapshot rejected');
-            token = candidate.beginSnapshot(surface, slot.scope);
-            snapshot = await this.transport.navigate(snapshot.windowId, snapshot.epoch, snapshot.windowRevision, mode, slot.position);
+            if (!resume) {
+              const mode = oldWindow?.mode ?? snapshot.mode;
+              if (candidate.acceptSnapshot(token, snapshot).kind !== 'applied') throw new Error('Timeline recovery snapshot rejected');
+              token = candidate.beginSnapshot(surface, slot.scope);
+              snapshot = await this.transport.navigate(snapshot.windowId, snapshot.epoch, snapshot.windowRevision, mode, slot.position);
+            }
           } else {
             snapshot = await this.transport.refresh(slot.windowId!, slot.baseline!, positions.get(surface));
           }
