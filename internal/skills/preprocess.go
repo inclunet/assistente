@@ -69,7 +69,7 @@ type commandDocument struct {
 }
 
 var shellArgumentReference = regexp.MustCompile(`\$(?:ARGUMENTS|[0-9]+)`)
-var parentArgumentSegment = regexp.MustCompile(`(?:^|[ /])\.\.(?:[ /]|$)`)
+var parentArgumentSegment = regexp.MustCompile(`(?:^|[ /\\=:"'])\.\.(?:[ /\\:"']|$)`)
 var shellArgumentText = regexp.MustCompile(`^(?:[\pL\pN._][\pL\pN._/-]*(?: +[\pL\pN._][\pL\pN._/-]*)*)?$`)
 
 // O parser CommonMark resolve o recuo relativo de cercas em listas e citações.
@@ -90,6 +90,22 @@ func codeLineStarts(content string) map[int]bool {
 		return ast.WalkContinue, nil
 	})
 	return starts
+}
+
+// Confere os operandos após a composição da linha e a remoção das aspas
+// pelo mesmo parser usado na política, inclusive em opções com valor.
+func validInterpolatedCommand(rawArgs, expanded string) bool {
+	if !shellArgumentText.MatchString(strings.Trim(rawArgs, " ")) || parentArgumentSegment.MatchString(rawArgs) || parentArgumentSegment.MatchString(expanded) {
+		return false
+	}
+	for _, cmd := range commandpolicy.Parse(expanded).Commands {
+		for _, arg := range cmd.Args {
+			if parentArgumentSegment.MatchString(arg) {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 func planCommandLines(ctx context.Context, skill *Skill, content string, base bool, run SkillCommandRunner, expand func(string) string, rawArgs string) (commandDocument, error) {
@@ -134,7 +150,7 @@ func planCommandLines(ctx context.Context, skill *Skill, content string, base bo
 		}
 		if expand != nil {
 			expanded := expand(command)
-			if expanded != command && shellArgumentReference.MatchString(command) && (!shellArgumentText.MatchString(strings.Trim(rawArgs, " ")) || parentArgumentSegment.MatchString(rawArgs)) {
+			if expanded != command && shellArgumentReference.MatchString(command) && !validInterpolatedCommand(rawArgs, expanded) {
 				return commandDocument{}, fmt.Errorf("argumentos incompatíveis com uma linha de comando da skill %q", skill.Slug)
 			}
 			command = expanded

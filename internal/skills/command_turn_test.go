@@ -231,6 +231,26 @@ func TestSlashCommandRejectsShellSyntaxFromArguments(t *testing.T) {
 	}
 }
 
+func TestSlashValidatesComposedPathOperand(t *testing.T) {
+	for _, tc := range []struct {
+		path, args string
+		permitted  bool
+	}{
+		{"notas/.$0/arquivo", ".", false},
+		{"notas/$0$1/arquivo", ". .", false},
+		{"notas/$0.md", "minha-nota", true},
+	} {
+		s := invocableSkill("!git log " + tc.path)
+		s.Tools = &ToolPermissions{BashCommands: &BashCommands{Allowed: []string{"git"}}}
+		called := false
+		ctx := WithCommandTurn(t.Context(), func(context.Context, *Skill, string) (string, error) { called = true; return "ok", nil })
+		_, _, err := InvokeContext(ctx, "/test-skill "+tc.args, &stubInvokerManager{skill: s}, "turn", invocablePolicy(s))
+		if called != tc.permitted || (err == nil) != tc.permitted {
+			t.Fatalf("path=%q called=%v err=%v", tc.path, called, err)
+		}
+	}
+}
+
 func TestComposeImportedAllowedToolsUsesStructuredPermissions(t *testing.T) {
 	meta, body, err := Parse("---\nname: example\nallowed-tools: Read, Grep\n---\nTexto")
 	if err != nil {

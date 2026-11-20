@@ -8,9 +8,23 @@ import (
 	"io"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 	"unicode/utf8"
 )
+
+type pendingConfirmationKey struct{}
+
+// PendingConfirmation registra a falha que o executor deve devolver se o
+// próprio prazo acabar durante a decisão. A aprovação libera o timeout normal.
+func PendingConfirmation(ctx context.Context, failureCode string) func() {
+	state, _ := ctx.Value(pendingConfirmationKey{}).(*atomic.Pointer[ToolResult])
+	if state == nil {
+		return func() {}
+	}
+	state.Store(&ToolResult{IsError: true, Content: "Prazo encerrado durante a confirmação.", Failure: &ToolFailure{Code: failureCode, Kind: ErrorKindAuthorization, Retryable: false}})
+	return func() { state.Store(nil) }
+}
 
 // Limites padrão do executor
 const (
@@ -192,6 +206,8 @@ func (e *Executor) executeSingle(ctx context.Context, call ToolCall) (execution 
 	// o executor devolve imediatamente.
 	collector := &securitySignalCollector{}
 	execCtx := withSecuritySignalCollector(WithMaxResultSize(toolCtx, e.config.MaxResultSize), collector)
+	var pending atomic.Pointer[ToolResult]
+	execCtx = context.WithValue(execCtx, pendingConfirmationKey{}, &pending)
 	resultCh := make(chan ToolExecutionResult, 1)
 	go func() {
 		defer func() {
@@ -409,6 +425,12 @@ func (e *Executor) executeSingle(ctx context.Context, call ToolCall) (execution 
 			Retryable:         true,
 			RetryabilityKnown: true,
 			DurationMs:        elapsed,
+		}
+		if confirmation := pending.Load(); confirmation != nil {
+			timedOut.Result = *confirmation
+			timedOut.ErrorKind = confirmation.Failure.Kind
+			timedOut.ErrorCode = confirmation.Failure.Code
+			timedOut.Retryable = false
 		}
 		attachSecuritySignals(&timedOut.Result, collector)
 		return timedOut

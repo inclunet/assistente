@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"strings"
 	"testing"
+	"time"
 
 	"assistente/internal/allowlist"
 	"assistente/internal/commandpolicy"
@@ -444,5 +445,23 @@ func TestRunCommand_ConfirmRejected(t *testing.T) {
 	}
 	if !result.IsError || result.Failure == nil || result.Failure.Code != FailureCommandRefused || result.Failure.Kind != tools.ErrorKindAuthorization || result.Failure.Retryable {
 		t.Fatalf("classificação da negativa: %+v", result.Failure)
+	}
+}
+
+func TestExecutorTimeoutDuringShellConfirmationDoesNotRetry(t *testing.T) {
+	release := make(chan struct{})
+	defer close(release)
+	rc := NewRunCommand(nil, func(ctx context.Context, _, _ string) (bool, error) {
+		<-ctx.Done()
+		<-release // o executor vence antes de confirmFn devolver
+		return false, ctx.Err()
+	}, nil, t.TempDir())
+	reg := tools.NewRegistry()
+	reg.MustRegister(rc)
+	cfg := tools.DefaultExecutorConfig()
+	cfg.ToolTimeout = 200 * time.Millisecond
+	result := tools.NewExecutor(reg, cfg).ExecuteOne(t.Context(), tools.ToolCall{ID: "ask", Function: tools.FunctionCall{Name: "run_command", Arguments: `{"command":"example check"}`}})
+	if result.ErrorCode != FailureConfirmationUnavailable || result.ErrorKind != tools.ErrorKindAuthorization || result.Retryable || !result.RetryabilityKnown {
+		t.Fatalf("resultado=%+v", result)
 	}
 }

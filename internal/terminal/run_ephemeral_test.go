@@ -119,6 +119,7 @@ func TestPowerShellPipelineAndGroupedStatus(t *testing.T) {
 		{"throw 'falha de teste'", 1},
 		{"(cmd /c exit 7)", 7},
 		{"(cmd /c exit 7) # nota)", 7},
+		{"(cmd /c exit 7) # nota com espaços  ", 7},
 		{"(cmd /c 'echo sample 1>&2 & exit 0' 2>&1 | Get-Item -ErrorAction Ignore)", 1},
 		{"(cmd /c 'echo sample 1>&2 & exit 0' 2>&1)", 0},
 		{"(cmd /c 'echo sample 1>&2 & exit 0' 2>&1) # nota", 0},

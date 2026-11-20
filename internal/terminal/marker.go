@@ -129,8 +129,8 @@ const prepareGroupedPowerShell = `& {
 	$errors = $null;
 	if ($tail) {
 		$null = [System.Management.Automation.Language.Parser]::ParseInput($source, [ref]$tokens, [ref]$errors);
-		$comment = $tokens | Microsoft.PowerShell.Core\Where-Object { $_.Kind -eq 'Comment' -and $_.Extent.EndOffset -eq $source.TrimEnd().Length } | Microsoft.PowerShell.Utility\Select-Object -Last 1;
-		if ($comment) { $source = $source.Substring(0, $comment.Extent.StartOffset) };
+		$comment = $tokens | Microsoft.PowerShell.Core\Where-Object { $_.Kind -eq 'Comment' -and $_.Text.StartsWith('#') -and !$source.Substring($_.Extent.EndOffset).Trim() } | Microsoft.PowerShell.Utility\Select-Object -Last 1;
+		if ($comment) { $source = $comment.Text + [Environment]::NewLine + $source.Substring(0, $comment.Extent.StartOffset) };
 		$source += $tail
 	};
 	$ast = [System.Management.Automation.Language.Parser]::ParseInput($source, [ref]$tokens, [ref]$errors);

@@ -242,7 +242,11 @@ func (rc *RunCommand) Execute(ctx context.Context, args json.RawMessage) (tools.
 		// confirmFn recebe o comando bruto: o usuario precisa ver tudo na
 		// UI local para decidir, e esse caminho nao vai para o LLM.
 		ctx = invocationctx.WithPersistentShell(ctx, a.Persistent || a.TerminalID != "")
+		clearPending := tools.PendingConfirmation(ctx, FailureConfirmationUnavailable)
 		approved, err := rc.confirmFn(ctx, a.Command, workDir)
+		if ctx.Err() != nil {
+			return unavailableShellAuthorization("Confirmação encerrada sem autorização válida."), nil
+		}
 		if err != nil {
 			return unavailableShellAuthorization(fmt.Sprintf("Erro ao solicitar confirmação: %v", err)), nil
 		}
@@ -255,6 +259,7 @@ func (rc *RunCommand) Execute(ctx context.Context, args json.RawMessage) (tools.
 				IsError: true,
 			}, nil
 		}
+		clearPending()
 	}
 
 	if decision == allowlist.DecisionConfirm && !a.Persistent && a.TerminalID == "" {
