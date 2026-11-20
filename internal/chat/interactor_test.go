@@ -1881,7 +1881,8 @@ func TestSlashCommandRequiresActiveProviderAndShellAccess(t *testing.T) {
 	for _, tc := range []struct {
 		name                         string
 		enabled, allowShell, wantRun bool
-	}{{"ativo", true, true, true}, {"provider desativado", false, true, false}, {"perfil sem shell", true, false, false}} {
+		budget                       int
+	}{{"ativo", true, true, true, 0}, {"provider desativado", false, true, false, 0}, {"perfil sem shell", true, false, false, 0}, {"bloco sem orçamento", true, true, false, 1}} {
 		t.Run(tc.name, func(t *testing.T) {
 			s := &skills.Skill{Slug: "helper", SkillMetadata: skills.SkillMetadata{Name: "helper"}, Content: "!echo report"}
 			s.Tools = &skills.ToolPermissions{BashCommands: &skills.BashCommands{Allowed: []string{"echo"}}}
@@ -1890,7 +1891,7 @@ func TestSlashCommandRequiresActiveProviderAndShellAccess(t *testing.T) {
 				count++
 				return "report", nil
 			}})
-			profile := &profiles.Profile{ContextProviders: map[string]profiles.ContextProviderProfileConfig{"slash_skill": {Enabled: &tc.enabled}}}
+			profile := &profiles.Profile{ContextProviders: map[string]profiles.ContextProviderProfileConfig{"slash_skill": {Enabled: &tc.enabled, Budget: tc.budget}}}
 			result := i.PrepareMessages(context.Background(), PrepareMessagesRequest{Messages: []llm.Message{{Role: "user", Content: "/helper"}}, UserContent: "/helper", ConversationID: "conv", TurnID: "turn", ActiveProfile: profile, AllowSkillShell: tc.allowShell})
 			if tc.wantRun && (count != 1 || result.Err != nil) {
 				t.Fatalf("calls=%d err=%v", count, result.Err)

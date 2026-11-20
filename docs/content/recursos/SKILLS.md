@@ -44,3 +44,5 @@ Built-ins incluem `coding`, `job-manager` e outras já sem templates.
 ### Comandos em skills base
 
 Uma imagem Markdown permanece no conteúdo da skill. Nas skills base selecionadas para o turno, quando o perfil não disponibiliza o shell ou o programa solicitado fica fora da política da skill, o Assistente omite a linha de comando e mantém as demais instruções. Uma recusa de autorização interrompe o turno. Para usar um comando, a skill precisa permitir tanto o programa em `bashCommands.allowed` quanto a ferramenta `run_command`, caso declare uma lista de ferramentas permitidas. O editor avisa quando essas permissões entram em conflito. Se a origem impõe uma lista de linhas de comando, apenas as linhas autorizadas por ela podem ser executadas. Uma nova tentativa explícita consulta novamente a política vigente.
+
+Para uma skill invocada por barra, o orçamento de contexto de **Slash Skill** precisa comportar o bloco de instruções, mesmo que o resultado do shell precise ser truncado. Com um orçamento menor, o Assistente interrompe a preparação antes de solicitar autorização ou executar o comando.

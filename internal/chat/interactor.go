@@ -16,6 +16,7 @@ import (
 	"assistente/internal/profiles"
 	"assistente/internal/providers"
 	"assistente/internal/skills"
+	"assistente/internal/slashskill"
 	"assistente/internal/tools"
 	"assistente/internal/tools/invocationctx"
 	"assistente/internal/workspace"
@@ -888,9 +889,13 @@ func (i *Interactor) PrepareMessages(ctx context.Context, req PrepareMessagesReq
 		taskListContextEnabled = skillPolicy.IsEnabled("tasklist-manager")
 		slashCtx := ctx
 		if isSlashCommand && runner != nil {
-			_, enabled, _ := resolveContextProviderProfileConfig(i.contextProviders.Metadata(), req.ActiveProfile)
+			budgets, enabled, _ := resolveContextProviderProfileConfig(i.contextProviders.Metadata(), req.ActiveProfile)
 			if !enabled["slash_skill"] {
 				slashCtx = skills.WithCommandTurn(ctx, nil)
+			} else if !slashskill.CanIncludeCommandResult(budgets["slash_skill"]) {
+				slashCtx = skills.WithCommandTurn(ctx, func(context.Context, *skills.Skill, string) (string, error) {
+					return "", errors.New("orçamento de contexto insuficiente para incluir o resultado do comando da skill")
+				})
 			}
 		}
 		inv, found, err = skills.InvokeContext(slashCtx, req.UserContent, i.skillMgr, req.ConversationID, skillPolicy)
