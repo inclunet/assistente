@@ -372,11 +372,14 @@ func TestPowerShellConPTYRedrawPreservesOutput(t *testing.T) {
 
 func TestPowerShellSplitRedrawDoesNotLeakControlBytes(t *testing.T) {
 	marker := newCommandMarkerForShell("powershell")
-	raw := "abé\r\n\x1b[39;3Héc"
-	for split := range len(raw) + 1 {
-		partial := strings.TrimRight(marker.cleanStreamingOutput(raw[:split]), "\r\n")
-		if !strings.HasPrefix("abéc", partial) {
-			t.Fatalf("split=%d parcial=%q", split, partial)
+	for _, glyph := range []string{"é", "e\u0301"} {
+		raw := "ab" + glyph + "\r\n\x1b[39;3H" + glyph + "c"
+		want := "ab" + glyph + "c"
+		for split := range len(raw) + 1 {
+			partial := strings.TrimRight(marker.cleanStreamingOutput(raw[:split]), "\r\n")
+			if !strings.HasPrefix(want, partial) {
+				t.Fatalf("split=%d parcial=%q", split, partial)
+			}
 		}
 	}
 }

@@ -299,7 +299,17 @@ func (m *CommandMarker) cleanOutput(raw string) string {
 				last = graphemes.Str()
 				cells += graphemes.Width()
 			}
-			if cells != column || !strings.HasPrefix(raw[match[1]:], last) {
+			if cells != column {
+				continue
+			}
+			replay := raw[match[1]:]
+			if len(replay) < len(last) && strings.HasPrefix(last, replay) {
+				// A próxima leitura completará o grafema ou revelará uma quebra real.
+				joined.WriteString(before)
+				consumed = len(raw)
+				break
+			}
+			if !strings.HasPrefix(replay, last) {
 				continue
 			}
 			joined.WriteString(before)
