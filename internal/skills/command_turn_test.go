@@ -400,3 +400,92 @@ func TestPreparedBaseKeepsCatalogUntilNextAttempt(t *testing.T) {
 		t.Fatalf("nova tentativa=%v chamadas=%d err=%v", next, calls, err)
 	}
 }
+
+func TestPreparedBaseAppliesFinalSelectionAndBudget(t *testing.T) {
+	base := providerSkill("base", "!echo value\ncontinue", true)
+	base.Tools = &ToolPermissions{BashCommands: &BashCommands{Allowed: []string{"echo"}}}
+	later := providerSkill("later", "!echo later\nother instructions", false)
+	later.Tools = base.Tools
+	src := &contextProviderSourceStub{
+		skills: []Skill{base, later}, files: map[string][]string{"base": {"original.md"}},
+	}
+	calls := 0
+	output := strings.Repeat("ç", 24)
+	ctx := WithCommandTurn(t.Context(), func(_ context.Context, _ *Skill, cmd string) (string, error) {
+		calls++
+		if cmd != "echo value" || calls != 1 {
+			t.Fatalf("execução inesperada: %q, chamada %d", cmd, calls)
+		}
+		return output, nil
+	})
+	p := NewContextProvider(src)
+	req := contextprovider.BuildRequest{EnabledSkills: []string{"base", "later"}, ToolCallingEnabled: true}
+	build := func() []contextprovider.Block {
+		t.Helper()
+		blocks, err := p.Build(ctx, req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return blocks
+	}
+	first := build()
+	if len(first) != 2 || !strings.Contains(first[0].Content, output) {
+		t.Fatalf("prévia: %v", first)
+	}
+	fullSize := contextprovider.RuneLen(first[0].Content)
+	first[0].Content = "alterado pelo consumidor"
+	src.files["base"][0] = "alterado.md"
+	src.skills[0].Tools.BashCommands.Allowed[0] = "outro"
+
+	req.DisableOnDemand = true
+	req.ProviderBudgets = map[string]int{"skills": fullSize - 10}
+	blocks := build()
+	if len(blocks) != 1 || contextprovider.RuneLen(blocks[0].Content) != fullSize-10 ||
+		!strings.Contains(blocks[0].Content, strings.Repeat("ç", 13)+"…\ncontinue") ||
+		!strings.Contains(blocks[0].Content, "original.md") {
+		t.Fatalf("orçamento reduzido: %v", blocks)
+	}
+	req.ProviderBudgets["skills"] = fullSize
+	if blocks = build(); len(blocks) != 1 || !strings.Contains(blocks[0].Content, output) {
+		t.Fatalf("orçamento restaurado: %v", blocks)
+	}
+	req.EnabledSkills[0], req.EnabledSkills[1] = req.EnabledSkills[1], req.EnabledSkills[0]
+	if blocks = build(); len(blocks) != 1 || !strings.Contains(blocks[0].Content, "other instructions") ||
+		strings.Contains(blocks[0].Content, "!echo") || strings.Contains(blocks[0].Content, output) {
+		t.Fatalf("outra base: %v", blocks)
+	}
+	req.EnabledSkills = []string{}
+	if blocks = build(); len(blocks) != 0 {
+		t.Fatalf("seleção vazia: %v", blocks)
+	}
+	req.EnabledSkills = nil
+	if blocks = build(); len(blocks) != 1 || !strings.Contains(blocks[0].Content, output) {
+		t.Fatalf("autoload: %v", blocks)
+	}
+	req.DisableSkills = true
+	if blocks = build(); len(blocks) != 0 {
+		t.Fatalf("desabilitadas: %v", blocks)
+	}
+	if calls != 1 {
+		t.Fatalf("execuções: %d", calls)
+	}
+}
+
+func TestPreparedBaseCannotStartSkippedCommandWhenBudgetGrows(t *testing.T) {
+	s := providerSkill("base", "before\n!echo report\nafter", true)
+	s.Tools = &ToolPermissions{BashCommands: &BashCommands{Allowed: []string{"echo"}}}
+	p := NewContextProvider(contextProviderSourceStub{skills: []Skill{s}})
+	ctx := WithCommandTurn(t.Context(), func(context.Context, *Skill, string) (string, error) {
+		t.Fatal("comando não admitido durante a preparação")
+		return "", nil
+	})
+	req := contextprovider.BuildRequest{ToolCallingEnabled: true, ProviderBudgets: map[string]int{"skills": 1}}
+	if _, err := p.Build(ctx, req); err != nil {
+		t.Fatal(err)
+	}
+	req.ProviderBudgets = nil
+	blocks, err := p.Build(ctx, req)
+	if err != nil || len(blocks) != 1 || !strings.Contains(blocks[0].Content, "before\n\nafter") {
+		t.Fatalf("reconstrução: %v, %v", blocks, err)
+	}
+}

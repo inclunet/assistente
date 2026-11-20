@@ -2,6 +2,7 @@ package skills
 
 import (
 	"context"
+	"slices"
 	"sort"
 	"strings"
 
@@ -40,13 +41,55 @@ func (p *ContextProvider) Metadata() contextprovider.ProviderMetadata {
 	}
 }
 
-// Uma preparação usa o mesmo catálogo, permissões e orçamento na prévia da
-// base e no prompt final. Uma nova tentativa recebe um novo commandTurn.
+// A primeira construção prepara as saídas admitidas. Cada construção aplica
+// a seleção e o orçamento atuais, inclusive a distinção entre seleção nil e vazia.
 type preparedSkillContext struct {
-	skills      []Skill
-	blocks      []contextprovider.Block
-	err         error
-	toolCalling bool
+	ContextProviderSource
+	skills  []Skill
+	files   map[string][]string
+	outputs map[string]map[int]string // slug e posição da diretiva no documento
+	ready   bool
+	err     error
+}
+
+func (s *preparedSkillContext) GetSkillFiles(slug string) ([]string, error) {
+	if files, ok := s.files[slug]; ok {
+		return files, nil
+	}
+	files, err := s.ContextProviderSource.GetSkillFiles(slug)
+	s.files[slug] = slices.Clone(files)
+	return s.files[slug], err
+}
+
+// A fatia e as permissões consultadas na seleção e no planejamento são
+// privadas. Os demais metadados aninhados permanecem compartilhados para leitura.
+func snapshotPromptSkills(skills []Skill) []Skill {
+	out := cloneSkills(skills)
+	for i := range out {
+		skill := &out[i]
+		if skill.Tools != nil {
+			tools := *skill.Tools
+			tools.Allowed = slices.Clone(tools.Allowed)
+			tools.Denied = slices.Clone(tools.Denied)
+			if tools.BashCommands != nil {
+				bash := *tools.BashCommands
+				bash.Allowed = slices.Clone(bash.Allowed)
+				bash.Denied = slices.Clone(bash.Denied)
+				tools.BashCommands = &bash
+			}
+			skill.Tools = &tools
+		}
+		// A compatibilidade consulta somente o comprimento dessas listas.
+		if skill.Filesystem != nil {
+			fs := *skill.Filesystem
+			skill.Filesystem = &fs
+		}
+		if skill.Network != nil {
+			network := *skill.Network
+			skill.Network = &network
+		}
+	}
+	return out
 }
 
 func (p *ContextProvider) Build(ctx context.Context, req contextprovider.BuildRequest) ([]contextprovider.Block, error) {
@@ -54,25 +97,28 @@ func (p *ContextProvider) Build(ctx context.Context, req contextprovider.BuildRe
 		return nil, nil
 	}
 	turn, _ := ctx.Value(commandTurnKey{}).(*commandTurn)
-	if turn != nil && turn.prepared != nil {
-		saved := turn.prepared
-		if saved.err != nil || req.ToolCallingEnabled == saved.toolCalling {
-			return saved.blocks, saved.err
+	if turn == nil {
+		skills, err := p.source.GetAllSkillsFull()
+		if err != nil {
+			return nil, err
 		}
-		// A reconstrução do prompt pode remover as ferramentas da invocação.
-		// Renderize a seleção final do catálogo congelado sem iniciar comandos.
-		return p.build(context.WithValue(ctx, commandTurnKey{}, (*commandTurn)(nil)), req, saved.skills)
+		return p.build(ctx, req, skills)
 	}
-	allSkills, err := p.source.GetAllSkillsFull()
-	// A fonte pode manter e reutilizar a sua própria fatia.
-	allSkills = append([]Skill(nil), allSkills...)
-	var blocks []contextprovider.Block
-	if err == nil {
-		blocks, err = p.build(ctx, req, allSkills)
+	if turn.prepared == nil {
+		skills, err := p.source.GetAllSkillsFull()
+		turn.prepared = &preparedSkillContext{
+			ContextProviderSource: p.source, skills: snapshotPromptSkills(skills), err: err,
+			files: make(map[string][]string), outputs: make(map[string]map[int]string),
+		}
 	}
-	if turn != nil {
-		turn.prepared = &preparedSkillContext{skills: allSkills, blocks: blocks, err: err, toolCalling: req.ToolCallingEnabled}
+	prepared := turn.prepared
+	if prepared.err != nil {
+		return nil, prepared.err
 	}
+	provider := ContextProvider{source: prepared}
+	blocks, err := provider.build(ctx, req, prepared.skills)
+	prepared.err = err
+	prepared.ready = true
 	return blocks, err
 }
 
@@ -181,7 +227,12 @@ func buildBaseSkillBlock(ctx context.Context, baseSkills []Skill, source Context
 		files.WriteByte('\n')
 		writeSupportingFiles(&files, source, skill.Slug, "Supporting files (use read_file to access when needed):", "- `", "`")
 		part.heading, part.files = heading.String(), files.String()
-		doc, err := planCommandLines(ctx, skill, skill.Content, true, runner, nil, "")
+		planRunner := runner
+		if turn != nil && turn.prepared != nil && turn.prepared.ready && len(turn.prepared.outputs[skill.Slug]) == 0 {
+			// Uma base promovida depois da preparação só fornece instruções.
+			planRunner = nil
+		}
+		doc, err := planCommandLines(ctx, skill, skill.Content, true, planRunner, nil, "")
 		if err != nil {
 			return "", err
 		}
@@ -198,7 +249,7 @@ func buildBaseSkillBlock(ctx context.Context, baseSkills []Skill, source Context
 		count := len(part.doc.commands)
 		if admitted && count > 0 {
 			quota := (remaining/commands)*count + min(remaining%commands, count)
-			content, err := part.doc.render(ctx, &baseSkills[i], runner, true, quota)
+			content, err := turn.renderBase(ctx, &baseSkills[i], part.doc, quota)
 			if err != nil {
 				turn.err = err
 				return "", err
@@ -213,6 +264,26 @@ func buildBaseSkillBlock(ctx context.Context, baseSkills []Skill, source Context
 	}
 	sb.WriteString(close)
 	return sb.String(), nil
+}
+
+func (turn *commandTurn) renderBase(ctx context.Context, skill *Skill, doc commandDocument, quota int) (string, error) {
+	prepared := turn.prepared
+	if prepared != nil && prepared.ready {
+		outputs := prepared.outputs[skill.Slug]
+		return doc.renderLines(ctx, skill, true, quota, func(line commandLine) (string, error) {
+			return outputs[line.index], nil
+		})
+	}
+	content, err := doc.render(ctx, skill, turn.run, true, quota)
+	if err == nil && prepared != nil {
+		// Guarde só a saída já admitida no orçamento da preparação.
+		outputs := make(map[int]string, len(doc.commands))
+		for _, line := range doc.commands {
+			outputs[line.index] = doc.lines[line.index]
+		}
+		prepared.outputs[skill.Slug] = outputs
+	}
+	return content, err
 }
 
 func buildAvailableSkillsBlock(availableSkills []Skill, source ContextProviderSource) string {

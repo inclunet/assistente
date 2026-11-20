@@ -212,17 +212,24 @@ func planCommandLines(ctx context.Context, skill *Skill, content string, base bo
 }
 
 func (d commandDocument) render(ctx context.Context, skill *Skill, run SkillCommandRunner, base bool, remaining int) (string, error) {
+	return d.renderLines(ctx, skill, base, remaining, func(line commandLine) (string, error) {
+		output, err := run(ctx, skill, line.command)
+		// Protege também runners injetados que não usam o serviço de invocação.
+		if err == nil && len(output) > MaxCommandOutputSize {
+			return "", fmt.Errorf("saída excedeu o limite da skill %q", skill.Slug)
+		}
+		return strings.TrimRight(output, "\r\n"), err
+	})
+}
+
+func (d commandDocument) renderLines(ctx context.Context, skill *Skill, base bool, remaining int, result func(commandLine) (string, error)) (string, error) {
 	for idx, line := range d.commands {
 		if ctx.Err() != nil {
 			return "", ctx.Err()
 		}
-		output, err := run(ctx, skill, line.command)
+		output, err := result(line)
 		if ctx.Err() != nil {
 			return "", ctx.Err()
-		}
-		// Protege também os runners injetados que não usam o serviço de invocação.
-		if err == nil && len(output) > MaxCommandOutputSize {
-			err = fmt.Errorf("saída excedeu o limite da skill %q", skill.Slug)
 		}
 		if err != nil {
 			if !base || errors.Is(err, contextprovider.ErrCommandRefused) {
@@ -232,7 +239,6 @@ func (d commandDocument) render(ctx context.Context, skill *Skill, run SkillComm
 			d.lines[line.index] = ""
 			continue
 		}
-		output = strings.TrimRight(output, "\r\n")
 		if remaining >= 0 {
 			quota := remaining / (len(d.commands) - idx)
 			size := utf8.RuneCountInString(output)
