@@ -117,6 +117,11 @@ func (m *CommandMarker) wrapPowerShell(command string) string {
 			$cmd = $last.PipelineElements[0];
 			if ($cmd -isnot [System.Management.Automation.Language.CommandAst]) { return $false };
 			$name = $cmd.GetCommandName();
+			if (!$name -and $cmd.CommandElements[0] -is [System.Management.Automation.Language.VariableExpressionAst]) {
+				$value = $ExecutionContext.SessionState.PSVariable.GetValue($cmd.CommandElements[0].VariablePath.UserPath);
+				if ($value -is [System.Management.Automation.CommandInfo]) { return $value.CommandType -eq 'Application' };
+				if ($value -is [string]) { $name = $value }
+			};
 			return ($name -and $ExecutionContext.InvokeCommand.GetCommand($name, 'All').CommandType -eq 'Application')
 		}`
 		groupBoundary := "<#group-" + m.id + "#>"

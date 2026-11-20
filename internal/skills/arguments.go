@@ -6,7 +6,7 @@ import (
 )
 
 func argumentFallback(content, args string) string {
-	if args != "" && !containsPlainArguments(content) {
+	if content != "" && args != "" && !containsPlainArguments(content) {
 		return "\n\nARGUMENTS: " + args
 	}
 	return ""

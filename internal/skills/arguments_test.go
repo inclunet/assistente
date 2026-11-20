@@ -76,10 +76,11 @@ func TestSubstituteArguments_NoArgs(t *testing.T) {
 	}
 }
 
-func TestSubstituteArguments_EmptyContent(t *testing.T) {
-	result := argumentExpander("some args", parseArgs("some args"))("")
-	if result != "" {
-		t.Errorf("expected empty string, got %q", result)
+func TestEmptySkillInvocationPreservesEmptyBody(t *testing.T) {
+	skill := invocableSkill("")
+	result, found, err := InvokeContext(t.Context(), "/test-skill texto", &stubInvokerManager{skill: skill}, "turn", invocablePolicy(skill))
+	if err != nil || !found || result == nil || strings.Contains(result.Content, "texto") {
+		t.Fatalf("result=%+v found=%t err=%v", result, found, err)
 	}
 }
 
