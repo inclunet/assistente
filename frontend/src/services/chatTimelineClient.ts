@@ -103,6 +103,11 @@ export class ChatTimelineClient {
   getItem(conversationId: string, surfaceId: string, itemId: string) {
     return this.conversations.get(conversationId)?.state.getItem(surfaceId, itemId);
   }
+  getRetentionIntent(conversationId: string, surfaceId: string): readonly string[] {
+    const conversation = this.conversations.get(conversationId);
+    return [...(conversation?.slots.get(surfaceId)?.retentionIntent ??
+      conversation?.state.getWindow(surfaceId)?.metadata.retainedItemIds ?? [])];
+  }
   getError(conversationId: string): Error | undefined {
     const conversation = this.conversations.get(conversationId);
     if (!conversation) return;
@@ -318,7 +323,7 @@ export class ChatTimelineClient {
             await this.closeRemote(previous);
             if (previous.closed || this.disposed) { slot.closed = true; return; }
             const oldWindow = conversation.state.getWindow(surface);
-            const retained = previous.retentionIntent ?? oldWindow?.metadata.retainedItemIds ?? [];
+            const retained = this.getRetentionIntent(conversationId, surface);
             const resume = retained.length && oldWindow ? { mode: oldWindow.mode,
               storageIncarnation: oldWindow.storageIncarnation ?? '',
               beforeCursor: oldWindow.metadata.beforeCursor, afterCursor: oldWindow.metadata.afterCursor, retainedItemIds: [...retained] } : undefined;

@@ -52,6 +52,10 @@ frontend Open → SetRetention → Navigate. IDs comprovadamente removidos deixa
 a retenção; consulta/cursor inválido recusa a retomada sem abandonar o visual.
 A intenção atual de foco pode ser liberada com a inscrição encerrada, sem RPC
 no handle morto; o próximo Open continua autorizando/reconciliando esses IDs.
+A recuperação nas mensagens recentes consulta essa mesma intenção atual, sem
+alterar o snapshot canônico: após liberar a interação, retenções do snapshot
+antigo não bloqueiam a tentativa. Regressão em `chatTimelinePresentation.test.ts`
+cobre recusa enquanto retido e recuperação após liberação com cursor inválido.
 Provas: `TestTimelineResumePreservesRetainedWindowOutsideTail`,
 `TestTimelineResumeRevalidatesRetentionAndBounds` e regressões de cliente.
 

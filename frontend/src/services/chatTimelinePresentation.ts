@@ -103,7 +103,7 @@ export class ChatTimelinePresentation implements ChatMessageSource {
         if (!this.closing) await this.client.navigate(this.conversationId, this.surfaceId, 'followTail', endPosition);
         return;
       }
-      if (atEnd && [...this.sources.keys()].some(surface => this.client.getWindow(this.conversationId, surface)?.metadata.retainedItemIds.length)) {
+      if (atEnd && [...this.sources.keys()].some(surface => this.client.getRetentionIntent(this.conversationId, surface).length)) {
         throw new Error('Finish retained interactions before changing recovery position');
       }
       await this.client.refresh(this.conversationId, atEnd ? new Map([...this.sources.keys()].map(surface => [surface, endPosition])) : undefined);
