@@ -76,6 +76,7 @@ vi.mock('../../services/tts', () => ({
 }));
 
 const chatStoreState = {
+  loadingConversationIds: new Set<string>(),
   getConversationMessages: () => [voiceMessage],
   getDraftRevision: () => 0,
   getMessagingPipelineRevision: () => 0,
@@ -431,6 +432,7 @@ function renderWithPanel(ui: React.ReactElement) {
 
 describe('ChatSessionView', () => {
   beforeEach(() => {
+    chatStoreState.loadingConversationIds = new Set();
     messageListMode.real = false;
     vi.spyOn(document, 'hasFocus').mockReturnValue(true);
     useAuthStore.setState({ isAuthenticated: true, user: { userId: 'owner', sessionId: 'session', role: 'admin' } });
@@ -658,8 +660,9 @@ describe('ChatSessionView', () => {
   });
 
   // O listener global de Escape só é registrado enquanto há streaming
-  // (isLoading), que no modelo de sessão vem do surfaceSession da superfície.
+  // (isLoading), compartilhado pela conversa entre suas superfícies.
   const enableStreamingSurface = () => {
+    chatStoreState.loadingConversationIds.add(conversationId);
     const escSurface = surface({ surfaceType: 'embedded' });
     (chatStoreState.surfaceSessionsByKey as Record<string, ReturnType<typeof createEmptyChatSurfaceSession>>)[escSurface.sessionKey] = {
       ...createEmptyChatSurfaceSession(conversationId, escSurface.sessionKey),
@@ -1112,6 +1115,7 @@ describe('ChatSessionView', () => {
     const user = userEvent.setup();
     const onSend = vi.fn().mockResolvedValue(undefined);
     chatStoreState.surfaceSessionsByKey['conversation:' + conversationId].isLoading = true;
+    chatStoreState.loadingConversationIds.add(conversationId);
     renderWithPanel(
       <ChatSessionView
         variant="embedded"
@@ -1169,6 +1173,7 @@ describe('ChatSessionView', () => {
     };
     messageListRenderMock.mockClear();
 
+    chatStoreState.loadingConversationIds.add(conversationId);
     surfaceSessions[chatSurface.sessionKey] = {
       ...surfaceSessions[chatSurface.sessionKey],
       isLoading: true,
