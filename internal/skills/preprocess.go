@@ -91,6 +91,9 @@ func codeLineStarts(content string) map[int]bool {
 		if block, ok := node.(*ast.HTMLBlock); ok && block.HTMLBlockType == ast.HTMLBlockType1 && block.Lines().Len() > 0 {
 			first := block.Lines().At(0)
 			literal = preformattedHTML.Match(first.Value(source))
+			if literal && block.HasClosure() {
+				starts[bytes.LastIndexByte(source[:block.ClosureLine.Start], '\n')+1] = true
+			}
 		}
 		if literal {
 			for i := 0; i < node.Lines().Len(); i++ {
