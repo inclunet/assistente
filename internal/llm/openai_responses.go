@@ -265,7 +265,9 @@ func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses
 	// Watchdog de ociosidade: se o servidor parar de enviar sem fechar a
 	// conexão, cancela a leitura e transforma em erro retryable (quando nada
 	// foi emitido). Cada evento recebido reinicia a contagem.
-	watchCtx, wd := startStreamWatchdog(ctx, streamIdleTimeoutForProvider(p.provider), nil)
+	diagnostics := newStreamDiagnostics()
+	watchCtx, wd := startStreamWatchdog(ctx, streamIdleTimeoutForProvider(p.provider), func() { diagnostics.logTimeout(ctx) })
+	watchCtx = context.WithValue(watchCtx, streamDiagnosticsKey{}, diagnostics)
 	defer wd.Stop()
 
 	stream := p.streamClient.Responses.NewStreaming(watchCtx, params)
@@ -369,7 +371,11 @@ func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses
 	var eventCount int
 
 responseEvents:
-	for stream.Next() {
+	for {
+		diagnostics.setPhase("waiting_event", false, wd)
+		if !stream.Next() {
+			break
+		}
 		wd.Kick()
 		if ctx.Err() != nil {
 			cancelStream()
@@ -386,6 +392,7 @@ responseEvents:
 			reportError(streamIdleErrorMessage)
 			return mcpStreamAttemptResult{done: true}
 		}
+		diagnostics.setPhase("processing_event", true, wd)
 		event := stream.Current()
 		eventCount++
 
