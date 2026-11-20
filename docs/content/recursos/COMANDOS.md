@@ -338,6 +338,12 @@ atalho para esses dispositivos é declarado por esta checklist.
 
 ## Foco ao criar uma aba
 
+Se uma ação da paleta ou a criação de uma aba falhar, o log do aplicativo pode
+conter um registro `Command execution`, com o identificador do comando, etapa,
+resultado e classificação do erro. O registro não inclui argumentos nem o
+conteúdo da conversa. A gravação é oportunista e pode ser descartada quando a
+fila de diagnóstico estiver cheia.
+
 O menu **Nova aba**, aberto por **Ctrl+N**, não fecha por tempo. Você pode
 esperar e depois escolher com a letra indicada, setas e Enter ou clique.
 **Escape** cancela e devolve o foco ao botão. Sair do contexto, abrir um modal
