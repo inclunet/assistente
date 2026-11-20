@@ -1,5 +1,5 @@
 import { TimelineRecoveryReader, type TimelineRecoveryHandle, type TimelineRecoveryTransport } from './timelineRecoveryReader';
-import type { ChatTimelineEvent, TimelineItem, TimelineRecoveryReference } from '../types/chatTimelineEvents';
+import type { ChatTimelineEvent, ChatTimelineClosedEvent, TimelineItem, TimelineRecoveryReference } from '../types/chatTimelineEvents';
 import { TimelineCacheBudget } from './timelineCacheBudget';
 import { revision } from './timelineBatch';
 import { TimelineConversationState, type TimelineSnapshot } from './timelineConversationState';
@@ -18,7 +18,7 @@ export interface TimelinePosition {
   limit: number;
 }
 export interface TimelineTransport extends TimelineRecoveryTransport, RecoveryItemTransport {
-  listen(receive: (event: ChatTimelineEvent) => void): () => void;
+  listen(receive: (event: ChatTimelineEvent) => void, closed: (event: ChatTimelineClosedEvent) => void): () => void;
   open(conversationId: string, surfaceId: string, scope: string | null, position: TimelinePosition): Promise<TimelineSnapshot>;
   refresh(windowId: string, revision: string, position?: TimelinePosition): Promise<TimelineSnapshot>;
   navigate(windowId: string, epoch: string, revision: string, mode: string, position: TimelinePosition): Promise<TimelineSnapshot>;
@@ -26,6 +26,8 @@ export interface TimelineTransport extends TimelineRecoveryTransport, RecoveryIt
   close(windowId: string): Promise<void>;
 }
 interface Slot {
+  position: TimelinePosition;
+  disconnected?: boolean;
   recoveryItems?: Map<string, { identity: RecoveryItemIdentity; verified: boolean; transferred: boolean }>;
   recoveryReader?: TimelineRecoveryReader;
   registrationId: string;
@@ -45,6 +47,8 @@ interface Conversation {
   candidate?: TimelineConversationState;
   recovery?: Promise<void>;
   recoveryError?: Error;
+  automaticRecovery?: Promise<boolean>;
+  automaticAttempted?: boolean;
 }
 
 /** Transporte por sessão. Conteúdo, ordem e revisão aplicada pertencem ao coordenador. */
@@ -62,8 +66,18 @@ export class ChatTimelineClient {
       const conversation = this.conversations.get(event.conversationId);
       if (this.disposed || !conversation || (conversation.recoveryError && !conversation.candidate)) return;
       const slot = [...conversation.slots.values()].find(value => !value.closed && value.registrationId === event.surfaceId);
+      if (!slot || slot.disconnected || (slot.windowId && slot.windowId !== event.windowId)) return;
+      const result = (conversation.candidate ?? conversation.state).receive(event);
+      if (!conversation.candidate && result.kind === 'applied') conversation.automaticAttempted = false;
+      this.notify();
+    }, event => {
+      const conversation = this.conversations.get(event.conversationId);
+      if (this.disposed || !conversation) return;
+      const slot = [...conversation.slots.values()].find(value => !value.closed && value.registrationId === event.surfaceId);
       if (!slot || (slot.windowId && slot.windowId !== event.windowId)) return;
-      (conversation.candidate ?? conversation.state).receive(event);
+      slot.disconnected = true;
+      slot.recoveryReader?.invalidate();
+      conversation.recoveryError = new Error('Timeline subscription ended');
       this.notify();
     });
   }
@@ -89,6 +103,32 @@ export class ChatTimelineClient {
   }
   hasProtectedItems(conversationId: string): boolean {
     return this.conversations.get(conversationId)?.state.hasProtectedItems ?? false;
+  }
+
+  isRecoveringAutomatically(conversationId: string): boolean {
+    return !!this.conversations.get(conversationId)?.automaticRecovery;
+  }
+
+  /** Uma tentativa por interrupção; nova entrega válida reabilita a recuperação automática. */
+  recoverAutomatically(conversationId: string): Promise<boolean> | undefined {
+    const conversation = this.conversations.get(conversationId);
+    if (!conversation || this.disposed || conversation.invalidated) return;
+    if (conversation.automaticRecovery) return conversation.automaticRecovery;
+    if (!this.getError(conversationId) || conversation.automaticAttempted ||
+        ![...conversation.slots.values()].some(slot => !slot.closed)) return;
+    conversation.automaticAttempted = true;
+    const recovery = Promise.resolve().then(async () => {
+      await Promise.allSettled([...conversation.slots.values()].flatMap(slot => slot.pending ? [slot.pending] : []));
+      if (conversation.recovery) await conversation.recovery.catch(() => {});
+      if (this.disposed || conversation.invalidated || ![...conversation.slots.values()].some(slot => !slot.closed)) return false;
+      if (this.getError(conversationId)) await this.refreshConversation(conversationId, new Map());
+      return !this.getError(conversationId);
+    }).catch(() => false).finally(() => {
+      conversation.automaticRecovery = undefined;
+      this.notify();
+    });
+    conversation.automaticRecovery = recovery;
+    return recovery;
   }
 
   async open(conversationId: string, surfaceId: string, scope: string | null, position: TimelinePosition): Promise<void> {
@@ -126,7 +166,7 @@ export class ChatTimelineClient {
     if (conversation.recovery || this.getError(conversationId) || conversation.slots.has(surfaceId)) throw new Error('Timeline surface unavailable');
     const owner = conversation;
     const token = owner.state.beginSnapshot(surfaceId, scope);
-    const slot: Slot = { scope, closed: false, registrationId: this.registrationId(surfaceId) };
+    const slot: Slot = { scope, position, closed: false, registrationId: this.registrationId(surfaceId) };
     owner.slots.set(surfaceId, slot);
     return this.run(slot, async () => {
       try {
@@ -163,6 +203,8 @@ export class ChatTimelineClient {
         slot.baseline = snapshot.windowRevision;
         slot.epoch = snapshot.epoch;
         if (slot.closed || this.disposed) return;
+        if (slot.disconnected) throw new Error('Timeline subscription ended');
+        slot.position = position;
         conversation.state.acceptSnapshot(token, snapshot);
       } catch (error) {
         if (!slot.closed && !this.disposed) conversation.state.failSnapshot(token);
@@ -203,18 +245,25 @@ export class ChatTimelineClient {
     if (conversation.recovery) return conversation.recovery;
     if (![...conversation.slots.values()].some(slot => !slot.closed)) return Promise.reject(new Error('Timeline recovery requires an active surface'));
     if ([...conversation.slots.values()].some(slot => slot.pending)) return Promise.reject(new Error('Timeline surface busy'));
+    const reconnecting = [...conversation.slots.values()].some(slot => !slot.closed && slot.disconnected);
+    if (reconnecting && [...conversation.slots.values()].some(slot => slot.recoveryReader || slot.recoveryItems?.size)) {
+      return Promise.reject(new Error('Timeline disconnected recovery ownership requires explicit release'));
+    }
     if ([...conversation.slots.values()].some(slot => [...slot.recoveryItems?.values() ?? []].some(held => !held.transferred))) {
       return Promise.reject(new Error('Timeline recovery cleanup pending'));
     }
     const candidate = new TimelineConversationState(conversationId, this.budget, conversation.state);
     conversation.candidate = candidate;
-    const requests = [...conversation.slots].filter(([, slot]) => !slot.closed).map(([surface, slot]) => ({
-      surface, slot, token: candidate.beginSnapshot(surface, slot.scope),
-    }));
+    const requests = [...conversation.slots].filter(([, slot]) => !slot.closed).map(([surface, previous]) => {
+      const slot: Slot = previous.disconnected
+        ? { scope: previous.scope, position: positions.get(surface) ?? previous.position, closed: false, registrationId: this.registrationId(surface) }
+        : previous;
+      return { surface, slot, previous, token: candidate.beginSnapshot(surface, slot.scope) };
+    });
     conversation.recoveryError = undefined;
     const recovery = Promise.resolve().then(async () => {
       // Reserve antes de Refresh: o snapshot pode retirar a revisão antiga do cache.
-      for (const { epoch, item } of conversation.state.protectedItems()) {
+      for (const { epoch, item } of reconnecting ? [] : conversation.state.protectedItems()) {
         if (discarded.has(timelineVersionKey(epoch, item))) continue;
         const identity = recoveryItemIdentity(epoch, item);
         if (!identity) continue;
@@ -242,15 +291,37 @@ export class ChatTimelineClient {
           if (held.verified) break;
         }
       }
-      const outcomes = await Promise.allSettled(requests.map(async ({ surface, slot, token }) => {
-        if (slot.closed || this.disposed) return;
-        const snapshot = await this.transport.refresh(slot.windowId!, slot.baseline!, positions.get(surface));
-        slot.baseline = snapshot.windowRevision;
-        slot.epoch = snapshot.epoch;
-        if (slot.closed || this.disposed) return;
-        if (snapshot.windowId !== slot.windowId) throw new Error('Timeline capability mismatch');
-        const result = candidate.acceptSnapshot(token, snapshot);
-        if (result.kind !== 'applied') throw new Error('Timeline recovery snapshot rejected');
+      const outcomes = await Promise.allSettled(requests.map(({ surface, slot, previous, token }) => {
+        const read = async () => {
+          if (slot.closed || this.disposed) return;
+          let snapshot: TimelineSnapshot;
+          if (previous !== slot) {
+            await this.closeRemote(previous);
+            if (previous.closed || this.disposed) { slot.closed = true; return; }
+            conversation.slots.set(surface, slot);
+            snapshot = await this.transport.open(conversationId, slot.registrationId, slot.scope, slot.position);
+            slot.windowId = snapshot.windowId;
+            if (slot.closed || this.disposed) { await this.closeRemote(slot); return; }
+            if (slot.disconnected) throw new Error('Timeline subscription ended');
+            const mode = conversation.state.getWindow(surface)?.mode ?? snapshot.mode;
+            if (candidate.acceptSnapshot(token, snapshot).kind !== 'applied') throw new Error('Timeline recovery snapshot rejected');
+            token = candidate.beginSnapshot(surface, slot.scope);
+            snapshot = await this.transport.navigate(snapshot.windowId, snapshot.epoch, snapshot.windowRevision, mode, slot.position);
+          } else {
+            snapshot = await this.transport.refresh(slot.windowId!, slot.baseline!, positions.get(surface));
+          }
+          slot.baseline = snapshot.windowRevision;
+          slot.epoch = snapshot.epoch;
+          if (slot.closed || this.disposed) return;
+          if (slot.disconnected) throw new Error('Timeline subscription ended');
+          if (snapshot.windowId !== slot.windowId) throw new Error('Timeline capability mismatch');
+          const result = candidate.acceptSnapshot(token, snapshot);
+          if (result.kind !== 'applied') throw new Error('Timeline recovery snapshot rejected');
+          slot.position = positions.get(surface) ?? slot.position;
+        };
+        // Só Open pode devolver uma capability nova após Close. Sua drenagem
+        // precisa aguardar essa identidade e o respectivo fechamento remoto.
+        return previous !== slot ? this.run(slot, read) : read();
       }));
       if (this.disposed) return;
       const failed = outcomes.find((outcome, index) => outcome.status === 'rejected' && !requests[index].slot.closed);
@@ -280,6 +351,7 @@ export class ChatTimelineClient {
       if (this.disposed) return;
       // Eventos e Close podem ter chegado durante cleanup. Revalidar sem await
       // antes de transferir propriedade e promover a apresentação conjuntamente.
+      if (requests.some(({ slot }) => !slot.closed && slot.disconnected)) throw new Error('Timeline subscription ended');
       if (candidate.recoveryReason) throw new Error(`Timeline recovery rejected: ${candidate.recoveryReason}`);
       candidate.finishReplacement();
       if (candidate.recoveryReason) throw new Error(`Timeline recovery rejected: ${candidate.recoveryReason}`);
@@ -290,7 +362,11 @@ export class ChatTimelineClient {
       previous.dispose();
     }).catch(async error => {
       const cleanup: unknown[] = [];
-      for (const { slot } of requests) {
+      for (const { slot, previous } of requests) {
+        if (slot !== previous) {
+          slot.disconnected = true;
+          try { await this.closeRemote(slot); } catch (failure) { cleanup.push(failure); }
+        }
         for (const [key, held] of slot.recoveryItems ?? []) {
           if (!held.transferred) {
             try { await this.releaseItem(slot, key); } catch (failure) { cleanup.push(failure); }
@@ -315,17 +391,17 @@ export class ChatTimelineClient {
     this.assertActive();
     const conversation = this.conversations.get(conversationId);
     const slot = conversation?.slots.get(surfaceId);
-    if (!conversation || !slot?.windowId || slot.closed || slot.pending || conversation.recovery || slot.recoveryReader) {
+    if (!conversation || !slot?.windowId || slot.closed || slot.disconnected || slot.pending || conversation.recovery || slot.recoveryReader) {
       throw new Error('Timeline recovery surface unavailable');
     }
     const windowId = slot.windowId;
     const reader = new TimelineRecoveryReader(this.transport, conversationId, windowId, reference,
-      () => !this.disposed && !slot.closed && conversation.slots.get(surfaceId) === slot && slot.windowId === windowId,
+      () => !this.disposed && !slot.closed && !slot.disconnected && conversation.slots.get(surfaceId) === slot && slot.windowId === windowId,
       () => this.closeRemote(slot),
       () => { if (slot.recoveryReader === reader) slot.recoveryReader = undefined; });
     slot.recoveryReader = reader;
     await this.run(slot, () => reader.open());
-    if (slot.closed || this.disposed) throw new Error('Timeline recovery capability closed');
+    if (slot.closed || slot.disconnected || this.disposed) throw new Error('Timeline recovery capability closed');
     return reader;
   }
 
@@ -347,10 +423,10 @@ export class ChatTimelineClient {
     const slot = conversation?.slots.get(descriptor.surfaceId);
     const key = recoveryItemKey(descriptor.identity);
     const held = slot?.recoveryItems?.get(key);
-    if (!conversation || conversation.recovery || !slot || slot.closed || slot.windowId !== descriptor.windowId || !held?.transferred) throw new Error('Timeline recovery item unavailable');
+    if (!conversation || conversation.recovery || !slot || slot.closed || slot.disconnected || slot.windowId !== descriptor.windowId || !held?.transferred) throw new Error('Timeline recovery item unavailable');
     const item = await this.transport.readItem(slot.windowId!, held.identity);
     this.assertActive();
-    if (slot.closed || slot.recoveryItems?.get(key) !== held || !held.transferred) throw new Error('Timeline recovery item unavailable');
+    if (slot.closed || slot.disconnected || slot.recoveryItems?.get(key) !== held || !held.transferred) throw new Error('Timeline recovery item unavailable');
     const identity = recoveryItemIdentity(held.identity.epoch, item);
     if (!identity || recoveryItemKey(identity) !== key) throw new Error('Timeline recovery item mismatch');
     return item;
@@ -518,7 +594,7 @@ export class ChatTimelineClient {
     const held = slot.recoveryItems?.get(key);
     if (!held) return;
     try {
-      if (slot.closed || this.disposed) await this.closeRemote(slot);
+      if (slot.closed || slot.disconnected || this.disposed) await this.closeRemote(slot);
       else await this.transport.releaseItem(slot.windowId!, held.identity);
     } catch (error) {
       if (slot.recoveryItems?.get(key) === held) throw error;

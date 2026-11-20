@@ -5,6 +5,19 @@ weight: 3
 
 # Chat
 
+## Sair e voltar durante uma resposta
+
+Uma resposta em andamento pertence à conversa. Ao visitar configurações e voltar
+ao chat, o indicador de recebimento e o botão de cancelar continuam disponíveis
+enquanto a execução estiver ativa. Outras superfícies da mesma conversa mostram
+esse mesmo estado, mantendo seus próprios rascunhos e posição de leitura.
+
+Se as atualizações forem interrompidas, o chat conserva o texto recebido e tenta
+retomar automaticamente, verificando novamente a autorização. Não é necessário
+clicar para iniciar essa tentativa. O aviso e a ação de sincronizar aparecem se
+a retomada falhar ou se o novo histórico ainda não puder ser reconciliado com o
+conteúdo exibido. Esse aviso não significa que as mensagens foram apagadas.
+
 ## Ler uma mensagem pelo teclado
 
 Na lista de mensagens, foque uma mensagem e pressione **Enter** para abrir o

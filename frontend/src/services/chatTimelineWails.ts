@@ -4,7 +4,7 @@ import * as rpc from '@wailsjs/go/wailsapi/ChatTimeline';
 import { apidto } from '@wailsjs/go/models';
 import { EventsOn } from '@wailsjs/runtime/runtime';
 import { useAuthStore } from '../store/authStore';
-import { CHAT_TIMELINE_EVENT, type ChatTimelineWireEvent, type ChatTimelineEvent } from '../types/chatTimelineEvents';
+import { CHAT_TIMELINE_EVENT, CHAT_TIMELINE_CLOSED_EVENT, type ChatTimelineClosedEvent, type ChatTimelineWireEvent, type ChatTimelineEvent } from '../types/chatTimelineEvents';
 import { logger } from '../utils/logger';
 import { ChatTimelineClient, type TimelineTransport } from './chatTimelineClient';
 import type { TimelineSnapshot } from './timelineConversationState';
@@ -30,7 +30,11 @@ const transport: TimelineTransport = {
   reserveItem: (windowId, identity) => rpc.ReserveRecoveryItem(windowId, new apidto.TimelineRecoveryItemRequest(identity)),
   readItem: async (windowId, identity) => normalizeTimelineItem(await rpc.ReadRecoveryItem(windowId, new apidto.TimelineRecoveryItemRequest(identity))),
   releaseItem: (windowId, identity) => rpc.ReleaseRecoveryItem(windowId, new apidto.TimelineRecoveryItemRequest(identity)),
-  listen: receive => EventsOn(CHAT_TIMELINE_EVENT, (event: ChatTimelineWireEvent) => receive(normalizeTimelineEvent(event))),
+  listen: (receive, closed) => {
+    const unsubscribe = EventsOn(CHAT_TIMELINE_EVENT, (event: ChatTimelineWireEvent) => receive(normalizeTimelineEvent(event)));
+    const unsubscribeClosed = EventsOn(CHAT_TIMELINE_CLOSED_EVENT, (event: ChatTimelineClosedEvent) => closed(event));
+    return () => { unsubscribe(); unsubscribeClosed(); };
+  },
   open: async (conversationId, surfaceId, scopeParentId, position) => normalizeTimelineSnapshot(await rpc.Open(
     new apidto.OpenTimelineRequest({ conversationId, surfaceId, scopeParentId, ...position }),
   )),

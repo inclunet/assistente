@@ -104,7 +104,7 @@ func detachChatTimeline(api *ChatTimeline, terminal bool) func() {
 	api.mu.Unlock()
 	return func() {
 		for _, window := range windows {
-			window.stream.cancel()
+			window.stream.stop()
 		}
 		for _, window := range windows {
 			window.stream.close()

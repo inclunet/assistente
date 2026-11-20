@@ -201,7 +201,7 @@ describe('chatTimelineWails', () => {
     expect(mocks.open.mock.calls[0][0]).toMatchObject({ conversationId: 'chat', surfaceId: expect.any(String),
       scopeParentId: null, cursor: '', anchor: 'tail', anchorItemId: '', direction: '', limit: 20 });
     auth.setState({ user: { userId: 'user', sessionId: 'second' } });
-    expect(mocks.unsubscribe).toHaveBeenCalledTimes(3);
+    expect(mocks.unsubscribe).toHaveBeenCalledTimes(4);
     expect(getChatTimelineClient()).not.toBe(client);
     resolve(new apidto.SubscribedTimelineSnapshot({ windowId: 'late' }));
     await opening;
@@ -221,7 +221,7 @@ describe('chatTimelineWails', () => {
       expect(fromEarlierSubscriber).toBeDefined();
       expect(fromEarlierSubscriber).not.toBe(old);
       expect(getChatTimelineClient()).toBe(fromEarlierSubscriber);
-      expect(mocks.unsubscribe).toHaveBeenCalledTimes(3);
+      expect(mocks.unsubscribe).toHaveBeenCalledTimes(4);
       await expect(old.open('chat', 'surface', null, { cursor: '', anchor: 'end', anchorItemId: '', direction: '', limit: 20 }))
         .rejects.toThrow('disposed');
     } finally { unsubscribe(); }
@@ -241,6 +241,10 @@ describe('chatTimelineWails', () => {
     mocks.eventsOn.mock.calls[0][1]({ conversationId: 'chat', surfaceId: mocks.open.mock.calls[0][0].surfaceId, windowId: 'window', epoch: 'epoch',
       snapshotRevision: '1', syncRequired: false, updates: [{ conversationId: 'chat', epoch: 'epoch',
         sequence: '11', operations: [], windowPatches: [{ windowId: 'window', previousRevision: '1', revision: '2' }] }] });
+    expect(client.getWindow('chat', 'surface')?.revision).toBe('2');
+    const closed = mocks.eventsOn.mock.calls.find(([name]) => name === 'chat:timeline_closed')![1];
+    closed({ conversationId: 'chat', surfaceId: mocks.open.mock.calls[0][0].surfaceId, windowId: 'window' });
+    expect(client.getError('chat')).toBeDefined();
     expect(client.getWindow('chat', 'surface')?.revision).toBe('2');
   });
 });

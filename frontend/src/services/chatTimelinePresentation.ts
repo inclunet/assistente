@@ -34,8 +34,8 @@ export class ChatTimelinePresentation implements ChatMessageSource {
     return () => { this.listeners.delete(changed); };
   };
   getRevision = () => this.revision;
-  get loading() { return this.busy > 0; }
-  get error() { return this.failure ?? this.client.getError(this.conversationId); }
+  get loading() { return this.busy > 0 || this.client.isRecoveringAutomatically(this.conversationId); }
+  get error() { return this.client.isRecoveringAutomatically(this.conversationId) ? undefined : this.failure ?? this.client.getError(this.conversationId); }
   get window() { return this.client.getWindow(this.conversationId, this.surfaceId); }
 
   getCopyTarget(id: string): { windowId: string; identity: RecoveryItemIdentity } | undefined {
@@ -64,7 +64,13 @@ export class ChatTimelinePresentation implements ChatMessageSource {
 
   open(): Promise<void> {
     return this.run(async () => {
-      this.unsubscribe = this.client.subscribe(() => this.notify());
+      this.unsubscribe = this.client.subscribe(() => {
+        if (!this.closing) {
+          const recovery = this.client.recoverAutomatically(this.conversationId);
+          if (recovery) void recovery.then(recovered => { if (recovered) this.failure = undefined; this.notify(); });
+        }
+        this.notify();
+      });
       this.sources.set(this.surfaceId, null);
       await this.client.open(this.conversationId, this.surfaceId, null, endPosition);
       if (!this.closing) await this.client.navigate(this.conversationId, this.surfaceId, 'followTail', endPosition);
