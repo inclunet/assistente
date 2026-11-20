@@ -489,3 +489,36 @@ func TestPreparedBaseCannotStartSkippedCommandWhenBudgetGrows(t *testing.T) {
 		t.Fatalf("reconstrução: %v, %v", blocks, err)
 	}
 }
+
+func TestExplicitCommandRefusalPrecedesConcurrentCancellation(t *testing.T) {
+	for _, flow := range []string{"base", "slash"} {
+		t.Run(flow, func(t *testing.T) {
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			s := providerSkill("test-skill", "!echo first\n!echo next", true)
+			s.Tools = &ToolPermissions{BashCommands: &BashCommands{Allowed: []string{"echo"}}}
+			refusal := errors.Join(contextprovider.ErrCommandRefused, errors.New("decisão explícita"))
+			calls := 0
+			ctx = WithCommandTurn(ctx, func(context.Context, *Skill, string) (string, error) {
+				calls++
+				cancel()
+				return "saída parcial", refusal
+			})
+			if flow == "base" {
+				p := NewContextProvider(contextProviderSourceStub{skills: []Skill{s}})
+				blocks, err := p.Build(ctx, contextprovider.BuildRequest{ToolCallingEnabled: true})
+				if len(blocks) != 0 || err != refusal || CommandTurnError(ctx) != refusal {
+					t.Fatalf("blocos=%v erro=%v erro do turno=%v", blocks, err, CommandTurnError(ctx))
+				}
+			} else {
+				result, found, err := InvokeContext(ctx, "/test-skill", &stubInvokerManager{skill: &s}, "turn", invocablePolicy(&s))
+				if !found || result != nil || err != refusal {
+					t.Fatalf("encontrada=%v resultado=%v erro=%v", found, result, err)
+				}
+			}
+			if calls != 1 {
+				t.Fatalf("chamadas=%d", calls)
+			}
+		})
+	}
+}

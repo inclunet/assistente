@@ -228,11 +228,16 @@ func (d commandDocument) renderLines(ctx context.Context, skill *Skill, base boo
 			return "", ctx.Err()
 		}
 		output, err := result(line)
+		// A decisão explícita do usuário ou da política encerra a tentativa,
+		// inclusive quando o contexto é cancelado enquanto o executor retorna.
+		if errors.Is(err, contextprovider.ErrCommandRefused) {
+			return "", err
+		}
 		if ctx.Err() != nil {
 			return "", ctx.Err()
 		}
 		if err != nil {
-			if !base || errors.Is(err, contextprovider.ErrCommandRefused) {
+			if !base {
 				return "", err
 			}
 			logging.Logger(ctx, "skills.preprocess").Warn("Linha omitida após falha do comando da skill base", "skill", skill.Slug)
