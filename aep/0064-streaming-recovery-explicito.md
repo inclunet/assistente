@@ -1,6 +1,6 @@
 # AEP-0064 — Recuperação explícita de resposta interrompida (continuação) e cancelamento de geração
 
-Status: Done — recuperação, retry ancorado e persistência terminal sob contenção
+Status: In Progress — retry seguro e persistência implementados; recuperação automática de parcial pendente
 Data: 2026-05-21
 Autor: Leonardo Gleison (Inclunet) + GitHub Copilot
 
@@ -39,8 +39,16 @@ Além disso, hoje uma falha de streaming tende a simplesmente “parar”, sem (
 
 ### 3) Auto-recuperação padrão
 
-- Quando ocorrer interrupção de streaming e existir conteúdo parcial, o app tenta recuperar automaticamente até **3 tentativas** antes de mostrar a ação manual.
+- Quando uma tentativa falhar sem conteúdo ou efeitos observados, o app pode
+  recuperar automaticamente até **3 tentativas**. Após conteúdo, raciocínio ou
+  efeitos observados, preserva o parcial e não repete automaticamente a tentativa;
+  a pessoa pode usar a continuação explícita quando aplicável. Isso evita duplicar
+  conteúdo e efeitos de ferramentas. Recuperação automática segura do parcial
+  fica pendente de contrato e prova específicos.
 - O número de tentativas é **configurável por perfil**.
+- Na Responses API, timeout registra estágio, contagens e tempos de leitura e
+  processamento sem incluir conteúdo, credenciais ou payload. O diagnóstico não
+  comprova entrega fim a fim nem muda o limite de inatividade.
 
 ### 4) Cancelamento explícito de geração
 
@@ -249,8 +257,10 @@ segmentos não diagnósticos; caso contrário, exibe a base e o novo delta.
 ## Critérios de aceitação
 
 - [x] Requests normais nunca enviam `assistant prefill` acidental.
-- [x] Em interrupção com texto parcial, o app tenta recuperação automática até
-  3 vezes.
+- [x] Falhas sem conteúdo ou efeitos podem ser recuperadas automaticamente;
+  parcial observado é preservado sem repetição automática insegura.
+- [ ] Definir e provar recuperação automática segura de conteúdo parcial sem
+  repetir efeitos de ferramentas.
 - [x] Após falha/cancelamento, “Continuar resposta” usa prefill quando
   suportado ou fallback por mensagem de usuário (Issue #124).
 - [x] “Cancelar geração” funciona por botão/menu e por `Esc` somente com foco
