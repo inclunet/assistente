@@ -92,15 +92,16 @@ export function ChatSessionProvider({
   const surfaceSession = useChatStore((state) => (
     normalizedConversationId ? state.surfaceSessionsByKey?.[sessionKey] ?? null : null
   ));
+  // A execução pertence à conversa e sobrevive à desmontagem da superfície.
+  const isLoading = useChatStore(state => !!normalizedConversationId && state.loadingConversationIds.has(normalizedConversationId));
   const { presentation, nodes: threadedMessages, revision } = useChatTimelinePresentation(normalizedConversationId, sessionKey);
   const window = presentation?.window;
   const session = useMemo(() => {
     if (!normalizedConversationId) return null;
     const state = surfaceSession ?? createEmptyChatSurfaceSession(normalizedConversationId, sessionKey);
-    return { ...state, conversation: window ? { id: normalizedConversationId, title: timeline?.title ?? '', threadedMessages } : null };
-  }, [normalizedConversationId, sessionKey, surfaceSession, threadedMessages, timeline?.title, window]);
+    return { ...state, isLoading, conversation: window ? { id: normalizedConversationId, title: timeline?.title ?? '', threadedMessages } : null };
+  }, [normalizedConversationId, sessionKey, surfaceSession, threadedMessages, timeline?.title, window, isLoading]);
   const conversation = session?.conversation ?? null;
-  const isLoading = !!session?.isLoading;
   const messageWindow = window?.metadata;
   const isLoadingMessageWindow = presentation?.loading ?? false;
   const draftMessage = session?.draftMessage ?? '';

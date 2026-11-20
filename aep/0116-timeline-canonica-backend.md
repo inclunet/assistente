@@ -4,6 +4,67 @@
 
 Data: 2026-10-30
 
+### Estado de execução ao retornar ao chat (20/11/2026)
+
+A apresentação consulta o estado de execução compartilhado pela conversa,
+mantido pelo pipeline existente, em vez do flag inicial da superfície remontada.
+Sair para configurações e voltar não deve apagar o indicador de recebimento nem
+o controle de cancelamento; superfícies da mesma conversa observam a mesma
+execução, preservando rascunhos e navegação próprios. Não há inferência de
+atividade pela página de mensagens nem novo fluxo de envio.
+
+`ChatSessionContext.window.test.tsx` cobre remontagem durante streaming,
+novos deltas, conclusão e isolamento entre conversas. A regressão em
+`e2e/chat/chat-streaming.spec.ts` verifica o texto no DOM e o cancelamento após
+visitar configurações. `TestChatTimelineReopenDuringStreaming` verifica a
+reabertura com banco/projetor e a entrega posterior no transporte Wails.
+O encerramento inesperado da assinatura também deixa de ser silencioso:
+`chat:timeline_closed` carrega somente `conversationId`, `surfaceId` e `windowId`,
+após liberar a capability. Essa exceção de controle foi aprovada pelo mantenedor
+em 20/11/2026; não transporta conteúdo, motivo interno nem autorização renovada.
+Close voluntário não sinaliza falha; troca local de sessão bloqueia o controle
+da geração anterior. O limite de 1 segundo continua valendo para conteúdo.
+
+O cliente conserva o snapshot e tenta recuperar automaticamente, uma vez por
+interrupção e de forma compartilhada entre superfícies da conversa. Uma nova
+entrega válida reabilita a tentativa automática; não há polling de recuperação.
+Uma assinatura encerrada exige nova inscrição via Open autenticado, restaurando
+modo e posição. Uma assinatura vigente usa Refresh. O candidato só é promovido
+quando comprova continuidade do conteúdo protegido; ausência na página não
+significa perda de dados no backend. A UI de recuperação aparece apenas se a
+tentativa falhar ou não puder reconciliar o conteúdo. Esta automação foi solicitada
+pelo mantenedor em 20/11/2026, substituindo o clique como primeira resposta.
+Reservas e leitores antigos não migram entre capabilities: sua existência
+impede essa reconexão até liberação explícita. Candidato recusado é fechado;
+falha de cleanup permanece rastreável para nova tentativa. Controle atrasado
+da inscrição anterior e respostas RPC após encerramento não restauram atividade.
+
+Fechar a inscrição não encerra a execução nem descarta turnos ativos/voláteis do
+projetor; o banco conserva o conteúdo persistido.
+
+Revisão ReviewPlease: a retomada de uma janela com foco/leitura retidos usa
+`Open.resume` opcional (`storageIncarnation`, `mode`, `beforeCursor`, `afterCursor`,
+`retainedItemIds`). O snapshot fornece `storageIncarnation`; a retomada retida
+exige a mesma encarnação e não transporta interações através de importação.
+O backend revalida versão, escopo, identidade e fronteiras, reutiliza a seleção
+de retenção e devolve atomicamente modo, janela e retenções. Não há sequência
+frontend Open → SetRetention → Navigate. IDs comprovadamente removidos deixam
+a retenção; consulta/cursor inválido recusa a retomada sem abandonar o visual.
+A intenção atual de foco pode ser liberada com a inscrição encerrada, sem RPC
+no handle morto; o próximo Open continua autorizando/reconciliando esses IDs.
+A recuperação nas mensagens recentes consulta essa mesma intenção atual, sem
+alterar o snapshot canônico: após liberar a interação, retenções do snapshot
+antigo não bloqueiam a tentativa. Regressão em `chatTimelinePresentation.test.ts`
+cobre recusa enquanto retido e recuperação após liberação com cursor inválido.
+Provas: `TestTimelineResumePreservesRetainedWindowOutsideTail`,
+`TestTimelineResumeRevalidatesRetentionAndBounds` e regressões de cliente.
+
+Provas: `TestTimelineEventStreamTerminalControl`, testes de reconexão e corridas
+em `chatTimelineClient.test.ts` e integração em `chatTimelineWails.test.ts`.
+O caminho silencioso foi identificado no código e reproduzido com cancelamento;
+não há evidência para atribuir a ocorrência relatada a uma falha específica do
+log local. Status **Done** mantido para o contrato com esta correção.
+
 ### Apresentação da recuperação do histórico (15/11/2026)
 
 Falhas de sincronização sem conteúdo protegido disponibilizam a ação de
@@ -2177,12 +2238,14 @@ de eventos já cancelado durante a leitura inicial, liberando reserva e inscriç
 corrida sem alterar a geração local; a abertura não devolve uma capability morta.
 
 Decisão aprovada pelo mantenedor em 2026-11-03: revogação externa admite prazo
-máximo de **1 segundo** para bloquear novas emissões. Uma lease compartilhada por
+máximo de **1 segundo** para bloquear novas emissões de conteúdo. Uma lease compartilhada por
 principal e geração revalida sessão/conta; sua validade é o menor limite entre
 início da consulta + 1 segundo e expiração persistida. Consulta lenta não estende
 esse prazo. A admissão consulta relógio/contexto/geração, sem SQL por delta, e
 bloqueia enquanto uma autorização vencida aguarda renovação. Erro de validação
-encerra a lease e seus streams. Cada RPC continua revalidando a persistência.
+encerra a lease e seus streams. A exceção `chat:timeline_closed`, aprovada em
+20/11/2026 e descrita acima, comunica apenas a identidade da inscrição encerrada
+à mesma geração local; não concede leitura. Cada RPC continua revalidando a persistência.
 O último emissor libera o worker compartilhado; aberturas pendentes também
 possuem uma referência e a liberam se forem recusadas.
 

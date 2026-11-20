@@ -832,7 +832,7 @@ export function buildWailsMockScript(): string {
       segments.unshift({ segmentId: id + ':reasoning', kind: 'reasoning', text: m.reasoning });
     }
     const conclusion = segments.filter(part => part.kind === 'text' && part.text?.trim()).at(-1);
-    return { itemId: id, scopeParentId: m.parentId || null,
+    return { itemId: id, executionId: m.executionId, scopeParentId: m.parentId || null,
       turnId: m.turnId || null,
       representativeMessageId: id,
       revision: String(m.canonicalRevision || 1), state: m.isStreaming ? 'streaming' : 'completed',
@@ -922,6 +922,7 @@ export function buildWailsMockScript(): string {
       const m = row.message;
       m.canonicalRevision = (m.canonicalRevision || 1) + 1;
       if (data.turnId) m.turnId = data.turnId;
+      if (data.executionId) m.executionId = data.executionId;
       m.canonicalSegments ||= canonicalItem(row).segments;
       const segments = m.canonicalSegments;
       if (event === 'chat:stream' && typeof data.delta === 'string') {
