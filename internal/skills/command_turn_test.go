@@ -237,6 +237,8 @@ func TestSlashValidatesComposedPathOperand(t *testing.T) {
 		permitted  bool
 	}{
 		{"notas/.$0/arquivo", ".", false},
+		{"$0", "", false},
+		{"$ARGUMENTS[2]", "um", false},
 		{"notas/$0$1/arquivo", ". .", false},
 		{"notas/$0.md", "minha-nota", true},
 		{"../repositorio $0", "main", true},
@@ -374,6 +376,12 @@ func TestPreparedBaseKeepsCatalogUntilNextAttempt(t *testing.T) {
 	final, err := p.Build(ctx, req)
 	if err != nil || !reflect.DeepEqual(first, final) || calls != 0 {
 		t.Fatalf("final=%v chamadas=%d err=%v", final, calls, err)
+	}
+	limited := req
+	limited.ToolCallingEnabled = false
+	withoutTools, err := p.Build(ctx, limited)
+	if err != nil || len(withoutTools) != 0 || calls != 0 {
+		t.Fatalf("sem ferramentas=%v chamadas=%d err=%v", withoutTools, calls, err)
 	}
 	next, err := p.Build(WithCommandTurn(t.Context(), run), req)
 	if err != nil || len(next) != 1 || !strings.Contains(next[0].Content, "novo") || calls != 1 {

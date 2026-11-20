@@ -104,14 +104,21 @@ func (m *CommandMarker) wrapPowerShell(command string) string {
 	start := fmt.Sprintf("Write-Host ([Environment]::NewLine + '%s')", m.startTag)
 	// Uma linha comentada pode engolir o delimitador do try ou o marcador.
 	// Entregue o texto ao parser como dado, sem interpolá-lo na linha do PTY.
-	if strings.Contains(original, "#") {
-		body := strings.TrimSuffix(original, powershellDirectoryCatch)
-		tail := " " + boundary + strings.TrimPrefix(original, body)
-		encoded := base64.StdEncoding.EncodeToString([]byte(body))
-		return fmt.Sprintf("%s; . (%s ([Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('%s'))) {%s} '%s')", start, singlePowerShellLine(prepareGroupedPowerShell), encoded, status, strings.ReplaceAll(tail, "'", "''"))
-	}
-	if strings.HasSuffix(strings.TrimRight(strings.TrimSuffix(original, powershellDirectoryCatch), "; \r\n\t"), ")") {
-		return fmt.Sprintf("%s; . (%s {%s} {%s})", start, singlePowerShellLine(prepareGroupedPowerShell), command, status)
+	hasHash := strings.Contains(original, "#")
+	grouped := strings.HasSuffix(strings.TrimRight(strings.TrimSuffix(original, powershellDirectoryCatch), "; \r\n\t"), ")")
+	if hasHash || grouped {
+		body := "{" + command + "}"
+		tail := ""
+		if hasHash {
+			prefix := strings.TrimSuffix(original, powershellDirectoryCatch)
+			encoded := base64.StdEncoding.EncodeToString([]byte(prefix))
+			body = fmt.Sprintf("([Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('%s')))", encoded)
+			tail = " '" + strings.ReplaceAll(" "+boundary+strings.TrimPrefix(original, prefix), "'", "''") + "'"
+		}
+		// return pode sair do bloco antes de status; erro de sintaxe pode impedir
+		// até a criação do bloco. A moldura externa conclui esses dois caminhos.
+		done := "$__asstEnded" + m.id
+		return fmt.Sprintf("%s; %s=$false; try { . (%s %s {%s; %s=$true}%s); if (!$?) { if (!%s) { Write-Host '%s1' } } elseif (!%s) { Write-Host '%s0' } } catch { Microsoft.PowerShell.Utility\\Write-Error -ErrorRecord $_ -ErrorAction Continue; Write-Host '%s1' } finally { Microsoft.PowerShell.Utility\\Remove-Variable -Name %s -ErrorAction SilentlyContinue }", start, done, singlePowerShellLine(prepareGroupedPowerShell), body, status, done, tail, done, m.endTag, done, m.endTag, m.endTag, done[1:])
 	}
 	return fmt.Sprintf("%s; %s; %s", start, command, status)
 }

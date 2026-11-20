@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -69,6 +70,7 @@ type commandDocument struct {
 }
 
 var shellArgumentReference = regexp.MustCompile(`\$(?:ARGUMENTS|[0-9]+)`)
+var shellPosition = regexp.MustCompile(`\$(?:ARGUMENTS\[([0-9]+)\]|([0-9]+))`)
 var parentArgumentSegment = regexp.MustCompile(`(?:^|[ /\\=:"'])\.\.(?:[ /\\:"']|$)`)
 var shellArgumentText = regexp.MustCompile(`^(?:[\pL\pN._][\pL\pN._/-]*(?: +[\pL\pN._][\pL\pN._/-]*)*)?$`)
 
@@ -97,6 +99,15 @@ func codeLineStarts(content string) map[int]bool {
 func validInterpolatedCommand(rawArgs, template string, expand func(string) string) bool {
 	if !shellArgumentText.MatchString(strings.Trim(rawArgs, " ")) || parentArgumentSegment.MatchString(rawArgs) {
 		return false
+	}
+	if positions := shellPosition.FindAllStringSubmatch(template, -1); len(positions) > 0 {
+		count := len(parseArgs(rawArgs))
+		for _, pos := range positions {
+			index, err := strconv.Atoi(pos[1] + pos[2])
+			if err != nil || index >= count {
+				return false
+			}
+		}
 	}
 	// Para verificação de componentes, ambos os separadores de caminho têm o
 	// mesmo significado. O texto enviado ao executor conserva a grafia original.
@@ -159,7 +170,7 @@ func planCommandLines(ctx context.Context, skill *Skill, content string, base bo
 		}
 		if expand != nil {
 			expanded := expand(command)
-			if expanded != command && shellArgumentReference.MatchString(command) && !validInterpolatedCommand(rawArgs, command, expand) {
+			if shellArgumentReference.MatchString(command) && !validInterpolatedCommand(rawArgs, command, expand) {
 				return commandDocument{}, fmt.Errorf("argumentos incompatíveis com uma linha de comando da skill %q", skill.Slug)
 			}
 			command = expanded

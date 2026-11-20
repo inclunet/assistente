@@ -91,6 +91,11 @@ func Resolve[T any](ctx context.Context, request Request, flow Flow[T]) (out Dec
 	if err != nil {
 		return Decision{}, err
 	}
+	// Uma recusa desta tentativa já encerra a decisão. A releitura protege
+	// concessões e mudanças persistentes, e pode estar indisponível nesse ponto.
+	if choice.Effect == "deny" && (choice.Scope == "" || choice.Scope == ScopeOnce) {
+		return Decision{Effect: "deny", Scope: ScopeOnce, Reason: "decisão do usuário"}, nil
+	}
 	if err := ctx.Err(); err != nil {
 		return Decision{}, err
 	}

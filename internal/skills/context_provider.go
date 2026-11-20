@@ -43,8 +43,10 @@ func (p *ContextProvider) Metadata() contextprovider.ProviderMetadata {
 // Uma preparação usa o mesmo catálogo, permissões e orçamento na prévia da
 // base e no prompt final. Uma nova tentativa recebe um novo commandTurn.
 type preparedSkillContext struct {
-	blocks []contextprovider.Block
-	err    error
+	skills      []Skill
+	blocks      []contextprovider.Block
+	err         error
+	toolCalling bool
 }
 
 func (p *ContextProvider) Build(ctx context.Context, req contextprovider.BuildRequest) ([]contextprovider.Block, error) {
@@ -52,21 +54,29 @@ func (p *ContextProvider) Build(ctx context.Context, req contextprovider.BuildRe
 		return nil, nil
 	}
 	turn, _ := ctx.Value(commandTurnKey{}).(*commandTurn)
-	if turn == nil {
-		return p.build(ctx, req)
+	if turn != nil && turn.prepared != nil {
+		saved := turn.prepared
+		if saved.err != nil || req.ToolCallingEnabled == saved.toolCalling {
+			return saved.blocks, saved.err
+		}
+		// A reconstrução do prompt pode remover as ferramentas da invocação.
+		// Renderize a seleção final do catálogo congelado sem iniciar comandos.
+		return p.build(context.WithValue(ctx, commandTurnKey{}, (*commandTurn)(nil)), req, saved.skills)
 	}
-	if turn.prepared == nil {
-		blocks, err := p.build(ctx, req)
-		turn.prepared = &preparedSkillContext{blocks: blocks, err: err}
+	allSkills, err := p.source.GetAllSkillsFull()
+	// A fonte pode manter e reutilizar a sua própria fatia.
+	allSkills = append([]Skill(nil), allSkills...)
+	var blocks []contextprovider.Block
+	if err == nil {
+		blocks, err = p.build(ctx, req, allSkills)
 	}
-	return turn.prepared.blocks, turn.prepared.err
+	if turn != nil {
+		turn.prepared = &preparedSkillContext{skills: allSkills, blocks: blocks, err: err, toolCalling: req.ToolCallingEnabled}
+	}
+	return blocks, err
 }
 
-func (p *ContextProvider) build(ctx context.Context, req contextprovider.BuildRequest) ([]contextprovider.Block, error) {
-	allSkills, err := p.source.GetAllSkillsFull()
-	if err != nil {
-		return nil, err
-	}
+func (p *ContextProvider) build(ctx context.Context, req contextprovider.BuildRequest, allSkills []Skill) ([]contextprovider.Block, error) {
 	baseSkills, onDemandSkills := selectPromptSkills(allSkills, req)
 	if len(baseSkills) == 0 && len(onDemandSkills) == 0 {
 		return nil, nil

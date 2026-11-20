@@ -153,11 +153,20 @@ func TestPowerShellHashPreservesOutputAndExitCode(t *testing.T) {
 		{"literal", "Write-Output 'issue #42'", "issue #42", 0},
 		{"stderr", "cmd /c 'echo diagnostic 1>&2 & exit 0' 2>&1 # nota", "diagnostic", 0},
 		{"exit", "exit 3 # nota", "", 3},
+		{"return", "return 'voltou' # nota", "voltou", 0},
+		{"comentario", "# nada", "", 0},
+		{"sintaxe", "if ( # nota", "", 1},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			entry, err := NewManager(cfg, nil).RunEphemeral(t.Context(), t.TempDir(), tc.command, 10*time.Second, "test")
 			if err != nil || entry == nil || entry.ExitCode != tc.code {
 				t.Fatalf("status inesperado: %v; erro=%v", entry != nil && entry.ExitCode == tc.code, err)
+			}
+			if tc.name == "sintaxe" {
+				if strings.TrimSpace(entry.Output) == "" {
+					t.Fatal("falha de sintaxe sem diagnóstico")
+				}
+				return
 			}
 			if tc.name == "stderr" && !strings.Contains(entry.Output, tc.output) || tc.name != "stderr" && strings.TrimSpace(entry.Output) != tc.output {
 				t.Fatalf("output=%q", entry.Output)

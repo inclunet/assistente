@@ -79,3 +79,23 @@ func TestFalhaDeConsultaECancelamentoNaoAutorizam(t *testing.T) {
 		})
 	}
 }
+
+func TestRecusaUnicaSobreviveIndisponibilidadeDaPolitica(t *testing.T) {
+	request := authorization.Request{Domain: "shell", Operation: "execute", Resource: "command"}
+	reads := 0
+	got, err := authorization.Resolve(authorizationfixture.Context(), request, authorization.Flow[string]{
+		Evaluate: func(context.Context) (authorization.Decision, error) {
+			reads++
+			if reads > 1 {
+				return authorization.Decision{}, errors.New("indisponível")
+			}
+			return authorization.Decision{Effect: "ask"}, nil
+		},
+		Ask: func(context.Context) (authorization.Consent[string], error) {
+			return authorization.Consent[string]{Effect: "deny", Scope: authorization.ScopeOnce}, nil
+		},
+	})
+	if err != nil || got.Effect != "deny" || reads != 1 {
+		t.Fatalf("decisão=%+v leituras=%d erro=%v", got, reads, err)
+	}
+}
