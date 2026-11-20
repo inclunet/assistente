@@ -126,6 +126,11 @@ continuam disponíveis. Se a abertura, conexão ou desconexão informar cofre
 indisponível, desbloqueie o cofre e tente novamente; essa falha não confirma
 a desconexão.
 
+Em falhas de resposta ChatGPT, procure `chatgpt_diagnostic` no log: o estágio,
+a classe e o status HTTP quando disponível ajudam a distinguir rejeição do
+serviço e falha de comunicação. O registro não inclui a descrição recebida,
+conteúdo da conversa ou credenciais. Consulte [gravar logs](../guias/LOG_FILE.md).
+
 O cofre precisa estar habilitado para persistir. Cadastro, access token, refresh token
 e ID token ficam cifrados juntos; a tela e as exportações não incluem esses segredos.
 A renovação é coordenada entre chamadas e respeita a expiração informada pelo servidor.
@@ -329,11 +334,13 @@ foco a um campo sem alterar o valor mantém o teste de conexão válido.
 Cada provedor possui:
 - **Timeout**: 180s (padrão) ou 300s (Ollama, para modelos grandes) para
   requisições comuns; não funciona como teto total de uma resposta SSE ativa.
-- **Timeout de inatividade do streaming**: 60s por padrão. Cada evento ou
-  heartbeat reinicia a contagem, portanto uma geração ativa pode durar mais que
+- **Timeout de inatividade do streaming**: 60s por padrão. Cada evento
+  entregue ao consumidor reinicia a contagem, portanto uma geração ativa pode durar mais que
   o timeout geral sem ser interrompida. O formulário ainda não oferece esse
   ajuste; arquivos de exportação/importação podem preservar um override legado
   em `streamIdleTimeoutSeconds`.
+  Na Responses API, `stream_idle_diagnostic` registra no log contagens de bytes
+  e eventos e tempos da etapa em que houve inatividade, sem conteúdo do stream.
 - **Headers customizados**: Para autenticação alternativa ou proxy
 - **Credential Pattern**: Domínio usado para resolver credenciais automaticamente (ex: `api.openai.com`)
 - **API Format** (`api_format`): Determina qual protocolo/SDK usar (ver abaixo)

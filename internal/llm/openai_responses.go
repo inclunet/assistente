@@ -265,7 +265,9 @@ func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses
 	// Watchdog de ociosidade: se o servidor parar de enviar sem fechar a
 	// conexão, cancela a leitura e transforma em erro retryable (quando nada
 	// foi emitido). Cada evento recebido reinicia a contagem.
-	watchCtx, wd := startStreamWatchdog(ctx, streamIdleTimeoutForProvider(p.provider), nil)
+	diagnostics := newStreamDiagnostics()
+	watchCtx, wd := startStreamWatchdog(ctx, streamIdleTimeoutForProvider(p.provider), func() { diagnostics.logTimeout(ctx) })
+	watchCtx = context.WithValue(watchCtx, streamDiagnosticsKey{}, diagnostics)
 	defer wd.Stop()
 
 	stream := p.streamClient.Responses.NewStreaming(watchCtx, params)
@@ -369,7 +371,11 @@ func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses
 	var eventCount int
 
 responseEvents:
-	for stream.Next() {
+	for {
+		diagnostics.setPhase("waiting_event", false, wd)
+		if !stream.Next() {
+			break
+		}
 		wd.Kick()
 		if ctx.Err() != nil {
 			cancelStream()
@@ -386,6 +392,7 @@ responseEvents:
 			reportError(streamIdleErrorMessage)
 			return mcpStreamAttemptResult{done: true}
 		}
+		diagnostics.setPhase("processing_event", true, wd)
 		event := stream.Current()
 		eventCount++
 
@@ -690,7 +697,14 @@ responseEvents:
 		case "response.failed":
 			ev := event.AsResponseFailed()
 			if p.provider.Type == ProviderChatGPT {
-				failChatGPT(chatGPTFailure(ctx, string(ev.Response.Error.Code)))
+				code := chatGPTFailure(ctx, string(ev.Response.Error.Code))
+				diagnosticProvider := &ProviderConfig{APIFormat: APIFormatOpenAIResponses, ErrorFamily: ProviderErrorFamilyOpenAI}
+				diagnostic := recognizeResponsesFailure(diagnosticProvider, ev.Response.Error.RawJSON())
+				if diagnostic == nil {
+					diagnostic = &ProviderError{Category: ProviderErrorUnrecognized}
+				}
+				logging.Warnf(ctx, "llm.chatgpt", "chatgpt_diagnostic stage=response_failed class=%s category=%s code=%s type=%s events=%d response_bytes=%d finished_tool_calls=%d", code, diagnostic.Category, diagnostic.Code, diagnostic.Type, eventCount, fullResponse.Len(), len(finishedToolCalls))
+				failChatGPT(code)
 				return mcpStreamAttemptResult{done: true}
 			}
 			errMsg := "erro na Responses API"
