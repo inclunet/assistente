@@ -119,6 +119,8 @@ func TestPowerShellPipelineAndGroupedStatus(t *testing.T) {
 		{"throw 'falha de teste'", 1},
 		{"(cmd /c exit 7)", 7},
 		{"(& $env:ComSpec /c exit 7)", 7},
+		{"(& (Get-Command cmd.exe) /c exit 7)", 7},
+		{"cmd /c exit 7; (& (Get-Command Write-Output) ok)", 0},
 		{"$name = $env:ComSpec; (& $name /c exit 7)", 7},
 		{"cmd /c exit 7; $app = 'Write-Output'; (& $app ok)", 0},
 		{"(cmd /c exit 7);", 7},

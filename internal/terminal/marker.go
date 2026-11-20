@@ -97,45 +97,40 @@ func (m *CommandMarker) wrapPowerShell(command string) string {
 }`
 	// O ConPTY recebe uma única linha de entrada.
 	check := fmt.Sprintf(singlePowerShellLine(nativeStderr), boundary)
-	// Antes do PowerShell 7, parênteses podem restaurar $? para true. Só
-	// atribuímos LASTEXITCODE ao grupo se o comando final for um executável.
-	success := fmt.Sprintf("Write-Host '%s0'", m.endTag)
+	status := fmt.Sprintf("if ($?) { Write-Host '%s0' } elseif ($LASTEXITCODE) { Write-Host ('%s' + $LASTEXITCODE) } elseif ($LASTEXITCODE -eq 0 -and (%s)) { Write-Host '%s0' } else { Write-Host '%s1' }", m.endTag, m.endTag, check, m.endTag, m.endTag)
 	if strings.HasSuffix(strings.TrimRight(strings.TrimSuffix(original, powershellDirectoryCatch), "; \r\n\t"), ")") {
-		const grouped = `& {
-			$line = $MyInvocation.Line;
-			$start = $line.IndexOf('%s') + %d;
-			$end = $line.IndexOf('%s', $start);
-			if ($end -le $start) { return $null };
-			$tokens = $null;
-			$errors = $null;
-			$ast = [System.Management.Automation.Language.Parser]::ParseInput($line.Substring($start, $end - $start), [ref]$tokens, [ref]$errors);
-			$last = $ast.EndBlock.Statements[-1];
-			if ($last -is [System.Management.Automation.Language.TryStatementAst]) { $last = $last.Body.Statements[-1] };
-			if ($last.PipelineElements.Count -ne 1 -or $last.PipelineElements[0].Expression -isnot [System.Management.Automation.Language.ParenExpressionAst]) { return $null };
-			while ($last -is [System.Management.Automation.Language.PipelineAst] -and $last.PipelineElements.Count -eq 1 -and $last.PipelineElements[0].Expression -is [System.Management.Automation.Language.ParenExpressionAst]) { $last = $last.PipelineElements[0].Expression.Pipeline };
-			if ($last.PipelineElements.Count -ne 1) { return $null };
-			$cmd = $last.PipelineElements[0];
-			if ($cmd -isnot [System.Management.Automation.Language.CommandAst]) { return $null };
-			return $cmd
-		}`
-		groupBoundary := "<#group-" + m.id + "#>"
-		command += " " + groupBoundary
-		group := fmt.Sprintf(singlePowerShellLine(grouped), m.startTag, len(m.startTag)+3, groupBoundary)
-		// Leia o nome/valor no escopo original, depois que as variáveis locais
-		// do parser saíram de escopo. O temporário é exclusivo desta execução.
-		target := "$__asstTarget" + m.id
-		const resolve = `if (TARGET) {
-			if (TARGET.CommandElements[0] -is [System.Management.Automation.Language.VariableExpressionAst]) {
-				TARGET = $ExecutionContext.SessionState.PSVariable.GetValue(TARGET.CommandElements[0].VariablePath.UserPath)
-			} else { TARGET = TARGET.GetCommandName() };
-			if (TARGET -is [string] -and TARGET) { TARGET = $ExecutionContext.InvokeCommand.GetCommand(TARGET, 'All') };
-			if (TARGET -is [System.Management.Automation.AliasInfo]) { TARGET = TARGET.ResolvedCommand }
-		}`
-		lookup := strings.ReplaceAll(singlePowerShellLine(resolve), "TARGET", target)
-		success = fmt.Sprintf("if ($LASTEXITCODE) { %s = (%s); %s; if (%s -is [System.Management.Automation.ApplicationInfo]) { Write-Host ('%s' + $LASTEXITCODE) } else { %s }; Microsoft.PowerShell.Utility\\Remove-Variable -Name %s } else { %s }", target, group, lookup, target, m.endTag, success, target[1:], success)
+		return fmt.Sprintf("Write-Host '%s'; . (%s {%s} {%s})", m.startTag, singlePowerShellLine(prepareGroupedPowerShell), command, status)
 	}
-	return fmt.Sprintf("Write-Host '%s'; %s; if ($?) { %s } elseif ($LASTEXITCODE) { Write-Host ('%s' + $LASTEXITCODE) } elseif ($LASTEXITCODE -eq 0 -and (%s)) { Write-Host '%s0' } else { Write-Host '%s1' }", m.startTag, command, success, m.endTag, check, m.endTag, m.endTag)
+	return fmt.Sprintf("Write-Host '%s'; %s; %s", m.startTag, command, status)
 }
+
+// No Windows PowerShell 5.1, parênteses restauram $? para true mesmo após uma
+// falha. No pipeline final independente, tire apenas os parênteses externos de
+// agrupamento de um comando. O alvo, os argumentos e as subexpressões ficam
+// intactos. O script preparado roda uma vez no escopo original, com a leitura
+// de $? logo após a operação. O parser trabalha no texto original para que os
+// offsets coincidam mesmo quando o comando foi envolvido no try de diretório.
+const prepareGroupedPowerShell = `& {
+	param($body, $status);
+	$source = $body.ToString();
+	$tokens = $null;
+	$errors = $null;
+	$ast = [System.Management.Automation.Language.Parser]::ParseInput($source, [ref]$tokens, [ref]$errors);
+	$last = $ast.EndBlock.Statements[-1];
+	if ($last -is [System.Management.Automation.Language.TryStatementAst]) { $last = $last.Body.Statements[-1] };
+	$chars = $source.ToCharArray();
+	while ($last -is [System.Management.Automation.Language.PipelineAst] -and $last.PipelineElements.Count -eq 1) {
+		$element = $last.PipelineElements[0];
+		if ($element -isnot [System.Management.Automation.Language.CommandExpressionAst]) { break };
+		$group = $element.Expression;
+		if ($element.Redirections.Count -or $group -isnot [System.Management.Automation.Language.ParenExpressionAst]) { break };
+		$chars[$group.Extent.StartOffset] = ' ';
+		$chars[$group.Extent.EndOffset - 1] = ' ';
+		$last = $group.Pipeline
+	};
+	if ($last -is [System.Management.Automation.Language.PipelineAst] -and $last.PipelineElements.Count -eq 1 -and $last.PipelineElements[0] -is [System.Management.Automation.Language.CommandAst]) { $source = -join $chars };
+	return [scriptblock]::Create($source + '; ' + $status.ToString())
+}`
 
 // Preserva espaços dentro de literais do script ao remover o recuo das linhas.
 func singlePowerShellLine(script string) string {
