@@ -354,3 +354,29 @@ func TestPowerShellMarkerAfterEchoWithoutNewline(t *testing.T) {
 		}
 	}
 }
+
+func TestPowerShellConPTYRedrawPreservesOutput(t *testing.T) {
+	marker := newCommandMarkerForShell("powershell")
+	for _, tc := range []struct{ raw, want string }{
+		{"abc\r\n\x1b[39;3Hcdef\r\n\x1b[39;3Hfgh", "abcdefgh"},
+		{"界a\r\n\x1b[39;3Hab", "界ab"},
+		{"abc\r\n\x1b[39;2Hcdef", "abc\ncdef"},
+		{"abc\r\n\x1b[39;3Hzdef", "abc\nzdef"},
+		{"abc\r\ncdef", "abc\ncdef"},
+	} {
+		if got := marker.cleanOutput(tc.raw); got != tc.want {
+			t.Errorf("saída=%q, esperada %q", got, tc.want)
+		}
+	}
+}
+
+func TestPowerShellSplitRedrawDoesNotLeakControlBytes(t *testing.T) {
+	marker := newCommandMarkerForShell("powershell")
+	raw := "abé\r\n\x1b[39;3Héc"
+	for split := range len(raw) + 1 {
+		partial := strings.TrimRight(marker.cleanStreamingOutput(raw[:split]), "\r\n")
+		if !strings.HasPrefix("abéc", partial) {
+			t.Fatalf("split=%d parcial=%q", split, partial)
+		}
+	}
+}

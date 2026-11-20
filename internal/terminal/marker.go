@@ -6,8 +6,10 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
+	"github.com/rivo/uniseg"
 )
 
 const (
@@ -63,6 +65,7 @@ func (m *CommandMarker) wrapBash(command string) string {
 
 // wrapPowerShell gera comando wrapped para PowerShell.
 func (m *CommandMarker) wrapPowerShell(command string) string {
+	start := fmt.Sprintf("Write-Host ([Environment]::NewLine + '%s')", m.startTag)
 	// No Windows PowerShell 5.1, stderr redirecionado pode deixar $? falso
 	// mesmo com exit 0. Um NativeCommandError anterior não identifica o
 	// comando que acabou de terminar. Delimite o trecho entre a posição do
@@ -111,21 +114,13 @@ func (m *CommandMarker) wrapPowerShell(command string) string {
 	// rodapé e o dot-source já terá restaurado $? quando devolver o controle.
 	code := "$__asstCode" + m.id
 	status := fmt.Sprintf("%s = if ($?) { 0 } elseif ($LASTEXITCODE) { $LASTEXITCODE } elseif ($LASTEXITCODE -eq 0 -and (%s)) { 0 } else { 1 }", code, check)
-	start := fmt.Sprintf("Write-Host ([Environment]::NewLine + '%s')", m.startTag)
+
 	// O parser do shell recebe o comando como dado. Assim até uma falha de
 	// sintaxe ou comentário no fim da linha deixa a moldura externa executável.
 	body := strings.TrimSuffix(command, powershellDirectoryCatch)
 	encoded := base64.StdEncoding.EncodeToString([]byte(body))
 	tail := " " + boundary + strings.TrimPrefix(command, body)
-	source := fmt.Sprintf("[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('%s'))", encoded)
-	// A AST só é necessária para tratar comentários ou desagrupar o pipeline.
-	// Evite enviar o preparador completo no eco do ConPTY a cada comando.
-	frame := fmt.Sprintf("'try { ' + %s + '%s } finally { ' + {%s}.ToString() + ' }'", source, strings.ReplaceAll(tail, "'", "''"), status)
-	script := "[scriptblock]::Create(" + frame + ")"
-	if strings.Contains(body, "#") || strings.HasSuffix(strings.TrimRight(body, "; \r\n\t"), ")") {
-		script = fmt.Sprintf("%s (%s) {%s} '%s'", singlePowerShellLine(prepareGroupedPowerShell), source, status, strings.ReplaceAll(tail, "'", "''"))
-	}
-	return fmt.Sprintf("%s; try { . (%s) } catch { Microsoft.PowerShell.Utility\\Write-Error -ErrorRecord $_ -ErrorAction Continue; %s=1 }; Write-Host ('%s' + %s); Microsoft.PowerShell.Utility\\Remove-Variable -Name %s -ErrorAction SilentlyContinue", start, script, code, m.endTag, code, code[1:])
+	return fmt.Sprintf("%s; try { . (%s ([Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('%s'))) {%s} '%s') } catch { Microsoft.PowerShell.Utility\\Write-Error -ErrorRecord $_ -ErrorAction Continue; %s=1 }; Write-Host ('%s' + %s); Microsoft.PowerShell.Utility\\Remove-Variable -Name %s -ErrorAction SilentlyContinue", start, singlePowerShellLine(prepareGroupedPowerShell), encoded, status, strings.ReplaceAll(tail, "'", "''"), code, m.endTag, code, code[1:])
 }
 
 // No Windows PowerShell 5.1, parênteses restauram $? para true mesmo após uma
@@ -192,10 +187,7 @@ func (m *CommandMarker) ParseOutput(raw string) ParseResult {
 	result := ParseResult{Raw: raw}
 
 	// Remove ANSI escapes para facilitar o parsing
-	cleaned := StripANSI(raw)
-
-	// Normaliza line endings (Windows PTY usa \r\n)
-	cleaned = strings.ReplaceAll(cleaned, "\r\n", "\n")
+	cleaned := m.cleanOutput(raw)
 
 	// Encontra o start marker no INÍCIO de uma linha (após \n ou no início do texto).
 	// Isso ignora ocorrências dentro do echo da linha de comando.
@@ -263,6 +255,62 @@ func (m *CommandMarker) StartTag() string {
 // EndTag retorna o end marker para detecção durante streaming.
 func (m *CommandMarker) EndTag() string {
 	return m.endTag
+}
+
+var partialCSI = regexp.MustCompile("\x1b(?:\\[[?0-9;]*)?$")
+
+// O próximo chunk pode completar um escape ou um grafema redesenhado.
+func (m *CommandMarker) cleanStreamingOutput(raw string) string {
+	if len(raw) > 0 && raw[len(raw)-1] >= utf8.RuneSelf {
+		start := len(raw) - 1
+		for start > 0 && !utf8.RuneStart(raw[start]) {
+			start--
+		}
+		if !utf8.FullRuneInString(raw[start:]) {
+			raw = raw[:start]
+		}
+	}
+	if esc := strings.LastIndexByte(raw, '\x1b'); esc >= 0 && partialCSI.MatchString(raw[esc:]) {
+		raw = raw[:esc]
+	}
+	return m.cleanOutput(raw)
+}
+
+var conPTYCursorAfterWrap = regexp.MustCompile("\r\n\x1b\\[[0-9]+;([1-9][0-9]*)H")
+
+// Ao rolar a tela, o ConPTY pode redesenhar a última célula da linha:
+// CRLF, cursor na última coluna, cópia do grafema e continuação da saída.
+// Confira a coluna e o grafema antes de unir as linhas.
+func (m *CommandMarker) cleanOutput(raw string) string {
+	if m.inlineEnd && strings.Contains(raw, "\r\n\x1b[") {
+		var joined strings.Builder
+		consumed := 0
+		for _, match := range conPTYCursorAfterWrap.FindAllStringSubmatchIndex(raw, -1) {
+			before := raw[consumed:match[0]]
+			row := StripANSI(before[strings.LastIndexByte(before, '\n')+1:])
+			column, err := strconv.Atoi(raw[match[2]:match[3]])
+			if err != nil || row == "" {
+				continue
+			}
+			graphemes := uniseg.NewGraphemes(row)
+			cells := 0
+			var last string
+			for graphemes.Next() {
+				last = graphemes.Str()
+				cells += graphemes.Width()
+			}
+			if cells != column || !strings.HasPrefix(raw[match[1]:], last) {
+				continue
+			}
+			joined.WriteString(before)
+			consumed = match[1] + len(last)
+		}
+		if consumed > 0 {
+			joined.WriteString(raw[consumed:])
+			raw = joined.String()
+		}
+	}
+	return strings.ReplaceAll(StripANSI(raw), "\r\n", "\n")
 }
 
 // StripANSI remove todas as sequências ANSI escape de uma string.

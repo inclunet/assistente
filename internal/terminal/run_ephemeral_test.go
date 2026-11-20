@@ -284,6 +284,7 @@ func TestPowerShellReturnInPersistentSession(t *testing.T) {
 	}{
 		{"cmd /c exit 7; return", "", 7},
 		{"Write-Output pronto", "pronto", 0},
+		{"Write-Output '" + strings.Repeat("abcdefghij", 90) + "'", strings.Repeat("abcdefghij", 90), 0},
 		{"cmd /c exit 4; Write-Output ok; return", "ok", 0},
 	} {
 		entry, err := manager.RunCommand(t.Context(), session.ID(), tc.command, 10*time.Second, "test")

@@ -305,7 +305,11 @@ func (s *Session) readLoop(ctx context.Context) {
 			}
 		}
 		if err != nil {
-			if errors.Is(err, io.EOF) || s.expectedReaderClose(err) {
+			if errors.Is(err, io.EOF) || runtime.GOOS == "linux" && errors.Is(err, syscall.EIO) {
+				// O último slave do PTY no Linux fecha com EIO no master.
+				err = nil
+			} else if s.expectedReaderClose(err) {
+				logging.Infof(ctx, "terminal.session", "[Terminal] Leitor encerrado durante cleanup da sessão %s: %v", s.id, err)
 				err = nil
 			} else {
 				s.readerErr = err
@@ -347,9 +351,7 @@ func (s *Session) expectedReaderClose(err error) bool {
 	s.mu.Lock()
 	state := s.state
 	s.mu.Unlock()
-	// No Linux, o master do PTY recebe EIO quando o último slave fecha.
-	return runtime.GOOS == "linux" && errors.Is(err, syscall.EIO) ||
-		state == StateClosing || state == StateExited ||
+	return state == StateClosing || state == StateExited ||
 		errors.Is(err, os.ErrClosed) ||
 		strings.Contains(strings.ToLower(err.Error()), "file already closed")
 }
@@ -551,7 +553,7 @@ func (s *Session) exitedCommandResult(raw string, marker *CommandMarker) (string
 	if closed {
 		return "", -1, false
 	}
-	text := "\n" + strings.ReplaceAll(StripANSI(raw), "\r\n", "\n")
+	text := "\n" + marker.cleanOutput(raw)
 	_, output, started := strings.Cut(text, "\n"+marker.StartTag()+"\n")
 	if !started {
 		return "", -1, false
@@ -629,8 +631,7 @@ func (s *Session) waitForMarker(ctx context.Context, marker *CommandMarker, comm
 			// Se ainda não encontrou o end marker, tenta emitir output parcial
 			// entre o start marker e o final do buffer atual (sem incluir echo/markers).
 			if s.onOutput != nil {
-				cleaned := StripANSI(raw)
-				cleaned = strings.ReplaceAll(cleaned, "\r\n", "\n")
+				cleaned := marker.cleanStreamingOutput(raw)
 
 				if !startFound {
 					// Procura start marker no início de linha
@@ -662,7 +663,7 @@ func (s *Session) waitForMarker(ctx context.Context, marker *CommandMarker, comm
 					if endIdx := strings.Index(partial, marker.EndTag()); endIdx >= 0 {
 						partial = partial[:endIdx]
 					}
-					partial = strings.TrimRight(partial, "\n")
+					partial = strings.TrimRight(partial, "\r\n")
 
 					if len(partial) > streamSentLen {
 						s.onOutput(s.id, commandID, partial[streamSentLen:])
@@ -675,7 +676,7 @@ func (s *Session) waitForMarker(ctx context.Context, marker *CommandMarker, comm
 }
 
 func partialCommandOutput(raw string, marker *CommandMarker) string {
-	cleaned := strings.ReplaceAll(StripANSI(raw), "\r\n", "\n")
+	cleaned := marker.cleanOutput(raw)
 	if _, output, started := strings.Cut("\n"+cleaned, "\n"+marker.StartTag()+"\n"); started {
 		output, _, _ = strings.Cut(output, marker.EndTag())
 		return strings.TrimSpace(output)
