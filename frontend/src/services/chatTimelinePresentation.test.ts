@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { TimelineItem } from '../types/chatTimelineEvents';
+import type { TimelineItem, ChatTimelineClosedEvent } from '../types/chatTimelineEvents';
 import { ChatTimelineClient, type TimelineTransport } from './chatTimelineClient';
 import { ChatTimelinePresentation } from './chatTimelinePresentation';
 import type { TimelineSnapshot } from './timelineConversationState';
@@ -14,25 +14,54 @@ function item(id: string, scope: string | null = null): TimelineItem {
 }
 
 function fixture() {
+  let ended!: (event: ChatTimelineClosedEvent) => void;
+  let fields: Partial<TimelineSnapshot> = {};
   const scopes = new Map<string, string | null>();
   const modes = new Map<string, 'historical' | 'followTail'>();
   let nextItems = [item('second'), item('first')];
   const snapshot = (surface: string, scope: string | null): TimelineSnapshot => ({
     conversationId: 'conversation', scopeParentId: scope, windowId: surface, epoch: 'epoch', windowRevision: '1', sequence: '1', mode: modes.get(surface) ?? 'historical',
     orderedItemIds: nextItems.map(value => value.itemId), items: nextItems, retainedItemIds: [], retentionBlocked: false,
-    totalCount: nextItems.length, startIndex: 0, endIndex: nextItems.length, hasBefore: false, hasAfter: false, beforeCursor: '', afterCursor: '',
+    totalCount: nextItems.length, startIndex: 0, endIndex: nextItems.length, hasBefore: false, hasAfter: false, beforeCursor: '', afterCursor: '', ...fields,
   });
   const transport: TimelineTransport = {
-    listen: () => () => {}, open: vi.fn(async (_conversation, surface, scope) => { scopes.set(surface, scope); return snapshot(surface, scope); }),
+    listen: (_receive, closed) => { ended = closed; return () => {}; }, open: vi.fn(async (_conversation, surface, scope) => { scopes.set(surface, scope); return snapshot(surface, scope); }),
     navigate: vi.fn(async (window, _epoch, _revision, mode) => { modes.set(window, mode); return snapshot(window, scopes.get(window) ?? null); }), refresh: vi.fn(async window => snapshot(window, null)), retain: vi.fn(async (windowId, epoch, windowRevision) => ({ windowId, epoch, windowRevision })), close: vi.fn(async () => {}),
     readRecovery: vi.fn(), reserveRecovery: vi.fn(), releaseRecovery: vi.fn(), reserveItem: vi.fn(), readItem: vi.fn(), releaseItem: vi.fn(),
   };
   const client = new ChatTimelineClient(transport, surface => surface);
   const presentation = new ChatTimelinePresentation(client, 'conversation', 'surface');
-  return { presentation, transport, modes, setItems(items: TimelineItem[]) { nextItems = items; } };
+  return { presentation, transport, modes, setItems(items: TimelineItem[]) { nextItems = items; },
+    setFields(value: Partial<TimelineSnapshot>) { fields = value; },
+    disconnect() { ended({ conversationId: 'conversation', surfaceId: 'surface', windowId: 'surface' }); } };
 }
 
 describe('canonical presentation', () => {
+  it('permite recuperar nas recentes após liberar interação de janela desconectada', async () => {
+    const f = fixture();
+    await f.presentation.open();
+    await f.presentation.navigate('older');
+    f.setFields({ retainedItemIds: ['second'], beforeCursor: 'stale', storageIncarnation: 'storage' });
+    await f.presentation.refresh();
+    await f.presentation.retain(['second']);
+    vi.mocked(f.transport.open).mockRejectedValueOnce(new Error('stale cursor'));
+    f.disconnect();
+    await vi.waitFor(() => {
+      expect(f.presentation.loading).toBe(false);
+      expect(f.presentation.error?.message).toBe('stale cursor');
+    });
+    await expect(f.presentation.recoverAtEnd()).rejects.toThrow('Finish retained interactions');
+    expect(f.transport.open).toHaveBeenCalledTimes(2);
+    await f.presentation.retain([]);
+    expect(f.presentation.window?.metadata.retainedItemIds).toEqual(['second']);
+    expect(f.presentation.client.getRetentionIntent('conversation', 'surface')).toEqual([]);
+    f.setFields({ retainedItemIds: [] });
+    await f.presentation.recoverAtEnd();
+    expect(f.transport.open).toHaveBeenCalledTimes(3);
+    expect(vi.mocked(f.transport.open).mock.calls[2][3].anchor).toBe('end');
+    expect(f.presentation.error).toBeUndefined();
+    await f.presentation.close();
+  });
   it('fecha nova janela mesmo se a apresentação sair enquanto aguarda fechamento anterior', async () => {
     const f = fixture();
     await f.presentation.open();

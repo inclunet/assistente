@@ -80,3 +80,12 @@ func (e *timelineWailsEmitter) Close() {
 		}
 	})
 }
+
+// A lease pode ter terminado; somente identidade opaca da inscrição é emitida.
+// Logout/troca local continuam invalidando inclusive notificações de controle.
+func (e *timelineWailsEmitter) NotifyClosed(event apidto.TimelineClosedEvent) {
+	if e.principal.app.timelineAuthGeneration.Load() != e.principal.generation {
+		return
+	}
+	e.principal.app.emitter.Emit(apidto.TimelineClosedEventName, event)
+}
