@@ -386,9 +386,26 @@ func (e *Executor) executeSingle(ctx context.Context, call ToolCall) (execution 
 		}
 	}()
 
-	// Aguarda resultado ou timeout/cancelamento
+	var completed *ToolExecutionResult
 	select {
 	case result := <-resultCh:
+		completed = &result
+	case <-toolCtx.Done():
+	}
+	return e.finishExecution(ctx, toolCtx, call, start, completed, pending.Load(), collector)
+}
+
+func (e *Executor) finishExecution(ctx, toolCtx context.Context, call ToolCall, start time.Time, result *ToolExecutionResult, confirmation *confirmationState, collector *securitySignalCollector) ToolExecutionResult {
+	toolName := call.Function.Name
+	// O callback pode terminar antes de o select observar o cancelamento.
+	// Sua resposta de confirmação indisponível e um erro de contexto puro
+	// descrevem a mesma interrupção que toolCtx.Done.
+	interrupted := result == nil
+	if result != nil && confirmation != nil && toolCtx.Err() != nil {
+		interrupted = errors.Is(result.Error, toolCtx.Err()) ||
+			confirmation.final || result.ErrorCode == confirmation.result.Failure.Code
+	}
+	if !interrupted {
 		// Reclassifica: se a goroutine retornou um erro genérico mas o contexto
 		// já foi cancelado/expirado, normaliza o ErrorKind e Result.Content para consistência.
 		if result.Result.IsError && result.ErrorKind == ErrorKindUnknown && result.Result.Failure == nil {
@@ -408,54 +425,52 @@ func (e *Executor) executeSingle(ctx context.Context, call ToolCall) (execution 
 				result.Error = context.DeadlineExceeded
 			}
 		}
-		return result
-	case <-toolCtx.Done():
-		elapsed := time.Since(start).Milliseconds()
-		confirmation := pending.Load()
-		if ctx.Err() != nil && (confirmation == nil || !confirmation.final) {
-			// Contexto pai cancelado (usuário cancelou) — não é timeout
-			cancelled := ToolExecutionResult{
-				CallID:   call.ID,
-				ToolName: toolName,
-				Result: ToolResult{
-					Content: fmt.Sprintf("Execução de '%s' cancelada pelo usuário", toolName),
-					IsError: true,
-				},
-				Error:             ctx.Err(),
-				ErrorKind:         ErrorKindCancelled,
-				Retryable:         false,
-				RetryabilityKnown: true,
-				DurationMs:        elapsed,
-			}
-			attachSecuritySignals(&cancelled.Result, collector)
-			return cancelled
-		}
-		// Timeout da tool
-		timedOut := ToolExecutionResult{
+		return *result
+	}
+	elapsed := time.Since(start).Milliseconds()
+	if ctx.Err() != nil && (confirmation == nil || !confirmation.final) {
+		// Contexto pai cancelado (usuário cancelou) — não é timeout
+		cancelled := ToolExecutionResult{
 			CallID:   call.ID,
 			ToolName: toolName,
 			Result: ToolResult{
-				Content: fmt.Sprintf("Timeout ao executar '%s' (limite: %s)", toolName, e.config.ToolTimeout),
+				Content: fmt.Sprintf("Execução de '%s' cancelada pelo usuário", toolName),
 				IsError: true,
 			},
-			Error:             context.DeadlineExceeded,
-			ErrorKind:         ErrorKindTimeout,
-			Retryable:         true,
+			Error:             ctx.Err(),
+			ErrorKind:         ErrorKindCancelled,
+			Retryable:         false,
 			RetryabilityKnown: true,
 			DurationMs:        elapsed,
 		}
-		if confirmation != nil {
-			timedOut.Result = boundFailureResult(confirmation.result, e.config.MaxResultSize)
-			timedOut.ErrorKind = confirmation.result.Failure.Kind
-			timedOut.ErrorCode = confirmation.result.Failure.Code
-			timedOut.Retryable = false
-			if confirmation.final {
-				timedOut.Error = nil
-			}
-		}
-		attachSecuritySignals(&timedOut.Result, collector)
-		return timedOut
+		attachSecuritySignals(&cancelled.Result, collector)
+		return cancelled
 	}
+	// Timeout da tool
+	timedOut := ToolExecutionResult{
+		CallID:   call.ID,
+		ToolName: toolName,
+		Result: ToolResult{
+			Content: fmt.Sprintf("Timeout ao executar '%s' (limite: %s)", toolName, e.config.ToolTimeout),
+			IsError: true,
+		},
+		Error:             context.DeadlineExceeded,
+		ErrorKind:         ErrorKindTimeout,
+		Retryable:         true,
+		RetryabilityKnown: true,
+		DurationMs:        elapsed,
+	}
+	if confirmation != nil {
+		timedOut.Result = boundFailureResult(confirmation.result, e.config.MaxResultSize)
+		timedOut.ErrorKind = confirmation.result.Failure.Kind
+		timedOut.ErrorCode = confirmation.result.Failure.Code
+		timedOut.Retryable = false
+		if confirmation.final {
+			timedOut.Error = nil
+		}
+	}
+	attachSecuritySignals(&timedOut.Result, collector)
+	return timedOut
 }
 
 func attachSecuritySignals(result *ToolResult, collector *securitySignalCollector) {

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"testing/synctest"
 	"time"
 	"unicode/utf8"
 )
@@ -648,22 +649,24 @@ func TestBoundedMachineFailurePreservesAuthorization(t *testing.T) {
 }
 
 func TestExecutorTimeoutPreservesPublishedRefusal(t *testing.T) {
-	release := make(chan struct{})
-	defer close(release)
-	tool := &mockTool{name: "ask", exec: func(ctx context.Context, _ json.RawMessage) (ToolResult, error) {
-		resolve := PendingConfirmation(ctx, "unavailable")
-		denied := ToolResult{IsError: true, Content: strings.Repeat("negado ", 30), Failure: &ToolFailure{Code: "refused", Kind: ErrorKindAuthorization}}
-		resolve(&denied)
-		<-release // simula pós-processamento ainda pendente após a decisão
-		return denied, nil
-	}}
-	cfg := DefaultExecutorConfig()
-	cfg.ToolTimeout = 200 * time.Millisecond
-	cfg.MaxResultSize = 40
-	got := NewExecutor(newRegistry(tool), cfg).ExecuteOne(t.Context(), ToolCall{ID: "race", Function: FunctionCall{Name: "ask", Arguments: "{}"}})
-	if got.ErrorCode != "refused" || got.Retryable || len(ContentForModel(got.Result)) > 40 {
-		t.Fatalf("resultado=%+v", got)
-	}
+	synctest.Test(t, func(t *testing.T) {
+		release := make(chan struct{})
+		defer close(release)
+		tool := &mockTool{name: "ask", exec: func(ctx context.Context, _ json.RawMessage) (ToolResult, error) {
+			resolve := PendingConfirmation(ctx, "unavailable")
+			denied := ToolResult{IsError: true, Content: strings.Repeat("negado ", 30), Failure: &ToolFailure{Code: "refused", Kind: ErrorKindAuthorization}}
+			resolve(&denied)
+			<-release // simula pós-processamento ainda pendente após a decisão
+			return denied, nil
+		}}
+		cfg := DefaultExecutorConfig()
+		cfg.ToolTimeout = 200 * time.Millisecond
+		cfg.MaxResultSize = 40
+		got := NewExecutor(newRegistry(tool), cfg).ExecuteOne(t.Context(), ToolCall{ID: "race", Function: FunctionCall{Name: "ask", Arguments: "{}"}})
+		if got.ErrorCode != "refused" || got.Retryable || len(ContentForModel(got.Result)) > 40 {
+			t.Fatalf("resultado=%+v", got)
+		}
+	})
 }
 
 func TestExecutorParentCancelDuringConfirmation(t *testing.T) {
@@ -690,6 +693,49 @@ func TestExecutorParentCancelDuringConfirmation(t *testing.T) {
 				}
 			} else if got.ErrorKind != ErrorKindCancelled || got.Retryable {
 				t.Fatalf("cancelamento=%+v", got)
+			}
+		})
+	}
+}
+
+func TestExecutorConfirmationOnInterruption(t *testing.T) {
+	for _, tc := range []struct {
+		name                     string
+		parentCancelled, refused bool
+		wantCode                 string
+		wantKind                 ErrorKind
+		wantErr                  error
+	}{
+		{"cancelamento", true, false, "", ErrorKindCancelled, context.Canceled},
+		{"prazo", false, false, "unavailable", ErrorKindAuthorization, context.DeadlineExceeded},
+		{"recusa antes do cancelamento", true, true, "refused", ErrorKindAuthorization, nil},
+		{"recusa antes do prazo", false, true, "refused", ErrorKindAuthorization, nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			parent, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			if tc.parentCancelled {
+				cancel()
+			}
+			toolCtx, stop := context.WithDeadline(parent, time.Time{})
+			defer stop()
+			confirmation := &confirmationState{result: ToolResult{IsError: true, Content: "aguardando", Failure: &ToolFailure{Code: "unavailable", Kind: ErrorKindAuthorization}}}
+			if tc.refused {
+				confirmation.final = true
+				confirmation.result.Content = "negado"
+				confirmation.result.Failure.Code = "refused"
+			}
+			e := NewExecutor(NewRegistry(), DefaultExecutorConfig())
+			call := ToolCall{ID: "confirm", Function: FunctionCall{Name: "ask"}}
+			for _, callback := range []*ToolExecutionResult{
+				nil,                    // toolCtx.Done selecionado antes do retorno da ferramenta
+				{Error: toolCtx.Err()}, // callback devolveu o erro do contexto
+				{ErrorCode: "unavailable", Result: ToolResult{IsError: true}}, // adaptador converteu o erro em falha
+			} {
+				got := e.finishExecution(parent, toolCtx, call, time.Now(), callback, confirmation, &securitySignalCollector{})
+				if got.ErrorCode != tc.wantCode || got.ErrorKind != tc.wantKind || !errors.Is(got.Error, tc.wantErr) || got.Retryable || !got.RetryabilityKnown || !got.Result.IsError {
+					t.Fatalf("callback=%+v resultado=%+v", callback, got)
+				}
 			}
 		})
 	}
