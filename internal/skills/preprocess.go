@@ -35,20 +35,20 @@ type commandTurnKey struct{}
 
 // A preparação do prompt e os providers acessam este estado sequencialmente.
 type commandTurn struct {
-	budget int
-	run    SkillCommandRunner
-	base   map[string]string
-	err    error
+	budget   int
+	run      SkillCommandRunner
+	prepared *preparedSkillContext
+	err      error
 }
 
 // WithCommandTurn scopes prepared base content to one prompt construction.
 func WithCommandTurn(ctx context.Context, run SkillCommandRunner) context.Context {
-	return context.WithValue(ctx, commandTurnKey{}, &commandTurn{budget: -1, run: run, base: make(map[string]string)})
+	return context.WithValue(ctx, commandTurnKey{}, &commandTurn{budget: -1, run: run})
 }
 
 // WithSlashCommandTurn reserves the provider's budget for this invocation.
 func WithSlashCommandTurn(ctx context.Context, run SkillCommandRunner, budget int) context.Context {
-	return context.WithValue(ctx, commandTurnKey{}, &commandTurn{run: run, budget: budget, base: make(map[string]string)})
+	return context.WithValue(ctx, commandTurnKey{}, &commandTurn{run: run, budget: budget})
 }
 
 func CommandTurnError(ctx context.Context) error {

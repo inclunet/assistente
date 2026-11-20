@@ -40,10 +40,29 @@ func (p *ContextProvider) Metadata() contextprovider.ProviderMetadata {
 	}
 }
 
+// Uma preparação usa o mesmo catálogo, permissões e orçamento na prévia da
+// base e no prompt final. Uma nova tentativa recebe um novo commandTurn.
+type preparedSkillContext struct {
+	blocks []contextprovider.Block
+	err    error
+}
+
 func (p *ContextProvider) Build(ctx context.Context, req contextprovider.BuildRequest) ([]contextprovider.Block, error) {
 	if p == nil || p.source == nil {
 		return nil, nil
 	}
+	turn, _ := ctx.Value(commandTurnKey{}).(*commandTurn)
+	if turn == nil {
+		return p.build(ctx, req)
+	}
+	if turn.prepared == nil {
+		blocks, err := p.build(ctx, req)
+		turn.prepared = &preparedSkillContext{blocks: blocks, err: err}
+	}
+	return turn.prepared.blocks, turn.prepared.err
+}
+
+func (p *ContextProvider) build(ctx context.Context, req contextprovider.BuildRequest) ([]contextprovider.Block, error) {
 	allSkills, err := p.source.GetAllSkillsFull()
 	if err != nil {
 		return nil, err
@@ -152,21 +171,14 @@ func buildBaseSkillBlock(ctx context.Context, baseSkills []Skill, source Context
 		files.WriteByte('\n')
 		writeSupportingFiles(&files, source, skill.Slug, "Supporting files (use read_file to access when needed):", "- `", "`")
 		part.heading, part.files = heading.String(), files.String()
-		content, cached := "", false
-		if turn != nil {
-			content, cached = turn.base[skill.Slug]
+		doc, err := planCommandLines(ctx, skill, skill.Content, true, runner, nil, "")
+		if err != nil {
+			return "", err
 		}
-		if !cached {
-			doc, err := planCommandLines(ctx, skill, skill.Content, true, runner, nil, "")
-			if err != nil {
-				return "", err
-			}
-			part.doc = doc
-			content = strings.Join(doc.lines, "\n")
-			commands += len(doc.commands)
-		}
-		part.content = content
-		remaining -= contextprovider.RuneLen(part.heading) + contextprovider.RuneLen(content) + contextprovider.RuneLen(part.files)
+		part.doc = doc
+		part.content = strings.Join(doc.lines, "\n")
+		commands += len(doc.commands)
+		remaining -= contextprovider.RuneLen(part.heading) + contextprovider.RuneLen(part.content) + contextprovider.RuneLen(part.files)
 	}
 
 	var sb strings.Builder
@@ -184,7 +196,6 @@ func buildBaseSkillBlock(ctx context.Context, baseSkills []Skill, source Context
 			remaining -= contextprovider.RuneLen(content) - contextprovider.RuneLen(part.content)
 			commands -= count
 			part.content = content
-			turn.base[baseSkills[i].Slug] = content
 		}
 		sb.WriteString(part.heading)
 		sb.WriteString(part.content)

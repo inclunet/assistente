@@ -356,3 +356,27 @@ func TestInterpolatedCommandNeedsParsedOperand(t *testing.T) {
 		t.Fatal("template sem comando aceito")
 	}
 }
+
+func TestPreparedBaseKeepsCatalogUntilNextAttempt(t *testing.T) {
+	s := providerSkill("base", "original", false)
+	s.Tools = &ToolPermissions{BashCommands: &BashCommands{Allowed: []string{"git"}}}
+	src := &contextProviderSourceStub{skills: []Skill{s}}
+	p := NewContextProvider(src)
+	req := contextprovider.BuildRequest{EnabledSkills: []string{"base"}, ToolCallingEnabled: true}
+	calls := 0
+	run := func(context.Context, *Skill, string) (string, error) { calls++; return "novo", nil }
+	ctx := WithCommandTurn(t.Context(), run)
+	first, err := p.Build(ctx, req)
+	if err != nil || len(first) != 1 {
+		t.Fatalf("prévia=%v err=%v", first, err)
+	}
+	src.skills[0].Content = "!git status"
+	final, err := p.Build(ctx, req)
+	if err != nil || !reflect.DeepEqual(first, final) || calls != 0 {
+		t.Fatalf("final=%v chamadas=%d err=%v", final, calls, err)
+	}
+	next, err := p.Build(WithCommandTurn(t.Context(), run), req)
+	if err != nil || len(next) != 1 || !strings.Contains(next[0].Content, "novo") || calls != 1 {
+		t.Fatalf("nova tentativa=%v chamadas=%d err=%v", next, calls, err)
+	}
+}
