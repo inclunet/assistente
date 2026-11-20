@@ -1,6 +1,12 @@
 // Espelho manual dos payloads de eventos em internal/apidto (AEP-0116).
 // Não importar payload de evento dos bindings gerados pelo Wails.
 export const CHAT_TIMELINE_EVENT = 'chat:timeline';
+export const CHAT_TIMELINE_CLOSED_EVENT = 'chat:timeline_closed';
+export interface ChatTimelineClosedEvent {
+  conversationId: string;
+  surfaceId: string;
+  windowId: string;
+}
 
 export interface TimelineToolSummary {
   invocationId: string;
