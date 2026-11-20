@@ -337,3 +337,19 @@ func TestStatusWhitespaceRequiresCompleteNumericLine(t *testing.T) {
 		t.Fatal(got)
 	}
 }
+
+func TestPowerShellMarkerAfterEchoWithoutNewline(t *testing.T) {
+	shell, err := exec.LookPath("powershell.exe")
+	if err != nil {
+		t.Skip("Windows PowerShell indisponível")
+	}
+	for _, command := range []string{"cmd /c exit 7", "(cmd /c exit 7)"} {
+		marker := newCommandMarkerForShell("powershell")
+		script := "Write-Host -NoNewline 'eco sem quebra'; " + marker.WrapCommand(command, "powershell")
+		output, err := exec.Command(shell, "-NoProfile", "-NonInteractive", "-Command", script).CombinedOutput()
+		result := marker.ParseOutput(string(output))
+		if err != nil || !result.Found || result.ExitCode != 7 || result.Output != "" {
+			t.Fatalf("comando=%q saída=%q erro=%v", command, output, err)
+		}
+	}
+}

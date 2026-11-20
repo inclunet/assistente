@@ -98,10 +98,13 @@ func (m *CommandMarker) wrapPowerShell(command string) string {
 	// O ConPTY recebe uma única linha de entrada.
 	check := fmt.Sprintf(singlePowerShellLine(nativeStderr), boundary)
 	status := fmt.Sprintf("if ($?) { Write-Host '%s0' } elseif ($LASTEXITCODE) { Write-Host ('%s' + $LASTEXITCODE) } elseif ($LASTEXITCODE -eq 0 -and (%s)) { Write-Host '%s0' } else { Write-Host '%s1' }", m.endTag, m.endTag, check, m.endTag, m.endTag)
+	// O ConPTY pode colar o eco do comando na primeira saída. Inicie a
+	// linha explicitamente para que o parser reconheça o marcador real.
+	start := fmt.Sprintf("Write-Host ([Environment]::NewLine + '%s')", m.startTag)
 	if strings.HasSuffix(strings.TrimRight(strings.TrimSuffix(original, powershellDirectoryCatch), "; \r\n\t"), ")") {
-		return fmt.Sprintf("Write-Host '%s'; . (%s {%s} {%s})", m.startTag, singlePowerShellLine(prepareGroupedPowerShell), command, status)
+		return fmt.Sprintf("%s; . (%s {%s} {%s})", start, singlePowerShellLine(prepareGroupedPowerShell), command, status)
 	}
-	return fmt.Sprintf("Write-Host '%s'; %s; %s", m.startTag, command, status)
+	return fmt.Sprintf("%s; %s; %s", start, command, status)
 }
 
 // No Windows PowerShell 5.1, parênteses restauram $? para true mesmo após uma
