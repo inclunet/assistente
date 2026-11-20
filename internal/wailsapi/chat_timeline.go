@@ -104,7 +104,7 @@ func detachChatTimeline(api *ChatTimeline, terminal bool) func() {
 	api.mu.Unlock()
 	return func() {
 		for _, window := range windows {
-			window.stream.cancel()
+			window.stream.stop()
 		}
 		for _, window := range windows {
 			window.stream.close()
@@ -155,7 +155,7 @@ func (api *ChatTimeline) Open(request apidto.OpenTimelineRequest) (*apidto.Subsc
 			}
 		}()
 		query := database.MessageWindowQuery{ConversationID: request.ConversationID, ParentID: request.ScopeParentID, Cursor: request.Cursor, Anchor: request.Anchor, AnchorItemID: request.AnchorItemID, Direction: request.Direction, Limit: request.Limit}
-		subscription, snapshot, err := projection.SubscribeTimeline(ctx, principal, request.SurfaceID, query, reader)
+		subscription, snapshot, err := projection.SubscribeTimelineResuming(ctx, principal, request.SurfaceID, query, reader, request.Resume)
 		if err != nil {
 			return nil, err
 		}

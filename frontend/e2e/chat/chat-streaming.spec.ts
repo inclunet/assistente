@@ -41,6 +41,38 @@ const userMessage = {
 };
 
 test.describe('Chat — streaming multi-segmento', () => {
+  test('retoma texto e estado de execução após visitar configurações durante streaming', async ({ page, wails }) => {
+    await wails.setTimelineRows([userMessage]);
+    await wails.setResponse('SendMessage', initialAssistantMessageId);
+    await wails.setResponse('EnsureConversation', baseConversation);
+    await wails.waitForApp();
+    const textarea = page.locator('.chat-input__textarea');
+    await textarea.fill('Continue enquanto consulto configurações');
+    await textarea.press('Enter');
+    await page.waitForFunction(() => window.__wailsMock.getCallLog().some(call => call.fn === 'SendMessage'));
+    const identity = { conversationId, executionId: '01968740-1234-7000-8000-000000000009', turnId: initialUserMessageId, assistantMessageId: initialAssistantMessageId, messageId: initialAssistantMessageId };
+    await wails.emit('chat:stream', { ...identity, delta: 'Primeiro trecho.', reset: true, sequence: 0 });
+    await expect(page.getByText('Primeiro trecho.', { exact: true })).toBeVisible();
+    await page.evaluate(() => {
+      window.location.hash = '/settings';
+    });
+    await expect(textarea).toHaveCount(0);
+    await wails.emit('chat:stream', { ...identity, delta: ' Recebido em configurações.', sequence: 1 });
+    await page.goBack();
+    await expect(page.getByText('Primeiro trecho. Recebido em configurações.', { exact: true })).toBeVisible();
+    await wails.emit('chat:stream', { ...identity, delta: ' Recebido após voltar.', sequence: 2 });
+    await expect(page.getByText('Primeiro trecho. Recebido em configurações. Recebido após voltar.', { exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: /Cancel generation|Cancelar geração/ })).toBeVisible();
+    const calls = await wails.getCallLog();
+    const request = calls.filter(call => call.fn === 'Open').at(-1)!.args[0] as { surfaceId: string };
+    await wails.emit('chat:timeline_closed', { conversationId, surfaceId: request.surfaceId, windowId: request.surfaceId });
+    await expect.poll(async () => (await wails.getCallLog()).filter(call => call.fn === 'Open').length)
+      .toBe(calls.filter(call => call.fn === 'Open').length + 1);
+    await wails.emit('chat:stream', { ...identity, delta: ' Retomado após reconectar.', sequence: 3 });
+    await expect(page.getByText('Primeiro trecho. Recebido em configurações. Recebido após voltar. Retomado após reconectar.', { exact: true })).toBeVisible();
+    await expect(page.getByRole('alertdialog')).toHaveCount(0);
+  });
+
   test('mantém progresso visível antes do término de duas rodadas', async ({ page, wails }) => {
     await wails.setTimelineRows([userMessage]);
     await wails.setResponse('SendMessage', initialAssistantMessageId);
