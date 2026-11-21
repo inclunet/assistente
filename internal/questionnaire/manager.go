@@ -100,15 +100,7 @@ type RequestPayload struct {
 	CreatedAt    string              `json:"createdAt"`
 	response     chan Response
 	waitCtx      context.Context
-	onAccepted   func(Response)
 	acceptGuard  func(Response) bool
-}
-
-// WithAcceptedResponse notifica o solicitante quando Respond aceita a resposta
-// deste diálogo no desktop, antes de liberar quem espera por ela.
-func (p RequestPayload) WithAcceptedResponse(notify func(Response)) RequestPayload {
-	p.onAccepted = notify
-	return p
 }
 
 // WithAcceptGuard arbitra a aceitação sob o lock do gerenciador. O guard deve
@@ -169,7 +161,6 @@ func (m *Manager) RequestQuestionnaire(ctx context.Context, payload RequestPaylo
 
 	req := &RequestPayload{
 		waitCtx:      timeoutCtx,
-		onAccepted:   payload.onAccepted,
 		acceptGuard:  payload.acceptGuard,
 		ID:           uuid.New().String()[:8],
 		Kind:         payload.Kind,
@@ -249,7 +240,7 @@ func (m *Manager) RequestQuestionnaire(ctx context.Context, payload RequestPaylo
 		delete(m.pending, req.ID)
 		m.mu.Unlock()
 		if !pending {
-			// Respond já reservou a entrega e está notificando o solicitante.
+			// Respond já deixou a resposta no canal antes de liberar o lock.
 			return <-req.response, nil
 		}
 		// A pergunta acabou sem dono, mas o diálogo continua na tela pedindo
@@ -311,12 +302,9 @@ func (m *Manager) Respond(requestID string, answers map[string]any, cancelled bo
 	}
 	m.lastAcceptedID = requestID
 	delete(m.pending, requestID)
+	// Há uma única aceitação e o canal tem capacidade para uma resposta.
+	req.response <- resp
 	m.mu.Unlock()
-	// O observador é do solicitante. Nunca o execute sob o lock do gerenciador.
-	defer func() { req.response <- resp }()
-	if req.onAccepted != nil {
-		req.onAccepted(resp)
-	}
 	return nil
 }
 

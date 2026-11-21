@@ -461,6 +461,7 @@ func confirmShellCommand(ctx context.Context, confirm ConfirmFunc, command, work
 	}
 	resolve, receipt := tools.PendingConfirmation(ctx, FailureConfirmationUnavailable, FailureCommandRefused, denied.Content)
 	var failure *tools.ToolResult
+	approvedInTime := false
 	// O autorizador real publica antes do seu log. Os demais ConfirmFunc
 	// entregam o mesmo resultado ao retornar, sem emitir uma segunda decisão.
 	observe := func(approved bool, err error) {
@@ -469,7 +470,10 @@ func confirmShellCommand(ctx context.Context, confirm ConfirmFunc, command, work
 		}
 		switch {
 		case err == nil && approved:
-			resolve(nil)
+			if ctx.Err() == nil {
+				approvedInTime = true
+				resolve(nil)
+			}
 		case err == nil:
 			resolve(&denied)
 			failure = &denied
@@ -484,6 +488,11 @@ func confirmShellCommand(ctx context.Context, confirm ConfirmFunc, command, work
 		return failure
 	}
 	if ctx.Err() != nil {
+		if approvedInTime {
+			// A confirmação terminou; o prazo agora é da operação. Sem Failure,
+			// o executor classifica o contexto mesmo se o worker chegar primeiro.
+			return &tools.ToolResult{IsError: true, Content: "Execução interrompida após autorização."}
+		}
 		if errors.Is(err, shelltrust.ErrPrerequisiteUnavailable) {
 			warnShellPrerequisite(ctx, shelltrust.PrerequisiteReason(err))
 		}

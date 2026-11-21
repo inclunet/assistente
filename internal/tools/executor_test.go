@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -770,6 +771,32 @@ func TestPendingConfirmationRequiresClassifiedDecision(t *testing.T) {
 				got := e.finishExecution(parent, ctx, call, time.Now(), callback, state.Load(), &securitySignalCollector{})
 				if got.ErrorCode != tc.wantCode || got.ErrorKind != tc.wantKind || !errors.Is(got.Error, context.DeadlineExceeded) || got.Retryable != (tc.decision == nil) {
 					t.Fatalf("callback=%+v resultado=%+v", callback, got)
+				}
+			}
+		})
+	}
+}
+
+func TestExecutorInterruptionAfterApprovalInEitherSelectOrder(t *testing.T) {
+	for _, parentCancelled := range []bool{false, true} {
+		t.Run(fmt.Sprintf("cancelamento=%t", parentCancelled), func(t *testing.T) {
+			parent, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			if parentCancelled {
+				cancel()
+			}
+			toolCtx, stop := context.WithDeadline(parent, time.Time{})
+			defer stop()
+			e := NewExecutor(NewRegistry(), DefaultExecutorConfig())
+			call := ToolCall{ID: "approval", Function: FunctionCall{Name: "ask"}}
+			for _, result := range []*ToolExecutionResult{nil, {Result: ToolResult{IsError: true}, ErrorKind: ErrorKindUnknown}} {
+				got := e.finishExecution(parent, toolCtx, call, time.Now(), result, nil, &securitySignalCollector{})
+				expectedErr, expectedKind, retry := context.DeadlineExceeded, ErrorKindTimeout, true
+				if parentCancelled {
+					expectedErr, expectedKind, retry = context.Canceled, ErrorKindCancelled, false
+				}
+				if !errors.Is(got.Error, expectedErr) || got.ErrorKind != expectedKind || got.ErrorCode != "" || got.Retryable != retry {
+					t.Fatalf("resultado=%+v", got)
 				}
 			}
 		})

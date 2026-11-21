@@ -186,7 +186,7 @@ func startsWithDeclaredProgram(command string, allowed []string) bool {
 		return false
 	}
 	atoms := commandpolicy.Parse(command).Commands
-	if len(atoms) == 0 || !strings.HasPrefix(command, atoms[0].Program) {
+	if len(atoms) == 0 || len(atoms[0].EnvAssignments) != 0 || !strings.HasPrefix(command, atoms[0].Program) {
 		return false
 	}
 	return slices.ContainsFunc(allowed, func(name string) bool {

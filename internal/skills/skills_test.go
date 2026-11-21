@@ -649,6 +649,9 @@ Main skill content`), 0644)
 		}
 	}
 	t.Logf("Supporting files: %v", files)
+	if _, err := mgr.GetSkillFiles("missing-skill-for-listing-test"); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("listagem de skill ausente: %v", err)
+	}
 }
 
 func TestSupportingFilesDiscardPartialTreeAfterWalkError(t *testing.T) {

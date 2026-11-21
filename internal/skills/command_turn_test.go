@@ -67,7 +67,7 @@ func TestLegacyDirectiveStartsWithDeclaredProgram(t *testing.T) {
 			t.Errorf("programa inicial não reconhecido em %q", line)
 		}
 	}
-	for _, text := range []string{"texto pwd", "; pwd", "pwd-extra"} {
+	for _, text := range []string{"texto pwd", "; pwd", "pwd-extra", "pwdMode=manual pwd exemplo"} {
 		if startsWithDeclaredProgram(text, []string{"pwd"}) {
 			t.Errorf("prosa reconhecida em %q", text)
 		}

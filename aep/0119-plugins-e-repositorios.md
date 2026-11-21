@@ -86,7 +86,7 @@ Uma negativa expressa do usuário ou da política usa `shell_command_refused` e 
 
 Na falta de confirmação, o código é `shell_confirmation_unavailable`. Falhas de política, diretório ou consulta às concessões usam `shell_prerequisite_unavailable`, inclusive na releitura após uma aprovação. O diagnóstico registra a categoria da causa e o ID da chamada. Nesses casos, a base omite a linha e sua saída parcial, e a barra encerra a invocação.
 
-No desktop, o questionário entrega a resposta aceita antes do prazo conforme o [AEP-0091](0091-dialogos-de-decisao-unificados.md). O adaptador valida a ação oferecida e publica a recusa antes de `Respond` retornar. A aprovação ainda exige revalidação. Se o prazo expirar sem resposta, a confirmação fica indisponível e a ferramenta não tenta novamente.
+No desktop, o questionário entrega a resposta aceita antes do prazo conforme o [AEP-0091](0091-dialogos-de-decisao-unificados.md). O adaptador valida a ação oferecida e publica a recusa antes de `Respond` retornar. A aprovação ainda exige revalidação. Se ela terminar antes de vencer o prazo, a interrupção subsequente é classificada como cancelamento ou timeout da operação. Se o prazo expirar sem resposta, a confirmação fica indisponível e a ferramenta não tenta novamente.
 
 `TestPolicyUnavailableAfterApproval` cobre a releitura da política. `TestShellResponseAcceptedBeforeExecutorDeadline` cobre negativa, cancelamento, aprovação, ação inválida, opção não oferecida e resposta tardia.
 

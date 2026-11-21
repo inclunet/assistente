@@ -360,7 +360,7 @@ func (m *Manager) GetSkillFiles(slug string) ([]string, error) {
 
 		return m.listSupportingFiles(ds.path)
 	}
-	return nil, fmt.Errorf("skill not found: %s", slug)
+	return nil, fmt.Errorf("skill %q: %w", slug, os.ErrNotExist)
 }
 
 func (*Manager) listSupportingFiles(skillPath string) ([]string, error) {

@@ -502,58 +502,37 @@ func TestRespondCannotAcceptAfterExecutorClosesReceipt(t *testing.T) {
 	}
 }
 
-func TestAcceptedResponseNotifiesOutsideManagerLock(t *testing.T) {
-	synctest.Test(t, func(t *testing.T) {
-		opened := make(chan string, 1)
-		mgr := NewManager(func(event string, data any) {
-			if event == EventQuestionnaire {
-				opened <- data.(map[string]any)["id"].(string)
-			}
-		})
-		observing := make(chan int, 1)
-		release := make(chan struct{})
-		guardRan := false
-		payload := RequestPayload{}.WithAcceptGuard(func(resp Response) bool { guardRan = resp.Cancelled; return true }).WithAcceptedResponse(func(Response) {
-			if !guardRan {
-				t.Error("recusa ainda não publicada quando a resposta se tornou observável")
-			}
-			observing <- mgr.PendingCount()
-			<-release
-		})
-		ctx, cancel := context.WithCancel(t.Context())
-		defer cancel()
-		completed := make(chan Response, 1)
-		go func() {
-			resp, err := mgr.RequestQuestionnaire(ctx, payload)
-			if err != nil {
-				t.Error(err)
-			}
-			completed <- resp
-		}()
-		id := <-opened
-		go func() {
-			if err := mgr.Respond(id, nil, true); err != nil {
-				t.Error(err)
-			}
-		}()
-		if count := <-observing; count != 0 {
-			t.Errorf("pedidos pendentes após a aceitação: %d", count)
+func TestAcceptedResponseReachesCallerAfterGuardAndCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	acceptedID := ""
+	payload := RequestPayload{}.WithAcceptGuard(func(response Response) bool {
+		if !response.Cancelled {
+			t.Fatal("a guarda recebeu uma resposta diferente")
+		}
+		acceptedID = response.ID
+		return true
+	})
+	var mgr *Manager
+	mgr = NewManager(func(event string, data any) {
+		if event == EventQuestionnaireClosed {
+			t.Error("fechamento emitido após resposta aceita")
+			return
+		}
+		id := data.(map[string]any)["id"].(string)
+		if err := mgr.Respond(id, nil, true); err != nil {
+			t.Fatal(err)
+		}
+		if acceptedID != id || mgr.PendingCount() != 0 {
+			t.Fatal("Respond retornou sem publicar a aceitação")
 		}
 		cancel()
 		if err := mgr.Respond(id, nil, false); err == nil || !strings.Contains(err.Error(), "resposta já enviada") {
 			t.Fatalf("resposta duplicada: %v", err)
 		}
-		synctest.Wait()
-		select {
-		case <-completed:
-			t.Error("solicitante retomou antes da notificação")
-			close(release)
-			return
-		default:
-		}
-		close(release)
-		if resp := <-completed; resp.ID != id || !resp.Cancelled {
-			t.Fatalf("resposta=%+v", resp)
-		}
 	})
+	response, err := mgr.RequestQuestionnaire(ctx, payload)
+	if err != nil || acceptedID == "" || response.ID != acceptedID || !response.Cancelled {
+		t.Fatalf("resposta=%+v erro=%v", response, err)
+	}
 }

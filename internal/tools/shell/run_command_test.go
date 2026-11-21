@@ -565,7 +565,7 @@ func TestPrerequisiteFailureBeforeInterruption(t *testing.T) {
 
 func TestShellAuthorizerWithoutPromptCannotProduceRefusal(t *testing.T) {
 	rc := NewRunCommand(nil, (&shelltrust.Authorizer{}).Authorize, nil, t.TempDir())
-	got, err := rc.Execute(t.Context(), json.RawMessage(`{"command":"example check"}`))
+	got, err := rc.Execute(authorizationfixture.Context(), json.RawMessage(`{"command":"example check"}`))
 	if err != nil || got.Failure == nil || got.Failure.Code != FailureConfirmationUnavailable {
 		t.Fatalf("confirmação sem interlocutor: %+v erro=%v", got, err)
 	}
@@ -662,4 +662,38 @@ func TestShellAuthorizerPublishesBeforeDecisionLog(t *testing.T) {
 			})
 		})
 	}
+}
+
+func TestConfirmacaoAprovadaAntesOuDepoisDoCancelamento(t *testing.T) {
+	t.Run("aprovacao revalidada antes do cancelamento", func(t *testing.T) {
+		blocked := blockedDecisionLog{"authorization", make(chan struct{}), make(chan struct{})}
+		previous := slog.Default()
+		slog.SetDefault(slog.New(slog.NewTextHandler(blocked, nil)))
+		defer slog.SetDefault(previous)
+		ctx, cancel := context.WithCancel(authorizationfixture.Context())
+		defer cancel()
+		auth := shelltrust.Authorizer{Policy: func(context.Context) (*allowlist.Allowlist, error) {
+			return &allowlist.Allowlist{DefaultAction: "confirm"}, nil
+		}, Prompt: func(context.Context, shelltrust.PromptRequest) (shelltrust.PromptDecision, error) {
+			return shelltrust.PromptDecision{Approve: true}, nil
+		}}
+		dir := t.TempDir()
+		done := make(chan *tools.ToolResult, 1)
+		go func() { done <- confirmShellCommand(ctx, auth.Authorize, "example check", dir, "example") }()
+		<-blocked.entered
+		cancel()
+		close(blocked.release)
+		got := <-done
+		if got == nil || !got.IsError || got.Failure != nil {
+			t.Fatalf("interrupção após aprovação: %+v", got)
+		}
+	})
+	t.Run("aprovacao customizada depois do cancelamento", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(t.Context())
+		defer cancel()
+		got := confirmShellCommand(ctx, func(context.Context, string, string) (bool, error) { cancel(); return true, nil }, "example check", ".", "example")
+		if got == nil || got.Failure == nil || got.Failure.Code != FailureConfirmationUnavailable {
+			t.Fatalf("aprovação tardia: %+v", got)
+		}
+	})
 }
