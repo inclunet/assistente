@@ -9,6 +9,8 @@ import (
 	"io"
 	"log"
 	"log/slog"
+	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync/atomic"
@@ -508,7 +510,7 @@ func TestExecutorClassifiesShellStartBeforeDispatch(t *testing.T) {
 				if byPolicy {
 					wantPrompts = 0
 				}
-				if !got.Result.IsError || got.ErrorCode != FailureSessionStart || got.ErrorKind != tools.ErrorKindUnavailable || !got.RetryabilityKnown || got.Retryable != byPolicy || prompts.Load() != wantPrompts {
+				if !got.Result.IsError || got.ErrorCode != FailureSessionStart || got.ErrorKind != tools.ErrorKindUnavailable || !got.RetryabilityKnown || got.Retryable || prompts.Load() != wantPrompts {
 					t.Fatalf("resultado=%+v diálogos=%d", got, prompts.Load())
 				}
 			})
@@ -794,5 +796,29 @@ func TestDiretorioPadraoIndisponivelComPoliticaAprovada(t *testing.T) {
 	}
 	if len(manager.List()) != 0 {
 		t.Fatal("sessão criada apesar de diretório indisponível")
+	}
+}
+
+func TestClassificacaoDeRetryNoInicioDoTerminal(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		err   error
+		retry bool
+	}{
+		{"arquivo ausente", fmt.Errorf("início: %w", os.ErrNotExist), false},
+		{"comando ausente", fmt.Errorf("início: %w", exec.ErrNotFound), false},
+		{"sem permissão", fmt.Errorf("início: %w", os.ErrPermission), false},
+		{"recurso temporário", errors.New("capacidade temporariamente indisponível"), true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := sessionStartFailure(t.Context(), allowlist.DecisionApprove, tc.err)
+			if got.Failure == nil || got.Failure.Code != FailureSessionStart || got.Failure.Retryable != tc.retry {
+				t.Fatalf("resultado=%+v", got)
+			}
+			confirmed := sessionStartFailure(t.Context(), allowlist.DecisionConfirm, tc.err)
+			if confirmed.Failure == nil || confirmed.Failure.Retryable {
+				t.Fatalf("confirmação=%+v", confirmed)
+			}
+		})
 	}
 }

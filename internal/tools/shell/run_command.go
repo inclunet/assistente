@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
+	"os/exec"
 	"strconv"
 	"strings"
 	"time"
@@ -419,7 +421,7 @@ func sessionStartFailure(ctx context.Context, decision allowlist.Decision, err e
 	}
 	return tools.ToolResult{
 		Content: fmt.Sprintf("Erro ao criar sessão de terminal: %v", err), IsError: true,
-		Failure: &tools.ToolFailure{Code: FailureSessionStart, Kind: kind, Retryable: decision == allowlist.DecisionApprove && kind == tools.ErrorKindUnavailable},
+		Failure: &tools.ToolFailure{Code: FailureSessionStart, Kind: kind, Retryable: decision == allowlist.DecisionApprove && kind == tools.ErrorKindUnavailable && !errors.Is(err, os.ErrNotExist) && !errors.Is(err, os.ErrPermission) && !errors.Is(err, exec.ErrNotFound)},
 	}
 }
 
