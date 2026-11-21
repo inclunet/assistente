@@ -308,3 +308,47 @@ func TestWaitForMarkerPreservesReadFailureAndCancellation(t *testing.T) {
 		})
 	}
 }
+
+type blockedWaitPTY struct {
+	fakePTYSession
+	waitStarted chan struct{}
+	releaseWait chan struct{}
+}
+
+func (p *blockedWaitPTY) Wait() error {
+	close(p.waitStarted)
+	<-p.releaseWait
+	return nil
+}
+
+func TestReadFailureReturnsWhileProcessWaitIsPending(t *testing.T) {
+	marker := newCommandMarkerForShell("bash")
+	readErr := errors.New("falha de leitura")
+	pty := &blockedWaitPTY{waitStarted: make(chan struct{}), releaseWait: make(chan struct{})}
+	session := &Session{ptySession: pty, readerCtx: t.Context(),
+		ptyReader: io.MultiReader(strings.NewReader(marker.StartTag()+"\nparcial"), iotest.ErrReader(readErr)),
+	}
+	session.Start()
+	t.Cleanup(func() {
+		close(pty.releaseWait)
+		select {
+		case <-session.closeDone:
+		case <-time.After(time.Second):
+			t.Fatal("recursos do processo não foram liberados")
+		}
+		if pty.killCalls != 1 || pty.closeCalls != 1 {
+			t.Fatalf("kill=%d close=%d", pty.killCalls, pty.closeCalls)
+		}
+	})
+	select {
+	case <-pty.waitStarted:
+	case <-time.After(time.Second):
+		t.Fatal("coleta não iniciou")
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+	defer cancel()
+	output, code, err := session.waitForMarker(ctx, marker, "test")
+	if !errors.Is(err, readErr) || code != -1 || output != "parcial" {
+		t.Fatalf("output=%q code=%d err=%v", output, code, err)
+	}
+}

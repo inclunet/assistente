@@ -99,7 +99,7 @@ func (t *parsedTerminalText) escapeByte(ch byte) bool {
 			return true
 		}
 	case t.escape[1] == ']':
-		if ch == '\a' {
+		if ch == '\a' || ch == '\\' && t.escape[len(t.escape)-1] == '\x1b' {
 			t.escape = t.escape[:0]
 			return true
 		}

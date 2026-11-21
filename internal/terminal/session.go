@@ -318,6 +318,9 @@ func (s *Session) readLoop(ctx context.Context) {
 			} else {
 				s.readerErr = err
 				logging.Errorf(ctx, "terminal.session", "[Terminal] Erro de leitura na sessão %s: %v", s.id, err)
+				s.ioMu.Lock()
+				_ = s.closeWithIOLock(err)
+				return
 			}
 			waitErr := s.waitProcess()
 			s.closePTY(false)
@@ -555,32 +558,37 @@ func (s *Session) RunCommand(ctx context.Context, command string, timeout time.D
 	return entry, nil
 }
 
-// exitedCommandResult recupera o status do processo quando o comando encerra o próprio shell.
-func (s *Session) exitedCommandResult(cleaned string, marker *CommandMarker) (string, int, bool) {
-	select {
-	case <-s.processDone:
-	default:
-		return "", -1, false
-	}
+// ErrSessionClosed indica que o fechamento explícito interrompeu o comando.
+var ErrSessionClosed = errors.New("sessão encerrada explicitamente")
+
+// exitedCommandResult recebe a saída drenada quando o leitor fecha sem o marcador final.
+func (s *Session) exitedCommandResult(cleaned string, marker *CommandMarker) (string, int, error) {
+	output, started := marker.afterStart(cleaned)
+	output = strings.TrimRight(output, "\n")
 	s.mu.Lock()
 	closed := s.explicitClose
 	s.mu.Unlock()
+	if s.readerErr != nil {
+		return partialCommandOutput(cleaned, marker), -1, fmt.Errorf("falha ao ler o resultado do comando: %w", s.readerErr)
+	}
 	if closed {
-		return "", -1, false
+		return output, -1, ErrSessionClosed
 	}
-	output, started := marker.afterStart(cleaned)
-	if !started {
-		return "", -1, false
+	if started {
+		select {
+		case <-s.processDone:
+			if s.processErr == nil {
+				return output, 0, nil
+			}
+			var exit *ptyx.ExitError
+			if errors.As(s.processErr, &exit) && exit.ExitCode >= 0 {
+				return output, exit.ExitCode, nil
+			}
+			return output, -1, fmt.Errorf("falha ao aguardar o processo da sessão: %w", s.processErr)
+		default:
+		}
 	}
-	output = strings.TrimRight(output, "\n")
-	if s.processErr == nil {
-		return output, 0, true
-	}
-	var exit *ptyx.ExitError
-	if errors.As(s.processErr, &exit) && exit.ExitCode >= 0 {
-		return output, exit.ExitCode, true
-	}
-	return output, -1, false
+	return output, -1, errors.New("sessão encerrada sem resultado do comando")
 }
 
 // waitForMarker acompanha a saída até o marcador final ou o encerramento do shell.
@@ -609,14 +617,12 @@ func (s *Session) waitForMarker(ctx context.Context, marker *CommandMarker, comm
 			stream.text.feed(s.outputSince(read))
 			stream.text.finish()
 			_, result := stream.progress()
-			if !result.Found && s.readerErr != nil {
-				return partialCommandOutput(string(stream.text.data), marker), -1, fmt.Errorf("falha ao ler o resultado do comando: %w", s.readerErr)
-			}
 			if !result.Found {
-				result.Output, result.ExitCode, result.Found = s.exitedCommandResult(string(stream.text.data), marker)
-			}
-			if !result.Found {
-				return result.Output, -1, fmt.Errorf("sessão encerrada sem resultado do comando")
+				var err error
+				result.Output, result.ExitCode, err = s.exitedCommandResult(string(stream.text.data), marker)
+				if err != nil {
+					return result.Output, -1, err
+				}
 			}
 			if s.onOutput != nil && len(result.Output) > streamSentLen {
 				s.onOutput(s.id, commandID, result.Output[streamSentLen:])
@@ -850,13 +856,17 @@ func (s *Session) Interrupt() error {
 func (s *Session) Close() error {
 	s.ensureLifecycleChannels()
 	s.ioMu.Lock()
-	return s.closeWithIOLock()
+	return s.closeWithIOLock(nil)
 }
 
 // closeWithIOLock executa o cleanup assumindo que ioMu está reservado pelo
 // chamador. Ele libera ioMu assim que Kill/estado closing terminam, antes de
 // aguardar o processo e drenar o leitor.
-func (s *Session) closeWithIOLock() error {
+func (s *Session) closeWithIOLock(readErr error) error {
+	if readErr != nil {
+		// Nenhum byte adicional pode chegar. Publique a falha antes de Kill/Wait.
+		s.signalReaderDone()
+	}
 	s.mu.Lock()
 	if s.state == StateClosing {
 		closeDone := s.closeDone
@@ -876,7 +886,7 @@ func (s *Session) closeWithIOLock() error {
 	}
 
 	s.state = StateClosing
-	s.explicitClose = true
+	s.explicitClose = readErr == nil
 	cancelReader := s.cancelReader
 	id, name := s.id, s.name
 	s.mu.Unlock()
@@ -899,7 +909,7 @@ func (s *Session) closeWithIOLock() error {
 	}
 	s.closePTY(false)
 
-	s.markExited(nil)
+	s.markExited(readErr)
 
 	logging.Infof(context.Background(), "terminal.session", "[Terminal] Sessão encerrada: id=%s name=%s", id, name)
 	var closeErr error
@@ -926,7 +936,7 @@ func (s *Session) closeCapturedSession(token *closeSnapshotToken) error {
 		return ErrCloseStale
 	}
 	s.mu.Unlock()
-	return s.closeWithIOLock()
+	return s.closeWithIOLock(nil)
 }
 
 func isExpectedTermination(err error) bool {

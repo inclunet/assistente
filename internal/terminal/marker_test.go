@@ -398,9 +398,9 @@ func TestProcessExitPreservesIncompleteConPTYRedraw(t *testing.T) {
 	raw := marker.StartTag() + "\r\nabe\u0301\r\n\x1b[39;3He"
 	session := &Session{processDone: make(chan struct{})}
 	close(session.processDone)
-	output, code, ok := session.exitedCommandResult(marker.cleanOutput(raw), marker)
-	if !ok || code != 0 || output != "abe\u0301\ne" {
-		t.Fatalf("output=%q code=%d ok=%t", output, code, ok)
+	output, code, err := session.exitedCommandResult(marker.cleanOutput(raw), marker)
+	if err != nil || code != 0 || output != "abe\u0301\ne" {
+		t.Fatalf("output=%q code=%d err=%v", output, code, err)
 	}
 }
 
@@ -507,8 +507,8 @@ func TestConPTYStartAfterRedrawnEcho(t *testing.T) {
 	}
 	session := &Session{processDone: make(chan struct{})}
 	close(session.processDone)
-	if output, code, ok := session.exitedCommandResult(m.cleanOutput(partial), m); !ok || output != "ok" || code != 0 {
-		t.Fatalf("término do shell=%t saída=%q código=%d", ok, output, code)
+	if output, code, err := session.exitedCommandResult(m.cleanOutput(partial), m); err != nil || output != "ok" || code != 0 {
+		t.Fatalf("término do shell=%v saída=%q código=%d", err, output, code)
 	}
 	raw := partial + "\r\n" + m.EndTag() + "0\r\n"
 	if result := m.ParseOutput(raw); !result.Found || result.Output != "ok" || result.ExitCode != 0 {
@@ -540,6 +540,22 @@ func TestMarkerStreamLongTailAndFragmentedControls(t *testing.T) {
 		if !result.Found || result.ExitCode != 27 || result.Output != want || emitted.String() != want {
 			t.Fatalf("passo=%d, encontrado=%t, status=%d, bytes emitidos=%d", step, result.Found, result.ExitCode, emitted.Len())
 		}
+	}
+}
+
+func TestMarkerStreamOSCWithSplitStringTerminator(t *testing.T) {
+	marker := newCommandMarkerForShell("bash")
+	stream := newMarkerStream(marker)
+	stream.append(marker.StartTag() + "\n")
+	if delta, _ := stream.append("antes\x1b]0;título\x1b"); string(delta) != "antes" {
+		t.Fatalf("antes do terminador: %q", delta)
+	}
+	if delta, _ := stream.append("\\depois"); string(delta) != "depois" {
+		t.Fatalf("antes da quebra: %q", delta)
+	}
+	stream.text.finish()
+	if output := partialCommandOutput(string(stream.text.data), marker); output != "antesdepois" {
+		t.Fatalf("saída drenada: %q", output)
 	}
 }
 

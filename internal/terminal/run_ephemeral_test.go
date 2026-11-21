@@ -2,6 +2,7 @@ package terminal
 
 import (
 	"context"
+	"errors"
 	"runtime"
 	"strconv"
 	"strings"
@@ -265,7 +266,7 @@ func TestExplicitCloseAfterStartDoesNotCompleteCommand(t *testing.T) {
 	}
 	select {
 	case got := <-done:
-		if got.err == nil || got.entry == nil || got.entry.ExitCode != -1 {
+		if !errors.Is(got.err, ErrSessionClosed) || got.entry == nil || got.entry.ExitCode != -1 || got.entry.Output != "pronto" {
 			t.Fatalf("entry=%+v err=%v", got.entry, got.err)
 		}
 	case <-time.After(5 * time.Second):
