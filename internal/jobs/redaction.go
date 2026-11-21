@@ -24,8 +24,8 @@ func RedactResolvedInputs(original, resolved map[string]any) map[string]any {
 
 // O shell ecoa o comando nos metadados. Propague a redação antes que ele
 // produza o resultado, inclusive para saídas parciais ou armazenadas à parte.
-func withRedactedCommandMetadata(ctx context.Context, toolName string, persisted map[string]any) context.Context {
-	if command, ok := persisted["command"].(string); toolName == "run_command" && ok && command == redactedValue {
+func withRedactedCommandMetadata(ctx context.Context, persisted map[string]any) context.Context {
+	if command, ok := persisted["command"].(string); ok && command == redactedValue {
 		return invocationctx.WithShellCommandMetadata(ctx, command)
 	}
 	return ctx

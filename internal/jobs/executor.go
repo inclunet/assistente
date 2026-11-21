@@ -701,7 +701,7 @@ func (e *JobExecutor) executeSingle(ctx context.Context, job *Job, trigCtx *Trig
 		)
 	}
 
-	ctx = withRedactedCommandMetadata(ctx, job.Tool, persistedInputs)
+	ctx = withRedactedCommandMetadata(ctx, persistedInputs)
 	execution := e.executeTool(ctx, job, rl, argsJSON, persistedArgsJSON)
 	if execution.Error != nil || execution.Result.IsError {
 		return nil, newAttemptFailure(ctx, execution)

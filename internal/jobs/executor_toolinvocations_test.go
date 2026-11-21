@@ -446,6 +446,10 @@ func TestJobShellRedactsSecretCommandMetadata(t *testing.T) {
 					t.Fatalf("resultado=%+v", result)
 				}
 			}
+			public := executor.Execute(ctx, &Job{ID: "public-shell", Tool: tool.Name(), Inputs: map[string]any{"command": "example public"}}, &TriggerContext{Type: TriggerManual})
+			if public.Status != RunStatusCompleted || public.Output["_meta_command"] != "example public" {
+				t.Fatalf("redação interferiu na próxima invocação: %+v", public)
+			}
 		})
 	}
 }

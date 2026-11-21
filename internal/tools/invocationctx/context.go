@@ -30,6 +30,7 @@ func WithShellCommandMetadata(ctx context.Context, command string) context.Conte
 	return context.WithValue(ctx, shellCommandMetadataKey{}, command)
 }
 
+// ShellCommandMetadata devolve o comando como deve aparecer nos metadados desta chamada.
 func ShellCommandMetadata(ctx context.Context, command string) string {
 	if safe, ok := ctx.Value(shellCommandMetadataKey{}).(string); ok {
 		return safe
