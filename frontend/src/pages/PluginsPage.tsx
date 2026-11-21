@@ -6,6 +6,7 @@ import { Button } from '../components/ui/Button';
 import { DataGrid } from '../components/ui/DataGrid';
 import { Modal } from '../components/ui/Modal';
 import PluginRepositories from './PluginRepositories';
+import PluginBuilder from './PluginBuilder';
 import { Tabs, Tab, TabList, TabPanel } from '../components/ui/tabs/Tabs';
 import { DecisionDialog } from '../components/ui/DecisionDialog';
 import { useGridPageLandmarks } from '../hooks/useGridPageLandmarks';
@@ -230,7 +231,7 @@ function InstalledPlugins() {
   };
   return <section className="plugins-page" aria-label={t('menu.plugins')}>
     <Tabs value={section} onValueChange={setSection}>
-      <TabList ariaLabel={t('menu.plugins')}>{['installed','catalog','repositories'].map(value => <Tab value={value} key={value}>{t('plugins.' + value)}</Tab>)}</TabList>
+      <TabList ariaLabel={t('menu.plugins')}>{['installed','catalog','repositories','builder'].map(value => <Tab value={value} key={value}>{t('plugins.' + value)}</Tab>)}</TabList>
       <TabPanel value="installed">{section === 'installed' && <>
     <Toolbar left={<h1 className="page-toolbar__title">{t('menu.plugins')}</h1>}
       right={<Button ref={chooseButton} onClick={() => void inspect()} disabled={busy}>{t('plugins.choose')}</Button>} />
@@ -240,6 +241,7 @@ function InstalledPlugins() {
       : !busy && !error && <p>{t('plugins.empty')}</p>}
       </>}</TabPanel>
       {['catalog','repositories'].map(value => <TabPanel key={value} value={value}>{section === value && <PluginRepositories key={value} catalog={value === 'catalog'} onPreview={(selection, opener) => { catalogOpener.current = opener; setError(''); setPreview(selection); }} />}</TabPanel>)}
+      <TabPanel value="builder">{section === 'builder' && <PluginBuilder />}</TabPanel>
     </Tabs>
     {!preview && !details && error && <><p>{t(error)}</p>{retrySync}</>}
     {details && <Modal isOpen title={details.installation.name} onClose={() => setDetails(null)} allowClose={!busy} readingMode>

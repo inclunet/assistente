@@ -8109,6 +8109,57 @@ export namespace plugincatalog {
 
 export namespace plugins {
 	
+	export class BuilderTaskList {
+	    id: string;
+	    key: string;
+	    includeTasks: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new BuilderTaskList(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.key = source["key"];
+	        this.includeTasks = source["includeTasks"];
+	    }
+	}
+	export class BuilderRequest {
+	    name: string;
+	    version: string;
+	    tasklists: BuilderTaskList[];
+	
+	    static createFrom(source: any = {}) {
+	        return new BuilderRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.name = source["name"];
+	        this.version = source["version"];
+	        this.tasklists = this.convertValues(source["tasklists"], BuilderTaskList);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	
 	export class Component {
 	    requestsShell?: boolean;
 	    endpoint?: string;
@@ -10064,6 +10115,44 @@ export namespace updater {
 
 export namespace wailsapi {
 	
+	export class BuilderPreview {
+	    contents: Record<string, string>;
+	    name: string;
+	    digest: string;
+	    files: string[];
+	    components: plugins.Component[];
+	
+	    static createFrom(source: any = {}) {
+	        return new BuilderPreview(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.contents = source["contents"];
+	        this.name = source["name"];
+	        this.digest = source["digest"];
+	        this.files = source["files"];
+	        this.components = this.convertValues(source["components"], plugins.Component);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	export class ContextWindowThresholdResult {
 	    above: boolean;
 	    percentage: number;

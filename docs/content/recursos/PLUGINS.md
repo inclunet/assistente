@@ -54,3 +54,9 @@ Escolha **Adicionar loja por URL**. Uma mudança no arquivo exige **Atualizar** 
 ## Criar uma lista a partir de um modelo
 
 Abra os detalhes de um plugin instalado que forneça um modelo de lista de tarefas. Escolha **Criar lista a partir de** e o nome do modelo. A nova lista fica em **Listas de tarefas**, com os estados de workflow e as tarefas iniciais que o autor incluiu. Cada nova criação gera uma lista independente. Suas notas e seu progresso continuam disponíveis quando você atualiza, desativa ou desinstala o plugin.
+
+## Gerar um pacote com o builder
+
+Abra **Plugins → Criar plugin**. Informe um identificador de pacote e, se quiser, sua versão. Marque as listas que deseja distribuir como modelos e informe uma chave estável para cada uma. Para incluir tarefas iniciais, marque a opção da lista correspondente. Os campos publicados são os títulos e as descrições das tarefas selecionadas, a hierarquia, o título e a descrição da lista e a definição do workflow. Notas pessoais, responsáveis, conclusão e histórico ficam na sua conta.
+
+Escolha **Revisar pacote**, confira os arquivos e escolha **Salvar ZIP**. Se um recurso mudou desde a prévia, revise novamente. Para instalar o arquivo em outra conta, extraia o ZIP em uma pasta e abra essa pasta pelo gerenciador de Plugins. Você também pode colocar a pasta em um repositório de plugins para publicar a revisão.
