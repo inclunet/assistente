@@ -4,6 +4,9 @@ import (
 	"assistente/internal/configdir"
 	"encoding/json"
 	"os"
+	"path/filepath"
+	"slices"
+	"strings"
 	"testing"
 )
 
@@ -714,4 +717,102 @@ func TestManagerDuplicateProfile(t *testing.T) {
 	if duplicated.Active {
 		t.Fatalf("duplicate active: got true, want false")
 	}
+}
+
+func TestBuilderExportsOnlyPortableProfileFields(t *testing.T) {
+	manager := setupProfileTestEnv(t)
+	p := DefaultProfile()
+	p.Name = "Writer"
+	p.Chat.CommandAllowlist = "private-local-allowlist"
+	p.Chat.LLMProvider = "private-account-provider"
+	tokens := 2048
+	p.Chat.MaxTokens = &tokens
+	key, err := manager.Create(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	keys, err := manager.BuilderSlugs()
+	if err != nil || !slices.Contains(keys, key) {
+		t.Fatal(keys, err)
+	}
+	raw, err := manager.PortableDefinition(key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), "private-") {
+		t.Fatal(string(raw))
+	}
+	got, err := ReadPortableDefinition(raw)
+	if err != nil || *got.Chat.MaxTokens != tokens || got.Chat.LLMProvider != DefaultProviderSentinel || !got.Chat.DisableTools {
+		t.Fatal(got, err)
+	}
+	if _, err := manager.PortableDefinition("../writer"); err == nil {
+		t.Fatal("accepted relative path")
+	}
+}
+
+func TestBuilderRejectsLinkedProfileDirectory(t *testing.T) {
+	manager := setupProfileTestEnv(t)
+	outside := t.TempDir()
+	if err := os.WriteFile(filepath.Join(outside, "outside.json"), []byte(`{"name":"External"}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(configdir.GetHomeDir(), "profiles")
+	if err := os.MkdirAll(filepath.Dir(dir), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, dir); err != nil {
+		t.Skipf("directory symlink unavailable: %v", err)
+	}
+	if names, err := manager.BuilderSlugs(); err == nil || slices.Contains(names, "outside") {
+		t.Fatal(names, err)
+	}
+	if _, err := manager.PortableDefinition("outside"); err == nil {
+		t.Fatal("read external profile")
+	}
+}
+
+func TestBuilderLeavesPendingProfileJournalIntact(t *testing.T) {
+	manager := setupProfileTestEnv(t)
+	p := DefaultProfile()
+	p.Name = "Writer"
+	key, err := manager.Create(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	journal, err := manager.transactionJournalPathLocked()
+	if err != nil {
+		t.Fatal(err)
+	}
+	profilePath := filepath.Join(filepath.Dir(journal), key+".json")
+	before, err := os.ReadFile(profilePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	marker, err := json.Marshal(map[string]any{"version": 1, "created": "2026-01-01T00:00:00Z", "changes": []configdir.ProfileFileChange{{Path: profilePath, Before: before, BeforeExists: true, After: []byte(`{"name":"Updated"}`), AfterExists: true}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(journal, marker, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.BuilderSlugs(); err == nil {
+		t.Fatal("listed an intermediate snapshot")
+	}
+	if _, err := manager.PortableDefinition(key); err == nil {
+		t.Fatal("exported an intermediate snapshot")
+	}
+	if got, err := os.ReadFile(journal); err != nil || string(got) != string(marker) {
+		t.Fatal("builder touched journal", err)
+	}
+	if got, err := os.ReadFile(profilePath); err != nil || string(got) != string(before) {
+		t.Fatal("builder touched profile", err)
+	}
+	if _, err := manager.List(); err != nil {
+		t.Fatalf("native recovery rejected fixture: %v", err)
+	}
+	if _, err := os.Stat(journal); !os.IsNotExist(err) {
+		t.Fatal("native recovery did not consume journal", err)
+	}
+
 }

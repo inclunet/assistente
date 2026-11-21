@@ -10,6 +10,10 @@ export function AddRemoteRepository(arg1, arg2) {
   return window['go']['wailsapi']['Plugins']['AddRemoteRepository'](arg1, arg2);
 }
 
+export function BuilderProfileNames() {
+  return window['go']['wailsapi']['Plugins']['BuilderProfileNames']();
+}
+
 export function BuilderSkillNames() {
   return window['go']['wailsapi']['Plugins']['BuilderSkillNames']();
 }

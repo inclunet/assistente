@@ -8,6 +8,8 @@ export function AddLocalRepository():Promise<void>;
 
 export function AddRemoteRepository(arg1:string,arg2:boolean):Promise<void>;
 
+export function BuilderProfileNames():Promise<Array<string>>;
+
 export function BuilderSkillNames():Promise<Array<string>>;
 
 export function ChangeInstallation(arg1:string,arg2:string,arg3:string):Promise<void>;

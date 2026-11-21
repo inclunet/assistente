@@ -6,7 +6,7 @@ import PluginBuilder from './PluginBuilder';
 const mock = vi.hoisted(() => ({list:vi.fn(),preview:vi.fn(),save:vi.fn(),announce:vi.fn()}));
 
 vi.mock('@wailsjs/go/wailsapi/Tasklist', () => ({GetAllTaskLists:mock.list}));
-vi.mock('@wailsjs/go/wailsapi/Plugins', () => ({BuilderSkillNames:vi.fn(async()=>['notes']),PreviewBuilder:mock.preview,SaveBuilder:mock.save}));
+vi.mock('@wailsjs/go/wailsapi/Plugins', () => ({BuilderProfileNames:vi.fn(async()=>['writer']),BuilderSkillNames:vi.fn(async()=>['notes']),PreviewBuilder:mock.preview,SaveBuilder:mock.save}));
 vi.mock('../hooks/useAnnouncer', () => ({useAnnouncer:()=>({announce:mock.announce})}));
 vi.mock('react-i18next', () => ({useTranslation:()=>({t:(key:string)=>key})}));
 
@@ -20,11 +20,13 @@ describe('PluginBuilder', () => {
     const name=screen.getByRole('textbox',{name:'plugins.packageName'});
     await waitFor(()=>expect(name).toBeEnabled());
     await user.type(name,'release-kit');
+    await user.click(screen.getByRole('checkbox',{name:'writer'}));
     await user.click(screen.getByRole('checkbox',{name:'notes'}));
     await user.click(screen.getByRole('checkbox',{name:'Release'}));
     await user.click(screen.getByRole('button',{name:'plugins.builderReview'}));
     await user.click(await screen.findByText('plugin.json'));
     expect(screen.getByText('Release template content')).toBeVisible();
+    expect(mock.preview.mock.calls[0][0].profiles).toEqual(['writer']);
     expect(mock.preview.mock.calls[0][0].skills).toEqual(['notes']);
     expect(mock.preview.mock.calls[0][0].tasklists[0].includeTasks).toBe(false);
     await user.click(screen.getByRole('checkbox',{name:'plugins.builderTasks'}));

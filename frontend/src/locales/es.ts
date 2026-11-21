@@ -161,6 +161,8 @@ notSaved: 'La decisión vale solo para esta operación: no se pudo recordar. Ser
       packageName: 'Identificador del plugin',
       builderSkillError: 'Una skill seleccionada requiere archivos auxiliares o funciones de ejecución no disponibles en el paquete. Revise la selección.',
       builderSourcesError: 'No se pudieron cargar algunos recursos. Puede seleccionar los recursos disponibles.',
+      builderProfiles: 'Perfiles de conversación',
+      builderProfileFields: 'El paquete incluye nombre, descripción, temperatura, top-p y límite de tokens. El perfil instalado utiliza el proveedor predeterminado con herramientas y skills desactivadas.',
       builderSkills: 'Skills de instrucciones para incluir en el paquete',
       builderLists: 'Listas para exportar como plantillas',
       templateKey: 'Identificador de la plantilla {{name}}',

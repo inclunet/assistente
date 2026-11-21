@@ -88,6 +88,20 @@ func TestBuilderExportsOnlySelectedDefinitionsToAnotherAccount(t *testing.T) {
 	}
 	req.TaskLists[0].IncludeTasks = true
 	req.Skills = []string{"notes"}
+	req.Profiles = []string{"writer"}
+	store = store.WithProfileDefinition(func(key string) ([]byte, error) {
+		if key != "writer" {
+			return nil, os.ErrNotExist
+		}
+		return []byte(`{"name":"Writer","maxTokens":350}`), nil
+	}, nil)
+	_, single, err := store.BuildPackage(ctx, BuilderRequest{Name: "writer", Profiles: []string{"writer"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(single.Manifest.Extensions[nativeExtension]), "tasklists") {
+		t.Fatal("unselected component category present")
+	}
 	data, snap, err := store.BuildPackage(ctx, req)
 	if err != nil {
 		t.Fatal(err)
@@ -119,6 +133,17 @@ func TestBuilderExportsOnlySelectedDefinitionsToAnotherAccount(t *testing.T) {
 	}
 	if err := store.SetSkillActive(reader, installed.ID, installed.Digest, "skills/notes", true); err != nil {
 		t.Fatal(err)
+	}
+	if err := store.SetProfileActive(reader, installed.ID, installed.Digest, "profiles/writer", true, admit); err != nil {
+		t.Fatal(err)
+	}
+	entries, err := store.ListPluginProfiles(reader)
+	if err != nil || len(entries) != 1 {
+		t.Fatal(entries, err)
+	}
+	profile, err := store.GetPluginProfile(reader, entries[0].Slug)
+	if err != nil || profile.Name != "Writer" || *profile.Chat.MaxTokens != 350 || !profile.Chat.DisableTools {
+		t.Fatal(profile, err)
 	}
 	active, err := store.ActiveSkills(reader)
 	if err != nil || len(active) != 1 || active[0].Content != "Read the list." {

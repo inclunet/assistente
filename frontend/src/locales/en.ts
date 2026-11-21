@@ -162,6 +162,8 @@ notSaved: 'The decision applies only to this operation: it could not be remember
       packageName: 'Plugin identifier',
       builderSkillError: 'A selected skill requires supporting files or runtime features that this package cannot provide. Review the selection.',
       builderSourcesError: 'Some resources could not be loaded. Available resources can still be selected.',
+      builderProfiles: 'Conversation profiles',
+      builderProfileFields: 'The package includes the name, description, temperature, top-p and token limit. The installed profile uses the default provider with tools and skills disabled.',
       builderSkills: 'Instruction skills to include in the package',
       builderLists: 'Lists to export as templates',
       templateKey: 'Template identifier for {{name}}',

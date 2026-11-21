@@ -8126,6 +8126,7 @@ export namespace plugins {
 	    }
 	}
 	export class BuilderRequest {
+	    profiles?: string[];
 	    skills?: string[];
 	    name: string;
 	    version: string;
@@ -8137,6 +8138,7 @@ export namespace plugins {
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.profiles = source["profiles"];
 	        this.skills = source["skills"];
 	        this.name = source["name"];
 	        this.version = source["version"];
