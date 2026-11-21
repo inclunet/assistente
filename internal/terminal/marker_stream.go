@@ -93,13 +93,20 @@ func (t *parsedTerminalText) feed(chunk string) {
 // preserve o texto e reexamine o byte que encerrou a tentativa.
 func (t *parsedTerminalText) escapeByte(ch byte) bool {
 	switch {
-	case len(t.escape) == 1:
-		if ch == '[' || ch == ']' {
+	case len(t.escape) == 1 && (ch == '[' || ch == ']' || ch == 'P' || ch == 'X' || ch == '^' || ch == '_'):
+		t.escape = append(t.escape, ch)
+		return true
+	case len(t.escape) == 1 || (t.escape[1] >= 0x20 && t.escape[1] <= 0x2f):
+		if ch >= 0x20 && ch <= 0x2f {
 			t.escape = append(t.escape, ch)
 			return true
 		}
-	case t.escape[1] == ']':
-		if ch == '\a' || ch == '\\' && t.escape[len(t.escape)-1] == '\x1b' {
+		if ch >= 0x30 && ch <= 0x7e {
+			t.escape = t.escape[:0]
+			return true
+		}
+	case t.escape[1] != '[':
+		if (t.escape[1] == ']' && ch == '\a') || (ch == '\\' && t.escape[len(t.escape)-1] == '\x1b') {
 			t.escape = t.escape[:0]
 			return true
 		}
@@ -107,10 +114,11 @@ func (t *parsedTerminalText) escapeByte(ch byte) bool {
 			t.escape = append(t.escape, ch)
 			return true
 		}
-	case ch >= '0' && ch <= '9' || ch == ';' || ch == '?' && len(t.escape) == 2:
+	// CSI aceita parâmetros (0x30–0x3f), depois intermediários (0x20–0x2f).
+	case (ch >= 0x20 && ch <= 0x2f) || (ch >= 0x30 && ch <= 0x3f && t.escape[len(t.escape)-1] >= 0x30):
 		t.escape = append(t.escape, ch)
 		return true
-	case ch >= 'A' && ch <= 'Z' || ch >= 'a' && ch <= 'z':
+	case ch >= 0x40 && ch <= 0x7e:
 		if t.conPTY {
 			switch ch {
 			case 't':
@@ -261,7 +269,6 @@ func (s *markerStream) progress() (delta []byte, result ParseResult) {
 	}
 	visible := s.text.lastText
 	if s.candidate != 0 {
-		visible = s.cutoff
 		if s.statusScan >= 0 {
 			s.statusScan = min(s.statusScan, len(data))
 			n := bytes.IndexByte(data[s.statusScan:], '\n')
@@ -272,11 +279,16 @@ func (s *markerStream) progress() (delta []byte, result ParseResult) {
 					result.Found = true
 					result.ExitCode = code
 					result.Output = string(bytes.TrimRight(data[s.start:s.candidate-len(end)], "\n"))
+				} else {
+					s.candidate = 0 // A linha inteira pertence à saída do comando.
 				}
 			} else {
 				s.statusScan = len(data)
 			}
 		}
+	}
+	if s.candidate != 0 {
+		visible = s.cutoff
 	} else {
 		// Retenha um prefixo possível do marcador e as quebras que o precedem.
 		// Os demais bytes ficam disponíveis ao callback nesta leitura.

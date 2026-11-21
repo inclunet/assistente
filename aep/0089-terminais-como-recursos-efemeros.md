@@ -201,7 +201,7 @@ Pendente ou parcial:
 
 ### Resultado de comandos no PTY
 
-A sessão acompanha os marcadores e entrega a saída enquanto o processo escreve. Se o comando encerra o próprio shell, a sessão recupera o status do processo após observar o início e drenar a leitura. Cancelamento, falha do leitor e fechamento explícito preservam a causa e a saída parcial disponível. O PowerShell preserva o status da última operação também em retornos antecipados.
+A sessão acompanha os marcadores e entrega a saída enquanto o processo escreve. Se o comando encerra o próprio shell, a sessão recupera o status do processo após observar o início e drenar a leitura. Cancelamento, falha do leitor e fechamento explícito preservam a causa e a saída parcial disponível. O PowerShell preserva o status da última operação também em retornos antecipados. O CI deste PR executa a suíte do terminal no Windows PowerShell 5.1. Nos shells POSIX, comentários finais e erros de sintaxe ficam contidos no comando e o rodapé continua legível. `TestPOSIXFooterSurvivesCommentsAndSyntaxErrors` e `TestMarkerStreamConsumesSplitControlSequences` cobrem essas fronteiras.
 
 `TestBashExitBeforeEndMarker` e `TestExplicitCloseAfterStartDoesNotCompleteCommand` exercitam os dois tipos de encerramento. `TestPowerShellReturnInPersistentSession` compara a saída do histórico e os eventos durante a execução. `BenchmarkMarkerStreamScale` mede o custo das entregas sucessivas em tamanhos crescentes.
 

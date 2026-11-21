@@ -21,6 +21,13 @@ Cada sessão mantém:
 - Estado: Idle, Busy ou Closed
 - Saída formatada
 
+No Bash e nos shells POSIX, o status é o da última operação do comando.
+No PowerShell, uma operação final bem-sucedida devolve zero, mesmo após um
+programa anterior falhar. Uma falha de cmdlet devolve 1, e um programa
+nativo identificado como a última operação conserva seu código de saída. Se o
+PowerShell indicar falha e o terminal não conseguir identificar qual operação
+falhou dentro de uma expressão composta, o status é 1.
+
 ## Sessões
 
 Múltiplas sessões podem existir simultaneamente (até 10 por padrão), cada uma em sua própria aba.
@@ -35,7 +42,7 @@ O timeout pode ser configurado em cada chamada da ferramenta. Quando ele é
 atingido, o Assistente envia `Ctrl+C`, aguarda e drena a saída restante e só
 então encerra uma sessão efêmera, evitando perder as últimas linhas do comando.
 
-Se um comando encerrar o próprio shell, o histórico registra o código devolvido pelo processo e a saída disponível. Fechar a sessão manualmente durante um comando interrompe a espera e indica que ele não terminou normalmente.
+Se um comando encerrar o próprio shell, a ferramenta devolve o código do processo e a saída disponível. O histórico da sessão fica disponível enquanto ela está aberta. Fechar a sessão manualmente durante um comando interrompe a espera e indica que ele não terminou normalmente.
 
 ## Histórico de Comandos
 

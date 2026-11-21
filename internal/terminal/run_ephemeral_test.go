@@ -123,6 +123,23 @@ func TestPowerShellPipelineAndGroupedStatus(t *testing.T) {
 		{"cmd /c 'echo sample 1>&2 & exit 0' 2>&1 | Get-Item -ErrorAction Ignore", 1},
 		{"throw 'falha de teste'", 1},
 		{"(cmd /c exit 7)", 7},
+		{"$(cmd /c exit 7)", 7},
+		{"@(cmd /c exit 7)", 7},
+		{"(cmd /c exit 7); return", 7},
+		{"return (cmd /c exit 7)", 7},
+		{"cmd /c exit 7; return (Get-Item missing-leaf -ErrorAction Ignore)", 1},
+		{"@($(cmd /c exit 7)) # nota", 7},
+		{"cmd /c exit 7; @(Get-Item missing-leaf -ErrorAction Ignore)", 1},
+		{"cmd /c 'echo sample 1>&2 & exit 0' 2>&1 | Out-String -Stream", 0},
+		{"cmd /c 'echo sample 1>&2 & exit 0' 2>&1 | Microsoft.PowerShell.Utility\\Out-String -Stream", 0},
+		{"cmd /c 'echo sample 1>&2 & exit 0' 2>&1 | Out-String -InvalidParameter", 1},
+		{"cmd /c exit 7; Get-Item missing-leaf -ErrorAction Ignore", 1},
+		{"cmd /c exit 7; if ($true) { Get-Item missing-leaf -ErrorAction Ignore }", 1},
+		{"if ($true) { cmd /c exit 9 }", 9},
+		{"return (& (Get-Command cmd.exe) /c exit 7)", 7},
+		{"cmd /c exit 7; & (Get-Command Get-Item) missing-leaf -ErrorAction Ignore", 1},
+		{"cmd /c exit 7; $target = 'Get-Item'; & $target missing-leaf -ErrorAction Ignore", 1},
+		{"$count=0; & (& { $script:count++; if ($script:count -gt 1) { throw 'reavaliação' }; Get-Command cmd.exe }) /c exit 7", 7},
 		{"(cmd /c exit 7) # nota)", 7},
 		{"(cmd /c exit 7) # nota com espaços  ", 7},
 		{"(cmd /c 'echo sample 1>&2 & exit 0' 2>&1 | Get-Item -ErrorAction Ignore)", 1},
@@ -158,6 +175,7 @@ func TestPowerShellHashPreservesOutputAndExitCode(t *testing.T) {
 	}{
 		{"stop_parsing", "cmd.exe /c --% echo sample", "sample", 0, "exact"},
 		{"stop_parsing_falha", "cmd.exe /c --% exit 7", "", 7, "exact"},
+		{"variaveis_da_guarda", "if (Get-Variable __asstPath,__asstDirectory -ErrorAction Ignore) { throw 'guarda visível' }; Write-Output ok", "ok", 0, "exact"},
 		{"literal", "Write-Output 'issue #42'", "issue #42", 0, "exact"},
 		{"stderr", "cmd /c 'echo diagnostic 1>&2 & exit 0' 2>&1 # nota", "diagnostic", 0, "contains"},
 		{"stderr_multilinha", "cmd /c 'echo diagnostic 1>&2 & exit 0' 2>&1\n# nota", "diagnostic", 0, "contains"},
@@ -228,9 +246,14 @@ func TestProcessExitBeforeStartMarker(t *testing.T) {
 
 func TestExplicitCloseAfterStartDoesNotCompleteCommand(t *testing.T) {
 	started := make(chan struct{}, 1)
+	var emitted strings.Builder
 	manager := NewManager(DefaultManagerConfig(), func(event string, data any) {
 		payload, ok := data.(map[string]string)
-		if event == "terminal:command_output" && ok && strings.Contains(payload["output"], "pronto") {
+		if event != "terminal:command_output" || !ok {
+			return
+		}
+		emitted.WriteString(payload["output"])
+		if strings.Contains(emitted.String(), "pronto") {
 			select {
 			case started <- struct{}{}:
 			default:
@@ -242,9 +265,9 @@ func TestExplicitCloseAfterStartDoesNotCompleteCommand(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(manager.CloseAll)
-	command := "printf 'pronto\\n'; read -r aguarde"
+	command := "printf pronto; read -r aguarde"
 	if runtime.GOOS == "windows" {
-		command = "Write-Output pronto; Start-Sleep -Seconds 30"
+		command = "Write-Host -NoNewline pronto; Start-Sleep -Seconds 30"
 	}
 	type outcome struct {
 		entry *HistoryEntry
@@ -298,6 +321,9 @@ func TestPowerShellReturnInPersistentSession(t *testing.T) {
 		{"$Host.UI.RawUI.WindowSize.Width", strconv.Itoa(session.viewportColumns), 0},
 		{"cmd.exe /c --% echo sample", "sample", 0},
 		{"cmd /c exit 7; return", "", 7},
+		{"Write-Output $LASTEXITCODE", "7", 0},
+		{"Get-Item missing-leaf -ErrorAction Ignore", "", 1},
+		{"cmd /c exit 7", "", 7},
 		{"Write-Output pronto", "pronto", 0},
 		{"Write-Output '" + strings.Repeat("abcdefghij", 90) + "'", strings.Repeat("abcdefghij", 90), 0},
 		{"cmd /c exit 4; Write-Output ok; return", "ok", 0},
