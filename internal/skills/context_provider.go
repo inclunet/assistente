@@ -2,11 +2,14 @@ package skills
 
 import (
 	"context"
+	"errors"
+	"io/fs"
 	"slices"
 	"sort"
 	"strings"
 
 	"assistente/internal/contextprovider"
+	"assistente/internal/logging"
 )
 
 const defaultContextProviderBudget = 50000
@@ -299,6 +302,7 @@ func buildBaseSkillBlock(ctx context.Context, baseSkills []Skill, source Context
 		files.WriteByte('\n')
 		if err := writeSupportingFiles(&files, source, skill.Slug, "Supporting files (use read_file to access when needed):", "- `", "`"); err != nil {
 			filesComplete = false
+			warnSupportingFiles(ctx, skill.Slug, err)
 		}
 		part.heading, part.files = heading.String(), files.String()
 		planRunner := runner
@@ -408,6 +412,17 @@ func writeSkillHeading(sb *strings.Builder, skill Skill) {
 		sb.WriteString("]")
 	}
 	sb.WriteString("\n")
+}
+
+func warnSupportingFiles(ctx context.Context, slug string, err error) {
+	reason := "listing_failed"
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		reason = "not_found"
+	case errors.Is(err, fs.ErrPermission):
+		reason = "permission_denied"
+	}
+	logging.Logger(ctx, "skills").WarnContext(ctx, "Listagem de arquivos de apoio indisponível", "skill", slug, "reason", reason)
 }
 
 func writeSupportingFiles(sb *strings.Builder, source ContextProviderSource, slug string, heading string, prefix string, suffix string) error {

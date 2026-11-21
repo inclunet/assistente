@@ -61,6 +61,19 @@ func TestCommandTurnArgumentIsText(t *testing.T) {
 	}
 }
 
+func TestLegacyDirectiveStartsWithDeclaredProgram(t *testing.T) {
+	for _, line := range []string{"pwd; pwd", "pwd ; pwd", "pwd&&pwd"} {
+		if !startsWithDeclaredProgram(line, []string{" pwd "}) {
+			t.Errorf("programa inicial não reconhecido em %q", line)
+		}
+	}
+	for _, text := range []string{"texto pwd", "; pwd", "pwd-extra"} {
+		if startsWithDeclaredProgram(text, []string{"pwd"}) {
+			t.Errorf("prosa reconhecida em %q", text)
+		}
+	}
+}
+
 func TestBaseSkillUnavailableShellPreservesMarkdownAndInstructions(t *testing.T) {
 	const body = "![guia](imagem.png)\n!`echo private`\nContinue."
 	for _, config := range []string{"no-policy", "no-runner", "other-program", "tools-exclude-shell", "tools-deny-shell"} {
@@ -700,7 +713,7 @@ func TestSlashReservesSupportingFilesOnlyForCommands(t *testing.T) {
 		t.Fatalf("skill estática: %v %v", text, err)
 	}
 	s.Content += "\n!echo run"
-	if result, err := invoke(140); err == nil || result != nil || calls != 0 {
+	if result, err := invoke(140); err == nil || !strings.Contains(err.Error(), "listar os arquivos de apoio") || result != nil || calls != 0 {
 		t.Fatalf("listagem incompleta: %v err=%v chamadas=%d", result, err, calls)
 	}
 	mgr.filesErr = nil

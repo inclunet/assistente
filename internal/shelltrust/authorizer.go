@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"sync/atomic"
 
 	"assistente/internal/allowlist"
 	"assistente/internal/authorization"
@@ -53,19 +54,20 @@ type Authorizer struct {
 }
 
 type decisionObserverKey struct{}
+type acceptedRefusalKey struct{}
 
 // WithDecisionObserver permite ao solicitante receber a conclusão da autorização
 // antes do log, pelo mesmo contrato de retorno de Authorize.
-func WithDecisionObserver(ctx context.Context, observe func(bool, error)) context.Context {
+func WithDecisionObserver(ctx context.Context, observe func(bool, error), accepted *atomic.Bool) context.Context {
+	ctx = context.WithValue(ctx, acceptedRefusalKey{}, accepted)
 	return context.WithValue(ctx, decisionObserverKey{}, observe)
 }
 
-// NotifyAcceptedRefusal registra somente uma negativa pontual já aceita e
-// validada pelo adaptador da superfície.
-func NotifyAcceptedRefusal(ctx context.Context) {
-	if observe, ok := ctx.Value(decisionObserverKey{}).(func(bool, error)); ok && observe != nil {
-		observe(false, nil)
-	}
+// AcceptedRefusal sinaliza ao executor uma recusa aceita pela superfície,
+// inclusive enquanto o solicitante ainda aguarda a entrega da resposta.
+func AcceptedRefusal(ctx context.Context) *atomic.Bool {
+	flag, _ := ctx.Value(acceptedRefusalKey{}).(*atomic.Bool)
+	return flag
 }
 
 func (a *Authorizer) Authorize(ctx context.Context, command, directory string) (bool, error) {
@@ -137,17 +139,18 @@ func (a *Authorizer) Authorize(ctx context.Context, command, directory string) (
 			return a.Manager.Add(ctx, choice.Value)
 		}
 	}
-	if a.Prompt != nil {
-		flow.Ask = func(ctx context.Context) (authorization.Consent[Entry], error) {
-			choice, err := a.Prompt(ctx, PromptRequest{Command: command, Directory: directory, AvailableScopes: scopes, PersistentTerminal: persistent})
-			if err != nil {
-				return authorization.Consent[Entry]{}, err
-			}
-			if !choice.Approve {
-				return authorization.Consent[Entry]{Effect: "deny", Scope: authorization.ScopeOnce}, nil
-			}
-			return authorization.Consent[Entry]{Effect: "allow", Scope: choice.Scope, Value: Entry{Selector: selector, Scope: choice.Scope}}, nil
+	flow.Ask = func(ctx context.Context) (authorization.Consent[Entry], error) {
+		if a.Prompt == nil {
+			return authorization.Consent[Entry]{}, errors.New("confirmação shell sem interlocutor")
 		}
+		choice, err := a.Prompt(ctx, PromptRequest{Command: command, Directory: directory, AvailableScopes: scopes, PersistentTerminal: persistent})
+		if err != nil {
+			return authorization.Consent[Entry]{}, err
+		}
+		if !choice.Approve {
+			return authorization.Consent[Entry]{Effect: "deny", Scope: authorization.ScopeOnce}, nil
+		}
+		return authorization.Consent[Entry]{Effect: "allow", Scope: choice.Scope, Value: Entry{Selector: selector, Scope: choice.Scope}}, nil
 	}
 	result, err := authorization.Resolve(ctx, authorization.Request{Domain: "shell", Operation: "execute", Resource: "operação shell", AvailableScopes: scopes}, flow)
 	return result.Effect == "allow", err

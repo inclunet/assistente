@@ -110,8 +110,9 @@ func InvokeContext(ctx context.Context, userContent string, mgr InvokerManager, 
 		}
 		files, err := mgr.GetSkillFiles(slug)
 		if err != nil {
+			warnSupportingFiles(ctx, slug, err)
 			if len(doc.commands) > 0 {
-				return nil, true, fmt.Errorf("não foi possível reservar espaço para os arquivos da skill %q", slug)
+				return nil, true, fmt.Errorf("não foi possível listar os arquivos de apoio da skill %q", slug)
 			}
 			files = nil
 		}

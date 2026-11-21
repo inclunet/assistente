@@ -27,35 +27,42 @@ const (
 )
 
 type confirmationState struct {
-	result ToolResult
-	status confirmationStatus
+	result   ToolResult
+	status   confirmationStatus
+	accepted *atomic.Bool
+	refusal  ToolResult
 }
 
 // PendingConfirmation registra a falha que o executor deve devolver se o
 // próprio prazo acabar durante a decisão. O callback publica a recusa definitiva
 // somente para o código de recusa esperado. nil encerra a espera por aprovação.
+// A superfície pode marcar a flag na aceitação, antes de entregar a resposta.
 // Outras falhas mantêm a confirmação pendente.
-func PendingConfirmation(ctx context.Context, failureCode, refusalCode string) func(*ToolResult) {
+func PendingConfirmation(ctx context.Context, failureCode, refusalCode, refusalMessage string) (func(*ToolResult), *atomic.Bool) {
 	state, _ := ctx.Value(pendingConfirmationKey{}).(*atomic.Pointer[confirmationState])
 	if state == nil {
-		return func(*ToolResult) {}
+		return func(*ToolResult) {}, nil
 	}
-	state.Store(&confirmationState{result: ToolResult{IsError: true, Content: "Prazo encerrado durante a confirmação.", Failure: &ToolFailure{Code: failureCode, Kind: ErrorKindAuthorization, Retryable: false}}})
+	accepted := new(atomic.Bool)
+	refusal := ToolResult{IsError: true, Content: refusalMessage, Failure: &ToolFailure{Code: refusalCode, Kind: ErrorKindAuthorization}}
+	pending := ToolResult{IsError: true, Content: "Prazo encerrado durante a confirmação.", Failure: &ToolFailure{Code: failureCode, Kind: ErrorKindAuthorization}}
+	state.Store(&confirmationState{accepted: accepted, refusal: refusal, result: pending})
 	return func(decision *ToolResult) {
 		if decision == nil {
 			state.Store(nil)
 			return
 		}
-		if decision.IsError && decision.Failure != nil && refusalCode != "" && decision.Failure.Code == refusalCode {
-			PublishAuthorizationRefusal(ctx, *decision)
-		}
-	}
+		PublishAuthorizationRefusal(ctx, refusalCode, *decision)
+	}, accepted
 }
 
 // PublishAuthorizationRefusal registra uma negativa definitiva, inclusive quando
 // a política decide sem abrir uma confirmação. O executor pode recebê-la mesmo
 // que o prazo expire antes de a ferramenta terminar de entregar o diagnóstico.
-func PublishAuthorizationRefusal(ctx context.Context, decision ToolResult) {
+func PublishAuthorizationRefusal(ctx context.Context, refusalCode string, decision ToolResult) {
+	if !decision.IsError || decision.Failure == nil || decision.Failure.Kind != ErrorKindAuthorization || refusalCode == "" || decision.Failure.Code != refusalCode {
+		return
+	}
 	publishConfirmation(ctx, decision, confirmationRefused)
 }
 
@@ -434,6 +441,9 @@ func (e *Executor) executeSingle(ctx context.Context, call ToolCall) (execution 
 }
 
 func (e *Executor) finishExecution(ctx, toolCtx context.Context, call ToolCall, start time.Time, result *ToolExecutionResult, confirmation *confirmationState, collector *securitySignalCollector) ToolExecutionResult {
+	if confirmation != nil && confirmation.accepted != nil && confirmation.accepted.Load() {
+		confirmation = &confirmationState{status: confirmationRefused, result: confirmation.refusal}
+	}
 	toolName := call.Function.Name
 	// O callback pode terminar antes de o select observar o cancelamento.
 	// Sua resposta de confirmação indisponível e um erro de contexto puro

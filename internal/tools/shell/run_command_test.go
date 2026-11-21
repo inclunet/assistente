@@ -563,6 +563,14 @@ func TestPrerequisiteFailureBeforeInterruption(t *testing.T) {
 	}
 }
 
+func TestShellAuthorizerWithoutPromptCannotProduceRefusal(t *testing.T) {
+	rc := NewRunCommand(nil, (&shelltrust.Authorizer{}).Authorize, nil, t.TempDir())
+	got, err := rc.Execute(t.Context(), json.RawMessage(`{"command":"example check"}`))
+	if err != nil || got.Failure == nil || got.Failure.Code != FailureConfirmationUnavailable {
+		t.Fatalf("confirmação sem interlocutor: %+v erro=%v", got, err)
+	}
+}
+
 func TestPrerequisiteFailureAfterConfirmationDeadline(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		ctx, cancel := context.WithTimeout(t.Context(), time.Second)
@@ -600,6 +608,7 @@ func TestShellAuthorizerPublishesBeforeDecisionLog(t *testing.T) {
 	for _, tc := range []struct {
 		name, component, code string
 	}{
+		{"aprovação", "authorization", ""},
 		{"recusa do usuário", "authorization", FailureCommandRefused},
 		{"recusa da política na releitura", "authorization", FailureCommandRefused},
 		{"falha da política na releitura", "authorization", FailurePrerequisiteUnavailable},
@@ -640,6 +649,12 @@ func TestShellAuthorizerPublishesBeforeDecisionLog(t *testing.T) {
 				case <-blocked.entered:
 				default:
 					t.Fatal("o executor terminou antes de o log receber o resultado")
+				}
+				if tc.name == "aprovação" {
+					if !asked || !errors.Is(got.Error, context.DeadlineExceeded) || got.ErrorKind != tools.ErrorKindTimeout || !got.Retryable {
+						t.Fatalf("prazo após aprovação: %+v", got)
+					}
+					return
 				}
 				if got.ErrorCode != tc.code || got.Error != nil || got.Retryable || !got.RetryabilityKnown || got.DurationMs != cfg.ToolTimeout.Milliseconds() || asked != (tc.name != "falha da primeira leitura") {
 					t.Fatalf("perguntou=%t, resultado=%+v", asked, got)

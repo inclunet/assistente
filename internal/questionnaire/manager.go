@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
@@ -87,26 +88,34 @@ type RequestPayload struct {
 	Description Text             `json:"description,omitzero"`
 	// Hint é texto traduzível secundário (ex.: match de host do skill),
 	// anexado à descrição no DecisionDialog sem misturar com Body cru.
-	Hint         Text                `json:"hint,omitzero"`
-	Body         string              `json:"body,omitempty"`
-	BodyLabel    Text                `json:"bodyLabel,omitzero"`
-	Actions      []DecisionAction    `json:"actions,omitempty"`
-	Questions    []Question          `json:"questions"`
-	AllowCancel  bool                `json:"allowCancel,omitempty"`
-	SubmitLabel  Text                `json:"submitLabel,omitzero"`
-	CancelLabel  Text                `json:"cancelLabel,omitzero"`
-	RejectReason *RejectReasonConfig `json:"rejectReason,omitempty"`
-	Timeout      time.Duration       `json:"-"` // 0 = DefaultTimeout
-	CreatedAt    string              `json:"createdAt"`
-	response     chan Response
-	waitCtx      context.Context
-	onAccepted   func(Response)
+	Hint            Text                `json:"hint,omitzero"`
+	Body            string              `json:"body,omitempty"`
+	BodyLabel       Text                `json:"bodyLabel,omitzero"`
+	Actions         []DecisionAction    `json:"actions,omitempty"`
+	Questions       []Question          `json:"questions"`
+	AllowCancel     bool                `json:"allowCancel,omitempty"`
+	SubmitLabel     Text                `json:"submitLabel,omitzero"`
+	CancelLabel     Text                `json:"cancelLabel,omitzero"`
+	RejectReason    *RejectReasonConfig `json:"rejectReason,omitempty"`
+	Timeout         time.Duration       `json:"-"` // 0 = DefaultTimeout
+	CreatedAt       string              `json:"createdAt"`
+	response        chan Response
+	waitCtx         context.Context
+	onAccepted      func(Response)
+	refusalActions  AuthorizationActions
+	acceptedRefusal *atomic.Bool
 }
 
 // WithAcceptedResponse notifica o solicitante quando Respond aceita a resposta
 // deste diálogo no desktop, antes de liberar quem espera por ela.
 func (p RequestPayload) WithAcceptedResponse(notify func(Response)) RequestPayload {
 	p.onAccepted = notify
+	return p
+}
+
+// WithAcceptedRefusal publica uma recusa pontual no instante de aceitação.
+func (p RequestPayload) WithAcceptedRefusal(actions AuthorizationActions, flag *atomic.Bool) RequestPayload {
+	p.refusalActions, p.acceptedRefusal = actions, flag
 	return p
 }
 
@@ -160,24 +169,26 @@ func (m *Manager) RequestQuestionnaire(ctx context.Context, payload RequestPaylo
 	defer cancel()
 
 	req := &RequestPayload{
-		waitCtx:      timeoutCtx,
-		onAccepted:   payload.onAccepted,
-		ID:           uuid.New().String()[:8],
-		Kind:         payload.Kind,
-		Severity:     payload.Severity,
-		Title:        payload.Title,
-		Description:  payload.Description,
-		Hint:         payload.Hint,
-		Body:         payload.Body,
-		BodyLabel:    payload.BodyLabel,
-		Actions:      payload.Actions,
-		Questions:    payload.Questions,
-		AllowCancel:  payload.AllowCancel,
-		SubmitLabel:  payload.SubmitLabel,
-		CancelLabel:  payload.CancelLabel,
-		RejectReason: payload.RejectReason,
-		CreatedAt:    time.Now().Format(time.RFC3339),
-		response:     make(chan Response, 1),
+		waitCtx:         timeoutCtx,
+		onAccepted:      payload.onAccepted,
+		refusalActions:  payload.refusalActions,
+		acceptedRefusal: payload.acceptedRefusal,
+		ID:              uuid.New().String()[:8],
+		Kind:            payload.Kind,
+		Severity:        payload.Severity,
+		Title:           payload.Title,
+		Description:     payload.Description,
+		Hint:            payload.Hint,
+		Body:            payload.Body,
+		BodyLabel:       payload.BodyLabel,
+		Actions:         payload.Actions,
+		Questions:       payload.Questions,
+		AllowCancel:     payload.AllowCancel,
+		SubmitLabel:     payload.SubmitLabel,
+		CancelLabel:     payload.CancelLabel,
+		RejectReason:    payload.RejectReason,
+		CreatedAt:       time.Now().Format(time.RFC3339),
+		response:        make(chan Response, 1),
 	}
 	if req.Questions == nil {
 		req.Questions = []Question{}
@@ -296,6 +307,12 @@ func (m *Manager) Respond(requestID string, answers map[string]any, cancelled bo
 		Cancelled: cancelled,
 	}
 
+	if req.acceptedRefusal != nil {
+		choice, err := req.refusalActions.Parse(resp)
+		if err == nil && choice.Effect == "deny" && choice.Scope == "once" {
+			req.acceptedRefusal.Store(true)
+		}
+	}
 	m.lastAcceptedID = requestID
 	delete(m.pending, requestID)
 	m.mu.Unlock()

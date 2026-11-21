@@ -173,6 +173,19 @@ func warnUnclosedPre(ctx context.Context, slug string) {
 	logging.Logger(ctx, "skills.preprocess").Warn("Elemento <pre> sem fechamento no fim da skill", "skill", slug)
 }
 
+func startsWithDeclaredProgram(command string, allowed []string) bool {
+	if len(allowed) == 0 {
+		return false
+	}
+	atoms := commandpolicy.Parse(command).Commands
+	if len(atoms) == 0 || !strings.HasPrefix(command, atoms[0].Program) {
+		return false
+	}
+	return slices.ContainsFunc(allowed, func(name string) bool {
+		return strings.EqualFold(strings.TrimSpace(name), atoms[0].Program)
+	})
+}
+
 // Inspecione só os operandos que recebem dados da invocação. A análise da
 // política sobre a linha inteira continua obrigatória depois da substituição.
 func validInterpolatedCommand(rawArgs, template string, expand func(string) string) bool {
@@ -243,9 +256,7 @@ func planCommandLines(ctx context.Context, skill *Skill, content string, base bo
 		// A forma explícita é sempre uma diretiva. A forma legada só é
 		// reconhecida quando o primeiro programa foi declarado pela skill.
 		explicit := strings.HasPrefix(strings.TrimSpace(trimmed[1:]), "`")
-		words := strings.Fields(command)
-		declared := len(words) > 0 && slices.ContainsFunc(allowed, func(name string) bool { return strings.EqualFold(name, words[0]) })
-		if !explicit && !declared {
+		if !explicit && !startsWithDeclaredProgram(command, allowed) {
 			if expand != nil {
 				lines[idx] = expand(line)
 			}

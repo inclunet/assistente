@@ -24,12 +24,7 @@ const (
 
 func askShellConfirmation(ctx context.Context, router *questionnaire.Router, surface questionnaire.Surface, req shelltrust.PromptRequest) (shelltrust.PromptDecision, error) {
 	actions := questionnaire.AuthorizationActions{Scopes: req.AvailableScopes}
-	payload := shellConfirmationPayload(req).WithAcceptedResponse(func(resp questionnaire.Response) {
-		choice, err := actions.Parse(resp)
-		if err == nil && choice.Effect == "deny" {
-			shelltrust.NotifyAcceptedRefusal(ctx)
-		}
-	})
+	payload := shellConfirmationPayload(req).WithAcceptedRefusal(actions, shelltrust.AcceptedRefusal(ctx))
 	resp, err := router.Ask(ctx, surface, payload)
 	if err != nil {
 		return shelltrust.PromptDecision{}, err

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"testing/synctest"
 	"time"
@@ -487,7 +488,11 @@ func TestAcceptedResponseNotifiesOutsideManagerLock(t *testing.T) {
 		})
 		observing := make(chan int, 1)
 		release := make(chan struct{})
-		payload := RequestPayload{}.WithAcceptedResponse(func(Response) {
+		var accepted atomic.Bool
+		payload := RequestPayload{}.WithAcceptedRefusal(AuthorizationActions{}, &accepted).WithAcceptedResponse(func(Response) {
+			if !accepted.Load() {
+				t.Error("recusa ainda não publicada quando a resposta se tornou observável")
+			}
 			observing <- mgr.PendingCount()
 			<-release
 		})

@@ -219,7 +219,7 @@ func (rc *RunCommand) Execute(ctx context.Context, args json.RawMessage) (tools.
 			Content: fmt.Sprintf("Comando bloqueado pela política de comandos: %s\nMotivos: %s", commandSummary, strings.Join(policyResult.Reasons, "; ")),
 			IsError: true,
 		}
-		tools.PublishAuthorizationRefusal(ctx, denied)
+		tools.PublishAuthorizationRefusal(ctx, FailureCommandRefused, denied)
 		logPolicyDecision(ctx, nil, commandSummary, policyResult)
 		return denied, nil
 	}
@@ -454,7 +454,12 @@ func logPolicyDecision(
 }
 
 func confirmShellCommand(ctx context.Context, confirm ConfirmFunc, command, workDir, commandSummary string) *tools.ToolResult {
-	resolve := tools.PendingConfirmation(ctx, FailureConfirmationUnavailable, FailureCommandRefused)
+	denied := tools.ToolResult{
+		Failure: &tools.ToolFailure{Code: FailureCommandRefused, Kind: tools.ErrorKindAuthorization},
+		Content: fmt.Sprintf("Comando negado pelo usuário: %s", commandSummary),
+		IsError: true,
+	}
+	resolve, accepted := tools.PendingConfirmation(ctx, FailureConfirmationUnavailable, FailureCommandRefused, denied.Content)
 	var failure *tools.ToolResult
 	// O autorizador real publica antes do seu log. Os demais ConfirmFunc
 	// entregam o mesmo resultado ao retornar, sem emitir uma segunda decisão.
@@ -463,12 +468,9 @@ func confirmShellCommand(ctx context.Context, confirm ConfirmFunc, command, work
 			return
 		}
 		switch {
-		case err == nil && !approved:
-			denied := tools.ToolResult{
-				Failure: &tools.ToolFailure{Code: FailureCommandRefused, Kind: tools.ErrorKindAuthorization},
-				Content: fmt.Sprintf("Comando negado pelo usuário: %s", commandSummary),
-				IsError: true,
-			}
+		case err == nil && approved:
+			resolve(nil)
+		case err == nil:
 			resolve(&denied)
 			failure = &denied
 		case errors.Is(err, shelltrust.ErrPrerequisiteUnavailable) && ctx.Err() == nil:
@@ -476,7 +478,7 @@ func confirmShellCommand(ctx context.Context, confirm ConfirmFunc, command, work
 			failure = &unavailable
 		}
 	}
-	approved, err := confirm(shelltrust.WithDecisionObserver(ctx, observe), command, workDir)
+	approved, err := confirm(shelltrust.WithDecisionObserver(ctx, observe, accepted), command, workDir)
 	observe(approved, err)
 	if failure != nil {
 		return failure
@@ -489,7 +491,6 @@ func confirmShellCommand(ctx context.Context, confirm ConfirmFunc, command, work
 		result := unavailableShellAuthorization(fmt.Sprintf("Erro ao solicitar confirmação: %v", err))
 		return &result
 	}
-	resolve(nil)
 	return nil
 }
 
