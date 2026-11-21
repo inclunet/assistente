@@ -87,7 +87,7 @@ vi.mock('@wailsjs/go/wailsapi/Workspace', () => ({
 }));
 vi.mock('../../store/workspaceChatModalStore', () => ({
   canPrepareWorkspaceChatOpen: () => workspaceChatState.canPrepare(),
-  prepareWorkspaceChatOpen: () => workspaceChatState.prepare(),
+  prepareWorkspaceChatOpen: (...args: unknown[]) => workspaceChatState.prepare(...args),
   registerWorkspaceChatCommandDispatcher: () => {
     workspaceChatState.register();
     return () => undefined;
@@ -1052,6 +1052,33 @@ describe('Topbar', () => {
     }
   });
 
+  it.each(['cancelled', 'failed'] as const)('mede a espera ao terminar a preparação de chat com %s por teclado', async outcome => {
+    locationState.pathname = '/';
+    vi.spyOn(document, 'hasFocus').mockReturnValue(true);
+    let clock = 100;
+    vi.spyOn(performance, 'now').mockImplementation(() => clock);
+    const report = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(window, 'go', { configurable: true, value: { app: { App: { ReportLocalPaletteCommand: report } } } });
+    keyboardState.loadMap.mockResolvedValue({ generation: 'g-chat-open-delay', bindings: [{
+      shortcut: { version: 1, code: 'KeyI', modifiers: ['Control', 'Shift'] }, commandId: 'workspace.chat.open', handler: 'contextual',
+    }] });
+    let finish!: (value: null) => void;
+    workspaceChatState.prepare.mockImplementation(() => new Promise(resolve => { finish = resolve; }));
+    const root = document.createElement('div'); root.className = 'workspace-layout'; document.body.append(root);
+    const view = render(<CommandContextProvider><Topbar /></CommandContextProvider>);
+    try {
+      await waitFor(() => expect(keyboardState.loadMap).toHaveBeenCalled());
+      screen.getByRole('button', { name: 'commandPalette.title' }).focus();
+      await act(async () => { window.dispatchEvent(new KeyboardEvent('keydown', { key: 'I', code: 'KeyI', ctrlKey: true, shiftKey: true, bubbles: true, cancelable: true })); });
+      await waitFor(() => expect(workspaceChatState.prepare).toHaveBeenCalled());
+      clock = 5100;
+      if (outcome === 'failed') (workspaceChatState.prepare.mock.calls[0][2] as () => void)();
+      await act(async () => { finish(null); });
+      expect(report).toHaveBeenCalledWith('workspace.chat.open', expect.any(String), outcome, 5000, 'context_target', 'keyboard.local');
+      expect(keyboardState.beginUI).not.toHaveBeenCalled();
+    } finally { view.unmount(); root.remove(); Reflect.deleteProperty(window, 'go'); }
+  });
+
   it('seleciona workspace.chat.open na própria paleta e apresenta pelo snapshot readonly', async () => {
     locationState.pathname = '/';
     vi.spyOn(document, 'hasFocus').mockReturnValue(true);
@@ -1985,6 +2012,8 @@ describe('Topbar', () => {
     'workspace.tab.tasklist.create', 'workspace.tab.terminal.create', 'workspace.tab.close',
   ])('aguarda persistência e cancela %s após falha, Escape ou mudança de aba', async (commandId) => {
     for (const outcome of ['failed', 'changed', 'cancelled', 'confirmed'] as const) {
+      const report = vi.fn().mockResolvedValue(undefined);
+      Object.defineProperty(window, 'go', { configurable: true, value: { app: { App: { ReportLocalPaletteCommand: report } } } });
       locationState.pathname = '/';
       workspaceState.workspace = { ...workspaceState.workspace, activeTabId: 'tab-a', tabs: [
         { id: 'tab-a', type: 'chat' }, { id: 'tab-b', type: 'chat' },
@@ -2028,11 +2057,13 @@ describe('Topbar', () => {
           expect(keyboardState.beginUI).not.toHaveBeenCalled();
           expect(executionState.port.takeUICommand).not.toHaveBeenCalled();
           expect(executionState.port.commitBackendCommand).not.toHaveBeenCalled();
+          expect(report).toHaveBeenCalledWith(commandId, expect.any(String), outcome === 'failed' ? 'not_completed' : 'cancelled', expect.any(Number), outcome === 'failed' ? 'context_navigation' : 'context_target', 'keyboard.local');
         }
       } finally {
         view.unmount();
         root.remove();
         vi.mocked(flushWorkspaceNavigation).mockReset().mockResolvedValue(true);
+        Reflect.deleteProperty(window, 'go');
       }
     }
   });
