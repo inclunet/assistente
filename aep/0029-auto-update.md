@@ -15,6 +15,13 @@ A arquitetura original previa publicar um manifest estático em GitHub Pages. A 
 ## Decisões
 
 - A fonte de atualização é a API de GitHub Releases, via `GitHubAPIURL`.
+- Consultas de metadados têm timeout HTTP de 30 segundos. Downloads de
+  instalador, portátil e binário usam um cliente separado com o mesmo mecanismo
+  de autenticação, prazo total de 15 minutos e limite de 60 segundos por espera
+  de rede (resposta inicial ou leitura do corpo). Escrita em disco e callbacks
+  não contam como inatividade de rede. O controller permite 20 minutos para o
+  fluxo completo; cancelamento do contexto original continua prevalecendo.
+  Falha durante a transferência remove o arquivo parcial e não inicia instalação.
 - A verificação é independente de providers LLM e roda no startup e a cada
   `CheckInterval` (6 horas), sob o contexto raiz cancelável do aplicativo.
 - Startup, pós-wizard e periodicidade compartilham o mesmo scheduler. Sinais
@@ -60,6 +67,12 @@ flowchart TD
 
 ## Critérios de Aceite
 
+- Downloads em progresso não herdam o prazo de metadados. Evidências:
+  `TestDownloadSlowBodyOutlivesMetadataTimeout` cobre instalador e binário com
+  redirecionamento e token; `TestDownloadStopsAndRemovesPartialFile` cobre espera
+  inicial, corpo parado, cancelamento e prazo total; `TestDownloadPolicy` e
+  `TestUpdateDeadlineAllowsDownloadAndPreservesCancellation` conferem os limites
+  efetivos e a propagação do cancelamento. O portátil usa o mesmo `doDownload`.
 - A documentação não deve orientar criação de `update-manifest.json` para auto-update.
 - O quickstart de release deve orientar criação/publicação de GitHub Release, não deploy em GitHub Pages.
 - Fixtures mortas de manifest estático devem ser removidas para evitar falsa fonte de verdade.
