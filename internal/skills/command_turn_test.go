@@ -502,6 +502,11 @@ func TestPreparedBaseAppliesFinalSelectionAndBudget(t *testing.T) {
 }
 
 func TestPreparedBaseCannotStartSkippedCommandWhenBudgetGrows(t *testing.T) {
+	var logs bytes.Buffer
+	previous := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelWarn})))
+	t.Cleanup(func() { slog.SetDefault(previous) })
+
 	s := providerSkill("base", "before\n!echo report\nafter", true)
 	s.Tools = &ToolPermissions{BashCommands: &BashCommands{Allowed: []string{"echo"}}}
 	p := NewContextProvider(contextProviderSourceStub{skills: []Skill{s}})
@@ -510,6 +515,9 @@ func TestPreparedBaseCannotStartSkippedCommandWhenBudgetGrows(t *testing.T) {
 		return "", nil
 	})
 	req := contextprovider.BuildRequest{ToolCallingEnabled: true, ProviderBudgets: map[string]int{"skills": 1}}
+	if _, err := p.Build(t.Context(), req); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := p.Build(ctx, req); err != nil {
 		t.Fatal(err)
 	}
@@ -517,6 +525,17 @@ func TestPreparedBaseCannotStartSkippedCommandWhenBudgetGrows(t *testing.T) {
 	blocks, err := p.Build(ctx, req)
 	if err != nil || len(blocks) != 1 || !strings.Contains(blocks[0].Content, "before\n\nafter") {
 		t.Fatalf("reconstrução: %v, %v", blocks, err)
+	}
+	if logs.Len() != 0 {
+		t.Fatalf("aviso inesperado na prévia ou reconstrução: %s", &logs)
+	}
+
+	s.Tools.Denied = []string{"run_command"}
+	if _, err := p.Build(WithCommandTurn(t.Context(), nil), req); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(logs.String(), "incompatibilidade com as permissões") {
+		t.Fatalf("conflito real sem diagnóstico: %s", &logs)
 	}
 }
 

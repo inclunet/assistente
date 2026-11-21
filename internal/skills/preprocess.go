@@ -284,7 +284,9 @@ func planCommandLines(ctx context.Context, skill *Skill, content string, base bo
 		}
 		allowed, reason := evaluateSkillCommand(command, policy)
 		if base && (!allowed || !shellToolAllowed || run == nil) {
-			logging.Warnf(ctx, "skills.preprocess", "Comando omitido da skill base %q por incompatibilidade com as permissões disponíveis", skill.Slug)
+			if (!allowed || !shellToolAllowed) && firstSkillWarning(ctx, skill.Slug, "command_permissions", true) {
+				logging.Warnf(ctx, "skills.preprocess", "Comando omitido da skill base %q por incompatibilidade com as permissões disponíveis", skill.Slug)
+			}
 			lines[idx] = ""
 			continue
 		}

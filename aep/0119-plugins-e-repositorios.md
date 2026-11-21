@@ -76,6 +76,8 @@ A instalação de pacotes e as demais entregas das fases abaixo permanecem pende
 
 Antes da autorização, a base reserva espaço para títulos, instruções, arquivos de apoio e resultados. Sem espaço, conserva o texto que couber e omite as execuções. A barra também reserva as instruções expandidas e uma parcela por comando. A preparação da base ocorre uma vez por tentativa, antes da barra. Ao reconstruir o prompt, o provedor aplica a seleção e o orçamento do pedido final. Só reutiliza saídas admitidas na preparação da mesma tentativa, sem iniciar comandos adicionais. Os avisos de listagem indisponível e de elemento HTML aberto são independentes. Cada um é registrado uma vez por skill e tentativa de execução. A prévia da base sem turno ativo suprime ambos. O teste `TestPreparedBaseAppliesFinalSelectionAndBudget` cobre a seleção e o orçamento. O teste `TestSlashBudgetPreservesInstructionsAroundOutput` cobre a preservação das instruções.
 
+O aviso de incompatibilidade de permissões exige que a política da skill vete o comando ou a ferramenta. A prévia e a reconstrução após falta de orçamento preservam as instruções sem atribuir a omissão a permissões, conforme `TestPreparedBaseCannotStartSkippedCommandWhenBudgetGrows`.
+
 #### Argumentos de comandos
 
 Fora de blocos de código, a diretiva pode ser explícita ou começar por um programa declarado. Argumentos interpolados aceitam palavras iniciadas por letra, número, ponto ou sublinhado. Hífen e barra são permitidos no interior. Opções fixas pertencem à skill. A validação também alcança os canais externos e recusa segmentos de diretório pai na entrada ou nos operandos compostos. Em prosa, os argumentos permanecem texto.
