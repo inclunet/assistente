@@ -12,6 +12,32 @@ import (
 	"assistente/internal/tools/invocationctx"
 )
 
+// ErrConfirmationUnavailable indica que a decisão exige confirmação e não há interlocutor.
+var ErrConfirmationUnavailable = errors.New("confirmação shell sem interlocutor")
+
+// ErrPrerequisiteUnavailable identifica falha ao validar o diretório, a política ou as concessões.
+var ErrPrerequisiteUnavailable = errors.New("pré-requisito de autorização shell indisponível")
+
+type prerequisiteReason string
+
+const (
+	directoryChanged  prerequisiteReason = "directory_changed"
+	storeUnavailable  prerequisiteReason = "store_unavailable"
+	policyUnavailable prerequisiteReason = "policy_unavailable"
+)
+
+func (r prerequisiteReason) Error() string        { return string(r) }
+func (r prerequisiteReason) Is(target error) bool { return target == ErrPrerequisiteUnavailable }
+
+// PrerequisiteReason retorna apenas categorias internas que podem aparecer no log.
+func PrerequisiteReason(err error) string {
+	var reason prerequisiteReason
+	if errors.As(err, &reason) {
+		return string(reason)
+	}
+	return "unknown"
+}
+
 type PromptRequest struct {
 	PersistentTerminal bool
 	Command            string
@@ -30,6 +56,23 @@ type Authorizer struct {
 	PersistenceFailed func(context.Context, authorization.Request, error)
 }
 
+type decisionObserverKey struct{}
+type confirmationReceiptKey struct{}
+
+// WithDecisionObserver permite ao solicitante receber a conclusão da autorização
+// antes do log, pelo mesmo contrato de retorno de Authorize.
+func WithDecisionObserver(ctx context.Context, observe func(bool, error), receipt *invocationctx.ConfirmationReceipt) context.Context {
+	ctx = context.WithValue(ctx, confirmationReceiptKey{}, receipt)
+	return context.WithValue(ctx, decisionObserverKey{}, observe)
+}
+
+// ConfirmationReceipt arbitra o aceite da resposta e o encerramento da espera,
+// preservando a recusa aceita mesmo antes da entrega ao solicitante.
+func ConfirmationReceipt(ctx context.Context) *invocationctx.ConfirmationReceipt {
+	flag, _ := ctx.Value(confirmationReceiptKey{}).(*invocationctx.ConfirmationReceipt)
+	return flag
+}
+
 func (a *Authorizer) Authorize(ctx context.Context, command, directory string) (bool, error) {
 	if a.Manager != nil {
 		ctx = a.Manager.Capture(ctx)
@@ -42,7 +85,7 @@ func (a *Authorizer) Authorize(ctx context.Context, command, directory string) (
 		var err error
 		scopes, err = a.Manager.AvailableScopes(ctx)
 		if err != nil {
-			return false, err
+			return false, errors.Join(storeUnavailable, err)
 		}
 	}
 	flow := authorization.Flow[Entry]{
@@ -50,12 +93,12 @@ func (a *Authorizer) Authorize(ctx context.Context, command, directory string) (
 			if reusable {
 				current, valid := Represent(command, directory)
 				if !valid || current.Directory != selector.Directory {
-					return authorization.Decision{}, errors.New("diretório shell mudou durante a autorização")
+					return authorization.Decision{}, directoryChanged
 				}
 			}
 			if a.Manager != nil {
 				if _, err := a.Manager.AvailableScopes(ctx); err != nil {
-					return authorization.Decision{}, err
+					return authorization.Decision{}, errors.Join(storeUnavailable, err)
 				}
 			}
 			var policy *allowlist.Allowlist
@@ -63,7 +106,7 @@ func (a *Authorizer) Authorize(ctx context.Context, command, directory string) (
 				var err error
 				policy, err = a.Policy(ctx)
 				if err != nil {
-					return authorization.Decision{}, err
+					return authorization.Decision{}, errors.Join(policyUnavailable, err)
 				}
 			}
 			result := commandpolicy.Evaluate(command, policy)
@@ -76,7 +119,7 @@ func (a *Authorizer) Authorize(ctx context.Context, command, directory string) (
 			if reusable && a.Manager != nil {
 				match := a.Manager.Find(ctx, selector)
 				if match.Err != nil {
-					return authorization.Decision{}, match.Err
+					return authorization.Decision{}, errors.Join(storeUnavailable, match.Err)
 				}
 				if match.Found {
 					return authorization.Decision{Effect: "allow", Scope: match.Scope}, nil
@@ -91,22 +134,26 @@ func (a *Authorizer) Authorize(ctx context.Context, command, directory string) (
 			}
 		},
 	}
+	if observe, ok := ctx.Value(decisionObserverKey{}).(func(bool, error)); ok && observe != nil {
+		flow.Resolved = func(decision authorization.Decision, err error) { observe(decision.Effect == "allow", err) }
+	}
 	if a.Manager != nil {
 		flow.Remember = func(ctx context.Context, choice authorization.Consent[Entry]) error {
 			return a.Manager.Add(ctx, choice.Value)
 		}
 	}
-	if a.Prompt != nil {
-		flow.Ask = func(ctx context.Context) (authorization.Consent[Entry], error) {
-			choice, err := a.Prompt(ctx, PromptRequest{Command: command, Directory: directory, AvailableScopes: scopes, PersistentTerminal: persistent})
-			if err != nil {
-				return authorization.Consent[Entry]{}, err
-			}
-			if !choice.Approve {
-				return authorization.Consent[Entry]{Effect: "deny", Scope: authorization.ScopeOnce}, nil
-			}
-			return authorization.Consent[Entry]{Effect: "allow", Scope: choice.Scope, Value: Entry{Selector: selector, Scope: choice.Scope}}, nil
+	flow.Ask = func(ctx context.Context) (authorization.Consent[Entry], error) {
+		if a.Prompt == nil {
+			return authorization.Consent[Entry]{}, ErrConfirmationUnavailable
 		}
+		choice, err := a.Prompt(ctx, PromptRequest{Command: command, Directory: directory, AvailableScopes: scopes, PersistentTerminal: persistent})
+		if err != nil {
+			return authorization.Consent[Entry]{}, err
+		}
+		if !choice.Approve {
+			return authorization.Consent[Entry]{Effect: "deny", Scope: authorization.ScopeOnce}, nil
+		}
+		return authorization.Consent[Entry]{Effect: "allow", Scope: choice.Scope, Value: Entry{Selector: selector, Scope: choice.Scope}}, nil
 	}
 	result, err := authorization.Resolve(ctx, authorization.Request{Domain: "shell", Operation: "execute", Resource: "operação shell", AvailableScopes: scopes}, flow)
 	return result.Effect == "allow", err

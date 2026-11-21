@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"fmt"
 
 	"assistente/internal/questionnaire"
@@ -21,8 +22,25 @@ const (
 	decisionDeny  = "deny"
 )
 
+func askShellConfirmation(ctx context.Context, router *questionnaire.Router, surface questionnaire.Surface, req shelltrust.PromptRequest) (shelltrust.PromptDecision, error) {
+	payload, actions := shellConfirmationPayload(req)
+	if receipt := shelltrust.ConfirmationReceipt(ctx); receipt != nil {
+		payload = payload.WithAcceptGuard(func(resp questionnaire.Response) bool {
+			choice, err := actions.Parse(resp)
+			return receipt.TryAccept(err == nil && choice.Effect == "deny" && choice.Scope == "once")
+		})
+	}
+	resp, err := router.Ask(ctx, surface, payload)
+	if err != nil {
+		return shelltrust.PromptDecision{}, err
+	}
+	choice, err := actions.Parse(resp)
+	return shelltrust.PromptDecision{Approve: choice.Effect == "allow", Scope: choice.Scope}, err
+}
+
 // shellConfirmationPayload monta a confirmação de execução de comando (AEP-0091).
-func shellConfirmationPayload(req shelltrust.PromptRequest) questionnaire.RequestPayload {
+func shellConfirmationPayload(req shelltrust.PromptRequest) (questionnaire.RequestPayload, questionnaire.AuthorizationActions) {
+	actions := questionnaire.AuthorizationActions{Scopes: req.AvailableScopes}
 	hint := questionnaire.KeyedWith(
 		"app.questionnaire.shell.workDir",
 		map[string]any{"workDir": req.Directory},
@@ -54,8 +72,8 @@ func shellConfirmationPayload(req shelltrust.PromptRequest) questionnaire.Reques
 			"Comando solicitado",
 		),
 		AllowCancel: true,
-		Actions:     (questionnaire.AuthorizationActions{Scopes: req.AvailableScopes}).Actions(),
-	}
+		Actions:     actions.Actions(),
+	}, actions
 }
 
 // httpConfirmationPayload monta a confirmação de operação HTTP mutável (AEP-0091).

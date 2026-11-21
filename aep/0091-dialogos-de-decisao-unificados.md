@@ -205,6 +205,10 @@ DecisionDialog) **não foi implementada**. Os produtores de permissão emitem
 Questionários multi-campo (`collect_responses`, formulários) **não** usam
 `kind: decision`.
 
+No gerenciador desktop, formulários (inclusive perguntas ao usuário) e decisões de autorização seguem a mesma regra de entrega. Depois que `Respond` aceita a resposta, o solicitante a recebe mesmo que o contexto seja cancelado ou o prazo vença antes de ele retomar a espera. O gerenciador não emite um evento de fechamento por expiração nesse caso. Se o prazo ou cancelamento chegar primeiro, a resposta é recusada e o fechamento informa a causa.
+
+Uma nova tentativa para o último diálogo respondido recebe “resposta já enviada”. O gerenciador guarda somente seu identificador até aceitar outra resposta. Os testes `TestAcceptedResponseSurvivesDeadline` e `TestAcceptedResponseReachesCallerAfterGuardAndCancellation` cobrem a ordem dos eventos e a tentativa repetida. O solicitante pode fornecer uma guarda curta e não bloqueante. O gerenciador consulta a guarda antes de aceitar a resposta sob o mesmo lock. O adaptador interpreta as ações do seu domínio. Quando o executor e o diálogo compartilham um recibo, apenas o primeiro entre a entrega da resposta e o encerramento da espera é aceito. `TestRespondCannotAcceptAfterExecutorClosesReceipt` verifica a resposta tardia. Os canais externos têm seu próprio mecanismo de entrega.
+
 ### D9. Uma fila de diálogos bloqueantes (meta) — fechamento
 
 Filas lógicas **permanecem separadas**:

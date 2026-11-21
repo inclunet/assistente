@@ -1,10 +1,10 @@
 # AEP-0119 — Plugins, repositórios e distribuição de recursos
 
-**Status:** Draft
+**Status:** In Progress
 
 ## Resumo
 
-Uma pessoa poderá adicionar um repositório, encontrar um plugin, examinar seus componentes e escolher onde ativá-los. Autores poderão selecionar recursos existentes do Assistente e gerar um pacote para publicação posterior. A proposta cobre o consumo de formatos externos e a distribuição de recursos próprios. Todas as fases de produto estão pendentes.
+Uma pessoa poderá adicionar um repositório, encontrar um plugin, examinar seus componentes e escolher onde ativá-los. Autores poderão selecionar recursos existentes do Assistente e gerar um pacote para publicação posterior. A proposta cobre o consumo de formatos externos e a distribuição de recursos próprios. O núcleo de autorização de comandos de skills está em implementação como preparação da primeira fase.
 
 ## Motivação
 
@@ -60,11 +60,39 @@ Entrada própria no menu principal, no mesmo nível de Jobs. **Instalados** abre
 
 ## Fases
 
+Preparação da fase 1: a execução de comandos embutidos em skills pelo chat
+usa a autorização de shell do AEP-0117 e o executor de invocações do turno.
+Testes de regressão em `internal/skills/command_turn_test.go` exercitam
+recusa, expansão de argumentos no texto e reconstrução do prompt sem repetir a execução. O caso POSIX de `TestSkillCommandInAdmittedTurn` usa o terminal real com saída sem quebra de linha.
+A instalação de pacotes e as demais entregas das fases abaixo permanecem pendentes.
+
 1. Contrato de pacote, instalação local, identidade, inventário no banco, recuperação e primeira instalação de skill e MCP.
 2. Tela Plugins, repositórios e adaptadores de catálogos e pacotes, com fixtures por formato e versão.
 3. Agentes, comandos, regras e hooks, com testes comportamentais por componente e diagnósticos de suporte parcial.
 4. Extensões próprias e portabilidade de definições, incluindo dependências, atualização e preservação dos dados de trabalho.
 5. Builder e validação do pacote produzido em outra conta. Documentar cada entrega visível em `docs/content` e registrar evidências neste AEP e no índice.
+
+#### Orçamento do contexto
+
+Antes da autorização, a base reserva espaço para títulos, instruções, arquivos de apoio e resultados. Sem espaço, conserva o texto que couber e omite as execuções. A barra também reserva as instruções expandidas e uma parcela por comando. A preparação da base ocorre uma vez por tentativa, antes da barra. Ao reconstruir o prompt, o provedor aplica a seleção e o orçamento do pedido final. Só reutiliza saídas admitidas na preparação da mesma tentativa, sem iniciar comandos adicionais. Os avisos de listagem indisponível e de elemento HTML aberto são independentes. Cada um é registrado uma vez por skill e tentativa de execução. A prévia da base sem turno ativo suprime ambos. O teste `TestPreparedBaseAppliesFinalSelectionAndBudget` cobre a seleção e o orçamento. O teste `TestSlashBudgetPreservesInstructionsAroundOutput` cobre a preservação das instruções.
+
+#### Argumentos de comandos
+
+Fora de blocos de código, a diretiva pode ser explícita ou começar por um programa declarado. Argumentos interpolados aceitam palavras iniciadas por letra, número, ponto ou sublinhado. Hífen e barra são permitidos no interior. Opções fixas pertencem à skill. A validação também alcança os canais externos e recusa segmentos de diretório pai na entrada ou nos operandos compostos. Em prosa, os argumentos permanecem texto.
+
+#### Classificação das falhas
+
+Uma negativa expressa do usuário ou da política usa `shell_command_refused` e interrompe o turno. Fechar o diálogo pela ação de cancelar conta como negativa pontual.
+
+Na falta de confirmação, o código é `shell_confirmation_unavailable`. Um argumento `working_directory` inválido recebe um diagnóstico de entrada que permite corrigir a chamada. Falhas de política, resolução do diretório do projeto ou consulta às concessões usam `shell_prerequisite_unavailable`, inclusive na releitura após uma aprovação. O diagnóstico registra a categoria da causa e o ID da chamada. Nesses casos, a base omite a linha e sua saída parcial, e a barra encerra a invocação.
+
+No desktop, o questionário entrega a resposta aceita antes do prazo conforme o [AEP-0091](0091-dialogos-de-decisao-unificados.md). O adaptador valida a ação oferecida e publica a recusa antes de `Respond` retornar. A aprovação ainda exige revalidação. Se ela terminar antes de vencer o prazo, a interrupção subsequente é classificada como cancelamento ou timeout da operação. O executor conserva o prazo do chamador. Depois de autorização pontual, lembrada ou pela política, uma falha operacional tem retry automático desabilitado, inclusive no intervalo entre a aprovação e o despacho ao terminal. O loop do agente e os jobs consomem essa classificação. Uma nova invocação explícita avalia a política e as concessões vigentes. Se o prazo expirar sem resposta, a confirmação fica indisponível e a ferramenta não tenta novamente.
+
+`TestPolicyUnavailableAfterApproval` cobre a releitura da política. `TestShellAuthorizerPublishesBeforeDecisionLog` cobre timeout entre a aprovação e o despacho. `TestJobDoesNotReplayAuthorizedShellCommand` verifica um único despacho e uma única invocação registrada mesmo quando o job permite retries. `TestJobDoesNotReplayShellAfterOutputSecretFailure` cobre a falha na transformação da saída do job depois que o shell concluiu o comando. `TestShellResponseAcceptedBeforeExecutorDeadline` cobre negativa, cancelamento, aprovação, ação inválida, opção não oferecida e resposta tardia.
+
+Os testes `TestBaseSkillOperationalErrorsOmitOnlyCommandLine`, `TestBaseRefusalPrecedesSlashCommand` e `TestSkillCommandInAdmittedTurn` cobrem essas decisões.
+
+O executor de skills usa o protocolo de comandos do [AEP-0089](0089-terminais-como-recursos-efemeros.md), inclusive o status de retorno e a saída incremental. O planejamento preserva exemplos em blocos de código Markdown e HTML pré-formatado. `TestUnclosedPreWarnsOncePerSkillAndAttempt` verifica que um exemplo `<pre>` sem fechamento permanece literal até o fim e gera um aviso com o slug, sem expor o texto.
 
 ## Riscos
 

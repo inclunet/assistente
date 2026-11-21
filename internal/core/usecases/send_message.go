@@ -536,7 +536,19 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 	}
 
 	// Detecta slash skill, compõe system prompt e pré-processa mídia.
+	disableTools := activeProfile.Chat.DisableTools
+	preferredToolPackages := activeProfile.Chat.PreferredToolPackages
+	toolPolicy := chat.NewToolSelectionPolicy(uc.toolRegistry)
+	toolCfg := chat.ProfileToolConfig{
+		EnabledTools:      activeProfile.Chat.EnabledTools,
+		ToolPolicy:        activeProfile.Chat.ToolPolicy,
+		ToolPolicyDefault: activeProfile.Chat.ToolPolicyDefault,
+		DisableTools:      disableTools,
+		SchemaBytesBudget: activeProfile.Chat.ToolSchemaBudgetBytes,
+		PreferredPackages: preferredToolPackages,
+	}
 	prepResult := uc.chatInteractor.PrepareMessages(ctx, chat.PrepareMessagesRequest{
+		AllowSkillShell:     toolPolicy.ResolveEffectiveToolPolicy(toolCfg).AllowsRuntimeLoad("run_command"),
 		Messages:            messages,
 		UserContent:         userContent,
 		ConversationSummary: conversationSummary,
@@ -565,8 +577,6 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 	invokedExecutionContext := prepResult.InvokedExecutionContext
 
 	// Constrói tool definitions para o LLM.
-	disableTools := activeProfile.Chat.DisableTools
-	preferredToolPackages := activeProfile.Chat.PreferredToolPackages
 	var runtimeTools []string
 	if prepResult.ModelOnDemandSkillAvailable {
 		runtimeTools = append(runtimeTools, tools.LoadSkillName)
@@ -575,16 +585,7 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 	// O override de MCP nativo (toolCfg.NativeMCP) é preenchido abaixo, após
 	// resolver o provider/override do perfil; a montagem final dos conjuntos
 	// native/adapter (com ToolPlanner) é feita por PlanTurnToolDefs.
-	toolPolicy := chat.NewToolSelectionPolicy(uc.toolRegistry)
-	toolCfg := chat.ProfileToolConfig{
-		EnabledTools:      activeProfile.Chat.EnabledTools,
-		ToolPolicy:        activeProfile.Chat.ToolPolicy,
-		ToolPolicyDefault: activeProfile.Chat.ToolPolicyDefault,
-		DisableTools:      disableTools,
-		RuntimeTools:      runtimeTools,
-		SchemaBytesBudget: activeProfile.Chat.ToolSchemaBudgetBytes,
-		PreferredPackages: preferredToolPackages,
-	}
+	toolCfg.RuntimeTools = runtimeTools
 	recoverableNames := []string(nil)
 	if !disableTools && uc.mcpMgr != nil {
 		entries, err := uc.mcpMgr.DiscoverableTools(ctx)

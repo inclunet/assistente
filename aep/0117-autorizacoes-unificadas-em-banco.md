@@ -181,6 +181,10 @@ somente na superfície desktop. Canais não herdam permissões concedidas no des
 sem interlocutor, o fluxo ACP continua negando sem esperar. Essas restrições são
 capabilities do adaptador/superfície, não stores ou diálogos separados.
 
+Quando a política exige confirmação shell e não há `Prompt` configurado, todos
+os chamadores recebem confirmação indisponível; a ausência de interlocutor não
+é tratada como uma negativa explícita do usuário.
+
 ### D6. Consentimento e gestão
 
 Um gerador comum de pedidos usa o roteador e o `DecisionDialog`: quem pede,
@@ -326,6 +330,8 @@ são explicitamente enumerados. Nenhum PR é mergeado pelo agente.
 - Revisão de origem filesystem: resolução relativa, sandbox, walks e padrões de skills recebem o contexto capturado. O teste TestReadFileMantemWorkspaceDaOrigemDepoisDeTrocarATela executa leitura real após A→B e verifica que canal sem workspace não herda UI/cwd.
 
 ### Evidências da segunda implementação
+
+Uma resposta pontual negativa encerra a tentativa nos quatro domínios, inclusive quando o contexto termina ou a política fica indisponível logo depois. Um escopo ausente nessa resposta equivale a `once`. Aprovações e decisões persistentes passam pela revalidação. Erros ao obter a resposta chegam ao chamador antes de interpretar efeito ou escopo. Os testes `TestRecusaUnicaSobreviveIndisponibilidadeDaPolitica` e `TestACPRecusaUnicaSobreviveIndisponibilidadeDaPolitica` exercitam o contrato de `authorization.Resolve` com os identificadores dos quatro domínios. A cobertura dos adaptadores depende dos testes de integração de cada domínio.
 
 - O gerenciador de políticas licencia somente `allowlists.create.open` no modal
   proprietário. `Ctrl+N` usa catálogo/binding/resolvedor do AEP-0103, sem listener

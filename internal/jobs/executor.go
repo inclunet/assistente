@@ -720,6 +720,9 @@ func (e *JobExecutor) executeSingle(ctx context.Context, job *Job, trigCtx *Trig
 				output["content"] = result.Content
 				logger.Debug("tool output stored as raw string", slog.Int("content_length", len(result.Content)))
 			}
+		} else if output == nil {
+			// JSON null é um escalar válido e zera o mapa em json.Unmarshal.
+			output = map[string]any{"content": result.Content}
 		} else if logger.Enabled(ctx, slog.LevelDebug) {
 			keys := make([]string, 0, len(output))
 			for k := range output {
@@ -753,7 +756,12 @@ func (e *JobExecutor) executeSingle(ctx context.Context, job *Job, trigCtx *Trig
 					"invalid_output_map",
 				)
 			}
-			return nil, fmt.Errorf("resolve output map: %w", err)
+			mapErr := fmt.Errorf("resolve output map: %w", err)
+			if tool.Name() == "run_command" {
+				// Repetir o job para reler o segredo executaria novamente o shell.
+				return nil, permanentAttemptFailure(mapErr, tools.ErrorKindUnavailable, "output_secret_unavailable")
+			}
+			return nil, mapErr
 		}
 		return mapped, nil
 	}

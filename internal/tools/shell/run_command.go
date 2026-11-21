@@ -1,7 +1,6 @@
 package shell
 
 import (
-	"assistente/internal/logging"
 	"context"
 	"encoding/json"
 	"errors"
@@ -13,12 +12,18 @@ import (
 
 	"assistente/internal/allowlist"
 	"assistente/internal/commandpolicy"
+	"assistente/internal/logging"
+	"assistente/internal/shelltrust"
 	"assistente/internal/terminal"
 	"assistente/internal/tools"
 	"assistente/internal/tools/invocationctx"
 )
 
 const (
+	// FailureCommandRefused identifica uma decisão de autorização definitiva para esta tentativa.
+	FailureCommandRefused          = "shell_command_refused"
+	FailureConfirmationUnavailable = "shell_confirmation_unavailable"
+	FailurePrerequisiteUnavailable = "shell_prerequisite_unavailable"
 	// defaultTimeout é o timeout padrão para execução de comandos (15s)
 	defaultTimeout = 15 * time.Second
 
@@ -178,6 +183,9 @@ func (rc *RunCommand) Execute(ctx context.Context, args json.RawMessage) (tools.
 		workDir = info.CWD
 	} else if a.WorkingDirectory != "" {
 		resolvedWorkDir, resolveErr := resolveProjectWorkDir(rc.workDir, a.WorkingDirectory)
+		if errors.Is(resolveErr, errProjectDirectoryUnresolved) {
+			return shellPrerequisiteFailure(ctx, "directory_unresolved", "Não foi possível resolver o diretório para autorização."), nil
+		}
 		if resolveErr != nil {
 			return tools.ToolResult{
 				Content: "working_directory inválido: " + resolveErr.Error(),
@@ -197,59 +205,49 @@ func (rc *RunCommand) Execute(ctx context.Context, args json.RawMessage) (tools.
 	}
 
 	// Avalia o comando contra a politica (allowlist + parser conservador)
-	policyResult := rc.evaluateCommand(ctx, a.Command)
+	policyResult, policyErr := rc.evaluateCommand(ctx, a.Command)
+	if policyErr != nil {
+		return shellPrerequisiteFailure(ctx, "policy_unavailable", "Política de autorização shell indisponível."), nil
+	}
 	decision := policyResult.Decision
+	if decision == allowlist.DecisionApprove {
+		tools.PublishAuthorizationApproval(ctx)
+	}
 	// Nunca logamos a string crua de a.Command: ela pode conter tokens em
 	// flags (-W, --token=) ou env inline. Em vez disso, derivamos um resumo
 	// seguro do parse (programas + contagem de args). Reasons so vao para o
 	// log quando a decisao for diferente de approve, e mesmo assim usam
 	// summarizePolicyReasons (sem repetir args do comando).
 	commandSummary := redactCommandForLog(a.Command, policyResult)
-	logPolicyDecision(ctx, logging.Logger(ctx, "tools.shell.run-command"), commandSummary, policyResult)
+	if decision == allowlist.DecisionDeny {
+		denied := tools.ToolResult{
+			Failure: &tools.ToolFailure{Code: FailureCommandRefused, Kind: tools.ErrorKindAuthorization, Retryable: false},
+			Content: fmt.Sprintf("Comando bloqueado pela política de comandos: %s\nMotivos: %s", commandSummary, strings.Join(policyResult.Reasons, "; ")),
+			IsError: true,
+		}
+		tools.PublishAuthorizationRefusal(ctx, FailureCommandRefused, denied)
+		logPolicyDecision(ctx, nil, commandSummary, policyResult)
+		return denied, nil
+	}
+	logPolicyDecision(ctx, nil, commandSummary, policyResult)
 	originalWorkDir := workDir
 	if decision == allowlist.DecisionConfirm && !a.Persistent && a.TerminalID == "" {
 		resolved, err := canonicalizeProjectPath(workDir)
 		if err != nil {
-			return tools.ToolResult{Content: "Não foi possível resolver o diretório para autorização.", IsError: true}, nil
+			return shellPrerequisiteFailure(ctx, "directory_unresolved", "Não foi possível resolver o diretório para autorização."), nil
 		}
 		workDir = resolved
 	}
 
-	switch decision {
-	case allowlist.DecisionDeny:
-		// Nao retornamos a.Command cru: este Content e enviado ao LLM e poderia
-		// vazar tokens/senhas em flags ou env inline. Usamos o mesmo resumo
-		// redigido aplicado nos logs (programas + contagem de args). Reasons
-		// (vs DetailedReasons) e o slice "safe" do EvaluationResult — citamos
-		// apenas programa, tipo de regra e indice (rule[N]/always_deny[N]) e
-		// nunca interpolamos pattern bruto, subcommands/args/description que o
-		// usuario possa ter colocado na allowlist com dados sensiveis.
-		return tools.ToolResult{
-			Content: fmt.Sprintf("Comando bloqueado pela política de comandos: %s\nMotivos: %s", commandSummary, strings.Join(policyResult.Reasons, "; ")),
-			IsError: true,
-		}, nil
-
-	case allowlist.DecisionConfirm:
+	if decision == allowlist.DecisionConfirm {
 		if rc.confirmFn == nil {
-			return tools.ToolResult{Content: "Comando requer autorização, mas não há interlocutor disponível.", IsError: true}, nil
+			return unavailableShellAuthorization("Comando requer autorização, mas não há interlocutor disponível."), nil
 		}
 		// confirmFn recebe o comando bruto: o usuario precisa ver tudo na
 		// UI local para decidir, e esse caminho nao vai para o LLM.
 		ctx = invocationctx.WithPersistentShell(ctx, a.Persistent || a.TerminalID != "")
-		approved, err := rc.confirmFn(ctx, a.Command, workDir)
-		if err != nil {
-			return tools.ToolResult{
-				Content: fmt.Sprintf("Erro ao solicitar confirmação: %v", err),
-				IsError: true,
-			}, nil
-		}
-		if !approved {
-			// Mesmo motivo do deny acima: a string vai para o LLM, nao
-			// repetimos o comando bruto aqui.
-			return tools.ToolResult{
-				Content: fmt.Sprintf("Comando negado pelo usuário: %s", commandSummary),
-				IsError: true,
-			}, nil
+		if failure := confirmShellCommand(ctx, rc.confirmFn, a.Command, workDir, commandSummary); failure != nil {
+			return *failure, nil
 		}
 	}
 
@@ -257,8 +255,13 @@ func (rc *RunCommand) Execute(ctx context.Context, args json.RawMessage) (tools.
 		current, err := canonicalizeProjectPath(originalWorkDir)
 		target, targetErr := canonicalizeProjectPath(workDir)
 		if err != nil || targetErr != nil || current != workDir || target != workDir {
-			return tools.ToolResult{Content: "O diretório mudou durante a autorização; solicite novamente.", IsError: true}, nil
+			return shellPrerequisiteFailure(ctx, "directory_changed", "O diretório mudou durante a autorização."), nil
 		}
+	}
+	// O executor pode ter devolvido o timeout enquanto a política ou o log
+	// concluíam. O marcador de retry já está publicado antes desta checagem.
+	if err := ctx.Err(); err != nil {
+		return tools.ToolResult{}, err
 	}
 	var sessionID string
 	var entry *terminal.HistoryEntry
@@ -461,22 +464,100 @@ func logPolicyDecision(
 	logger.Log(ctx, slog.LevelInfo, message, attrs...)
 }
 
+func confirmShellCommand(ctx context.Context, confirm ConfirmFunc, command, workDir, commandSummary string) *tools.ToolResult {
+	denied := tools.ToolResult{
+		Failure: &tools.ToolFailure{Code: FailureCommandRefused, Kind: tools.ErrorKindAuthorization},
+		Content: fmt.Sprintf("Comando negado pelo usuário: %s", commandSummary),
+		IsError: true,
+	}
+	resolve, receipt := tools.PendingConfirmation(ctx, FailureConfirmationUnavailable, FailureCommandRefused, denied.Content)
+	if ctx.Err() != nil {
+		result := unavailableShellAuthorization("Confirmação encerrada sem autorização válida.")
+		return &result
+	}
+	var failure *tools.ToolResult
+	approvedInTime := false
+	// O autorizador real publica antes do seu log. Os demais ConfirmFunc
+	// entregam o mesmo resultado ao retornar, sem emitir uma segunda decisão.
+	observe := func(approved bool, err error) {
+		if failure != nil {
+			return
+		}
+		switch {
+		case err == nil && approved:
+			if ctx.Err() == nil {
+				approvedInTime = true
+				resolve(nil)
+			}
+		case err == nil:
+			resolve(&denied)
+			failure = &denied
+		case errors.Is(err, shelltrust.ErrPrerequisiteUnavailable) && ctx.Err() == nil:
+			unavailable := shellPrerequisiteFailure(ctx, shelltrust.PrerequisiteReason(err), "Não foi possível validar os pré-requisitos da autorização shell.")
+			failure = &unavailable
+		}
+	}
+	approved, err := confirm(shelltrust.WithDecisionObserver(ctx, observe, receipt), command, workDir)
+	observe(approved, err)
+	if failure != nil {
+		return failure
+	}
+	if ctx.Err() != nil {
+		if approvedInTime {
+			// A confirmação terminou; o prazo agora é da operação. Sem Failure,
+			// o executor classifica o contexto mesmo se o worker chegar primeiro.
+			return &tools.ToolResult{IsError: true, Content: "Execução interrompida após autorização."}
+		}
+		// O log preserva a causa operacional; o resultado informa que o prazo
+		// encerrou a confirmação antes de uma autorização válida.
+		if errors.Is(err, shelltrust.ErrPrerequisiteUnavailable) {
+			warnShellPrerequisite(ctx, shelltrust.PrerequisiteReason(err))
+		}
+		result := unavailableShellAuthorization("Confirmação encerrada sem autorização válida.")
+		return &result
+	}
+	if err != nil {
+		result := unavailableShellAuthorization(fmt.Sprintf("Erro ao solicitar confirmação: %v", err))
+		return &result
+	}
+	return nil
+}
+
+func shellPrerequisiteFailure(ctx context.Context, reason, message string) tools.ToolResult {
+	failure := tools.ToolResult{IsError: true, Content: message,
+		Failure: &tools.ToolFailure{Code: FailurePrerequisiteUnavailable, Kind: tools.ErrorKindUnavailable, Retryable: false},
+	}
+	tools.PublishAuthorizationPrerequisiteFailure(ctx, failure)
+	warnShellPrerequisite(ctx, reason)
+	return failure
+}
+
+func warnShellPrerequisite(ctx context.Context, reason string) {
+	logging.Logger(ctx, "tools.shell.run-command").WarnContext(ctx, "Pré-requisito da autorização shell indisponível", "reason", reason)
+}
+
+func unavailableShellAuthorization(message string) tools.ToolResult {
+	return tools.ToolResult{IsError: true, Content: message,
+		Failure: &tools.ToolFailure{Code: FailureConfirmationUnavailable, Kind: tools.ErrorKindAuthorization, Retryable: false},
+	}
+}
+
 // evaluateCommand avalia o comando passando pelo pipeline do commandpolicy:
 // parsing conservador da linha (separa atomos, detecta features de shell
 // como redirecionamentos, pipes e substituicao de comando) e agregacao de
 // decisoes (deny/confirm/approve) consultando a allowlist ativa do perfil.
 // Quando nao ha allowlist configurada, o resultado e sempre confirm.
-func (rc *RunCommand) evaluateCommand(ctx context.Context, command string) commandpolicy.EvaluationResult {
+func (rc *RunCommand) evaluateCommand(ctx context.Context, command string) (commandpolicy.EvaluationResult, error) {
 	if rc.getAllowlistFn == nil {
-		return commandpolicy.Evaluate(command, nil)
+		return commandpolicy.Evaluate(command, nil), nil
 	}
 
 	al, err := rc.getAllowlistFn(ctx)
 	if err != nil {
-		logging.Errorf(ctx, "tools.shell.run-command", "Política de autorização shell indisponível")
-		return commandpolicy.EvaluationResult{Decision: allowlist.DecisionDeny, Parse: commandpolicy.Parse(command), Reasons: []string{"política de autorização indisponível"}}
+
+		return commandpolicy.EvaluationResult{Decision: allowlist.DecisionDeny, Parse: commandpolicy.Parse(command), Reasons: []string{"política de autorização indisponível"}}, err
 	}
-	return commandpolicy.Evaluate(command, al)
+	return commandpolicy.Evaluate(command, al), nil
 }
 
 // redactCommandForLog devolve uma representacao segura do command line

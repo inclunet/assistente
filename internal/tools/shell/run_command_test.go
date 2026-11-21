@@ -4,13 +4,21 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
+	"log"
 	"log/slog"
 	"strings"
 	"testing"
+	"testing/synctest"
+	"time"
 
 	"assistente/internal/allowlist"
 	"assistente/internal/commandpolicy"
+	"assistente/internal/shelltrust"
+	"assistente/internal/testutil/authorizationfixture"
+	"assistente/internal/tools"
 )
 
 func TestRunCommand_RejectsMissingCommand(t *testing.T) {
@@ -33,8 +41,12 @@ func TestPolicyLoadFailureDoesNotLogEditableValues(t *testing.T) {
 	rc := NewRunCommand(nil, nil, func(context.Context) (*allowlist.Allowlist, error) {
 		return nil, fmt.Errorf("argumento inválido: secret-token")
 	}, ".")
-	if result := rc.evaluateCommand(context.Background(), "git status"); result.Decision != allowlist.DecisionDeny {
+	if result, err := rc.evaluateCommand(context.Background(), "git status"); err == nil || result.Decision != allowlist.DecisionDeny {
 		t.Fatalf("falha não bloqueou: %+v", result)
+	}
+	got, err := rc.Execute(t.Context(), json.RawMessage(`{"command":"git status"}`))
+	if err != nil || got.Failure == nil || got.Failure.Code != FailurePrerequisiteUnavailable {
+		t.Fatalf("pré-requisito não classificado: %+v err=%v", got, err)
 	}
 	if output.Len() == 0 || strings.Contains(output.String(), "secret-token") {
 		t.Fatalf("log ausente ou com segredo: %s", output.String())
@@ -59,7 +71,7 @@ func TestFalhaDeLeituraNaoViraConfirmacaoOuExecucao(t *testing.T) {
 		return true, nil
 	}, func(context.Context) (*allowlist.Allowlist, error) { return nil, fmt.Errorf("banco indisponível") }, ".")
 	result, err := rc.Execute(context.Background(), json.RawMessage(`{"command":"git status"}`))
-	if err != nil || !result.IsError {
+	if err != nil || !result.IsError || result.Failure == nil || result.Failure.Code != FailurePrerequisiteUnavailable || result.Failure.Kind != tools.ErrorKindUnavailable {
 		t.Fatalf("não bloqueou: %+v, %v", result, err)
 	}
 }
@@ -77,8 +89,8 @@ func TestRunCommand_DeniedByAllowlist(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected nil error, got %v", err)
 	}
-	if !result.IsError {
-		t.Fatalf("expected error result when denied by allowlist")
+	if !result.IsError || result.Failure == nil || result.Failure.Code != FailureCommandRefused || result.Failure.Kind != tools.ErrorKindAuthorization || result.Failure.Retryable {
+		t.Fatalf("classificação da negativa: %+v", result.Failure)
 	}
 }
 
@@ -108,7 +120,10 @@ func TestRunCommand_CompoundAllowedAtomsApprove(t *testing.T) {
 
 	rc := NewRunCommand(nil, nil, func(context.Context) (*allowlist.Allowlist, error) { return al, nil }, ".")
 
-	result := rc.evaluateCommand(context.Background(), "git status && git diff")
+	result, err := rc.evaluateCommand(context.Background(), "git status && git diff")
+	if err != nil {
+		t.Fatal(err)
+	}
 	if result.Decision != allowlist.DecisionApprove {
 		t.Fatalf("decision = %s, want approve; reasons=%v", result.Decision, result.Reasons)
 	}
@@ -438,7 +453,281 @@ func TestRunCommand_ConfirmRejected(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected nil error, got %v", err)
 	}
-	if !result.IsError {
-		t.Fatalf("expected error result when user rejects confirmation")
+	if !result.IsError || result.Failure == nil || result.Failure.Code != FailureCommandRefused || result.Failure.Kind != tools.ErrorKindAuthorization || result.Failure.Retryable {
+		t.Fatalf("classificação da negativa: %+v", result.Failure)
 	}
+}
+
+func TestExecutorTimeoutDuringShellConfirmationDoesNotRetry(t *testing.T) {
+	release := make(chan struct{})
+	defer close(release)
+	rc := NewRunCommand(nil, func(ctx context.Context, _, _ string) (bool, error) {
+		<-ctx.Done()
+		<-release // A goroutine fica aqui até o defer fechar release depois da verificação do timeout.
+		return false, ctx.Err()
+	}, nil, t.TempDir())
+	reg := tools.NewRegistry()
+	reg.MustRegister(rc)
+	cfg := tools.DefaultExecutorConfig()
+	cfg.ToolTimeout = 200 * time.Millisecond
+	result := tools.NewExecutor(reg, cfg).ExecuteOne(t.Context(), tools.ToolCall{ID: "ask", Function: tools.FunctionCall{Name: "run_command", Arguments: `{"command":"example check"}`}})
+	if result.ErrorCode != FailureConfirmationUnavailable || result.ErrorKind != tools.ErrorKindAuthorization || result.Retryable || !result.RetryabilityKnown {
+		t.Fatalf("resultado=%+v", result)
+	}
+}
+
+func TestRefusalReceivedWhenConfirmationContextEnds(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	rc := NewRunCommand(nil, func(context.Context, string, string) (bool, error) { cancel(); return false, nil }, nil, t.TempDir())
+	got, err := rc.Execute(ctx, json.RawMessage(`{"command":"example check"}`))
+	if err != nil || got.Failure == nil || got.Failure.Code != FailureCommandRefused {
+		t.Fatalf("recusa=%+v err=%v", got, err)
+	}
+}
+
+func TestPolicyRefusalBeforeExecutorDeadline(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		// A escrita só termina quando o teste lê o log da política. O relógio
+		// virtual avança enquanto a entrega do resultado está bloqueada.
+		reader, writer := io.Pipe()
+		defer func() { _ = reader.Close() }()
+		defer func() { _ = writer.Close() }()
+		previous := slog.Default()
+		defer log.SetOutput(log.Writer())
+		defer log.SetFlags(log.Flags())
+		slog.SetDefault(slog.New(slog.NewTextHandler(writer, nil)))
+		defer slog.SetDefault(previous)
+		reg := tools.NewRegistry()
+		reg.MustRegister(NewRunCommand(nil, nil, func(context.Context) (*allowlist.Allowlist, error) {
+			return &allowlist.Allowlist{AlwaysDeny: []string{"git push"}}, nil
+		}, "."))
+		cfg := tools.DefaultExecutorConfig()
+		cfg.ToolTimeout = time.Second
+		got := tools.NewExecutor(reg, cfg).ExecuteOne(t.Context(), tools.ToolCall{ID: "policy", Function: tools.FunctionCall{Name: "run_command", Arguments: `{"command":"git push"}`}})
+		if got.Error != nil || got.ErrorCode != FailureCommandRefused || got.ErrorKind != tools.ErrorKindAuthorization || got.Retryable || !got.RetryabilityKnown || got.DurationMs != cfg.ToolTimeout.Milliseconds() {
+			t.Fatalf("negativa após prazo: %+v", got)
+		}
+		var log [4096]byte
+		n, err := reader.Read(log[:])
+		if err != nil || !strings.Contains(string(log[:n]), "decision=deny") {
+			t.Fatalf("log da decisão: %q err=%v", log[:n], err)
+		}
+	})
+}
+
+func TestPrerequisiteFailureBeforeInterruption(t *testing.T) {
+	for _, parentCancel := range []bool{false, true} {
+		t.Run(map[bool]string{false: "prazo da ferramenta", true: "cancelamento do turno"}[parentCancel], func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				reader, writer := io.Pipe()
+				defer func() { _ = reader.Close() }()
+				defer func() { _ = writer.Close() }()
+				previous := slog.Default()
+				defer log.SetOutput(log.Writer())
+				defer log.SetFlags(log.Flags())
+				slog.SetDefault(slog.New(slog.NewTextHandler(writer, &slog.HandlerOptions{Level: slog.LevelWarn})))
+				defer slog.SetDefault(previous)
+
+				reg := tools.NewRegistry()
+				reg.MustRegister(NewRunCommand(nil, func(context.Context, string, string) (bool, error) {
+					return false, shelltrust.ErrPrerequisiteUnavailable
+				}, nil, "."))
+				cfg := tools.DefaultExecutorConfig()
+				cfg.ToolTimeout = time.Second
+				ctx, cancel := context.WithCancel(t.Context())
+				defer cancel()
+				delivered := make(chan tools.ToolExecutionResult, 1)
+				go func() {
+					delivered <- tools.NewExecutor(reg, cfg).ExecuteOne(ctx, tools.ToolCall{ID: "prerequisite", Function: tools.FunctionCall{Name: "run_command", Arguments: `{"command":"example check"}`}})
+				}()
+				synctest.Wait() // a releitura falhou, e o aviso bloqueia a entrega do callback
+				if parentCancel {
+					cancel()
+				}
+				got := <-delivered
+				if parentCancel {
+					if !errors.Is(got.Error, context.Canceled) || got.ErrorKind != tools.ErrorKindCancelled || got.ErrorCode != "" || got.Retryable {
+						t.Fatalf("cancelamento=%+v", got)
+					}
+				} else if got.Error != nil || got.ErrorKind != tools.ErrorKindUnavailable || got.ErrorCode != FailurePrerequisiteUnavailable || got.Retryable || !got.RetryabilityKnown || got.DurationMs != cfg.ToolTimeout.Milliseconds() {
+					t.Fatalf("pré-requisito=%+v", got)
+				}
+				var record [4096]byte
+				n, err := reader.Read(record[:])
+				if err != nil || !strings.Contains(string(record[:n]), "Pré-requisito") {
+					t.Fatalf("log=%q err=%v", record[:n], err)
+				}
+			})
+		})
+	}
+}
+
+func TestShellAuthorizerWithoutPromptCannotProduceRefusal(t *testing.T) {
+	rc := NewRunCommand(nil, (&shelltrust.Authorizer{}).Authorize, nil, t.TempDir())
+	got, err := rc.Execute(authorizationfixture.Context(), json.RawMessage(`{"command":"example check"}`))
+	if err != nil || got.Failure == nil || got.Failure.Code != FailureConfirmationUnavailable {
+		t.Fatalf("confirmação sem interlocutor: %+v erro=%v", got, err)
+	}
+}
+
+func TestPrerequisiteFailureAfterConfirmationDeadline(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+		defer cancel()
+		rc := NewRunCommand(nil, func(ctx context.Context, _, _ string) (bool, error) {
+			<-ctx.Done()
+			return false, errors.Join(shelltrust.ErrPrerequisiteUnavailable, ctx.Err())
+		}, nil, ".")
+		got, err := rc.Execute(ctx, json.RawMessage(`{"command":"example check"}`))
+		if err != nil || got.Failure == nil || got.Failure.Code != FailureConfirmationUnavailable || got.Failure.Retryable {
+			t.Fatalf("falha observada depois do prazo=%+v err=%v", got, err)
+		}
+	})
+}
+
+type blockedDecisionLog struct {
+	component string
+	entered   chan struct{}
+	release   chan struct{}
+}
+
+func (w blockedDecisionLog) Write(p []byte) (int, error) {
+	if bytes.Contains(p, []byte("component="+w.component+" ")) || bytes.HasSuffix(bytes.TrimSpace(p), []byte("component="+w.component)) {
+		select {
+		case <-w.entered:
+		default:
+			close(w.entered)
+		}
+		<-w.release
+	}
+	return len(p), nil
+}
+
+func TestExpiredShellAttemptCannotPromptOrDispatchAfterPolicyReturns(t *testing.T) {
+	for _, auto := range []bool{true, false} {
+		t.Run(fmt.Sprintf("pré-aprovado=%t", auto), func(t *testing.T) {
+			dir := t.TempDir()
+			synctest.Test(t, func(t *testing.T) {
+				release := make(chan struct{})
+				mgr := new(MockSessionManager)
+				prompts := 0
+				rc := NewRunCommand(mgr, func(context.Context, string, string) (bool, error) {
+					prompts++
+					return true, nil
+				}, func(context.Context) (*allowlist.Allowlist, error) {
+					<-release
+					al := &allowlist.Allowlist{DefaultAction: "confirm"}
+					if auto {
+						al.AutoApprove = []string{"echo"}
+					}
+					return al, nil
+				}, dir)
+				reg := tools.NewRegistry()
+				reg.MustRegister(rc)
+				cfg := tools.DefaultExecutorConfig()
+				cfg.ToolTimeout = time.Second
+				got := tools.NewExecutor(reg, cfg).ExecuteOne(t.Context(), tools.ToolCall{ID: "expiry", Function: tools.FunctionCall{Name: rc.Name(), Arguments: `{"command":"echo ok"}`}})
+				close(release)
+				synctest.Wait()
+				if !errors.Is(got.Error, context.DeadlineExceeded) || got.ErrorKind != tools.ErrorKindTimeout || !got.Retryable || prompts != 0 || mgr.runEphemeralCalls != 0 {
+					t.Fatalf("resultado=%+v diálogos=%d despachos=%d", got, prompts, mgr.runEphemeralCalls)
+				}
+			})
+		})
+	}
+}
+
+func TestShellAuthorizerPublishesBeforeDecisionLog(t *testing.T) {
+	for _, tc := range []struct {
+		name, component, code string
+	}{
+		{"aprovação", "authorization", ""},
+		{"recusa do usuário", "authorization", FailureCommandRefused},
+		{"recusa da política na releitura", "authorization", FailureCommandRefused},
+		{"falha da política na releitura", "authorization", FailurePrerequisiteUnavailable},
+		{"falha da primeira leitura", "tools.shell.run-command", FailurePrerequisiteUnavailable},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			synctest.Test(t, func(t *testing.T) {
+				blocked := blockedDecisionLog{tc.component, make(chan struct{}), make(chan struct{})}
+				defer close(blocked.release)
+				previous := slog.Default()
+				defer log.SetOutput(log.Writer())
+				defer log.SetFlags(log.Flags())
+				slog.SetDefault(slog.New(slog.NewTextHandler(blocked, nil)))
+				defer slog.SetDefault(previous)
+
+				asked := false
+				policy := func(context.Context) (*allowlist.Allowlist, error) {
+					switch {
+					case tc.name == "falha da primeira leitura", asked && tc.code == FailurePrerequisiteUnavailable:
+						return nil, errors.New("loja indisponível")
+					case asked && tc.name == "recusa da política na releitura":
+						return &allowlist.Allowlist{AlwaysDeny: []string{"git push"}}, nil
+					default:
+						return &allowlist.Allowlist{DefaultAction: "confirm"}, nil
+					}
+				}
+				auth := shelltrust.Authorizer{Policy: policy, Prompt: func(context.Context, shelltrust.PromptRequest) (shelltrust.PromptDecision, error) {
+					asked = true
+					return shelltrust.PromptDecision{Approve: tc.name != "recusa do usuário"}, nil
+				}}
+				reg := tools.NewRegistry()
+				reg.MustRegister(NewRunCommand(nil, auth.Authorize, policy, dir))
+				cfg := tools.DefaultExecutorConfig()
+				cfg.ToolTimeout = time.Second
+				got := tools.NewExecutor(reg, cfg).ExecuteOne(authorizationfixture.Context(), tools.ToolCall{ID: "policy-before-log", Function: tools.FunctionCall{Name: "run_command", Arguments: `{"command":"git push"}`}})
+				select {
+				case <-blocked.entered:
+				default:
+					t.Fatal("o executor terminou antes de o log receber o resultado")
+				}
+				if tc.name == "aprovação" {
+					if !asked || !errors.Is(got.Error, context.DeadlineExceeded) || got.ErrorKind != tools.ErrorKindTimeout || got.ErrorCode != "" || got.Retryable || !got.RetryabilityKnown || got.DurationMs != cfg.ToolTimeout.Milliseconds() {
+						t.Fatalf("prazo após aprovação: %+v", got)
+					}
+					return
+				}
+				if got.ErrorCode != tc.code || got.Error != nil || got.Retryable || !got.RetryabilityKnown || got.DurationMs != cfg.ToolTimeout.Milliseconds() || asked != (tc.name != "falha da primeira leitura") {
+					t.Fatalf("perguntou=%t, resultado=%+v", asked, got)
+				}
+			})
+		})
+	}
+}
+
+func TestConfirmacaoAprovadaAntesOuDepoisDoCancelamento(t *testing.T) {
+	t.Run("aprovacao revalidada antes do cancelamento", func(t *testing.T) {
+		blocked := blockedDecisionLog{"authorization", make(chan struct{}), make(chan struct{})}
+		previous := slog.Default()
+		slog.SetDefault(slog.New(slog.NewTextHandler(blocked, nil)))
+		defer slog.SetDefault(previous)
+		ctx, cancel := context.WithCancel(authorizationfixture.Context())
+		defer cancel()
+		auth := shelltrust.Authorizer{Policy: func(context.Context) (*allowlist.Allowlist, error) {
+			return &allowlist.Allowlist{DefaultAction: "confirm"}, nil
+		}, Prompt: func(context.Context, shelltrust.PromptRequest) (shelltrust.PromptDecision, error) {
+			return shelltrust.PromptDecision{Approve: true}, nil
+		}}
+		dir := t.TempDir()
+		done := make(chan *tools.ToolResult, 1)
+		go func() { done <- confirmShellCommand(ctx, auth.Authorize, "example check", dir, "example") }()
+		<-blocked.entered
+		cancel()
+		close(blocked.release)
+		got := <-done
+		if got == nil || !got.IsError || got.Failure != nil {
+			t.Fatalf("interrupção após aprovação: %+v", got)
+		}
+	})
+	t.Run("aprovacao customizada depois do cancelamento", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(t.Context())
+		defer cancel()
+		got := confirmShellCommand(ctx, func(context.Context, string, string) (bool, error) { cancel(); return true, nil }, "example check", ".", "example")
+		if got == nil || got.Failure == nil || got.Failure.Code != FailureConfirmationUnavailable {
+			t.Fatalf("aprovação tardia: %+v", got)
+		}
+	})
 }

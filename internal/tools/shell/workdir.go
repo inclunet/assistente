@@ -1,12 +1,16 @@
 package shell
 
 import (
-	"assistente/internal/terminal"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+
+	"assistente/internal/terminal"
 )
+
+var errProjectDirectoryUnresolved = errors.New("não foi possível resolver o diretório do projeto")
 
 func resolveProjectWorkDir(projectRoot, requested string) (string, error) {
 	requested = strings.TrimSpace(requested)
@@ -19,20 +23,16 @@ func resolveProjectWorkDir(projectRoot, requested string) (string, error) {
 
 	root, err := filepath.Abs(projectRoot)
 	if err != nil {
-		return "", fmt.Errorf("não foi possível resolver o diretório do projeto: %w", err)
+		return "", fmt.Errorf("%w: %w", errProjectDirectoryUnresolved, err)
 	}
-	target, err := filepath.Abs(filepath.Join(root, filepath.Clean(requested)))
-	if err != nil {
-		return "", fmt.Errorf("não foi possível resolver working_directory: %w", err)
-	}
-
 	canonicalRoot, err := canonicalizeProjectPath(root)
 	if err != nil {
-		return "", fmt.Errorf("não foi possível canonicalizar o diretório do projeto: %w", err)
+		return "", fmt.Errorf("%w: %w", errProjectDirectoryUnresolved, err)
 	}
+	target := filepath.Join(root, filepath.Clean(requested))
 	canonicalTarget, err := canonicalizeProjectPath(target)
 	if err != nil {
-		return "", fmt.Errorf("não foi possível canonicalizar working_directory: %w", err)
+		return "", err
 	}
 
 	relative, err := filepath.Rel(canonicalRoot, canonicalTarget)

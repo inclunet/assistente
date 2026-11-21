@@ -6,11 +6,91 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 	"unicode/utf8"
+
+	"assistente/internal/logging"
+	"assistente/internal/tools/invocationctx"
 )
+
+type pendingConfirmationKey struct{}
+
+type confirmationStatus uint8
+
+const (
+	confirmationPending confirmationStatus = iota
+	confirmationFailed
+	confirmationRefused
+	confirmationApproved
+)
+
+type confirmationState struct {
+	result  ToolResult
+	status  confirmationStatus
+	receipt *invocationctx.ConfirmationReceipt
+	refusal ToolResult
+}
+
+// PendingConfirmation registra a falha que o executor deve devolver se o
+// próprio prazo acabar durante a decisão. O callback publica a recusa definitiva
+// somente para o código de recusa esperado. nil encerra a espera por aprovação.
+// O recibo arbitra o aceite da superfície e o encerramento da espera.
+// Outras falhas mantêm a confirmação pendente.
+func PendingConfirmation(ctx context.Context, failureCode, refusalCode, refusalMessage string) (func(*ToolResult), *invocationctx.ConfirmationReceipt) {
+	state, _ := ctx.Value(pendingConfirmationKey{}).(*atomic.Pointer[confirmationState])
+	if state == nil {
+		return func(*ToolResult) {}, nil
+	}
+	receipt := new(invocationctx.ConfirmationReceipt)
+	refusal := ToolResult{IsError: true, Content: refusalMessage, Failure: &ToolFailure{Code: refusalCode, Kind: ErrorKindAuthorization}}
+	pending := ToolResult{IsError: true, Content: "Prazo encerrado durante a confirmação.", Failure: &ToolFailure{Code: failureCode, Kind: ErrorKindAuthorization}}
+	state.Store(&confirmationState{receipt: receipt, refusal: refusal, result: pending})
+	return func(decision *ToolResult) {
+		if decision == nil {
+			state.Store(&confirmationState{status: confirmationApproved})
+			return
+		}
+		PublishAuthorizationRefusal(ctx, refusalCode, *decision)
+	}, receipt
+}
+
+// PublishAuthorizationApproval registra a liberação pela política mesmo
+// quando ela dispensa confirmação. Uma nova tentativa exigirá nova invocação.
+func PublishAuthorizationApproval(ctx context.Context) {
+	if state, ok := ctx.Value(pendingConfirmationKey{}).(*atomic.Pointer[confirmationState]); ok {
+		state.Store(&confirmationState{status: confirmationApproved})
+	}
+}
+
+// PublishAuthorizationRefusal registra uma negativa definitiva, inclusive quando
+// a política decide sem abrir uma confirmação. O executor pode recebê-la mesmo
+// que o prazo expire antes de a ferramenta terminar de entregar o diagnóstico.
+func PublishAuthorizationRefusal(ctx context.Context, refusalCode string, decision ToolResult) {
+	if !decision.IsError || decision.Failure == nil || decision.Failure.Kind != ErrorKindAuthorization || refusalCode == "" || decision.Failure.Code != refusalCode {
+		return
+	}
+	publishConfirmation(ctx, decision, confirmationRefused)
+}
+
+// PublishAuthorizationPrerequisiteFailure preserva uma falha já conhecida no
+// prazo da ferramenta. O cancelamento do chamador continua tendo precedência.
+func PublishAuthorizationPrerequisiteFailure(ctx context.Context, failure ToolResult) {
+	publishConfirmation(ctx, failure, confirmationFailed)
+}
+
+func publishConfirmation(ctx context.Context, decision ToolResult, status confirmationStatus) {
+	if ctx == nil || decision.Failure == nil {
+		return
+	}
+	state, _ := ctx.Value(pendingConfirmationKey{}).(*atomic.Pointer[confirmationState])
+	if state != nil {
+		state.Store(&confirmationState{result: decision, status: status})
+	}
+}
 
 // Limites padrão do executor
 const (
@@ -115,7 +195,7 @@ func (e *Executor) executeSingle(ctx context.Context, call ToolCall) (execution 
 		}
 	}()
 
-	if err := validateExecutionContextToolAccess(ctx, toolName); err != nil {
+	if err := ValidateExecutionContextToolAccess(ctx, toolName); err != nil {
 		return ToolExecutionResult{
 			CallID:   call.ID,
 			ToolName: toolName,
@@ -192,6 +272,9 @@ func (e *Executor) executeSingle(ctx context.Context, call ToolCall) (execution 
 	// o executor devolve imediatamente.
 	collector := &securitySignalCollector{}
 	execCtx := withSecuritySignalCollector(WithMaxResultSize(toolCtx, e.config.MaxResultSize), collector)
+	execCtx = logging.WithAttrScope(execCtx, []string{"tool_call_id"}, slog.String("tool_call_id", call.ID))
+	var pending atomic.Pointer[confirmationState]
+	execCtx = context.WithValue(execCtx, pendingConfirmationKey{}, &pending)
 	resultCh := make(chan ToolExecutionResult, 1)
 	go func() {
 		defer func() {
@@ -268,7 +351,12 @@ func (e *Executor) executeSingle(ctx context.Context, call ToolCall) (execution 
 		modelBytes := len(ContentForModel(result))
 		outputWindow := outputWindowOf(result)
 		incompleteMachineResult := e.config.RequireCompleteResult && outputWindow != nil && outputWindow.HasMore
-		if modelBytes > e.config.MaxResultSize || incompleteMachineResult {
+		oversized := modelBytes > e.config.MaxResultSize || incompleteMachineResult
+		if oversized && e.config.RequireCompleteResult && result.Failure != nil {
+			// A recusa já é o resultado definitivo. Limite apenas seu diagnóstico.
+			result = boundFailureResult(ToolResult{Content: result.Content, Failure: result.Failure, IsError: true,
+				Metadata: metadataForFailure(result.Metadata), Annotations: annotationsForFailure(result.Annotations)}, e.config.MaxResultSize)
+		} else if oversized {
 			// json.Valid varre o payload inteiro; só precisamos inferir JSON
 			// canônico quando a barreira realmente precisaria cortá-lo.
 			structured := result.Structured
@@ -353,9 +441,35 @@ func (e *Executor) executeSingle(ctx context.Context, call ToolCall) (execution 
 		}
 	}()
 
-	// Aguarda resultado ou timeout/cancelamento
+	var completed *ToolExecutionResult
 	select {
 	case result := <-resultCh:
+		completed = &result
+	case <-toolCtx.Done():
+	}
+	return e.finishExecution(ctx, toolCtx, call, start, completed, pending.Load(), collector)
+}
+
+func (e *Executor) finishExecution(ctx, toolCtx context.Context, call ToolCall, start time.Time, result *ToolExecutionResult, confirmation *confirmationState, collector *securitySignalCollector) ToolExecutionResult {
+	approved := confirmation != nil && confirmation.status == confirmationApproved
+	if approved {
+		// A espera pela decisão terminou. O diagnóstico passa a ser operacional,
+		// mas a execução autorizada não pode ser repetida automaticamente.
+		confirmation = nil
+	}
+	if confirmation != nil && confirmation.receipt != nil && confirmation.receipt.Close() {
+		confirmation = &confirmationState{status: confirmationRefused, result: confirmation.refusal}
+	}
+	toolName := call.Function.Name
+	// O callback pode terminar antes de o select observar o cancelamento.
+	// Sua resposta de confirmação indisponível e um erro de contexto puro
+	// descrevem a mesma interrupção que toolCtx.Done.
+	interrupted := result == nil
+	if result != nil && confirmation != nil && toolCtx.Err() != nil {
+		interrupted = errors.Is(result.Error, toolCtx.Err()) ||
+			confirmation.status != confirmationPending || result.ErrorCode == confirmation.result.Failure.Code
+	}
+	if !interrupted {
 		// Reclassifica: se a goroutine retornou um erro genérico mas o contexto
 		// já foi cancelado/expirado, normaliza o ErrorKind e Result.Content para consistência.
 		if result.Result.IsError && result.ErrorKind == ErrorKindUnknown && result.Result.Failure == nil {
@@ -375,44 +489,56 @@ func (e *Executor) executeSingle(ctx context.Context, call ToolCall) (execution 
 				result.Error = context.DeadlineExceeded
 			}
 		}
-		return result
-	case <-toolCtx.Done():
-		elapsed := time.Since(start).Milliseconds()
-		if ctx.Err() != nil {
-			// Contexto pai cancelado (usuário cancelou) — não é timeout
-			cancelled := ToolExecutionResult{
-				CallID:   call.ID,
-				ToolName: toolName,
-				Result: ToolResult{
-					Content: fmt.Sprintf("Execução de '%s' cancelada pelo usuário", toolName),
-					IsError: true,
-				},
-				Error:             ctx.Err(),
-				ErrorKind:         ErrorKindCancelled,
-				Retryable:         false,
-				RetryabilityKnown: true,
-				DurationMs:        elapsed,
-			}
-			attachSecuritySignals(&cancelled.Result, collector)
-			return cancelled
+		if approved && result.Result.IsError {
+			result.Retryable = false
+			result.RetryabilityKnown = true
 		}
-		// Timeout da tool
-		timedOut := ToolExecutionResult{
+		return *result
+	}
+	elapsed := time.Since(start).Milliseconds()
+	if ctx.Err() != nil && (confirmation == nil || confirmation.status != confirmationRefused) {
+		// Contexto pai cancelado (usuário cancelou) — não é timeout
+		cancelled := ToolExecutionResult{
 			CallID:   call.ID,
 			ToolName: toolName,
 			Result: ToolResult{
-				Content: fmt.Sprintf("Timeout ao executar '%s' (limite: %s)", toolName, e.config.ToolTimeout),
+				Content: fmt.Sprintf("Execução de '%s' cancelada pelo usuário", toolName),
 				IsError: true,
 			},
-			Error:             context.DeadlineExceeded,
-			ErrorKind:         ErrorKindTimeout,
-			Retryable:         true,
+			Error:             ctx.Err(),
+			ErrorKind:         ErrorKindCancelled,
+			Retryable:         false,
 			RetryabilityKnown: true,
 			DurationMs:        elapsed,
 		}
-		attachSecuritySignals(&timedOut.Result, collector)
-		return timedOut
+		attachSecuritySignals(&cancelled.Result, collector)
+		return cancelled
 	}
+	// A decisão já publicada pode ser definitiva mesmo que a entrega termine no prazo do executor.
+	outcome := ToolExecutionResult{
+		CallID:   call.ID,
+		ToolName: toolName,
+		Result: ToolResult{
+			Content: fmt.Sprintf("Timeout ao executar '%s' (limite: %s)", toolName, e.config.ToolTimeout),
+			IsError: true,
+		},
+		Error:             context.DeadlineExceeded,
+		ErrorKind:         ErrorKindTimeout,
+		Retryable:         !approved,
+		RetryabilityKnown: true,
+		DurationMs:        elapsed,
+	}
+	if confirmation != nil {
+		outcome.Result = boundFailureResult(confirmation.result, e.config.MaxResultSize)
+		outcome.ErrorKind = confirmation.result.Failure.Kind
+		outcome.ErrorCode = confirmation.result.Failure.Code
+		outcome.Retryable = false
+		if confirmation.status != confirmationPending {
+			outcome.Error = nil
+		}
+	}
+	attachSecuritySignals(&outcome.Result, collector)
+	return outcome
 }
 
 func attachSecuritySignals(result *ToolResult, collector *securitySignalCollector) {
@@ -663,7 +789,8 @@ func failureRetryable(result ToolResult) bool {
 	return result.Failure != nil && result.Failure.Retryable
 }
 
-func validateExecutionContextToolAccess(ctx context.Context, toolName string) error {
+// ValidateExecutionContextToolAccess checks the caller's narrowing without invoking the tool.
+func ValidateExecutionContextToolAccess(ctx context.Context, toolName string) error {
 	ec, ok := GetExecutionContext(ctx)
 	if !ok {
 		return nil

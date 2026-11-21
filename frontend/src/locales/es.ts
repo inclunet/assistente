@@ -2365,6 +2365,7 @@ notSaved: 'La decisión vale solo para esta operación: no se pudo recordar. Ser
         hint: 'Este contenido se incluirá en el system prompt cuando el skill esté activo.',
       },
       toolsSection: {
+        shellConflict: 'Esta skill declara programas de shell. Para ejecutarlos, los permisos de herramientas deben permitir run_command.',
         title: 'Herramientas asociadas',
         label: 'Herramientas (separadas por coma)',
         placeholder: 'Ej: tool1, tool2, tool3',

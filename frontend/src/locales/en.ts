@@ -2362,6 +2362,7 @@ notSaved: 'The decision applies only to this operation: it could not be remember
         hint: 'This content will be included in the system prompt when the skill is active.',
       },
       toolsSection: {
+        shellConflict: 'This skill declares shell programs. Its tool permissions must allow run_command to execute them.',
         title: 'Associated Tools',
         label: 'Tools (comma-separated)',
         placeholder: 'E.g. tool1, tool2, tool3',

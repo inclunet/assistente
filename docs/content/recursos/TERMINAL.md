@@ -38,6 +38,8 @@ nomes de tipos abreviados. Por exemplo, depois de `using namespace System.Text`,
 
 A saída registrada é textual. Programas que movem o cursor para redesenhar linhas anteriores podem aparecer de forma diferente no histórico e na tela interativa.
 
+Ao usar a ferramenta com `working_directory`, informe um caminho relativo ao projeto. Se esse argumento for inválido, a ferramenta devolve o motivo para que o caminho possa ser corrigido. Se o próprio diretório do projeto não puder ser resolvido, a autorização fica indisponível.
+
 ## Sessões
 
 Múltiplas sessões podem existir simultaneamente (até 10 por padrão), cada uma em sua própria aba.

@@ -1,7 +1,6 @@
 package chat
 
 import (
-	"assistente/internal/logging"
 	"context"
 	"errors"
 	"fmt"
@@ -13,10 +12,12 @@ import (
 	"assistente/internal/database"
 	"assistente/internal/events"
 	"assistente/internal/llm"
+	"assistente/internal/logging"
 	"assistente/internal/profiles"
 	"assistente/internal/providers"
 	"assistente/internal/skills"
 	"assistente/internal/tools"
+	"assistente/internal/tools/invocationctx"
 	"assistente/internal/workspace"
 	"gorm.io/gorm"
 )
@@ -57,6 +58,7 @@ type SkillRuntimeManager interface {
 
 // InteractorConfig groups all dependencies for Interactor.
 type InteractorConfig struct {
+	SkillCommands skills.SkillCommandRunner
 	Emitter       events.Emitter
 	Repo          MessageRepository
 	ConvRepo      ConversationRepository
@@ -76,6 +78,7 @@ type InteractorConfig struct {
 
 // Interactor orchestrates the core chat use cases, free of Wails dependencies.
 type Interactor struct {
+	skillCommands    skills.SkillCommandRunner
 	emitter          events.Emitter
 	repo             MessageRepository
 	convRepo         ConversationRepository
@@ -105,6 +108,7 @@ type Interactor struct {
 // NewInteractor creates an Interactor with its required dependencies.
 func NewInteractor(cfg InteractorConfig) *Interactor {
 	return &Interactor{
+		skillCommands:    cfg.SkillCommands,
 		emitter:          cfg.Emitter,
 		repo:             cfg.Repo,
 		convRepo:         cfg.ConvRepo,
@@ -788,6 +792,7 @@ func (i *Interactor) PersistUserTranscription(ctx context.Context, messageID, co
 
 // PrepareMessagesRequest carries inputs for the PrepareMessages pipeline.
 type PrepareMessagesRequest struct {
+	AllowSkillShell     bool
 	Messages            []llm.Message
 	UserContent         string
 	ConversationSummary string
@@ -821,6 +826,27 @@ func (i *Interactor) PrepareMessages(ctx context.Context, req PrepareMessagesReq
 	if req.AgentTurn {
 		return i.prepareAgentMessages(ctx, req)
 	}
+	invocation, _ := invocationctx.Get(ctx)
+	if req.Params.Source != "" {
+		invocation.Source = req.Params.Source
+	}
+	if req.Params.SurfaceTabID != "" {
+		invocation.SurfaceTabID = req.Params.SurfaceTabID
+	}
+	if req.ConversationID != "" {
+		invocation.ConversationID = req.ConversationID
+	}
+	if req.TurnID != "" {
+		invocation.TurnID = req.TurnID
+	}
+	if req.Params.ProfileSlug != "" {
+		invocation.ProfileSlug = req.Params.ProfileSlug
+	}
+	runner := i.skillCommands
+	if !req.AllowSkillShell || i.promptBuilder == nil {
+		runner = nil
+	}
+	ctx = skills.WithCommandTurn(invocationctx.With(ctx, invocation), runner)
 	var skillTplData TemplateData
 	if i.promptBuilder != nil {
 		skillTplData = i.promptBuilder.BuildTemplateData(req.ActiveProfile, req.Params, req.ConversationID)
@@ -860,7 +886,34 @@ func (i *Interactor) PrepareMessages(ctx context.Context, req PrepareMessagesReq
 	if policyReady {
 		modelOnDemandSkillAvailable = skillPolicy.HasModelOnDemandSkill()
 		taskListContextEnabled = skillPolicy.IsEnabled("tasklist-manager")
-		inv, found, err = skills.Invoke(req.UserContent, i.skillMgr, skillTplData, req.ConversationID, skillPolicy)
+		slashCtx := ctx
+		if isSlashCommand && runner != nil {
+			budgets, enabled, _ := resolveContextProviderProfileConfig(i.contextProviders.Metadata(), req.ActiveProfile)
+			var slashRunner skills.SkillCommandRunner
+			if enabled["slash_skill"] {
+				baseReady := false
+				slashRunner = func(call context.Context, skill *skills.Skill, command string) (string, error) {
+					if !baseReady {
+						// Prepara a base no cache desta tentativa, antes de existir resultado da barra.
+						baseRequest := i.dynamicContextRequest(skillTplData, req.UserContent, req.ConversationSummary, "", nil, taskListContextEnabled, req.ActiveProfile)
+						for _, provider := range i.contextProviders.Providers() {
+							if provider.Name() == skills.ContextProviderName && baseRequest.Enabled(skills.ContextProviderName) {
+								if _, err := provider.Build(ctx, baseRequest); errors.Is(err, contextprovider.ErrCommandNotAuthorized) {
+									return "", err
+								}
+							}
+						}
+						if err := ctx.Err(); err != nil {
+							return "", err
+						}
+						baseReady = true
+					}
+					return runner(call, skill, command)
+				}
+			}
+			slashCtx = skills.WithSlashCommandTurn(ctx, slashRunner, budgets["slash_skill"])
+		}
+		inv, found, err = skills.InvokeContext(slashCtx, req.UserContent, i.skillMgr, req.ConversationID, skillPolicy)
 	}
 	if found {
 		if err != nil {
@@ -908,6 +961,12 @@ func (i *Interactor) PrepareMessages(ctx context.Context, req PrepareMessagesReq
 	}
 
 	contextBlocks := i.buildDynamicContext(ctx, skillTplData, req.UserContent, req.ConversationSummary, slashSkillContent, linkedTaskLists, taskListContextEnabled, req.ActiveProfile)
+	if err := skills.CommandTurnError(ctx); err != nil {
+		if i.emitter != nil {
+			i.emitter.Emit("chat:error", ports.ErrorEvent{ConversationID: req.ConversationID, Error: err.Error(), SurfaceOrigin: req.SurfaceOrigin})
+		}
+		return PrepareMessagesResponse{Messages: req.Messages, Err: err}
+	}
 	slashSkillInjected := strings.TrimSpace(slashSkillContent) == "" || (i.promptBuilder != nil && hasContextBlock(contextBlocks, "slash_skill", "slash_skill"))
 
 	var invokedSkillSlug string
@@ -1100,6 +1159,18 @@ func (i *Interactor) buildDynamicContext(ctx context.Context, data TemplateData,
 	if i.contextProviders == nil {
 		return nil
 	}
+	req := i.dynamicContextRequest(data, currentUserText, conversationSummary, slashSkillContent, linkedTaskLists, taskListContextEnabled, activeProfile)
+	blocks, err := i.contextProviders.Build(ctx, req)
+	if err != nil {
+		if !errors.Is(err, contextprovider.ErrCommandRefused) {
+			logging.Errorf(ctx, "chat.interactor", "[context/providers] erro ao montar blocos dinâmicos: %v", err)
+		}
+		return nil
+	}
+	return blocks
+}
+
+func (i *Interactor) dynamicContextRequest(data TemplateData, currentUserText, conversationSummary, slashSkillContent string, linkedTaskLists []contextprovider.LinkedTaskList, taskListContextEnabled bool, activeProfile *profiles.Profile) contextprovider.BuildRequest {
 	providerBudgets, providerEnabled, providerSettings := resolveContextProviderProfileConfig(i.contextProviders.Metadata(), activeProfile)
 	req := contextprovider.BuildRequest{
 		ConversationID:                   data.ConversationID,
@@ -1142,12 +1213,7 @@ func (i *Interactor) buildDynamicContext(ctx context.Context, data TemplateData,
 			Context: data.Surface.Context,
 		}
 	}
-	blocks, err := i.contextProviders.Build(ctx, req)
-	if err != nil {
-		logging.Errorf(ctx, "chat.interactor", "[context/providers] erro ao montar blocos dinâmicos: %v", err)
-		return nil
-	}
-	return blocks
+	return req
 }
 
 func enabledSkillList(activeProfile *profiles.Profile) []string {
