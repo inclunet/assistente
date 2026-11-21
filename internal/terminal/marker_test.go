@@ -611,6 +611,8 @@ func TestPowerShellPreparationSelection(t *testing.T) {
 		{"Get-ChildItem <# cwd #> . -Filter $pattern", false},
 		{". $cmd", true}, {"echo x | . $cmd", true}, {"echo x; . $cmd", true},
 		{"$x = . $cmd", true}, {"$x += . $cmd", true}, {"$x=.$cmd", true}, {"$x=. $cmd", true}, {"return . $cmd", true},
+		{"if ($false) {} . $cmd /c exit 7", true}, {`Write-Output "}" . $cmd`, false}, {`Write-Output '}' . $cmd`, false},
+		{"$x[0]=.$cmd", true}, {"$x.Name=.$cmd", true}, {"$x[0] += . $cmd", true},
 		{"git log --format=.$x", false}, {"Write-Output a=.$b", false}, {"Write-Output --value=.$b", false},
 		{"if ($ok) { ReTuRn . $cmd }", true}, {"exit . $cmd", true}, {"throw . $cmd", true},
 		{"break . $cmd", true}, {"continue . $cmd", true},
