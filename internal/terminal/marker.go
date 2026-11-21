@@ -86,10 +86,10 @@ func (m *CommandMarker) wrapBash(command string) string {
 var computedPowerShellTarget = regexp.MustCompile(`(?:^|[\s;({|])(?:&|\.)\s*[($@"{]`)
 
 // Parênteses em argumentos de um cmdlet não agrupam o pipeline do comando.
-var standalonePowerShellGroup = regexp.MustCompile(`(?m)(?:^|[;{]|#>)\s*[$@]?\(`)
+var standalonePowerShellGroup = regexp.MustCompile(`(?:^|[;\r\n{]|#>)\s*[$@]?\(`)
 
 // O parser confirma a declaração e sua posição antes de abrir a moldura.
-var powerShellNamespace = regexp.MustCompile(`(?im)(?:^|;|#>)[\s\p{Z}]*using(?:[\s\p{Z}]+|\x60\r?\n|<#[\s\S]*?#>)+namespace\b`)
+var powerShellNamespace = regexp.MustCompile(`(?i)(?:^|[;\r\n]|#>)[\s\p{Z}]*using(?:[\s\p{Z}]+|\x60(?:\r\n?|\n)|<#[\s\S]*?#>)+namespace\b`)
 
 // wrapPowerShell gera comando wrapped para PowerShell.
 func (m *CommandMarker) wrapPowerShell(command, directory string) string {
