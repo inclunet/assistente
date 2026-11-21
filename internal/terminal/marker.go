@@ -81,15 +81,17 @@ func (m *CommandMarker) wrapBash(command string) string {
 	)
 }
 
-// Só expressões usadas como alvo de invocação precisam registrar o valor
-// calculado. A AST do shell confirma o candidato antes de alterar o comando.
-var computedPowerShellTarget = regexp.MustCompile(`(?:^|[\s;({|])(?:&|\.)\s*[($@"{]`)
+// O tokenizador do PowerShell aceita o conjunto Unicode White_Space entre
+// tokens. Só CR, LF e CRLF encerram comentários de linha ou seguem a crase
+// numa continuação. Os seletores consultam o parser para confirmar candidatos.
+const powerShellSpace = `[\x09-\x0d\x85\p{Z}]`
+const powerShellContinuation = `\x60(?:\r\n?|\n)`
+const powerShellGap = `(?:` + powerShellSpace + `|` + powerShellContinuation + `|(?s:<#.*?#>))`
 
-// Parênteses em argumentos de um cmdlet não agrupam o pipeline do comando.
-var standalonePowerShellGroup = regexp.MustCompile(`(?:^|[;\r\n{]|#>)\s*[$@]?\(`)
-
-// O parser confirma a declaração e sua posição antes de abrir a moldura.
-var powerShellNamespace = regexp.MustCompile(`(?i)(?:^|[;\r\n]|#>)[\s\p{Z}]*using(?:[\s\p{Z}]+|\x60(?:\r\n?|\n)|<#[\s\S]*?#>)+namespace\b`)
+var computedPowerShellTarget = regexp.MustCompile(`(?:^|[;({|]|` + powerShellGap + `)[&.]` + powerShellGap + `*[($@"{]`)
+var standalonePowerShellGroup = regexp.MustCompile(`(?:^|[;\r\n{]|#>)` + powerShellGap + `*[$@]?\(`)
+var powerShellGroupEnd = regexp.MustCompile(`\)(?:;|` + powerShellGap + `)*\z`)
+var powerShellNamespace = regexp.MustCompile(`(?i)(?:^|[;\r\n]|#>)` + powerShellGap + `*using` + powerShellGap + `+namespace\b`)
 
 // wrapPowerShell gera comando wrapped para PowerShell.
 func (m *CommandMarker) wrapPowerShell(command, directory string) string {
@@ -101,7 +103,7 @@ func (m *CommandMarker) wrapPowerShell(command, directory string) string {
 	// a origem de um NativeCommandError. O caminho de sucesso só lê $?.
 	code := "$__asstCode" + m.id
 	// A decisão usa apenas o texto do usuário, antes da guarda de diretório.
-	grouped := standalonePowerShellGroup.MatchString(command) && (strings.HasSuffix(strings.TrimRight(command, "; \r\n\t"), ")") || strings.ContainsAny(command, "#}") || strings.Contains(strings.ToLower(command), "return"))
+	grouped := standalonePowerShellGroup.MatchString(command) && (powerShellGroupEnd.MatchString(command) || strings.ContainsAny(command, "#}") || strings.Contains(strings.ToLower(command), "return"))
 	namespace := powerShellNamespace.MatchString(command)
 	prepare := namespace || grouped || computedPowerShellTarget.MatchString(command)
 	state, setup, cleanup, success := "$null", "", code[1:], "$?"
