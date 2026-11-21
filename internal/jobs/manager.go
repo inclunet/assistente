@@ -1411,6 +1411,8 @@ func (m *Manager) TestToolDryRunContext(parent context.Context, req TestToolRequ
 			} else {
 				output["content"] = result.Content
 			}
+		} else if output == nil {
+			output = map[string]any{"content": result.Content}
 		}
 	}
 	if result.Metadata != nil {

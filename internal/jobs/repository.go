@@ -2684,6 +2684,8 @@ func invocationOutput(raw string) map[string]any {
 			} else {
 				output["content"] = result.Content
 			}
+		} else if output == nil {
+			output = map[string]any{"content": result.Content}
 		}
 	}
 	for key, value := range result.Metadata {
