@@ -950,7 +950,7 @@ func TestMetadataTimeoutWithoutOutput(t *testing.T) {
 		t.Errorf("esperado exitCode=-1 em metadata, got %v", result.Metadata["exitCode"])
 	}
 	if result.Metadata["duration"] != "250ms" || !strings.Contains(result.Content, "250ms") {
-		t.Errorf("duração da entrada = %v, esperado 250ms", result.Metadata["duration"])
+		t.Errorf("esperado 250ms nos metadados e no texto; duration=%v, content=%q", result.Metadata["duration"], result.Content)
 	}
 	if commandID, ok := result.Metadata["commandId"].(string); !ok || commandID != "cmd-132" {
 		t.Errorf("esperado commandId=cmd-132 em metadata, got %v", result.Metadata["commandId"])

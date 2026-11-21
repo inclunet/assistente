@@ -343,6 +343,7 @@ func (rc *RunCommand) Execute(ctx context.Context, args json.RawMessage) (tools.
 			metadata["deepLink"] = deepLinkForSession(sessionID)
 		}
 		message := fmt.Sprintf("Erro ao executar comando: %v", err)
+		// A sessão fornece os horários na entrada de histórico. Sem ela, a duração é desconhecida.
 		if entry != nil {
 			message += "\nDuração registrada: " + duration
 			metadata["commandId"] = entry.ID
