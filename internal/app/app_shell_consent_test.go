@@ -57,6 +57,9 @@ func TestProtectedShellConsentOnDesktopAndChannel(t *testing.T) {
 			})
 			gateway := messaging.NewGateway(nil, nil, nil, nil, nil, nil)
 			gateway.Register("telegram", &consentMessenger{send: func(msg messaging.OutgoingMessage) error {
+				if !msg.PlainText {
+					t.Fatal("a pergunta de consentimento deve chegar ao adaptador como texto literal")
+				}
 				visible = msg.Text
 				body = msg.Text
 				if gateway.ChannelQuestions().TryAnswer(t.Context(), "chat", "contact", "2") != messaging.AnswerDelivered {

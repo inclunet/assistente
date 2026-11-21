@@ -73,6 +73,9 @@ type OutgoingMessage struct {
 	// Text é o conteúdo textual da mensagem.
 	Text string
 
+	// PlainText mantém literal o conteúdo de perguntas de decisão.
+	PlainText bool
+
 	// Attachments são os anexos a serem enviados (áudio TTS, imagens, etc.).
 	Attachments []Attachment
 

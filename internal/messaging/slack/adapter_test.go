@@ -719,10 +719,20 @@ func TestAttachmentFromSlackFile_MissingScopeOnDownload(t *testing.T) {
 	}
 }
 
+func TestPostMessageOptions_LiteralConsent(t *testing.T) {
+	const source = `example {{ secret "_token_" }}`
+	opts := postMessageOptions(slack.APIURL, source, "", "", true)
+	_, values, err := slack.UnsafeApplyMsgOptions("xoxb-test", "C1", slack.APIURL,
+		append([]slack.MsgOption{slack.MsgOptionPost()}, opts...)...)
+	if err != nil || values.Get("text") != source || values.Get("mrkdwn") != "false" {
+		t.Fatalf("a pergunta deve preservar o template literal: %v, %v", values, err)
+	}
+}
+
 func TestPostMessageOptions_SetsClientMsgID(t *testing.T) {
 	t.Parallel()
 
-	opts := postMessageOptions(slack.APIURL, "olá", "123.456", "trace-abc-uuid")
+	opts := postMessageOptions(slack.APIURL, "olá", "123.456", "trace-abc-uuid", false)
 	_, values, err := slack.UnsafeApplyMsgOptions("xoxb-test", "C1", slack.APIURL,
 		append([]slack.MsgOption{slack.MsgOptionPost()}, opts...)...)
 	if err != nil {
@@ -742,7 +752,7 @@ func TestPostMessageOptions_SetsClientMsgID(t *testing.T) {
 func TestPostMessageOptions_OmitsClientMsgIDWhenEmpty(t *testing.T) {
 	t.Parallel()
 
-	opts := postMessageOptions(slack.APIURL, "sem chave", "", "  ")
+	opts := postMessageOptions(slack.APIURL, "sem chave", "", "  ", false)
 	_, values, err := slack.UnsafeApplyMsgOptions("xoxb-test", "C1", slack.APIURL,
 		append([]slack.MsgOption{slack.MsgOptionPost()}, opts...)...)
 	if err != nil {
@@ -757,7 +767,7 @@ func TestPostMessageOptions_NormalizesBaseURLWithoutSlash(t *testing.T) {
 	t.Parallel()
 
 	// Base sem barra final não pode gerar "...apichat.postMessage".
-	opts := postMessageOptions("https://example.test/api", "oi", "", "key-1")
+	opts := postMessageOptions("https://example.test/api", "oi", "", "key-1", false)
 	endpoint, values, err := slack.UnsafeApplyMsgOptions("xoxb-test", "C1", "https://example.test/api/",
 		append([]slack.MsgOption{slack.MsgOptionPost()}, opts...)...)
 	if err != nil {

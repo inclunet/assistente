@@ -222,7 +222,7 @@ func (s *SlackAdapter) Send(ctx context.Context, msg messaging.OutgoingMessage) 
 		return nil
 	}
 
-	opts := postMessageOptions(apiBase, text, msg.ReplyToMessageID, msg.IdempotencyKey)
+	opts := postMessageOptions(apiBase, text, msg.ReplyToMessageID, msg.IdempotencyKey, msg.PlainText)
 	_, _, err := api.PostMessageContext(ctx, msg.ChatID, opts...)
 	return err
 }
@@ -231,7 +231,7 @@ func (s *SlackAdapter) Send(ctx context.Context, msg messaging.OutgoingMessage) 
 // client_msg_id quando IdempotencyKey está setada. slack-go v0.13 não expõe
 // MsgOption para client_msg_id; UnsafeMsgOptionEndpoint injeta o form field
 // reutilizando o endpoint chat.postMessage da mesma base URL do cliente.
-func postMessageOptions(apiBaseURL, text, threadTS, idempotencyKey string) []slack.MsgOption {
+func postMessageOptions(apiBaseURL, text, threadTS, idempotencyKey string, plainText bool) []slack.MsgOption {
 	params := slack.PostMessageParameters{}
 	if threadTS != "" {
 		params.ThreadTimestamp = threadTS
@@ -239,6 +239,9 @@ func postMessageOptions(apiBaseURL, text, threadTS, idempotencyKey string) []sla
 	opts := []slack.MsgOption{
 		slack.MsgOptionText(text, false),
 		slack.MsgOptionPostMessageParameters(params),
+	}
+	if plainText {
+		opts = append(opts, slack.MsgOptionDisableMarkdown())
 	}
 	if key := strings.TrimSpace(idempotencyKey); key != "" {
 		base := apiBaseURL
