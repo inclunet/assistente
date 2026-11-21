@@ -163,6 +163,7 @@ notSaved: 'The decision applies only to this operation: it could not be remember
       builderSkillError: 'A selected skill requires supporting files or runtime features that this package cannot provide. Review the selection.',
       builderSourcesError: 'Some resources could not be loaded. Available resources can still be selected.',
       builderJobs: 'Assistant jobs',
+      invalidLocalJson: 'Enter valid JSON before saving.',
       localInputJson: 'Enter a JSON value. Use double quotes for text.',
       missingJobInput: 'Set a value for {{name}} before enabling the job.',
       builderJobError: 'Job {{name}} uses options that the package cannot preserve yet. Check its pipeline, trigger conditions, simulation, events, mappings and failure policy.',

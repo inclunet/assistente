@@ -162,6 +162,7 @@ notSaved: 'La decisión vale solo para esta operación: no se pudo recordar. Ser
       builderSkillError: 'Una skill seleccionada requiere archivos auxiliares o funciones de ejecución no disponibles en el paquete. Revise la selección.',
       builderSourcesError: 'No se pudieron cargar algunos recursos. Puede seleccionar los recursos disponibles.',
       builderJobs: 'Jobs del Asistente',
+      invalidLocalJson: 'Corrige el JSON antes de guardar.',
       localInputJson: 'Introduce un valor JSON. Usa comillas dobles para texto.',
       missingJobInput: 'Configura {{name}} antes de habilitar el job.',
       builderJobError: 'El job {{name}} usa opciones que el paquete aún no puede conservar. Comprueba la pipeline, las condiciones de los disparadores, la simulación, los eventos, las asignaciones y la política de errores.',

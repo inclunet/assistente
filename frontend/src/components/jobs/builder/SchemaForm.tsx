@@ -32,6 +32,8 @@ interface JSONSchema {
 
 interface SchemaFormProps {
   configuredFields?: string[];
+  localDrafts?: Record<string, string>;
+  onLocalDraft?: (field: string, raw: string) => void;
   schema: JSONSchema | null;
   values: Record<string, unknown>;
   onChange: (key: string, value: unknown) => void;
@@ -231,17 +233,12 @@ function SchemaField({
   }
 }
 
-function LocalInput({ name, value, onChange }: {name: string; value: unknown; onChange: (value: unknown) => void}) {
-  const {t} = useTranslation();
-  const [raw, setRaw] = useState(() => value == null ? '' : JSON.stringify(value));
-  return <Textarea label={name} value={raw} hint={t('plugins.localInputJson')} onChange={event => {
-    const next = event.target.value;
-    setRaw(next);
-    try { onChange(JSON.parse(next)); } catch { onChange(undefined); }
-  }} />;
+export function parseLocalInput(raw: string): {valid:boolean; value?:unknown} {
+  if (!raw.trim()) return {valid:true};
+  try { return {valid:true, value:JSON.parse(raw)}; } catch { return {valid:false}; }
 }
 
-export function SchemaForm({ schema, values, onChange, templateMode = false, templateContext, configuredFields = [] }: SchemaFormProps) {
+export function SchemaForm({ schema, values, onChange, templateMode = false, templateContext, configuredFields = [], localDrafts = {}, onLocalDraft }: SchemaFormProps) {
   const { t } = useTranslation();
 
   const fields = useMemo(() => {
@@ -254,7 +251,7 @@ export function SchemaForm({ schema, values, onChange, templateMode = false, tem
     }));
   }, [schema]);
 
-  const extra = configuredFields.filter(field => !Object.prototype.hasOwnProperty.call(schema?.properties ?? {}, field));
+  const extra = configuredFields.filter(field => Object.prototype.hasOwnProperty.call(localDrafts, field) || !Object.prototype.hasOwnProperty.call(schema?.properties ?? {}, field));
   if (fields.length === 0 && extra.length === 0) {
     return (
       <div className="schema-form__empty">
@@ -268,8 +265,19 @@ export function SchemaForm({ schema, values, onChange, templateMode = false, tem
       {templateMode && (
         <p className="schema-form__hint" role="note">{t('jobs.builder.templateHint')}</p>
       )}
-      {extra.map(name => <LocalInput key={name} name={name} value={values[name]} onChange={value => onChange(name, value)} />)}
-      {fields.map(({ name, prop, required }) => (
+      {extra.map(name => {
+        const saved = Object.prototype.hasOwnProperty.call(values, name) ? values[name] : undefined;
+        const raw = Object.prototype.hasOwnProperty.call(localDrafts, name) ? localDrafts[name] : saved == null ? '' : JSON.stringify(saved);
+        return <Textarea key={name} label={name} value={raw} hint={t('plugins.localInputJson')}
+          error={parseLocalInput(raw).valid ? undefined : t('plugins.invalidLocalJson')}
+          onChange={event => {
+            const next = event.target.value;
+            onLocalDraft?.(name, next);
+            const parsed = parseLocalInput(next);
+            if (parsed.valid) onChange(name, parsed.value);
+          }} />;
+      })}
+      {fields.filter(field => !extra.includes(field.name)).map(({ name, prop, required }) => (
         <SchemaField
           key={name}
           name={name}

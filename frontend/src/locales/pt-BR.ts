@@ -163,6 +163,7 @@ notSaved: 'A decisão vale somente para esta operação: não foi possível lemb
       builderSkillError: 'Uma skill selecionada exige arquivos auxiliares ou recursos de execução sem suporte no pacote. Revise a seleção.',
       builderSourcesError: 'Alguns recursos não puderam ser carregados. Os recursos disponíveis podem ser selecionados.',
       builderJobs: 'Jobs do Assistente',
+      invalidLocalJson: 'Corrija o JSON antes de salvar.',
       localInputJson: 'Informe um valor JSON. Use aspas duplas para texto.',
       missingJobInput: 'Preencha {{name}} antes de habilitar o job.',
       builderJobError: 'O job {{name}} usa opções que o pacote ainda não consegue preservar. Confira a pipeline, as condições dos acionadores, a simulação, os eventos, os mapeamentos e a política de falhas.',

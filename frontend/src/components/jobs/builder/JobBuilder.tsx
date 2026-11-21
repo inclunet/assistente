@@ -10,7 +10,7 @@ import { Checkbox } from '../../ui/Checkbox';
 import { CollapsibleSection } from '../../ui/CollapsibleSection';
 import { Combobox, type ComboboxItem } from '../../pickers/Combobox';
 import { ToolPicker } from '../../pickers/ToolPicker';
-import { SchemaForm } from './SchemaForm';
+import { SchemaForm, parseLocalInput } from './SchemaForm';
 import { TriggerEditor } from './TriggerEditor';
 import { OutputExplorer } from './OutputExplorer';
 import { TemplateEditor } from './TemplateEditor';
@@ -175,6 +175,8 @@ export function JobBuilder({ editJob, onClose, onSaved }: JobBuilderProps) {
   const [draft, setDraft] = useState<JobDraft>(() =>
     editJob ? jobToDraft(editJob) : createEmptyDraft()
   );
+  const [localDrafts, setLocalDrafts] = useState<Record<string,string>>({});
+  const inputsValid = Object.values(localDrafts).every(raw => parseLocalInput(raw).valid);
   const [toolSchema, setToolSchema] = useState<Record<string, unknown> | null>(null);
 
   useEffect(() => {
@@ -305,8 +307,8 @@ export function JobBuilder({ editJob, onClose, onSaved }: JobBuilderProps) {
   }, [testOutput, eventSchema]);
 
   const canSave = useMemo(() => {
-    return draft.name.length > 0 && draft.tool.length > 0;
-  }, [draft.name, draft.tool]);
+    return inputsValid && draft.name.length > 0 && draft.tool.length > 0;
+  }, [draft.name, draft.tool, inputsValid]);
 
   const updateDraft = useCallback(<K extends keyof JobDraft>(field: K, value: JobDraft[K]) => {
     setDraft((prev) => {
@@ -349,6 +351,7 @@ export function JobBuilder({ editJob, onClose, onSaved }: JobBuilderProps) {
 
   const handleToolSelect = useCallback((_toolName: string, entry: jobs.CatalogEntry | null) => {
     if (!entry) return;
+    setLocalDrafts({});
     setDraft((prev) => ({ ...prev, tool: entry.name, inputs: {} }));
     setTestOutput(null);
     try {
@@ -639,6 +642,8 @@ export function JobBuilder({ editJob, onClose, onSaved }: JobBuilderProps) {
                 <SchemaForm
                   schema={toolSchema as never}
                   configuredFields={editJob?.required_inputs}
+                  localDrafts={localDrafts}
+                  onLocalDraft={(field,raw) => setLocalDrafts(current => ({...current,[field]:raw}))}
                   values={draft.inputs}
                   onChange={updateInput}
                   templateMode
@@ -650,7 +655,7 @@ export function JobBuilder({ editJob, onClose, onSaved }: JobBuilderProps) {
                     variant="primary"
                     onClick={handleTestTool}
                     loading={testing}
-                    disabled={testing || !draft.tool}
+                    disabled={testing || !draft.tool || !inputsValid}
                     aria-label={t('jobs.builder.testTool')}
                   >
                     {testing ? t('jobs.builder.testing') : t('jobs.builder.testToolRun')}
