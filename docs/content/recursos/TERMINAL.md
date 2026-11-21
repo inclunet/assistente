@@ -28,6 +28,10 @@ nativo identificado como a última operação conserva seu código de saída. Se
 PowerShell indicar falha e o terminal não conseguir identificar qual operação
 falhou dentro de uma expressão composta, o status é 1.
 
+No PowerShell, você pode iniciar o comando com `using namespace` para usar
+nomes de tipos abreviados. Por exemplo, depois de `using namespace System.Text`,
+`[StringBuilder]::new('texto').ToString()` devolve `texto`.
+
 ## Sessões
 
 Múltiplas sessões podem existir simultaneamente (até 10 por padrão), cada uma em sua própria aba.

@@ -129,6 +129,8 @@ func TestPowerShellPipelineAndGroupedStatus(t *testing.T) {
 		{"@(cmd /c exit 7)", 7},
 		{"(cmd /c exit 7); return", 7},
 		{"return (cmd /c exit 7)", 7},
+		{"return (cmd.exe /c exit 7)", 7},
+		{"using namespace System.Text; (cmd.exe /c 'echo sample 1>&2 & exit 0' 2>&1 | Out-String -Stream)", 0},
 		{"cmd /c exit 7; return (Get-Item missing-leaf -ErrorAction Ignore)", 1},
 		{"@($(cmd /c exit 7)) # nota", 7},
 		{"cmd /c exit 7; @(Get-Item missing-leaf -ErrorAction Ignore)", 1},
@@ -161,6 +163,50 @@ func TestPowerShellPipelineAndGroupedStatus(t *testing.T) {
 				t.Fatalf("esperado=%d entry=%+v err=%v", tc.exit, entry, err)
 			}
 		})
+	}
+}
+
+func TestPowerShellNamespaceAndNativeReturn(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("Windows PowerShell")
+	}
+	marker := newCommandMarkerForShell("powershell")
+	for _, dir := range []string{"", t.TempDir()} {
+		for _, tc := range []struct {
+			cmd, output string
+			code        int
+		}{
+			{"return (cmd.exe /c exit 7)", "", 7},
+			{"using namespace System.Text\n[StringBuilder]::new().Append('ok').ToString()", "ok", 0},
+			{"# comentário\nusing namespace System.Text; using namespace System.Collections; (& (Get-Command Write-Output) ([StringBuilder]::new('ok').ToString()))", "ok", 0},
+			{"using\u00a0`\nnamespace System.Text; [StringBuilder]::new('ok').ToString()", "ok", 0},
+			{"# comentário\rusing namespace System.Text\r[StringBuilder]::new('ok').ToString()", "ok", 0},
+			{"# comentário\r\nusing namespace System.Text\r\n[StringBuilder]::new('ok').ToString()", "ok", 0},
+			{"using `\rnamespace System.Text; [StringBuilder]::new('ok').ToString()", "ok", 0},
+			{"# comentário\r(cmd.exe /c exit 7)", "", 7},
+			{"using namespace System.Text; return (cmd.exe /c exit 7)", "", 7},
+			{"using namespace System.Text\n(cmd.exe /c exit 9)", "", 9},
+			{"Write-Output 'inválido'; using namespace System.Text", "", 1},
+			{"using namespace System.Text; Write-Output 'inválido'; if (", "", 1},
+		} {
+			cmd := exec.CommandContext(t.Context(), "powershell.exe", "-NoProfile", "-NonInteractive", "-Command", marker.wrapCommandInDirectory(tc.cmd, dir, "powershell"))
+			out, err := cmd.CombinedOutput()
+			result := parseMarkerOutput(marker, string(out))
+			if err != nil || !result.Found || result.ExitCode != tc.code || (tc.code != 1 && strings.TrimSpace(result.Output) != tc.output) {
+				t.Fatalf("diretório=%q comando=%q saída=%q status=%d erro=%v", dir, tc.cmd, result.Output, result.ExitCode, err)
+			}
+			if tc.code == 1 && (strings.TrimSpace(result.Output) == "" || slices.Contains(strings.Split(result.Output, "\n"), "inválido")) {
+				t.Fatalf("comando inválido executou ou ficou sem diagnóstico: %q", tc.cmd)
+			}
+		}
+		if dir != "" {
+			cmd := marker.wrapCommandInDirectory("using namespace System.Text; (Get-Location).ProviderPath", dir, "powershell")
+			out, err := exec.CommandContext(t.Context(), "powershell.exe", "-NoProfile", "-NonInteractive", "-Command", cmd).CombinedOutput()
+			result := parseMarkerOutput(marker, string(out))
+			if err != nil || !result.Found || result.ExitCode != 0 || strings.TrimSpace(result.Output) != dir {
+				t.Fatalf("diretório após using: saída=%q status=%d erro=%v", result.Output, result.ExitCode, err)
+			}
+		}
 	}
 }
 

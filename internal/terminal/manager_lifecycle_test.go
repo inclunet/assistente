@@ -288,6 +288,7 @@ func TestWaitForMarkerPreservesReadFailureAndCancellation(t *testing.T) {
 		{"leitura", readErr, false, readErr, -1},
 		{"descritor fechado sem encerrar a sessão", os.ErrClosed, false, os.ErrClosed, -1},
 		{"cancelado_ao_drenar", io.EOF, true, context.Canceled, -1},
+		{"prazo_depois_da_falha_de_leitura", readErr, true, context.DeadlineExceeded, -1},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			marker := newCommandMarkerForShell("bash")
@@ -299,13 +300,17 @@ func TestWaitForMarkerPreservesReadFailureAndCancellation(t *testing.T) {
 			}
 			session.Start()
 			<-session.readerDone
-			ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+			deadline := time.Now().Add(time.Second)
+			if tc.wantErr == context.DeadlineExceeded {
+				deadline = time.Time{}
+			}
+			ctx, cancel := context.WithDeadline(t.Context(), deadline)
 			defer cancel()
 			if tc.cancel {
 				cancel()
 			}
 			output, code, err := session.waitForMarker(ctx, marker, "test")
-			if !errors.Is(err, tc.wantErr) || code != tc.code || output != "parcial" {
+			if !errors.Is(err, tc.wantErr) || (tc.readerErr != io.EOF && !errors.Is(err, tc.readerErr)) || code != tc.code || output != "parcial" {
 				t.Fatalf("output=%q code=%d err=%v", output, code, err)
 			}
 		})
