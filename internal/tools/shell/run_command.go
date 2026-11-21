@@ -295,7 +295,8 @@ func (rc *RunCommand) Execute(ctx context.Context, args json.RawMessage) (tools.
 			duration = entry.EndedAt.Sub(entry.StartedAt).String()
 		}
 
-		isTimeout := errors.Is(err, context.DeadlineExceeded) && !errors.Is(err, terminal.ErrSessionRead) && !errors.Is(err, terminal.ErrSessionClosed)
+		isTimeout := errors.Is(err, context.DeadlineExceeded) &&
+			!errors.Is(err, terminal.ErrSessionWrite) && !errors.Is(err, terminal.ErrSessionRead) && !errors.Is(err, terminal.ErrSessionClosed)
 
 		if isTimeout && output != "" {
 			// Timeout COM output: retorna como sucesso com nota sobre timeout

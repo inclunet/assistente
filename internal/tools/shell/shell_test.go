@@ -570,7 +570,7 @@ func TestTimeoutWithPartialOutput(t *testing.T) {
 }
 
 func TestPartialOutputKeepsTerminalFailures(t *testing.T) {
-	for _, cause := range []error{context.Canceled, terminal.ErrSessionClosed, terminal.ErrSessionRead, errors.Join(context.DeadlineExceeded, terminal.ErrSessionRead)} {
+	for _, cause := range []error{context.Canceled, terminal.ErrSessionClosed, terminal.ErrSessionRead, errors.Join(context.DeadlineExceeded, terminal.ErrSessionWrite), errors.Join(context.DeadlineExceeded, terminal.ErrSessionRead)} {
 		mgr := &MockSessionManager{fakeRunErr: cause, fakeEntry: &terminal.HistoryEntry{Output: "parcial", ExitCode: -1}}
 		policy := &allowlist.Allowlist{AutoApprove: []string{"*"}, DefaultAction: "deny"}
 		rc := NewRunCommand(mgr, nil, func(context.Context) (*allowlist.Allowlist, error) { return policy, nil }, ".")
