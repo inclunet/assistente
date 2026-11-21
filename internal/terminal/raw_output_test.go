@@ -133,7 +133,7 @@ func TestCommandStartWaitsForPreviousManualDelivery(t *testing.T) {
 				defer mu.Unlock()
 				want := []string{"anterior/antes", "anterior/\uFFFD", "início", "fim"}
 				if !managed && tail != "" {
-					want = []string{"anterior/antes", "anterior/\uFFFD", "início", "novo/depois\x1b]nova", "fim"}
+					want = []string{"anterior/antes", "anterior/\uFFFD", "início", "novo/depois", "novo/\x1b]nova", "fim"}
 				}
 				if !slices.Equal(events, want) {
 					t.Fatalf("eventos=%q esperados=%q", events, want)
