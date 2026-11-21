@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
 	"path/filepath"
 	"runtime"
 	"strconv"
@@ -313,7 +312,7 @@ func (s *Session) readLoop(ctx context.Context) {
 			if errors.Is(err, io.EOF) || runtime.GOOS == "linux" && errors.Is(err, syscall.EIO) {
 				// O último slave do PTY no Linux fecha com EIO no master.
 				err = nil
-			} else if s.expectedReaderClose(err) {
+			} else if s.expectedReaderClose() {
 				logging.Infof(ctx, "terminal.session", "[Terminal] Leitor encerrado durante cleanup da sessão %s: %v", s.id, err)
 				err = nil
 			} else {
@@ -353,13 +352,11 @@ func (s *Session) signalReaderDone() {
 	})
 }
 
-func (s *Session) expectedReaderClose(err error) bool {
+func (s *Session) expectedReaderClose() bool {
 	s.mu.Lock()
 	state := s.state
 	s.mu.Unlock()
-	return state == StateClosing || state == StateExited ||
-		errors.Is(err, os.ErrClosed) ||
-		strings.Contains(strings.ToLower(err.Error()), "file already closed")
+	return state == StateClosing || state == StateExited
 }
 
 // waitProcess é o único ponto que chama Session.Wait. Além de colher o

@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -285,6 +286,7 @@ func TestWaitForMarkerPreservesReadFailureAndCancellation(t *testing.T) {
 	}{
 		{"eof", io.EOF, false, nil, 0},
 		{"leitura", readErr, false, readErr, -1},
+		{"descritor fechado sem encerrar a sessão", os.ErrClosed, false, os.ErrClosed, -1},
 		{"cancelado_ao_drenar", io.EOF, true, context.Canceled, -1},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -382,8 +384,8 @@ func TestReadFailureWhileWritingCommand(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			pty := &failingWritePTY{wrapper: make(chan string, 1), released: make(chan struct{})}
 			reader, writer := io.Pipe()
-			defer reader.Close()
-			defer writer.Close()
+			defer func() { _ = reader.Close() }()
+			defer func() { _ = writer.Close() }()
 			var emitted strings.Builder
 			session := &Session{id: "test", shell: "bash", ptySession: pty, ptyReader: reader, readerCtx: t.Context(),
 				onOutput: func(_, _, output string) { emitted.WriteString(output) },

@@ -97,24 +97,26 @@ func (m *CommandMarker) wrapPowerShell(command, directory string) string {
 	// Na falha, o próprio scriptblock compilado identifica o pipeline final e
 	// a origem de um NativeCommandError. O caminho de sucesso só lê $?.
 	code := "$__asstCode" + m.id
-	capture, savedTargets, cleanup := "", "$null", code[1:]
-	if computedPowerShellTarget.MatchString(command) {
-		savedTargets = "$__asstTargets" + m.id
-		capture = savedTargets
-		cleanup += "," + savedTargets[1:]
+	// A decisão usa apenas o texto do usuário, antes da guarda de diretório.
+	grouped := standalonePowerShellGroup.MatchString(command) && (strings.HasSuffix(strings.TrimRight(command, "; \r\n\t"), ")") || strings.ContainsAny(command, "#}") || strings.Contains(strings.ToLower(command), "return"))
+	prepare := grouped || computedPowerShellTarget.MatchString(command)
+	state, setup, cleanup, success := "$null", "", code[1:], "$?"
+	if prepare {
+		state = "$__asstState" + m.id
+		setup = state + " = @{}; "
+		cleanup += "," + state[1:]
+		success += " -and " + state + ".Ok -ne $false"
 	}
-	status := fmt.Sprintf("%s = if ($?) { 0 } else { %s $MyInvocation.MyCommand.ScriptBlock.Ast %s }", code, singlePowerShellLine(failedPowerShellStatus), savedTargets)
+	status := fmt.Sprintf("%s = if (%s) { 0 } else { %s $MyInvocation.MyCommand.ScriptBlock.Ast %s }", code, success, singlePowerShellLine(failedPowerShellStatus), state)
 	body := powerShellDirectoryGuard(directory) + command
 	encoded := base64.StdEncoding.EncodeToString([]byte(body))
 	source := fmt.Sprintf("[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('%s')) + [Environment]::NewLine", encoded)
 	frame := fmt.Sprintf("'try { ' + %s + ' } finally { ' + {%s}.ToString() + ' }'", source, status)
 	script := "[scriptblock]::Create(" + frame + ")"
-	// O sufixo é conferido no texto do usuário, antes da guarda de diretório.
-	grouped := standalonePowerShellGroup.MatchString(command) && (strings.HasSuffix(strings.TrimRight(command, "; \r\n\t"), ")") || strings.ContainsAny(command, "#}") || strings.Contains(strings.ToLower(command), "return"))
-	if capture != "" || grouped {
-		script = fmt.Sprintf("%s (%s) {%s} '%s'", singlePowerShellLine(prepareGroupedPowerShell), source, status, capture)
+	if prepare {
+		script = fmt.Sprintf("%s (%s) {%s} '%s'", singlePowerShellLine(prepareGroupedPowerShell), source, status, state)
 	}
-	return fmt.Sprintf("%s; try { . (%s) } catch { Microsoft.PowerShell.Utility\\Write-Error -ErrorRecord $_ -ErrorAction Continue; %s=1 }; Write-Host (%s + %s); Microsoft.PowerShell.Utility\\Remove-Variable -Name %s -ErrorAction Ignore", start, script, code, end, code, cleanup)
+	return fmt.Sprintf("%s; %stry { . (%s) } catch { Microsoft.PowerShell.Utility\\Write-Error -ErrorRecord $_ -ErrorAction Continue; %s=1 }; Write-Host (%s + %s); Microsoft.PowerShell.Utility\\Remove-Variable -Name %s -ErrorAction Ignore", start, setup, script, code, end, code, cleanup)
 }
 
 // A preparação e a leitura da falha precisam identificar a mesma operação.
@@ -132,7 +134,7 @@ const powerShellLastOperation = `	$last = $null;
 						$value = $expr.SubExpression.Statements[-1]
 					} else { break }
 				};
-				if ($value.PipelineElements[-1] -is [System.Management.Automation.Language.CommandAst]) { $last = $value }
+				if ($value -and $value.PipelineElements.Count -and $value.PipelineElements[-1] -is [System.Management.Automation.Language.CommandAst]) { $last = $value }
 			};
 			break
 		};
@@ -149,7 +151,11 @@ const powerShellLastOperation = `	$last = $null;
 const failedPowerShellStatus = `& {
 	param($ast, $targets);
 	$stmts = $ast.EndBlock.Statements[0].Body.Statements;
-` + powerShellLastOperation + `	$stages = $last.PipelineElements;
+` + powerShellLastOperation + `
+	if ($targets -and $targets.ContainsKey('Offset')) {
+		$last = $ast.Find({ param($node) $node -is [System.Management.Automation.Language.PipelineAst] -and $node.Extent.StartOffset -eq $targets.Offset }, $false)
+	};
+	$stages = $last.PipelineElements;
 	if ($LASTEXITCODE) {
 		for ($n = 0; $n -lt $stages.Count; $n++) {
 			$stage = $stages[$n];
@@ -180,16 +186,16 @@ const failedPowerShellStatus = `& {
 	return 0
 }`
 
-// No PowerShell 5.1, agrupamentos no fim do script ou antes de return podem
-// restaurar $? mesmo quando o comando dentro deles falhou. Remova somente os
-// delimitadores da expressão independente que termina num pipeline de comando.
+// Capture $? antes que o agrupamento o restaure. Preserve os delimitadores:
+// @() pode descartar toda a saída acumulada em uma falha terminante.
+// () só admite um pipeline; a subexpressão interna comporta seu try/finally.
 const prepareGroupedPowerShell = `& {
 	param($source, $status, $capture);
 	$tokens = $null;
 	$errors = $null;
 	$ast = [System.Management.Automation.Language.Parser]::ParseInput($source, [ref]$tokens, [ref]$errors);
 	$stmts = $ast.EndBlock.Statements;
-` + powerShellLastOperation + `	$chars = $source.ToCharArray();
+` + powerShellLastOperation + `	$container = $null;
 	while ($last -is [System.Management.Automation.Language.PipelineAst] -and $last.PipelineElements.Count -eq 1) {
 		$element = $last.PipelineElements[0];
 		if ($element -isnot [System.Management.Automation.Language.CommandExpressionAst] -or $element.Redirections.Count) { break };
@@ -198,24 +204,30 @@ const prepareGroupedPowerShell = `& {
 			$last = $group.Pipeline
 		} elseif ($group -is [System.Management.Automation.Language.SubExpressionAst] -or $group -is [System.Management.Automation.Language.ArrayExpressionAst]) {
 			if (!$group.SubExpression.Statements.Count) { break };
-			$chars[$group.Extent.StartOffset + 1] = ' ';
 			$last = $group.SubExpression.Statements[-1]
 		} else { break };
-		$chars[$group.Extent.StartOffset] = ' ';
-		$chars[$group.Extent.EndOffset - 1] = ' '
+		$container = $group
 	};
-	if ($last -is [System.Management.Automation.Language.PipelineAst] -and $last.PipelineElements[-1] -is [System.Management.Automation.Language.CommandAst]) { $source = -join $chars };
-	if ($capture) {
-		$stages = $last.PipelineElements;
+	$frame = 'try { ';
+	$stages = $last.PipelineElements;
+	if ($stages.Count -and $stages[-1] -is [System.Management.Automation.Language.CommandAst]) {
+		$prefix = '';
+		if ($container) {
+			if ($container -is [System.Management.Automation.Language.ParenExpressionAst]) { $prefix = '$(try { ' };
+			$offset = $frame.Length + $last.Extent.StartOffset + $prefix.Length;
+			$record = $capture + '.Ok = $?; ' + $capture + '.Offset = ' + $offset;
+			$suffix = if ($prefix) { ' } finally { ' + $record + ' })' } else { '; ' + $record };
+			$source = $source.Insert($last.Extent.EndOffset, [Environment]::NewLine + $suffix + [Environment]::NewLine)
+		};
 		for ($n = $stages.Count - 1; $n -ge 0; $n--) {
 			$stage = $stages[$n];
 			if ($stage -isnot [System.Management.Automation.Language.CommandAst] -or $stage.GetCommandName()) { continue };
 			$target = $stage.CommandElements[0].Extent;
 			$source = $source.Insert($target.EndOffset, ')').Insert($target.StartOffset, '(' + $capture + '[' + $n + '] = ')
 		};
-		$source = $capture + ' = @{}; ' + $source
+		if ($prefix) { $source = $source.Insert($last.Extent.StartOffset, $prefix) }
 	};
-	return [scriptblock]::Create('try { ' + $source + ' } finally { ' + $status.ToString() + ' }')
+	return [scriptblock]::Create($frame + $source + ' } finally { ' + $status.ToString() + ' }')
 }`
 
 // Preserva espaços dentro de literais do script ao remover o recuo das linhas.

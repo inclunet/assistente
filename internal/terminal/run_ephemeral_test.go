@@ -3,7 +3,9 @@ package terminal
 import (
 	"context"
 	"errors"
+	"os/exec"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -162,6 +164,33 @@ func TestPowerShellPipelineAndGroupedStatus(t *testing.T) {
 	}
 }
 
+func TestPowerShellGroupingPreservesOutputOnThrow(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("Windows PowerShell")
+	}
+	cfg := DefaultManagerConfig()
+	cfg.DefaultShell = "powershell.exe"
+	const body = "Write-Output antes; Write-Error falha -ErrorAction Stop"
+	for _, group := range []string{"@(" + body + ")", "$(" + body + ")", "( & { " + body + " } )"} {
+		// O shell de referência emite a saída que saiu do grupo e a mensagem
+		// do erro, com o mesmo contrato público de falha do terminal.
+		want, err := exec.Command(cfg.DefaultShell, "-NoProfile", "-NonInteractive", "-Command", "try { "+group+" } catch { Write-Output $_.Exception.Message; exit 1 }").Output()
+		var controlExit *exec.ExitError
+		controlLines := strings.Split(strings.TrimSpace(strings.ReplaceAll(string(want), "\r\n", "\n")), "\n")
+		if !errors.As(err, &controlExit) || controlExit.ExitCode() != 1 || controlLines[len(controlLines)-1] != "falha" {
+			t.Fatalf("controle %q: saída=%q erro=%v", group, want, err)
+		}
+		entry, err := NewManager(cfg, nil).RunEphemeral(t.Context(), t.TempDir(), group, 15*time.Second, "test")
+		if err != nil || entry == nil || entry.ExitCode != controlExit.ExitCode() || !strings.Contains(entry.Output, "falha") {
+			t.Fatalf("grupo=%q entry=%+v err=%v", group, entry, err)
+		}
+		lines := strings.Split(strings.TrimSpace(entry.Output), "\n")
+		if slices.Contains(lines, "antes") != slices.Contains(controlLines, "antes") {
+			t.Fatalf("grupo=%q controle=%q terminal=%q", group, controlLines, lines)
+		}
+	}
+}
+
 func TestPowerShellHashPreservesOutputAndExitCode(t *testing.T) {
 	if runtime.GOOS != "windows" {
 		t.Skip("Windows PowerShell")
@@ -182,6 +211,10 @@ func TestPowerShellHashPreservesOutputAndExitCode(t *testing.T) {
 		{"exit", "exit 3 # nota", "", 3, "exact"},
 		{"return", "return 'voltou' # nota", "voltou", 0, "exact"},
 		{"return_nativo", "cmd /c exit 7; return", "", 7, "exact"},
+		{"return_array_vazio", "cmd /c exit 7; return @()", "", 7, "exact"},
+		{"return_subexpressao_vazia", "cmd /c exit 7; return $()", "", 7, "exact"},
+		{"array_com_saida", "@(Write-Output primeiro; cmd /c exit 7)", "primeiro", 7, "exact"},
+		{"subexpressao_com_saida", "$(Write-Output primeiro; cmd /c exit 7)", "primeiro", 7, "exact"},
 		{"return_nativo_com_nota", "cmd /c exit 7; return # nota", "", 7, "exact"},
 		{"return_apos_sucesso", "cmd /c exit 7; Write-Output ok; return", "ok", 0, "exact"},
 		{"sintaxe_sem_nota", "if (", "", 1, "diagnostic"},
