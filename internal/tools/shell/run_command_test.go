@@ -925,9 +925,9 @@ func TestFalhaDePermissaoRealNaoExpoeCaminhoDoShell(t *testing.T) {
 }
 
 func TestProjecaoPublicaNaoAlteraMotivosDaPolitica(t *testing.T) {
-	original := commandpolicy.EvaluationResult{Decision: allowlist.DecisionDeny, Reasons: []string{"motivo privado"}}
-	public := publicPolicyProjection(original, "[redacted]", true)
-	if original.Reasons[0] != "motivo privado" || public.Reasons[0] != "[redacted]" || public.Decision != original.Decision {
+	original := commandpolicy.EvaluationResult{Decision: allowlist.DecisionDeny, Reasons: []string{"motivo privado", "outro motivo privado"}}
+	public := publicPolicyProjection(original, true)
+	if original.Reasons[0] != "motivo privado" || len(public.Reasons) != 2 || public.Reasons[0] != protectedPolicyReason || public.Reasons[1] != protectedPolicyReason || public.Decision != original.Decision || !strings.Contains(summarizePolicyReasons(public), "motivos=2") || strings.Contains(summarizePolicyReasons(public), "privado") {
 		t.Fatalf("original=%+v pública=%+v", original, public)
 	}
 }
