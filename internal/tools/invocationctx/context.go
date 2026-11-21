@@ -27,6 +27,19 @@ type ctxKey struct{}
 type workspaceKey struct{}
 type persistentShellKey struct{}
 type shellCommandMetadataKey struct{}
+type protectedDirectoryKey struct{}
+
+// WithShellDirectoryMetadata transporta a representação pública de um caminho protegido.
+func WithShellDirectoryMetadata(ctx context.Context, display string) context.Context {
+	return context.WithValue(ctx, protectedDirectoryKey{}, display)
+}
+
+// ShellDirectoryMetadata devolve a projeção pública se o diretório for protegido.
+func ShellDirectoryMetadata(ctx context.Context) string {
+	display, _ := ctx.Value(protectedDirectoryKey{}).(string)
+	return display
+}
+
 type protectedShellCommand struct {
 	metadata     string
 	prefix       string

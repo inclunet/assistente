@@ -90,9 +90,10 @@ func (a *Authorizer) Authorize(ctx context.Context, command, directory string) (
 	}
 	persistent := invocationctx.PersistentShell(ctx)
 	_, protected := invocationctx.LookupShellCommandMetadata(ctx)
+	publicDir := invocationctx.ShellDirectoryMetadata(ctx)
 	var selector Selector
 	var reusable bool
-	if !persistent && !protected {
+	if !persistent && !protected && publicDir == "" {
 		selector, reusable = Represent(command, directory)
 	}
 	scopes := []authorization.Scope{authorization.ScopeOnce}
@@ -183,6 +184,9 @@ func (a *Authorizer) Authorize(ctx context.Context, command, directory string) (
 			}
 		} else {
 			req.Command, req.Directory = command, directory
+			if publicDir != "" {
+				req.Directory = publicDir
+			}
 		}
 		choice, err := a.Prompt(ctx, req)
 		if err != nil {

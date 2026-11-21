@@ -55,9 +55,9 @@ type GetAllowlistFunc func(context.Context) (*allowlist.Allowlist, error)
 // SessionManager é a interface para gerenciar sessões PTY.
 // Permite mockar o Manager para testes.
 type SessionManager interface {
-	Acquire(ctx context.Context, workDir string) (*terminal.Session, error)
+	Acquire(ctx context.Context, workDir terminal.WorkingDirectory) (*terminal.Session, error)
 	RunCommandWithDisplay(ctx context.Context, sessionID string, command terminal.CommandText, timeout time.Duration, requesterID string) (*terminal.HistoryEntry, error)
-	RunEphemeral(ctx context.Context, workDir string, command terminal.CommandText, timeout time.Duration, source string) (*terminal.HistoryEntry, error)
+	RunEphemeral(ctx context.Context, workDir terminal.WorkingDirectory, command terminal.CommandText, timeout time.Duration, source string) (*terminal.HistoryEntry, error)
 	Release(sessionID string)
 	Close(sessionID string) error
 }
@@ -66,7 +66,7 @@ type SessionManager interface {
 // escolha explicitamente uma sessão já conhecida sem ampliar o contrato dos
 // mocks legados de SessionManager.
 type sessionLookup interface {
-	Info(sessionID string) (terminal.SessionInfo, bool)
+	ExecutionDirectory(sessionID string) (terminal.WorkingDirectory, bool)
 }
 
 // RunCommand é a ferramenta que executa comandos shell via PTY.
@@ -183,14 +183,17 @@ func (rc *RunCommand) Execute(ctx context.Context, args json.RawMessage) (tools.
 		if !ok {
 			return tools.ToolResult{Content: "O gerenciador não suporta seleção explícita de terminal", IsError: true}, nil
 		}
-		info, live := lookup.Info(a.TerminalID)
+		directory, live := lookup.ExecutionDirectory(a.TerminalID)
 		if !live {
 			return tools.ToolResult{
 				Content: fmt.Sprintf("Terminal %q não existe ou já foi encerrado", a.TerminalID),
 				IsError: true,
 			}, nil
 		}
-		workDir = info.CWD
+		workDir = directory.Path
+		if directory.PublicOverride != "" {
+			ctx = invocationctx.WithShellDirectoryMetadata(ctx, directory.PublicOverride)
+		}
 	} else {
 		resolvedWorkDir, resolveErr := resolveProjectWorkDir(rc.workDir, a.WorkingDirectory)
 		if errors.Is(resolveErr, errProjectDirectoryUnresolved) {
@@ -269,6 +272,7 @@ func (rc *RunCommand) Execute(ctx context.Context, args json.RawMessage) (tools.
 		return tools.ToolResult{}, err
 	}
 	command := terminal.CommandText{Raw: a.Command, Display: invocationctx.ShellCommandMetadata(ctx, a.Command)}
+	directory := terminal.WorkingDirectory{Path: workDir, PublicOverride: invocationctx.ShellDirectoryMetadata(ctx)}
 	var sessionID string
 	var entry *terminal.HistoryEntry
 	var err error
@@ -277,7 +281,7 @@ func (rc *RunCommand) Execute(ctx context.Context, args json.RawMessage) (tools.
 		entry, err = rc.sessionMgr.RunCommandWithDisplay(ctx, sessionID, command, timeout, "llm")
 	} else if a.Persistent {
 		// AEP-0089: Acquire cria uma sessão nova e nunca captura uma idle.
-		session, acquireErr := rc.sessionMgr.Acquire(ctx, workDir)
+		session, acquireErr := rc.sessionMgr.Acquire(ctx, directory)
 		err = acquireErr
 		if err != nil {
 			return sessionStartFailure(decision, err), nil
@@ -288,7 +292,7 @@ func (rc *RunCommand) Execute(ctx context.Context, args json.RawMessage) (tools.
 		rc.sessionMgr.Release(sessionID)
 	} else {
 		// Execução efêmera por padrão: não cria aba persistente nem ocupa o limite.
-		entry, err = rc.sessionMgr.RunEphemeral(ctx, workDir, command, timeout, "llm")
+		entry, err = rc.sessionMgr.RunEphemeral(ctx, directory, command, timeout, "llm")
 		if errors.Is(err, terminal.ErrDirectoryUnresolved) {
 			return shellPrerequisiteFailure(ctx, "directory_unresolved", "Não foi possível resolver o diretório para autorização."), nil
 		}
@@ -319,7 +323,7 @@ func (rc *RunCommand) Execute(ctx context.Context, args json.RawMessage) (tools.
 				Metadata: func() map[string]any {
 					m := map[string]any{
 						"command":   command.Display,
-						"workDir":   workDir,
+						"workDir":   directory.Display(),
 						"exitCode":  -1,
 						"timeout":   true,
 						"duration":  duration,
@@ -347,7 +351,7 @@ func (rc *RunCommand) Execute(ctx context.Context, args json.RawMessage) (tools.
 		// Erro real (sem output ou sem timeout)
 		metadata := map[string]any{
 			"command":  command.Display,
-			"workDir":  workDir,
+			"workDir":  directory.Display(),
 			"exitCode": -1,
 		}
 		if sessionID != "" {
@@ -356,6 +360,9 @@ func (rc *RunCommand) Execute(ctx context.Context, args json.RawMessage) (tools.
 			metadata["deepLink"] = deepLinkForSession(sessionID)
 		}
 		message := fmt.Sprintf("Erro ao executar comando: %v", err)
+		if directory.PublicOverride != "" {
+			message = "Erro ao executar comando no diretório protegido."
+		}
 		// A sessão fornece os horários na entrada de histórico. Sem ela, a duração é desconhecida.
 		if entry != nil {
 			message += "\nDuração registrada: " + duration
@@ -391,7 +398,7 @@ func (rc *RunCommand) Execute(ctx context.Context, args json.RawMessage) (tools.
 		Metadata: func() map[string]any {
 			m := map[string]any{
 				"command":   command.Display,
-				"workDir":   workDir,
+				"workDir":   directory.Display(),
 				"exitCode":  entry.ExitCode,
 				"duration":  entry.EndedAt.Sub(entry.StartedAt).String(),
 				"commandId": entry.ID,

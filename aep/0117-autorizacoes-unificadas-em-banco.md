@@ -206,6 +206,10 @@ inequívoco e separado após a resolução. Variantes conflitantes da chave de
 comando ocultam ambas as apresentações. O valor resolvido e o diretório ficam
 ocultos no desktop, nos anúncios acessíveis e nos canais. A chamada
 não consulta nem cria uma concessão reutilizável a partir de valores do cofre.
+Quando o valor do cofre determina somente o diretório, a pergunta mantém o
+comando visível, omite o caminho e oferece somente o escopo pontual. A execução
+usa o destino resolvido. Metadados de invocação e de sessões de terminal
+preservam a redação, inclusive ao selecionar novamente a sessão.
 O veto na avaliação inicial e o veto entre a aprovação e o despacho são
 atribuídos à política no resultado e no registro da invocação. A recusa
 explícita da pessoa continua definitiva assim que é aceita.

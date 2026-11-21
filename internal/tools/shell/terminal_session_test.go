@@ -21,12 +21,12 @@ type fakeTerminalSessionManager struct {
 }
 
 func (f *fakeTerminalSessionManager) List() []terminal.SessionInfo { return f.sessions }
-func (f *fakeTerminalSessionManager) CreateToolSession(name, workDir string) (terminal.SessionInfo, error) {
-	f.createdName, f.createdDir = name, workDir
+func (f *fakeTerminalSessionManager) CreateToolSession(name string, workDir terminal.WorkingDirectory) (terminal.SessionInfo, error) {
+	f.createdName, f.createdDir = name, workDir.Path
 	if f.err != nil {
 		return terminal.SessionInfo{}, f.err
 	}
-	return terminal.SessionInfo{ID: "term-1", Name: name, CWD: workDir, State: "idle"}, nil
+	return terminal.SessionInfo{ID: "term-1", Name: name, CWD: workDir.Display(), State: "idle"}, nil
 }
 func (f *fakeTerminalSessionManager) Interrupt(id string) error {
 	f.interruptedID = id

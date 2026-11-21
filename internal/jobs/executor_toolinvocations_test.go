@@ -172,13 +172,15 @@ func TestJobExecutor_RecordsToolInvocationForRun(t *testing.T) {
 type shellDispatchProbe struct {
 	shell.SessionManager
 	command    terminal.CommandText
+	directory  string
 	calls      int
 	startupErr error
 	dispatches int
 	entry      *terminal.HistoryEntry
 }
 
-func (p *shellDispatchProbe) RunEphemeral(_ context.Context, _ string, command terminal.CommandText, _ time.Duration, _ string) (*terminal.HistoryEntry, error) {
+func (p *shellDispatchProbe) RunEphemeral(_ context.Context, directory terminal.WorkingDirectory, command terminal.CommandText, _ time.Duration, _ string) (*terminal.HistoryEntry, error) {
+	p.directory = directory.Path
 	p.command = command
 	p.calls++
 	if p.calls == 1 && p.startupErr != nil {

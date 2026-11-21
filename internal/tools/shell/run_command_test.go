@@ -874,7 +874,7 @@ type managerFalhaInicioCancelada struct {
 	cancel context.CancelFunc
 }
 
-func (m managerFalhaInicioCancelada) Acquire(context.Context, string) (*terminal.Session, error) {
+func (m managerFalhaInicioCancelada) Acquire(context.Context, terminal.WorkingDirectory) (*terminal.Session, error) {
 	m.cancel()
 	return nil, os.ErrNotExist
 }

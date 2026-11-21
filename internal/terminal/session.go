@@ -108,7 +108,7 @@ type Session struct {
 	commandPending   bool
 	managedCommandID string
 	shell            string
-	cwd              string
+	cwd              WorkingDirectory
 	mu               sync.Mutex
 	ioMu             sync.Mutex
 	history          []HistoryEntry
@@ -215,7 +215,7 @@ func shellType(shell string) string {
 }
 
 // newSession cria e inicializa uma nova sessão PTY.
-func newSession(name, workDir, shell string, env []string, onOutput outputCallback, onRawOutput rawOutputCallback, onCommandStart commandStartCallback, onExit func(string, error)) (*Session, error) {
+func newSession(name string, workDir WorkingDirectory, shell string, env []string, onOutput outputCallback, onRawOutput rawOutputCallback, onCommandStart commandStartCallback, onExit func(string, error)) (*Session, error) {
 	if shell == "" {
 		shell = defaultShell()
 	}
@@ -225,7 +225,7 @@ func newSession(name, workDir, shell string, env []string, onOutput outputCallba
 	opts := ptyx.SpawnOpts{
 		Prog: shell,
 		Env:  env,
-		Dir:  workDir,
+		Dir:  workDir.Path,
 		Cols: defaultCols,
 		Rows: defaultRows,
 	}
@@ -265,8 +265,21 @@ func newSession(name, workDir, shell string, env []string, onOutput outputCallba
 		onExit:          onExit,
 	}
 
-	logging.Infof(ctx, "terminal.session", "[Terminal] Sessão criada: id=%s name=%s shell=%s cwd=%s", s.id, s.name, s.shell, s.cwd)
+	logging.Infof(ctx, "terminal.session", "[Terminal] Sessão criada: id=%s name=%s shell=%s cwd=%s", s.id, s.name, s.shell, s.cwd.Display())
 	return s, nil
+}
+
+// WorkingDirectory separa o caminho usado pelo PTY de seu texto público opcional.
+type WorkingDirectory struct {
+	Path           string
+	PublicOverride string
+}
+
+func (d WorkingDirectory) Display() string {
+	if d.PublicOverride != "" {
+		return d.PublicOverride
+	}
+	return d.Path
 }
 
 // Start inicia a leitura somente depois que o Manager registrou a sessão.
@@ -986,7 +999,7 @@ func (s *Session) Info() SessionInfo {
 	return SessionInfo{
 		ID:        s.id,
 		Name:      s.name,
-		CWD:       s.cwd,
+		CWD:       s.cwd.Display(),
 		State:     s.state.String(),
 		Shell:     s.shell,
 		CreatedAt: s.createdAt.Format(time.RFC3339),

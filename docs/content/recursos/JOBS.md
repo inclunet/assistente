@@ -116,6 +116,13 @@ Se o programa vier do cofre, a pergunta informa que os detalhes ficam ocultos.
 Quando houver outros dados, ela mostra no máximo o nome verificável
 do programa. O valor resolvido e o diretório ficam ocultos.
 
+Quando apenas o diretório de trabalho vem do cofre, a pergunta mostra o
+comando e oculta o caminho. A autorização vale para uma execução. O terminal
+usa o diretório escolhido e o oculta nos metadados e na lista de sessões,
+inclusive ao retomar um terminal persistente. A saída do shell continua
+visível. O prompt interativo e comandos que imprimem o diretório podem
+mostrá-lo nessa saída.
+
 Eventos não ficam em fila. Quando nenhum consumidor está habilitado — porque o
 job ou a pipeline consumidora foi desativado — o evento é descartado e não
 aparece no run como emitido. O log registra um aviso limitado por evento para

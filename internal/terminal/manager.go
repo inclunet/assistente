@@ -85,10 +85,10 @@ func NewManager(config ManagerConfig, emitEvent func(event string, data any)) *M
 // Create cria uma nova sessão PTY com nome e diretório de trabalho.
 // Usada pelo usuário via UI para criar terminais manualmente.
 func (m *Manager) Create(name, workDir string) (*Session, error) {
-	return m.create(name, workDir, nil)
+	return m.create(name, WorkingDirectory{Path: workDir}, nil)
 }
 
-func (m *Manager) create(name, workDir string, env []string) (*Session, error) {
+func (m *Manager) create(name string, workDir WorkingDirectory, env []string) (*Session, error) {
 	m.mu.Lock()
 
 	if len(m.sessions) >= m.config.MaxSessions {
@@ -163,15 +163,15 @@ func (m *Manager) create(name, workDir string, env []string) (*Session, error) {
 
 // CreateInfo cria uma sessão e retorna somente seu contrato público.
 func (m *Manager) CreateInfo(name, workDir string) (SessionInfo, error) {
-	return m.createInfo(name, workDir, nil)
+	return m.createInfo(name, WorkingDirectory{Path: workDir}, nil)
 }
 
 // CreateToolSession cria o terminal persistente solicitado pela ferramenta.
-func (m *Manager) CreateToolSession(name, workDir string) (SessionInfo, error) {
+func (m *Manager) CreateToolSession(name string, workDir WorkingDirectory) (SessionInfo, error) {
 	return m.createInfo(name, workDir, m.toolShellEnv())
 }
 
-func (m *Manager) createInfo(name, workDir string, env []string) (SessionInfo, error) {
+func (m *Manager) createInfo(name string, workDir WorkingDirectory, env []string) (SessionInfo, error) {
 	session, err := m.create(name, workDir, env)
 	if err != nil {
 		return SessionInfo{}, err
@@ -184,9 +184,9 @@ func (m *Manager) createInfo(name, workDir string, env []string) (SessionInfo, e
 // Mantido temporariamente para compatibilidade com consumidores antigos. A
 // AEP-0089 proíbe adquirir implicitamente uma sessão idle global, pois isso
 // permitiria ao chat capturar um terminal manual sem informar o usuário.
-func (m *Manager) Acquire(ctx context.Context, workDir string) (*Session, error) {
-	logging.Infof(ctx, "terminal.manager", "[Terminal] Criando sessão explícita para comando cwd=%s", workDir)
-	return m.create("", workDir, m.toolShellEnv())
+func (m *Manager) Acquire(ctx context.Context, directory WorkingDirectory) (*Session, error) {
+	logging.Infof(ctx, "terminal.manager", "[Terminal] Criando sessão explícita para comando cwd=%s", directory.Display())
+	return m.create("", directory, m.toolShellEnv())
 }
 
 func (m *Manager) toolShellEnv() []string {
@@ -201,12 +201,12 @@ func (m *Manager) toolShellEnv() []string {
 // RunEphemeral executa um comando sem criar seção persistente visível.
 // Não adiciona a sessão ao pool nem emite session_created/closed — evita
 // flicker no Terminal e não ocupa o limite de sessões.
-func (m *Manager) RunEphemeral(ctx context.Context, workDir string, command CommandText, timeout time.Duration, source string) (*HistoryEntry, error) {
-	absolute, err := filepath.Abs(workDir)
+func (m *Manager) RunEphemeral(ctx context.Context, workDir WorkingDirectory, command CommandText, timeout time.Duration, source string) (*HistoryEntry, error) {
+	absolute, err := filepath.Abs(workDir.Path)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrDirectoryUnresolved, err)
 	}
-	workDir, err = ResolveDirectoryPath(absolute)
+	workDir.Path, err = ResolveDirectoryPath(absolute)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrDirectoryUnresolved, err)
 	}
@@ -240,7 +240,7 @@ func (m *Manager) RunEphemeral(ctx context.Context, workDir string, command Comm
 	// O shell pode carregar um perfil que muda o diretório. Reestabelecer o
 	// diretório da execução depois da inicialização impede que isso amplie
 	// uma autorização vinculada ao diretório, sem retirar o ambiente do usuário.
-	result, err := session.runCommandInDirectory(ctx, command, session.cwd, timeout, source, commandID, nil)
+	result, err := session.runCommandInDirectory(ctx, command, session.cwd.Path, timeout, source, commandID, nil)
 	return completeCommandEntry(entry, result, err), err
 }
 
@@ -483,17 +483,34 @@ func (m *Manager) Has(sessionID string) bool {
 
 // Info retorna o contrato público de uma sessão viva.
 func (m *Manager) Info(sessionID string) (SessionInfo, bool) {
+	session, ok := m.liveSession(sessionID)
+	if !ok {
+		return SessionInfo{}, false
+	}
+	return session.Info(), true
+}
+
+// ExecutionDirectory recupera o alvo operacional e sua restrição de exibição.
+func (m *Manager) ExecutionDirectory(sessionID string) (WorkingDirectory, bool) {
+	session, ok := m.liveSession(sessionID)
+	if !ok {
+		return WorkingDirectory{}, false
+	}
+	return session.cwd, true
+}
+
+func (m *Manager) liveSession(sessionID string) (*Session, bool) {
 	m.mu.RLock()
 	session, ok := m.sessions[sessionID]
 	m.mu.RUnlock()
 	if !ok {
-		return SessionInfo{}, false
+		return nil, false
 	}
 	state := session.State()
 	if state == StateClosing || state == StateExited {
-		return SessionInfo{}, false
+		return nil, false
 	}
-	return session.Info(), true
+	return session, true
 }
 
 // List retorna informações de todas as sessões ativas.

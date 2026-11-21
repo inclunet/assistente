@@ -2,6 +2,9 @@ package jobs
 
 import (
 	"context"
+	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -56,6 +59,54 @@ func TestShellConsentUsesOnlyLiteralTemplatePrefix(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+func TestProtectedWorkingDirectoryInJobAndCatalog(t *testing.T) {
+	const marker = "diretorio-confidencial-sintetico"
+	for _, route := range []string{"job", "catalog"} {
+		t.Run(route, func(t *testing.T) {
+			root := t.TempDir()
+			if err := os.Mkdir(filepath.Join(root, marker), 0700); err != nil {
+				t.Fatal(err)
+			}
+			var prompt shelltrust.PromptRequest
+			auth := shelltrust.Authorizer{Prompt: func(_ context.Context, req shelltrust.PromptRequest) (shelltrust.PromptDecision, error) {
+				prompt = req
+				return shelltrust.PromptDecision{Approve: true, Scope: "once"}, nil
+			}}
+			probe := &shellDispatchProbe{entry: &terminal.HistoryEntry{Output: "ok"}}
+			tool := shell.NewRunCommand(probe, auth.Authorize, nil, root)
+			executor, repo, ctx := invocationBackedExecutor(t, tool)
+			executor.secretStore = secretStoreFunc(func(context.Context, string) (string, error) { return marker, nil })
+			inputs := map[string]any{"command": "example", "Working_Directory": `{{ secret "pasta" }}`}
+			var result any
+			if route == "job" {
+				run := executor.Execute(ctx, &Job{ID: "dir", Tool: tool.Name(), Inputs: inputs}, &TriggerContext{Type: TriggerManual})
+				if run.Status != RunStatusCompleted {
+					t.Fatal("job falhou", run.Error)
+				}
+				result = run
+			} else {
+				manager := mustNewManager(t, ManagerConfig{ToolRegistry: executor.toolRegistry, ToolInvocations: executor.toolInvocations, SecretStore: executor.secretStore})
+				test, err := manager.TestToolDryRunContext(ctx, TestToolRequest{ToolName: tool.Name(), Inputs: inputs, AllowUnsafe: true})
+				if err != nil || test == nil || !test.Success {
+					t.Fatal("teste de catálogo falhou", err)
+				}
+				result = test
+			}
+			if filepath.Base(probe.directory) != marker || probe.calls != 1 || prompt.Command != "example" || prompt.Directory != redactedValue || len(prompt.AvailableScopes) != 1 || prompt.AvailableScopes[0] != "once" {
+				t.Fatal("destino operacional, pergunta ou escopos incorretos")
+			}
+			rows, err := repo.List(ctx, toolinvocations.Filter{})
+			if err != nil || len(rows) != 1 {
+				t.Fatal("invocação ausente", err)
+			}
+			encoded, err := json.Marshal([]any{result, rows[0]})
+			if err != nil || strings.Contains(string(encoded), marker) || invocationOutput(string(rows[0].Output))["_meta_workDir"] != redactedValue {
+				t.Fatal("o resultado ou histórico expôs o diretório")
+			}
+		})
 	}
 }
 

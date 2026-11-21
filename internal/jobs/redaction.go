@@ -34,14 +34,17 @@ func RedactResolvedInputs(original, resolved map[string]any) map[string]any {
 	return redacted
 }
 
-// O shell ecoa o comando nos metadados. Propague a redação antes que ele
-// produza o resultado, inclusive para saídas parciais ou armazenadas à parte.
-func withRedactedCommandMetadata(ctx context.Context, original, resolved, persisted map[string]any) context.Context {
+// O shell ecoa comando e diretório nos metadados. Propague as redações antes
+// da confirmação e do despacho, inclusive para os resultados parciais.
+func withRedactedShellMetadata(ctx context.Context, original, resolved, persisted map[string]any) context.Context {
 	// encoding/json aceita variantes de caixa nas chaves de uma struct. Se
 	// houver mais de uma, qualquer uma redigida deve proteger os metadados.
 	matches := 0
 	var protectedKey string
 	for key, value := range persisted {
+		if strings.EqualFold(key, "working_directory") && value == redactedValue {
+			ctx = invocationctx.WithShellDirectoryMetadata(ctx, redactedValue)
+		}
 		if strings.EqualFold(key, "command") {
 			matches++
 			if value == redactedValue {

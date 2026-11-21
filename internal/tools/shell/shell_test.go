@@ -217,7 +217,7 @@ func createMockSession(sessionID string) *terminal.Session {
 	return s
 }
 
-func (m *MockSessionManager) Acquire(ctx context.Context, workDir string) (*terminal.Session, error) {
+func (m *MockSessionManager) Acquire(ctx context.Context, workDir terminal.WorkingDirectory) (*terminal.Session, error) {
 	m.acquireCalls++
 	if m.fakeSessErr != nil {
 		return nil, m.fakeSessErr
@@ -248,11 +248,11 @@ func (m *MockSessionManager) RunCommandWithDisplay(ctx context.Context, sessionI
 	return m.fakeEntry, nil
 }
 
-func (m *MockSessionManager) Info(sessionID string) (terminal.SessionInfo, bool) {
+func (m *MockSessionManager) ExecutionDirectory(sessionID string) (terminal.WorkingDirectory, bool) {
 	if !m.liveSessions[sessionID] {
-		return terminal.SessionInfo{}, false
+		return terminal.WorkingDirectory{}, false
 	}
-	return terminal.SessionInfo{ID: sessionID, CWD: m.sessionCWD[sessionID]}, true
+	return terminal.WorkingDirectory{Path: m.sessionCWD[sessionID]}, true
 }
 
 func (m *MockSessionManager) Release(sessionID string) {
@@ -264,7 +264,7 @@ func (m *MockSessionManager) Close(sessionID string) error {
 	return nil
 }
 
-func (m *MockSessionManager) RunEphemeral(ctx context.Context, workDir string, command terminal.CommandText, timeout time.Duration, source string) (*terminal.HistoryEntry, error) {
+func (m *MockSessionManager) RunEphemeral(ctx context.Context, workDir terminal.WorkingDirectory, command terminal.CommandText, timeout time.Duration, source string) (*terminal.HistoryEntry, error) {
 	m.runEphemeralCalls.Add(1)
 	m.runCommandText = command.Raw
 	m.runCommandDisplay = command.Display
@@ -372,6 +372,19 @@ func TestDispatchPassesPublicCommandToEveryTerminal(t *testing.T) {
 				t.Fatal("despacho perdeu comando executável ou representação pública")
 			}
 		})
+	}
+}
+
+func TestProtectedDirectoryOnFailedAndPartialExecution(t *testing.T) {
+	for _, dispatchErr := range []error{errors.New("erro em pasta-confidencial"), context.DeadlineExceeded} {
+		mgr := &MockSessionManager{fakeRunErr: dispatchErr, fakeEntry: &terminal.HistoryEntry{Output: "saída parcial"}}
+		rc := NewRunCommand(mgr, nil, func(context.Context) (*allowlist.Allowlist, error) {
+			return &allowlist.Allowlist{AutoApprove: []string{"echo *"}, DefaultAction: "deny"}, nil
+		}, t.TempDir())
+		result, err := rc.Execute(invocationctx.WithShellDirectoryMetadata(t.Context(), "[redacted]"), json.RawMessage(`{"command":"echo ok"}`))
+		if err != nil || result.Metadata["workDir"] != "[redacted]" || !strings.Contains(result.Content, "saída parcial") || strings.Contains(result.Content, "pasta-confidencial") {
+			t.Fatal("a falha deve preservar a saída e ocultar os metadados privados")
+		}
 	}
 }
 
