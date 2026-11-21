@@ -101,6 +101,9 @@ O agente e os jobs podem repetir uma falha transitória de criação da sessão 
 política já permite a execução, a falha é comprovadamente transitória e o terminal
 atesta que o comando não foi enviado. O executor exige o atestado explícito em
 `ToolFailure.NotDispatched`; `Retryable` isolado não prova segurança após aprovação.
+Falhas ao criar o terminal retornam diagnóstico público por categoria, sem expor
+caminhos do executável ou erro bruto no resultado e no ledger. A projeção pública
+dos motivos de política não altera os motivos usados na avaliação privada.
 Lotação de limite positivo, `EAGAIN` e `EBUSY` são transitórios; limite zero e
 causas desconhecidas não autorizam repetição automática. Um `terminal_id` existente
 ocupado não é criação de sessão e continua exigindo uma nova chamada explícita.

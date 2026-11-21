@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync/atomic"
 	"syscall"
@@ -511,7 +512,7 @@ func TestExecutorClassifiesShellStartBeforeDispatch(t *testing.T) {
 				if byPolicy {
 					wantPrompts = 0
 				}
-				if !got.Result.IsError || got.ErrorCode != FailureSessionStart || got.ErrorKind != tools.ErrorKindUnavailable || !got.RetryabilityKnown || got.Retryable || prompts.Load() != wantPrompts {
+				if !got.Result.IsError || got.ErrorCode != FailureSessionStart || got.ErrorKind != tools.ErrorKindUnavailable || !got.RetryabilityKnown || got.Retryable || prompts.Load() != wantPrompts || strings.Contains(got.Result.Content, cfg.DefaultShell) || got.Result.Content != "Executável do terminal não encontrado." {
 					t.Fatalf("resultado=%+v diálogos=%d", got, prompts.Load())
 				}
 			})
@@ -885,7 +886,7 @@ func TestFalhaDeInicioPreservaCausaQuandoContextoCancela(t *testing.T) {
 		return &allowlist.Allowlist{AutoApprove: []string{"echo"}, DefaultAction: "confirm"}, nil
 	}, t.TempDir())
 	got, err := rc.Execute(ctx, json.RawMessage(`{"command":"echo ok","persistent":true}`))
-	if err != nil || got.Failure == nil || got.Failure.Kind != tools.ErrorKindUnavailable || got.Failure.Retryable || !strings.Contains(got.Content, os.ErrNotExist.Error()) {
+	if err != nil || got.Failure == nil || got.Failure.Kind != tools.ErrorKindUnavailable || got.Failure.Retryable || got.Content != "Executável do terminal não encontrado." {
 		t.Fatalf("resultado=%+v erro=%v", got, err)
 	}
 }
@@ -899,5 +900,34 @@ func TestTerminalExistenteOcupadoNaoAutorizaRetry(t *testing.T) {
 	got := tools.NewExecutor(reg, tools.DefaultExecutorConfig()).ExecuteOne(t.Context(), tools.ToolCall{ID: "busy", Function: tools.FunctionCall{Name: "run_command", Arguments: `{"command":"echo ok","terminal_id":"terminal"}`}})
 	if mgr.runCommandCalls != 1 || !got.Result.IsError || got.Retryable {
 		t.Fatalf("chamadas=%d resultado=%+v", mgr.runCommandCalls, got)
+	}
+}
+
+func TestFalhaDePermissaoRealNaoExpoeCaminhoDoShell(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("permissão de execução POSIX")
+	}
+	dir := t.TempDir()
+	executable := filepath.Join(dir, "shell-secreto")
+	if err := os.WriteFile(executable, []byte("#!/bin/sh\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	cfg := terminal.DefaultManagerConfig()
+	cfg.DefaultShell = executable
+	mgr := terminal.NewManager(cfg, nil)
+	rc := NewRunCommand(mgr, nil, func(context.Context) (*allowlist.Allowlist, error) {
+		return &allowlist.Allowlist{AutoApprove: []string{"echo"}, DefaultAction: "confirm"}, nil
+	}, dir)
+	got, err := rc.Execute(t.Context(), json.RawMessage(`{"command":"echo ok"}`))
+	if err != nil || got.Failure == nil || got.Failure.Code != FailureSessionStart || got.Failure.Retryable || got.Content != "Permissão negada ao iniciar a sessão de terminal." || strings.Contains(got.Content, executable) {
+		t.Fatalf("resultado=%+v err=%v", got, err)
+	}
+}
+
+func TestProjecaoPublicaNaoAlteraMotivosDaPolitica(t *testing.T) {
+	original := commandpolicy.EvaluationResult{Decision: allowlist.DecisionDeny, Reasons: []string{"motivo privado"}}
+	public := publicPolicyProjection(original, "[redacted]", true)
+	if original.Reasons[0] != "motivo privado" || public.Reasons[0] != "[redacted]" || public.Decision != original.Decision {
+		t.Fatalf("original=%+v pública=%+v", original, public)
 	}
 }

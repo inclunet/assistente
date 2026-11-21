@@ -868,3 +868,30 @@ func TestJobRetryComLotacaoRealDoTerminal(t *testing.T) {
 		})
 	}
 }
+
+func TestJobNaoPersisteCaminhoPrivadoDeShellAusente(t *testing.T) {
+	dir := t.TempDir()
+	cfg := terminal.DefaultManagerConfig()
+	cfg.DefaultShell = filepath.Join(dir, "shell-privado-sintetico")
+	manager := terminal.NewManager(cfg, nil)
+	tool := shell.NewRunCommand(manager, nil, func(context.Context) (*allowlist.Allowlist, error) {
+		return &allowlist.Allowlist{AutoApprove: []string{"echo"}, DefaultAction: "confirm"}, nil
+	}, dir)
+	executor, repo, ctx := invocationBackedExecutor(t, tool)
+	job := &Job{ID: "shell-private", Tool: tool.Name(), Inputs: map[string]any{"command": "echo ok"}, ErrorPolicy: ErrorPolicy{Strategy: ErrorRetry, MaxRetries: 2, RetryDelay: "1ms"}}
+	run := executor.Execute(ctx, job, &TriggerContext{Type: TriggerManual})
+	records, err := repo.List(ctx, toolinvocations.Filter{OriginID: run.RunID})
+	if err != nil || len(records) != 1 {
+		t.Fatalf("registros=%+v erro=%v", records, err)
+	}
+	data, err := json.Marshal(struct {
+		Run     any
+		Records any
+	}{run, records})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if run.Status != RunStatusFailed || run.RetryCount != 0 || records[0].ErrorCode != shell.FailureSessionStart || records[0].Retryable || strings.Contains(string(data), "shell-privado-sintetico") || !strings.Contains(string(data), "Executável do terminal não encontrado") {
+		t.Fatalf("vazamento ou diagnóstico inválido: %s", data)
+	}
+}

@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
+	"os/exec"
 	"strconv"
 	"strings"
 	"syscall"
@@ -221,24 +223,21 @@ func (rc *RunCommand) Execute(ctx context.Context, args json.RawMessage) (tools.
 	// log quando a decisao for diferente de approve, e mesmo assim usam
 	// summarizePolicyReasons (sem repetir args do comando).
 	commandSummary, sensitive := invocationctx.LookupShellCommandMetadata(ctx)
-	if sensitive {
-		// Os motivos incluem o programa detectado, que também pode vir de um segredo.
-		// A decisão já foi calculada sobre o comando integral.
-		policyResult.Reasons = []string{commandSummary}
-	} else {
+	publicPolicy := publicPolicyProjection(policyResult, commandSummary, sensitive)
+	if !sensitive {
 		commandSummary = redactCommandForLog(a.Command, policyResult)
 	}
 	if decision == allowlist.DecisionDeny {
 		denied := tools.ToolResult{
 			Failure: &tools.ToolFailure{Code: FailureCommandRefused, Kind: tools.ErrorKindAuthorization, Retryable: false},
-			Content: fmt.Sprintf("Comando bloqueado pela política de comandos: %s\nMotivos: %s", commandSummary, strings.Join(policyResult.Reasons, "; ")),
+			Content: fmt.Sprintf("Comando bloqueado pela política de comandos: %s\nMotivos: %s", commandSummary, strings.Join(publicPolicy.Reasons, "; ")),
 			IsError: true,
 		}
 		tools.PublishAuthorizationRefusal(ctx, FailureCommandRefused, denied)
-		logPolicyDecision(ctx, nil, commandSummary, policyResult)
+		logPolicyDecision(ctx, nil, commandSummary, publicPolicy)
 		return denied, nil
 	}
-	logPolicyDecision(ctx, nil, commandSummary, policyResult)
+	logPolicyDecision(ctx, nil, commandSummary, publicPolicy)
 
 	if decision == allowlist.DecisionConfirm {
 		if rc.confirmFn == nil {
@@ -413,6 +412,16 @@ func (rc *RunCommand) Execute(ctx context.Context, args json.RawMessage) (tools.
 	return protected, nil
 }
 
+// publicPolicyProjection mantém a avaliação original privada e substitui apenas
+// seus motivos na projeção que poderá ser exibida ou persistida.
+func publicPolicyProjection(result commandpolicy.EvaluationResult, summary string, sensitive bool) commandpolicy.EvaluationResult {
+	public := result
+	if sensitive {
+		public.Reasons = []string{summary}
+	}
+	return public
+}
+
 func sessionStartFailure(decision allowlist.Decision, err error) tools.ToolResult {
 	kind := tools.ErrorKindUnavailable
 	switch {
@@ -423,8 +432,21 @@ func sessionStartFailure(decision allowlist.Decision, err error) tools.ToolResul
 	}
 	transient := errors.Is(err, terminal.ErrSessionCapacity) || errors.Is(err, syscall.EAGAIN) || errors.Is(err, syscall.EBUSY)
 	retryable := decision == allowlist.DecisionApprove && kind == tools.ErrorKindUnavailable && transient
+	message := "Não foi possível iniciar a sessão de terminal."
+	switch {
+	case errors.Is(err, context.Canceled):
+		message = "Início da sessão de terminal cancelado."
+	case errors.Is(err, context.DeadlineExceeded):
+		message = "Prazo encerrado ao iniciar a sessão de terminal."
+	case errors.Is(err, os.ErrNotExist), errors.Is(err, exec.ErrNotFound):
+		message = "Executável do terminal não encontrado."
+	case errors.Is(err, os.ErrPermission):
+		message = "Permissão negada ao iniciar a sessão de terminal."
+	case transient:
+		message = "Recurso do terminal temporariamente indisponível."
+	}
 	return tools.ToolResult{
-		Content: fmt.Sprintf("Erro ao criar sessão de terminal: %v", err), IsError: true,
+		Content: message, IsError: true,
 		Failure: &tools.ToolFailure{Code: FailureSessionStart, Kind: kind, Retryable: retryable, NotDispatched: true},
 	}
 }
