@@ -259,6 +259,7 @@ func TestPowerShellExpandedCommandNameThroughPTY(t *testing.T) {
 		{"$ext='.exe'; & cmd$ext /c exit 7", "", 7},
 		{"& cm'd'$ext /c exit 7", "", 7},
 		{`$cmd='cmd.exe'; .$cmd /c exit 7`, "", 7},
+		{`$cmd='cmd.exe'; if ($false) {} . $cmd /c exit 7`, "", 7},
 		{`Write-Output unused | . $cmd /c exit 7`, "", 7},
 		{`return . $cmd /c exit 7`, "", 7},
 		{`.($cmd) /c exit 7`, "", 7},

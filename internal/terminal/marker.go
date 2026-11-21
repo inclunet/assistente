@@ -103,6 +103,9 @@ const powerShellForeachSource = `\(` + powerShellGap + `*\$(?:\{[^}]+\}|[\pL\pN_
 
 var powerShellInvocation = regexp.MustCompile(`(?i)(?:(?:^|[;({|]|` + powerShellGap + `)&|(?:` +
 	powerShellDotStatement + `|` + powerShellAssignment + `|` + powerShellForeachSource + `)\.(?:` + powerShellGap + `|[$({"']))`)
+
+// Candidatos após } são conservadores: a AST decide se o ponto é invocação;
+// texto ambíguo pode acionar preparação, sem tentar analisar o shell em Go.
 var powerShellAfterBlock = regexp.MustCompile(`}` + powerShellGap + `*\.(?:` + powerShellGap + `|[$({"'])`)
 var standalonePowerShellGroup = regexp.MustCompile(`(?:^|[;\r\n{]|#>)` + powerShellGap + `*[$@]?\(`)
 var powerShellGroupEnd = regexp.MustCompile(`\)(?:;|` + powerShellGap + `)*\z`)
@@ -129,80 +132,8 @@ func selectPowerShellPreparation(command string) powerShellPreparation {
 		grouped: standalonePowerShellGroup.MatchString(command) &&
 			(powerShellGroupEnd.MatchString(command) || strings.ContainsAny(command, "#}") || powerShellReturn.MatchString(command)),
 		namespace: powerShellNamespace.MatchString(command),
-		computed:  strings.ContainsAny(command, "$(") && (powerShellInvocation.MatchString(command) || powerShellInvocationAfterBlock(command)),
+		computed:  strings.ContainsAny(command, "$(") && (powerShellInvocation.MatchString(command) || powerShellAfterBlock.MatchString(command)),
 	}
-}
-
-// powerShellInvocationAfterBlock distingue fechamento estrutural de um } em
-// texto citado ou comentário antes de aceitar dot-sourcing após um bloco.
-func powerShellInvocationAfterBlock(command string) bool {
-	matches := powerShellAfterBlock.FindAllStringIndex(command, -1)
-	if len(matches) == 0 {
-		return false
-	}
-	candidates := make(map[int]bool, len(matches))
-	for _, match := range matches {
-		candidates[match[0]] = true
-	}
-	depth := 0
-	var quote byte
-	lineComment, blockComment := false, false
-	for i := 0; i < len(command); i++ {
-		c := command[i]
-		if lineComment {
-			if c == '\r' || c == '\n' {
-				lineComment = false
-			}
-			continue
-		}
-		if blockComment {
-			if c == '#' && i+1 < len(command) && command[i+1] == '>' {
-				blockComment = false
-				i++
-			}
-			continue
-		}
-		if quote != 0 {
-			if c == '`' && quote == '"' && i+1 < len(command) {
-				i++
-				continue
-			}
-			if c == quote {
-				if i+1 < len(command) && command[i+1] == quote {
-					i++
-				} else {
-					quote = 0
-				}
-			}
-			continue
-		}
-		if c == '`' && i+1 < len(command) {
-			i++
-			continue
-		}
-		if c == '<' && i+1 < len(command) && command[i+1] == '#' {
-			blockComment = true
-			i++
-			continue
-		}
-		if c == '#' {
-			lineComment = true
-			continue
-		}
-		if c == '\'' || c == '"' {
-			quote = c
-			continue
-		}
-		if c == '{' {
-			depth++
-		} else if c == '}' && depth > 0 {
-			depth--
-			if candidates[i] {
-				return true
-			}
-		}
-	}
-	return false
 }
 
 // wrapPowerShell gera comando wrapped para PowerShell.
