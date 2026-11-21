@@ -72,6 +72,10 @@ func NewManager(config ManagerConfig, emitEvent func(event string, data any)) *M
 // Create cria uma nova sessão PTY com nome e diretório de trabalho.
 // Usada pelo usuário via UI para criar terminais manualmente.
 func (m *Manager) Create(name, workDir string) (*Session, error) {
+	return m.create(name, workDir, nil)
+}
+
+func (m *Manager) create(name, workDir string, env []string) (*Session, error) {
 	m.mu.Lock()
 
 	if len(m.sessions) >= m.config.MaxSessions {
@@ -124,7 +128,7 @@ func (m *Manager) Create(name, workDir string) (*Session, error) {
 		})
 	}
 
-	session, err := newSession(name, workDir, m.config.DefaultShell, nil, onOutput, onRawOutput, onCommandStart, onExit)
+	session, err := newSession(name, workDir, m.config.DefaultShell, env, onOutput, onRawOutput, onCommandStart, onExit)
 	if err != nil {
 		return nil, err
 	}
@@ -142,7 +146,16 @@ func (m *Manager) Create(name, workDir string) (*Session, error) {
 
 // CreateInfo cria uma sessão e retorna somente seu contrato público.
 func (m *Manager) CreateInfo(name, workDir string) (SessionInfo, error) {
-	session, err := m.Create(name, workDir)
+	return m.createInfo(name, workDir, nil)
+}
+
+// CreateToolSession cria o terminal persistente solicitado pela ferramenta.
+func (m *Manager) CreateToolSession(name, workDir string) (SessionInfo, error) {
+	return m.createInfo(name, workDir, m.toolShellEnv())
+}
+
+func (m *Manager) createInfo(name, workDir string, env []string) (SessionInfo, error) {
+	session, err := m.create(name, workDir, env)
 	if err != nil {
 		return SessionInfo{}, err
 	}
@@ -156,7 +169,16 @@ func (m *Manager) CreateInfo(name, workDir string) (SessionInfo, error) {
 // permitiria ao chat capturar um terminal manual sem informar o usuário.
 func (m *Manager) Acquire(ctx context.Context, workDir string) (*Session, error) {
 	logging.Infof(ctx, "terminal.manager", "[Terminal] Criando sessão explícita para comando cwd=%s", workDir)
-	return m.Create("", workDir)
+	return m.create("", workDir, m.toolShellEnv())
+}
+
+func (m *Manager) toolShellEnv() []string {
+	if runtime.GOOS == "linux" && shellType(m.config.DefaultShell) == "zsh" && os.Getenv("skip_global_compinit") == "" {
+		// O zshrc do Ubuntu pode pedir confirmação para carregar completions.
+		// Sem interlocutor, a pergunta consumiria bytes do primeiro comando.
+		return append(os.Environ(), "skip_global_compinit=1")
+	}
+	return nil
 }
 
 // RunEphemeral executa um comando sem criar seção persistente visível.
@@ -174,13 +196,7 @@ func (m *Manager) RunEphemeral(ctx context.Context, workDir, command string, tim
 	if timeout == 0 {
 		timeout = m.config.DefaultTimeout
 	}
-	var env []string
-	if runtime.GOOS == "linux" && shellType(m.config.DefaultShell) == "zsh" && os.Getenv("skip_global_compinit") == "" {
-		// O zshrc do Ubuntu pode pedir confirmação para carregar completions.
-		// Sem interlocutor, a pergunta consumiria bytes do primeiro comando.
-		env = append(os.Environ(), "skip_global_compinit=1")
-	}
-	session, err := newSession("", workDir, m.config.DefaultShell, env,
+	session, err := newSession("", workDir, m.config.DefaultShell, m.toolShellEnv(),
 		func(_, _, _ string) {},
 		nil, // A sessão efêmera não entrega saída manual à UI.
 		func(_, _, _, _ string) {},

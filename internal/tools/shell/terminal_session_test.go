@@ -19,7 +19,7 @@ type fakeTerminalSessionManager struct {
 }
 
 func (f *fakeTerminalSessionManager) List() []terminal.SessionInfo { return f.sessions }
-func (f *fakeTerminalSessionManager) CreateInfo(name, workDir string) (terminal.SessionInfo, error) {
+func (f *fakeTerminalSessionManager) CreateToolSession(name, workDir string) (terminal.SessionInfo, error) {
 	f.createdName, f.createdDir = name, workDir
 	if f.err != nil {
 		return terminal.SessionInfo{}, f.err
