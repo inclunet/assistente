@@ -209,7 +209,7 @@ func (api *Plugins) InstalledComponents(id, digest string) ([]plugins.Component,
 	})
 }
 
-func (api *Plugins) SetSkillActive(id, digest, key string, active bool) error {
+func (api *Plugins) mutateComponent(apply func(context.Context, *plugins.Inventory) error) error {
 	session, inventory, _, capture, err := api.wired()
 	if err != nil {
 		return err
@@ -222,7 +222,26 @@ func (api *Plugins) SetSkillActive(id, digest, key string, active bool) error {
 		if admit == nil {
 			return struct{}{}, database.ErrUserScopeRequired
 		}
-		return struct{}{}, admit(func() error { return inventory.SetSkillActive(ctx, id, digest, key, active) })
+		return struct{}{}, admit(func() error { return apply(ctx, inventory) })
 	})
 	return err
+}
+
+func (api *Plugins) SetSkillActive(id, digest, key string, active bool) error {
+	return api.mutateComponent(func(ctx context.Context, i *plugins.Inventory) error {
+		return i.SetSkillActive(ctx, id, digest, key, active)
+	})
+}
+
+func (api *Plugins) RegisterMCP(id, digest, key string) error {
+	return api.mutateComponent(func(ctx context.Context, i *plugins.Inventory) error { return i.RegisterMCP(ctx, id, digest, key) })
+}
+func (api *Plugins) RemoveMCP(id, digest, key string, preserve bool) error {
+	return api.mutateComponent(func(ctx context.Context, i *plugins.Inventory) error {
+		return i.RemoveMCP(ctx, id, digest, key, preserve)
+	})
+}
+
+func (api *Plugins) SyncMCP() error {
+	return api.mutateComponent(func(ctx context.Context, i *plugins.Inventory) error { return i.SyncMCP(ctx) })
 }

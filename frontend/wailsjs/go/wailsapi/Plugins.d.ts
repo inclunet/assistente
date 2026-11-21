@@ -14,4 +14,10 @@ export function ListInstalled():Promise<Array<database.PluginInstallation>>;
 
 export function PreviewLocal():Promise<wailsapi.PluginPreview>;
 
+export function RegisterMCP(arg1:string,arg2:string,arg3:string):Promise<void>;
+
+export function RemoveMCP(arg1:string,arg2:string,arg3:string,arg4:boolean):Promise<void>;
+
 export function SetSkillActive(arg1:string,arg2:string,arg3:string,arg4:boolean):Promise<void>;
+
+export function SyncMCP():Promise<void>;

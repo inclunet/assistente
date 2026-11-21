@@ -110,6 +110,7 @@ type reconnectAttempt struct {
 // Manager gerencia servidores MCP: configuração, conexão, discovery de tools.
 // Thread-safe para uso concorrente.
 type Manager struct {
+	configReloadMu         sync.Mutex      // serializes snapshots read by configuration reloads
 	retiringLegacy         map[string]bool // blocks Connect until legacy cleanup effects finish
 	snapshotRoot           string          // optional test root; production stays outside exported config
 	managedAttempts        map[string]*managedAttempt
@@ -443,6 +444,8 @@ func (m *Manager) GetWorkspaceRoots() []Root {
 // servidores OAuth perdiam a credencial em memória, caíam no fallback
 // "sem token", abriam o navegador para reauth — N janelas em paralelo.
 func (m *Manager) LoadConfigs() error {
+	m.configReloadMu.Lock()
+	defer m.configReloadMu.Unlock()
 	repo := m.repository()
 	if repo == nil {
 		return fmt.Errorf("repository MCP não configurado")
@@ -1456,21 +1459,28 @@ func (m *Manager) disconnectWithRecovery(slug string, legacyOnly, cancelRecovery
 }
 
 func (m *Manager) disconnectWithRecoveryForAttempt(slug string, legacyOnly, cancelRecovery bool, retryAttemptID uint64) (bool, error) {
-	return m.disconnectWithRecoveryForAttemptAndOwner(slug, legacyOnly, cancelRecovery, retryAttemptID, nil, nil)
+	return m.disconnectWithRecoveryForAttemptAndOwner(slug, legacyOnly, cancelRecovery, retryAttemptID, nil, nil, "")
 }
 
 func (m *Manager) disconnectWithManagedOwner(ctx context.Context, slug string, owner *managedAttempt) error {
 	retryAttemptID := owner.reconnectAttemptID
 	cancelRecovery := retryAttemptID == 0
-	disconnected, err := m.disconnectWithRecoveryForAttemptAndOwner(slug, false, cancelRecovery, retryAttemptID, owner, ctx)
+	disconnected, err := m.disconnectWithRecoveryForAttemptAndOwner(slug, false, cancelRecovery, retryAttemptID, owner, ctx, "")
 	if err == nil && !disconnected && retryAttemptID != 0 {
 		return oauthflow.ErrConflict
 	}
 	return err
 }
 
-func (m *Manager) disconnectWithRecoveryForAttemptAndOwner(slug string, legacyOnly, cancelRecovery bool, retryAttemptID uint64, managedOwner *managedAttempt, managedOwnerCtx context.Context) (bool, error) {
+func (m *Manager) disconnectWithRecoveryForAttemptAndOwner(slug string, legacyOnly, cancelRecovery bool, retryAttemptID uint64, managedOwner *managedAttempt, managedOwnerCtx context.Context, expectedServerID string) (bool, error) {
 	m.mu.Lock()
+	if expectedServerID != "" {
+		current := m.servers[slug]
+		if current == nil || current.ID != expectedServerID {
+			m.mu.Unlock()
+			return false, nil
+		}
+	}
 	if managedOwner != nil {
 		if managedOwnerCtx == nil {
 			m.mu.Unlock()
@@ -1502,7 +1512,7 @@ func (m *Manager) disconnectWithRecoveryForAttemptAndOwner(slug string, legacyOn
 		} else {
 			<-cleanupDone
 		}
-		return m.disconnectWithRecoveryForAttemptAndOwner(slug, legacyOnly, cancelRecovery, retryAttemptID, managedOwner, managedOwnerCtx)
+		return m.disconnectWithRecoveryForAttemptAndOwner(slug, legacyOnly, cancelRecovery, retryAttemptID, managedOwner, managedOwnerCtx, expectedServerID)
 	}
 	if retryAttemptID != 0 {
 		status := m.servers[slug]
@@ -3160,4 +3170,69 @@ func sortMCPPromptInfos(infos []MCPPromptInfo) {
 			return infos[i].Arguments[a].Name < infos[i].Arguments[b].Name
 		})
 	}
+}
+
+// ReloadPackagedConfigs reconciles the native registry after the package
+// transaction commits. Startup already calls LoadConfigs after login.
+func (m *Manager) ReloadPackagedConfigs(ctx context.Context) error {
+	owner, err := database.RequireUserID(ctx)
+	if err != nil {
+		return err
+	}
+	current, err := database.RequireUserID(m.credentialContext())
+	if err != nil {
+		return err
+	}
+	if current != owner {
+		return database.ErrUserScopeRequired
+	}
+	m.configReloadMu.Lock()
+	defer m.configReloadMu.Unlock()
+	repo := m.repository()
+	if repo == nil {
+		return errors.New("repository MCP indisponível")
+	}
+	// Snapshot runtime identities before reading the database. A native edit
+	// publishes its own config. This operation only adds missing registrations
+	// or retires an obsolete instance, and never replaces a live config.
+	before := map[string]string{}
+	m.mu.RLock()
+	for slug, status := range m.servers {
+		if strings.HasPrefix(slug, "plugin-") && status.Config.UserID == owner {
+			before[slug] = status.ID
+		}
+	}
+	m.mu.RUnlock()
+	configs, err := repo.ListServers(ctx)
+	if err != nil {
+		return err
+	}
+	m.mu.Lock()
+	for _, cfg := range configs {
+		if !strings.HasPrefix(cfg.Slug, "plugin-") {
+			continue
+		}
+		if before[cfg.Slug] == "" && m.servers[cfg.Slug] == nil {
+			cfg.applyDefaults(cfg.Slug)
+			m.servers[cfg.Slug] = &ServerStatus{ID: cfg.ID, Slug: cfg.Slug, Config: cfg, Status: StatusDisconnected, Roots: m.roots, Tools: []MCPToolInfo{}}
+		}
+		delete(before, cfg.Slug)
+	}
+	m.mu.Unlock()
+	for slug, expectedID := range before {
+		retired, err := m.disconnectWithRecoveryForAttemptAndOwner(slug, false, true, 0, nil, nil, expectedID)
+		if err != nil {
+			return err
+		}
+		if !retired {
+			continue
+		}
+		m.mu.Lock()
+		if current := m.servers[slug]; current != nil && current.ID == expectedID {
+			delete(m.servers, slug)
+		}
+		m.mu.Unlock()
+	}
+	m.emit("mcp:config_changed", map[string]string{})
+	return nil
 }
