@@ -216,7 +216,8 @@ function enqueueDeferredAnnouncement(item: DeferredAnnouncement) {
 }
 
 function isReadingProtected(request: VoiceAnnounceRequest, now: number): boolean {
-  if (request.protectsReading) return false;
+  // Um resultado pode esperar a fala anterior e proteger a própria leitura ao chegar.
+  if (request.protectsReading && !request.waitsForReading) return false;
   if (NEVER_DEFERRED_EVENTS.has(request.eventType ?? 'progress')) return false;
   return now < readingProtectedUntil;
 }

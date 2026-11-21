@@ -12,11 +12,11 @@ import {
 import { EventsOn } from '@wailsjs/runtime/runtime';
 import { terminal } from '../../wailsjs/go/models';
 import { playSendSound, playReceiveSound } from '../services/audioFeedback';
-import { announce } from '../hooks/useAnnouncer';
+import { announceWithOrigin } from '../services/voiceAccessibility/announcerBroker';
 import i18next from 'i18next';
 
 // Debounce para anúncio de output (acumula chunks e espera streaming parar)
-const pendingAnnouncements = new Map<string, { output: string; timer: ReturnType<typeof setTimeout> }>();
+const pendingAnnouncements = new Map<string, { output: string; truncated: boolean; timer: ReturnType<typeof setTimeout> }>();
 let terminalEventListenerRefCount = 0;
 let terminalOutputListenerRefCount = 0;
 let terminalSessionReadGeneration = 0;
@@ -28,6 +28,10 @@ export function resolveTerminalCommandId(sessionId: string, commandId?: string):
   return commandId || `legacy-${sessionId}-${Date.now()}-${legacyCommandSequence++}`;
 }
 
+function announceTerminalResult(message: string) {
+  announceWithOrigin({ message, eventType: 'completion', waitsForReading: true, protectsReading: true });
+}
+
 function cancelOutputAnnouncement(sessionId: string) {
   const pending = pendingAnnouncements.get(sessionId);
   if (pending) clearTimeout(pending.timer);
@@ -35,26 +39,56 @@ function cancelOutputAnnouncement(sessionId: string) {
 }
 
 function scheduleOutputAnnounce(sessionId: string, chunk: string) {
-  const previous = pendingAnnouncements.get(sessionId)?.output ?? '';
+  const pending = pendingAnnouncements.get(sessionId);
+  const previous = pending?.output ?? '';
   cancelOutputAnnouncement(sessionId);
-  const output = previous + (previous ? chunk : chunk.trimStart()).slice(0, 301 - previous.length);
+  const content = previous ? chunk : chunk.trimStart();
+  const remaining = 300 - previous.length;
+  const output = previous + content.slice(0, remaining);
+  const truncated = pending?.truncated || (content.length > remaining && /\S/.test(content.slice(remaining)));
   const timer = setTimeout(() => {
     pendingAnnouncements.delete(sessionId);
     const text = output.trim();
     if (text) {
       playReceiveSound();
-      const truncated = text.length > 300
-        ? text.slice(0, 300) + i18next.t('terminal.announce.truncatedSuffix')
-        : text;
-      announce(i18next.t('terminal.announce.output', { output: truncated }));
+      const preview = truncated ? output + i18next.t('terminal.announce.truncatedSuffix') : text;
+      announceTerminalResult(i18next.t('terminal.announce.output', { output: preview }));
     }
   }, 500);
-  pendingAnnouncements.set(sessionId, { output, timer });
+  pendingAnnouncements.set(sessionId, { output, truncated, timer });
 }
 
 // Re-export types for components
 export type SessionInfo = terminal.SessionInfo;
 export type HistoryEntry = terminal.HistoryEntry;
+
+// Limites do histórico definido em internal/terminal/session.go. A resposta
+// final do backend já inclui seu próprio aviso quando o resultado foi cortado.
+const historyEntryLimit = 200;
+const historyOutputLimit = 50 * 1024;
+const historyEncoder = new TextEncoder();
+const historyDecoder = new TextDecoder('utf-8', { ignoreBOM: true });
+const historyBuffer = new Uint8Array(historyOutputLimit);
+const historyBytes = new WeakMap<HistoryEntry, number>();
+
+function appendHistoryOutput(entry: HistoryEntry, chunk: string): HistoryEntry {
+  if (!chunk) return entry;
+  let used = historyBytes.get(entry);
+  if (used === undefined) {
+    const existing = historyEncoder.encodeInto(entry.output, historyBuffer);
+    used = existing.read === entry.output.length ? existing.written : historyOutputLimit + 1;
+    historyBytes.set(entry, used);
+  }
+  if (used > historyOutputLimit) return entry;
+  const remaining = historyBuffer.subarray(0, historyOutputLimit - used);
+  const { read, written } = historyEncoder.encodeInto(chunk, remaining);
+  const truncated = read !== chunk.length;
+  const addition = truncated ? historyDecoder.decode(remaining.subarray(0, written)) + '…' : chunk;
+  const updated = terminal.HistoryEntry.createFrom({ ...entry, output: entry.output + addition });
+  // Não permita que bytes seguintes ultrapassem um caractere que não coube.
+  historyBytes.set(updated, truncated ? historyOutputLimit + 1 : used + written);
+  return updated;
+}
 
 interface TerminalState {
   sessions: SessionInfo[];
@@ -280,7 +314,7 @@ export const useTerminalStore = create<TerminalState>((set) => ({
       removeExitedSession(data);
       // Eventos repetidos não anunciam duas vezes, inclusive antes da listagem inicial.
       if (firstEvent) {
-        announce(session?.name?.trim()
+        announceTerminalResult(session?.name?.trim()
           ? i18next.t('terminal.announce.exited', { name: session.name })
           : i18next.t('terminal.announce.terminated'));
       }
@@ -306,10 +340,11 @@ export const useTerminalStore = create<TerminalState>((set) => ({
 
       set(state => {
         const sessionHistory = state.historyBySession[data.sessionId] || [];
+        const recent = sessionHistory.length >= historyEntryLimit ? sessionHistory.slice(1 - historyEntryLimit) : sessionHistory;
         return {
           historyBySession: {
             ...state.historyBySession,
-            [data.sessionId]: [...sessionHistory, tempEntry],
+            [data.sessionId]: [...recent, tempEntry],
           },
           activeEntryBySession: {
             ...state.activeEntryBySession,
@@ -341,10 +376,7 @@ export const useTerminalStore = create<TerminalState>((set) => ({
         // Appenda output ao entry ativo (ou ao último entry)
         const updatedHistory = sessionHistory.map(entry => {
           if (activeEntryId ? entry.id === activeEntryId : entry === sessionHistory[sessionHistory.length - 1]) {
-            return terminal.HistoryEntry.createFrom({
-              ...entry,
-              output: entry.output + data.output,
-            });
+            return appendHistoryOutput(entry, data.output);
           }
           return entry;
         });
@@ -365,10 +397,7 @@ export const useTerminalStore = create<TerminalState>((set) => ({
         const sessionHistory = state.historyBySession[data.sessionId] || [];
         const updatedHistory = sessionHistory.map(entry => {
           if (entry.exitCode === -999 && entry.source !== 'user-raw') {
-            return terminal.HistoryEntry.createFrom({
-              ...entry,
-              output: entry.output + data.output,
-            });
+            return appendHistoryOutput(entry, data.output);
           }
           return entry;
         });
@@ -389,7 +418,7 @@ export const useTerminalStore = create<TerminalState>((set) => ({
         const outputPreview = data.output
           ? (data.output.length > 300 ? data.output.slice(0, 300) + i18next.t('terminal.announce.truncatedSuffix') : data.output)
           : i18next.t('terminal.announce.emptyOutput');
-        announce(i18next.t('terminal.announce.outputWithExit', { output: outputPreview, exitCode: data.exitCode }));
+        announceTerminalResult(i18next.t('terminal.announce.outputWithExit', { output: outputPreview, exitCode: data.exitCode }));
       }
       set(state => {
         const sessionHistory = state.historyBySession[data.sessionId] || [];

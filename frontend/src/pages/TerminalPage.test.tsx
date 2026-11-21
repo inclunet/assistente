@@ -214,7 +214,7 @@ function terminalPageView() {
       <WorkspacePanelProvider value={{ tab: terminalTab, isActive: true }}>
         <TerminalPage />
       </WorkspacePanelProvider>
-    </MemoryRouter>,
+    </MemoryRouter>
   );
 }
 
