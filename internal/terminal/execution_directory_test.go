@@ -130,14 +130,14 @@ func TestEphemeralRestoresDirectoryAfterShellStartup(t *testing.T) {
 }
 
 func TestCommandInDirectoryQuotesPathsAndStopsOnFailure(t *testing.T) {
-	directory := filepath.Join(t.TempDir(), "a'b [literal]")
+	directory := filepath.Join(t.TempDir(), "a'b d’água [literal]")
 	if err := os.Mkdir(directory, 0700); err != nil {
 		t.Fatal(err)
 	}
 	shell, kind, command := "bash", "bash", "pwd -P"
 	args := []string{"--noprofile", "--norc", "-c"}
 	if runtime.GOOS == "windows" {
-		shell, kind, command = "powershell.exe", "powershell", "(Get-Location).Path"
+		shell, kind, command = "powershell.exe", "powershell", "[Console]::OutputEncoding = [Text.UTF8Encoding]::new($false); (Get-Location).Path"
 		args = []string{"-NoProfile", "-NonInteractive", "-Command"}
 	}
 	if _, err := exec.LookPath(shell); err != nil {
