@@ -184,7 +184,7 @@ func TestPrerequisiteWarningIdentifiesCallAndCause(t *testing.T) {
 }
 
 func TestInvalidRequestedDirectoryReturnsArgumentError(t *testing.T) {
-	for _, name := range []string{"nul", "broken_symlink"} {
+	for _, name := range []string{"nul", "broken_symlink", "permission_denied"} {
 		t.Run(name, func(t *testing.T) {
 			dir := t.TempDir()
 			requested := "invalid\x00"
@@ -194,6 +194,34 @@ func TestInvalidRequestedDirectoryReturnsArgumentError(t *testing.T) {
 					if runtime.GOOS == "windows" {
 						t.Skipf("symlink indisponível: %v", err)
 					}
+					t.Fatal(err)
+				}
+			}
+
+			if name == "permission_denied" {
+				if runtime.GOOS == "windows" {
+					t.Skip("permissão de travessia POSIX")
+				}
+				blocked := filepath.Join(dir, "blocked")
+				if err := os.Mkdir(blocked, 0700); err != nil {
+					t.Fatal(err)
+				}
+				requested = filepath.Join("blocked", "child")
+				child := filepath.Join(dir, requested)
+				if err := os.Mkdir(child, 0700); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Chmod(blocked, 0); err != nil {
+					t.Fatal(err)
+				}
+				t.Cleanup(func() {
+					if err := os.Chmod(blocked, 0700); err != nil {
+						t.Error(err)
+					}
+				})
+				if _, err := os.Stat(child); err == nil {
+					t.Skip("o processo consegue atravessar o diretório sem permissão")
+				} else if !errors.Is(err, os.ErrPermission) {
 					t.Fatal(err)
 				}
 			}
