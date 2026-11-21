@@ -108,7 +108,7 @@ func InvokeContext(ctx context.Context, userContent string, mgr InvokerManager, 
 		if err != nil {
 			return nil, true, err
 		}
-		files, err := mgr.GetSkillFiles(slug)
+		files, err := invocationFiles(mgr, slug, skill.Path)
 		if err != nil {
 			warnSupportingFiles(ctx, slug, err, false)
 			if len(doc.commands) > 0 {
@@ -150,6 +150,13 @@ func InvokeContext(ctx context.Context, userContent string, mgr InvokerManager, 
 	}
 
 	return result, true, nil
+}
+
+func invocationFiles(mgr InvokerManager, slug, manifestPath string) ([]string, error) {
+	if source, ok := mgr.(supportingFileLister); ok && manifestPath != "" {
+		return source.listSupportingFiles(manifestPath)
+	}
+	return mgr.GetSkillFiles(slug)
 }
 
 func invocationFrame(skill *Skill, supplementary []string) (string, string) {

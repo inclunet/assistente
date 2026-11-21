@@ -2,8 +2,12 @@ package skills
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+
+	"assistente/internal/configdir"
 )
 
 // ─── ParseSlashCommand ────────────────────────────────────────────────────────
@@ -242,3 +246,57 @@ func TestInvoke_AllowsTemplateExamplesAsPlainContent(t *testing.T) {
 type skillNotFoundError struct{}
 
 func (e *skillNotFoundError) Error() string { return "skill not found" }
+
+// O mesmo slug passa a resolver em outra origem logo após a leitura do manifesto.
+type changingInvocationSource struct {
+	*Manager
+	next *configdir.Resolver
+}
+
+func (m changingInvocationSource) Get(slug string) (*Skill, error) {
+	skill, err := m.Manager.Get(slug)
+	m.resolver = m.next
+	return skill, err
+}
+
+func TestSlashFilesAndBudgetFollowSelectedManifest(t *testing.T) {
+	const slug = "report"
+	root := t.TempDir()
+	original, overlay := filepath.Join(root, "home"), filepath.Join(root, "workdir")
+	for _, dir := range []string{original, overlay} {
+		path := filepath.Join(dir, slug)
+		if err := os.MkdirAll(path, 0700); err != nil {
+			t.Fatal(err)
+		}
+		manifest := "---\nname: report\ntools:\n  bashCommands:\n    allowed: [echo]\n---\n!echo ok"
+		if err := os.WriteFile(filepath.Join(path, skillFile), []byte(manifest), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	originalFile := filepath.Join(original, slug, "somente-na-origem.md")
+	if err := os.WriteFile(originalFile, []byte("apoio"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	for _, budget := range []int{64, 4096} {
+		m := changingInvocationSource{&Manager{resolver: configdir.NewResolverWithBase(original)}, configdir.NewResolverWithBase(overlay)}
+		calls := 0
+		ctx := WithSlashCommandTurn(t.Context(), func(_ context.Context, s *Skill, _ string) (string, error) {
+			calls++
+			if s.Path != filepath.Join(original, slug, skillFile) {
+				t.Fatalf("executor recebeu %q", s.Path)
+			}
+			return "ok", nil
+		}, budget)
+		result, found, err := InvokeContext(ctx, "/report", m, "turn", SelectionPolicy{OnDemand: []Skill{{Slug: slug}}})
+		if !found {
+			t.Fatal("a barra não reconheceu o comando")
+		}
+		if budget == 64 {
+			if err == nil || !strings.Contains(err.Error(), "orçamento insuficiente") || result != nil || calls != 0 {
+				t.Fatalf("orçamento insuficiente: chamadas=%d resultado=%+v erro=%v", calls, result, err)
+			}
+		} else if err != nil || result == nil || !strings.Contains(result.Content, originalFile) || calls != 1 {
+			t.Fatalf("orçamento disponível: chamadas=%d resultado=%+v erro=%v", calls, result, err)
+		}
+	}
+}

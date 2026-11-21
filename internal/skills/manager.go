@@ -363,6 +363,12 @@ func (m *Manager) GetSkillFiles(slug string) ([]string, error) {
 	return nil, fmt.Errorf("skill %q: %w", slug, os.ErrNotExist)
 }
 
+// Os gerenciadores de manifestos locais podem listar os arquivos da origem
+// já selecionada sem resolver novamente a precedência do slug.
+type supportingFileLister interface {
+	listSupportingFiles(skillPath string) ([]string, error)
+}
+
 func (*Manager) listSupportingFiles(skillPath string) ([]string, error) {
 	return collectSupportingFiles(filepath.Dir(skillPath), filepath.Walk)
 }
