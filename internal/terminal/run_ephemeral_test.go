@@ -62,7 +62,7 @@ func TestSensitiveCommandRedactedInTerminalEventsAndHistory(t *testing.T) {
 			startSeen.Store(ok && props["command"] == masked)
 		}
 	})
-	dir := t.TempDir()
+	dir := ptyTestDir(t)
 	t.Cleanup(manager.CloseAll)
 	entry, err := manager.RunEphemeral(ctx, dir, text, 15*time.Second, "test")
 	if err != nil || entry == nil || entry.Command != masked || entry.Output != "executado" || entry.ExitCode != 0 {
@@ -210,7 +210,7 @@ func TestPowerShellPipelineAndGroupedStatus(t *testing.T) {
 		{"cmd /c exit 7; (Write-Output ok)", 0},
 	} {
 		t.Run(tc.command, func(t *testing.T) {
-			entry, err := NewManager(cfg, nil).RunEphemeral(t.Context(), t.TempDir(), CommandText{Raw: tc.command, Display: tc.command}, 15*time.Second, "test")
+			entry, err := NewManager(cfg, nil).RunEphemeral(t.Context(), ptyTestDir(t), CommandText{Raw: tc.command, Display: tc.command}, 15*time.Second, "test")
 			if err != nil || entry == nil || entry.ExitCode != tc.exit {
 				t.Fatalf("esperado=%d entry=%+v err=%v", tc.exit, entry, err)
 			}
@@ -269,7 +269,7 @@ func TestPowerShellGroupAndTargetWhitespaceThroughPTY(t *testing.T) {
 	cfg := DefaultManagerConfig()
 	cfg.DefaultShell = "powershell.exe"
 	manager := NewManager(cfg, nil)
-	session, err := manager.Create("espaço entre tokens", t.TempDir())
+	session, err := manager.Create("espaço entre tokens", ptyTestDir(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -295,7 +295,7 @@ func TestPowerShellExpandedCommandNameThroughPTY(t *testing.T) {
 	cfg := DefaultManagerConfig()
 	cfg.DefaultShell = "powershell.exe"
 	manager := NewManager(cfg, nil)
-	session, err := manager.Create("alvo expansível", t.TempDir())
+	session, err := manager.Create("alvo expansível", ptyTestDir(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -339,7 +339,7 @@ func TestPowerShellFinalPipelineAndConditionalReturnThroughPTY(t *testing.T) {
 	cfg := DefaultManagerConfig()
 	cfg.DefaultShell = "powershell.exe"
 	manager := NewManager(cfg, nil)
-	dir := t.TempDir()
+	dir := ptyTestDir(t)
 	session, err := manager.Create("status da última etapa", dir)
 	if err != nil {
 		t.Fatal(err)
@@ -381,7 +381,7 @@ func TestPowerShellStrictModeThroughPTY(t *testing.T) {
 	cfg := DefaultManagerConfig()
 	cfg.DefaultShell = "powershell.exe"
 	manager := NewManager(cfg, nil)
-	session, err := manager.Create("StrictMode", t.TempDir())
+	session, err := manager.Create("StrictMode", ptyTestDir(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -419,7 +419,7 @@ func TestPowerShellGroupingPreservesOutputOnThrow(t *testing.T) {
 		if !errors.As(err, &controlExit) || controlExit.ExitCode() != 1 || controlLines[len(controlLines)-1] != "falha" {
 			t.Fatalf("controle %q: saída=%q erro=%v", group, want, err)
 		}
-		entry, err := NewManager(cfg, nil).RunEphemeral(t.Context(), t.TempDir(), CommandText{Raw: group, Display: group}, 15*time.Second, "test")
+		entry, err := NewManager(cfg, nil).RunEphemeral(t.Context(), ptyTestDir(t), CommandText{Raw: group, Display: group}, 15*time.Second, "test")
 		if err != nil || entry == nil || entry.ExitCode != controlExit.ExitCode() || !strings.Contains(entry.Output, "falha") {
 			t.Fatalf("grupo=%q entry=%+v err=%v", group, entry, err)
 		}
@@ -461,7 +461,7 @@ func TestPowerShellHashPreservesOutputAndExitCode(t *testing.T) {
 		{"sintaxe", "if ( # nota", "", 1, "diagnostic"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			entry, err := NewManager(cfg, nil).RunEphemeral(t.Context(), t.TempDir(), CommandText{Raw: tc.command, Display: tc.command}, 10*time.Second, "test")
+			entry, err := NewManager(cfg, nil).RunEphemeral(t.Context(), ptyTestDir(t), CommandText{Raw: tc.command, Display: tc.command}, 10*time.Second, "test")
 			if err != nil || entry == nil || entry.ExitCode != tc.code {
 				t.Fatalf("esperado %d, entry=%+v err=%v", tc.code, entry, err)
 			}
@@ -492,7 +492,7 @@ func TestBashExitBeforeEndMarker(t *testing.T) {
 	cfg := DefaultManagerConfig()
 	cfg.DefaultShell = "bash"
 	const rawCommand = "printf 'antes'; exit 3"
-	entry, err := NewManager(cfg, nil).RunEphemeral(t.Context(), t.TempDir(), CommandText{Raw: rawCommand, Display: rawCommand}, 10*time.Second, "test")
+	entry, err := NewManager(cfg, nil).RunEphemeral(t.Context(), ptyTestDir(t), CommandText{Raw: rawCommand, Display: rawCommand}, 10*time.Second, "test")
 	if err != nil || entry == nil || entry.ExitCode != 3 || !strings.HasPrefix(entry.Output, "antes") {
 		t.Fatalf("entry=%+v err=%v", entry, err)
 	}
@@ -500,7 +500,7 @@ func TestBashExitBeforeEndMarker(t *testing.T) {
 
 func TestProcessExitBeforeStartMarker(t *testing.T) {
 	manager := NewManager(DefaultManagerConfig(), nil)
-	session, err := manager.Create("sem marcador", t.TempDir())
+	session, err := manager.Create("sem marcador", ptyTestDir(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -534,7 +534,7 @@ func TestExplicitCloseAfterStartDoesNotCompleteCommand(t *testing.T) {
 			}
 		}
 	})
-	session, err := manager.Create("fechamento", t.TempDir())
+	session, err := manager.Create("fechamento", ptyTestDir(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -583,7 +583,7 @@ func TestPowerShellReturnInPersistentSession(t *testing.T) {
 			streamed.WriteString(payload["output"])
 		}
 	})
-	session, err := manager.Create("persistente", t.TempDir())
+	session, err := manager.Create("persistente", ptyTestDir(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -634,7 +634,7 @@ func TestPersistentShellFooterAfterUnterminatedDCS(t *testing.T) {
 			streamed.WriteString(payload["output"])
 		}
 	})
-	s, err := m.Create("dcs", t.TempDir())
+	s, err := m.Create("dcs", ptyTestDir(t))
 	if err != nil {
 		t.Fatal(err)
 	}
