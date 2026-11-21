@@ -17,7 +17,7 @@ func downloadForTest(ctx context.Context, u *Updater, url, kind string) ([]byte,
 		if err != nil {
 			return nil, err
 		}
-		defer os.Remove(path)
+		defer func() { _ = os.Remove(path) }()
 		return os.ReadFile(path)
 	}
 	r, err := u.downloadBinary(ctx, url)
@@ -25,8 +25,8 @@ func downloadForTest(ctx context.Context, u *Updater, url, kind string) ([]byte,
 		return nil, err
 	}
 	f := r.(*os.File)
-	defer os.Remove(f.Name())
-	defer r.Close()
+	defer func() { _ = os.Remove(f.Name()) }()
+	defer func() { _ = r.Close() }()
 	return io.ReadAll(r)
 }
 
