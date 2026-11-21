@@ -2,6 +2,7 @@ package terminal
 
 import (
 	"encoding/base64"
+	"fmt"
 	"os/exec"
 	"strings"
 	"testing"
@@ -380,7 +381,9 @@ func TestPowerShellSplitRedrawDoesNotLeakControlBytes(t *testing.T) {
 		raw := "ab" + glyph + "\r\n\x1b[39;3H" + glyph + "c"
 		want := "ab" + glyph + "c"
 		for split := range len(raw) + 1 {
-			partial := strings.TrimRight(marker.cleanStreamingOutput(raw[:split]), "\r\n")
+			stream := newMarkerStream(marker)
+			delta, _ := stream.append(marker.StartTag() + "\n" + raw[:split])
+			partial := string(delta)
 			if !strings.HasPrefix(want, partial) {
 				t.Fatalf("split=%d parcial=%q", split, partial)
 			}
@@ -395,7 +398,7 @@ func TestProcessExitPreservesIncompleteConPTYRedraw(t *testing.T) {
 	raw := marker.StartTag() + "\r\nabe\u0301\r\n\x1b[39;3He"
 	session := &Session{processDone: make(chan struct{})}
 	close(session.processDone)
-	output, code, ok := session.exitedCommandResult(raw, marker)
+	output, code, ok := session.exitedCommandResult(marker.cleanOutput(raw), marker)
 	if !ok || code != 0 || output != "abe\u0301\ne" {
 		t.Fatalf("output=%q code=%d ok=%t", output, code, ok)
 	}
@@ -422,6 +425,8 @@ func TestConPTYViewportChangesWithinOutput(t *testing.T) {
 }
 
 func TestPowerShellOnlyPreparesGroupedCommands(t *testing.T) {
+	marker := newCommandMarkerForShell("powershell")
+	commonOverhead := len(marker.WrapCommand("x", "powershell")) - base64.StdEncoding.EncodedLen(1)
 	for _, tc := range []struct {
 		cmd     string
 		grouped bool
@@ -430,8 +435,9 @@ func TestPowerShellOnlyPreparesGroupedCommands(t *testing.T) {
 		{"cmd.exe /c --% echo sample", false}, {"throw 'falhou'", false},
 		{"(cmd /c exit 7) # anotação", true},
 	} {
-		script := newCommandMarkerForShell("powershell").WrapCommand(tc.cmd, "powershell")
-		if strings.Contains(script, "$chars = $source.ToCharArray()") != tc.grouped || !strings.Contains(script, "finally") {
+		script := marker.WrapCommand(tc.cmd, "powershell")
+		overhead := len(script) - base64.StdEncoding.EncodedLen(len(tc.cmd))
+		if (overhead > commonOverhead) != tc.grouped || !strings.Contains(script, "finally") {
 			t.Errorf("moldura inesperada para %q", tc.cmd)
 		}
 	}
@@ -441,22 +447,27 @@ func TestMarkerStreamConsumesOnlyNewBytes(t *testing.T) {
 	marker := newCommandMarkerForShell("powershell")
 	marker.conPTY = true
 	marker.viewportColumns = 80
-	stream := markerStream{marker: *marker}
+	stream := newMarkerStream(marker)
 	session := Session{}
-	raw := "primeira\r\n\x1b[8;40;3tabé\r\n\x1b[2;3Héc\r\nsegunda\r\n\x1b[31mvermelha\x1b[0m\r\nfim"
+	raw := marker.StartTag() + "\r\x1b[0m\nprimeira\r\x1b[31m\n\x1b[8;40;3tabé\r\n\x1b[2;3Héc\r\nsegunda\r\n\x1b[31mvermelha\x1b[0m\r\nfim\r\n" + marker.EndTag() + "0\r\n"
+	want := "primeira\nabéc\nsegunda\nvermelha\nfim"
+	var emitted strings.Builder
 	for read := range len(raw) {
 		session.outputBuf.WriteByte(raw[read])
 		chunk := session.outputSince(read)
 		if chunk != raw[read:read+1] || session.outputSince(read+1) != "" {
 			t.Fatalf("offset %d, chunk %q", read, chunk)
 		}
-		if got, want := stream.append(chunk), marker.cleanStreamingOutput(raw[:read+1]); got != want {
-			t.Fatalf("offset %d, saída %q, esperada %q", read, got, want)
+		delta, result := stream.append(chunk)
+		emitted.Write(delta)
+		if !strings.HasPrefix(want, emitted.String()) {
+			t.Fatalf("offset %d, saída %q", read, emitted.String())
+		}
+		if read == len(raw)-1 && (!result.Found || result.Output != want || result.ExitCode != 0 || emitted.String() != want) {
+			t.Fatalf("término=%+v, saída=%q", result, emitted.String())
 		}
 	}
-	if stream.pending.String() != "fim" {
-		t.Fatalf("cauda inesperada %q", stream.pending.String())
-	}
+
 }
 
 func TestCursorRedrawPreservesControlsAndUnixPTY(t *testing.T) {
@@ -481,24 +492,83 @@ func TestConPTYStartAfterRedrawnEcho(t *testing.T) {
 		m.WrapCommand("cmd /c exit 4; Write-Output ok; return", "powershell")
 	start := m.StartTag() + "\r\n"
 	for split := range len(start) {
-		if _, started := m.afterStart(m.cleanStreamingOutput(echo + start[:split])); started {
+		stream := newMarkerStream(m)
+		if delta, _ := stream.append(echo + start[:split]); stream.started || len(delta) != 0 {
 			t.Fatalf("eco ou início parcial reconhecido no byte %d", split)
 		}
 	}
 	partial := echo + start + "ok"
-	if output, started := m.afterStart(m.cleanStreamingOutput(partial)); !started || output != "ok" {
-		t.Fatalf("streaming iniciado=%t saída=%q", started, output)
+	stream := newMarkerStream(m)
+	if output, _ := stream.append(partial); !stream.started || string(output) != "ok" {
+		t.Fatalf("streaming iniciado=%t saída=%q", stream.started, output)
 	}
-	if output := partialCommandOutput(partial, m); output != "ok" {
+	if output := partialCommandOutput(m.cleanOutput(partial), m); output != "ok" {
 		t.Fatalf("cancelamento trouxe %q", output)
 	}
 	session := &Session{processDone: make(chan struct{})}
 	close(session.processDone)
-	if output, code, ok := session.exitedCommandResult(partial, m); !ok || output != "ok" || code != 0 {
+	if output, code, ok := session.exitedCommandResult(m.cleanOutput(partial), m); !ok || output != "ok" || code != 0 {
 		t.Fatalf("término do shell=%t saída=%q código=%d", ok, output, code)
 	}
 	raw := partial + "\r\n" + m.EndTag() + "0\r\n"
 	if result := m.ParseOutput(raw); !result.Found || result.Output != "ok" || result.ExitCode != 0 {
 		t.Fatalf("resultado=%t saída=%q código=%d", result.Found, result.Output, result.ExitCode)
+	}
+}
+
+func TestMarkerStreamLongTailAndFragmentedControls(t *testing.T) {
+	m := newCommandMarkerForShell("powershell")
+	tail := strings.Repeat("a", 131072)
+	stream := newMarkerStream(m)
+	if delta, _ := stream.append(m.StartTag() + "\n" + tail); string(delta) != tail {
+		t.Fatal("texto sem quebra ficou retido")
+	}
+	controls := "\x1b]" + tail + "\a\r\x1b[0m\n"
+	want := tail + "\n" + m.EndTag() + "invalido\núltimo"
+	rest := controls + m.EndTag() + "invalido\núltimo\n" + m.EndTag() + " 27 \r\n"
+	for _, step := range []int{1, 7, 4096} {
+		stream = newMarkerStream(m)
+		stream.append(m.StartTag() + "\n" + tail)
+		var emitted strings.Builder
+		emitted.WriteString(tail)
+		var result ParseResult
+		for i := 0; i < len(rest); i += step {
+			var delta []byte
+			delta, result = stream.append(rest[i:min(i+step, len(rest))])
+			emitted.Write(delta)
+		}
+		if !result.Found || result.ExitCode != 27 || result.Output != want || emitted.String() != want {
+			t.Fatalf("passo=%d, encontrado=%t, status=%d, bytes emitidos=%d", step, result.Found, result.ExitCode, emitted.Len())
+		}
+	}
+}
+
+func BenchmarkMarkerStreamScale(b *testing.B) {
+	for _, layout := range []string{"linhas", "sem-quebra"} {
+		for _, kib := range []int{128, 1024, 4096} {
+			b.Run(fmt.Sprintf("%s/%dKiB", layout, kib), func(b *testing.B) {
+				marker := newCommandMarkerForShell("powershell")
+				marker.viewportColumns = 120
+				chunk := strings.Repeat("a", 4096)
+				if layout == "linhas" {
+					chunk = strings.Repeat(strings.Repeat("a", 63)+"\n", 64)
+				}
+				b.ReportAllocs()
+				b.SetBytes(int64(kib * 1024))
+				for b.Loop() {
+					stream := newMarkerStream(marker)
+					stream.append(marker.StartTag() + "\n")
+					emitted := 0
+					for range kib / 4 {
+						delta, _ := stream.append(chunk)
+						emitted += len(delta)
+					}
+					delta, result := stream.append("\n" + marker.EndTag() + "0\n")
+					if !result.Found || emitted+len(delta) != len(result.Output) {
+						b.Fatal("sem fim")
+					}
+				}
+			})
+		}
 	}
 }

@@ -7,10 +7,8 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
-	"unicode/utf8"
 
 	"github.com/google/uuid"
-	"github.com/rivo/uniseg"
 )
 
 const (
@@ -111,7 +109,9 @@ func (m *CommandMarker) wrapPowerShell(command string) string {
     if (!$stages.Count -or $stages[0] -isnot [System.Management.Automation.Language.CommandAst]) { return $false };
     for ($n = 1; $n -lt $stages.Count; $n++) {
         $stage = $stages[$n];
-        if ($stage.Extent.Text -ine 'Out-String' -or (Microsoft.PowerShell.Core\Get-Command Out-String).ImplementingType.FullName -ne 'Microsoft.PowerShell.Commands.OutStringCommand') { return $false }
+        if ($stage -isnot [System.Management.Automation.Language.CommandAst] -or $stage.CommandElements.Count -ne 1 -or $stage.Redirections.Count) { return $false };
+        $name = $stage.GetCommandName();
+        if ($name -notin 'Out-String','Microsoft.PowerShell.Utility\Out-String' -or (Microsoft.PowerShell.Core\Get-Command -Name $name).ImplementingType.FullName -ne 'Microsoft.PowerShell.Commands.OutStringCommand') { return $false }
     };
     return $true
 }`
@@ -207,51 +207,11 @@ func (m *CommandMarker) afterStart(cleaned string) (string, bool) {
 
 // ParseOutput extrai a saída e o código após observar ambos os marcadores.
 func (m *CommandMarker) ParseOutput(raw string) ParseResult {
-	result := m.parseCleanOutput(m.cleanOutput(raw))
+	stream := newMarkerStream(m)
+	stream.text.feed(raw)
+	stream.text.finish()
+	_, result := stream.progress()
 	result.Raw = raw
-	return result
-}
-
-func (m *CommandMarker) parseCleanOutput(cleaned string) ParseResult {
-	var result ParseResult
-
-	output, started := m.afterStart(cleaned)
-	if !started {
-		return result
-	}
-
-	// Encontra o end marker no início de uma linha (última ocorrência).
-	endIdx := -1
-	nlEnd := strings.LastIndex(output, "\n"+m.endTag)
-	if nlEnd != -1 {
-		endIdx = nlEnd + 1 // pula o \n
-	} else if strings.HasPrefix(output, m.endTag) {
-		endIdx = 0
-	}
-	if m.inlineEnd {
-		// Só o marcador desta execução depois do start real pode fechar o comando.
-		// A linha de status completa, validada abaixo, distingue o eco e leituras parciais.
-		endIdx = strings.LastIndex(output, m.endTag)
-	}
-	if endIdx == -1 {
-		return result
-	}
-
-	// O PTY pode dividir o próprio código de saída entre duas leituras.
-	status, _, complete := strings.Cut(output[endIdx+len(m.endTag):], "\n")
-	if !complete {
-		return result
-	}
-	code, err := strconv.Atoi(strings.TrimSpace(status))
-	if err != nil {
-		return result
-	}
-	result.ExitCode = code
-	result.Found = true
-
-	// Extrai o output entre os markers
-	result.Output = strings.TrimRight(output[:endIdx], "\n")
-
 	return result
 }
 
@@ -265,51 +225,7 @@ func (m *CommandMarker) EndTag() string {
 	return m.endTag
 }
 
-// O prefixo até uma quebra seguida de texto não pode mais ser redesenhado pelo
-// ConPTY. Guarde-o já normalizado e reavalie só a cauda ainda ambígua.
-type markerStream struct {
-	marker  CommandMarker
-	stable  strings.Builder
-	pending strings.Builder
-}
-
-func (stream *markerStream) append(chunk string) string {
-	previous := stream.pending.Len()
-	stream.pending.WriteString(chunk)
-	raw := stream.pending.String()
-	for i := len(raw) - 2; i >= max(previous-1, 0); i-- {
-		if raw[i] != '\n' || raw[i+1] == '\x1b' {
-			continue
-		}
-		prefix := raw[:i+1]
-		stream.stable.WriteString(stream.marker.cleanOutput(prefix))
-		stream.marker.viewportColumns = viewportAfterOutput(prefix, stream.marker.viewportColumns)
-		raw = raw[i+1:]
-		stream.pending.Reset()
-		stream.pending.WriteString(raw)
-		break
-	}
-	return stream.stable.String() + stream.marker.cleanStreamingOutput(raw)
-}
-
 var partialCSI = regexp.MustCompile("\x1b(?:\\[[?0-9;]*)?$")
-
-// O próximo chunk pode completar um escape ou um grafema redesenhado.
-func (m *CommandMarker) cleanStreamingOutput(raw string) string {
-	if len(raw) > 0 && raw[len(raw)-1] >= utf8.RuneSelf {
-		start := len(raw) - 1
-		for start > 0 && !utf8.RuneStart(raw[start]) {
-			start--
-		}
-		if !utf8.FullRuneInString(raw[start:]) {
-			raw = raw[:start]
-		}
-	}
-	if esc := strings.LastIndexByte(raw, '\x1b'); esc >= 0 && partialCSI.MatchString(raw[esc:]) {
-		raw = raw[:esc]
-	}
-	return m.normalizeOutput(raw, true)
-}
 
 var conPTYResize = regexp.MustCompile("\x1b\\[8;[0-9]+;([0-9]+)t")
 
@@ -324,62 +240,11 @@ func viewportAfterOutput(raw string, columns int) int {
 	return columns
 }
 
-var conPTYCursorAfterWrap = regexp.MustCompile("\r\n\x1b\\[[0-9]+;([1-9][0-9]*)H")
-
 func (m *CommandMarker) cleanOutput(raw string) string {
-	return m.normalizeOutput(raw, false)
-}
-
-// Ao rolar a tela, o ConPTY pode redesenhar a última célula da linha:
-// CRLF, cursor na última coluna, cópia do grafema e continuação da saída.
-// Confira a coluna e o grafema antes de unir as linhas.
-func (m *CommandMarker) normalizeOutput(raw string, streaming bool) string {
-	if m.conPTY && strings.Contains(raw, "\r\n\x1b[") {
-		var joined strings.Builder
-		consumed, scanned := 0, 0
-		columns := m.viewportColumns
-		for _, match := range conPTYCursorAfterWrap.FindAllStringSubmatchIndex(raw, -1) {
-			if match[0] < consumed {
-				continue
-			}
-			columns = viewportAfterOutput(raw[scanned:match[0]], columns)
-			scanned = match[1]
-			before := raw[consumed:match[0]]
-			row := StripANSI(before[strings.LastIndexByte(before, '\n')+1:])
-			column, err := strconv.Atoi(raw[match[2]:match[3]])
-			if err != nil || column != columns || row == "" {
-				continue
-			}
-			graphemes := uniseg.NewGraphemes(row)
-			cells, lastWidth := 0, 0
-			var last string
-			for graphemes.Next() {
-				last = graphemes.Str()
-				lastWidth = graphemes.Width()
-				cells += lastWidth
-			}
-			if lastWidth == 0 || cells != column {
-				continue
-			}
-			replay := raw[match[1]:]
-			if streaming && len(replay) < len(last) && strings.HasPrefix(last, replay) {
-				// A próxima leitura completará o grafema ou revelará uma quebra real.
-				joined.WriteString(before)
-				consumed = len(raw)
-				break
-			}
-			if !strings.HasPrefix(replay, last) {
-				continue
-			}
-			joined.WriteString(before)
-			consumed = match[1] + len(last)
-		}
-		if consumed > 0 {
-			joined.WriteString(raw[consumed:])
-			raw = joined.String()
-		}
-	}
-	return strings.ReplaceAll(StripANSI(raw), "\r\n", "\n")
+	text := parsedTerminalText{conPTY: m.conPTY, columns: m.viewportColumns}
+	text.feed(raw)
+	text.finish()
+	return string(text.data)
 }
 
 // StripANSI remove todas as sequências ANSI escape de uma string.

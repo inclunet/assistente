@@ -92,13 +92,15 @@ type commandStartCallback func(sessionID, commandID, command, source string)
 
 // Session encapsula uma sessão PTY persistente com um shell.
 type Session struct {
-	id                string
-	sessionVersion    uint64
-	name              string
-	ptySession        ptyx.Session
-	ptyReader         io.Reader
-	ptyWriter         io.Writer
-	viewportColumns   int // sob outputMu, largura no início de outputBuf
+	id             string
+	sessionVersion uint64
+	name           string
+	ptySession     ptyx.Session
+	ptyReader      io.Reader
+	ptyWriter      io.Writer
+	// Sob outputMu, largura no início de outputBuf. Quem redimensionar o PTY
+	// pelo host deve registrar a nova largura no mesmo ponto do fluxo.
+	viewportColumns   int
 	state             SessionState
 	commandGeneration uint64
 	// commandPending cobre a janela entre beginCommand e o write inicial.
@@ -554,7 +556,7 @@ func (s *Session) RunCommand(ctx context.Context, command string, timeout time.D
 }
 
 // exitedCommandResult recupera o status do processo quando o comando encerra o próprio shell.
-func (s *Session) exitedCommandResult(raw string, marker *CommandMarker) (string, int, bool) {
+func (s *Session) exitedCommandResult(cleaned string, marker *CommandMarker) (string, int, bool) {
 	select {
 	case <-s.processDone:
 	default:
@@ -566,7 +568,7 @@ func (s *Session) exitedCommandResult(raw string, marker *CommandMarker) (string
 	if closed {
 		return "", -1, false
 	}
-	output, started := marker.afterStart(marker.cleanOutput(raw))
+	output, started := marker.afterStart(cleaned)
 	if !started {
 		return "", -1, false
 	}
@@ -590,29 +592,28 @@ func (s *Session) waitForMarker(ctx context.Context, marker *CommandMarker, comm
 	// streamSentLen rastreia quanto do output "real" (entre markers) já foi enviado via callback.
 	streamSentLen := 0
 	read := 0
-	stream := markerStream{marker: *marker}
+	stream := newMarkerStream(marker)
 
 	for {
 		select {
 		case <-ctx.Done():
-			return s.canceledCommandResult(ctx, marker)
+			return s.canceledCommandResult(ctx, stream, read)
 
 		case <-s.readerDone:
 			// Um comando pode encerrar o próprio shell antes do marcador final.
 			// Só aceite o status do processo após drenar o leitor e observar o
 			// marcador de início. Fechamento externo e cancelamento são erros.
-			s.outputMu.Lock()
-			raw := s.outputBuf.String()
-			s.outputMu.Unlock()
 			if ctx.Err() != nil {
-				return s.canceledCommandResult(ctx, marker)
+				return s.canceledCommandResult(ctx, stream, read)
 			}
-			result := marker.ParseOutput(raw)
+			stream.text.feed(s.outputSince(read))
+			stream.text.finish()
+			_, result := stream.progress()
 			if !result.Found && s.readerErr != nil {
-				return partialCommandOutput(raw, marker), -1, fmt.Errorf("falha ao ler o resultado do comando: %w", s.readerErr)
+				return partialCommandOutput(string(stream.text.data), marker), -1, fmt.Errorf("falha ao ler o resultado do comando: %w", s.readerErr)
 			}
 			if !result.Found {
-				result.Output, result.ExitCode, result.Found = s.exitedCommandResult(raw, marker)
+				result.Output, result.ExitCode, result.Found = s.exitedCommandResult(string(stream.text.data), marker)
 			}
 			if !result.Found {
 				return result.Output, -1, fmt.Errorf("sessão encerrada sem resultado do comando")
@@ -624,45 +625,20 @@ func (s *Session) waitForMarker(ctx context.Context, marker *CommandMarker, comm
 
 		case <-ticker.C:
 			if ctx.Err() != nil {
-				return s.canceledCommandResult(ctx, marker)
+				return s.canceledCommandResult(ctx, stream, read)
 			}
 			chunk := s.outputSince(read)
 			if chunk == "" {
 				continue
 			}
 			read += len(chunk)
-			cleaned := stream.append(chunk)
-			result := marker.parseCleanOutput(cleaned)
-			if result.Found {
-				// Emite o trecho final de output que ainda não foi enviado
-				if s.onOutput != nil && len(result.Output) > streamSentLen {
-					s.onOutput(s.id, commandID, result.Output[streamSentLen:])
-				}
-				return result.Output, result.ExitCode, nil
+			delta, result := stream.append(chunk)
+			if s.onOutput != nil && len(delta) > 0 {
+				s.onOutput(s.id, commandID, string(delta))
+				streamSentLen += len(delta)
 			}
-
-			// Se ainda não encontrou o end marker, tenta emitir output parcial
-			// entre o start marker e o final do buffer atual (sem incluir echo/markers).
-			if s.onOutput != nil {
-				if partial, started := marker.afterStart(cleaned); started {
-					// Remove linhas que contêm o end marker (se parcialmente recebido)
-					if endIdx := strings.Index(partial, marker.EndTag()); endIdx >= 0 {
-						partial = partial[:endIdx]
-					} else {
-						for n := min(len(partial), len(marker.EndTag())-1); n > 0; n-- {
-							if strings.HasSuffix(partial, marker.EndTag()[:n]) {
-								partial = partial[:len(partial)-n]
-								break
-							}
-						}
-					}
-					partial = strings.TrimRight(partial, "\r\n")
-
-					if len(partial) > streamSentLen {
-						s.onOutput(s.id, commandID, partial[streamSentLen:])
-						streamSentLen = len(partial)
-					}
-				}
+			if result.Found {
+				return result.Output, result.ExitCode, nil
 			}
 		}
 	}
@@ -674,8 +650,7 @@ func (s *Session) outputSince(read int) string {
 	return string(s.outputBuf.Bytes()[read:])
 }
 
-func partialCommandOutput(raw string, marker *CommandMarker) string {
-	cleaned := marker.cleanOutput(raw)
+func partialCommandOutput(cleaned string, marker *CommandMarker) string {
 	if output, started := marker.afterStart(cleaned); started {
 		output, _, _ = strings.Cut(output, marker.EndTag())
 		return strings.TrimSpace(output)
@@ -683,7 +658,7 @@ func partialCommandOutput(raw string, marker *CommandMarker) string {
 	return cleaned
 }
 
-func (s *Session) canceledCommandResult(ctx context.Context, marker *CommandMarker) (string, int, error) {
+func (s *Session) canceledCommandResult(ctx context.Context, stream *markerStream, read int) (string, int, error) {
 	// Timeout ou cancelamento: envia Ctrl+C e aguarda brevemente a
 	// drenagem. RunEphemeral fará em seguida o cleanup completo
 	// (Kill + Wait + EOF do leitor + Close), antes de retornar.
@@ -692,41 +667,36 @@ func (s *Session) canceledCommandResult(ctx context.Context, marker *CommandMark
 	} else {
 		logging.Infof(context.Background(), "terminal.session", "[Terminal] Comando cancelado na sessão %s", s.id)
 	}
-	var raw string
 	select {
 	case <-s.readerDone:
-		s.outputMu.Lock()
-		raw = s.outputBuf.String()
-		s.outputMu.Unlock()
 	default:
 		if err := s.Interrupt(); err != nil {
 			logging.Errorf(context.Background(), "terminal.session", "[Terminal] Erro ao enviar Ctrl+C após timeout: %v", err)
 		}
-		raw = s.drainAfterInterrupt(marker)
+		read = s.drainAfterInterrupt(stream, read)
 	}
-	return partialCommandOutput(raw, marker), -1, fmt.Errorf("fim do comando não observado: %w", ctx.Err())
+	stream.text.feed(s.outputSince(read))
+	stream.text.finish()
+	return partialCommandOutput(string(stream.text.data), stream.marker), -1, fmt.Errorf("fim do comando não observado: %w", ctx.Err())
 }
 
-func (s *Session) drainAfterInterrupt(marker *CommandMarker) string {
+func (s *Session) drainAfterInterrupt(stream *markerStream, read int) int {
 	deadline := time.NewTimer(interruptDrainTimeout)
 	defer deadline.Stop()
 	ticker := time.NewTicker(25 * time.Millisecond)
 	defer ticker.Stop()
-
-	snapshot := func() string {
-		s.outputMu.Lock()
-		defer s.outputMu.Unlock()
-		return s.outputBuf.String()
-	}
 	for {
-		raw := snapshot()
-		if marker.ParseOutput(raw).Found {
-			return raw
+		chunk := s.outputSince(read)
+		read += len(chunk)
+		if _, result := stream.append(chunk); result.Found {
+			return read
 		}
 		select {
 		case <-ticker.C:
+		case <-s.readerDone:
+			return read
 		case <-deadline.C:
-			return snapshot()
+			return read
 		}
 	}
 }
