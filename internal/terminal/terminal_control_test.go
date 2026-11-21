@@ -117,7 +117,7 @@ func BenchmarkStartCommandOutput(b *testing.B) {
 			b.ReportAllocs()
 			for b.Loop() {
 				s.outputBuf = *bytes.NewBuffer(raw)
-				s.startCommandOutput(m)
+				s.startCommandOutput(m, &HistoryEntry{})
 			}
 		})
 	}
