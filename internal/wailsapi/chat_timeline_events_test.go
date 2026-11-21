@@ -117,8 +117,15 @@ func (f *timelineEventTestFeed) Next(ctx context.Context) (*chat.TimelineDeliver
 func (f *timelineEventTestFeed) Close() { f.once.Do(func() { close(f.closed) }) }
 
 type timelineEventTestEmitter struct {
-	emit   func(context.Context, apidto.TimelineEvent) error
-	closed chan struct{}
+	emit         func(context.Context, apidto.TimelineEvent) error
+	notifyClosed func(apidto.TimelineClosedEvent)
+	closed       chan struct{}
+}
+
+func (e timelineEventTestEmitter) NotifyClosed(event apidto.TimelineClosedEvent) {
+	if e.notifyClosed != nil {
+		e.notifyClosed(event)
+	}
 }
 
 func (e timelineEventTestEmitter) Emit(ctx context.Context, event apidto.TimelineEvent) error {
@@ -191,6 +198,48 @@ func TestTimelineEventStreamCancellationWakesIdleWorker(t *testing.T) {
 	waitTimelineEventTest(t, s.done)
 	waitTimelineEventTest(t, emitter.closed)
 	waitTimelineEventTest(t, feed.closed)
+}
+
+func TestTimelineEventStreamTerminalControl(t *testing.T) {
+	for _, voluntary := range []bool{false, true} {
+		t.Run(map[bool]string{false: "lease encerrada", true: "fechamento voluntário"}[voluntary], func(t *testing.T) {
+			feed := &timelineEventTestFeed{values: make(chan *chat.TimelineDelivery), closed: make(chan struct{})}
+			controls := make(chan apidto.TimelineClosedEvent, 2)
+			released := make(chan struct{})
+			emitter := timelineEventTestEmitter{closed: make(chan struct{}), notifyClosed: func(event apidto.TimelineClosedEvent) {
+				select {
+				case <-released:
+				default:
+					t.Error("controle anterior à liberação da capability")
+				}
+				controls <- event
+			}, emit: func(context.Context, apidto.TimelineEvent) error { t.Error("conteúdo após encerramento"); return nil }}
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			s := newTimelineEventStream(ctx, feed, emitter, "surface", &apidto.SubscribedTimelineSnapshot{ConversationID: "conversation", WindowID: "window", Epoch: "epoch", WindowRevision: "1"}, func() { close(released) })
+			if voluntary {
+				s.close()
+			} else {
+				cancel()
+				waitTimelineEventTest(t, s.done)
+			}
+			if voluntary {
+				if len(controls) != 0 {
+					t.Fatal("Close voluntário sinalizou falha")
+				}
+				return
+			}
+			if len(controls) != 1 {
+				t.Fatal("encerramento não emitiu exatamente um controle")
+			}
+			if got := <-controls; got != (apidto.TimelineClosedEvent{ConversationID: "conversation", SurfaceID: "surface", WindowID: "window"}) {
+				t.Fatal("identidade incorreta", got)
+			}
+			if err := s.deliver(&chat.TimelineDelivery{Epoch: "epoch", SnapshotRevision: "1"}); err == nil {
+				t.Fatal("conteúdo aceito após encerramento")
+			}
+		})
+	}
 }
 
 func waitTimelineEventTest(t *testing.T, done <-chan struct{}) {

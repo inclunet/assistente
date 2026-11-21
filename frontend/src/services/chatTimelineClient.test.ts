@@ -1,6 +1,6 @@
 import { apidto } from '@wailsjs/go/models';
 import { describe, expect, it, vi } from 'vitest';
-import type { ChatTimelineEvent } from '../types/chatTimelineEvents';
+import type { ChatTimelineEvent, ChatTimelineClosedEvent } from '../types/chatTimelineEvents';
 import { ChatTimelineClient, type TimelineTransport } from './chatTimelineClient';
 import type { TimelineSnapshot } from './timelineConversationState';
 
@@ -39,12 +39,13 @@ function contentSnapshot(protectedContent: boolean): TimelineSnapshot {
 }
 function fixture() {
   let emit!: (event: ChatTimelineEvent) => void;
+  let ended!: (event: ChatTimelineClosedEvent) => void;
   const unsubscribe = vi.fn();
   const port = {
     reserveItem: vi.fn<TimelineTransport['reserveItem']>(),
     readItem: vi.fn<TimelineTransport['readItem']>(),
     releaseItem: vi.fn<TimelineTransport['releaseItem']>(async () => {}),
-    listen: vi.fn((receive: typeof emit) => { emit = receive; return unsubscribe; }),
+    listen: vi.fn((receive: typeof emit, closed: typeof ended) => { emit = receive; ended = closed; return unsubscribe; }),
     open: vi.fn<TimelineTransport['open']>(async (_id, surface) => snapshot(surface.split('#')[0])),
     refresh: vi.fn<TimelineTransport['refresh']>(async id => snapshot(id, { windowRevision: '3', sequence: '12' })),
     navigate: vi.fn<TimelineTransport['navigate']>(async id => snapshot(id, { windowRevision: '3', sequence: '12' })),
@@ -61,10 +62,204 @@ function fixture() {
     return `${surface}#${generation}`;
   });
   const open = (surface = 'a') => client.open('chat', surface, null, position);
-  return { client, port, open, emit: (value: ChatTimelineEvent) => emit(value), unsubscribe };
+  return { client, port, open, emit: (value: ChatTimelineEvent) => emit(value),
+    ended: (windowId = 'a', surfaceId = 'a#1') => ended({ conversationId: 'chat', windowId, surfaceId }), unsubscribe };
 }
 
 describe('ChatTimelineClient', () => {
+  it('retoma atomicamente a janela retida em vez de navegar para a cauda', async () => {
+    const f = fixture();
+    const retained = { ...contentSnapshot(false), storageIncarnation: 'storage', mode: 'followTail', retainedItemIds: ['item'], retentionBlocked: true, beforeCursor: 'before', afterCursor: 'after', hasAfter: true };
+    f.port.open.mockResolvedValueOnce(retained);
+    await f.open();
+    f.ended();
+    f.port.open.mockResolvedValueOnce({ ...retained, windowId: 'new' });
+    await f.client.refresh('chat');
+    expect(f.port.open).toHaveBeenLastCalledWith('chat', 'a#2', null, position, { storageIncarnation: 'storage', mode: 'followTail', beforeCursor: 'before', afterCursor: 'after', retainedItemIds: ['item'] });
+    expect(f.port.navigate).not.toHaveBeenCalled();
+    expect(f.client.getWindow('chat', 'a')?.orderedItemIds).toEqual(['item']);
+    expect(f.client.getWindow('chat', 'a')?.metadata.retainedItemIds).toEqual(['item']);
+    expect(f.client.getWindow('chat', 'a')?.metadata.retentionBlocked).toBe(true);
+    await f.client.dispose();
+  });
+
+  it('libera intenção de interação após retomada recusada sem chamar handle morto', async () => {
+    const f = fixture();
+    f.port.open.mockResolvedValueOnce({ ...contentSnapshot(false), retainedItemIds: ['item'], beforeCursor: 'stale' });
+    await f.open();
+    f.ended();
+    f.port.open.mockRejectedValueOnce(new Error('stale cursor'));
+    await expect(f.client.refresh('chat')).rejects.toThrow('stale cursor');
+    expect(f.client.getItem('chat', 'a', 'item')).toBeDefined();
+    await f.client.setRetention('chat', 'a', []);
+    expect(f.port.retain).not.toHaveBeenCalled();
+    await f.client.refresh('chat');
+    expect(f.port.open).toHaveBeenLastCalledWith('chat', 'a#3', null, position);
+    expect(f.client.getError('chat')).toBeUndefined();
+    await f.client.dispose();
+  });
+  it.each(['terminal', 'gap'] as const)('recuperação automática compartilha a tentativa para %s sem polling', async reason => {
+    const f = fixture();
+    await f.open();
+    if (reason === 'terminal') f.ended();
+    else f.emit(event('a', { syncRequired: true }));
+    const first = f.client.recoverAutomatically('chat');
+    expect(first).toBeDefined();
+    expect(f.client.recoverAutomatically('chat')).toBe(first);
+    expect(f.client.isRecoveringAutomatically('chat')).toBe(true);
+    await expect(first).resolves.toBe(true);
+    expect(f.client.getError('chat')).toBeUndefined();
+    expect(f.client.isRecoveringAutomatically('chat')).toBe(false);
+    if (reason === 'terminal') f.ended('a', 'a#2');
+    else f.emit(event('a', { snapshotRevision: '3', syncRequired: true }));
+    expect(f.client.recoverAutomatically('chat')).toBeUndefined();
+    expect(f.client.getError('chat')).toBeDefined();
+    await f.client.dispose();
+  });
+
+  it('falha de autorização automática conserva conteúdo e permite retry explícito', async () => {
+    const f = fixture();
+    f.port.open.mockResolvedValueOnce(contentSnapshot(true));
+    await f.open();
+    f.ended();
+    f.port.open.mockRejectedValueOnce(new Error('Unauthorized'));
+    await expect(f.client.recoverAutomatically('chat')).resolves.toBe(false);
+    expect(f.client.getError('chat')).toBeDefined();
+    expect(f.client.getItem('chat', 'a', 'item')).toBeDefined();
+    expect(f.client.recoverAutomatically('chat')).toBeUndefined();
+    const next = { ...contentSnapshot(true), windowId: 'new' };
+    f.port.open.mockResolvedValueOnce(next);
+    f.port.navigate.mockResolvedValueOnce(next);
+    await f.client.refresh('chat');
+    expect(f.client.getError('chat')).toBeUndefined();
+    await f.client.dispose();
+  });
+
+  it('uma entrega válida reabilita recuperação de uma interrupção posterior', async () => {
+    const f = fixture();
+    await f.open();
+    f.ended();
+    await expect(f.client.recoverAutomatically('chat')).resolves.toBe(true);
+    f.emit(event('a', { surfaceId: 'a#2', snapshotRevision: '3', updates: [{ conversationId: 'chat', epoch: 'epoch', sequence: '13', operations: [], windowPatches: [{ windowId: 'a', previousRevision: '3', revision: '4' }] }] }));
+    f.ended('a', 'a#2');
+    await expect(f.client.recoverAutomatically('chat')).resolves.toBe(true);
+    expect(f.port.open).toHaveBeenCalledTimes(3);
+    await f.client.dispose();
+  });
+  it('reconecta na posição atualizada por Refresh explícito', async () => {
+    const f = fixture();
+    await f.open();
+    const newPosition = { ...position, anchor: 'start' };
+    await f.client.refresh('chat', new Map([['a', newPosition]]));
+    f.ended();
+    await f.client.refresh('chat');
+    expect(f.port.open).toHaveBeenLastCalledWith('chat', 'a#2', null, newPosition);
+    await f.client.dispose();
+  });
+  it.each([false, true])('dispose drena abertura de reconexão e propaga cleanup tardio, falha=%s', async failure => {
+    const f = fixture();
+    await f.open();
+    f.ended();
+    const pending = deferred<TimelineSnapshot>();
+    f.port.open.mockReturnValueOnce(pending.promise);
+    const refreshing = f.client.refresh('chat');
+    await vi.waitFor(() => expect(f.port.open).toHaveBeenCalledTimes(2));
+    const done = vi.fn();
+    const disposing = f.client.dispose();
+    const result = disposing.then(done, error => error);
+    await Promise.resolve();
+    expect(done).not.toHaveBeenCalled();
+    if (failure) f.port.close.mockRejectedValueOnce(new Error('late close failure'));
+    pending.resolve(snapshot('late'));
+    await refreshing;
+    const outcome = await result;
+    if (failure) expect(outcome).toEqual(new Error('late close failure'));
+    else expect(done).toHaveBeenCalledOnce();
+    expect(f.port.close).toHaveBeenCalledWith('late');
+  });
+  it('preserva texto ao perder assinatura e reabre autenticado com nova identidade e modo anterior', async () => {
+    const f = fixture();
+    f.port.open.mockResolvedValueOnce(contentSnapshot(true));
+    await f.open();
+    f.ended();
+    expect(f.client.getError('chat')).toBeDefined();
+    expect(f.client.getItem('chat', 'a', 'item')).toEqual(contentSnapshot(true).items[0]);
+    f.emit(event());
+    expect(f.client.getWindow('chat', 'a')?.revision).toBe('1');
+    const next = { ...contentSnapshot(true), windowId: 'new', windowRevision: '2', sequence: '12' };
+    f.port.open.mockResolvedValueOnce(next);
+    f.port.navigate.mockResolvedValueOnce(next);
+    await f.client.refresh('chat');
+    expect(f.port.open).toHaveBeenLastCalledWith('chat', 'a#2', null, position);
+    expect(f.port.navigate).toHaveBeenLastCalledWith('new', 'epoch', '2', 'historical', position);
+    expect(f.port.refresh).not.toHaveBeenCalled();
+    expect(f.client.getError('chat')).toBeUndefined();
+    f.ended();
+    expect(f.client.getError('chat')).toBeUndefined();
+    f.emit(event('new', { surfaceId: 'a#2', snapshotRevision: '2', updates: [{ conversationId: 'chat', epoch: 'epoch', sequence: '13', operations: [], windowPatches: [{ windowId: 'new', previousRevision: '2', revision: '3' }] }] }));
+    expect(f.client.getWindow('chat', 'a')?.revision).toBe('3');
+    await f.client.dispose();
+  });
+
+  it.each(['autorização', 'conteúdo protegido', 'encerramento durante abertura'] as const)('conserva snapshot e erro quando reconexão falha por %s', async reason => {
+    const f = fixture();
+    f.port.open.mockResolvedValueOnce(contentSnapshot(true));
+    await f.open();
+    f.ended();
+    if (reason === 'autorização') f.port.open.mockRejectedValueOnce(new Error('Unauthorized'));
+    else f.port.open.mockImplementationOnce(async () => {
+      if (reason === 'encerramento durante abertura') f.ended('new', 'a#2');
+      return snapshot('new');
+    });
+    f.port.navigate.mockResolvedValueOnce(snapshot('new'));
+    await expect(f.client.refresh('chat')).rejects.toThrow();
+    expect(f.client.getError('chat')).toBeDefined();
+    expect(f.client.getItem('chat', 'a', 'item')).toEqual(contentSnapshot(true).items[0]);
+    if (reason !== 'autorização') expect(f.port.close).toHaveBeenCalledWith('new');
+    await f.client.dispose();
+  });
+
+  it.each(['navigate', 'refresh'] as const)('resposta atrasada de %s não apaga encerramento', async operation => {
+    const f = fixture();
+    await f.open();
+    const delayed = deferred<TimelineSnapshot>();
+    f.port[operation].mockReturnValueOnce(delayed.promise);
+    const pending = operation === 'navigate' ? f.client.navigate('chat', 'a', 'followTail', position) : f.client.refresh('chat');
+    await vi.waitFor(() => expect(f.port[operation]).toHaveBeenCalled());
+    f.ended();
+    delayed.resolve(snapshot('a', { sequence: '12', windowRevision: '3' }));
+    await expect(pending).rejects.toThrow('subscription ended');
+    expect(f.client.getError('chat')).toBeDefined();
+    expect(f.client.getWindow('chat', 'a')?.revision).toBe('1');
+    await f.client.dispose();
+  });
+
+  it('sinaliza encerramento anterior ao retorno do primeiro Open', async () => {
+    const f = fixture();
+    f.port.open.mockImplementationOnce(async () => { f.ended(); return contentSnapshot(true); });
+    await f.open();
+    expect(f.client.getError('chat')).toBeDefined();
+    expect(f.client.getItem('chat', 'a', 'item')).toBeDefined();
+    await f.client.dispose();
+  });
+
+  it('mantém cleanup de candidato rejeitado rastreável até nova tentativa', async () => {
+    const f = fixture();
+    f.port.open.mockResolvedValueOnce(contentSnapshot(true));
+    await f.open();
+    f.ended();
+    f.port.open.mockResolvedValueOnce(snapshot('new'));
+    f.port.navigate.mockResolvedValueOnce(snapshot('new'));
+    f.port.close.mockResolvedValueOnce(undefined).mockRejectedValueOnce(new Error('cleanup failed'));
+    await expect(f.client.refresh('chat')).rejects.toThrow('cleanup failed');
+    const next = { ...contentSnapshot(true), windowId: 'third' };
+    f.port.open.mockResolvedValueOnce(next);
+    f.port.navigate.mockResolvedValueOnce(next);
+    await f.client.refresh('chat');
+    expect(f.port.close.mock.calls.filter(([id]) => id === 'new')).toHaveLength(2);
+    expect(f.client.getError('chat')).toBeUndefined();
+    await f.client.dispose();
+  });
   it('reabre histórico salvo após fechar a última janela e o backend mudar de época', async () => {
     const f = fixture();
     f.port.open.mockResolvedValueOnce(contentSnapshot(false));
@@ -1215,6 +1410,40 @@ function recoveryFixture() {
 }
 
 describe('recuperação explícita de buffers no cliente', () => {
+  it('libera leitor da assinatura encerrada por Close antes de reconectar', async () => {
+    const f = recoveryFixture();
+    await f.open();
+    const reader = await f.client.openRecovery('chat', 'a', recoveryReference);
+    f.ended();
+    await expect(reader.next()).rejects.toThrow('closed');
+    await expect(f.client.refresh('chat')).rejects.toThrow('explicit release');
+    await f.client.closeRecovery('chat', 'a');
+    expect(f.port.close).toHaveBeenCalledWith('a');
+    expect(f.port.releaseRecovery).not.toHaveBeenCalled();
+    await f.client.refresh('chat');
+    expect(f.client.getError('chat')).toBeUndefined();
+    await f.client.dispose();
+  });
+
+  it.each([false, true])('não transporta reserva antiga entre inscrições, aquisição ambígua=%s', async ambiguous => {
+    const f = itemRecoveryFixture();
+    await f.open();
+    if (ambiguous) {
+      f.port.reserveItem.mockRejectedValueOnce(new Error('resposta perdida'));
+      f.port.releaseItem.mockRejectedValueOnce(new Error('release perdido'));
+      await expect(f.client.refresh('chat')).rejects.toThrow();
+    } else await f.client.refresh('chat');
+    f.ended();
+    await expect(f.client.refresh('chat')).rejects.toThrow('explicit release');
+    if (ambiguous) await f.client.cleanupRecoveryItems('chat');
+    else await f.client.releaseRecoveredItem('chat', f.client.getRecoveredItems('chat')[0]);
+    expect(f.port.close).toHaveBeenCalledWith('a');
+    f.port.open.mockResolvedValueOnce({ ...f.original, windowId: 'new' });
+    f.port.navigate.mockResolvedValueOnce({ ...f.original, windowId: 'new' });
+    await f.client.refresh('chat');
+    expect(f.client.getError('chat')).toBeUndefined();
+    await f.client.dispose();
+  });
   it('mantém a guarda de Refresh mesmo com reserva e leitura concluídas', async () => {
     const f = recoveryFixture();
     f.port.open.mockResolvedValueOnce(contentSnapshot(true));

@@ -39,6 +39,10 @@ func ReadManifest(root *os.Root) (Manifest, []string, error) {
 	if err != nil {
 		return Manifest{}, nil, err
 	}
+	return decodeManifest(raw)
+}
+
+func decodeManifest(raw []byte) (Manifest, []string, error) {
 	if !utf8.Valid(raw) {
 		return Manifest{}, nil, fmt.Errorf("plugin.json: invalid UTF-8")
 	}
