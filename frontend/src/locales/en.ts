@@ -2012,6 +2012,7 @@ notSaved: 'The decision applies only to this operation: it could not be remember
         selected: 'Terminal selected: {{name}}',
         created: 'New terminal created and connected',
         createFailed: 'Could not create terminal',
+        exited: 'Terminal exited: {{name}}',
         terminated: 'Terminal terminated',
         terminateFailed: 'Could not terminate terminal',
       },

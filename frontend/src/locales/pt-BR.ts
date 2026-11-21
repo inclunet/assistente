@@ -2013,6 +2013,7 @@ notSaved: 'A decisão vale somente para esta operação: não foi possível lemb
         selected: 'Terminal selecionado: {{name}}',
         created: 'Novo terminal criado e conectado',
         createFailed: 'Não foi possível criar o terminal',
+        exited: 'Terminal encerrado: {{name}}',
         terminated: 'Terminal encerrado',
         terminateFailed: 'Não foi possível encerrar o terminal',
       },

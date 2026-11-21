@@ -2015,6 +2015,7 @@ notSaved: 'La decisión vale solo para esta operación: no se pudo recordar. Ser
         selected: 'Terminal seleccionado: {{name}}',
         created: 'Nuevo terminal creado y conectado',
         createFailed: 'No se pudo crear el terminal',
+        exited: 'Terminal finalizado: {{name}}',
         terminated: 'Terminal finalizado',
         terminateFailed: 'No se pudo finalizar el terminal',
       },
