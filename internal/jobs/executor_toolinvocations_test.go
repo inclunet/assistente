@@ -6,10 +6,14 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
+	"assistente/internal/allowlist"
 	"assistente/internal/database"
+	"assistente/internal/terminal"
 	"assistente/internal/toolinvocations"
 	"assistente/internal/tools"
+	"assistente/internal/tools/shell"
 
 	"assistente/internal/sqlite"
 	"gorm.io/gorm"
@@ -156,6 +160,51 @@ func TestJobExecutor_RecordsToolInvocationForRun(t *testing.T) {
 	}
 	if invocations[0].DryRun {
 		t.Fatalf("expected dry_run=false for real job run, got true")
+	}
+}
+
+type shellDispatchProbe struct {
+	shell.SessionManager
+	calls int
+}
+
+func (p *shellDispatchProbe) RunEphemeral(context.Context, string, string, time.Duration, string) (*terminal.HistoryEntry, error) {
+	p.calls++
+	return nil, errors.New("resultado do comando indisponível após o despacho")
+}
+
+func TestJobDoesNotReplayAuthorizedShellCommand(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		autoApprove []string
+		wantPrompts int
+	}{
+		{"aprovação pontual", nil, 1},
+		{"liberação pela política", []string{"echo"}, 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			prompts := 0
+			terminal := new(shellDispatchProbe)
+			tool := shell.NewRunCommand(terminal, func(context.Context, string, string) (bool, error) {
+				prompts++
+				return true, nil
+			}, func(context.Context) (*allowlist.Allowlist, error) {
+				return &allowlist.Allowlist{AutoApprove: tc.autoApprove, DefaultAction: "confirm"}, nil
+			}, t.TempDir())
+			executor, repo, ctx := invocationBackedExecutor(t, tool)
+			job := &Job{
+				ID: "shell-retry", Tool: tool.Name(), Inputs: map[string]any{"command": "echo ok"},
+				ErrorPolicy: ErrorPolicy{Strategy: ErrorRetry, MaxRetries: 2, RetryDelay: "1ms"},
+			}
+			run := executor.Execute(ctx, job, &TriggerContext{Type: TriggerManual})
+			if run.Status != "failed" || run.RetryCount != 0 || terminal.calls != 1 || prompts != tc.wantPrompts {
+				t.Fatalf("status=%s retries=%d despachos=%d diálogos=%d", run.Status, run.RetryCount, terminal.calls, prompts)
+			}
+			record, err := repo.List(ctx, toolinvocations.Filter{OriginID: run.RunID})
+			if err != nil || len(record) != 1 || !record[0].RetryabilityKnown || record[0].Retryable {
+				t.Fatalf("invocações=%+v erro=%v", record, err)
+			}
+		})
 	}
 }
 

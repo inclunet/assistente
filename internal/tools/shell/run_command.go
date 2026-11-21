@@ -210,6 +210,9 @@ func (rc *RunCommand) Execute(ctx context.Context, args json.RawMessage) (tools.
 		return shellPrerequisiteFailure(ctx, "policy_unavailable", "Política de autorização shell indisponível."), nil
 	}
 	decision := policyResult.Decision
+	if decision == allowlist.DecisionApprove {
+		tools.PublishAuthorizationApproval(ctx)
+	}
 	// Nunca logamos a string crua de a.Command: ela pode conter tokens em
 	// flags (-W, --token=) ou env inline. Em vez disso, derivamos um resumo
 	// seguro do parse (programas + contagem de args). Reasons so vao para o
@@ -254,6 +257,11 @@ func (rc *RunCommand) Execute(ctx context.Context, args json.RawMessage) (tools.
 		if err != nil || targetErr != nil || current != workDir || target != workDir {
 			return shellPrerequisiteFailure(ctx, "directory_changed", "O diretório mudou durante a autorização."), nil
 		}
+	}
+	// O executor pode ter devolvido o timeout enquanto a política ou o log
+	// concluíam. O marcador de retry já está publicado antes desta checagem.
+	if err := ctx.Err(); err != nil {
+		return tools.ToolResult{}, err
 	}
 	var sessionID string
 	var entry *terminal.HistoryEntry
@@ -463,6 +471,10 @@ func confirmShellCommand(ctx context.Context, confirm ConfirmFunc, command, work
 		IsError: true,
 	}
 	resolve, receipt := tools.PendingConfirmation(ctx, FailureConfirmationUnavailable, FailureCommandRefused, denied.Content)
+	if ctx.Err() != nil {
+		result := unavailableShellAuthorization("Confirmação encerrada sem autorização válida.")
+		return &result
+	}
 	var failure *tools.ToolResult
 	approvedInTime := false
 	// O autorizador real publica antes do seu log. Os demais ConfirmFunc
@@ -496,6 +508,8 @@ func confirmShellCommand(ctx context.Context, confirm ConfirmFunc, command, work
 			// o executor classifica o contexto mesmo se o worker chegar primeiro.
 			return &tools.ToolResult{IsError: true, Content: "Execução interrompida após autorização."}
 		}
+		// O log preserva a causa operacional; o resultado informa que o prazo
+		// encerrou a confirmação antes de uma autorização válida.
 		if errors.Is(err, shelltrust.ErrPrerequisiteUnavailable) {
 			warnShellPrerequisite(ctx, shelltrust.PrerequisiteReason(err))
 		}
@@ -508,8 +522,6 @@ func confirmShellCommand(ctx context.Context, confirm ConfirmFunc, command, work
 	}
 	return nil
 }
-		// O log preserva a causa operacional; o resultado informa que o prazo
-		// encerrou a confirmação antes de uma autorização válida.
 
 func shellPrerequisiteFailure(ctx context.Context, reason, message string) tools.ToolResult {
 	failure := tools.ToolResult{IsError: true, Content: message,

@@ -604,6 +604,40 @@ func (w blockedDecisionLog) Write(p []byte) (int, error) {
 	return len(p), nil
 }
 
+func TestExpiredShellAttemptCannotPromptOrDispatchAfterPolicyReturns(t *testing.T) {
+	for _, auto := range []bool{true, false} {
+		t.Run(fmt.Sprintf("pré-aprovado=%t", auto), func(t *testing.T) {
+			dir := t.TempDir()
+			synctest.Test(t, func(t *testing.T) {
+				release := make(chan struct{})
+				mgr := new(MockSessionManager)
+				prompts := 0
+				rc := NewRunCommand(mgr, func(context.Context, string, string) (bool, error) {
+					prompts++
+					return true, nil
+				}, func(context.Context) (*allowlist.Allowlist, error) {
+					<-release
+					al := &allowlist.Allowlist{DefaultAction: "confirm"}
+					if auto {
+						al.AutoApprove = []string{"echo"}
+					}
+					return al, nil
+				}, dir)
+				reg := tools.NewRegistry()
+				reg.MustRegister(rc)
+				cfg := tools.DefaultExecutorConfig()
+				cfg.ToolTimeout = time.Second
+				got := tools.NewExecutor(reg, cfg).ExecuteOne(t.Context(), tools.ToolCall{ID: "expiry", Function: tools.FunctionCall{Name: rc.Name(), Arguments: `{"command":"echo ok"}`}})
+				close(release)
+				synctest.Wait()
+				if !errors.Is(got.Error, context.DeadlineExceeded) || got.ErrorKind != tools.ErrorKindTimeout || !got.Retryable || prompts != 0 || mgr.runEphemeralCalls != 0 {
+					t.Fatalf("resultado=%+v diálogos=%d despachos=%d", got, prompts, mgr.runEphemeralCalls)
+				}
+			})
+		})
+	}
+}
+
 func TestShellAuthorizerPublishesBeforeDecisionLog(t *testing.T) {
 	for _, tc := range []struct {
 		name, component, code string
@@ -651,7 +685,7 @@ func TestShellAuthorizerPublishesBeforeDecisionLog(t *testing.T) {
 					t.Fatal("o executor terminou antes de o log receber o resultado")
 				}
 				if tc.name == "aprovação" {
-					if !asked || !errors.Is(got.Error, context.DeadlineExceeded) || got.ErrorKind != tools.ErrorKindTimeout || !got.Retryable {
+					if !asked || !errors.Is(got.Error, context.DeadlineExceeded) || got.ErrorKind != tools.ErrorKindTimeout || got.ErrorCode != "" || got.Retryable || !got.RetryabilityKnown || got.DurationMs != cfg.ToolTimeout.Milliseconds() {
 						t.Fatalf("prazo após aprovação: %+v", got)
 					}
 					return

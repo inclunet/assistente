@@ -25,6 +25,7 @@ const (
 	confirmationPending confirmationStatus = iota
 	confirmationFailed
 	confirmationRefused
+	confirmationApproved
 )
 
 type confirmationState struct {
@@ -50,11 +51,19 @@ func PendingConfirmation(ctx context.Context, failureCode, refusalCode, refusalM
 	state.Store(&confirmationState{receipt: receipt, refusal: refusal, result: pending})
 	return func(decision *ToolResult) {
 		if decision == nil {
-			state.Store(nil)
+			state.Store(&confirmationState{status: confirmationApproved})
 			return
 		}
 		PublishAuthorizationRefusal(ctx, refusalCode, *decision)
 	}, receipt
+}
+
+// PublishAuthorizationApproval registra a liberação pela política mesmo
+// quando ela dispensa confirmação. Uma nova tentativa exigirá nova invocação.
+func PublishAuthorizationApproval(ctx context.Context) {
+	if state, ok := ctx.Value(pendingConfirmationKey{}).(*atomic.Pointer[confirmationState]); ok {
+		state.Store(&confirmationState{status: confirmationApproved})
+	}
 }
 
 // PublishAuthorizationRefusal registra uma negativa definitiva, inclusive quando
@@ -442,6 +451,12 @@ func (e *Executor) executeSingle(ctx context.Context, call ToolCall) (execution 
 }
 
 func (e *Executor) finishExecution(ctx, toolCtx context.Context, call ToolCall, start time.Time, result *ToolExecutionResult, confirmation *confirmationState, collector *securitySignalCollector) ToolExecutionResult {
+	approved := confirmation != nil && confirmation.status == confirmationApproved
+	if approved {
+		// A espera pela decisão terminou. O diagnóstico passa a ser operacional,
+		// mas a execução autorizada não pode ser repetida automaticamente.
+		confirmation = nil
+	}
 	if confirmation != nil && confirmation.receipt != nil && confirmation.receipt.Close() {
 		confirmation = &confirmationState{status: confirmationRefused, result: confirmation.refusal}
 	}
@@ -474,6 +489,10 @@ func (e *Executor) finishExecution(ctx, toolCtx context.Context, call ToolCall, 
 				result.Error = context.DeadlineExceeded
 			}
 		}
+		if approved && result.Result.IsError {
+			result.Retryable = false
+			result.RetryabilityKnown = true
+		}
 		return *result
 	}
 	elapsed := time.Since(start).Milliseconds()
@@ -505,7 +524,7 @@ func (e *Executor) finishExecution(ctx, toolCtx context.Context, call ToolCall, 
 		},
 		Error:             context.DeadlineExceeded,
 		ErrorKind:         ErrorKindTimeout,
-		Retryable:         true,
+		Retryable:         !approved,
 		RetryabilityKnown: true,
 		DurationMs:        elapsed,
 	}

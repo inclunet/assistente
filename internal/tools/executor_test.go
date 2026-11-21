@@ -769,7 +769,7 @@ func TestPendingConfirmationRequiresClassifiedDecision(t *testing.T) {
 				{Error: ctx.Err(), ErrorKind: ErrorKindTimeout, Result: ToolResult{IsError: true}, Retryable: true, RetryabilityKnown: true},
 			} {
 				got := e.finishExecution(parent, ctx, call, time.Now(), callback, state.Load(), &securitySignalCollector{})
-				if got.ErrorCode != tc.wantCode || got.ErrorKind != tc.wantKind || !errors.Is(got.Error, context.DeadlineExceeded) || got.Retryable != (tc.decision == nil) {
+				if got.ErrorCode != tc.wantCode || got.ErrorKind != tc.wantKind || !errors.Is(got.Error, context.DeadlineExceeded) || got.Retryable || !got.RetryabilityKnown {
 					t.Fatalf("callback=%+v resultado=%+v", callback, got)
 				}
 			}
@@ -790,12 +790,12 @@ func TestExecutorInterruptionAfterApprovalInEitherSelectOrder(t *testing.T) {
 			e := NewExecutor(NewRegistry(), DefaultExecutorConfig())
 			call := ToolCall{ID: "approval", Function: FunctionCall{Name: "ask"}}
 			for _, result := range []*ToolExecutionResult{nil, {Result: ToolResult{IsError: true}, ErrorKind: ErrorKindUnknown}} {
-				got := e.finishExecution(parent, toolCtx, call, time.Now(), result, nil, &securitySignalCollector{})
-				expectedErr, expectedKind, retry := context.DeadlineExceeded, ErrorKindTimeout, true
+				got := e.finishExecution(parent, toolCtx, call, time.Now(), result, &confirmationState{status: confirmationApproved}, &securitySignalCollector{})
+				expectedErr, expectedKind := context.DeadlineExceeded, ErrorKindTimeout
 				if parentCancelled {
-					expectedErr, expectedKind, retry = context.Canceled, ErrorKindCancelled, false
+					expectedErr, expectedKind = context.Canceled, ErrorKindCancelled
 				}
-				if !errors.Is(got.Error, expectedErr) || got.ErrorKind != expectedKind || got.ErrorCode != "" || got.Retryable != retry {
+				if !errors.Is(got.Error, expectedErr) || got.ErrorKind != expectedKind || got.ErrorCode != "" || got.Retryable || !got.RetryabilityKnown {
 					t.Fatalf("resultado=%+v", got)
 				}
 			}
