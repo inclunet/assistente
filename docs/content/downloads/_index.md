@@ -54,6 +54,17 @@ Basta configurar a **URL Base da API** para usar diferentes serviços:
 Comece com **Groq** (gratuito e rápido) ou **Ollama** (roda no seu PC, sem internet).
 {{% /notice %}}
 
+## Atualização pelo aplicativo
+
+O download de uma atualização pode levar até 15 minutos. O aplicativo interrompe
+a transferência se uma espera de rede ficar 60 segundos sem resposta. Arquivos
+parciais de downloads que falharam são removidos; tente novamente após verificar
+a conexão. O fluxo completo de atualização tem limite de 20 minutos.
+
+Versões antigas podem interromper downloads após apenas 30 segundos. Nesse caso,
+baixe o instalador pela [página oficial de releases](https://github.com/inclunet/assistente/releases/latest)
+e execute-o manualmente para receber a correção.
+
 ## Primeira Execução
 
 Na primeira inicialização, você será guiado para configurar:
