@@ -2,12 +2,17 @@ package jobs
 
 import (
 	"context"
+	"regexp"
 	"strings"
 
 	"assistente/internal/tools/invocationctx"
 )
 
 const redactedValue = "[redacted]"
+
+// Só um primeiro token literal e separado do template pode identificar a
+// operação na pergunta. Nunca extraímos o programa do valor do cofre.
+var shellTemplatePrefix = regexp.MustCompile(`^[ \t]*([a-zA-Z][a-zA-Z0-9._-]{0,63})[ \t]+`)
 
 // RedactResolvedInputs keeps run history useful without persisting secrets
 // resolved from templates or values entered directly into sensitive fields.
@@ -24,13 +29,27 @@ func RedactResolvedInputs(original, resolved map[string]any) map[string]any {
 
 // O shell ecoa o comando nos metadados. Propague a redação antes que ele
 // produza o resultado, inclusive para saídas parciais ou armazenadas à parte.
-func withRedactedCommandMetadata(ctx context.Context, persisted map[string]any) context.Context {
+func withRedactedCommandMetadata(ctx context.Context, original, persisted map[string]any) context.Context {
 	// encoding/json aceita variantes de caixa nas chaves de uma struct. Se
 	// houver mais de uma, qualquer uma redigida deve proteger os metadados.
+	matches := 0
+	var protectedKey string
 	for key, value := range persisted {
-		if strings.EqualFold(key, "command") && value == redactedValue {
-			return invocationctx.WithShellCommandMetadata(ctx, redactedValue)
+		if strings.EqualFold(key, "command") {
+			matches++
+			if value == redactedValue {
+				protectedKey = key
+			}
 		}
+	}
+	if protectedKey != "" {
+		var prefix string
+		if template, ok := original[protectedKey].(string); ok && matches == 1 && containsSecretTemplate(template) {
+			if match := shellTemplatePrefix.FindStringSubmatch(template); match != nil {
+				prefix = match[1]
+			}
+		}
+		return invocationctx.WithProtectedShellCommand(ctx, redactedValue, prefix)
 	}
 	return ctx
 }

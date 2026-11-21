@@ -101,6 +101,13 @@ O histórico do terminal persistente e o contexto que você envia dele ao chat
 também usam esse comando redigido. O programa recebe o valor resolvido e o
 texto que ele imprimir em sua própria saída continua visível.
 
+Jobs executados sem interlocutor encerram a tentativa quando a política exige
+confirmação. Se a chamada tiver uma conversa habilitada para responder, a
+pergunta informa que o comando usa um valor protegido e oferece aprovação
+para uma única execução ou recusa. Se o template começar com um nome literal
+inequívoco, a pergunta mostra esse nome. Os valores do cofre e o diretório
+ficam ocultos no desktop e nos canais.
+
 Eventos não ficam em fila. Quando nenhum consumidor está habilitado — porque o
 job ou a pipeline consumidora foi desativado — o evento é descartado e não
 aparece no run como emitido. O log registra um aviso limitado por evento para

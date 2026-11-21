@@ -24,16 +24,31 @@ type ctxKey struct{}
 type workspaceKey struct{}
 type persistentShellKey struct{}
 type shellCommandMetadataKey struct{}
+type protectedShellCommand struct {
+	metadata string
+	prefix   string
+}
+
+func ShellConsentPrefix(ctx context.Context) string {
+	command, _ := ctx.Value(shellCommandMetadataKey{}).(protectedShellCommand)
+	return command.prefix
+}
 
 // WithShellCommandMetadata define a representação segura do comando para o histórico.
 func WithShellCommandMetadata(ctx context.Context, command string) context.Context {
-	return context.WithValue(ctx, shellCommandMetadataKey{}, command)
+	return WithProtectedShellCommand(ctx, command, "")
+}
+
+// WithProtectedShellCommand agrupa a representação do histórico e o primeiro
+// token literal do template, quando conhecido antes da resolução.
+func WithProtectedShellCommand(ctx context.Context, metadata, prefix string) context.Context {
+	return context.WithValue(ctx, shellCommandMetadataKey{}, protectedShellCommand{metadata, prefix})
 }
 
 // LookupShellCommandMetadata informa se a chamada tem uma projeção pública explícita.
 func LookupShellCommandMetadata(ctx context.Context) (string, bool) {
-	command, ok := ctx.Value(shellCommandMetadataKey{}).(string)
-	return command, ok
+	command, ok := ctx.Value(shellCommandMetadataKey{}).(protectedShellCommand)
+	return command.metadata, ok
 }
 
 // ShellCommandMetadata devolve o comando como deve aparecer nos metadados desta chamada.

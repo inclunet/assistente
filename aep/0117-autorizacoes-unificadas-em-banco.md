@@ -193,6 +193,15 @@ IDs estáveis resolvidos no backend; rótulos traduzidos em pt-BR/en/es. Preserv
 leitura integral do comando/caminho, repetição da pergunta, foco após perguntas
 consecutivas e ausência de anúncios duplicados (AEP-0091).
 
+Para um comando de job marcado como protegido, a política avalia a operação
+resolvida. Quando exige consentimento, a pergunta informa que há um valor
+protegido e oferece apenas aprovação ou recusa desta execução. O questionário
+recebe somente a apresentação pública: o primeiro token literal do template
+pode identificar o início do comando se for inequívoco e continuar separado
+após a resolução. O diretório e as demais partes ficam ocultos. A mesma
+apresentação serve ao desktop, aos anúncios acessíveis e aos canais. A chamada
+não consulta nem cria uma concessão reutilizável a partir de valores do cofre.
+
 Falha ao salvar uma autorização não pode aparecer como concessão persistente.
 Uma aprovação já concedida para a operação atual pode prosseguir como `once`,
 com aviso não bloqueante e log informando que não foi lembrada. Uma negativa

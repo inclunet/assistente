@@ -4920,6 +4920,8 @@ notSaved: 'A decisão vale somente para esta operação: não foi possível lemb
           title: 'Confirmar execução de comando',
           description: 'O assistente quer executar:\n\n{{command}}\n\nem: {{workDir}}',
           prompt: 'Permitir a execução deste comando?',
+          protectedPrompt: 'Este comando de job usa um valor protegido. Os detalhes ficam ocultos. Permitir uma única execução no shell?',
+          protectedPrefixPrompt: 'O comando de job começa com {{prefix}} e usa um valor protegido. Os demais detalhes ficam ocultos. Permitir uma única execução no shell?',
           workDir: 'Diretório: {{workDir}}',
           persistentWorkDir: 'Terminal persistente. Diretório inicial: {{workDir}}; o diretório atual pode ter mudado. A autorização vale só para esta execução.',
           bodyLabel: 'Comando solicitado',

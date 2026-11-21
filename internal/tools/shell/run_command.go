@@ -223,14 +223,14 @@ func (rc *RunCommand) Execute(ctx context.Context, args json.RawMessage) (tools.
 	// log quando a decisao for diferente de approve, e mesmo assim usam
 	// summarizePolicyReasons (sem repetir args do comando).
 	commandSummary, sensitive := invocationctx.LookupShellCommandMetadata(ctx)
-	publicPolicy := publicPolicyProjection(policyResult, commandSummary, sensitive)
+	publicPolicy := publicPolicyProjection(policyResult, sensitive)
 	if !sensitive {
 		commandSummary = redactCommandForLog(a.Command, policyResult)
 	}
 	if decision == allowlist.DecisionDeny {
 		denied := tools.ToolResult{
 			Failure: &tools.ToolFailure{Code: FailureCommandRefused, Kind: tools.ErrorKindAuthorization, Retryable: false},
-			Content: fmt.Sprintf("Comando bloqueado pela política de comandos: %s\nMotivos: %s", commandSummary, strings.Join(publicPolicy.Reasons, "; ")),
+			Content: fmt.Sprintf("Comando bloqueado pela política de comandos: %s\nMotivos: %s", commandSummary, publicReasonText(publicPolicy.Reasons, "; ")),
 			IsError: true,
 		}
 		tools.PublishAuthorizationRefusal(ctx, FailureCommandRefused, denied)
@@ -243,8 +243,8 @@ func (rc *RunCommand) Execute(ctx context.Context, args json.RawMessage) (tools.
 		if rc.confirmFn == nil {
 			return unavailableShellAuthorization("Comando requer autorização, mas não há interlocutor disponível."), nil
 		}
-		// confirmFn recebe o comando bruto: o usuario precisa ver tudo na
-		// UI local para decidir, e esse caminho nao vai para o LLM.
+		// O autorizador reavalia o comando real e prepara a representação
+		// que o interlocutor pode receber na superfície da chamada.
 		ctx = invocationctx.WithPersistentShell(ctx, a.Persistent || a.TerminalID != "")
 		if failure := confirmShellCommand(ctx, rc.confirmFn, a.Command, workDir, commandSummary); failure != nil {
 			return *failure, nil
@@ -414,10 +414,15 @@ func (rc *RunCommand) Execute(ctx context.Context, args json.RawMessage) (tools.
 
 // publicPolicyProjection mantém a avaliação original privada e substitui apenas
 // seus motivos na projeção que poderá ser exibida ou persistida.
-func publicPolicyProjection(result commandpolicy.EvaluationResult, summary string, sensitive bool) commandpolicy.EvaluationResult {
+const protectedPolicyReason = "detalhes protegidos"
+
+func publicPolicyProjection(result commandpolicy.EvaluationResult, sensitive bool) commandpolicy.EvaluationResult {
 	public := result
 	if sensitive {
-		public.Reasons = []string{summary}
+		public.Reasons = make([]string, len(result.Reasons))
+		for i := range public.Reasons {
+			public.Reasons[i] = protectedPolicyReason
+		}
 	}
 	return public
 }
@@ -648,6 +653,14 @@ func redactProgramSegment(program string) string {
 	return program[:eq] + "=<redacted>"
 }
 
+// publicReasonText evita repetir a mesma descrição ao ocultar diversos motivos.
+func publicReasonText(reasons []string, separator string) string {
+	if len(reasons) > 0 && reasons[0] == protectedPolicyReason {
+		return fmt.Sprintf("%d motivo(s) da política; %s", len(reasons), protectedPolicyReason)
+	}
+	return strings.Join(reasons, separator)
+}
+
 // summarizePolicyReasons gera um resumo curto para log LOCAL. Como esses
 // logs podem ser anexados a bug reports ou copiados manualmente, usamos
 // EXCLUSIVAMENTE Reasons (safe, sem patterns/description) — DetailedReasons
@@ -668,7 +681,7 @@ func summarizePolicyReasons(result commandpolicy.EvaluationResult) string {
 		parts = append(parts, "parse_errors="+strconv.Itoa(len(result.Parse.Errors)))
 	}
 	if len(result.Reasons) > 0 {
-		parts = append(parts, "reasons=["+strings.Join(result.Reasons, " | ")+"]")
+		parts = append(parts, "reasons=["+publicReasonText(result.Reasons, " | ")+"]")
 	}
 	return strings.Join(parts, " ")
 }

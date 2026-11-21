@@ -41,6 +41,17 @@ func askShellConfirmation(ctx context.Context, router *questionnaire.Router, sur
 // shellConfirmationPayload monta a confirmação de execução de comando (AEP-0091).
 func shellConfirmationPayload(req shelltrust.PromptRequest) (questionnaire.RequestPayload, questionnaire.AuthorizationActions) {
 	actions := questionnaire.AuthorizationActions{Scopes: req.AvailableScopes}
+	if req.ProtectedCommand {
+		description := questionnaire.Keyed("app.questionnaire.shell.protectedPrompt", "Este comando de job usa um valor protegido. Os detalhes ficam ocultos. Permitir uma única execução no shell?")
+		if req.LiteralPrefix != "" {
+			description = questionnaire.KeyedWith("app.questionnaire.shell.protectedPrefixPrompt", map[string]any{"prefix": req.LiteralPrefix},
+				fmt.Sprintf("O comando de job começa com %s e usa um valor protegido. Os demais detalhes ficam ocultos. Permitir uma única execução no shell?", req.LiteralPrefix))
+		}
+		return questionnaire.RequestPayload{
+			Kind: questionnaire.KindDecision, Title: questionnaire.Keyed("app.questionnaire.shell.title", "Confirmar execução de comando"),
+			Description: description, AllowCancel: true, Actions: actions.Actions(),
+		}, actions
+	}
 	hint := questionnaire.KeyedWith(
 		"app.questionnaire.shell.workDir",
 		map[string]any{"workDir": req.Directory},

@@ -40,6 +40,8 @@ func PrerequisiteReason(err error) string {
 
 type PromptRequest struct {
 	PersistentTerminal bool
+	ProtectedCommand   bool
+	LiteralPrefix      string
 	Command            string
 	Directory          string
 	AvailableScopes    []authorization.Scope
@@ -77,9 +79,13 @@ func (a *Authorizer) Authorize(ctx context.Context, command, directory string) (
 	if a.Manager != nil {
 		ctx = a.Manager.Capture(ctx)
 	}
-	selector, reusable := Represent(command, directory)
 	persistent := invocationctx.PersistentShell(ctx)
-	reusable = reusable && !persistent
+	_, protected := invocationctx.LookupShellCommandMetadata(ctx)
+	var selector Selector
+	var reusable bool
+	if !persistent && !protected {
+		selector, reusable = Represent(command, directory)
+	}
 	scopes := []authorization.Scope{authorization.ScopeOnce}
 	if reusable && a.Manager != nil && a.PersistentAllowed != nil && a.PersistentAllowed(ctx) {
 		var err error
@@ -111,6 +117,9 @@ func (a *Authorizer) Authorize(ctx context.Context, command, directory string) (
 			}
 			result := commandpolicy.Evaluate(command, policy)
 			if result.Decision == allowlist.DecisionDeny {
+				if protected {
+					return authorization.Decision{Effect: "deny", Reason: "política de comandos"}, nil
+				}
 				return authorization.Decision{Effect: "deny", Reason: strings.Join(result.Reasons, "; ")}, nil
 			}
 			if result.Decision == allowlist.DecisionApprove {
@@ -146,7 +155,19 @@ func (a *Authorizer) Authorize(ctx context.Context, command, directory string) (
 		if a.Prompt == nil {
 			return authorization.Consent[Entry]{}, ErrConfirmationUnavailable
 		}
-		choice, err := a.Prompt(ctx, PromptRequest{Command: command, Directory: directory, AvailableScopes: scopes, PersistentTerminal: persistent})
+		req := PromptRequest{AvailableScopes: scopes, PersistentTerminal: persistent, ProtectedCommand: protected}
+		if protected {
+			// Nem o diretório resolvido tem proveniência pública garantida.
+			// Um trim do template pode colar o segredo ao token que o precede.
+			prefix := invocationctx.ShellConsentPrefix(ctx)
+			rest, matches := strings.CutPrefix(strings.TrimLeft(command, " \t"), prefix)
+			if prefix != "" && matches && (strings.HasPrefix(rest, " ") || strings.HasPrefix(rest, "\t")) {
+				req.LiteralPrefix = prefix
+			}
+		} else {
+			req.Command, req.Directory = command, directory
+		}
+		choice, err := a.Prompt(ctx, req)
 		if err != nil {
 			return authorization.Consent[Entry]{}, err
 		}

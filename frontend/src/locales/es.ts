@@ -4922,6 +4922,8 @@ notSaved: 'La decisión vale solo para esta operación: no se pudo recordar. Ser
           title: 'Confirmar ejecución de comando',
           description: 'El asistente quiere ejecutar:\n\n{{command}}\n\nen: {{workDir}}',
           prompt: '¿Permitir la ejecución de este comando?',
+          protectedPrompt: 'Este comando de tarea usa un valor protegido. Sus detalles están ocultos. ¿Permitir una sola ejecución en el shell?',
+          protectedPrefixPrompt: 'El comando de tarea comienza con {{prefix}} y usa un valor protegido. Los demás detalles están ocultos. ¿Permitir una sola ejecución en el shell?',
           workDir: 'Directorio: {{workDir}}',
           persistentWorkDir: 'Terminal persistente. Directorio inicial: {{workDir}}; el directorio actual puede haber cambiado. La autorización solo se aplica a esta ejecución.',
           bodyLabel: 'Comando solicitado',
