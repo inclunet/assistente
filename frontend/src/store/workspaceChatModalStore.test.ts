@@ -281,6 +281,18 @@ describe('workspaceChatModalStore.requestOpen', () => {
     expect(mockEnsureWorkspaceTabConversationId).not.toHaveBeenCalled();
   });
 
+  it('distingue rejeição do adapter de recusa sem erro para o diagnóstico', async () => {
+    const notifyFailure = vi.fn();
+    const prepare = vi.fn().mockRejectedValueOnce(new Error('falha privada')).mockResolvedValueOnce({ ok: false });
+    registerWorkspaceChatModalAdapter('tab-editor', { prepare, send: vi.fn() });
+    expect(await prepareWorkspaceChatOpen('tab-editor', () => true, notifyFailure)).toBeUndefined();
+    expect(notifyFailure).toHaveBeenCalledOnce();
+    expect(mockAddToast).toHaveBeenCalledWith('workspace.chatModal.prepareFailed', 'error');
+    notifyFailure.mockClear();
+    expect(await prepareWorkspaceChatOpen('tab-editor', () => true, notifyFailure)).toBeUndefined();
+    expect(notifyFailure).not.toHaveBeenCalled();
+  });
+
   it.each([
     ['erro', 'rejeitar'] as const,
     ['resultado recusado', 'recusar'] as const,
