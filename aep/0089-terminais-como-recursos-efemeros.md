@@ -201,9 +201,35 @@ Pendente ou parcial:
 
 ### Resultado de comandos no PTY
 
-A sessão acompanha os marcadores e entrega a saída enquanto o processo escreve. Se o comando encerra o próprio shell, a sessão recupera o status do processo após observar o início e drenar a leitura. Cancelamento, falha do leitor e fechamento explícito preservam a causa e a saída parcial disponível. O rodapé delimita o fim do código numérico para que uma quebra visual entre dígitos não antecipe o resultado. Quando uma falha de leitura já foi publicada e o prazo vence, o resultado conserva as duas causas. A ferramenta devolve a saída parcial junto com a falha mesmo quando o leitor e o prazo terminam juntos. O PowerShell preserva o status da última operação também em retornos antecipados. O CI executa a suíte do terminal no Windows PowerShell 5.1. A largura do terminal acompanha comandos de resize fora do conteúdo das sequências de controle. Em DCS, uma quebra de linha integra o conteúdo até o terminador ou cancelamento da sequência. A moldura cancela controles pendentes antes das marcas de início e fim para que um comando que deixe DCS aberto ainda entregue seu status. A leitura destinada à página do terminal respeita o cancelamento e os limites entre blocos. Ao iniciar outra entrada, a sessão publica o texto manual pendente antes do evento que troca a entrada ativa. No zsh nativo, a moldura usa as operações internas do próprio shell e a suíte Linux de cobertura inclui esse interpretador. A execução efêmera no Linux usa a opção de ambiente do Ubuntu para dispensar o completador global: o diálogo de segurança do compinit poderia consumir o primeiro byte do comando. O perfil do usuário continua sendo carregado. Nos shells POSIX, comentários finais e erros de sintaxe ficam contidos no comando e o rodapé continua legível. `TestPOSIXFooterSurvivesCommentsAndSyntaxErrors` e `TestMarkerStreamConsumesSplitControlSequences` cobrem essas fronteiras.
+- **Status.** A sessão entrega o texto entre os marcadores enquanto o processo escreve.
+  O rodapé delimita o código numérico para que uma quebra visual entre dígitos preserve o resultado.
+  Se o comando encerra o shell, a sessão só atribui o status do processo após observar o marcador
+  inicial e drenar a leitura. No PowerShell, um retorno antecipado preserva o status da última
+  operação identificável. Um pipeline ou retorno condicional de origem ambígua devolve 1.
+  O CI exercita o terminal no Windows PowerShell 5.1.
+- **Interrupção.** Cancelamento, falha de leitura e fechamento explícito preservam a causa e a saída
+  parcial. Se o leitor falhar e o prazo expirar, o resultado conserva as duas causas. A ferramenta
+  informa o tempo registrado pela sessão. Uma falha de escrita depois de iniciado o comando
+  também fica no histórico, com código -1.
+- **Controles do terminal.** O leitor reconhece mudanças de largura fora de sequências de controle.
+  Uma DCS pode ocupar várias linhas até seu terminador ou cancelamento. A moldura cancela controles
+  pendentes antes das marcas de início e fim. Ao trocar a entrada ativa, a sessão entrega primeiro
+  o texto manual pendente. O leitor limita a 4 KiB a cópia literal guardada para recuperar controles
+  incompletos. Ultrapassado o limite, consome o restante do controle até a retomada do texto.
+- **Shells POSIX e zsh.** Comentários finais e erros de sintaxe ficam contidos no comando.
+  O zsh usa suas operações internas para avaliar o comando e conferir o diretório.
+  No Linux, sessões efêmeras e sessões persistentes criadas pelo modelo dispensam o completador
+  global do Ubuntu. Seu diálogo de segurança pode consumir o primeiro byte do comando. O perfil
+  do usuário continua ativo e as sessões criadas manualmente usam a configuração do sistema.
 
-`TestBashExitBeforeEndMarker` e `TestExplicitCloseAfterStartDoesNotCompleteCommand` exercitam os dois tipos de encerramento. `TestPowerShellReturnInPersistentSession` compara a saída do histórico e os eventos durante a execução. `TestConPTYRedrawAtStartMarkerPreservesBodyAcrossReads` verifica a saída e o status quando o ConPTY redesenha a última célula do marcador inicial, em cada divisão possível entre leituras. `TestPowerShellFinalPipelineAndConditionalReturnThroughPTY` comprova o fallback 1 para pipeline ou retorno condicional de origem ambígua e a preservação do código nativo quando a etapa executada é identificável. `BenchmarkMarkerStreamScale` mede o custo das entregas sucessivas em tamanhos crescentes.
+As regressões de encerramento incluem `TestBashExitBeforeEndMarker` e
+`TestExplicitCloseAfterStartDoesNotCompleteCommand`. A saída e o status no PowerShell
+são cobertos por `TestPowerShellReturnInPersistentSession`,
+`TestConPTYRedrawAtStartMarkerPreservesBodyAcrossReads` e
+`TestPowerShellFinalPipelineAndConditionalReturnThroughPTY`. Nos shells POSIX,
+`TestPOSIXFooterSurvivesCommentsAndSyntaxErrors` verifica o rodapé. O CI Linux inclui
+zsh nativo. `TestMarkerStreamConsumesSplitControlSequences` cobre leituras fragmentadas e
+`BenchmarkMarkerStreamScale` mede o custo em tamanhos crescentes.
 
 ## Critérios de aceitação
 

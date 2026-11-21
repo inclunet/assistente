@@ -606,6 +606,18 @@ func TestPowerShellPreparationSelection(t *testing.T) {
 		{"(cmd /c exit 7); return-value", false}, {"(cmd /c exit 7); return.value", false},
 		{"(cmd /c exit 7); returné", false}, {"(cmd /c exit 7); return$part", false},
 		{"(cmd /c exit 7); Write-Output return", false}, {"(cmd /c exit 7); 'return'", false},
+		{"Get-ChildItem . -Filter $pattern", false}, {"Get-Item . $cmd", false},
+		{"Get-ChildItem . | Get-Item . $cmd", false}, {"Write-Output return . $cmd", false},
+		{"Get-ChildItem <# cwd #> . -Filter $pattern", false},
+		{". $cmd", true}, {"echo x | . $cmd", true}, {"echo x; . $cmd", true},
+		{"$x = . $cmd", true}, {"$x += . $cmd", true}, {"return . $cmd", true},
+		{"if ($ok) { ReTuRn . $cmd }", true}, {"exit . $cmd", true}, {"throw . $cmd", true},
+		{"break . $cmd", true}, {"continue . $cmd", true},
+		{"foreach ($item in . $cmd) {}", true}, {"Get-Item . $cmd; . $cmd", true},
+		{`Copy-Item $a .\b`, false}, {`Copy-Item $a ../b`, false}, {`Get-Item .git $file`, false},
+		{`Write-Output .log ($a)`, false}, {`&cmd$ext`, true},
+		{`.$cmd`, true}, {`.($cmd)`, true}, {`."$cmd"`, true}, {`.'cmd' $arg`, true},
+		{".\u00a0$cmd", true}, {".`\r\n$cmd", true},
 		{"using namespace System.Text; [StringBuilder]::new()", true},
 	} {
 		if got := selectPowerShellPreparation(tc.cmd).needed(); got != tc.needed {
@@ -625,8 +637,8 @@ func TestMarkerStreamConsumesOnlyNewBytes(t *testing.T) {
 	var emitted strings.Builder
 	for read := range len(raw) {
 		session.outputBuf.WriteByte(raw[read])
-		chunk := session.outputSince(read)
-		if chunk != raw[read:read+1] || session.outputSince(read+1) != "" {
+		chunk := session.takeCommandOutput()
+		if chunk != raw[read:read+1] || session.takeCommandOutput() != "" {
 			t.Fatalf("offset %d, chunk %q", read, chunk)
 		}
 		delta, result := stream.append(chunk)
