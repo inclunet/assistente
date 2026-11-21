@@ -94,11 +94,15 @@ const powerShellGap = `(?:` + powerShellSpace + `|` + powerShellContinuation + `
 // O ponto em modo de argumento pode ser o diretório atual (Get-ChildItem .).
 // Somente a posição de comando admite dot-sourcing, com ou sem espaço
 // antes de uma variável, expressão ou string. A AST confirma o alvo.
-const powerShellDotStatement = `(?:^|[;({|=\r\n])` + powerShellGap + `*(?:(?:return|throw|exit|break|continue)` + powerShellGap + `+)?`
+const powerShellDotStatement = `(?:^|[;({|\r\n])` + powerShellGap + `*(?:(?:return|throw|exit|break|continue)` + powerShellGap + `+)?`
+
+// O sinal de igualdade só inicia posição de comando quando pertence a uma
+// atribuição de variável; em argumentos como --format=.$x ele é texto literal.
+const powerShellAssignment = `(?:^|[;({|\r\n])` + powerShellGap + `*\$(?:\{[^}]+\}|[\pL\pN_:?]+)` + powerShellGap + `*(?:[+*/%-]?=)` + powerShellGap + `*`
 const powerShellForeachSource = `\(` + powerShellGap + `*\$(?:\{[^}]+\}|[\pL\pN_:]+)` + powerShellGap + `+in` + powerShellGap + `+`
 
 var powerShellInvocation = regexp.MustCompile(`(?i)(?:(?:^|[;({|]|` + powerShellGap + `)&|(?:` +
-	powerShellDotStatement + `|` + powerShellForeachSource + `)\.(?:` + powerShellGap + `|[$({"']))`)
+	powerShellDotStatement + `|` + powerShellAssignment + `|` + powerShellForeachSource + `)\.(?:` + powerShellGap + `|[$({"']))`)
 var standalonePowerShellGroup = regexp.MustCompile(`(?:^|[;\r\n{]|#>)` + powerShellGap + `*[$@]?\(`)
 var powerShellGroupEnd = regexp.MustCompile(`\)(?:;|` + powerShellGap + `)*\z`)
 var powerShellNamespace = regexp.MustCompile(`(?i)(?:^|[;\r\n]|#>)` + powerShellGap + `*using` + powerShellGap + `+namespace\b`)
