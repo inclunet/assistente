@@ -67,6 +67,8 @@ type Updater struct {
 	githubToken       string // Token para acessar releases privadas (opcional)
 	credMgr           *credentials.Manager
 	httpClient        *httpclient.Client
+	downloadClient    *httpclient.Client
+	downloadIdle      time.Duration
 	progressCallback  ProgressCallback
 	elevationCallback ElevationCallback
 }
@@ -78,6 +80,11 @@ func New(currentVersion string, credMgr *credentials.Manager) *Updater {
 		githubAPIURL:   GitHubAPIURL,
 		githubToken:    "", // Pode ser configurado depois se releases forem privadas
 		credMgr:        credMgr,
+		downloadIdle:   time.Minute,
+		downloadClient: httpclient.New(&httpclient.Config{
+			CredentialManager: credMgr,
+			Timeout:           15 * time.Minute,
+		}, map[string]string{}),
 		httpClient: httpclient.New(&httpclient.Config{
 			CredentialManager: credMgr,
 			Timeout:           30 * time.Second,
@@ -441,7 +448,7 @@ func (u *Updater) applyUpdateWindowsPortable(ctx context.Context, _ *Manifest) e
 		return err
 	}
 
-	resp, err = u.httpClient.Do(ctx, req)
+	resp, err = u.doDownload(ctx, req)
 	if err != nil {
 		return fmt.Errorf("falha ao baixar executável portátil: %w", err)
 	}
@@ -614,7 +621,7 @@ func (u *Updater) downloadInstaller(ctx context.Context, url string, totalBytes 
 		req.Header.Set("Accept", "application/octet-stream")
 	}
 
-	resp, err := u.httpClient.Do(ctx, req)
+	resp, err := u.doDownload(ctx, req)
 	if err != nil {
 		return "", err
 	}
@@ -658,7 +665,7 @@ func (u *Updater) downloadInstaller(ctx context.Context, url string, totalBytes 
 		if err != nil {
 			_ = tmpFile.Close()
 			_ = os.Remove(tmpPath)
-			return "", fmt.Errorf("falha ao baixar instalador: %w", err)
+			return "", fmt.Errorf("falha ao ler resposta do download: %w", err)
 		}
 	}
 
@@ -828,7 +835,7 @@ func (u *Updater) downloadBinary(ctx context.Context, url string) (io.ReadCloser
 		req.Header.Set("Accept", "application/octet-stream")
 	}
 
-	resp, err := u.httpClient.Do(ctx, req)
+	resp, err := u.doDownload(ctx, req)
 	if err != nil {
 		return nil, err
 	}
