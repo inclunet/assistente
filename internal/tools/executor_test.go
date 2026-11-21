@@ -654,7 +654,7 @@ func TestExecutorTimeoutPreservesPublishedRefusal(t *testing.T) {
 		release := make(chan struct{})
 		defer close(release)
 		tool := &mockTool{name: "ask", exec: func(ctx context.Context, _ json.RawMessage) (ToolResult, error) {
-			resolve := PendingConfirmation(ctx, "unavailable")
+			resolve := PendingConfirmation(ctx, "unavailable", "refused")
 			denied := ToolResult{IsError: true, Content: strings.Repeat("negado ", 30), Failure: &ToolFailure{Code: "refused", Kind: ErrorKindAuthorization}}
 			resolve(&denied)
 			<-release // simula pós-processamento ainda pendente após a decisão
@@ -678,7 +678,7 @@ func TestExecutorParentCancelDuringConfirmation(t *testing.T) {
 			release := make(chan struct{})
 			defer close(release)
 			tool := &mockTool{name: "ask", exec: func(ctx context.Context, _ json.RawMessage) (ToolResult, error) {
-				resolve := PendingConfirmation(ctx, "unavailable")
+				resolve := PendingConfirmation(ctx, "unavailable", "refused")
 				denied := ToolResult{IsError: true, Content: "negado", Failure: &ToolFailure{Code: "refused", Kind: ErrorKindAuthorization}}
 				if published {
 					resolve(&denied)
@@ -750,6 +750,7 @@ func TestPendingConfirmationRequiresClassifiedDecision(t *testing.T) {
 		wantKind ErrorKind
 	}{
 		{"sem Failure", &ToolResult{IsError: true, Content: "não classificado"}, "unavailable", ErrorKindAuthorization},
+		{"dependência indisponível", &ToolResult{IsError: true, Failure: &ToolFailure{Code: "missing", Kind: ErrorKindUnavailable}}, "unavailable", ErrorKindAuthorization},
 		{"aprovação", nil, "", ErrorKindTimeout},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -757,7 +758,7 @@ func TestPendingConfirmationRequiresClassifiedDecision(t *testing.T) {
 			ctx, stop := context.WithDeadline(parent, time.Time{})
 			defer stop()
 			var state atomic.Pointer[confirmationState]
-			resolve := PendingConfirmation(context.WithValue(ctx, pendingConfirmationKey{}, &state), "unavailable")
+			resolve := PendingConfirmation(context.WithValue(ctx, pendingConfirmationKey{}, &state), "unavailable", "refused")
 			resolve(tc.decision)
 			e := NewExecutor(NewRegistry(), DefaultExecutorConfig())
 			call := ToolCall{ID: "decision", Function: FunctionCall{Name: "ask"}}

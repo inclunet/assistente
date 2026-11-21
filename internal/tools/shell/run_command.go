@@ -204,10 +204,7 @@ func (rc *RunCommand) Execute(ctx context.Context, args json.RawMessage) (tools.
 	// Avalia o comando contra a politica (allowlist + parser conservador)
 	policyResult, policyErr := rc.evaluateCommand(ctx, a.Command)
 	if policyErr != nil {
-		failure := unavailableShellPrerequisite("Política de autorização shell indisponível.")
-		tools.PublishAuthorizationPrerequisiteFailure(ctx, failure)
-		logging.Errorf(ctx, "tools.shell.run-command", "Política de autorização shell indisponível")
-		return failure, nil
+		return shellPrerequisiteFailure(ctx, "policy_unavailable", "Política de autorização shell indisponível."), nil
 	}
 	decision := policyResult.Decision
 	// Nunca logamos a string crua de a.Command: ela pode conter tokens em
@@ -231,7 +228,7 @@ func (rc *RunCommand) Execute(ctx context.Context, args json.RawMessage) (tools.
 	if decision == allowlist.DecisionConfirm && !a.Persistent && a.TerminalID == "" {
 		resolved, err := canonicalizeProjectPath(workDir)
 		if err != nil {
-			return unavailableShellPrerequisite("Não foi possível resolver o diretório para autorização."), nil
+			return shellPrerequisiteFailure(ctx, "directory_unresolved", "Não foi possível resolver o diretório para autorização."), nil
 		}
 		workDir = resolved
 	}
@@ -252,7 +249,7 @@ func (rc *RunCommand) Execute(ctx context.Context, args json.RawMessage) (tools.
 		current, err := canonicalizeProjectPath(originalWorkDir)
 		target, targetErr := canonicalizeProjectPath(workDir)
 		if err != nil || targetErr != nil || current != workDir || target != workDir {
-			return unavailableShellPrerequisite("O diretório mudou durante a autorização."), nil
+			return shellPrerequisiteFailure(ctx, "directory_changed", "O diretório mudou durante a autorização."), nil
 		}
 	}
 	var sessionID string
@@ -457,7 +454,7 @@ func logPolicyDecision(
 }
 
 func confirmShellCommand(ctx context.Context, confirm ConfirmFunc, command, workDir, commandSummary string) *tools.ToolResult {
-	resolve := tools.PendingConfirmation(ctx, FailureConfirmationUnavailable)
+	resolve := tools.PendingConfirmation(ctx, FailureConfirmationUnavailable, FailureCommandRefused)
 	var failure *tools.ToolResult
 	// O autorizador real publica antes do seu log. Os demais ConfirmFunc
 	// entregam o mesmo resultado ao retornar, sem emitir uma segunda decisão.
@@ -475,16 +472,12 @@ func confirmShellCommand(ctx context.Context, confirm ConfirmFunc, command, work
 			resolve(&denied)
 			failure = &denied
 		case errors.Is(err, shelltrust.ErrPrerequisiteUnavailable) && ctx.Err() == nil:
-			unavailable := unavailableShellPrerequisite("Não foi possível validar os pré-requisitos da autorização shell.")
-			tools.PublishAuthorizationPrerequisiteFailure(ctx, unavailable)
+			unavailable := shellPrerequisiteFailure(ctx, shelltrust.PrerequisiteReason(err), "Não foi possível validar os pré-requisitos da autorização shell.")
 			failure = &unavailable
 		}
 	}
 	approved, err := confirm(shelltrust.WithDecisionObserver(ctx, observe), command, workDir)
 	observe(approved, err)
-	if errors.Is(err, shelltrust.ErrPrerequisiteUnavailable) {
-		logging.Logger(ctx, "tools.shell.run-command").WarnContext(ctx, "Pré-requisito da autorização shell indisponível", "reason", shelltrust.PrerequisiteReason(err))
-	}
 	if failure != nil {
 		return failure
 	}
@@ -500,10 +493,13 @@ func confirmShellCommand(ctx context.Context, confirm ConfirmFunc, command, work
 	return nil
 }
 
-func unavailableShellPrerequisite(message string) tools.ToolResult {
-	return tools.ToolResult{IsError: true, Content: message,
+func shellPrerequisiteFailure(ctx context.Context, reason, message string) tools.ToolResult {
+	failure := tools.ToolResult{IsError: true, Content: message,
 		Failure: &tools.ToolFailure{Code: FailurePrerequisiteUnavailable, Kind: tools.ErrorKindUnavailable, Retryable: false},
 	}
+	tools.PublishAuthorizationPrerequisiteFailure(ctx, failure)
+	logging.Logger(ctx, "tools.shell.run-command").WarnContext(ctx, "Pré-requisito da autorização shell indisponível", "reason", reason)
+	return failure
 }
 
 func unavailableShellAuthorization(message string) tools.ToolResult {

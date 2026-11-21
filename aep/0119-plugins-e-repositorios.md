@@ -82,7 +82,13 @@ Fora de blocos de código, a diretiva pode ser explícita ou começar por um pro
 
 #### Classificação das falhas
 
-Uma negativa expressa do usuário ou da política usa `shell_command_refused` e interrompe o turno. Se faltar confirmação, o código é `shell_confirmation_unavailable`. Falhas de política ou de diretório usam `shell_prerequisite_unavailable`, inclusive na releitura após uma aprovação (`TestPolicyUnavailableAfterApproval`). A base omite a linha e sua saída parcial nesses casos; a barra encerra a invocação. Fechar o diálogo pela ação de cancelar conta como negativa pontual. O fechamento automático por prazo sem resposta devolve erro de confirmação indisponível. Se o questionário já aceitou uma resposta, ela chega ao solicitante mesmo que o prazo também esteja pronto ao retomar a espera. No desktop, a recusa pontual aceita pelo aplicativo é publicada antes do retorno de Respond, inclusive quando a emissão do evento de abertura ainda retém o solicitante. O adaptador valida a resposta contra as ações oferecidas. Aprovar continua exigindo revalidação. TestShellResponseAcceptedBeforeExecutorDeadline cobre negativa, cancelamento, aprovação, ação inválida, opção não oferecida e resposta tardia. Depois do prazo, uma resposta nova é recusada. `TestAcceptedResponseSurvivesDeadline` verifica as duas ordens. Expirar o prazo durante a confirmação não permite repetição automática.
+Uma negativa expressa do usuário ou da política usa `shell_command_refused` e interrompe o turno. Fechar o diálogo pela ação de cancelar conta como negativa pontual.
+
+Na falta de confirmação, o código é `shell_confirmation_unavailable`. Falhas de política, diretório ou consulta às concessões usam `shell_prerequisite_unavailable`, inclusive na releitura após uma aprovação. O diagnóstico registra a categoria da causa e o ID da chamada. Nesses casos, a base omite a linha e sua saída parcial, e a barra encerra a invocação.
+
+No desktop, o questionário entrega a resposta aceita antes do prazo conforme o [AEP-0091](0091-dialogos-de-decisao-unificados.md). O adaptador valida a ação oferecida e publica a recusa antes de `Respond` retornar. A aprovação ainda exige revalidação. Se o prazo expirar sem resposta, a confirmação fica indisponível e a ferramenta não tenta novamente.
+
+`TestPolicyUnavailableAfterApproval` cobre a releitura da política. `TestShellResponseAcceptedBeforeExecutorDeadline` cobre negativa, cancelamento, aprovação, ação inválida, opção não oferecida e resposta tardia.
 
 Os testes `TestBaseSkillOperationalErrorsOmitOnlyCommandLine`, `TestBaseRefusalPrecedesSlashCommand` e `TestSkillCommandInAdmittedTurn` cobrem essas decisões.
 

@@ -119,10 +119,11 @@ type Response struct {
 
 // Manager gerencia solicitações de questionários entre backend e frontend.
 type Manager struct {
-	pending   map[string]*RequestPayload
-	mu        sync.Mutex
-	emitEvent func(event string, data any)
-	display   chan struct{}
+	lastAcceptedID string // último diálogo respondido, sem reter o conteúdo da resposta
+	pending        map[string]*RequestPayload
+	mu             sync.Mutex
+	emitEvent      func(event string, data any)
+	display        chan struct{}
 }
 
 // NewManager cria um novo gerenciador de questionários.
@@ -280,6 +281,10 @@ func (m *Manager) Respond(requestID string, answers map[string]any, cancelled bo
 
 	req, ok := m.pending[requestID]
 
+	if !ok && requestID != "" && requestID == m.lastAcceptedID {
+		m.mu.Unlock()
+		return fmt.Errorf("resposta já enviada para o questionário %q", requestID)
+	}
 	if !ok || req.waitCtx.Err() != nil {
 		m.mu.Unlock()
 		return fmt.Errorf("solicitação de questionário '%s' não encontrada ou expirada", requestID)
@@ -291,6 +296,7 @@ func (m *Manager) Respond(requestID string, answers map[string]any, cancelled bo
 		Cancelled: cancelled,
 	}
 
+	m.lastAcceptedID = requestID
 	delete(m.pending, requestID)
 	m.mu.Unlock()
 	// O observador é do solicitante. Nunca o execute sob o lock do gerenciador.

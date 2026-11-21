@@ -33,9 +33,9 @@ type confirmationState struct {
 
 // PendingConfirmation registra a falha que o executor deve devolver se o
 // próprio prazo acabar durante a decisão. O callback publica a recusa definitiva
-// com Failure ou, após aprovação válida, restaura o timeout normal com nil.
-// Um resultado sem Failure não declara uma decisão e mantém o estado corrente.
-func PendingConfirmation(ctx context.Context, failureCode string) func(*ToolResult) {
+// somente para o código de recusa esperado. nil encerra a espera por aprovação.
+// Outras falhas mantêm a confirmação pendente.
+func PendingConfirmation(ctx context.Context, failureCode, refusalCode string) func(*ToolResult) {
 	state, _ := ctx.Value(pendingConfirmationKey{}).(*atomic.Pointer[confirmationState])
 	if state == nil {
 		return func(*ToolResult) {}
@@ -46,7 +46,9 @@ func PendingConfirmation(ctx context.Context, failureCode string) func(*ToolResu
 			state.Store(nil)
 			return
 		}
-		PublishAuthorizationRefusal(ctx, *decision)
+		if decision.IsError && decision.Failure != nil && refusalCode != "" && decision.Failure.Code == refusalCode {
+			PublishAuthorizationRefusal(ctx, *decision)
+		}
 	}
 }
 

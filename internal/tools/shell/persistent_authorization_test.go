@@ -47,7 +47,14 @@ func TestDirectorySymlinkSwapDuringConsentDoesNotExecute(t *testing.T) {
 		}
 		return true, nil
 	}, policy, link)
+	var logs bytes.Buffer
+	previous := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&logs, nil)))
+	t.Cleanup(func() { slog.SetDefault(previous) })
 	result, err := rc.Execute(authorizationfixture.Context(), json.RawMessage(`{"command":"git push"}`))
+	if result.Failure == nil || result.Failure.Code != FailurePrerequisiteUnavailable || !strings.Contains(logs.String(), "reason=directory_changed") {
+		t.Fatalf("troca de diretório: %+v log=%s", result, logs.String())
+	}
 	if err != nil || !result.IsError || m.runEphemeralCalls != 0 {
 		t.Fatalf("executou após troca: %+v %v calls=%d", result, err, m.runEphemeralCalls)
 	}
@@ -119,8 +126,11 @@ func TestPolicyUnavailableAfterApproval(t *testing.T) {
 }
 
 func TestPrerequisiteWarningIdentifiesCallAndCause(t *testing.T) {
-	for _, reason := range []string{"directory_changed", "store_unavailable", "policy_unavailable"} {
-		t.Run(reason, func(t *testing.T) {
+	for _, tc := range []struct{ path, reason string }{
+		{"directory_changed", "directory_changed"}, {"store_unavailable", "store_unavailable"},
+		{"policy_unavailable", "policy_unavailable"}, {"initial_policy", "policy_unavailable"}, {"initial_directory", "directory_unresolved"},
+	} {
+		t.Run(tc.path, func(t *testing.T) {
 			var output bytes.Buffer
 			previous := slog.Default()
 			slog.SetDefault(slog.New(slog.NewTextHandler(&output, &slog.HandlerOptions{Level: slog.LevelWarn})))
@@ -132,7 +142,12 @@ func TestPrerequisiteWarningIdentifiesCallAndCause(t *testing.T) {
 			}
 			auth := &shelltrust.Authorizer{}
 			command := "git push"
-			switch reason {
+			var policy GetAllowlistFunc
+			switch tc.path {
+			case "initial_policy":
+				policy = func(context.Context) (*allowlist.Allowlist, error) { return nil, errors.New(secret) }
+			case "initial_directory":
+				dir += "\x00"
 			case "directory_changed":
 				auth.Prompt = func(context.Context, shelltrust.PromptRequest) (shelltrust.PromptDecision, error) {
 					return shelltrust.PromptDecision{Approve: true, Scope: authorization.ScopeOnce}, os.Rename(dir, dir+"-moved")
@@ -148,7 +163,7 @@ func TestPrerequisiteWarningIdentifiesCallAndCause(t *testing.T) {
 				auth.Policy = func(context.Context) (*allowlist.Allowlist, error) { return nil, errors.New(secret) }
 			}
 			reg := tools.NewRegistry()
-			reg.MustRegister(NewRunCommand(nil, auth.Authorize, nil, dir))
+			reg.MustRegister(NewRunCommand(nil, auth.Authorize, policy, dir))
 			args, err := json.Marshal(runCommandArgs{Command: command})
 			if err != nil {
 				t.Fatal(err)
@@ -156,7 +171,7 @@ func TestPrerequisiteWarningIdentifiesCallAndCause(t *testing.T) {
 			const callID = "actual-call-id"
 			result := tools.NewExecutor(reg, tools.DefaultExecutorConfig()).ExecuteOne(authorizationfixture.Context(), tools.ToolCall{ID: callID, Function: tools.FunctionCall{Name: "run_command", Arguments: string(args)}})
 			record := output.String()
-			if result.ErrorCode != FailurePrerequisiteUnavailable || !strings.Contains(record, "level=WARN") || !strings.Contains(record, "tool_call_id="+callID) || !strings.Contains(record, "reason="+reason) || strings.Contains(record, secret) || strings.Contains(result.Result.Content, secret) {
+			if result.ErrorCode != FailurePrerequisiteUnavailable || !strings.Contains(record, "level=WARN") || !strings.Contains(record, "tool_call_id="+callID) || !strings.Contains(record, "reason="+tc.reason) || strings.Contains(record, secret) || strings.Contains(result.Result.Content, secret) {
 				t.Fatalf("resultado=%+v log=%q", result, record)
 			}
 		})

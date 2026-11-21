@@ -42,6 +42,23 @@ describe('SkillToolsSection', () => {
     expect(announce).toHaveBeenCalledTimes(1);
   });
 
+  it('anuncia uma vez ao trocar de skill sem desmontar a seção', () => {
+    announce.mockClear();
+    const onToolsChange = vi.fn();
+    const primeira = { toolsString: 'run_command', declaresShellPrograms: true };
+    const segunda = { toolsString: 'read_file', declaresShellPrograms: true };
+    const { rerender } = render(<SkillToolsSection {...primeira} onToolsChange={onToolsChange} />);
+    const campo = screen.getByRole('textbox');
+    expect(announce).not.toHaveBeenCalled();
+
+    rerender(<SkillToolsSection {...segunda} onToolsChange={onToolsChange} />);
+    expect(screen.getByRole('textbox')).toBe(campo);
+    expect(campo).toHaveAccessibleDescription('skills.toolsSection.shellConflict');
+    expect(announce).toHaveBeenCalledWith('skills.toolsSection.shellConflict');
+    rerender(<SkillToolsSection {...segunda} onToolsChange={onToolsChange} />);
+    expect(announce).toHaveBeenCalledTimes(1);
+  });
+
   it('renderiza string de ferramentas e dica', () => {
     const onToolsChange = vi.fn();
     render(

@@ -3,6 +3,7 @@ package questionnaire
 import (
 	"context"
 	"errors"
+	"strings"
 	"sync"
 	"testing"
 	"testing/synctest"
@@ -510,6 +511,9 @@ func TestAcceptedResponseNotifiesOutsideManagerLock(t *testing.T) {
 			t.Errorf("pedidos pendentes após a aceitação: %d", count)
 		}
 		cancel()
+		if err := mgr.Respond(id, nil, false); err == nil || !strings.Contains(err.Error(), "resposta já enviada") {
+			t.Fatalf("resposta duplicada: %v", err)
+		}
 		synctest.Wait()
 		select {
 		case <-completed:

@@ -142,7 +142,9 @@ func codeLineStarts(content string) (starts map[int]bool, unclosedPre bool) {
 			}
 		case *ast.RawHTML:
 			segments := n.Segments
-			scanHTML(segments.At(0).Start, segments.At(segments.Len()-1).Stop)
+			if segments.Len() > 0 {
+				scanHTML(segments.At(0).Start, segments.At(segments.Len()-1).Stop)
+			}
 		}
 		if literal {
 			for i := 0; i < node.Lines().Len(); i++ {
@@ -223,7 +225,7 @@ func planCommandLines(ctx context.Context, skill *Skill, content string, base bo
 	shellToolAllowed := skill.Tools == nil || (!slices.Contains(skill.Tools.Denied, "run_command") &&
 		(len(skill.Tools.Allowed) == 0 || slices.Contains(skill.Tools.Allowed, "run_command")))
 	fenced, unclosedPre := codeLineStarts(content)
-	if unclosedPre {
+	if unclosedPre && (!base || ctx.Value(commandTurnKey{}) != nil) {
 		warnUnclosedPre(ctx, skill.Slug)
 	}
 	offset := 0

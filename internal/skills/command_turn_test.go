@@ -641,6 +641,8 @@ func TestUnclosedPreWarnsOncePerSkillAndAttempt(t *testing.T) {
 	build(ctx, "manual", 400)
 	build(ctx, "manual", 400)
 	build(ctx, "manual", 450)
+	build(t.Context(), "manual", 400)
+	build(t.Context(), "manual", 450)
 	build(ctx, "completo", 400)
 	build(ctx, "sem-comando", 400)
 	build(WithCommandTurn(t.Context(), run), "manual", 400)
