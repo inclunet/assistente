@@ -76,8 +76,13 @@ vi.mock('antd', () => ({
   Spin: () => <div role="status">Carregando</div>,
 }));
 
+const terminalLifecycle = vi.hoisted(() => ({
+  setupEventListeners: vi.fn(() => () => {}),
+  loadSessions: vi.fn(),
+}));
+
 vi.mock('../../store/terminalStore', () => ({
-  useTerminalStore: Object.assign(vi.fn(), { getState: () => ({ setupEventListeners: () => () => {}, loadSessions: vi.fn(async () => true) }) }),
+  useTerminalStore: Object.assign(vi.fn(), { getState: () => terminalLifecycle }),
 }));
 
 vi.mock('../../store/workspaceStore', () => ({
@@ -213,6 +218,12 @@ describe('WorkspaceLayout - foco ao navegar workspace tabs', () => {
   afterEach(() => {
     requestAnimationFrameSpy.mockRestore();
     vi.restoreAllMocks();
+  });
+
+  it('escuta o ciclo de vida sem consultar sessões ao abrir a área de trabalho', () => {
+    renderWorkspaceLayout();
+    expect(terminalLifecycle.setupEventListeners).toHaveBeenCalledWith({ lifecycleOnly: true });
+    expect(terminalLifecycle.loadSessions).not.toHaveBeenCalled();
   });
 
   it('setas na tablist trocam aba mantendo foco na tablist', () => {

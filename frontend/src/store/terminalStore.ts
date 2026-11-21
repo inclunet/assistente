@@ -12,13 +12,11 @@ import {
 import { EventsOn } from '@wailsjs/runtime/runtime';
 import { terminal } from '../../wailsjs/go/models';
 import { playSendSound, playReceiveSound } from '../services/audioFeedback';
-import { announce } from '../hooks/useAnnouncer';
+import { announceWithOrigin } from '../services/voiceAccessibility/announcerBroker';
 import i18next from 'i18next';
 
 // Debounce para anúncio de output (acumula chunks e espera streaming parar)
-let announceTimer: ReturnType<typeof setTimeout> | null = null;
-let pendingOutput = '';
-let pendingOutputSessionId = '';
+const pendingAnnouncements = new Map<string, { output: string; truncated: boolean; timer: ReturnType<typeof setTimeout> }>();
 let terminalEventListenerRefCount = 0;
 let terminalOutputListenerRefCount = 0;
 let terminalSessionReadGeneration = 0;
@@ -30,29 +28,67 @@ export function resolveTerminalCommandId(sessionId: string, commandId?: string):
   return commandId || `legacy-${sessionId}-${Date.now()}-${legacyCommandSequence++}`;
 }
 
+function announceTerminalResult(message: string) {
+  announceWithOrigin({ message, eventType: 'completion', waitsForReading: true, protectsReading: true });
+}
+
+function cancelOutputAnnouncement(sessionId: string) {
+  const pending = pendingAnnouncements.get(sessionId);
+  if (pending) clearTimeout(pending.timer);
+  pendingAnnouncements.delete(sessionId);
+}
+
 function scheduleOutputAnnounce(sessionId: string, chunk: string) {
-  if (pendingOutputSessionId !== sessionId) pendingOutput = '';
-  pendingOutputSessionId = sessionId;
-  pendingOutput += chunk;
-  if (announceTimer) clearTimeout(announceTimer);
-  announceTimer = setTimeout(() => {
-    const text = pendingOutput.trim();
+  const pending = pendingAnnouncements.get(sessionId);
+  const previous = pending?.output ?? '';
+  cancelOutputAnnouncement(sessionId);
+  const content = previous ? chunk : chunk.trimStart();
+  const remaining = 300 - previous.length;
+  const output = previous + content.slice(0, remaining);
+  const truncated = pending?.truncated || (content.length > remaining && /\S/.test(content.slice(remaining)));
+  const timer = setTimeout(() => {
+    pendingAnnouncements.delete(sessionId);
+    const text = output.trim();
     if (text) {
       playReceiveSound();
-      const truncated = text.length > 300
-        ? text.slice(0, 300) + i18next.t('terminal.announce.truncatedSuffix')
-        : text;
-      announce(i18next.t('terminal.announce.output', { output: truncated }));
+      const preview = truncated ? output + i18next.t('terminal.announce.truncatedSuffix') : text;
+      announceTerminalResult(i18next.t('terminal.announce.output', { output: preview }));
     }
-    pendingOutput = '';
-    pendingOutputSessionId = '';
-    announceTimer = null;
-  }, 500); // Espera 500ms sem novos chunks antes de anunciar
+  }, 500);
+  pendingAnnouncements.set(sessionId, { output, truncated, timer });
 }
 
 // Re-export types for components
 export type SessionInfo = terminal.SessionInfo;
 export type HistoryEntry = terminal.HistoryEntry;
+
+// Limites do histórico definido em internal/terminal/session.go. A resposta
+// final do backend já inclui seu próprio aviso quando o resultado foi cortado.
+const historyEntryLimit = 200;
+const historyOutputLimit = 50 * 1024;
+const historyEncoder = new TextEncoder();
+const historyDecoder = new TextDecoder('utf-8', { ignoreBOM: true });
+const historyBuffer = new Uint8Array(historyOutputLimit);
+const historyBytes = new WeakMap<HistoryEntry, number>();
+
+function appendHistoryOutput(entry: HistoryEntry, chunk: string): HistoryEntry {
+  if (!chunk) return entry;
+  let used = historyBytes.get(entry);
+  if (used === undefined) {
+    const existing = historyEncoder.encodeInto(entry.output, historyBuffer);
+    used = existing.read === entry.output.length ? existing.written : historyOutputLimit + 1;
+    historyBytes.set(entry, used);
+  }
+  if (used > historyOutputLimit) return entry;
+  const remaining = historyBuffer.subarray(0, historyOutputLimit - used);
+  const { read, written } = historyEncoder.encodeInto(chunk, remaining);
+  const truncated = read !== chunk.length;
+  const addition = truncated ? historyDecoder.decode(remaining.subarray(0, written)) + '…' : chunk;
+  const updated = terminal.HistoryEntry.createFrom({ ...entry, output: entry.output + addition });
+  // Não permita que bytes seguintes ultrapassem um caractere que não coube.
+  historyBytes.set(updated, truncated ? historyOutputLimit + 1 : used + written);
+  return updated;
+}
 
 interface TerminalState {
   sessions: SessionInfo[];
@@ -202,12 +238,7 @@ export const useTerminalStore = create<TerminalState>((set) => ({
         terminalEventListenerRefCount = Math.max(0, terminalEventListenerRefCount - 1);
         if (!options?.lifecycleOnly) {
           terminalOutputListenerRefCount = Math.max(0, terminalOutputListenerRefCount - 1);
-          if (terminalOutputListenerRefCount === 0 && announceTimer) {
-            clearTimeout(announceTimer);
-            announceTimer = null;
-            pendingOutput = '';
-            pendingOutputSessionId = '';
-          }
+          if (terminalOutputListenerRefCount === 0) pendingAnnouncements.forEach((_, id) => cancelOutputAnnouncement(id));
         }
         if (terminalEventListenerRefCount === 0 && terminalEventListenerCleanup) {
           terminalEventListenerCleanup();
@@ -220,6 +251,11 @@ export const useTerminalStore = create<TerminalState>((set) => ({
     // Uma sessão pode produzir comandos antes do evento de criação chegar.
     // Só ignoramos eventos depois de seu encerramento explícito ou espontâneo.
     const endedSessions = new Set<string>();
+    // Uma sessão já exibida conserva seu histórico entre montagens da página.
+    // Continue aplicando eventos ao cache mesmo quando os anúncios estão suspensos.
+    const tracksHistory = (sessionId: string) =>
+      !endedSessions.has(sessionId) && (terminalOutputListenerRefCount > 0 ||
+        useTerminalStore.getState().historyBySession[sessionId] !== undefined);
 
     // Sessão criada
     unsubs.push(EventsOn('terminal:session_created', (data: SessionInfo) => {
@@ -253,12 +289,7 @@ export const useTerminalStore = create<TerminalState>((set) => ({
       // IDs são únicos; limite a memória usada para descartar eventos tardios.
       endedSessions.add(sessionId);
       if (endedSessions.size > 1024) endedSessions.delete(endedSessions.values().next().value!);
-      if (pendingOutputSessionId === sessionId) {
-        if (announceTimer) clearTimeout(announceTimer);
-        announceTimer = null;
-        pendingOutput = '';
-        pendingOutputSessionId = '';
-      }
+      cancelOutputAnnouncement(sessionId);
       set(state => {
         const newHistory = { ...state.historyBySession };
         delete newHistory[sessionId];
@@ -282,18 +313,20 @@ export const useTerminalStore = create<TerminalState>((set) => ({
       const firstEvent = Boolean(sessionId && !endedSessions.has(sessionId));
       removeExitedSession(data);
       // Eventos repetidos não anunciam duas vezes, inclusive antes da listagem inicial.
-      if (firstEvent) announce(i18next.t('terminal.announce.exited', { name: session?.name || sessionId }));
+      if (firstEvent) {
+        announceTerminalResult(session?.name?.trim()
+          ? i18next.t('terminal.announce.exited', { name: session.name })
+          : i18next.t('terminal.announce.terminated'));
+      }
     };
     unsubs.push(EventsOn('terminal:session_closed', announceSessionEnded));
     unsubs.push(EventsOn('terminal:exited', announceSessionEnded));
 
     // Comando iniciado (raw mode — cria entry para receber output)
     unsubs.push(EventsOn('terminal:command_start', (data: { sessionId: string; commandId?: string; command: string; source: string }) => {
-      if (terminalOutputListenerRefCount === 0 || endedSessions.has(data.sessionId)) return;
+      if (!tracksHistory(data.sessionId)) return;
       // Limpa pending output do comando anterior
-      pendingOutput = '';
-      pendingOutputSessionId = '';
-      if (announceTimer) { clearTimeout(announceTimer); announceTimer = null; }
+      cancelOutputAnnouncement(data.sessionId);
 
       const tempEntry: HistoryEntry = terminal.HistoryEntry.createFrom({
         id: resolveTerminalCommandId(data.sessionId, data.commandId),
@@ -307,10 +340,11 @@ export const useTerminalStore = create<TerminalState>((set) => ({
 
       set(state => {
         const sessionHistory = state.historyBySession[data.sessionId] || [];
+        const recent = sessionHistory.length >= historyEntryLimit ? sessionHistory.slice(1 - historyEntryLimit) : sessionHistory;
         return {
           historyBySession: {
             ...state.historyBySession,
-            [data.sessionId]: [...sessionHistory, tempEntry],
+            [data.sessionId]: [...recent, tempEntry],
           },
           activeEntryBySession: {
             ...state.activeEntryBySession,
@@ -329,7 +363,7 @@ export const useTerminalStore = create<TerminalState>((set) => ({
 
     // Raw output (streaming contínuo do PTY — vai para o último entry da sessão)
     unsubs.push(EventsOn('terminal:raw_output', (data: { sessionId: string; output: string }) => {
-      if (terminalOutputListenerRefCount === 0 || endedSessions.has(data.sessionId)) return;
+      if (!tracksHistory(data.sessionId)) return;
       // Agenda anúncio do output (com debounce para esperar fim do streaming)
       if (terminalOutputListenerRefCount > 0) scheduleOutputAnnounce(data.sessionId, data.output);
 
@@ -342,10 +376,7 @@ export const useTerminalStore = create<TerminalState>((set) => ({
         // Appenda output ao entry ativo (ou ao último entry)
         const updatedHistory = sessionHistory.map(entry => {
           if (activeEntryId ? entry.id === activeEntryId : entry === sessionHistory[sessionHistory.length - 1]) {
-            return terminal.HistoryEntry.createFrom({
-              ...entry,
-              output: entry.output + data.output,
-            });
+            return appendHistoryOutput(entry, data.output);
           }
           return entry;
         });
@@ -361,15 +392,12 @@ export const useTerminalStore = create<TerminalState>((set) => ({
 
     // Output filtrado (durante RunCommand do LLM com markers)
     unsubs.push(EventsOn('terminal:command_output', (data: { sessionId: string; commandId: string; output: string }) => {
-      if (terminalOutputListenerRefCount === 0 || endedSessions.has(data.sessionId)) return;
+      if (!tracksHistory(data.sessionId)) return;
       set(state => {
         const sessionHistory = state.historyBySession[data.sessionId] || [];
         const updatedHistory = sessionHistory.map(entry => {
           if (entry.exitCode === -999 && entry.source !== 'user-raw') {
-            return terminal.HistoryEntry.createFrom({
-              ...entry,
-              output: entry.output + data.output,
-            });
+            return appendHistoryOutput(entry, data.output);
           }
           return entry;
         });
@@ -384,13 +412,13 @@ export const useTerminalStore = create<TerminalState>((set) => ({
 
     // Comando finalizado (apenas para RunCommand com markers — LLM)
     unsubs.push(EventsOn('terminal:command_end', (data: { sessionId: string; commandId: string; output: string; exitCode: number }) => {
-      if (terminalOutputListenerRefCount === 0 || endedSessions.has(data.sessionId)) return;
+      if (!tracksHistory(data.sessionId)) return;
       if (terminalOutputListenerRefCount > 0) {
         playReceiveSound();
         const outputPreview = data.output
           ? (data.output.length > 300 ? data.output.slice(0, 300) + i18next.t('terminal.announce.truncatedSuffix') : data.output)
           : i18next.t('terminal.announce.emptyOutput');
-        announce(i18next.t('terminal.announce.outputWithExit', { output: outputPreview, exitCode: data.exitCode }));
+        announceTerminalResult(i18next.t('terminal.announce.outputWithExit', { output: outputPreview, exitCode: data.exitCode }));
       }
       set(state => {
         const sessionHistory = state.historyBySession[data.sessionId] || [];
@@ -432,12 +460,7 @@ export const useTerminalStore = create<TerminalState>((set) => ({
       terminalEventListenerRefCount = Math.max(0, terminalEventListenerRefCount - 1);
       if (!options?.lifecycleOnly) {
         terminalOutputListenerRefCount = Math.max(0, terminalOutputListenerRefCount - 1);
-        if (terminalOutputListenerRefCount === 0 && announceTimer) {
-          clearTimeout(announceTimer);
-          announceTimer = null;
-          pendingOutput = '';
-          pendingOutputSessionId = '';
-        }
+        if (terminalOutputListenerRefCount === 0) pendingAnnouncements.forEach((_, id) => cancelOutputAnnouncement(id));
       }
       if (terminalEventListenerRefCount === 0 && terminalEventListenerCleanup) {
         terminalEventListenerCleanup();

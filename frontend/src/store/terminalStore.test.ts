@@ -1,9 +1,10 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { terminal } from '../../wailsjs/go/models';
 import { resolveTerminalCommandId, useTerminalStore } from './terminalStore';
 import { useAuthStore } from './authStore';
 import { ListTerminalSessions } from '@wailsjs/go/wailsapi/Terminal';
-import { announce } from '../hooks/useAnnouncer';
+import { registerAnnouncerSink, unregisterAnnouncerSink } from '../services/voiceAccessibility/announcerBroker';
+import en from '../locales/en';
 import i18next from 'i18next';
 
 const mockGetTerminalHistory = vi.fn();
@@ -32,9 +33,7 @@ vi.mock('../services/audioFeedback', () => ({
   playReceiveSound: vi.fn(),
 }));
 
-vi.mock('../hooks/useAnnouncer', () => ({
-  announce: vi.fn(),
-}));
+const announce = vi.fn();
 
 function createDeferred<T>() {
   let resolve!: (value: T) => void;
@@ -45,6 +44,7 @@ function createDeferred<T>() {
 }
 
 describe('terminalStore', () => {
+  afterEach(unregisterAnnouncerSink);
   it('ignora listagem após troca de sessão, inclusive ABA', async () => {
     const original = useAuthStore.getState();
     const pending = createDeferred<terminal.SessionInfo[]>();
@@ -69,6 +69,9 @@ describe('terminalStore', () => {
     expect(useTerminalStore.getState().sessions.map(session => session.id)).toEqual(['new']);
   });
   beforeEach(() => {
+    i18next.addResourceBundle('en', 'translation', { terminal: { announce: en.translation.terminal.announce } }, true, true);
+    registerAnnouncerSink(message => announce(message));
+    announce.mockClear();
     mockGetTerminalHistory.mockReset();
     terminalEventHandlers.clear();
     useTerminalStore.setState({
@@ -114,6 +117,49 @@ describe('terminalStore', () => {
     } finally { cleanup(); useAuthStore.setState(owner); }
   });
 
+  it('conserva comandos executados enquanto um histórico já carregado está fora da tela', async () => {
+    const cleanup = useTerminalStore.getState().setupEventListeners({ lifecycleOnly: true });
+    const closePage = useTerminalStore.getState().setupEventListeners();
+    terminalEventHandlers.get('terminal:session_created')?.(terminal.SessionInfo.createFrom({ id: 's1' }));
+    const entry = terminal.HistoryEntry.createFrom({ id: 'prev', command: 'pwd', exitCode: 0 });
+    mockGetTerminalHistory.mockResolvedValueOnce([entry]);
+    await useTerminalStore.getState().loadHistory('s1');
+    closePage();
+    try {
+      terminalEventHandlers.get('terminal:command_start')?.({ sessionId: 's1', commandId: 'c1', command: 'date', source: 'llm' });
+      terminalEventHandlers.get('terminal:command_end')?.({ sessionId: 's1', commandId: 'c1', output: 'quarta', exitCode: 0 });
+      expect(useTerminalStore.getState().historyBySession.s1).toEqual([
+        entry, expect.objectContaining({ id: 'c1', output: 'quarta', exitCode: 0 }),
+      ]);
+      expect(useTerminalStore.getState().activeEntryBySession.s1).toBeNull();
+      expect(announce).not.toHaveBeenCalled();
+    } finally { cleanup(); }
+  });
+
+  it.each(['raw_output', 'command_output'])('limita entradas e bytes UTF-8 do histórico em segundo plano (%s)', (outputEvent) => {
+    const cleanup = useTerminalStore.getState().setupEventListeners({ lifecycleOnly: true });
+    try {
+      useTerminalStore.setState({ historyBySession: { s1: [] } });
+      const source = outputEvent === 'raw_output' ? 'user-raw' : 'llm';
+      for (let i = 0; i <= 200; i++) {
+        terminalEventHandlers.get('terminal:command_start')?.({ sessionId: 's1', commandId: String(i), command: 'echo', source });
+        if (source === 'llm' && i < 200) {
+          terminalEventHandlers.get('terminal:command_end')?.({ sessionId: 's1', commandId: String(i), output: 'ok', exitCode: 0 });
+        }
+      }
+      const emit = (output: string) => terminalEventHandlers.get('terminal:' + outputEvent)?.({ sessionId: 's1', commandId: '200', output });
+      // Faltam cinco bytes: cabe o primeiro emoji, mas não o segundo.
+      const prefix = 'é'.repeat(25597) + 'x';
+      emit(prefix);
+      emit('😀😀fim');
+      emit('z');
+      const history = useTerminalStore.getState().historyBySession.s1;
+      expect(history).toHaveLength(200);
+      expect(history[0].id).toBe('1');
+      expect(history[199].output).toBe(prefix + '😀…');
+    } finally { cleanup(); }
+  });
+
   it('escuta encerramentos em segundo plano e carrega o histórico ao abrir a aba', async () => {
     vi.useFakeTimers();
     const cleanup = useTerminalStore.getState().setupEventListeners({ lifecycleOnly: true });
@@ -134,6 +180,42 @@ describe('terminalStore', () => {
       pageCleanup();
       terminalEventHandlers.get('terminal:session_closed')?.({ sessionId: 's1' });
       expect(announce).toHaveBeenCalledTimes(1);
+    } finally { cleanup(); vi.useRealTimers(); }
+  });
+
+  it('entrega o resultado ao leitor antes do encerramento e indica saída cortada após espaços', () => {
+    vi.useFakeTimers();
+    const cleanup = useTerminalStore.getState().setupEventListeners();
+    try {
+      terminalEventHandlers.get('terminal:raw_output')?.({ sessionId: 'a', output: 'A' + ' '.repeat(300) + 'B' });
+      vi.runAllTimers();
+      expect(announce.mock.calls[0][0]).toContain(i18next.t('terminal.announce.truncatedSuffix'));
+      terminalEventHandlers.get('terminal:command_end')?.({ sessionId: 'a', commandId: 'cmd', output: 'fim', exitCode: 7 });
+      terminalEventHandlers.get('terminal:exited')?.({ sessionId: 'a' });
+      expect(announce).toHaveBeenCalledTimes(1);
+      vi.advanceTimersToNextTimer();
+      expect(announce.mock.calls[1][0]).toContain('fim');
+      expect(announce.mock.calls[1][0]).toContain('7');
+      vi.runAllTimers();
+      expect(announce.mock.calls[2][0]).toBe(i18next.t('terminal.announce.terminated'));
+    } finally { cleanup(); vi.useRealTimers(); }
+  });
+
+  it('preserva o anúncio pendente de outra sessão ao receber saída ou iniciar um comando', () => {
+    vi.useFakeTimers();
+    const cleanup = useTerminalStore.getState().setupEventListeners();
+    vi.mocked(announce).mockClear();
+    try {
+      const raw = terminalEventHandlers.get('terminal:raw_output');
+      raw?.({ sessionId: 'a', output: 'primeira' });
+      raw?.({ sessionId: 'b', output: 'anterior' });
+      terminalEventHandlers.get('terminal:command_start')?.({ sessionId: 'b', command: 'pwd', source: 'llm' });
+      raw?.({ sessionId: 'b', output: 'segunda' });
+      vi.runAllTimers();
+      expect(announce).toHaveBeenCalledTimes(2);
+      for (const output of ['primeira', 'segunda']) {
+        expect(announce).toHaveBeenCalledWith(i18next.t('terminal.announce.output', { output }));
+      }
     } finally { cleanup(); vi.useRealTimers(); }
   });
 
@@ -166,12 +248,14 @@ describe('terminalStore', () => {
       terminalEventHandlers.get('terminal:session_closed')?.({ sessionId: 's2' });
       terminalEventHandlers.get('terminal:exited')?.({ sessionId: 's2' });
       expect(useTerminalStore.getState().sessions).toEqual([]);
+      vi.runAllTimers();
       expect(announce).toHaveBeenCalledTimes(2);
       expect(announce).toHaveBeenLastCalledWith(i18next.t('terminal.announce.exited', { name: 'Outra' }));
       terminalEventHandlers.get('terminal:session_closed')?.({ sessionId: 's3' });
       terminalEventHandlers.get('terminal:exited')?.({ sessionId: 's3' });
+      vi.runAllTimers();
       expect(announce).toHaveBeenCalledTimes(3);
-      expect(announce).toHaveBeenLastCalledWith(i18next.t('terminal.announce.exited', { name: 's3' }));
+      expect(announce).toHaveBeenLastCalledWith(i18next.t('terminal.announce.terminated'));
     } finally { cleanup(); vi.useRealTimers(); }
   });
 

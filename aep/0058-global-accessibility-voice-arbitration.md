@@ -93,6 +93,10 @@ uma resposta longa não é motivo para perder o aviso. A regra de aba inativa da
 seção 2 é reavaliada na hora de falar, não na de produzir: a pessoa pode ter
 trocado de aba durante a espera.
 
+Resultados consecutivos do terminal aguardam a leitura em andamento e protegem a
+própria leitura quando entregues. Assim, o encerramento da sessão pode ser anunciado
+depois da saída e do código do comando.
+
 A fila tem um teto. Ao enchê-la, o aviso de estado cede o lugar primeiro; se só
 restarem conclusões, sai a mais antiga. Um despejo maior que isso ao fim da
 leitura já não é utilizável e cai na regra de ruído da seção 2.

@@ -928,3 +928,20 @@ func TestCloseReleasesReaderWhenPTYDoesNotDeliverEOF(t *testing.T) {
 		t.Fatalf("ordem de encerramento: %s", events)
 	}
 }
+
+func TestNaturalExitWaitsForCommandResult(t *testing.T) {
+	var events []string
+	s := &Session{state: StateIdle, shell: "bash", onExit: func(string, error) { events = append(events, "exited") }}
+	if err := s.beginCommandWithID("comando"); err != nil {
+		t.Fatal(err)
+	}
+	s.markExited(nil)
+	if len(events) != 0 {
+		t.Fatalf("saída publicada antes do resultado: %v", events)
+	}
+	_, _ = s.runCommandInDirectory(context.Background(), "exit 7", "", time.Second, "test", "comando",
+		func(*HistoryEntry, error) { events = append(events, "command_end") })
+	if got := strings.Join(events, ","); got != "command_end,exited" {
+		t.Fatalf("ordem de publicação: %s", got)
+	}
+}

@@ -92,7 +92,7 @@ func TestConPTYResizeAcrossSessionCommands(t *testing.T) {
 	s.ptyWriter = ptyOutputWriter(func(wrapper []byte) (int, error) {
 		suffix := string(markerID.Find(wrapper))
 		if suffix == "" {
-			t.Fatal("o PTY simulado não encontrou o identificador do comando")
+			return 0, errors.New("o PTY simulado não encontrou o identificador do comando")
 		}
 		command++
 		switch command {
