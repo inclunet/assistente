@@ -372,3 +372,24 @@ func TestIdenticalPreparedRequestCachesOnlyCompleteRender(t *testing.T) {
 		t.Fatalf("leituras de arquivo: %d", src.calls)
 	}
 }
+
+func TestCatalogFileRetryPreservesBaseReservation(t *testing.T) {
+	base := providerSkill("base", "antes\n!echo run\ndepois", false)
+	base.Tools = &ToolPermissions{BashCommands: &BashCommands{Allowed: []string{"echo"}}}
+	base.Path = "base/SKILL.md"
+	later := providerSkill("later", "contém apenas instruções", false)
+	later.Path = "later/SKILL.md"
+	src := &retryableFileSource{contextProviderSourceStub: contextProviderSourceStub{skills: []Skill{base, later}}}
+	p := NewContextProvider(src)
+	calls := 0
+	ctx := WithCommandTurn(t.Context(), func(context.Context, *Skill, string) (string, error) { calls++; return "resultado", nil })
+	req := contextprovider.BuildRequest{EnabledSkills: []string{"base", "later"}, ToolCallingEnabled: true, ProviderBudgets: map[string]int{"skills": 1500}}
+	initial, err := p.Build(ctx, req)
+	if err != nil || len(initial) != 2 || !strings.Contains(initial[0].Content, "resultado") || !strings.Contains(initial[1].Content, "later desc") || strings.Contains(initial[1].Content, "later/SKILL.md.aux") {
+		t.Fatalf("prévia: %v erro=%v", initial, err)
+	}
+	final, err := p.Build(ctx, req)
+	if err != nil || len(final) != 2 || initial[0] != final[0] || !strings.Contains(final[1].Content, "later/SKILL.md.aux") || calls != 1 || src.calls != 3 {
+		t.Fatalf("final: %v err=%v execuções=%d listagens=%d", final, err, calls, src.calls)
+	}
+}

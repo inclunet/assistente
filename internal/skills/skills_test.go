@@ -1,8 +1,10 @@
 package skills
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -647,4 +649,47 @@ Main skill content`), 0644)
 		}
 	}
 	t.Logf("Supporting files: %v", files)
+}
+
+func TestSupportingFilesDiscardPartialTreeAfterWalkError(t *testing.T) {
+	root := t.TempDir()
+	child := filepath.Join(root, "exemplos")
+	if err := os.Mkdir(child, 0755); err != nil {
+		t.Fatal(err)
+	}
+	first := filepath.Join(root, "a.md")
+	last := filepath.Join(child, "guia.md")
+	for _, path := range []string{first, last, filepath.Join(child, skillFile)} {
+		if err := os.WriteFile(path, nil, 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, failed := range []string{child, last} {
+		t.Run(filepath.Base(failed), func(t *testing.T) {
+			visitedFirst := false
+			walk := func(dir string, visit filepath.WalkFunc) error {
+				return filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
+					if path == first {
+						visitedFirst = true
+					}
+					if path == failed {
+						// Walk fornece info ao falhar em ReadDir e nil ao falhar em Lstat.
+						if path == last {
+							info = nil
+						}
+						return visit(path, info, os.ErrPermission)
+					}
+					return visit(path, info, err)
+				})
+			}
+			got, err := collectSupportingFiles(root, walk)
+			if !visitedFirst || !errors.Is(err, os.ErrPermission) || len(got) != 0 {
+				t.Fatalf("visitou primeiro=%t arquivos=%v erro=%v", visitedFirst, got, err)
+			}
+		})
+	}
+	got, err := new(Manager).listSupportingFiles(filepath.Join(root, skillFile))
+	if err != nil || !slices.Equal(got, []string{first, last}) {
+		t.Fatalf("listagem completa: %v, %v", got, err)
+	}
 }

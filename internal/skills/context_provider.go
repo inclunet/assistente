@@ -391,7 +391,9 @@ func buildAvailableSkillsBlock(availableSkills []Skill, source ContextProviderSo
 		sb.WriteString("\n  Identifier: `")
 		sb.WriteString(sanitizePromptMetadata(skill.Slug))
 		sb.WriteString("`\n")
-		writeSupportingFiles(&sb, source, skill.Slug, "  Supporting files:", "    - `", "`")
+		// Arquivos são opcionais no catálogo: seu envelope tem reserva fixa e
+		// usa só o saldo da base. A preparação repete uma listagem que falhou.
+		_ = writeSupportingFiles(&sb, source, skill.Slug, "  Supporting files:", "    - `", "`")
 	}
 	sb.WriteString("</available_skills>")
 	return sb.String()

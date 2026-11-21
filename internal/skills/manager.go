@@ -364,15 +364,14 @@ func (m *Manager) GetSkillFiles(slug string) ([]string, error) {
 }
 
 func (*Manager) listSupportingFiles(skillPath string) ([]string, error) {
-	skillDir := filepath.Dir(skillPath)
-	var files []string
+	return collectSupportingFiles(filepath.Dir(skillPath), filepath.Walk)
+}
 
-	err := filepath.Walk(skillDir, func(path string, info os.FileInfo, err error) error {
+func collectSupportingFiles(skillDir string, walk func(string, filepath.WalkFunc) error) ([]string, error) {
+	var files []string
+	err := walk(skillDir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
-			if path == skillDir {
-				return err
-			}
-			return nil // ignora arquivos auxiliares individuais ilegíveis
+			return err
 		}
 		if info.IsDir() {
 			return nil
