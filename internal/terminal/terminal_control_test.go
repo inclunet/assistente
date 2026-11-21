@@ -188,7 +188,11 @@ func TestLargeControlsKeepBoundedStateInManualAndManagedOutput(t *testing.T) {
 				if managed {
 					text = &parser.text
 				}
-				if cap(text.escape) > maxControlLiteral || len(text.data) > 2*ptyReadSize || session.outputBuf.Cap() != 0 || emitted.String() != "antes" {
+				maxPending := 0
+				if managed {
+					maxPending = maxReusableOutputCapacity
+				}
+				if cap(text.escape) > maxControlLiteral || len(text.data) > 2*ptyReadSize || session.outputBuf.Len() != 0 || session.outputBuf.Cap() > maxPending || emitted.String() != "antes" {
 					t.Fatalf("controle=%d texto=%d buffer bruto=%d bytes emitidos=%d", cap(text.escape), len(text.data), session.outputBuf.Cap(), emitted.Len())
 				}
 				deliver(m.endTag + "9!")
@@ -218,5 +222,38 @@ func TestLargeControlsKeepBoundedStateInManualAndManagedOutput(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+func TestTakeCommandOutputOwnsSnapshotAndReleasesPeak(t *testing.T) {
+	session := &Session{suppressRawOutput: true}
+	for _, size := range []int{ptyReadSize, maxReusableOutputCapacity, maxReusableOutputCapacity + 1} {
+		first := strings.Repeat("a", size)
+		next := strings.Repeat("b", size)
+		session.recordOutput(first)
+		snapshot := session.takeCommandOutput()
+		if cap := session.outputBuf.Cap(); size > maxReusableOutputCapacity && cap != 0 || size <= maxReusableOutputCapacity && cap < size {
+			t.Fatalf("lote=%d, capacidade retida=%d", size, cap)
+		}
+		session.recordOutput(next)
+		if snapshot != first || session.takeCommandOutput() != next || session.takeCommandOutput() != "" {
+			t.Fatalf("lote=%d: instantâneos de leituras sucessivas misturados", size)
+		}
+	}
+}
+
+func BenchmarkTakeCommandOutput(b *testing.B) {
+	for _, size := range []int{ptyReadSize, 16 * ptyReadSize, 256 * ptyReadSize} {
+		b.Run(strconv.Itoa(size), func(b *testing.B) {
+			session := &Session{suppressRawOutput: true}
+			chunk := strings.Repeat("x", size)
+			b.ReportAllocs()
+			b.SetBytes(int64(size))
+			for b.Loop() {
+				session.recordOutput(chunk)
+				if got := session.takeCommandOutput(); len(got) != size {
+					b.Fatal(len(got))
+				}
+			}
+		})
 	}
 }

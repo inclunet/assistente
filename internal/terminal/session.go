@@ -753,10 +753,19 @@ func (s *Session) waitForMarker(ctx context.Context, marker *CommandMarker, comm
 	}
 }
 
-// Troque o lote sob o mutex. O leitor já pode receber o próximo bloco
-// enquanto o comando converte e interpreta os bytes retirados.
+// Reaproveite até 16 leituras do PTY entre ticks do mesmo comando.
+const maxReusableOutputCapacity = 16 * ptyReadSize
+
+// Para lotes pequenos, copie antes de permitir a próxima escrita no buffer.
+// Em picos, transfira o lote e faça a cópia maior fora da seção crítica.
 func (s *Session) takeCommandOutput() string {
 	s.outputMu.Lock()
+	if s.outputBuf.Cap() <= maxReusableOutputCapacity {
+		pending := s.outputBuf.String()
+		s.outputBuf.Reset()
+		s.outputMu.Unlock()
+		return pending
+	}
 	pending := s.outputBuf.Bytes()
 	s.outputBuf = bytes.Buffer{}
 	s.outputMu.Unlock()
