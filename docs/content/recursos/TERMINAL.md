@@ -21,7 +21,7 @@ Cada sessão mantém:
 - Estado: Idle, Busy ou Closed
 - Saída formatada
 
-No Bash e nos shells POSIX, o status é o da última operação do comando.
+No Bash, no zsh e nos shells POSIX, o status é o da última operação do comando.
 No PowerShell, uma operação final bem-sucedida devolve zero, mesmo após um
 programa anterior falhar. Uma falha de cmdlet devolve 1, e um programa
 nativo identificado como a última operação conserva seu código de saída. Se o
