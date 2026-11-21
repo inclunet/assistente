@@ -428,31 +428,30 @@ func publicPolicyProjection(result commandpolicy.EvaluationResult, sensitive boo
 }
 
 func sessionStartFailure(decision allowlist.Decision, err error) tools.ToolResult {
-	kind := tools.ErrorKindUnavailable
-	switch {
-	case errors.Is(err, context.Canceled):
-		kind = tools.ErrorKindCancelled
-	case errors.Is(err, context.DeadlineExceeded):
-		kind = tools.ErrorKindTimeout
-	}
-	transient := errors.Is(err, terminal.ErrSessionCapacity) || errors.Is(err, syscall.EAGAIN) || errors.Is(err, syscall.EBUSY)
-	retryable := decision == allowlist.DecisionApprove && kind == tools.ErrorKindUnavailable && transient
-	message := "Não foi possível iniciar a sessão de terminal."
-	switch {
-	case errors.Is(err, context.Canceled):
-		message = "Início da sessão de terminal cancelado."
-	case errors.Is(err, context.DeadlineExceeded):
-		message = "Prazo encerrado ao iniciar a sessão de terminal."
-	case errors.Is(err, os.ErrNotExist), errors.Is(err, exec.ErrNotFound):
-		message = "Executável do terminal não encontrado."
-	case errors.Is(err, os.ErrPermission):
-		message = "Permissão negada ao iniciar a sessão de terminal."
-	case transient:
-		message = "Recurso do terminal temporariamente indisponível."
-	}
+	message, kind, transient := classifySessionStartError(err)
 	return tools.ToolResult{
 		Content: message, IsError: true,
-		Failure: &tools.ToolFailure{Code: FailureSessionStart, Kind: kind, Retryable: retryable, NotDispatched: true},
+		Failure: &tools.ToolFailure{
+			Code: FailureSessionStart, Kind: kind, NotDispatched: true,
+			Retryable: decision == allowlist.DecisionApprove && transient,
+		},
+	}
+}
+
+func classifySessionStartError(err error) (string, tools.ErrorKind, bool) {
+	switch {
+	case errors.Is(err, context.Canceled):
+		return "Início da sessão de terminal cancelado.", tools.ErrorKindCancelled, false
+	case errors.Is(err, context.DeadlineExceeded):
+		return "Prazo encerrado ao iniciar a sessão de terminal.", tools.ErrorKindTimeout, false
+	case errors.Is(err, os.ErrNotExist), errors.Is(err, exec.ErrNotFound):
+		return "Executável do terminal não encontrado.", tools.ErrorKindUnavailable, false
+	case errors.Is(err, os.ErrPermission):
+		return "Permissão negada ao iniciar a sessão de terminal.", tools.ErrorKindUnavailable, false
+	case errors.Is(err, terminal.ErrSessionCapacity), errors.Is(err, syscall.EAGAIN), errors.Is(err, syscall.EBUSY):
+		return "Recurso do terminal temporariamente indisponível.", tools.ErrorKindUnavailable, true
+	default:
+		return "Não foi possível iniciar a sessão de terminal.", tools.ErrorKindUnavailable, false
 	}
 }
 
