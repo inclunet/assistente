@@ -535,10 +535,12 @@ func TestTimeoutWithPartialOutput(t *testing.T) {
 	mgr := &MockSessionManager{
 		fakeRunErr: context.DeadlineExceeded,
 		fakeEntry: &terminal.HistoryEntry{
-			ID:       "cmd-125",
-			Command:  "long-command",
-			Output:   "partial output here",
-			ExitCode: -1, // timeout indicator
+			StartedAt: time.Unix(1, 0),
+			EndedAt:   time.Unix(1, int64(200*time.Millisecond)),
+			ID:        "cmd-125",
+			Command:   "long-command",
+			Output:    "partial output here",
+			ExitCode:  -1, // timeout indicator
 		},
 	}
 
@@ -558,6 +560,9 @@ func TestTimeoutWithPartialOutput(t *testing.T) {
 	}
 	if !contains(result.Content, "TIMEOUT") {
 		t.Errorf("esperado '[TIMEOUT' no output, got %q", result.Content)
+	}
+	if result.Metadata["duration"] != "200ms" || strings.Contains(result.Content, "5s") {
+		t.Fatalf("prazo configurado apresentado como tempo decorrido: %+v", result)
 	}
 	if !contains(result.Content, "partial output") {
 		t.Errorf("esperado output parcial preservado, got %q", result.Content)
