@@ -152,6 +152,7 @@ type Session struct {
 	exitOnce        sync.Once
 	ptyCloseOnce    sync.Once
 	explicitClose   bool
+	writeClosing    bool // O comando publica exited depois de command_end.
 }
 
 var nextSessionVersion atomic.Uint64
@@ -498,9 +499,9 @@ func (s *Session) markExited(err error) {
 	s.exitOnce.Do(func() {
 		s.mu.Lock()
 		s.state = StateExited
-		explicitClose := s.explicitClose
+		notify := !s.explicitClose && !s.writeClosing
 		s.mu.Unlock()
-		if !explicitClose && s.onExit != nil {
+		if notify && s.onExit != nil {
 			// A UI remove a sessão ao receber onExit. Se o leitor terminou
 			// durante command_start, conclua a entrega dessa entrada primeiro.
 			s.outputMu.Lock()
@@ -550,10 +551,19 @@ func (s *Session) finishCommand() {
 // RunCommand executa um comando na sessão PTY e retorna o output.
 // O comando é envolvido com markers para detectar início/fim e exit code.
 func (s *Session) RunCommand(ctx context.Context, command string, timeout time.Duration, source, commandID string) (*HistoryEntry, error) {
-	return s.runCommandInDirectory(ctx, command, "", timeout, source, commandID)
+	return s.runCommandInDirectory(ctx, command, "", timeout, source, commandID, nil)
 }
 
-func (s *Session) runCommandInDirectory(ctx context.Context, command, directory string, timeout time.Duration, source, commandID string) (*HistoryEntry, error) {
+func (s *Session) runCommandInDirectory(ctx context.Context, command, directory string, timeout time.Duration, source, commandID string, onEnd func(*HistoryEntry, error)) (resultEntry *HistoryEntry, resultErr error) {
+	var notifyExit func(string, error)
+	defer func() {
+		if onEnd != nil {
+			onEnd(resultEntry, resultErr)
+		}
+		if notifyExit != nil {
+			notifyExit(s.id, resultErr)
+		}
+	}()
 	defer s.finishCommand()
 
 	s.mu.Lock()
@@ -625,15 +635,35 @@ func (s *Session) runCommandInDirectory(ctx context.Context, command, directory 
 		s.ioMu.Unlock()
 		return failBeforeResult(fmt.Errorf("sessão %s não possui writer PTY", s.id))
 	}
-	nWritten, err := s.ptyWriter.Write([]byte(wrappedCmd + enter))
+	request := []byte(wrappedCmd + enter)
+	nWritten, err := s.ptyWriter.Write(request)
+	if nWritten != len(request) && err == nil {
+		err = io.ErrShortWrite
+	}
 	s.mu.Lock()
+	retire := err != nil && s.state == StateRunning
+	if retire {
+		// O descritor pode estar quebrado ou o shell pode ter recebido um fragmento.
+		// Este caminho assume o cleanup e publica exited depois de command_end.
+		s.state = StateClosing
+		s.writeClosing = true
+		notifyExit = s.onExit
+	}
 	s.commandPending = false
 	s.mu.Unlock()
 	s.ioMu.Unlock()
 	if err != nil {
 		writeErr := fmt.Errorf("falha ao enviar comando para sessão %s: %w", s.id, err)
-		// O leitor pode ter recebido a resposta antes de Write retornar o erro.
-		// Entregue apenas o lote já registrado, mesmo que o leitor siga aberto.
+		var cleanupErr error
+		if retire {
+			var killErr error
+			if s.ptySession != nil {
+				killErr = s.ptySession.Kill()
+			}
+			cleanupErr = s.finishClose(nil, killErr)
+		}
+		// O leitor pode ter recebido mais bytes durante o encerramento.
+		// Consuma o lote final uma única vez, antes de entregar a entrada.
 		stream := newMarkerStream(marker)
 		result := stream.finish(s.takeCommandOutput())
 		if result.Found {
@@ -647,7 +677,7 @@ func (s *Session) runCommandInDirectory(ctx context.Context, command, directory 
 		s.mu.Lock()
 		readErr := s.readerErr
 		s.mu.Unlock()
-		return failBeforeResult(errors.Join(writeErr, readErr))
+		return failBeforeResult(errors.Join(writeErr, readErr, ctx.Err(), cleanupErr))
 	}
 	logging.Debugf(ctx, "terminal.session", "[Terminal] Write OK: %d bytes escritos para sessão %s", nWritten, s.id)
 

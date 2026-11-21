@@ -400,6 +400,112 @@ func TestUnavailableCommandWriterKeepsHistory(t *testing.T) {
 	}
 }
 
+type pausedKillPTY struct {
+	*drainingPTYSession
+	killing chan struct{}
+	resume  chan struct{}
+}
+
+func (p *pausedKillPTY) Kill() error {
+	close(p.killing)
+	<-p.resume
+	return p.drainingPTYSession.Kill()
+}
+
+func TestPartialWriteRetiresSessionAndDrainsReader(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		writeErr  error
+		zeroBytes bool
+	}{
+		{"curta_sem_erro", nil, false},
+		{"curta_com_erro", io.ErrClosedPipe, false},
+		{"nenhum_byte_com_erro", io.ErrClosedPipe, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			p := &pausedKillPTY{drainingPTYSession: newDrainingPTYSession(), killing: make(chan struct{}), resume: make(chan struct{})}
+			resume := sync.OnceFunc(func() { close(p.resume) })
+			defer resume()
+			var events []string
+			var manager *Manager
+			manager = NewManager(DefaultManagerConfig(), func(event string, _ any) {
+				events = append(events, event)
+				if event == "terminal:command_end" {
+					// Um consumidor pode pedir Close na entrega de command_end.
+					if err := manager.Close("partial"); err != nil {
+						t.Errorf("Close: %v", err)
+					}
+				}
+			})
+			s := &Session{id: "partial", shell: "bash", readerCtx: t.Context(), ptySession: p,
+				onCommandStart: func(_, _, _, _ string) { events = append(events, "start") },
+				onOutput:       func(_, _, chunk string) { events = append(events, chunk) },
+				onExit: func(_ string, err error) {
+					if err == nil {
+						t.Error("exited sem causa")
+					}
+					events = append(events, "exited")
+				},
+			}
+			s.ptyWriter = manualTestWriter(func(data []byte) (int, error) {
+				if tc.zeroBytes {
+					return 0, tc.writeErr
+				}
+				_, after, ok := strings.Cut(string(data), "'"+markerStart)
+				if !ok {
+					return 0, errors.New("moldura sem início")
+				}
+				tag, _, _ := strings.Cut(after, "'")
+				s.recordOutput(markerStart + tag + "\nantes/")
+				return len(data) - 1, tc.writeErr
+			})
+			manager.sessions[s.id] = s
+			s.Start()
+			done := make(chan error, 1)
+			go func() {
+				_, err := manager.RunCommand(t.Context(), s.id, "exemplo", time.Minute, "test")
+				done <- err
+			}()
+			select {
+			case <-p.killing:
+			case <-time.After(time.Second):
+				t.Fatal("falha parcial não iniciou cleanup")
+			}
+			manager.Release(s.id)
+			if manager.Has(s.id) || s.State() != StateClosing {
+				t.Fatal("sessão voltou a aceitar comandos durante cleanup")
+			}
+			if _, err := manager.RunCommand(t.Context(), s.id, "outro", time.Minute, "test"); err == nil {
+				t.Fatal("segundo comando aceito")
+			}
+			resume()
+			wantErr := tc.writeErr
+			if wantErr == nil {
+				wantErr = io.ErrShortWrite
+			}
+			select {
+			case err := <-done:
+				if !errors.Is(err, wantErr) {
+					t.Fatalf("causa perdida: %v", err)
+				}
+			case <-time.After(time.Second):
+				t.Fatal("cleanup bloqueou")
+			}
+			history := s.GetHistory()
+			wantOutput, wantEvents := "antes/output-final", "start,antes/output-final,terminal:command_end,exited"
+			if tc.zeroBytes {
+				wantOutput, wantEvents = "", "start,terminal:command_end,exited"
+			}
+			if s.State() != StateExited || len(history) != 1 || history[0].Output != wantOutput || history[0].ExitCode != -1 || strings.Join(events, ",") != wantEvents {
+				t.Fatalf("estado=%v histórico=%+v eventos=%v", s.State(), history, events)
+			}
+			if got := strings.Join(p.eventSnapshot(), ","); got != "kill,wait-start,wait-end,close" {
+				t.Fatalf("recursos: %s", got)
+			}
+		})
+	}
+}
+
 func TestPartialWriteDeliversAlreadyBufferedCommandOutput(t *testing.T) {
 	const want = "  parcial  \n_"
 	for _, reader := range []string{"aberto", "EOF"} {
@@ -411,7 +517,7 @@ func TestPartialWriteDeliversAlreadyBufferedCommandOutput(t *testing.T) {
 				s.ptyWriter = manualTestWriter(func(data []byte) (int, error) {
 					_, tag, ok := strings.Cut(string(data), "'"+markerStart)
 					if !ok {
-						t.Fatal("moldura sem início")
+						return 0, errors.New("moldura sem início")
 					}
 					id, _, _ := strings.Cut(tag, "'")
 					raw := string(data) + "\n" + markerStart + id + "\n" + want
@@ -470,12 +576,15 @@ func TestCloseBeforeCommandWriteKeepsHistoryAndCause(t *testing.T) {
 }
 
 func TestReadFailureWhileWritingCommand(t *testing.T) {
-	for _, started := range []bool{false, true} {
-		name := "antes_do_inicio"
-		if started {
-			name = "apos_inicio"
-		}
-		t.Run(name, func(t *testing.T) {
+	for _, tc := range []struct {
+		name              string
+		started, canceled bool
+	}{
+		{"antes_do_inicio", false, false},
+		{"apos_inicio", true, false},
+		{"cancelado_enquanto_escrevia", true, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
 			pty := &failingWritePTY{wrapper: make(chan string, 1), released: make(chan struct{})}
 			reader, writer := io.Pipe()
 			defer func() { _ = reader.Close() }()
@@ -491,9 +600,11 @@ func TestReadFailureWhileWritingCommand(t *testing.T) {
 				entry *HistoryEntry
 				err   error
 			}
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
 			finished := make(chan outcome, 1)
 			go func() {
-				entry, err := manager.RunCommand(t.Context(), session.id, "comando", time.Minute, "test")
+				entry, err := manager.RunCommand(ctx, session.id, "comando", time.Minute, "test")
 				finished <- outcome{entry, err}
 			}()
 
@@ -504,7 +615,7 @@ func TestReadFailureWhileWritingCommand(t *testing.T) {
 				t.Fatal("escrita do comando não iniciou")
 			}
 			raw, want := wrapper+"\n", ""
-			if started {
+			if tc.started {
 				_, tag, ok := strings.Cut(wrapper, "'"+markerStart)
 				if !ok {
 					t.Fatal("tag de início ausente da moldura bash")
@@ -516,13 +627,16 @@ func TestReadFailureWhileWritingCommand(t *testing.T) {
 			if _, err := io.WriteString(writer, raw); err != nil {
 				t.Fatal(err)
 			}
+			if tc.canceled {
+				cancel()
+			} // O contexto vence enquanto Write ainda está bloqueado.
 			readErr := errors.New("leitura interrompida")
 			if err := writer.CloseWithError(readErr); err != nil {
 				t.Fatal(err)
 			}
 			select {
 			case result := <-finished:
-				if !errors.Is(result.err, readErr) || !errors.Is(result.err, io.ErrClosedPipe) || result.entry == nil ||
+				if errors.Is(result.err, context.Canceled) != tc.canceled || !errors.Is(result.err, readErr) || !errors.Is(result.err, io.ErrClosedPipe) || result.entry == nil ||
 					result.entry.ExitCode != -1 || result.entry.Output != want || emitted.String() != want {
 					t.Fatalf("entrada=%+v erro=%v streaming=%q", result.entry, result.err, emitted.String())
 				}

@@ -220,7 +220,7 @@ func (m *Manager) RunEphemeral(ctx context.Context, workDir, command string, tim
 	// O shell pode carregar um perfil que muda o diretório. Reestabelecer o
 	// diretório da execução depois da inicialização impede que isso amplie
 	// uma autorização vinculada ao diretório, sem retirar o ambiente do usuário.
-	result, err := session.runCommandInDirectory(ctx, command, session.cwd, timeout, source, commandID)
+	result, err := session.runCommandInDirectory(ctx, command, session.cwd, timeout, source, commandID, nil)
 	return completeCommandEntry(entry, result, err), err
 }
 
@@ -269,22 +269,20 @@ func (m *Manager) RunCommand(ctx context.Context, sessionID, command string, tim
 		return nil, err
 	}
 
-	// Executa o comando
-	result, err := session.RunCommand(ctx, command, timeout, source, commandID)
-	entry = completeCommandEntry(entry, result, err)
-
-	// O retorno conserva o output bruto para a tool; o evento usa a mesma cópia
-	// limitada do histórico para não transferir vários MiB à UI.
-	eventEntry := limitedHistoryEntry(entry)
-	m.emitEvent("terminal:command_end", map[string]any{
-		"sessionId":  sessionID,
-		"terminalId": sessionID,
-		"commandId":  entry.ID,
-		"output":     eventEntry.Output,
-		"exitCode":   entry.ExitCode,
-		"error":      errToString(err),
+	_, err := session.runCommandInDirectory(ctx, command, "", timeout, source, commandID, func(result *HistoryEntry, err error) {
+		entry = completeCommandEntry(entry, result, err)
+		// O retorno conserva o output bruto para a tool; o evento usa a mesma cópia
+		// limitada do histórico para não transferir vários MiB à UI.
+		eventEntry := limitedHistoryEntry(entry)
+		m.emitEvent("terminal:command_end", map[string]any{
+			"sessionId":  sessionID,
+			"terminalId": sessionID,
+			"commandId":  entry.ID,
+			"output":     eventEntry.Output,
+			"exitCode":   entry.ExitCode,
+			"error":      errToString(err),
+		})
 	})
-
 	return entry, err
 }
 
@@ -505,6 +503,13 @@ func (m *Manager) Close(sessionID string) error {
 	m.mu.Unlock()
 
 	err := session.Close()
+	session.mu.Lock()
+	writeClosing := session.writeClosing
+	session.mu.Unlock()
+	if writeClosing {
+		// O comando já é dono do encerramento e publicará exited após command_end.
+		return err
+	}
 
 	// Emite evento de fechamento
 	m.emitEvent("terminal:session_closed", map[string]string{
