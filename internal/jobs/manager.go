@@ -1345,7 +1345,8 @@ func (m *Manager) TestToolDryRunContext(parent context.Context, req TestToolRequ
 	if err != nil {
 		return nil, fmt.Errorf("marshal inputs: %w", err)
 	}
-	persistedArgsJSON, err := json.Marshal(RedactResolvedInputs(req.Inputs, inputs))
+	persistedInputs := RedactResolvedInputs(req.Inputs, inputs)
+	persistedArgsJSON, err := json.Marshal(persistedInputs)
 	if err != nil {
 		return nil, fmt.Errorf("marshal redacted inputs: %w", err)
 	}
@@ -1358,6 +1359,7 @@ func (m *Manager) TestToolDryRunContext(parent context.Context, req TestToolRequ
 	if m.cfg.ToolInvocations == nil {
 		return nil, errors.New("tool invocation ledger not configured")
 	}
+	ctx = withRedactedCommandMetadata(ctx, toolName, persistedInputs)
 	exec := m.cfg.ToolInvocations.Execute(ctx, toolinvocations.ExecuteRequest{
 		Call: tools.ToolCall{
 			ID:   fmt.Sprintf("tool_catalog_%d", time.Now().UnixNano()),

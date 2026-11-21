@@ -295,6 +295,7 @@ func (rc *RunCommand) Execute(ctx context.Context, args json.RawMessage) (tools.
 		// sessionID permanece vazio — sem deep link para terminal inexistente.
 	}
 
+	metadataCommand := invocationctx.ShellCommandMetadata(ctx, a.Command)
 	if err != nil {
 		// Um prazo expirado pode entregar saída parcial. A duração da entrada
 		// reflete a execução mesmo quando o contexto pai venceu primeiro.
@@ -313,7 +314,7 @@ func (rc *RunCommand) Execute(ctx context.Context, args json.RawMessage) (tools.
 				Content: content,
 				Metadata: func() map[string]any {
 					m := map[string]any{
-						"command":   invocationctx.ShellCommandMetadata(ctx, a.Command),
+						"command":   metadataCommand,
 						"workDir":   workDir,
 						"exitCode":  -1,
 						"timeout":   true,
@@ -341,7 +342,7 @@ func (rc *RunCommand) Execute(ctx context.Context, args json.RawMessage) (tools.
 
 		// Erro real (sem output ou sem timeout)
 		metadata := map[string]any{
-			"command":  invocationctx.ShellCommandMetadata(ctx, a.Command),
+			"command":  metadataCommand,
 			"workDir":  workDir,
 			"exitCode": -1,
 		}
@@ -381,7 +382,7 @@ func (rc *RunCommand) Execute(ctx context.Context, args json.RawMessage) (tools.
 		Content: content,
 		Metadata: func() map[string]any {
 			m := map[string]any{
-				"command":   invocationctx.ShellCommandMetadata(ctx, a.Command),
+				"command":   metadataCommand,
 				"workDir":   workDir,
 				"exitCode":  entry.ExitCode,
 				"duration":  entry.EndedAt.Sub(entry.StartedAt).String(),

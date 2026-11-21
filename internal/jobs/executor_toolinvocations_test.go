@@ -170,13 +170,15 @@ func TestJobExecutor_RecordsToolInvocationForRun(t *testing.T) {
 
 type shellDispatchProbe struct {
 	shell.SessionManager
+	command    string
 	calls      int
 	startupErr error
 	dispatches int
 	entry      *terminal.HistoryEntry
 }
 
-func (p *shellDispatchProbe) RunEphemeral(context.Context, string, string, time.Duration, string) (*terminal.HistoryEntry, error) {
+func (p *shellDispatchProbe) RunEphemeral(_ context.Context, _, command string, _ time.Duration, _ string) (*terminal.HistoryEntry, error) {
+	p.command = command
 	p.calls++
 	if p.calls == 1 && p.startupErr != nil {
 		return nil, errors.Join(terminal.ErrSessionStart, p.startupErr)
@@ -401,6 +403,50 @@ func TestJobShellNullOutputPreservesMetadata(t *testing.T) {
 	run := executor.Execute(ctx, job, &TriggerContext{Type: TriggerManual})
 	if run.Status != RunStatusCompleted || run.Output["content"] != "null" || run.Output["_meta_command"] != "echo null" || probe.calls != 1 {
 		t.Fatalf("despachos=%d run=%+v", probe.calls, run)
+	}
+}
+
+func TestJobShellRedactsSecretCommandMetadata(t *testing.T) {
+	const token = "valor-sintetico-3417"
+	for _, route := range []string{"job", "dry-run"} {
+		t.Run(route, func(t *testing.T) {
+			probe := &shellDispatchProbe{entry: &terminal.HistoryEntry{Output: "ok"}}
+			tool := shell.NewRunCommand(probe, func(context.Context, string, string) (bool, error) { return true, nil }, nil, t.TempDir())
+			executor, repo, ctx := invocationBackedExecutor(t, tool)
+			executor.secretStore = secretStoreFunc(func(context.Context, string) (string, error) { return token, nil })
+			inputs := map[string]any{"command": `example {{ secret "token" }}`}
+			var output map[string]any
+			if route == "job" {
+				run := executor.Execute(ctx, &Job{ID: "secret-shell", Tool: tool.Name(), Inputs: inputs}, &TriggerContext{Type: TriggerManual})
+				if run.Status != RunStatusCompleted || run.ResolvedInputs["command"] != redactedValue {
+					t.Fatalf("run=%+v", run)
+				}
+				output = run.Output
+			} else {
+				manager := mustNewManager(t, ManagerConfig{ToolRegistry: executor.toolRegistry, ToolInvocations: executor.toolInvocations, SecretStore: executor.secretStore})
+				result, err := manager.TestToolDryRunContext(ctx, TestToolRequest{ToolName: tool.Name(), Inputs: inputs, AllowUnsafe: true})
+				if err != nil || result == nil || !result.Success {
+					t.Fatalf("resultado=%+v erro=%v", result, err)
+				}
+				output = result.Output
+			}
+			if probe.calls != 1 || probe.command != "example "+token {
+				t.Fatal("comando resolvido não chegou à execução")
+			}
+			records, err := repo.List(ctx, toolinvocations.Filter{Limit: 10})
+			if err != nil || len(records) != 1 {
+				t.Fatalf("invocações=%d, erro=%v", len(records), err)
+			}
+			record := records[0]
+			if strings.Contains(string(record.Input)+string(record.Output)+string(record.Metadata), token) {
+				t.Fatal("token encontrado no ledger")
+			}
+			for _, result := range []map[string]any{output, invocationOutput(string(record.Output))} {
+				if result["_meta_command"] != redactedValue || result["_meta_exitCode"] == nil || result["content"] != "ok" {
+					t.Fatalf("resultado=%+v", result)
+				}
+			}
+		})
 	}
 }
 

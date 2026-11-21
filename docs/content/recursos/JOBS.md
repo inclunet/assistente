@@ -94,7 +94,9 @@ jobs com gatilho `event` reagem, formando pipelines. O histórico do run guarda
 estado, trigger, duração, erro e a timeline operacional. Ao abrir os detalhes,
 tool, entradas redigidas e saída são lidas da invocação técnica associada; não
 há uma segunda cópia desses payloads no run. O replay em `dry-run` usa essa
-invocação canônica e fica indisponível quando a entrada foi redigida.
+invocação canônica e fica indisponível quando a entrada foi redigida. Se um
+comando usa um template de segredo, o campo `command` também aparece redigido
+nos metadados do resultado, tanto em execuções como em testes de ferramenta.
 
 Eventos não ficam em fila. Quando nenhum consumidor está habilitado — porque o
 job ou a pipeline consumidora foi desativado — o evento é descartado e não

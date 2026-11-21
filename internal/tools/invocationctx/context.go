@@ -23,6 +23,19 @@ type InvocationContext struct {
 type ctxKey struct{}
 type workspaceKey struct{}
 type persistentShellKey struct{}
+type shellCommandMetadataKey struct{}
+
+// WithShellCommandMetadata define a representação segura do comando para o histórico.
+func WithShellCommandMetadata(ctx context.Context, command string) context.Context {
+	return context.WithValue(ctx, shellCommandMetadataKey{}, command)
+}
+
+func ShellCommandMetadata(ctx context.Context, command string) string {
+	if safe, ok := ctx.Value(shellCommandMetadataKey{}).(string); ok {
+		return safe
+	}
+	return command
+}
 
 // WithPersistentShell marca terminais cujo diretório efetivo pode mudar após cd.
 // Somente o executor define esta propriedade, nunca os dados da interface.
