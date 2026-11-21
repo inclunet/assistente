@@ -292,7 +292,7 @@ func TestWaitForMarkerPreservesReadFailureAndCancellation(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			marker := newCommandMarkerForShell("bash")
-			reader := io.MultiReader(strings.NewReader(marker.StartTag()+"\nparcial"), iotest.ErrReader(tc.readerErr))
+			reader := io.MultiReader(strings.NewReader(marker.startTag+"\nparcial"), iotest.ErrReader(tc.readerErr))
 			session := &Session{
 				ptySession: &fakePTYSession{},
 				ptyReader:  reader,
@@ -334,7 +334,7 @@ func TestReadFailureReturnsWhileProcessWaitIsPending(t *testing.T) {
 	readErr := errors.New("falha de leitura")
 	pty := &blockedWaitPTY{waitStarted: make(chan struct{}), releaseWait: make(chan struct{})}
 	session := &Session{ptySession: pty, readerCtx: t.Context(),
-		ptyReader: io.MultiReader(strings.NewReader(marker.StartTag()+"\nparcial"), iotest.ErrReader(readErr)),
+		ptyReader: io.MultiReader(strings.NewReader(marker.startTag+"\nparcial"), iotest.ErrReader(readErr)),
 	}
 	session.Start()
 	t.Cleanup(func() {
@@ -378,6 +378,36 @@ func (p *failingWritePTY) Write(data []byte) (int, error) {
 func (p *failingWritePTY) Close() error {
 	close(p.released)
 	return p.fakePTYSession.Close()
+}
+
+func TestCloseBeforeCommandWriteKeepsHistoryAndCause(t *testing.T) {
+	processExit := errors.New("encerramento do processo antes do envio")
+	for _, cause := range []error{io.ErrUnexpectedEOF, ErrSessionClosed, processExit} {
+		s := &Session{id: "early-close", shell: "bash", readerCtx: t.Context()}
+		s.onCommandStart = func(_, _, _, _ string) {
+			if cause == processExit {
+				s.ensureLifecycleChannels()
+				s.processErr = cause
+				close(s.processDone)
+				s.markExited(cause)
+			} else if cause == ErrSessionClosed {
+				if err := s.Close(); err != nil {
+					t.Fatal(err)
+				}
+			} else {
+				s.closeAfterReadFailure(cause)
+			}
+		}
+		manager := NewManager(DefaultManagerConfig(), nil)
+		manager.sessions[s.id] = s
+		entry, err := manager.RunCommand(t.Context(), s.id, "example", time.Second, "test")
+		if entry == nil || entry.ExitCode != -1 || !errors.Is(err, cause) {
+			t.Fatalf("causa=%v entrada=%+v erro=%v", cause, entry, err)
+		}
+		if got := s.GetHistory(); len(got) != 1 || got[0].ID != entry.ID || got[0].ExitCode != -1 {
+			t.Fatalf("histórico=%+v", got)
+		}
+	}
 }
 
 func TestReadFailureWhileWritingCommand(t *testing.T) {
@@ -464,7 +494,7 @@ func TestWaitForMarkerFlushesUnsentPartialOutput(t *testing.T) {
 			var input bytes.Buffer
 			session := &Session{ptyWriter: &input}
 			session.ensureLifecycleChannels()
-			session.outputBuf.WriteString("echo\n" + marker.StartTag() + "\n" + first)
+			session.outputBuf.WriteString("echo\n" + marker.startTag + "\n" + first)
 			var emitted strings.Builder
 			session.onOutput = func(_, _, chunk string) {
 				emitted.WriteString(chunk)
@@ -479,7 +509,7 @@ func TestWaitForMarkerFlushesUnsentPartialOutput(t *testing.T) {
 				case "fechado":
 					session.explicitClose = true
 				case "cancelado":
-					session.outputBuf.WriteString("\n" + marker.EndTag() + "1\nprompt")
+					session.outputBuf.WriteString("\n" + marker.endTag + "1!\nprompt")
 					cancel()
 					return
 				}
@@ -493,5 +523,31 @@ func TestWaitForMarkerFlushesUnsentPartialOutput(t *testing.T) {
 				t.Fatalf("output=%q streaming=%q code=%d err=%v", output, emitted.String(), code, err)
 			}
 		})
+	}
+}
+
+type noEOFPTY struct{ *drainingPTYSession }
+
+func (p *noEOFPTY) Kill() error {
+	p.record("kill")
+	close(p.processDone)
+	// O leitor continua bloqueado no pipe até o fallback fechar o descritor.
+	return nil
+}
+
+func TestCloseReleasesReaderWhenPTYDoesNotDeliverEOF(t *testing.T) {
+	pty := &noEOFPTY{newDrainingPTYSession()}
+	defer func() { _ = pty.writer.Close() }()
+	s := &Session{ptySession: pty, readerCtx: t.Context()}
+	s.Start()
+	start := time.Now()
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if elapsed := time.Since(start); elapsed < readerDrainTimeout {
+		t.Fatalf("descritor fechado antes do prazo de drenagem: %s", elapsed)
+	}
+	if events := strings.Join(pty.eventSnapshot(), ","); events != "kill,wait-start,wait-end,close" {
+		t.Fatalf("ordem de encerramento: %s", events)
 	}
 }

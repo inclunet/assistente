@@ -3,13 +3,17 @@ package terminal
 import (
 	"context"
 	"errors"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"slices"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/KennethanCeyer/ptyx"
 )
 
 func TestRunEphemeralNaoCriaSecaoPersistente(t *testing.T) {
@@ -273,6 +277,48 @@ func TestPowerShellExpandedCommandNameThroughPTY(t *testing.T) {
 	}
 }
 
+func TestPowerShellFinalPipelineAndConditionalReturnThroughPTY(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("Windows PowerShell")
+	}
+	cfg := DefaultManagerConfig()
+	cfg.DefaultShell = "powershell.exe"
+	manager := NewManager(cfg, nil)
+	dir := t.TempDir()
+	session, err := manager.Create("status da última etapa", dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(manager.CloseAll)
+	run := func(command string, expected int) {
+		t.Helper()
+		entry, err := manager.RunCommand(t.Context(), session.ID(), command, 15*time.Second, "test")
+		if err != nil || entry == nil || entry.ExitCode != expected {
+			t.Fatalf("comando=%q esperado=%d entry=%+v err=%v", command, expected, entry, err)
+		}
+	}
+
+	// Só muda a presença de leaf. Ignore deixa o erro fora de $Error.
+	const failedNative = "cmd /c 'echo leaf& exit 7' | Get-Item -ErrorAction Ignore"
+	const successfulNative = "cmd /c 'echo leaf& exit 0' | Get-Item -ErrorAction Ignore"
+	run(failedNative, 1)
+	run(failedNative+" | Microsoft.PowerShell.Utility\\Out-String", 1)
+	run(successfulNative, 1)
+	if err := os.WriteFile(filepath.Join(dir, "leaf"), nil, 0600); err != nil {
+		t.Fatal(err)
+	}
+	run(failedNative, 1)
+	run(successfulNative, 0)
+	run("cmd /c 'echo leaf& exit 7' | Out-String -Stream", 7)
+	run("Write-Output leaf | cmd /c exit 9", 9)
+	run("cmd /c exit 7; if ($true) { Get-Item missing-leaf -ErrorAction Ignore; return }; cmd /c exit 9", 1)
+	run("cmd /c exit 7; if ($false) { Get-Item missing-leaf -ErrorAction Ignore; return }; cmd /c exit 9", 1)
+	run("cmd /c exit 7; if ($false) { Get-Item missing-leaf -ErrorAction Ignore; return }; (cmd /c exit 9)", 9)
+	run("if ($true) { cmd /c exit 7; if ($true) { Get-Item missing-leaf -ErrorAction Ignore; return }; cmd /c exit 9 }", 1)
+	run("cmd /c exit 7; cmd /c exit $(Get-Item missing-leaf -ErrorAction Ignore; return)", 1)
+	run("cmd /c exit 7; function f { return }; cmd /c exit 9", 9)
+}
+
 func TestPowerShellStrictModeThroughPTY(t *testing.T) {
 	if runtime.GOOS != "windows" {
 		t.Skip("Windows PowerShell")
@@ -404,13 +450,14 @@ func TestProcessExitBeforeStartMarker(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = session.Close() })
 	// A entrada manual encerra o mesmo PTY sem imprimir um marcador de início.
-	if _, err := session.SendInput("exit 0", "manual"); err != nil {
+	if _, err := session.SendInput("exit 3", "manual"); err != nil {
 		t.Fatal(err)
 	}
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	defer cancel()
 	_, code, err := session.waitForMarker(ctx, newCommandMarkerForShell(shellType(session.shell)), "test")
-	if err == nil || ctx.Err() != nil || code != -1 {
+	var exit *ptyx.ExitError
+	if !errors.As(err, &exit) || exit.ExitCode != 3 || ctx.Err() != nil || code != -1 {
 		t.Fatalf("code=%d err=%v ctx=%v", code, err, ctx.Err())
 	}
 }
@@ -489,7 +536,7 @@ func TestPowerShellReturnInPersistentSession(t *testing.T) {
 		command, output string
 		code            int
 	}{
-		{"$Host.UI.RawUI.WindowSize.Width", strconv.Itoa(session.viewportColumns), 0},
+		{"$Host.UI.RawUI.WindowSize.Width", strconv.Itoa(defaultCols), 0},
 		{"cmd.exe /c --% echo sample", "sample", 0},
 		{"cmd /c exit 7; return", "", 7},
 		{"Write-Output $LASTEXITCODE", "7", 0},

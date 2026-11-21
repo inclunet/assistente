@@ -289,11 +289,11 @@ func (rc *RunCommand) Execute(ctx context.Context, args json.RawMessage) (tools.
 			output = entry.Output
 		}
 
-		isTimeout := entry != nil && entry.ExitCode == -1
+		isTimeout := errors.Is(err, context.DeadlineExceeded) && !errors.Is(err, terminal.ErrSessionRead) && !errors.Is(err, terminal.ErrSessionClosed)
 
 		if isTimeout && output != "" {
 			// Timeout COM output: retorna como sucesso com nota sobre timeout
-			content := fmt.Sprintf("[TIMEOUT após %ds — o comando foi interrompido com Ctrl+C. Output parcial capturado:]\n\n%s", int(timeout.Seconds()), output)
+			content := fmt.Sprintf("[TIMEOUT após %ds — o prazo de execução terminou. Output parcial capturado:]\n\n%s", int(timeout.Seconds()), output)
 
 			result := tools.ToolResult{
 				Content: content,
