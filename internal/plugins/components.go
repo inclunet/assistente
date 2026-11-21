@@ -116,7 +116,7 @@ func skillRequirements(raw string) string {
 	}
 	for key := range fields {
 		switch key {
-		case "name", "description", "license", "metadata":
+		case "name", "description", "version", "license", "metadata":
 		default:
 			return "frontmatter"
 		}

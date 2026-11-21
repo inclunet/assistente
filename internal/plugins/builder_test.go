@@ -2,6 +2,7 @@ package plugins
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -9,6 +10,7 @@ import (
 	"assistente/internal/commandsecurity"
 	"assistente/internal/database"
 	"assistente/internal/pluginpackage"
+	"assistente/internal/skills"
 	"assistente/internal/sqlite"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
@@ -42,10 +44,25 @@ func TestBuilderExportsOnlySelectedDefinitionsToAnotherAccount(t *testing.T) {
 	if err := db.Create(&database.TaskNote{TaskID: task.ID, UserID: "author", Content: "Private note"}).Error; err != nil {
 		t.Fatal(err)
 	}
-	store := NewInventory(db)
+	skill, err := skills.Compose(&skills.SkillMetadata{Name: "notes", Version: "1.0.0", Description: "Summarize"}, "Read the list.")
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := NewInventory(db).WithSkillDefinition(func(key string) ([]byte, error) {
+		if key != "notes" {
+			return nil, os.ErrNotExist
+		}
+		return []byte(skill), nil
+	}, nil)
 	ctx := database.WithUserID(context.Background(), "author")
 	reader := database.WithUserID(context.Background(), "reader")
 	req := BuilderRequest{Name: "release-kit", Version: "1", TaskLists: []BuilderTaskList{{ID: list.ID, Key: "release"}}}
+	restricted := NewInventory(db).WithSkillDefinition(func(string) ([]byte, error) {
+		return []byte("---\nname: notes\nversion: 1.0.0\ndescription: Summarize\nallowed-tools: Read\n---\nRead"), nil
+	}, nil)
+	if _, _, err := restricted.BuildPackage(ctx, BuilderRequest{Name: "notes", Skills: []string{"notes"}}); err == nil {
+		t.Fatal("lost tool restriction")
+	}
 	for _, name := range []string{"con", "NUL.txt", "LPT2"} {
 		invalid := req
 		invalid.Name = name
@@ -70,9 +87,13 @@ func TestBuilderExportsOnlySelectedDefinitionsToAnotherAccount(t *testing.T) {
 		t.Fatal("tasks included without selection")
 	}
 	req.TaskLists[0].IncludeTasks = true
+	req.Skills = []string{"notes"}
 	data, snap, err := store.BuildPackage(ctx, req)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if string(snap.Files["skills/notes/SKILL.md"]) != skill {
+		t.Fatal("skill definition changed")
 	}
 	if snap.Digest == first.Digest {
 		t.Fatal("missing digest change")
@@ -95,6 +116,13 @@ func TestBuilderExportsOnlySelectedDefinitionsToAnotherAccount(t *testing.T) {
 	id, err := store.CreateListFromTemplate(reader, installed.ID, installed.Digest, "tasklists/release", uuid.NewString(), admit)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if err := store.SetSkillActive(reader, installed.ID, installed.Digest, "skills/notes", true); err != nil {
+		t.Fatal(err)
+	}
+	active, err := store.ActiveSkills(reader)
+	if err != nil || len(active) != 1 || active[0].Content != "Read the list." {
+		t.Fatal(active, err)
 	}
 	var received database.Task
 	if err := db.Where("task_list_id=?", id).Take(&received).Error; err != nil || received.StatusID != 1 || received.Title != task.Title {

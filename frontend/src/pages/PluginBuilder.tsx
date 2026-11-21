@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { PreviewBuilder, SaveBuilder } from '@wailsjs/go/wailsapi/Plugins';
+import { BuilderSkillNames, PreviewBuilder, SaveBuilder } from '@wailsjs/go/wailsapi/Plugins';
 import { GetAllTaskLists } from '@wailsjs/go/wailsapi/Tasklist';
 import { plugins, type database, type wailsapi } from '@wailsjs/go/models';
 import { useAnnouncer } from '../hooks/useAnnouncer';
@@ -12,6 +12,8 @@ export default function PluginBuilder() {
   const { t } = useTranslation();
   const { announce } = useAnnouncer();
   const [lists, setLists] = useState<database.TaskList[]>([]);
+  const [skillNames, setSkillNames] = useState<string[]>([]);
+  const [skillSelection, setSkillSelection] = useState<string[]>([]);
   const [name, setName] = useState('');
   const [version, setVersion] = useState('');
   const [selected, setSelected] = useState<Record<string, plugins.BuilderTaskList>>({});
@@ -21,9 +23,13 @@ export default function PluginBuilder() {
   const mounted = useRef(false);
   useEffect(() => {
     mounted.current = true;
-    void GetAllTaskLists().then(items => { if (mounted.current) setLists(items ?? []); })
-      .catch(() => { if (mounted.current) setStatus('plugins.builderError'); })
-      .finally(() => { if (mounted.current) setBusy(false); });
+    void Promise.allSettled([GetAllTaskLists(), BuilderSkillNames()]).then(([items, names]) => {
+      if (!mounted.current) return;
+      if (items.status === 'fulfilled') setLists(items.value ?? []);
+      if (names.status === 'fulfilled') setSkillNames(names.value ?? []);
+      if (items.status === 'rejected' || names.status === 'rejected') setStatus('plugins.builderSourcesError');
+      setBusy(false);
+    });
     return () => { mounted.current = false; };
   }, []);
   useEffect(() => { if (status) announce(t(status)); }, [status, t, announce]);
@@ -41,7 +47,7 @@ export default function PluginBuilder() {
     if (busy) return;
     setBusy(true);
     setStatus('');
-    const request = new plugins.BuilderRequest({name, version, tasklists: Object.values(selected)});
+    const request = new plugins.BuilderRequest({name, version, skills:skillSelection, tasklists: Object.values(selected)});
     try {
       if (preview) {
         const saved = await SaveBuilder(request, preview.digest);
@@ -50,13 +56,25 @@ export default function PluginBuilder() {
         const next = await PreviewBuilder(request);
         if (mounted.current) { setPreview(next); setStatus('plugins.builderReady'); }
       }
-    } catch { if (mounted.current) { setPreview(null); setStatus('plugins.builderError'); } }
+    } catch (cause) {
+      if (mounted.current) {
+        setPreview(null);
+        setStatus(/PLUGIN_BUILDER_SKILL_UNAVAILABLE|SKILL_BUILDER_SUPPORTING_FILES/.test(String(cause)) ? 'plugins.builderSkillError' : 'plugins.builderError');
+      }
+    }
     finally { if (mounted.current) setBusy(false); }
   };
   return <form onSubmit={event => {event.preventDefault(); void run();}}>
     <h2>{t('plugins.builder')}</h2>
     <Input label={t('plugins.packageName')} value={name} required disabled={busy} onChange={event => {invalidate(); setName(event.target.value);}} />
     <Input label={t('plugins.version')} value={version} disabled={busy} onChange={event => {invalidate(); setVersion(event.target.value);}} />
+    <fieldset disabled={busy}>
+      <legend>{t('plugins.builderSkills')}</legend>
+      {skillNames.map(slug => <Checkbox key={slug} label={slug} checked={skillSelection.includes(slug)} onChange={event => {
+        invalidate();
+        setSkillSelection(previous => event.target.checked ? [...previous, slug] : previous.filter(value => value !== slug));
+      }} />)}
+    </fieldset>
     <fieldset disabled={busy}>
       <legend>{t('plugins.builderLists')}</legend>
       {lists.map(list => {
@@ -75,7 +93,7 @@ export default function PluginBuilder() {
       <p>{preview.name}</p><p>SHA-256 · {preview.digest}</p>
       <ul>{preview.files.map(file => <li key={file}><details><summary>{file}</summary><pre>{preview.contents[file]}</pre></details></li>)}</ul>
     </section>}
-    <Button type="submit" disabled={busy || Object.keys(selected).length === 0}>{t(preview ? 'plugins.builderSave' : 'plugins.builderReview')}</Button>
+    <Button type="submit" disabled={busy || (Object.keys(selected).length === 0 && skillSelection.length === 0)}>{t(preview ? 'plugins.builderSave' : 'plugins.builderReview')}</Button>
     {status && <p>{t(status)}</p>}
   </form>;
 }
