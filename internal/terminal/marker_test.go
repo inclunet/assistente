@@ -50,9 +50,9 @@ func TestStripANSI(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := StripANSI(tt.input)
+			result := stripANSI(tt.input)
 			if result != tt.expected {
-				t.Errorf("StripANSI(%q) = %q, want %q", tt.input, result, tt.expected)
+				t.Errorf("stripANSI(%q) = %q, want %q", tt.input, result, tt.expected)
 			}
 		})
 	}
@@ -96,7 +96,7 @@ func TestCommandMarker_WrapPowerShell(t *testing.T) {
 	}
 }
 
-func parseMarkerOutput(m *CommandMarker, raw string) ParseResult {
+func parseMarkerOutput(m *CommandMarker, raw string) parseResult {
 	_, result := newMarkerStream(m).append(raw)
 	return result
 }
@@ -351,7 +351,7 @@ func TestPOSIXMarkersCancelOpenControlsAcrossReads(t *testing.T) {
 	for cut := 0; cut <= len(raw); cut++ {
 		stream := newMarkerStream(m)
 		var emitted strings.Builder
-		var result ParseResult
+		var result parseResult
 		for _, part := range []string{raw[:cut], raw[cut:]} {
 			var delta []byte
 			delta, result = stream.append(part)
@@ -706,7 +706,7 @@ func TestMarkerStreamLongTailAndFragmentedControls(t *testing.T) {
 		stream.append(m.startTag + "\n" + tail)
 		var emitted strings.Builder
 		emitted.WriteString(tail)
-		var result ParseResult
+		var result parseResult
 		for i := 0; i < len(rest) && !result.Found; i += step {
 			var delta []byte
 			delta, result = stream.append(rest[i:min(i+step, len(rest))])
@@ -732,7 +732,7 @@ func TestInvalidFooterImmediatelyReturnsToOutput(t *testing.T) {
 func TestMarkerStreamConsumesSplitControlSequences(t *testing.T) {
 	for _, seq := range []string{"\x1b[2@", "\x1b[1 q", "\x1b[>c", "\x1b[200~", "\x1b(B", "\x1b7", "\x1bP1;2|dado\x1b\\"} {
 		raw := "a" + seq + "b"
-		if StripANSI(raw) != "ab" {
+		if stripANSI(raw) != "ab" {
 			t.Fatalf("controle não removido: %q", seq)
 		}
 		for split := range len(raw) + 1 {

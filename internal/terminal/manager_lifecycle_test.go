@@ -156,11 +156,13 @@ func TestCloseIsIdempotentWithoutPTY(t *testing.T) {
 
 func TestCloseWaitsForProcessAndDrainsReaderBeforeClosingPTY(t *testing.T) {
 	ptySession := newDrainingPTYSession()
+	var output strings.Builder
 	session := &Session{
-		id:         "term-drain",
-		state:      StateIdle,
-		ptySession: ptySession,
-		readerCtx:  context.Background(),
+		id:          "term-drain",
+		state:       StateIdle,
+		ptySession:  ptySession,
+		readerCtx:   context.Background(),
+		onRawOutput: func(_, chunk string) { output.WriteString(chunk) },
 	}
 	session.Start()
 
@@ -168,11 +170,8 @@ func TestCloseWaitsForProcessAndDrainsReaderBeforeClosingPTY(t *testing.T) {
 		t.Fatalf("Close: %v", err)
 	}
 
-	session.outputMu.Lock()
-	output := session.outputBuf.String()
-	session.outputMu.Unlock()
-	if !strings.Contains(output, "output-final") {
-		t.Fatalf("output final não foi drenado: %q", output)
+	if output.String() != "output-final" {
+		t.Fatalf("output final não foi drenado: %q", output.String())
 	}
 
 	events := ptySession.eventSnapshot()
@@ -298,6 +297,7 @@ func TestWaitForMarkerPreservesReadFailureAndCancellation(t *testing.T) {
 				ptyReader:  reader,
 				readerCtx:  t.Context(),
 			}
+			session.startCommandOutput(marker, &HistoryEntry{})
 			session.Start()
 			<-session.readerDone
 			deadline := time.Now().Add(time.Second)
@@ -336,6 +336,7 @@ func TestReadFailureReturnsWhileProcessWaitIsPending(t *testing.T) {
 	session := &Session{ptySession: pty, readerCtx: t.Context(),
 		ptyReader: io.MultiReader(strings.NewReader(marker.startTag+"\nparcial"), iotest.ErrReader(readErr)),
 	}
+	session.startCommandOutput(marker, &HistoryEntry{})
 	session.Start()
 	t.Cleanup(func() {
 		close(pty.releaseWait)
@@ -378,6 +379,24 @@ func (p *failingWritePTY) Write(data []byte) (int, error) {
 func (p *failingWritePTY) Close() error {
 	close(p.released)
 	return p.fakePTYSession.Close()
+}
+
+func TestUnavailableCommandWriterKeepsHistory(t *testing.T) {
+	for _, writer := range []io.Writer{nil, manualTestWriter(func([]byte) (int, error) { return 0, io.ErrClosedPipe })} {
+		s := &Session{id: "missing-writer", shell: "bash", readerCtx: t.Context(), ptyWriter: writer}
+		m := NewManager(DefaultManagerConfig(), nil)
+		m.sessions[s.id] = s
+		entry, err := m.RunCommand(t.Context(), s.id, "example", time.Second, "test")
+		if err == nil || entry == nil || entry.ExitCode != -1 || entry.EndedAt.Before(entry.StartedAt) {
+			t.Fatalf("entrada=%+v erro=%v", entry, err)
+		}
+		if writer != nil && !errors.Is(err, io.ErrClosedPipe) {
+			t.Fatalf("causa da escrita perdida: %v", err)
+		}
+		if got := s.GetHistory(); len(got) != 1 || got[0].ID != entry.ID {
+			t.Fatalf("histórico=%+v", got)
+		}
+	}
 }
 
 func TestCloseBeforeCommandWriteKeepsHistoryAndCause(t *testing.T) {

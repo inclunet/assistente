@@ -349,8 +349,8 @@ func singlePowerShellLine(script string) string {
 	return strings.Join(lines, " ")
 }
 
-// ParseResult representa o resultado do parsing de output com markers.
-type ParseResult struct {
+// parseResult representa o resultado do parsing de output com markers.
+type parseResult struct {
 	// Output é o conteúdo entre os markers (o output real do comando)
 	Output string
 
@@ -361,7 +361,7 @@ type ParseResult struct {
 	Found bool
 }
 
-// StripANSI remove todas as sequências ANSI escape de uma string.
-func StripANSI(s string) string {
+// stripANSI remove todas as sequências ANSI escape de uma string.
+func stripANSI(s string) string {
 	return ansiEscape.ReplaceAllString(s, "")
 }
