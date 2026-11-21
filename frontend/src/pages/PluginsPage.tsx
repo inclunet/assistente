@@ -20,12 +20,15 @@ function componentLabel(kind: string) {
     case 'skill': return 'plugins.skill';
     case 'mcp': return 'plugins.mcp';
     case 'tasklistTemplate': return 'plugins.tasklistTemplate';
+    case 'job': return 'plugins.job';
     case 'profile': return 'plugins.profile';
     default: return 'plugins.invalid';
   }
 }
 
 function componentRequirement(component: plugins.Component) {
+  if (component.reason === 'invalidJob') return 'plugins.invalidJob';
+  if (component.reason === 'jobActivationPending') return 'plugins.jobActivationPending';
   if (component.reason === 'invalidProfile') return 'plugins.invalidProfile';
   if (component.reason === 'shellCommands') return 'plugins.shellPending';
   if (component.reason === 'supportingFiles') return 'plugins.filesPending';
@@ -34,6 +37,15 @@ function componentRequirement(component: plugins.Component) {
   if (component.reason === 'configuration') return 'plugins.mcpConfigRequired';
   if ((component.kind === 'mcp' || component.kind === 'profile' || component.kind === 'tasklistTemplate') && !component.reason) return undefined;
   return component.kind === 'skill' ? undefined : 'plugins.unavailable';
+}
+
+function JobRequirements({component}: {component: plugins.Component}) {
+  const {t} = useTranslation();
+  if (!component.tool) return null;
+  return <p>
+    {t('plugins.jobTool', {name: component.tool})}
+    {component.jobTriggers?.map((trigger, index) => <span key={index}> · {t(`plugins.jobTrigger.${trigger}`)}</span>)}
+  </p>;
 }
 
 export default function PluginsPage() {
@@ -267,7 +279,7 @@ function InstalledPlugins() {
       {createdList && <p>{t('plugins.createdList', {name:createdList})}</p>}
       <h2>{t('plugins.components')}</h2>
       {details.components.length === 0 ? <p>{t('plugins.noComponents')}</p> : <ul>{details.components.map(component => <li key={component.key}>
-        <strong>{component.name}</strong> · {t(componentLabel(component.kind))}
+        <strong>{component.name}</strong> · {t(componentLabel(component.kind))}<JobRequirements component={component} />
         {component.kind === 'tasklistTemplate' && !component.reason ?
           <Button disabled={busy || details.installation.disabled} onClick={() => void changeComponent(component)}>{t('plugins.createList', {name:component.name})}</Button>
           : (component.kind === 'skill' || component.kind === 'profile') && !component.reason ? <>
@@ -299,7 +311,7 @@ function InstalledPlugins() {
         <dt>SHA-256</dt><dd>{preview.digest}</dd>
       </dl>
       {preview.previousDigest && <p>{t(sameRevision ? 'plugins.current' : 'plugins.updateNotice')}</p>}
-      {(preview.components ?? []).length > 0 && <ul aria-label={t('plugins.components')}>{preview.components.map(component => <li key={component.key}>{component.name} · {t(componentLabel(component.kind))}{component.requestsShell && <span> · {t('plugins.commandPolicy')}</span>}{component.endpoint && <span> · {component.endpoint}</span>}{componentRequirement(component) && <p>{t(componentRequirement(component)!)}</p>}</li>)}</ul>}
+      {(preview.components ?? []).length > 0 && <ul aria-label={t('plugins.components')}>{preview.components.map(component => <li key={component.key}>{component.name} · {t(componentLabel(component.kind))}<JobRequirements component={component} />{component.requestsShell && <span> · {t('plugins.commandPolicy')}</span>}{component.endpoint && <span> · {component.endpoint}</span>}{componentRequirement(component) && <p>{t(componentRequirement(component)!)}</p>}</li>)}</ul>}
       {(preview.diagnostics ?? []).length > 0 && <p>{t('plugins.warnings', { count: preview.diagnostics.length })}</p>}
       <details><summary>{t('plugins.files', { count: preview.files.length })}</summary><ul>{preview.files.map(path => <li key={path}>{path}</li>)}</ul></details>
       </> }]} />}

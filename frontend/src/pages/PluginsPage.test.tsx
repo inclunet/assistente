@@ -231,6 +231,21 @@ describe('PluginsPage', () => {
     expect(mocks.profile).toHaveBeenCalledWith('one', 'sha', 'profiles/writer', true);
   });
 
+  it('shows the requested job tool and triggers without running or enabling it', async () => {
+    mocks.preview.mockResolvedValue({token:'reviewed', name:'kit', digest:'sha', files:[], diagnostics:[], components:[
+      {kind:'job', key:'jobs/reminder', name:'Reminder', tool:'notify', jobTriggers:['interval'], reason:'jobActivationPending'},
+    ]});
+    const user=userEvent.setup();
+    render(<PluginsPage />);
+    const choose=await screen.findByRole('button', {name:'plugins.choose'});
+    await waitFor(()=>expect(choose).toBeEnabled());
+    await user.click(choose);
+    await screen.findByText('plugins.jobActivationPending');
+    expect(screen.getByText(/plugins.jobTool/)).toBeVisible();
+    expect(screen.getByText(/plugins.jobTrigger.interval/)).toBeVisible();
+    expect(screen.queryByRole('button', {name:'plugins.activate'})).toBeNull();
+  });
+
   it('reports a supported template in preview before installation', async () => {
     mocks.preview.mockResolvedValue({token:'reviewed',name:'planner',digest:'sha',files:[],diagnostics:[],components:[{kind:'tasklistTemplate',key:'tasklists/release',name:'Release'}]});
     const user = userEvent.setup();
