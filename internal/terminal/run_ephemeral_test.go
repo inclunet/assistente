@@ -449,6 +449,35 @@ func TestBashExitBeforeEndMarker(t *testing.T) {
 	}
 }
 
+func TestPersistentExitPublishesResultBeforeExit(t *testing.T) {
+	events := make(chan string, 4)
+	manager := NewManager(DefaultManagerConfig(), func(event string, data any) {
+		switch event {
+		case "terminal:command_end", "terminal:exited":
+			events <- event
+		}
+	})
+	session, err := manager.Create("ordem", ptyTestDir(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = session.Close() })
+	entry, err := manager.RunCommand(t.Context(), session.id, "exit 7", 15*time.Second, "test")
+	if err != nil || entry == nil || entry.ExitCode != 7 {
+		t.Fatalf("resultado=%+v erro=%v", entry, err)
+	}
+	for _, want := range []string{"terminal:command_end", "terminal:exited"} {
+		select {
+		case got := <-events:
+			if got != want {
+				t.Fatalf("evento=%s esperado=%s", got, want)
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatalf("evento ausente: %s", want)
+		}
+	}
+}
+
 func TestProcessExitBeforeStartMarker(t *testing.T) {
 	manager := NewManager(DefaultManagerConfig(), nil)
 	session, err := manager.Create("sem marcador", ptyTestDir(t))

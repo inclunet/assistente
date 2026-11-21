@@ -114,6 +114,25 @@ describe('terminalStore', () => {
     } finally { cleanup(); useAuthStore.setState(owner); }
   });
 
+  it('conserva comandos executados enquanto um histórico já carregado está fora da tela', async () => {
+    const cleanup = useTerminalStore.getState().setupEventListeners({ lifecycleOnly: true });
+    const closePage = useTerminalStore.getState().setupEventListeners();
+    terminalEventHandlers.get('terminal:session_created')?.(terminal.SessionInfo.createFrom({ id: 's1' }));
+    const entry = terminal.HistoryEntry.createFrom({ id: 'prev', command: 'pwd', exitCode: 0 });
+    mockGetTerminalHistory.mockResolvedValueOnce([entry]);
+    await useTerminalStore.getState().loadHistory('s1');
+    closePage();
+    try {
+      terminalEventHandlers.get('terminal:command_start')?.({ sessionId: 's1', commandId: 'c1', command: 'date', source: 'llm' });
+      terminalEventHandlers.get('terminal:command_end')?.({ sessionId: 's1', commandId: 'c1', output: 'quarta', exitCode: 0 });
+      expect(useTerminalStore.getState().historyBySession.s1).toEqual([
+        entry, expect.objectContaining({ id: 'c1', output: 'quarta', exitCode: 0 }),
+      ]);
+      expect(useTerminalStore.getState().activeEntryBySession.s1).toBeNull();
+      expect(announce).not.toHaveBeenCalled();
+    } finally { cleanup(); }
+  });
+
   it('escuta encerramentos em segundo plano e carrega o histórico ao abrir a aba', async () => {
     vi.useFakeTimers();
     const cleanup = useTerminalStore.getState().setupEventListeners({ lifecycleOnly: true });
@@ -134,6 +153,24 @@ describe('terminalStore', () => {
       pageCleanup();
       terminalEventHandlers.get('terminal:session_closed')?.({ sessionId: 's1' });
       expect(announce).toHaveBeenCalledTimes(1);
+    } finally { cleanup(); vi.useRealTimers(); }
+  });
+
+  it('preserva o anúncio pendente de outra sessão ao receber saída ou iniciar um comando', () => {
+    vi.useFakeTimers();
+    const cleanup = useTerminalStore.getState().setupEventListeners();
+    vi.mocked(announce).mockClear();
+    try {
+      const raw = terminalEventHandlers.get('terminal:raw_output');
+      raw?.({ sessionId: 'a', output: 'primeira' });
+      raw?.({ sessionId: 'b', output: 'anterior' });
+      terminalEventHandlers.get('terminal:command_start')?.({ sessionId: 'b', command: 'pwd', source: 'llm' });
+      raw?.({ sessionId: 'b', output: 'segunda' });
+      vi.runAllTimers();
+      expect(announce).toHaveBeenCalledTimes(2);
+      for (const output of ['primeira', 'segunda']) {
+        expect(announce).toHaveBeenCalledWith(i18next.t('terminal.announce.output', { output }));
+      }
     } finally { cleanup(); vi.useRealTimers(); }
   });
 

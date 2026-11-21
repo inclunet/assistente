@@ -1,4 +1,4 @@
-import { useEffect, useRef, useCallback, useMemo, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useCallback, useMemo, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import { MessageOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
@@ -95,6 +95,7 @@ export default function TerminalPage({ sessionId: explicitSessionId }: TerminalP
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const pageRootRef = useRef<HTMLDivElement>(null);
   const terminalPickerTriggerRef = useRef<HTMLButtonElement>(null);
+  const newTerminalButtonRef = useRef<HTMLButtonElement>(null);
   const currentSessionIdRef = useRef(currentSessionId);
   currentSessionIdRef.current = currentSessionId;
   const historyContainerRef = useRef<HTMLDivElement>(null);
@@ -223,6 +224,17 @@ export default function TerminalPage({ sessionId: explicitSessionId }: TerminalP
   }, [currentSessionId, isActive, terminalOperationInstanceId]);
 
   const activeSession = currentSessionId ? sessions.find(s => s.id === currentSessionId) : undefined;
+  const sessionIsLive = Boolean(activeSession);
+  useLayoutEffect(() => {
+    const input = inputRef.current;
+    if (!input) return;
+    if (!sessionIsLive && isActive && document.activeElement === input &&
+        !isModalOpen() && !useWorkspaceChatModalStore.getState().isOpen) {
+      (terminalPickerTriggerRef.current ?? newTerminalButtonRef.current)?.focus();
+    }
+    // ChatInput bloqueia o envio, mas mantém seu editor disponível para rascunhos.
+    input.disabled = !sessionIsLive;
+  }, [sessionIsLive, isActive]);
   const currentHistory = currentSessionId ? (historyBySession[currentSessionId] || []) : [];
   const currentRunningCommandId = currentSessionId
     ? (activeEntryBySession[currentSessionId] ?? null)
@@ -489,6 +501,7 @@ export default function TerminalPage({ sessionId: explicitSessionId }: TerminalP
           actions={[
             {
               key: 'new-terminal',
+              buttonRef: newTerminalButtonRef,
               label: t('terminal.buttons.new'),
               onClick: () => { requestTerminalSessionOperation(TERMINAL_SESSION_CREATE_COMMAND, terminalOperationInstanceId); },
             },

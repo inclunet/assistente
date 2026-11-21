@@ -153,13 +153,14 @@ type Session struct {
 	ptyCloseOnce    sync.Once
 	explicitClose   bool
 	writeClosing    bool
-	commandDelivery *commandDelivery // Sob mu: ordena command_end e exited em caso de falha.
+	commandDelivery *commandDelivery // Sob mu: ordena command_end e exited na saída natural e na falha.
 	discardOutput   bool             // Sob outputMu: a entrada encerrou antes do cleanup do PTY.
 }
 
 type commandDelivery struct {
-	ended bool
-	err   error
+	notifyExit func() // Sob mu: saída natural após a entrega do resultado.
+	ended      bool
+	err        error
 }
 
 var nextSessionVersion atomic.Uint64
@@ -514,9 +515,17 @@ func (s *Session) markExited(err error) {
 		return
 	}
 	s.state = StateExited
-	s.mu.Unlock()
+	var notify func()
 	if s.onExit != nil {
-		s.exitOnce.Do(func() { s.deliverExit(err) })
+		notify = func() { s.exitOnce.Do(func() { s.deliverExit(err) }) }
+		if s.commandDelivery != nil && !s.commandDelivery.ended {
+			s.commandDelivery.notifyExit = notify
+			notify = nil
+		}
+	}
+	s.mu.Unlock()
+	if notify != nil {
+		notify()
 	}
 }
 
@@ -532,6 +541,10 @@ func (s *Session) deliverExit(err error) {
 }
 
 func (s *Session) beginCommandWithID(commandID string) error {
+	return s.reserveCommand(commandID, &commandDelivery{})
+}
+
+func (s *Session) reserveCommand(commandID string, delivery *commandDelivery) error {
 	if s.faultOwnsCleanup() {
 		return fmt.Errorf("sessão %s indisponível após falha no PTY", s.id)
 	}
@@ -547,6 +560,7 @@ func (s *Session) beginCommandWithID(commandID string) error {
 		commandID = uuid.NewString()
 	}
 	s.state = StateRunning
+	s.commandDelivery = delivery
 	s.commandGeneration++
 	s.commandPending = true
 	s.managedCommandID = commandID
@@ -575,17 +589,28 @@ func (s *Session) RunCommand(ctx context.Context, command string, timeout time.D
 func (s *Session) runCommandInDirectory(ctx context.Context, command, directory string, timeout time.Duration, source, commandID string, onEnd func(*HistoryEntry, error)) (resultEntry *HistoryEntry, resultErr error) {
 	commandCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	delivery := &commandDelivery{}
+	s.mu.Lock()
+	delivery := s.commandDelivery
+	if delivery == nil {
+		delivery = &commandDelivery{}
+		s.commandDelivery = delivery
+	}
+	s.mu.Unlock()
 	defer func() {
 		if onEnd != nil {
 			onEnd(resultEntry, resultErr)
 		}
 		s.mu.Lock()
 		delivery.ended, delivery.err = true, resultErr
+		notify := delivery.notifyExit
+		delivery.notifyExit = nil
 		if s.commandDelivery == delivery && !s.writeClosing && s.readerErr == nil {
 			s.commandDelivery = nil
 		}
 		s.mu.Unlock()
+		if notify != nil {
+			notify()
+		}
 		s.notifyFaultExit()
 	}()
 	defer func() {
@@ -595,7 +620,6 @@ func (s *Session) runCommandInDirectory(ctx context.Context, command, directory 
 	}()
 
 	s.mu.Lock()
-	s.commandDelivery = delivery
 	if commandID == "" {
 		commandID = s.managedCommandID
 		if commandID == "" {
@@ -1014,7 +1038,7 @@ func (s *Session) SendInput(input, commandID string) (*HistoryEntry, error) {
 	if commandID == "" {
 		commandID = uuid.NewString()
 	}
-	if err := s.beginCommandWithID(commandID); err != nil {
+	if err := s.reserveCommand(commandID, nil); err != nil {
 		return nil, err
 	}
 	defer s.finishCommand()

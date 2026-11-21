@@ -215,7 +215,9 @@ Pendente ou parcial:
   A sessão recusa novas entradas imediatamente. Depois que a escrita devolve erro, o comando
   aguarda a limpeza até o seu prazo ou cancelamento. Se o processo ou leitor continuar bloqueado,
   a limpeza prossegue em segundo plano. A saída já recebida acompanha o erro, inclusive se o prazo vencer.
-  O evento de término do comando precede o de saída da sessão.
+  O evento de término do comando precede o de saída da sessão, inclusive quando o próprio
+  comando encerra o shell. O histórico já carregado continua recebendo eventos em segundo
+  plano. Ao voltar à aba, ele inclui os comandos executados nesse intervalo.
   A área de trabalho escuta o encerramento mesmo com a aba fechada. A abertura da aba
   carrega a lista. O anúncio usa o nome conhecido da sessão ou uma mensagem genérica.
 - **Controles do terminal.** O leitor reconhece mudanças de largura fora de sequências de controle.

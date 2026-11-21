@@ -16,9 +16,7 @@ import { announce } from '../hooks/useAnnouncer';
 import i18next from 'i18next';
 
 // Debounce para anúncio de output (acumula chunks e espera streaming parar)
-let announceTimer: ReturnType<typeof setTimeout> | null = null;
-let pendingOutput = '';
-let pendingOutputSessionId = '';
+const pendingAnnouncements = new Map<string, { output: string; timer: ReturnType<typeof setTimeout> }>();
 let terminalEventListenerRefCount = 0;
 let terminalOutputListenerRefCount = 0;
 let terminalSessionReadGeneration = 0;
@@ -30,13 +28,19 @@ export function resolveTerminalCommandId(sessionId: string, commandId?: string):
   return commandId || `legacy-${sessionId}-${Date.now()}-${legacyCommandSequence++}`;
 }
 
+function cancelOutputAnnouncement(sessionId: string) {
+  const pending = pendingAnnouncements.get(sessionId);
+  if (pending) clearTimeout(pending.timer);
+  pendingAnnouncements.delete(sessionId);
+}
+
 function scheduleOutputAnnounce(sessionId: string, chunk: string) {
-  if (pendingOutputSessionId !== sessionId) pendingOutput = '';
-  pendingOutputSessionId = sessionId;
-  pendingOutput += chunk;
-  if (announceTimer) clearTimeout(announceTimer);
-  announceTimer = setTimeout(() => {
-    const text = pendingOutput.trim();
+  const previous = pendingAnnouncements.get(sessionId)?.output ?? '';
+  cancelOutputAnnouncement(sessionId);
+  const output = previous + (previous ? chunk : chunk.trimStart()).slice(0, 301 - previous.length);
+  const timer = setTimeout(() => {
+    pendingAnnouncements.delete(sessionId);
+    const text = output.trim();
     if (text) {
       playReceiveSound();
       const truncated = text.length > 300
@@ -44,10 +48,8 @@ function scheduleOutputAnnounce(sessionId: string, chunk: string) {
         : text;
       announce(i18next.t('terminal.announce.output', { output: truncated }));
     }
-    pendingOutput = '';
-    pendingOutputSessionId = '';
-    announceTimer = null;
-  }, 500); // Espera 500ms sem novos chunks antes de anunciar
+  }, 500);
+  pendingAnnouncements.set(sessionId, { output, timer });
 }
 
 // Re-export types for components
@@ -202,12 +204,7 @@ export const useTerminalStore = create<TerminalState>((set) => ({
         terminalEventListenerRefCount = Math.max(0, terminalEventListenerRefCount - 1);
         if (!options?.lifecycleOnly) {
           terminalOutputListenerRefCount = Math.max(0, terminalOutputListenerRefCount - 1);
-          if (terminalOutputListenerRefCount === 0 && announceTimer) {
-            clearTimeout(announceTimer);
-            announceTimer = null;
-            pendingOutput = '';
-            pendingOutputSessionId = '';
-          }
+          if (terminalOutputListenerRefCount === 0) pendingAnnouncements.forEach((_, id) => cancelOutputAnnouncement(id));
         }
         if (terminalEventListenerRefCount === 0 && terminalEventListenerCleanup) {
           terminalEventListenerCleanup();
@@ -220,6 +217,11 @@ export const useTerminalStore = create<TerminalState>((set) => ({
     // Uma sessão pode produzir comandos antes do evento de criação chegar.
     // Só ignoramos eventos depois de seu encerramento explícito ou espontâneo.
     const endedSessions = new Set<string>();
+    // Uma sessão já exibida conserva seu histórico entre montagens da página.
+    // Continue aplicando eventos ao cache mesmo quando os anúncios estão suspensos.
+    const tracksHistory = (sessionId: string) =>
+      !endedSessions.has(sessionId) && (terminalOutputListenerRefCount > 0 ||
+        useTerminalStore.getState().historyBySession[sessionId] !== undefined);
 
     // Sessão criada
     unsubs.push(EventsOn('terminal:session_created', (data: SessionInfo) => {
@@ -253,12 +255,7 @@ export const useTerminalStore = create<TerminalState>((set) => ({
       // IDs são únicos; limite a memória usada para descartar eventos tardios.
       endedSessions.add(sessionId);
       if (endedSessions.size > 1024) endedSessions.delete(endedSessions.values().next().value!);
-      if (pendingOutputSessionId === sessionId) {
-        if (announceTimer) clearTimeout(announceTimer);
-        announceTimer = null;
-        pendingOutput = '';
-        pendingOutputSessionId = '';
-      }
+      cancelOutputAnnouncement(sessionId);
       set(state => {
         const newHistory = { ...state.historyBySession };
         delete newHistory[sessionId];
@@ -293,11 +290,9 @@ export const useTerminalStore = create<TerminalState>((set) => ({
 
     // Comando iniciado (raw mode — cria entry para receber output)
     unsubs.push(EventsOn('terminal:command_start', (data: { sessionId: string; commandId?: string; command: string; source: string }) => {
-      if (terminalOutputListenerRefCount === 0 || endedSessions.has(data.sessionId)) return;
+      if (!tracksHistory(data.sessionId)) return;
       // Limpa pending output do comando anterior
-      pendingOutput = '';
-      pendingOutputSessionId = '';
-      if (announceTimer) { clearTimeout(announceTimer); announceTimer = null; }
+      cancelOutputAnnouncement(data.sessionId);
 
       const tempEntry: HistoryEntry = terminal.HistoryEntry.createFrom({
         id: resolveTerminalCommandId(data.sessionId, data.commandId),
@@ -333,9 +328,9 @@ export const useTerminalStore = create<TerminalState>((set) => ({
 
     // Raw output (streaming contínuo do PTY — vai para o último entry da sessão)
     unsubs.push(EventsOn('terminal:raw_output', (data: { sessionId: string; output: string }) => {
-      if (terminalOutputListenerRefCount === 0 || endedSessions.has(data.sessionId)) return;
+      if (!tracksHistory(data.sessionId)) return;
       // Agenda anúncio do output (com debounce para esperar fim do streaming)
-      scheduleOutputAnnounce(data.sessionId, data.output);
+      if (terminalOutputListenerRefCount > 0) scheduleOutputAnnounce(data.sessionId, data.output);
 
       set(state => {
         const sessionHistory = state.historyBySession[data.sessionId];
@@ -365,7 +360,7 @@ export const useTerminalStore = create<TerminalState>((set) => ({
 
     // Output filtrado (durante RunCommand do LLM com markers)
     unsubs.push(EventsOn('terminal:command_output', (data: { sessionId: string; commandId: string; output: string }) => {
-      if (terminalOutputListenerRefCount === 0 || endedSessions.has(data.sessionId)) return;
+      if (!tracksHistory(data.sessionId)) return;
       set(state => {
         const sessionHistory = state.historyBySession[data.sessionId] || [];
         const updatedHistory = sessionHistory.map(entry => {
@@ -388,12 +383,14 @@ export const useTerminalStore = create<TerminalState>((set) => ({
 
     // Comando finalizado (apenas para RunCommand com markers — LLM)
     unsubs.push(EventsOn('terminal:command_end', (data: { sessionId: string; commandId: string; output: string; exitCode: number }) => {
-      if (terminalOutputListenerRefCount === 0 || endedSessions.has(data.sessionId)) return;
-      playReceiveSound();
-      const outputPreview = data.output
-        ? (data.output.length > 300 ? data.output.slice(0, 300) + i18next.t('terminal.announce.truncatedSuffix') : data.output)
-        : i18next.t('terminal.announce.emptyOutput');
-      announce(i18next.t('terminal.announce.outputWithExit', { output: outputPreview, exitCode: data.exitCode }));
+      if (!tracksHistory(data.sessionId)) return;
+      if (terminalOutputListenerRefCount > 0) {
+        playReceiveSound();
+        const outputPreview = data.output
+          ? (data.output.length > 300 ? data.output.slice(0, 300) + i18next.t('terminal.announce.truncatedSuffix') : data.output)
+          : i18next.t('terminal.announce.emptyOutput');
+        announce(i18next.t('terminal.announce.outputWithExit', { output: outputPreview, exitCode: data.exitCode }));
+      }
       set(state => {
         const sessionHistory = state.historyBySession[data.sessionId] || [];
         const updatedHistory = sessionHistory.map(entry => {
@@ -434,12 +431,7 @@ export const useTerminalStore = create<TerminalState>((set) => ({
       terminalEventListenerRefCount = Math.max(0, terminalEventListenerRefCount - 1);
       if (!options?.lifecycleOnly) {
         terminalOutputListenerRefCount = Math.max(0, terminalOutputListenerRefCount - 1);
-        if (terminalOutputListenerRefCount === 0 && announceTimer) {
-          clearTimeout(announceTimer);
-          announceTimer = null;
-          pendingOutput = '';
-          pendingOutputSessionId = '';
-        }
+        if (terminalOutputListenerRefCount === 0) pendingAnnouncements.forEach((_, id) => cancelOutputAnnouncement(id));
       }
       if (terminalEventListenerRefCount === 0 && terminalEventListenerCleanup) {
         terminalEventListenerCleanup();

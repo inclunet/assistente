@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import type { ReactNode, Ref } from 'react';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { act, createEvent, fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -183,11 +183,11 @@ vi.mock('../hooks/useRegisterWorkspaceChatAdapter', () => ({
 }));
 
 vi.mock('../components/ui/Toolbar', () => ({
-  Toolbar: ({ left, right, actions = [] }: { left?: ReactNode; right?: ReactNode; actions?: Array<{ key: string; label: string; disabled?: boolean; onClick: () => void }> }) => (
+  Toolbar: ({ left, right, actions = [] }: { left?: ReactNode; right?: ReactNode; actions?: Array<{ key: string; label: string; disabled?: boolean; buttonRef?: Ref<HTMLButtonElement>; onClick: () => void }> }) => (
     <div>
       {left}
       {actions.map((action) => (
-        <button key={action.key} disabled={action.disabled} onClick={action.onClick}>{action.label}</button>
+        <button key={action.key} ref={action.buttonRef} disabled={action.disabled} onClick={action.onClick}>{action.label}</button>
       ))}
       {right}
     </div>
@@ -208,14 +208,18 @@ const terminalTab = {
   state: { sessionId: 'term-1' },
 };
 
-function renderTerminalPage() {
-  return render(
+function terminalPageView() {
+  return (
     <MemoryRouter initialEntries={['/terminal']}>
       <WorkspacePanelProvider value={{ tab: terminalTab, isActive: true }}>
         <TerminalPage />
       </WorkspacePanelProvider>
     </MemoryRouter>,
   );
+}
+
+function renderTerminalPage() {
+  return render(terminalPageView());
 }
 
 describe('TerminalPage', () => {
@@ -260,6 +264,26 @@ describe('TerminalPage', () => {
   it('exibe o titulo da sessao ativa', () => {
     renderTerminalPage();
     expect(screen.getByRole('heading', { name: 'Terminal 1' })).toBeInTheDocument();
+  });
+
+  it.each([
+    { editorFocused: true, otherSession: true },
+    { editorFocused: true, otherSession: false },
+    { editorFocused: false, otherSession: true },
+  ])('ao encerrar a sessão preserva o contexto de foco $editorFocused com segunda sessão $otherSession', ({ editorFocused, otherSession }) => {
+    const { rerender } = renderTerminalPage();
+    const input = screen.getByLabelText('chat-input');
+    const otherButton = screen.getByRole('button', { name: 'Novo' });
+    if (editorFocused) input.focus();
+    else otherButton.focus();
+
+    storeState.sessions = otherSession ? [{ ...storeState.sessions[0], id: 'term-2' }] : [];
+    rerender(terminalPageView());
+
+    expect(input).toBeDisabled();
+    expect(editorFocused && otherSession
+      ? screen.getByRole('button', { name: /terminal.picker.label/ })
+      : otherButton).toHaveFocus();
   });
 
   it('getter da surface rejeita retarget da mesma aba sem rerender ou notify', () => {
