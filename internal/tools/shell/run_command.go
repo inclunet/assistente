@@ -453,6 +453,8 @@ func classifySessionStartError(err error) (string, tools.ErrorKind, bool) {
 		return "Executável do terminal não encontrado.", tools.ErrorKindUnavailable, false
 	case errors.Is(err, os.ErrPermission):
 		return "Permissão negada ao iniciar a sessão de terminal.", tools.ErrorKindUnavailable, false
+	case errors.Is(err, terminal.ErrSessionsDisabled):
+		return "Sessões de terminal desabilitadas pela configuração.", tools.ErrorKindUnavailable, false
 	case errors.Is(err, terminal.ErrSessionCapacity), errors.Is(err, syscall.EAGAIN), errors.Is(err, syscall.EBUSY):
 		return "Recurso do terminal temporariamente indisponível.", tools.ErrorKindUnavailable, true
 	default:

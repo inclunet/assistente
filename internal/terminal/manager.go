@@ -20,6 +20,9 @@ var ErrDirectoryUnresolved = errors.New("não foi possível resolver o diretóri
 // ErrSessionCapacity indica lotação transitória de um limite positivo.
 var ErrSessionCapacity = errors.New("limite de sessões temporariamente atingido")
 
+// ErrSessionsDisabled indica que a configuração impede abrir qualquer sessão.
+var ErrSessionsDisabled = errors.New("sessões de terminal desabilitadas pela configuração")
+
 // ErrSessionStart indica que a criação da sessão falhou antes de enviar o comando.
 var ErrSessionStart = errors.New("não foi possível iniciar a sessão de terminal")
 
@@ -94,7 +97,7 @@ func (m *Manager) create(name, workDir string, env []string) (*Session, error) {
 		if limit > 0 {
 			return nil, fmt.Errorf("%w (%d/%d)", ErrSessionCapacity, count, limit)
 		}
-		return nil, fmt.Errorf("limite de sessões desabilitado (%d/%d)", count, limit)
+		return nil, fmt.Errorf("%w (%d/%d)", ErrSessionsDisabled, count, limit)
 	}
 
 	if name == "" {

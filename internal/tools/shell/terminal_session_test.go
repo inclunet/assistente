@@ -180,3 +180,12 @@ func TestTerminalSessionCreatePreservaCategoriaDeLotacao(t *testing.T) {
 		t.Fatalf("resultado=%+v err=%v", got, err)
 	}
 }
+
+func TestTerminalSessionCreateComSessoesDesabilitadas(t *testing.T) {
+	cfg := terminal.DefaultManagerConfig()
+	cfg.MaxSessions = 0
+	got, err := NewTerminalSession(terminal.NewManager(cfg, nil), t.TempDir()).Execute(t.Context(), json.RawMessage(`{"action":"create"}`))
+	if err != nil || got.Failure == nil || got.Failure.Retryable || !strings.Contains(got.Content, "desabilitadas pela configur") {
+		t.Fatalf("resultado=%+v err=%v", got, err)
+	}
+}
