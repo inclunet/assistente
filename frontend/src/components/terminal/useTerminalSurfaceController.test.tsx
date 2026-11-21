@@ -9,6 +9,7 @@ const terminalMocks = vi.hoisted(() => ({
   closeSession: vi.fn(),
   loadSessions: vi.fn(),
   loadHistory: vi.fn(),
+  listeners: new Set<() => void>(),
 }));
 
 const workspaceMocks = vi.hoisted(() => ({
@@ -21,6 +22,7 @@ const workspaceMocks = vi.hoisted(() => ({
 vi.mock('../../store/terminalStore', () => ({
   useTerminalStore: {
     getState: () => terminalMocks,
+    subscribe: (listener: () => void) => { terminalMocks.listeners.add(listener); return () => terminalMocks.listeners.delete(listener); },
   },
 }));
 
@@ -57,6 +59,7 @@ describe('useTerminalSurfaceController', () => {
     terminalMocks.loadSessions.mockReset();
     terminalMocks.loadSessions.mockResolvedValue(undefined);
     terminalMocks.loadHistory.mockReset();
+    terminalMocks.listeners.clear();
     workspaceMocks.updateTab.mockReset();
     workspaceMocks.isInitialized = true;
     workspaceMocks.tabs = [terminalTab];
@@ -85,6 +88,23 @@ describe('useTerminalSurfaceController', () => {
     expect(terminalMocks.loadSessions).toHaveBeenCalledTimes(1);
     expect(terminalMocks.createSession).not.toHaveBeenCalled();
     expect(workspaceMocks.updateTab).not.toHaveBeenCalled();
+  });
+
+  it('carrega o histórico quando a listagem substituta encontra a sessão ativa', async () => {
+    terminalMocks.loadSessions.mockResolvedValueOnce(false);
+    const { unmount } = renderHook(() => useTerminalSurfaceController({
+      ...terminalTab, state: { sessionId: 'session-b' },
+    }, true));
+    await waitFor(() => expect(terminalMocks.loadSessions).toHaveBeenCalledTimes(1));
+    expect(terminalMocks.loadHistory).not.toHaveBeenCalled();
+    terminalMocks.sessions = [{ id: 'session-a' }, { id: 'session-b' }];
+    terminalMocks.listeners.forEach((listener) => listener());
+    expect(terminalMocks.loadHistory).toHaveBeenCalledTimes(1);
+    expect(terminalMocks.loadHistory).toHaveBeenCalledWith('session-b');
+    terminalMocks.historyBySession['session-b'] = [{ command: 'anterior' }];
+    terminalMocks.listeners.forEach((listener) => listener());
+    expect(terminalMocks.loadHistory).toHaveBeenCalledTimes(1);
+    unmount();
   });
 
   it('carrega histórico de sessão existente por sessionId explícito', async () => {

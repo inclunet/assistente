@@ -39,6 +39,12 @@ quando um `return` condicional pode ter encerrado o comando antes da etapa final
 O terminal conserva o código nativo quando a saída passa apenas por `Out-String`
 ou `Out-String -Stream`.
 
+Se o Assistente falhar ao enviar um comando ao shell, ele encerra a sessão
+para impedir que o próximo comando complete a linha anterior. Isso também vale
+quando você abre um terminal persistente e pede ao modelo que use essa sessão.
+A aba continua aberta, mas o campo de comando fica desabilitado. Para continuar,
+use a barra de ferramentas para escolher outra sessão ou criar uma nova.
+
 No PowerShell, você pode iniciar o comando com `using namespace` para usar
 nomes de tipos abreviados. Por exemplo, depois de `using namespace System.Text`,
 `[StringBuilder]::new('texto').ToString()` devolve `texto`.

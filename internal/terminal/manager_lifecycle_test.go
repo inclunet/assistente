@@ -11,6 +11,7 @@ import (
 	"sync"
 	"testing"
 	"testing/iotest"
+	"testing/synctest"
 	"time"
 
 	"github.com/KennethanCeyer/ptyx"
@@ -506,6 +507,187 @@ func TestPartialWriteRetiresSessionAndDrainsReader(t *testing.T) {
 	}
 }
 
+// O backend só prossegue quando o teste o libera. Nenhum timeout interno
+// do fake pode fazer uma espera ilimitada do chamador parecer correta.
+type stalledCleanupPTY struct {
+	fakePTYSession
+	phase                   string
+	stalled, resume, killed chan struct{}
+	reader                  *io.PipeReader
+	writer                  *io.PipeWriter
+	readErr, waitErr        error
+}
+
+func (p *stalledCleanupPTY) pause(phase string) {
+	if p.phase == phase {
+		close(p.stalled)
+		<-p.resume
+	}
+}
+func (p *stalledCleanupPTY) PtyReader() io.Reader { return p }
+func (p *stalledCleanupPTY) Read(b []byte) (int, error) {
+	p.pause("Read")
+	return p.reader.Read(b)
+}
+func (p *stalledCleanupPTY) Kill() error {
+	p.pause("Kill")
+	close(p.killed)
+	return p.writer.CloseWithError(p.readErr)
+}
+func (p *stalledCleanupPTY) Wait() error {
+	<-p.killed
+	p.pause("Wait")
+	return p.waitErr
+}
+func (p *stalledCleanupPTY) Close() error {
+	p.pause("Close")
+	return p.reader.Close()
+}
+
+func TestWriteFailureBoundsCallerWhileCleanupContinues(t *testing.T) {
+	for _, phase := range []string{"Kill", "Wait", "Read", "Close"} {
+		t.Run(phase, func(t *testing.T) {
+			reader, writer := io.Pipe()
+			p := &stalledCleanupPTY{phase: phase, reader: reader, writer: writer, stalled: make(chan struct{}), resume: make(chan struct{}), killed: make(chan struct{}), waitErr: errors.New("falha de espera")}
+			resume := sync.OnceFunc(func() { close(p.resume) })
+			t.Cleanup(resume)
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			ended := make(chan struct{}, 1)
+			exited := make(chan error, 1)
+			var raw, output strings.Builder
+			s := &Session{id: "blocked", shell: "bash", readerCtx: t.Context(), ptySession: p, onExit: func(_ string, err error) { exited <- err },
+				onOutput: func(_, _, chunk string) { output.WriteString(chunk) }, onRawOutput: func(_, chunk string) { raw.WriteString(chunk) }}
+			s.ptyWriter = manualTestWriter(func(data []byte) (int, error) {
+				_, after, ok := strings.Cut(string(data), "'"+markerStart)
+				if !ok {
+					return 0, errors.New("moldura sem início")
+				}
+				id, _, _ := strings.Cut(after, "'")
+				s.recordOutput(markerStart + id + "\nparcial")
+				return 1, io.ErrShortWrite
+			})
+			m := NewManager(DefaultManagerConfig(), func(event string, _ any) {
+				if event == "terminal:command_end" {
+					ended <- struct{}{}
+				}
+			})
+			m.sessions[s.id] = s
+			s.Start()
+			result := make(chan error, 1)
+			go func() { _, err := m.RunCommand(ctx, s.id, "example", time.Hour, "test"); result <- err }()
+			select {
+			case <-p.stalled:
+			case <-time.After(3 * time.Second):
+				t.Fatal("backend não bloqueou")
+			}
+			if phase == "Read" {
+				select {
+				case <-p.killed:
+				case <-time.After(time.Second):
+					t.Fatal("cleanup não iniciou")
+				}
+			}
+			cancel()
+			select {
+			case err := <-result:
+				if !errors.Is(err, ErrSessionWrite) || !errors.Is(err, io.ErrShortWrite) || !errors.Is(err, context.Canceled) {
+					t.Fatalf("causas: %v", err)
+				}
+			case <-time.After(time.Second):
+				t.Fatal("comando esperou backend bloqueado após cancelamento")
+			}
+			select {
+			case <-ended:
+			default:
+				t.Fatal("command_end ausente")
+			}
+			select {
+			case err := <-exited:
+				t.Fatalf("exited antes do cleanup: %v", err)
+			default:
+			}
+			m.Release(s.id)
+			if _, err := m.RunCommand(t.Context(), s.id, "outro", time.Hour, "test"); err == nil {
+				t.Fatal("aceitou outro comando")
+			}
+			if s.State() != StateClosing || len(s.GetHistory()) != 1 || s.GetHistory()[0].Output != "parcial" || output.String() != "parcial" {
+				t.Fatalf("resultado parcial inesperado: %v", s.GetHistory())
+			}
+			s.recordOutput("tardio")
+			if raw.Len() != 0 || s.outputBuf.Len() != 0 {
+				t.Fatal("saída tardia foi acumulada ou publicada como manual")
+			}
+			closed := make(chan error, 1)
+			go func() { closed <- m.Close(s.id) }()
+			resume()
+			select {
+			case err := <-closed:
+				if !errors.Is(err, p.waitErr) {
+					t.Fatalf("Close perdeu causa do backend: %v", err)
+				}
+			case <-time.After(3 * time.Second):
+				t.Fatal("Close não concluiu")
+			}
+			select {
+			case err := <-exited:
+				if !errors.Is(err, p.waitErr) || !errors.Is(err, ErrSessionWrite) || !errors.Is(err, context.Canceled) {
+					t.Fatalf("exited perdeu causas: %v", err)
+				}
+			case <-time.After(time.Second):
+				t.Fatal("exited não entregue")
+			}
+		})
+	}
+}
+
+func TestWriteFailureHonorsCommandTimeout(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		reader, writer := io.Pipe()
+		p := &stalledCleanupPTY{phase: "Kill", reader: reader, writer: writer, stalled: make(chan struct{}), resume: make(chan struct{}), killed: make(chan struct{})}
+		s := &Session{id: "timeout", shell: "bash", readerCtx: t.Context(), ptySession: p, ptyWriter: manualTestWriter(func([]byte) (int, error) { return 0, io.ErrShortWrite })}
+		m := NewManager(DefaultManagerConfig(), nil)
+		m.sessions[s.id] = s
+		s.Start()
+		const budget = 3 * time.Second
+		start := time.Now()
+		_, err := m.RunCommand(t.Context(), s.id, "exemplo", budget, "test")
+		close(p.resume)
+		if !errors.Is(err, context.DeadlineExceeded) || !errors.Is(err, ErrSessionWrite) || time.Since(start) != budget {
+			t.Fatalf("prazo=%v erro=%v", time.Since(start), err)
+		}
+		if err := s.Close(); err != nil {
+			t.Fatal(err)
+		}
+	})
+}
+
+func TestWriteCleanupPreservesIndependentReadError(t *testing.T) {
+	reader, writer := io.Pipe()
+	readErr := errors.New("leitura interrompida por outra causa")
+	waitErr := errors.New("erro independente de espera")
+	exited := make(chan error, 1)
+	p := &stalledCleanupPTY{reader: reader, writer: writer, killed: make(chan struct{}), readErr: readErr, waitErr: waitErr}
+	s := &Session{id: "read-during-write-cleanup", shell: "bash", readerCtx: t.Context(), ptySession: p, onExit: func(_ string, err error) { exited <- err }, ptyWriter: manualTestWriter(func([]byte) (int, error) { return 0, io.ErrShortWrite })}
+	m := NewManager(DefaultManagerConfig(), nil)
+	m.sessions[s.id] = s
+	s.Start()
+	_, err := m.RunCommand(t.Context(), s.id, "example", time.Minute, "test")
+	if !errors.Is(err, ErrSessionRead) || !errors.Is(err, readErr) || !errors.Is(err, ErrSessionWrite) || !errors.Is(err, io.ErrShortWrite) {
+		t.Fatalf("causas: %v", err)
+	}
+	select {
+	case eventErr := <-exited:
+		for _, cause := range []error{readErr, waitErr, ErrSessionWrite} {
+			if !errors.Is(eventErr, cause) || strings.Count(eventErr.Error(), cause.Error()) != 1 {
+				t.Fatalf("causa %q ausente ou repetida em exited: %v", cause, eventErr)
+			}
+		}
+	case <-time.After(time.Second):
+		t.Fatal("exited não entregue")
+	}
+}
+
 func TestPartialWriteDeliversAlreadyBufferedCommandOutput(t *testing.T) {
 	const want = "  parcial  \n_"
 	for _, reader := range []string{"aberto", "EOF"} {
@@ -590,11 +772,25 @@ func TestReadFailureWhileWritingCommand(t *testing.T) {
 			defer func() { _ = reader.Close() }()
 			defer func() { _ = writer.Close() }()
 			var emitted strings.Builder
+			ended := make(chan struct{})
+			exited := make(chan bool, 1)
 			session := &Session{id: "test", shell: "bash", ptySession: pty, ptyReader: reader, readerCtx: t.Context(),
 				onOutput: func(_, _, output string) { emitted.WriteString(output) },
+				onExit: func(_ string, err error) {
+					select {
+					case <-ended:
+						exited <- errors.Is(err, ErrSessionWrite) && errors.Is(err, ErrSessionRead)
+					default:
+						exited <- false
+					}
+				},
 			}
 			session.Start()
-			manager := NewManager(DefaultManagerConfig(), nil)
+			manager := NewManager(DefaultManagerConfig(), func(event string, _ any) {
+				if event == "terminal:command_end" {
+					close(ended)
+				}
+			})
 			manager.sessions[session.id] = session
 			type outcome struct {
 				entry *HistoryEntry
@@ -647,6 +843,14 @@ func TestReadFailureWhileWritingCommand(t *testing.T) {
 				t.Fatal("falha do leitor não liberou o writer")
 			}
 			<-session.closeDone
+			select {
+			case ordered := <-exited:
+				if !ordered {
+					t.Fatal("exited antes de command_end ou sem as duas causas")
+				}
+			case <-time.After(time.Second):
+				t.Fatal("exited não entregue")
+			}
 			if pty.killCalls != 1 || pty.closeCalls != 1 {
 				t.Fatalf("kill=%d close=%d", pty.killCalls, pty.closeCalls)
 			}

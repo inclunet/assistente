@@ -303,7 +303,8 @@ func (rc *RunCommand) Execute(ctx context.Context, args json.RawMessage) (tools.
 			duration = entry.EndedAt.Sub(entry.StartedAt).String()
 		}
 
-		isTimeout := errors.Is(err, context.DeadlineExceeded) && !errors.Is(err, terminal.ErrSessionRead) && !errors.Is(err, terminal.ErrSessionClosed)
+		isTimeout := errors.Is(err, context.DeadlineExceeded) &&
+			!errors.Is(err, terminal.ErrSessionWrite) && !errors.Is(err, terminal.ErrSessionRead) && !errors.Is(err, terminal.ErrSessionClosed)
 
 		if isTimeout && output != "" {
 			// Timeout COM output: retorna como sucesso com nota sobre timeout
@@ -351,6 +352,7 @@ func (rc *RunCommand) Execute(ctx context.Context, args json.RawMessage) (tools.
 			metadata["deepLink"] = deepLinkForSession(sessionID)
 		}
 		message := fmt.Sprintf("Erro ao executar comando: %v", err)
+		// A sessão fornece os horários na entrada de histórico. Sem ela, a duração é desconhecida.
 		if entry != nil {
 			message += "\nDuração registrada: " + duration
 			metadata["commandId"] = entry.ID

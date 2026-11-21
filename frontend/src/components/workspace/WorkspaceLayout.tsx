@@ -3,6 +3,7 @@ import { Outlet, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Spin } from 'antd';
 import { useWorkspaceStore } from '../../store/workspaceStore';
+import { useTerminalStore } from '../../store/terminalStore';
 import { useShallow } from 'zustand/shallow';
 import { useDocumentTitle } from '../../hooks/useDocumentTitle';
 import { useWorkspaceKeyboardShortcuts } from '../../hooks/useWorkspaceKeyboardShortcuts';
@@ -43,6 +44,13 @@ export function WorkspaceLayout() {
     const cleanup = setupEventListeners();
     return cleanup;
   }, [setupEventListeners]);
+
+  useEffect(() => {
+    const terminal = useTerminalStore.getState();
+    const cleanup = terminal.setupEventListeners({ lifecycleOnly: true });
+    void terminal.loadSessions();
+    return cleanup;
+  }, []);
 
   const isWorkspaceRoute = pathname === '/' || pathname === '';
   useWorkspaceChatBridge();

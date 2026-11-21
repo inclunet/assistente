@@ -15,6 +15,14 @@ func closeTestManager(session *Session) *Manager {
 func TestCaptureClosePrepareExecuteUsesExactSessionAndGeneration(t *testing.T) {
 	session := &Session{id: "close-session", state: StateIdle}
 	m := closeTestManager(session)
+	closed := 0
+	m.emitEvent = func(event string, data any) {
+		payload, ok := data.(map[string]string)
+		if event != "terminal:session_closed" || !ok || payload["sessionId"] != session.id || m.Has(session.id) {
+			t.Fatalf("evento de fechamento inesperado: %s %v", event, data)
+		}
+		closed++
+	}
 
 	snapshot, err := m.CaptureClose(session.id)
 	if err != nil {
@@ -32,6 +40,9 @@ func TestCaptureClosePrepareExecuteUsesExactSessionAndGeneration(t *testing.T) {
 	}
 	if _, err := m.PrepareClose(snapshot); !errors.Is(err, ErrCloseStale) {
 		t.Fatalf("captura reutilizada aceita: %v", err)
+	}
+	if err := operation.Execute(t.Context()); !errors.Is(err, ErrCloseStale) || closed != 1 {
+		t.Fatalf("reexecução=%v eventos de fechamento=%d", err, closed)
 	}
 }
 

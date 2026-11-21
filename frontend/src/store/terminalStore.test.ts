@@ -3,6 +3,8 @@ import { terminal } from '../../wailsjs/go/models';
 import { resolveTerminalCommandId, useTerminalStore } from './terminalStore';
 import { useAuthStore } from './authStore';
 import { ListTerminalSessions } from '@wailsjs/go/wailsapi/Terminal';
+import { announce } from '../hooks/useAnnouncer';
+import i18next from 'i18next';
 
 const mockGetTerminalHistory = vi.fn();
 const terminalEventHandlers = vi.hoisted(() => new Map<string, (data: unknown) => void>());
@@ -76,6 +78,101 @@ describe('terminalStore', () => {
       isLoadingSessions: false,
       loadingHistoryBySession: {},
     });
+  });
+
+  it('não restaura sessão encerrada por listagem que já estava em andamento', async () => {
+    const pending = createDeferred<terminal.SessionInfo[]>();
+    vi.mocked(ListTerminalSessions).mockReturnValueOnce(pending.promise).mockResolvedValueOnce([terminal.SessionInfo.createFrom({ id: 'alive', name: 'Outro' })]);
+    const cleanup = useTerminalStore.getState().setupEventListeners();
+    try {
+      useTerminalStore.setState({ sessions: [terminal.SessionInfo.createFrom({ id: 'stale', name: 'Terminal' })] });
+      const request = useTerminalStore.getState().loadSessions();
+      terminalEventHandlers.get('terminal:exited')?.({ sessionId: 'stale' });
+      pending.resolve([terminal.SessionInfo.createFrom({ id: 'stale' })]);
+      expect(await request).toBe(true);
+      expect(useTerminalStore.getState().sessions.map((session) => session.id)).toEqual(['alive']);
+      expect(useTerminalStore.getState().isLoadingSessions).toBe(false);
+    } finally { cleanup(); }
+  });
+
+  it('não considera válida a relistagem substituta após troca de usuário', async () => {
+    const owner = useAuthStore.getState();
+    const original = createDeferred<terminal.SessionInfo[]>();
+    const replacement = createDeferred<terminal.SessionInfo[]>();
+    vi.mocked(ListTerminalSessions).mockReturnValueOnce(original.promise).mockReturnValueOnce(replacement.promise);
+    useAuthStore.setState({ isAuthenticated: true, user: { userId: 'a', sessionId: 'a', role: 'user' } });
+    const cleanup = useTerminalStore.getState().setupEventListeners();
+    try {
+      const request = useTerminalStore.getState().loadSessions();
+      terminalEventHandlers.get('terminal:exited')?.({ sessionId: 'closed' });
+      original.resolve([terminal.SessionInfo.createFrom({ id: 'closed' })]);
+      await Promise.resolve();
+      useAuthStore.setState({ user: { userId: 'b', sessionId: 'b', role: 'user' } });
+      replacement.resolve([terminal.SessionInfo.createFrom({ id: 'private-a' })]);
+      expect(await request).toBe(false);
+      expect(useTerminalStore.getState().sessions).toEqual([]);
+    } finally { cleanup(); useAuthStore.setState(owner); }
+  });
+
+  it('escuta encerramentos em segundo plano e carrega o histórico ao abrir a aba', async () => {
+    vi.useFakeTimers();
+    const cleanup = useTerminalStore.getState().setupEventListeners({ lifecycleOnly: true });
+    vi.mocked(announce).mockClear();
+    try {
+      terminalEventHandlers.get('terminal:session_created')?.(terminal.SessionInfo.createFrom({ id: 's1', name: 'Principal' }));
+      terminalEventHandlers.get('terminal:command_start')?.({ sessionId: 's1', commandId: 'c1', command: 'pwd', source: 'llm' });
+      terminalEventHandlers.get('terminal:raw_output')?.({ sessionId: 's1', output: 'saída' });
+      terminalEventHandlers.get('terminal:command_end')?.({ sessionId: 's1', commandId: 'c1', output: 'saída', exitCode: 0 });
+      vi.runAllTimers();
+      expect(announce).not.toHaveBeenCalled();
+      expect(useTerminalStore.getState().historyBySession).not.toHaveProperty('s1');
+      const entry = terminal.HistoryEntry.createFrom({ id: 'antigo', command: 'antigo', output: 'histórico' });
+      mockGetTerminalHistory.mockResolvedValueOnce([entry]);
+      const pageCleanup = useTerminalStore.getState().setupEventListeners();
+      await useTerminalStore.getState().loadHistory('s1');
+      expect(useTerminalStore.getState().historyBySession.s1).toEqual([entry]);
+      pageCleanup();
+      terminalEventHandlers.get('terminal:session_closed')?.({ sessionId: 's1' });
+      expect(announce).toHaveBeenCalledTimes(1);
+    } finally { cleanup(); vi.useRealTimers(); }
+  });
+
+  it('anuncia saída espontânea uma vez e ignora eventos tardios sem bloquear comando antecipado', () => {
+    vi.useFakeTimers();
+    const cleanup = useTerminalStore.getState().setupEventListeners();
+    vi.mocked(announce).mockClear();
+    try {
+      terminalEventHandlers.get('terminal:command_start')?.({ sessionId: 's1', commandId: 'early', command: 'pwd', source: 'llm' });
+      expect(useTerminalStore.getState().historyBySession.s1).toHaveLength(1);
+      terminalEventHandlers.get('terminal:session_created')?.(terminal.SessionInfo.createFrom({ id: 's1', name: 'Principal' }));
+      terminalEventHandlers.get('terminal:raw_output')?.({ sessionId: 's1', output: 'pendente' });
+      terminalEventHandlers.get('terminal:exited')?.({ sessionId: 's1', terminalId: 's1', error: 'falha' });
+      vi.runAllTimers();
+      expect(useTerminalStore.getState().sessions).toEqual([]);
+      expect(useTerminalStore.getState().historyBySession).not.toHaveProperty('s1');
+      expect(announce).toHaveBeenCalledTimes(1);
+      expect(announce).toHaveBeenCalledWith(i18next.t('terminal.announce.exited', { name: 'Principal' }));
+      terminalEventHandlers.get('terminal:exited')?.({ sessionId: 's1' });
+      terminalEventHandlers.get('terminal:session_closed')?.({ sessionId: 's1' });
+      terminalEventHandlers.get('terminal:command_start')?.({ sessionId: 's1', commandId: 'late', command: 'pwd', source: 'llm' });
+      terminalEventHandlers.get('terminal:command_output')?.({ sessionId: 's1', commandId: 'late', output: 'tardio' });
+      terminalEventHandlers.get('terminal:raw_output')?.({ sessionId: 's1', output: 'tardio' });
+      terminalEventHandlers.get('terminal:command_end')?.({ sessionId: 's1', commandId: 'late', output: 'tardio', exitCode: 1 });
+      expect(useTerminalStore.getState().historyBySession).not.toHaveProperty('s1');
+      expect(useTerminalStore.getState().activeEntryBySession).not.toHaveProperty('s1');
+      expect(announce).toHaveBeenCalledTimes(1);
+
+      useTerminalStore.setState({ sessions: [terminal.SessionInfo.createFrom({ id: 's2', name: 'Outra' })] });
+      terminalEventHandlers.get('terminal:session_closed')?.({ sessionId: 's2' });
+      terminalEventHandlers.get('terminal:exited')?.({ sessionId: 's2' });
+      expect(useTerminalStore.getState().sessions).toEqual([]);
+      expect(announce).toHaveBeenCalledTimes(2);
+      expect(announce).toHaveBeenLastCalledWith(i18next.t('terminal.announce.exited', { name: 'Outra' }));
+      terminalEventHandlers.get('terminal:session_closed')?.({ sessionId: 's3' });
+      terminalEventHandlers.get('terminal:exited')?.({ sessionId: 's3' });
+      expect(announce).toHaveBeenCalledTimes(3);
+      expect(announce).toHaveBeenLastCalledWith(i18next.t('terminal.announce.exited', { name: 's3' }));
+    } finally { cleanup(); vi.useRealTimers(); }
   });
 
   it('trata session_created duplicado como no-op sem resetar histórico', () => {

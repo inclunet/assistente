@@ -76,6 +76,10 @@ vi.mock('antd', () => ({
   Spin: () => <div role="status">Carregando</div>,
 }));
 
+vi.mock('../../store/terminalStore', () => ({
+  useTerminalStore: Object.assign(vi.fn(), { getState: () => ({ setupEventListeners: () => () => {}, loadSessions: vi.fn(async () => true) }) }),
+}));
+
 vi.mock('../../store/workspaceStore', () => ({
   useWorkspaceStore: Object.assign(
     (selector: (state: unknown) => unknown) => selector(storeMock.state),
