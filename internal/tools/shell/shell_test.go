@@ -561,7 +561,7 @@ func TestTimeoutWithPartialOutput(t *testing.T) {
 	if !contains(result.Content, "TIMEOUT") {
 		t.Errorf("esperado '[TIMEOUT' no output, got %q", result.Content)
 	}
-	if result.Metadata["duration"] != "200ms" || strings.Contains(result.Content, "5s") {
+	if result.Metadata["duration"] != "200ms" || !strings.Contains(result.Content, "200ms") || strings.Contains(result.Content, "5s") {
 		t.Fatalf("prazo configurado apresentado como tempo decorrido: %+v", result)
 	}
 	if !contains(result.Content, "partial output") {

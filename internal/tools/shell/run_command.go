@@ -289,16 +289,17 @@ func (rc *RunCommand) Execute(ctx context.Context, args json.RawMessage) (tools.
 	if err != nil {
 		// Um prazo expirado pode entregar saída parcial. A duração da entrada
 		// reflete a execução mesmo quando o contexto pai venceu primeiro.
-		output := ""
+		output, duration := "", ""
 		if entry != nil {
 			output = entry.Output
+			duration = entry.EndedAt.Sub(entry.StartedAt).String()
 		}
 
 		isTimeout := errors.Is(err, context.DeadlineExceeded) && !errors.Is(err, terminal.ErrSessionRead) && !errors.Is(err, terminal.ErrSessionClosed)
 
 		if isTimeout && output != "" {
 			// Timeout COM output: retorna como sucesso com nota sobre timeout
-			content := "[TIMEOUT — o prazo de execução terminou. Output parcial capturado:]\n\n" + output
+			content := fmt.Sprintf("[TIMEOUT — duração registrada: %s. Output parcial capturado:]\n\n%s", duration, output)
 
 			result := tools.ToolResult{
 				Content: content,
@@ -308,7 +309,7 @@ func (rc *RunCommand) Execute(ctx context.Context, args json.RawMessage) (tools.
 						"workDir":   workDir,
 						"exitCode":  -1,
 						"timeout":   true,
-						"duration":  entry.EndedAt.Sub(entry.StartedAt).String(),
+						"duration":  duration,
 						"commandId": entry.ID,
 					}
 					if sessionID != "" {
@@ -343,7 +344,7 @@ func (rc *RunCommand) Execute(ctx context.Context, args json.RawMessage) (tools.
 		}
 		if entry != nil {
 			metadata["commandId"] = entry.ID
-			metadata["duration"] = entry.EndedAt.Sub(entry.StartedAt).String()
+			metadata["duration"] = duration
 		}
 		result := tools.ToolResult{
 			Content:  fmt.Sprintf("Erro ao executar comando: %v\n\nOutput parcial:\n%s", err, output),
