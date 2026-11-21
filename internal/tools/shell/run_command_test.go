@@ -651,9 +651,9 @@ func TestExpiredShellAttemptCannotPromptOrDispatchAfterPolicyReturns(t *testing.
 			synctest.Test(t, func(t *testing.T) {
 				release := make(chan struct{})
 				mgr := new(MockSessionManager)
-				prompts := 0
+				var prompts atomic.Int32
 				rc := NewRunCommand(mgr, func(context.Context, string, string) (bool, error) {
-					prompts++
+					prompts.Add(1)
 					return true, nil
 				}, func(context.Context) (*allowlist.Allowlist, error) {
 					<-release
@@ -670,8 +670,8 @@ func TestExpiredShellAttemptCannotPromptOrDispatchAfterPolicyReturns(t *testing.
 				got := tools.NewExecutor(reg, cfg).ExecuteOne(t.Context(), tools.ToolCall{ID: "expiry", Function: tools.FunctionCall{Name: rc.Name(), Arguments: `{"command":"echo ok"}`}})
 				close(release)
 				synctest.Wait()
-				if !errors.Is(got.Error, context.DeadlineExceeded) || got.ErrorKind != tools.ErrorKindTimeout || !got.Retryable || prompts != 0 || mgr.runEphemeralCalls != 0 {
-					t.Fatalf("resultado=%+v diálogos=%d despachos=%d", got, prompts, mgr.runEphemeralCalls)
+				if !errors.Is(got.Error, context.DeadlineExceeded) || got.ErrorKind != tools.ErrorKindTimeout || !got.Retryable || prompts.Load() != 0 || mgr.runEphemeralCalls.Load() != 0 {
+					t.Fatalf("resultado=%+v diálogos=%d despachos=%d", got, prompts.Load(), mgr.runEphemeralCalls.Load())
 				}
 			})
 		})

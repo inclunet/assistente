@@ -56,8 +56,8 @@ func TestDirectorySymlinkSwapDuringConsentDoesNotExecute(t *testing.T) {
 	if result.Failure == nil || result.Failure.Code != FailurePrerequisiteUnavailable || !strings.Contains(logs.String(), "reason=directory_changed") {
 		t.Fatalf("troca de diretório: %+v log=%s", result, logs.String())
 	}
-	if err != nil || !result.IsError || m.runEphemeralCalls != 0 {
-		t.Fatalf("executou após troca: %+v %v calls=%d", result, err, m.runEphemeralCalls)
+	if err != nil || !result.IsError || m.runEphemeralCalls.Load() != 0 {
+		t.Fatalf("executou após troca: %+v %v calls=%d", result, err, m.runEphemeralCalls.Load())
 	}
 }
 
@@ -121,8 +121,8 @@ func TestPolicyUnavailableAfterApproval(t *testing.T) {
 	terminal := &MockSessionManager{}
 	rc := NewRunCommand(terminal, authorizer.Authorize, policy, dir)
 	result, err := rc.Execute(authorizationfixture.Context(), json.RawMessage(`{"command":"example check"}`))
-	if !approved || err != nil || result.Failure == nil || result.Failure.Code != FailurePrerequisiteUnavailable || terminal.runEphemeralCalls != 0 {
-		t.Fatalf("approved=%t result=%+v err=%v calls=%d", approved, result, err, terminal.runEphemeralCalls)
+	if !approved || err != nil || result.Failure == nil || result.Failure.Code != FailurePrerequisiteUnavailable || terminal.runEphemeralCalls.Load() != 0 {
+		t.Fatalf("approved=%t result=%+v err=%v calls=%d", approved, result, err, terminal.runEphemeralCalls.Load())
 	}
 }
 
@@ -238,8 +238,8 @@ func TestInvalidRequestedDirectoryReturnsArgumentError(t *testing.T) {
 			}
 			result, err := rc.Execute(authorizationfixture.Context(), args)
 			cause, invalid := strings.CutPrefix(result.Content, "working_directory inválido: ")
-			if err != nil || !result.IsError || !invalid || cause == "" || strings.Contains(result.Content, dir) || strings.Contains(result.Content, requested) || result.Failure != nil || terminal.runEphemeralCalls != 0 {
-				t.Fatalf("result=%+v err=%v calls=%d", result, err, terminal.runEphemeralCalls)
+			if err != nil || !result.IsError || !invalid || cause == "" || strings.Contains(result.Content, dir) || strings.Contains(result.Content, requested) || result.Failure != nil || terminal.runEphemeralCalls.Load() != 0 {
+				t.Fatalf("result=%+v err=%v calls=%d", result, err, terminal.runEphemeralCalls.Load())
 			}
 			if strings.Contains(output.String(), "directory_unresolved") || strings.Contains(output.String(), dir) {
 				t.Fatalf("argumento inválido diagnosticado como pré-requisito: %s", &output)

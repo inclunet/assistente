@@ -6,6 +6,7 @@ import (
 	"errors"
 	"reflect"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 	"unsafe"
@@ -187,7 +188,7 @@ type MockSessionManager struct {
 	releaseCalls      int
 	closeCalls        int
 	runCommandCalls   int
-	runEphemeralCalls int
+	runEphemeralCalls atomic.Int32
 	runSessionID      string
 	runCommandText    string
 	runTimeout        time.Duration
@@ -259,7 +260,7 @@ func (m *MockSessionManager) Close(sessionID string) error {
 }
 
 func (m *MockSessionManager) RunEphemeral(ctx context.Context, workDir, command string, timeout time.Duration, source string) (*terminal.HistoryEntry, error) {
-	m.runEphemeralCalls++
+	m.runEphemeralCalls.Add(1)
 	m.runCommandText = command
 	m.runTimeout = timeout
 	if m.fakeRunErr != nil {
@@ -305,8 +306,8 @@ func TestSuccessfulExecution(t *testing.T) {
 	if !contains(result.Content, "hello") {
 		t.Errorf("esperado output contém 'hello', got %q", result.Content)
 	}
-	if mgr.runEphemeralCalls != 1 {
-		t.Errorf("esperado 1 RunEphemeral call (efêmero por padrão), got %d", mgr.runEphemeralCalls)
+	if mgr.runEphemeralCalls.Load() != 1 {
+		t.Errorf("esperado 1 RunEphemeral call (efêmero por padrão), got %d", mgr.runEphemeralCalls.Load())
 	}
 	if mgr.runCommandCalls != 0 {
 		t.Errorf("não esperado RunCommand em modo efêmero, got %d", mgr.runCommandCalls)
@@ -360,8 +361,8 @@ func TestPersistentFlagKeepsSession(t *testing.T) {
 	if mgr.runCommandCalls != 1 {
 		t.Errorf("esperado 1 RunCommand com persistent=true, got %d", mgr.runCommandCalls)
 	}
-	if mgr.runEphemeralCalls != 0 {
-		t.Errorf("não esperado RunEphemeral com persistent=true, got %d", mgr.runEphemeralCalls)
+	if mgr.runEphemeralCalls.Load() != 0 {
+		t.Errorf("não esperado RunEphemeral com persistent=true, got %d", mgr.runEphemeralCalls.Load())
 	}
 	if mgr.closeCalls != 0 {
 		t.Errorf("não esperado Close com persistent=true, got %d", mgr.closeCalls)
@@ -788,8 +789,8 @@ func TestTimeoutExceedsMaxTimeout(t *testing.T) {
 
 	// Validar que timeout foi clipped (não há forma de confirmar diretamente,
 	// mas o Manager foi chamado, logo timeout foi calculado e respeitado)
-	if mgr.runEphemeralCalls != 1 {
-		t.Errorf("esperado 1 RunEphemeral call (efêmero), got %d", mgr.runEphemeralCalls)
+	if mgr.runEphemeralCalls.Load() != 1 {
+		t.Errorf("esperado 1 RunEphemeral call (efêmero), got %d", mgr.runEphemeralCalls.Load())
 	}
 }
 
@@ -818,8 +819,8 @@ func TestConfirmDecisionWithNilCallback(t *testing.T) {
 	if !result.IsError {
 		t.Fatalf("esperada recusa sem interlocutor, got: %s", result.Content)
 	}
-	if mgr.runEphemeralCalls != 0 {
-		t.Errorf("comando executado sem autorização: %d calls", mgr.runEphemeralCalls)
+	if mgr.runEphemeralCalls.Load() != 0 {
+		t.Errorf("comando executado sem autorização: %d calls", mgr.runEphemeralCalls.Load())
 	}
 }
 
@@ -980,8 +981,8 @@ func TestMultipleExecutionsReleaseSession(t *testing.T) {
 	}
 
 	// RunEphemeral deve ser chamado 3 vezes (efêmero por padrão, sem aba)
-	if mgr.runEphemeralCalls != 3 {
-		t.Errorf("esperado 3 RunEphemeral calls, got %d", mgr.runEphemeralCalls)
+	if mgr.runEphemeralCalls.Load() != 3 {
+		t.Errorf("esperado 3 RunEphemeral calls, got %d", mgr.runEphemeralCalls.Load())
 	}
 	if mgr.runCommandCalls != 0 {
 		t.Errorf("não esperado RunCommand em modo efêmero, got %d", mgr.runCommandCalls)
