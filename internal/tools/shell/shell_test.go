@@ -657,6 +657,9 @@ func TestAcquireSessionError(t *testing.T) {
 	if !contains(result.Content, "sessão") {
 		t.Errorf("esperado mention de sessão na mensagem, got %q", result.Content)
 	}
+	if result.Failure == nil || result.Failure.Code != FailureSessionStart || result.Failure.Kind != tools.ErrorKindTimeout || result.Failure.Retryable {
+		t.Fatalf("timeout ao adquirir sessão=%+v", result.Failure)
+	}
 }
 
 // TestConfirmFunctionError valida erro ao chamar confirmFunc

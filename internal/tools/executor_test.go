@@ -789,14 +789,20 @@ func TestExecutorInterruptionAfterApprovalInEitherSelectOrder(t *testing.T) {
 			defer stop()
 			e := NewExecutor(NewRegistry(), DefaultExecutorConfig())
 			call := ToolCall{ID: "approval", Function: FunctionCall{Name: "ask"}}
-			for _, result := range []*ToolExecutionResult{nil, {Result: ToolResult{IsError: true}, ErrorKind: ErrorKindUnknown}} {
-				got := e.finishExecution(parent, toolCtx, call, time.Now(), result, &confirmationState{status: confirmationApproved}, &securitySignalCollector{})
-				expectedErr, expectedKind := context.DeadlineExceeded, ErrorKindTimeout
-				if parentCancelled {
-					expectedErr, expectedKind = context.Canceled, ErrorKindCancelled
+			for _, state := range []confirmationStatus{confirmationApproved, confirmationApprovedByPolicy} {
+				results := []*ToolExecutionResult{nil, {Result: ToolResult{IsError: true}, ErrorKind: ErrorKindUnknown}}
+				if state == confirmationApprovedByPolicy {
+					results = append(results, &ToolExecutionResult{Result: ToolResult{IsError: true, Failure: &ToolFailure{Kind: ErrorKindUnavailable, Retryable: true}}})
 				}
-				if !errors.Is(got.Error, expectedErr) || got.ErrorKind != expectedKind || got.ErrorCode != "" || got.Retryable || !got.RetryabilityKnown {
-					t.Fatalf("resultado=%+v", got)
+				for _, result := range results {
+					got := e.finishExecution(parent, toolCtx, call, time.Now(), result, &confirmationState{status: state}, &securitySignalCollector{})
+					expectedErr, expectedKind := context.DeadlineExceeded, ErrorKindTimeout
+					if parentCancelled {
+						expectedErr, expectedKind = context.Canceled, ErrorKindCancelled
+					}
+					if !errors.Is(got.Error, expectedErr) || got.ErrorKind != expectedKind || got.ErrorCode != "" || got.Retryable || !got.RetryabilityKnown {
+						t.Fatalf("resultado=%+v", got)
+					}
 				}
 			}
 		})
