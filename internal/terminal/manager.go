@@ -196,8 +196,7 @@ func (m *Manager) RunEphemeral(ctx context.Context, workDir, command string, tim
 	// O shell pode carregar um perfil que muda o diretório. Reestabelecer o
 	// diretório da execução depois da inicialização impede que isso amplie
 	// uma autorização vinculada ao diretório, sem retirar o ambiente do usuário.
-	executionCommand := commandInDirectory(command, session.cwd, shellType(session.shell))
-	result, err := session.RunCommand(ctx, executionCommand, timeout, source, commandID)
+	result, err := session.runCommandInDirectory(ctx, command, session.cwd, timeout, source, commandID)
 	return completeCommandEntry(entry, result, err), err
 }
 

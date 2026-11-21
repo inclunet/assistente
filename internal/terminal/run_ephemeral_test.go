@@ -3,7 +3,9 @@ package terminal
 import (
 	"context"
 	"errors"
+	"os/exec"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -123,6 +125,23 @@ func TestPowerShellPipelineAndGroupedStatus(t *testing.T) {
 		{"cmd /c 'echo sample 1>&2 & exit 0' 2>&1 | Get-Item -ErrorAction Ignore", 1},
 		{"throw 'falha de teste'", 1},
 		{"(cmd /c exit 7)", 7},
+		{"$(cmd /c exit 7)", 7},
+		{"@(cmd /c exit 7)", 7},
+		{"(cmd /c exit 7); return", 7},
+		{"return (cmd /c exit 7)", 7},
+		{"cmd /c exit 7; return (Get-Item missing-leaf -ErrorAction Ignore)", 1},
+		{"@($(cmd /c exit 7)) # nota", 7},
+		{"cmd /c exit 7; @(Get-Item missing-leaf -ErrorAction Ignore)", 1},
+		{"cmd /c 'echo sample 1>&2 & exit 0' 2>&1 | Out-String -Stream", 0},
+		{"cmd /c 'echo sample 1>&2 & exit 0' 2>&1 | Microsoft.PowerShell.Utility\\Out-String -Stream", 0},
+		{"cmd /c 'echo sample 1>&2 & exit 0' 2>&1 | Out-String -InvalidParameter", 1},
+		{"cmd /c exit 7; Get-Item missing-leaf -ErrorAction Ignore", 1},
+		{"cmd /c exit 7; if ($true) { Get-Item missing-leaf -ErrorAction Ignore }", 1},
+		{"if ($true) { cmd /c exit 9 }", 9},
+		{"return (& (Get-Command cmd.exe) /c exit 7)", 7},
+		{"cmd /c exit 7; & (Get-Command Get-Item) missing-leaf -ErrorAction Ignore", 1},
+		{"cmd /c exit 7; $target = 'Get-Item'; & $target missing-leaf -ErrorAction Ignore", 1},
+		{"$count=0; & (& { $script:count++; if ($script:count -gt 1) { throw 'reavaliação' }; Get-Command cmd.exe }) /c exit 7", 7},
 		{"(cmd /c exit 7) # nota)", 7},
 		{"(cmd /c exit 7) # nota com espaços  ", 7},
 		{"(cmd /c 'echo sample 1>&2 & exit 0' 2>&1 | Get-Item -ErrorAction Ignore)", 1},
@@ -145,6 +164,62 @@ func TestPowerShellPipelineAndGroupedStatus(t *testing.T) {
 	}
 }
 
+func TestPowerShellStrictModeThroughPTY(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("Windows PowerShell")
+	}
+	cfg := DefaultManagerConfig()
+	cfg.DefaultShell = "powershell.exe"
+	manager := NewManager(cfg, nil)
+	session, err := manager.Create("StrictMode", t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(manager.CloseAll)
+	for _, tc := range []struct {
+		command, output string
+		code            int
+	}{
+		{"cmd /c exit 0; Set-StrictMode -Version Latest; & (Get-Command Write-Output) ok", "ok", 0},
+		{"& (Get-Command Get-Item) missing-leaf -ErrorAction Ignore", "", 1},
+		{"$(cmd /c exit 7)", "", 7},
+		{"cmd /c exit 7; return @()", "", 7},
+		{"Remove-Variable LASTEXITCODE -Scope Global -ErrorAction Ignore; Get-Item missing-leaf -ErrorAction Ignore", "", 1},
+	} {
+		entry, err := manager.RunCommand(t.Context(), session.ID(), tc.command, 15*time.Second, "test")
+		if err != nil || entry == nil || entry.ExitCode != tc.code || strings.TrimSpace(entry.Output) != tc.output {
+			t.Fatalf("comando=%q entry=%+v err=%v", tc.command, entry, err)
+		}
+	}
+}
+
+func TestPowerShellGroupingPreservesOutputOnThrow(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("Windows PowerShell")
+	}
+	cfg := DefaultManagerConfig()
+	cfg.DefaultShell = "powershell.exe"
+	const body = "Write-Output antes; Write-Error falha -ErrorAction Stop"
+	for _, group := range []string{"@(" + body + ")", "$(" + body + ")", "( & { " + body + " } )"} {
+		// O shell de referência emite a saída que saiu do grupo e a mensagem
+		// do erro, com o mesmo contrato público de falha do terminal.
+		want, err := exec.Command(cfg.DefaultShell, "-NoProfile", "-NonInteractive", "-Command", "try { "+group+" } catch { Write-Output $_.Exception.Message; exit 1 }").Output()
+		var controlExit *exec.ExitError
+		controlLines := strings.Split(strings.TrimSpace(strings.ReplaceAll(string(want), "\r\n", "\n")), "\n")
+		if !errors.As(err, &controlExit) || controlExit.ExitCode() != 1 || controlLines[len(controlLines)-1] != "falha" {
+			t.Fatalf("controle %q: saída=%q erro=%v", group, want, err)
+		}
+		entry, err := NewManager(cfg, nil).RunEphemeral(t.Context(), t.TempDir(), group, 15*time.Second, "test")
+		if err != nil || entry == nil || entry.ExitCode != controlExit.ExitCode() || !strings.Contains(entry.Output, "falha") {
+			t.Fatalf("grupo=%q entry=%+v err=%v", group, entry, err)
+		}
+		lines := strings.Split(strings.TrimSpace(entry.Output), "\n")
+		if slices.Contains(lines, "antes") != slices.Contains(controlLines, "antes") {
+			t.Fatalf("grupo=%q controle=%q terminal=%q", group, controlLines, lines)
+		}
+	}
+}
+
 func TestPowerShellHashPreservesOutputAndExitCode(t *testing.T) {
 	if runtime.GOOS != "windows" {
 		t.Skip("Windows PowerShell")
@@ -158,12 +233,17 @@ func TestPowerShellHashPreservesOutputAndExitCode(t *testing.T) {
 	}{
 		{"stop_parsing", "cmd.exe /c --% echo sample", "sample", 0, "exact"},
 		{"stop_parsing_falha", "cmd.exe /c --% exit 7", "", 7, "exact"},
+		{"variaveis_da_guarda", "if (Get-Variable __asstPath,__asstDirectory -ErrorAction Ignore) { throw 'guarda visível' }; Write-Output ok", "ok", 0, "exact"},
 		{"literal", "Write-Output 'issue #42'", "issue #42", 0, "exact"},
 		{"stderr", "cmd /c 'echo diagnostic 1>&2 & exit 0' 2>&1 # nota", "diagnostic", 0, "contains"},
 		{"stderr_multilinha", "cmd /c 'echo diagnostic 1>&2 & exit 0' 2>&1\n# nota", "diagnostic", 0, "contains"},
 		{"exit", "exit 3 # nota", "", 3, "exact"},
 		{"return", "return 'voltou' # nota", "voltou", 0, "exact"},
 		{"return_nativo", "cmd /c exit 7; return", "", 7, "exact"},
+		{"return_array_vazio", "cmd /c exit 7; return @()", "", 7, "exact"},
+		{"return_subexpressao_vazia", "cmd /c exit 7; return $()", "", 7, "exact"},
+		{"array_com_saida", "@(Write-Output primeiro; cmd /c exit 7)", "primeiro", 7, "exact"},
+		{"subexpressao_com_saida", "$(Write-Output primeiro; cmd /c exit 7)", "primeiro", 7, "exact"},
 		{"return_nativo_com_nota", "cmd /c exit 7; return # nota", "", 7, "exact"},
 		{"return_apos_sucesso", "cmd /c exit 7; Write-Output ok; return", "ok", 0, "exact"},
 		{"sintaxe_sem_nota", "if (", "", 1, "diagnostic"},
@@ -228,9 +308,14 @@ func TestProcessExitBeforeStartMarker(t *testing.T) {
 
 func TestExplicitCloseAfterStartDoesNotCompleteCommand(t *testing.T) {
 	started := make(chan struct{}, 1)
+	var emitted strings.Builder
 	manager := NewManager(DefaultManagerConfig(), func(event string, data any) {
 		payload, ok := data.(map[string]string)
-		if event == "terminal:command_output" && ok && strings.Contains(payload["output"], "pronto") {
+		if event != "terminal:command_output" || !ok {
+			return
+		}
+		emitted.WriteString(payload["output"])
+		if strings.Contains(emitted.String(), "pronto") {
 			select {
 			case started <- struct{}{}:
 			default:
@@ -242,9 +327,9 @@ func TestExplicitCloseAfterStartDoesNotCompleteCommand(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(manager.CloseAll)
-	command := "printf 'pronto\\n'; read -r aguarde"
+	command := "printf pronto; read -r aguarde"
 	if runtime.GOOS == "windows" {
-		command = "Write-Output pronto; Start-Sleep -Seconds 30"
+		command = "Write-Host -NoNewline pronto; Start-Sleep -Seconds 30"
 	}
 	type outcome struct {
 		entry *HistoryEntry
@@ -298,6 +383,9 @@ func TestPowerShellReturnInPersistentSession(t *testing.T) {
 		{"$Host.UI.RawUI.WindowSize.Width", strconv.Itoa(session.viewportColumns), 0},
 		{"cmd.exe /c --% echo sample", "sample", 0},
 		{"cmd /c exit 7; return", "", 7},
+		{"Write-Output $LASTEXITCODE", "7", 0},
+		{"Get-Item missing-leaf -ErrorAction Ignore", "", 1},
+		{"cmd /c exit 7", "", 7},
 		{"Write-Output pronto", "pronto", 0},
 		{"Write-Output '" + strings.Repeat("abcdefghij", 90) + "'", strings.Repeat("abcdefghij", 90), 0},
 		{"cmd /c exit 4; Write-Output ok; return", "ok", 0},
