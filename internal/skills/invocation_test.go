@@ -86,16 +86,17 @@ func TestParseSlashCommand_WithWhitespace(t *testing.T) {
 // ─── Invoke ───────────────────────────────────────────────────────────────────
 
 type stubInvokerManager struct {
-	skill *Skill
-	err   error
-	files []string
+	skill    *Skill
+	err      error
+	files    []string
+	filesErr error
 }
 
 func (m *stubInvokerManager) Get(slug string) (*Skill, error) {
 	return m.skill, m.err
 }
 func (m *stubInvokerManager) GetSkillFiles(slug string) ([]string, error) {
-	return m.files, nil
+	return m.files, m.filesErr
 }
 
 func invocableSkill(content string) *Skill {

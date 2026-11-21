@@ -287,6 +287,7 @@ func buildBaseSkillBlock(ctx context.Context, baseSkills []Skill, source Context
 	sections := make([]section, len(baseSkills))
 	remaining := budget - contextprovider.RuneLen(open+close)
 	commands := 0
+	filesComplete := true
 	for i := range baseSkills {
 		skill := &baseSkills[i]
 		part := &sections[i]
@@ -296,7 +297,9 @@ func buildBaseSkillBlock(ctx context.Context, baseSkills []Skill, source Context
 		}
 		writeSkillHeading(&heading, *skill)
 		files.WriteByte('\n')
-		writeSupportingFiles(&files, source, skill.Slug, "Supporting files (use read_file to access when needed):", "- `", "`")
+		if err := writeSupportingFiles(&files, source, skill.Slug, "Supporting files (use read_file to access when needed):", "- `", "`"); err != nil {
+			filesComplete = false
+		}
 		part.heading, part.files = heading.String(), files.String()
 		planRunner := runner
 		if turn != nil && turn.prepared != nil && turn.prepared.ready && len(turn.prepared.outputs[skill.Slug]) == 0 {
@@ -315,7 +318,7 @@ func buildBaseSkillBlock(ctx context.Context, baseSkills []Skill, source Context
 
 	var sb strings.Builder
 	sb.WriteString(open)
-	admitted := turn != nil && commands > 0 && remaining/commands >= 2
+	admitted := filesComplete && turn != nil && commands > 0 && remaining/commands >= 2
 	for i, part := range sections {
 		count := len(part.doc.commands)
 		if admitted && count > 0 {
@@ -405,11 +408,14 @@ func writeSkillHeading(sb *strings.Builder, skill Skill) {
 	sb.WriteString("\n")
 }
 
-func writeSupportingFiles(sb *strings.Builder, source ContextProviderSource, slug string, heading string, prefix string, suffix string) {
-	supplementary, _ := source.GetSkillFiles(slug)
+func writeSupportingFiles(sb *strings.Builder, source ContextProviderSource, slug string, heading string, prefix string, suffix string) error {
+	supplementary, err := source.GetSkillFiles(slug)
+	if err != nil {
+		return err
+	}
 	supplementary = sortedStrings(supplementary)
 	if len(supplementary) == 0 {
-		return
+		return nil
 	}
 	sb.WriteString("\n")
 	sb.WriteString(heading)
@@ -420,6 +426,7 @@ func writeSupportingFiles(sb *strings.Builder, source ContextProviderSource, slu
 		sb.WriteString(suffix)
 		sb.WriteString("\n")
 	}
+	return nil
 }
 
 func sanitizeSupportingFilePath(path string) string {

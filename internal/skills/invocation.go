@@ -108,7 +108,14 @@ func InvokeContext(ctx context.Context, userContent string, mgr InvokerManager, 
 		if err != nil {
 			return nil, true, err
 		}
-		before, after := invocationFrame(skill, mgr, slug)
+		files, err := mgr.GetSkillFiles(slug)
+		if err != nil {
+			if len(doc.commands) > 0 {
+				return nil, true, fmt.Errorf("não foi possível reservar espaço para os arquivos da skill %q", slug)
+			}
+			files = nil
+		}
+		before, after := invocationFrame(skill, files)
 		after = argumentFallback(skill.Content, args) + after
 		quota := -1
 		if len(doc.commands) > 0 && budget >= 0 {
@@ -144,7 +151,7 @@ func InvokeContext(ctx context.Context, userContent string, mgr InvokerManager, 
 	return result, true, nil
 }
 
-func invocationFrame(skill *Skill, mgr InvokerManager, slug string) (string, string) {
+func invocationFrame(skill *Skill, supplementary []string) (string, string) {
 	var sb strings.Builder
 	sb.WriteString("<invoked_skill>\n## ")
 	sb.WriteString(skill.GetDisplayName())
@@ -159,7 +166,6 @@ func invocationFrame(skill *Skill, mgr InvokerManager, slug string) (string, str
 	sb.WriteString("\n")
 
 	// Progressive file loading: lista arquivos complementares do skill
-	supplementary, _ := mgr.GetSkillFiles(slug)
 	if len(supplementary) > 0 {
 		sb.WriteString("\nSupporting files (use read_file to access when needed):\n")
 		for _, f := range supplementary {

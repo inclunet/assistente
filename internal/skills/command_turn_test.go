@@ -650,3 +650,64 @@ func TestUnclosedPreWarnsOncePerSkillAndAttempt(t *testing.T) {
 		t.Fatalf("avisos: %s", output)
 	}
 }
+
+func TestBaseReservesSupportingFilesBeforeCommands(t *testing.T) {
+	s := providerSkill("base", "antes\n!echo run\ndepois", true)
+	s.Path = strings.Repeat("x", 220)
+	s.Tools = &ToolPermissions{BashCommands: &BashCommands{Allowed: []string{"echo"}}}
+	src := &retryableFileSource{contextProviderSourceStub: contextProviderSourceStub{skills: []Skill{s}}}
+	p := NewContextProvider(src)
+	calls := 0
+	run := func(context.Context, *Skill, string) (string, error) { calls++; return "EXECUTADO", nil }
+	ctx := WithCommandTurn(t.Context(), run)
+	req := contextprovider.BuildRequest{ToolCallingEnabled: true, ProviderBudgets: map[string]int{"skills": 140}}
+	blocks, err := p.Build(ctx, req)
+	if err != nil || len(blocks) != 1 || !strings.Contains(blocks[0].Content, "antes\n\ndepois") || calls != 0 {
+		t.Fatalf("listagem incompleta: %v err=%v chamadas=%d", blocks, err, calls)
+	}
+	if _, err = p.Build(ctx, req); err != nil || calls != 0 || src.calls != 2 {
+		t.Fatalf("listagem recuperada excede orçamento: err=%v chamadas=%d listagens=%d", err, calls, src.calls)
+	}
+	req.ProviderBudgets["skills"] = 800
+	blocks, err = p.Build(ctx, req)
+	if err != nil || len(blocks) != 1 || !strings.Contains(blocks[0].Content, s.Path) || calls != 0 {
+		t.Fatalf("reconstrução estática: %v err=%v chamadas=%d", blocks, err, calls)
+	}
+	blocks, err = p.Build(WithCommandTurn(t.Context(), run), req)
+	if err != nil || len(blocks) != 1 || !strings.Contains(blocks[0].Content, "EXECUTADO") || calls != 1 {
+		t.Fatalf("nova preparação: %v err=%v chamadas=%d", blocks, err, calls)
+	}
+}
+
+func TestSlashReservesSupportingFilesOnlyForCommands(t *testing.T) {
+	s := invocableSkill("instrução")
+	s.Tools = &ToolPermissions{BashCommands: &BashCommands{Allowed: []string{"echo"}}}
+	mgr := &stubInvokerManager{skill: s, files: []string{"incompleto.md"}, filesErr: errors.New("erro temporário")}
+	policy := invocablePolicy(s)
+	calls := 0
+	run := func(context.Context, *Skill, string) (string, error) { calls++; return "EXECUTADO", nil }
+	invoke := func(budget int) (*InvocationResult, error) {
+		result, found, err := InvokeContext(WithSlashCommandTurn(t.Context(), run, budget), "/test-skill", mgr, "turn", policy)
+		if !found {
+			t.Fatal("skill ausente")
+		}
+		return result, err
+	}
+	text, err := invoke(140)
+	if err != nil || text == nil || !strings.Contains(text.Content, "instrução") || strings.Contains(text.Content, "incompleto.md") {
+		t.Fatalf("skill estática: %v %v", text, err)
+	}
+	s.Content += "\n!echo run"
+	if result, err := invoke(140); err == nil || result != nil || calls != 0 {
+		t.Fatalf("listagem incompleta: %v err=%v chamadas=%d", result, err, calls)
+	}
+	mgr.filesErr = nil
+	mgr.files = []string{strings.Repeat("x", 220)}
+	if result, err := invoke(140); err == nil || result != nil || calls != 0 {
+		t.Fatalf("arquivo excede orçamento: %v err=%v chamadas=%d", result, err, calls)
+	}
+	result, err := invoke(800)
+	if err != nil || result == nil || !strings.Contains(result.Content, "EXECUTADO") || !strings.Contains(result.Content, mgr.files[0]) || calls != 1 {
+		t.Fatalf("reserva completa: %v err=%v chamadas=%d", result, err, calls)
+	}
+}

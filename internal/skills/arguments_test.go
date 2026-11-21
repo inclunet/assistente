@@ -13,7 +13,7 @@ func invokedBody(t *testing.T, content, args, session string) string {
 	if err != nil || !found || result == nil {
 		t.Fatalf("invocação: found=%v err=%v", found, err)
 	}
-	before, after := invocationFrame(s, mgr, s.Slug)
+	before, after := invocationFrame(s, mgr.files)
 	return strings.TrimSuffix(strings.TrimPrefix(result.Content, before), after)
 }
 
