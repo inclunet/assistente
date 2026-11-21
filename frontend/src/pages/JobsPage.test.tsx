@@ -218,7 +218,8 @@ describe('JobsPage', () => {
   it('pede confirmação e repete a cópia salva com a mesma identidade após falha', async () => {
     const slug = 'plugin-editado';
     storeState.fetchJobDetail.mockResolvedValue({ id: slug, name: 'Job', plugin_installation_id: 'origem' });
-    copyJob.mockRejectedValueOnce(new Error('offline')).mockResolvedValueOnce('copia');
+    let complete!: (id: string) => void;
+    copyJob.mockRejectedValueOnce(new Error('offline')).mockReturnValueOnce(new Promise<string>(r => { complete = r; }));
     useNavigationStore.getState().requestResourceEdit('jobs', slug);
     render(<MemoryRouter><JobsPage /></MemoryRouter>);
     const button = await screen.findByRole('button', { name: 'plugins.copyJob' });
@@ -228,6 +229,13 @@ describe('JobsPage', () => {
     await userEvent.click(button);
     await waitFor(() => expect(addToastMock).toHaveBeenCalledWith('plugins.copyJobFailed', 'error'));
     await userEvent.click(button);
+    await waitFor(() => expect(button).toHaveAttribute('aria-busy', 'true'));
+    expect(button).toBeEnabled();
+    button.focus();
+    expect(button).toHaveFocus();
+    await userEvent.click(button);
+    expect(copyJob).toHaveBeenCalledTimes(2);
+    await act(async () => { complete('copia'); });
     await waitFor(() => expect(announceMock).toHaveBeenCalledWith('plugins.copyJobDone'));
     expect(copyJob.mock.calls[1]).toEqual(copyJob.mock.calls[0]);
     expect(copyJob.mock.calls[0]).toEqual(['origem', slug, expect.any(String), 'plugins.copyJobName']);

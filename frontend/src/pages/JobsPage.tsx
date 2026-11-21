@@ -589,7 +589,7 @@ export default function JobsPage() {
             <Link to="/plugins" onClick={() => useNavigationStore.getState().requestResourceEdit('plugins', editingJob.plugin_installation_id!)}>
               {t('plugins.openJobOrigin', { id: editingJob.plugin_installation_id })}
             </Link>
-            <Button disabled={copyBusy} onClick={() => void copySavedJob()}>{t('plugins.copyJob')}</Button>
+            <Button aria-busy={copyBusy} onClick={() => void copySavedJob()}>{t('plugins.copyJob')}</Button>
           </>
         )}
         <JobBuilder

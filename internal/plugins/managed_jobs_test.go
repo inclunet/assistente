@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"assistente/internal/database"
@@ -120,7 +121,7 @@ func TestCopyManagedJobAfterRevocation(t *testing.T) {
 	db := managedJobTestDB(t)
 	owner := database.WithUserID(t.Context(), "ana")
 	other := database.WithUserID(t.Context(), "bob")
-	source := &jobs.Job{ID: "lembrete", Name: "Lembrete", Tool: "notify",
+	source := &jobs.Job{RequiredInputs: []string{"options"}, ID: "lembrete", Name: "Lembrete", Tool: "notify",
 		Inputs: map[string]any{"text": "edição local"}, Triggers: []jobs.Trigger{{Type: jobs.TriggerManual}}}
 	if err := jobs.CreateDisabledPluginJobTx(owner, db, source, "origem", "revisao", "jobs/lembrete"); err != nil {
 		t.Fatal(err)
@@ -160,6 +161,14 @@ func TestCopyManagedJobAfterRevocation(t *testing.T) {
 		copied.Inputs["text"] != "edição local" || len(copied.Triggers) != 1 || copied.Name != "Cópia" {
 		t.Fatalf("cópia inesperada: %+v", copied)
 	}
+	if len(copied.RequiredInputs) != 1 || copied.RequiredInputs[0] != "options" {
+		t.Fatalf("requisitos da cópia: %v", copied.RequiredInputs)
+	}
+	copied.Enabled = true
+	if err := repo.SaveJob(owner, copied); err == nil || !strings.Contains(err.Error(), "PLUGIN_JOB_INPUT_REQUIRED") {
+		t.Fatalf("habilitação sem options: %v", err)
+	}
+	copied.Inputs["options"] = false
 	copied.Name = "Nome editado"
 	if err := repo.SaveJob(owner, copied); err != nil {
 		t.Fatal(err)

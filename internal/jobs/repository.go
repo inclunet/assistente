@@ -567,7 +567,6 @@ func CopyManagedJobTx(ctx context.Context, tx *gorm.DB, installationID, sourceSl
 	}
 	job.ID, job.Name, job.Enabled = slug, strings.TrimSpace(name), false
 	job.PluginInstallationID, job.PluginDigest, job.DatabaseID = "", "", ""
-	job.RequiredInputs = nil
 	job.Metadata = Metadata{CreatedBy: "ui"}
 	if err := Validate(job); err != nil {
 		return "", err
@@ -575,7 +574,13 @@ func CopyManagedJobTx(ctx context.Context, tx *gorm.DB, installationID, sourceSl
 	if err := repo.createJobTx(ctx, tx, owner, slug, id, job); err != nil {
 		return "", err
 	}
-	return slug, tx.Model(&database.Job{}).Where("id=? AND user_id=?", id, owner).UpdateColumn("plugin_refresh_pending", true).Error
+	required, err := json.Marshal(job.RequiredInputs)
+	if err != nil {
+		return "", err
+	}
+	return slug, tx.Model(&database.Job{}).Where("id=? AND user_id=?", id, owner).Updates(map[string]any{
+		"plugin_refresh_pending": true, "plugin_required_inputs": string(required),
+	}).Error
 }
 
 func (r *DBRepository) createJobTx(ctx context.Context, tx *gorm.DB, userID, slug, rowID string, job *Job) error {
@@ -679,12 +684,10 @@ func (r *DBRepository) SaveJob(ctx context.Context, job *Job) error {
 				row.PluginRefreshPending = existing.PluginRefreshPending
 				row.PluginRequiredInputs = existing.PluginRequiredInputs
 				row.PluginComponentKey = existing.PluginComponentKey
-				if row.Enabled && existing.PluginInstallationID != "" {
+				if row.Enabled && existing.PluginRequiredInputs != "" {
 					var required []string
-					if existing.PluginRequiredInputs != "" {
-						if err := json.Unmarshal([]byte(existing.PluginRequiredInputs), &required); err != nil {
-							return err
-						}
+					if err := json.Unmarshal([]byte(existing.PluginRequiredInputs), &required); err != nil {
+						return err
 					}
 					for _, field := range required {
 						value, ok := job.Inputs[field]
@@ -693,6 +696,8 @@ func (r *DBRepository) SaveJob(ctx context.Context, job *Job) error {
 							return fmt.Errorf("PLUGIN_JOB_INPUT_REQUIRED: %s", field)
 						}
 					}
+				}
+				if row.Enabled && existing.PluginInstallationID != "" {
 					if err := checkPluginJobRevision(ctx, tx, userID, &existing); err != nil {
 						return err
 					}
