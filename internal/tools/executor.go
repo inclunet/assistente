@@ -466,7 +466,7 @@ func (e *Executor) finishExecution(ctx, toolCtx context.Context, call ToolCall, 
 	// Sua resposta de confirmação indisponível e um erro de contexto puro
 	// descrevem a mesma interrupção que toolCtx.Done.
 	interrupted := result == nil
-	if byPolicy && result != nil && result.Result.Failure != nil && result.Result.Failure.Retryable && toolCtx.Err() != nil {
+	if byPolicy && result != nil && result.Result.Failure != nil && result.Result.Failure.Retryable && result.Result.Failure.NotDispatched && toolCtx.Err() != nil {
 		interrupted = true
 	}
 	if result != nil && confirmation != nil && toolCtx.Err() != nil {
@@ -496,7 +496,7 @@ func (e *Executor) finishExecution(ctx, toolCtx context.Context, call ToolCall, 
 		if approved && result.Result.IsError {
 			// Só a política sem diálogo admite uma falha que a própria
 			// ferramenta classificou como segura antes do despacho.
-			result.Retryable = byPolicy && result.Result.Failure != nil && result.Result.Failure.Retryable
+			result.Retryable = byPolicy && result.Result.Failure != nil && result.Result.Failure.Retryable && result.Result.Failure.NotDispatched
 			result.RetryabilityKnown = true
 		}
 		return *result

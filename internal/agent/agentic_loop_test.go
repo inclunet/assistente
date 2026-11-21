@@ -321,8 +321,13 @@ func TestAgentRetriesShellCreationOnlyWithPolicyApproval(t *testing.T) {
 	for _, byPolicy := range []bool{false, true} {
 		t.Run(fmt.Sprintf("politica=%t", byPolicy), func(t *testing.T) {
 			cfg := terminal.DefaultManagerConfig()
-			cfg.MaxSessions = 0
+			cfg.MaxSessions = 1
 			manager := terminal.NewManager(cfg, nil)
+			occupied, err := manager.Create("ocupado", t.TempDir())
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(manager.CloseAll)
 			al := &allowlist.Allowlist{DefaultAction: "confirm"}
 			if byPolicy {
 				al.AutoApprove = []string{"echo"}
@@ -343,9 +348,12 @@ func TestAgentRetriesShellCreationOnlyWithPolicyApproval(t *testing.T) {
 			r.maxIterations = 3
 			calls := []tools.ToolCall{{ID: "shell", Type: "function", Function: tools.FunctionCall{Name: "run_command", Arguments: `{"command":"echo ok","persistent":true}`}}}
 			results := []tools.ToolExecutionResult{exec.ExecuteOne(t.Context(), calls[0])}
+			if err := manager.Close(occupied.ID()); err != nil {
+				t.Fatal(err)
+			}
 			retried := r.retryRetryableTools(t.Context(), calls, results, map[string]bool{}, 0)
 			_, again := retried["shell"]
-			if again != byPolicy || results[0].ErrorCode != shell.FailureSessionStart || byPolicy && (policies != 2 || prompts != 0) || !byPolicy && (policies != 1 || prompts != 1) {
+			if again != byPolicy || byPolicy && (results[0].Result.IsError || policies != 2 || prompts != 0) || !byPolicy && (results[0].ErrorCode != shell.FailureSessionStart || policies != 1 || prompts != 1) {
 				t.Fatalf("retry=%t leituras=%d diálogos=%d resultado=%+v", again, policies, prompts, results[0])
 			}
 		})
@@ -951,5 +959,26 @@ func TestRunAgenticLoop_PartialToolError_ContinuesAndCompletes(t *testing.T) {
 	}
 	if d.ToolCallCount != 2 {
 		t.Fatalf("ToolCallCount=%d, want 2", d.ToolCallCount)
+	}
+}
+
+func TestAgentNaoRepeteLimiteDeTerminaisDesabilitado(t *testing.T) {
+	cfg := terminal.DefaultManagerConfig()
+	cfg.MaxSessions = 0
+	manager := terminal.NewManager(cfg, nil)
+	reads := 0
+	reg := tools.NewRegistry()
+	reg.MustRegister(shell.NewRunCommand(manager, nil, func(context.Context) (*allowlist.Allowlist, error) {
+		reads++
+		return &allowlist.Allowlist{AutoApprove: []string{"echo"}, DefaultAction: "confirm"}, nil
+	}, t.TempDir()))
+	executor := tools.NewExecutor(reg, tools.DefaultExecutorConfig())
+	r := newSeamRunner(newTestAgentService(ServiceConfig{Emitter: &captureEmitter{}, ToolExecutor: executor, ToolInvocations: newAgentTestToolInvocations(reg)}), "c1", "t1")
+	r.maxIterations = 3
+	calls := []tools.ToolCall{{ID: "shell", Type: "function", Function: tools.FunctionCall{Name: "run_command", Arguments: `{"command":"echo ok","persistent":true}`}}}
+	results := []tools.ToolExecutionResult{executor.ExecuteOne(t.Context(), calls[0])}
+	retried := r.retryRetryableTools(t.Context(), calls, results, map[string]bool{}, 0)
+	if len(retried) != 0 || reads != 1 || results[0].ErrorCode != shell.FailureSessionStart || results[0].Retryable {
+		t.Fatalf("repetições=%v leituras=%d resultado=%+v", retried, reads, results[0])
 	}
 }

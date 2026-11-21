@@ -6,10 +6,9 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"os"
-	"os/exec"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"assistente/internal/allowlist"
@@ -277,7 +276,7 @@ func (rc *RunCommand) Execute(ctx context.Context, args json.RawMessage) (tools.
 		session, acquireErr := rc.sessionMgr.Acquire(ctx, workDir)
 		err = acquireErr
 		if err != nil {
-			return sessionStartFailure(ctx, decision, err), nil
+			return sessionStartFailure(decision, err), nil
 		}
 		sessionID = session.ID()
 		entry, err = rc.sessionMgr.RunCommand(ctx, sessionID, a.Command, timeout, "llm")
@@ -290,7 +289,7 @@ func (rc *RunCommand) Execute(ctx context.Context, args json.RawMessage) (tools.
 			return shellPrerequisiteFailure(ctx, "directory_unresolved", "Não foi possível resolver o diretório para autorização."), nil
 		}
 		if errors.Is(err, terminal.ErrSessionStart) {
-			return sessionStartFailure(ctx, decision, err), nil
+			return sessionStartFailure(decision, err), nil
 		}
 		// sessionID permanece vazio — sem deep link para terminal inexistente.
 	}
@@ -414,17 +413,19 @@ func (rc *RunCommand) Execute(ctx context.Context, args json.RawMessage) (tools.
 	return protected, nil
 }
 
-func sessionStartFailure(ctx context.Context, decision allowlist.Decision, err error) tools.ToolResult {
+func sessionStartFailure(decision allowlist.Decision, err error) tools.ToolResult {
 	kind := tools.ErrorKindUnavailable
 	switch {
-	case errors.Is(err, context.Canceled), errors.Is(ctx.Err(), context.Canceled):
+	case errors.Is(err, context.Canceled):
 		kind = tools.ErrorKindCancelled
-	case errors.Is(err, context.DeadlineExceeded), errors.Is(ctx.Err(), context.DeadlineExceeded):
+	case errors.Is(err, context.DeadlineExceeded):
 		kind = tools.ErrorKindTimeout
 	}
+	transient := errors.Is(err, terminal.ErrSessionCapacity) || errors.Is(err, syscall.EAGAIN) || errors.Is(err, syscall.EBUSY)
+	retryable := decision == allowlist.DecisionApprove && kind == tools.ErrorKindUnavailable && transient
 	return tools.ToolResult{
 		Content: fmt.Sprintf("Erro ao criar sessão de terminal: %v", err), IsError: true,
-		Failure: &tools.ToolFailure{Code: FailureSessionStart, Kind: kind, Retryable: decision == allowlist.DecisionApprove && kind == tools.ErrorKindUnavailable && !errors.Is(err, os.ErrNotExist) && !errors.Is(err, os.ErrPermission) && !errors.Is(err, exec.ErrNotFound)},
+		Failure: &tools.ToolFailure{Code: FailureSessionStart, Kind: kind, Retryable: retryable, NotDispatched: true},
 	}
 }
 

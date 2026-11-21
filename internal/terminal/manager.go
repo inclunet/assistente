@@ -17,6 +17,9 @@ import (
 // ErrDirectoryUnresolved indica falha ao resolver o diretório antes de iniciar o shell.
 var ErrDirectoryUnresolved = errors.New("não foi possível resolver o diretório do terminal")
 
+// ErrSessionCapacity indica lotação transitória de um limite positivo.
+var ErrSessionCapacity = errors.New("limite de sessões temporariamente atingido")
+
 // ErrSessionStart indica que a criação da sessão falhou antes de enviar o comando.
 var ErrSessionStart = errors.New("não foi possível iniciar a sessão de terminal")
 
@@ -86,8 +89,12 @@ func (m *Manager) create(name, workDir string, env []string) (*Session, error) {
 	m.mu.Lock()
 
 	if len(m.sessions) >= m.config.MaxSessions {
+		count, limit := len(m.sessions), m.config.MaxSessions
 		m.mu.Unlock()
-		return nil, fmt.Errorf("limite de sessões atingido (%d/%d)", len(m.sessions), m.config.MaxSessions)
+		if limit > 0 {
+			return nil, fmt.Errorf("%w (%d/%d)", ErrSessionCapacity, count, limit)
+		}
+		return nil, fmt.Errorf("limite de sessões desabilitado (%d/%d)", count, limit)
 	}
 
 	if name == "" {

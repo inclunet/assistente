@@ -193,7 +193,7 @@ func (p *shellDispatchProbe) RunEphemeral(_ context.Context, _, command string, 
 func TestJobRetriesOnlyPolicyApprovedShellStartFailure(t *testing.T) {
 	for _, byPolicy := range []bool{false, true} {
 		t.Run(fmt.Sprintf("politica=%t", byPolicy), func(t *testing.T) {
-			probe := &shellDispatchProbe{startupErr: errors.New("PTY ocupado"), entry: &terminal.HistoryEntry{Output: "ok"}}
+			probe := &shellDispatchProbe{startupErr: terminal.ErrSessionCapacity, entry: &terminal.HistoryEntry{Output: "ok"}}
 			al := &allowlist.Allowlist{DefaultAction: "confirm"}
 			if byPolicy {
 				al.AutoApprove = []string{"echo"}
@@ -814,4 +814,49 @@ func invocationBackedExecutor(t *testing.T, tool tools.Tool) (*JobExecutor, *too
 		EventBus:        NewEventBus(),
 		CircuitBreaker:  NewCircuitBreaker(),
 	}), repo, database.WithUserID(context.Background(), "user-jobs")
+}
+
+func TestJobRetryComLotacaoRealDoTerminal(t *testing.T) {
+	for _, limit := range []int{0, 1} {
+		t.Run(fmt.Sprintf("limite=%d", limit), func(t *testing.T) {
+			cfg := terminal.DefaultManagerConfig()
+			cfg.MaxSessions = limit
+			dir := t.TempDir()
+			manager := terminal.NewManager(cfg, nil)
+			t.Cleanup(manager.CloseAll)
+			var occupied *terminal.Session
+			if limit > 0 {
+				var err error
+				occupied, err = manager.Create("ocupado", dir)
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
+			reads := 0
+			policy := func(context.Context) (*allowlist.Allowlist, error) {
+				reads++
+				if reads == 2 && occupied != nil {
+					if err := manager.Close(occupied.ID()); err != nil {
+						t.Error(err)
+					}
+				}
+				return &allowlist.Allowlist{AutoApprove: []string{"echo"}, DefaultAction: "confirm"}, nil
+			}
+			tool := shell.NewRunCommand(manager, nil, policy, dir)
+			executor, repo, ctx := invocationBackedExecutor(t, tool)
+			job := &Job{ID: "shell-capacity", Tool: tool.Name(), Inputs: map[string]any{"command": "echo ok", "persistent": true}, ErrorPolicy: ErrorPolicy{Strategy: ErrorRetry, MaxRetries: 2, RetryDelay: "1ms"}}
+			run := executor.Execute(ctx, job, &TriggerContext{Type: TriggerManual})
+			records, err := repo.List(ctx, toolinvocations.Filter{OriginID: run.RunID})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if limit == 0 {
+				if run.Status != RunStatusFailed || run.RetryCount != 0 || reads != 1 || len(records) != 1 || records[0].Retryable {
+					t.Fatalf("run=%+v leituras=%d registros=%+v", run, reads, records)
+				}
+			} else if run.Status != RunStatusCompleted || run.RetryCount != 1 || reads != 2 || len(records) != 2 {
+				t.Fatalf("run=%+v leituras=%d registros=%+v", run, reads, records)
+			}
+		})
+	}
 }

@@ -792,7 +792,7 @@ func TestExecutorInterruptionAfterApprovalInEitherSelectOrder(t *testing.T) {
 			for _, state := range []confirmationStatus{confirmationApproved, confirmationApprovedByPolicy} {
 				results := []*ToolExecutionResult{nil, {Result: ToolResult{IsError: true}, ErrorKind: ErrorKindUnknown}}
 				if state == confirmationApprovedByPolicy {
-					results = append(results, &ToolExecutionResult{Result: ToolResult{IsError: true, Failure: &ToolFailure{Kind: ErrorKindUnavailable, Retryable: true}}})
+					results = append(results, &ToolExecutionResult{Result: ToolResult{IsError: true, Failure: &ToolFailure{Kind: ErrorKindUnavailable, Retryable: true, NotDispatched: true}}})
 				}
 				for _, result := range results {
 					got := e.finishExecution(parent, toolCtx, call, time.Now(), result, &confirmationState{status: state}, &securitySignalCollector{})
@@ -806,5 +806,17 @@ func TestExecutorInterruptionAfterApprovalInEitherSelectOrder(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestAprovacaoPorPoliticaExigeAtestadoDeNaoDespachoParaRetry(t *testing.T) {
+	e := NewExecutor(NewRegistry(), DefaultExecutorConfig())
+	call := ToolCall{ID: "shell", Function: FunctionCall{Name: "run_command"}}
+	for _, attested := range []bool{false, true} {
+		result := &ToolExecutionResult{Result: ToolResult{IsError: true, Failure: &ToolFailure{Code: "failure", Kind: ErrorKindUnavailable, Retryable: true, NotDispatched: attested}}, Retryable: true}
+		got := e.finishExecution(t.Context(), t.Context(), call, time.Now(), result, &confirmationState{status: confirmationApprovedByPolicy}, &securitySignalCollector{})
+		if got.Retryable != attested || !got.RetryabilityKnown {
+			t.Fatalf("atestado=%t resultado=%+v", attested, got)
+		}
 	}
 }

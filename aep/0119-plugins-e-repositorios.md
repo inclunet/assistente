@@ -98,7 +98,12 @@ O executor conserva o prazo do chamador. Após uma aprovação revalidada, uma i
 decisão e o envio, a tentativa termina sem abrir outra confirmação.
 
 O agente e os jobs podem repetir uma falha transitória de criação da sessão quando a
-política já permite a execução e o terminal confirma que o comando não foi enviado.
+política já permite a execução, a falha é comprovadamente transitória e o terminal
+atesta que o comando não foi enviado. O executor exige o atestado explícito em
+`ToolFailure.NotDispatched`; `Retryable` isolado não prova segurança após aprovação.
+Lotação de limite positivo, `EAGAIN` e `EBUSY` são transitórios; limite zero e
+causas desconhecidas não autorizam repetição automática. Um `terminal_id` existente
+ocupado não é criação de sessão e continua exigindo uma nova chamada explícita.
 Após uma confirmação pontual ou um possível despacho, a repetição exige uma nova chamada
 explícita, que reavalia a política e as concessões vigentes.
 

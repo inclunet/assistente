@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync/atomic"
+	"syscall"
 	"testing"
 	"testing/synctest"
 	"time"
@@ -808,17 +809,95 @@ func TestClassificacaoDeRetryNoInicioDoTerminal(t *testing.T) {
 		{"arquivo ausente", fmt.Errorf("início: %w", os.ErrNotExist), false},
 		{"comando ausente", fmt.Errorf("início: %w", exec.ErrNotFound), false},
 		{"sem permissão", fmt.Errorf("início: %w", os.ErrPermission), false},
-		{"recurso temporário", errors.New("capacidade temporariamente indisponível"), true},
+		{"lotação temporária", terminal.ErrSessionCapacity, true},
+		{"recurso ocupado", fmt.Errorf("PTY: %w", syscall.EBUSY), true},
+		{"recurso temporário", fmt.Errorf("PTY: %w", syscall.EAGAIN), true},
+		{"causa desconhecida", errors.New("capacidade indisponível"), false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			got := sessionStartFailure(t.Context(), allowlist.DecisionApprove, tc.err)
+			got := sessionStartFailure(allowlist.DecisionApprove, tc.err)
 			if got.Failure == nil || got.Failure.Code != FailureSessionStart || got.Failure.Retryable != tc.retry {
 				t.Fatalf("resultado=%+v", got)
 			}
-			confirmed := sessionStartFailure(t.Context(), allowlist.DecisionConfirm, tc.err)
+			confirmed := sessionStartFailure(allowlist.DecisionConfirm, tc.err)
 			if confirmed.Failure == nil || confirmed.Failure.Retryable {
 				t.Fatalf("confirmação=%+v", confirmed)
 			}
 		})
+	}
+}
+
+func TestCausaDeInicioPrevaleceSobreContextoEncerrado(t *testing.T) {
+	for _, tc := range []struct {
+		err  error
+		kind tools.ErrorKind
+	}{
+		{os.ErrNotExist, tools.ErrorKindUnavailable}, {context.Canceled, tools.ErrorKindCancelled}, {context.DeadlineExceeded, tools.ErrorKindTimeout},
+	} {
+		got := sessionStartFailure(allowlist.DecisionApprove, tc.err)
+		if got.Failure == nil || got.Failure.Kind != tc.kind || got.Failure.Retryable {
+			t.Fatalf("causa=%v resultado=%+v", tc.err, got)
+		}
+	}
+}
+
+func TestFalhasAposDespachoNaoSaoRepetidas(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		err    error
+		output string
+	}{
+		{"timeout sem saída", context.DeadlineExceeded, ""},
+		{"timeout com saída", context.DeadlineExceeded, "parcial"},
+		{"falha de leitura", terminal.ErrSessionRead, "parcial"},
+		{"sessão fechada", terminal.ErrSessionClosed, "parcial"},
+		{"falha desconhecida", errors.New("falha após despacho"), "parcial"},
+		{"sucesso", nil, "ok"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			mgr := &MockSessionManager{fakeRunErr: tc.err, fakeEntry: &terminal.HistoryEntry{ID: "sent", Output: tc.output}}
+			al := &allowlist.Allowlist{AutoApprove: []string{"echo"}, DefaultAction: "confirm"}
+			reg := tools.NewRegistry()
+			reg.MustRegister(NewRunCommand(mgr, nil, func(context.Context) (*allowlist.Allowlist, error) { return al, nil }, t.TempDir()))
+			got := tools.NewExecutor(reg, tools.DefaultExecutorConfig()).ExecuteOne(t.Context(), tools.ToolCall{ID: "sent", Function: tools.FunctionCall{Name: "run_command", Arguments: `{"command":"echo ok"}`}})
+			if mgr.runEphemeralCalls.Load() != 1 || got.Retryable || got.Result.Failure != nil && got.Result.Failure.NotDispatched {
+				t.Fatalf("chamadas=%d resultado=%+v", mgr.runEphemeralCalls.Load(), got)
+			}
+		})
+	}
+}
+
+type managerFalhaInicioCancelada struct {
+	SessionManager
+	cancel context.CancelFunc
+}
+
+func (m managerFalhaInicioCancelada) Acquire(context.Context, string) (*terminal.Session, error) {
+	m.cancel()
+	return nil, os.ErrNotExist
+}
+
+func TestFalhaDeInicioPreservaCausaQuandoContextoCancela(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	mgr := managerFalhaInicioCancelada{cancel: cancel}
+	rc := NewRunCommand(mgr, nil, func(context.Context) (*allowlist.Allowlist, error) {
+		return &allowlist.Allowlist{AutoApprove: []string{"echo"}, DefaultAction: "confirm"}, nil
+	}, t.TempDir())
+	got, err := rc.Execute(ctx, json.RawMessage(`{"command":"echo ok","persistent":true}`))
+	if err != nil || got.Failure == nil || got.Failure.Kind != tools.ErrorKindUnavailable || got.Failure.Retryable || !strings.Contains(got.Content, os.ErrNotExist.Error()) {
+		t.Fatalf("resultado=%+v erro=%v", got, err)
+	}
+}
+
+func TestTerminalExistenteOcupadoNaoAutorizaRetry(t *testing.T) {
+	dir := t.TempDir()
+	mgr := &MockSessionManager{liveSessions: map[string]bool{"terminal": true}, sessionCWD: map[string]string{"terminal": dir}, fakeRunErr: errors.New("sessão ocupada")}
+	al := &allowlist.Allowlist{AutoApprove: []string{"echo"}, DefaultAction: "confirm"}
+	reg := tools.NewRegistry()
+	reg.MustRegister(NewRunCommand(mgr, nil, func(context.Context) (*allowlist.Allowlist, error) { return al, nil }, dir))
+	got := tools.NewExecutor(reg, tools.DefaultExecutorConfig()).ExecuteOne(t.Context(), tools.ToolCall{ID: "busy", Function: tools.FunctionCall{Name: "run_command", Arguments: `{"command":"echo ok","terminal_id":"terminal"}`}})
+	if mgr.runCommandCalls != 1 || !got.Result.IsError || got.Retryable {
+		t.Fatalf("chamadas=%d resultado=%+v", mgr.runCommandCalls, got)
 	}
 }
