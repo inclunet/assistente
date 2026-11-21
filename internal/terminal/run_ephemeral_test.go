@@ -164,6 +164,35 @@ func TestPowerShellPipelineAndGroupedStatus(t *testing.T) {
 	}
 }
 
+func TestPowerShellStrictModeThroughPTY(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("Windows PowerShell")
+	}
+	cfg := DefaultManagerConfig()
+	cfg.DefaultShell = "powershell.exe"
+	manager := NewManager(cfg, nil)
+	session, err := manager.Create("StrictMode", t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(manager.CloseAll)
+	for _, tc := range []struct {
+		command, output string
+		code            int
+	}{
+		{"cmd /c exit 0; Set-StrictMode -Version Latest; & (Get-Command Write-Output) ok", "ok", 0},
+		{"& (Get-Command Get-Item) missing-leaf -ErrorAction Ignore", "", 1},
+		{"$(cmd /c exit 7)", "", 7},
+		{"cmd /c exit 7; return @()", "", 7},
+		{"Remove-Variable LASTEXITCODE -Scope Global -ErrorAction Ignore; Get-Item missing-leaf -ErrorAction Ignore", "", 1},
+	} {
+		entry, err := manager.RunCommand(t.Context(), session.ID(), tc.command, 15*time.Second, "test")
+		if err != nil || entry == nil || entry.ExitCode != tc.code || strings.TrimSpace(entry.Output) != tc.output {
+			t.Fatalf("comando=%q entry=%+v err=%v", tc.command, entry, err)
+		}
+	}
+}
+
 func TestPowerShellGroupingPreservesOutputOnThrow(t *testing.T) {
 	if runtime.GOOS != "windows" {
 		t.Skip("Windows PowerShell")

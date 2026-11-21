@@ -105,7 +105,7 @@ func (m *CommandMarker) wrapPowerShell(command, directory string) string {
 		state = "$__asstState" + m.id
 		setup = state + " = @{}; "
 		cleanup += "," + state[1:]
-		success += " -and " + state + ".Ok -ne $false"
+		success += " -and " + state + "['Ok'] -ne $false"
 	}
 	status := fmt.Sprintf("%s = if (%s) { 0 } else { %s $MyInvocation.MyCommand.ScriptBlock.Ast %s }", code, success, singlePowerShellLine(failedPowerShellStatus), state)
 	body := powerShellDirectoryGuard(directory) + command
@@ -126,21 +126,23 @@ const powerShellLastOperation = `	$last = $null;
 		if ($stmt -is [System.Management.Automation.Language.ReturnStatementAst]) {
 			if ($stmt.Pipeline) {
 				$value = $stmt.Pipeline;
-				while ($value.PipelineElements.Count -eq 1 -and $value.PipelineElements[0] -is [System.Management.Automation.Language.CommandExpressionAst]) {
+				while ($value -is [System.Management.Automation.Language.PipelineAst] -and $value.PipelineElements.Count -eq 1 -and $value.PipelineElements[0] -is [System.Management.Automation.Language.CommandExpressionAst]) {
 					$expr = $value.PipelineElements[0].Expression;
 					if ($expr -is [System.Management.Automation.Language.ParenExpressionAst]) {
 						$value = $expr.Pipeline
 					} elseif ($expr -is [System.Management.Automation.Language.SubExpressionAst] -or $expr -is [System.Management.Automation.Language.ArrayExpressionAst]) {
+						if (!$expr.SubExpression.Statements.Count) { break };
 						$value = $expr.SubExpression.Statements[-1]
 					} else { break }
 				};
-				if ($value -and $value.PipelineElements.Count -and $value.PipelineElements[-1] -is [System.Management.Automation.Language.CommandAst]) { $last = $value }
+				if ($value -is [System.Management.Automation.Language.PipelineAst] -and $value.PipelineElements.Count -and $value.PipelineElements[-1] -is [System.Management.Automation.Language.CommandAst]) { $last = $value }
 			};
 			break
 		};
 		$last = $stmt
 	};
 	while ($last -is [System.Management.Automation.Language.IfStatementAst] -and $last.Clauses.Count -eq 1 -and !$last.ElseClause) {
+		if (!$last.Clauses[0].Item2.Statements.Count) { break };
 		$last = $last.Clauses[0].Item2.Statements[-1]
 	};
 `
@@ -153,8 +155,9 @@ const failedPowerShellStatus = `& {
 	$stmts = $ast.EndBlock.Statements[0].Body.Statements;
 ` + powerShellLastOperation + `
 	if ($targets -and $targets.ContainsKey('Offset')) {
-		$last = $ast.Find({ param($node) $node -is [System.Management.Automation.Language.PipelineAst] -and $node.Extent.StartOffset -eq $targets.Offset }, $false)
+		$last = $ast.Find({ param($node) $node -is [System.Management.Automation.Language.PipelineAst] -and $node.Extent.StartOffset -eq $targets['Offset'] }, $false)
 	};
+	if ($last -isnot [System.Management.Automation.Language.PipelineAst] -or !$ExecutionContext.SessionState.PSVariable.Get('LASTEXITCODE')) { return 1 };
 	$stages = $last.PipelineElements;
 	if ($LASTEXITCODE) {
 		for ($n = 0; $n -lt $stages.Count; $n++) {
@@ -165,10 +168,11 @@ const failedPowerShellStatus = `& {
 			if (!$target -or $target -is [scriptblock]) { continue };
 			$info = if ($target -is [System.Management.Automation.CommandInfo]) { $target } else { $ExecutionContext.InvokeCommand.GetCommand([string]$target, 'All') };
 			while ($info -is [System.Management.Automation.AliasInfo]) { $info = $info.ResolvedCommand };
-			if ($info.CommandType -in 'Application','ExternalScript') { return $LASTEXITCODE }
+			if ($info -and $info.CommandType -in 'Application','ExternalScript') { return $LASTEXITCODE }
 		};
 		return 1
 	};
+	if (!$Error.Count) { return 1 };
 	$e = $Error[0];
 	if ($LASTEXITCODE -ne 0 -or !$e -or $e.FullyQualifiedErrorId -notlike 'NativeCommandError*' -or !$stages.Count) { return 1 };
 	$first = $stages[0].Extent.StartScriptPosition;
@@ -181,7 +185,9 @@ const failedPowerShellStatus = `& {
 		if ($argsList.Count -gt 2) { return 1 };
 		if ($argsList.Count -eq 2 -and ($argsList[1] -isnot [System.Management.Automation.Language.CommandParameterAst] -or $argsList[1].ParameterName -ine 'Stream' -or $argsList[1].Argument)) { return 1 };
 		$name = $stage.GetCommandName();
-		if ($name -notin 'Out-String','Microsoft.PowerShell.Utility\Out-String' -or $ExecutionContext.InvokeCommand.GetCommand($name, 'All').ImplementingType.FullName -ne 'Microsoft.PowerShell.Commands.OutStringCommand') { return 1 }
+		if ($name -notin 'Out-String','Microsoft.PowerShell.Utility\Out-String') { return 1 };
+		$formatter = $ExecutionContext.InvokeCommand.GetCommand($name, 'All');
+		if ($formatter -isnot [System.Management.Automation.CmdletInfo] -or $formatter.ImplementingType.FullName -ne 'Microsoft.PowerShell.Commands.OutStringCommand') { return 1 }
 	};
 	return 0
 }`
@@ -209,8 +215,8 @@ const prepareGroupedPowerShell = `& {
 		$container = $group
 	};
 	$frame = 'try { ';
-	$stages = $last.PipelineElements;
-	if ($stages.Count -and $stages[-1] -is [System.Management.Automation.Language.CommandAst]) {
+	if ($last -is [System.Management.Automation.Language.PipelineAst] -and $last.PipelineElements.Count -and $last.PipelineElements[-1] -is [System.Management.Automation.Language.CommandAst]) {
+		$stages = $last.PipelineElements;
 		$prefix = '';
 		if ($container) {
 			if ($container -is [System.Management.Automation.Language.ParenExpressionAst]) { $prefix = '$(try { ' };
