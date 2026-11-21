@@ -939,7 +939,7 @@ func TestNaturalExitWaitsForCommandResult(t *testing.T) {
 	if len(events) != 0 {
 		t.Fatalf("saída publicada antes do resultado: %v", events)
 	}
-	_, _ = s.runCommandInDirectory(context.Background(), "exit 7", "", time.Second, "test", "comando",
+	_, _ = s.runCommandInDirectory(context.Background(), CommandText{Raw: "exit 7", Display: "exit 7"}, "", time.Second, "test", "comando",
 		func(*HistoryEntry, error) { events = append(events, "command_end") })
 	if got := strings.Join(events, ","); got != "command_end,exited" {
 		t.Fatalf("ordem de publicação: %s", got)
