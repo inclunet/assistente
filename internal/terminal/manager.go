@@ -4,7 +4,9 @@ import (
 	"assistente/internal/logging"
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
+	"runtime"
 	"sync"
 	"time"
 
@@ -122,7 +124,7 @@ func (m *Manager) Create(name, workDir string) (*Session, error) {
 		})
 	}
 
-	session, err := newSession(name, workDir, m.config.DefaultShell, onOutput, onRawOutput, onCommandStart, onExit)
+	session, err := newSession(name, workDir, m.config.DefaultShell, nil, onOutput, onRawOutput, onCommandStart, onExit)
 	if err != nil {
 		return nil, err
 	}
@@ -172,7 +174,13 @@ func (m *Manager) RunEphemeral(ctx context.Context, workDir, command string, tim
 	if timeout == 0 {
 		timeout = m.config.DefaultTimeout
 	}
-	session, err := newSession("", workDir, m.config.DefaultShell,
+	var env []string
+	if runtime.GOOS == "linux" && shellType(m.config.DefaultShell) == "zsh" && os.Getenv("skip_global_compinit") == "" {
+		// O zshrc do Ubuntu pode pedir confirmação para carregar completions.
+		// Sem interlocutor, a pergunta consumiria bytes do primeiro comando.
+		env = append(os.Environ(), "skip_global_compinit=1")
+	}
+	session, err := newSession("", workDir, m.config.DefaultShell, env,
 		func(_, _, _ string) {},
 		nil, // A sessão efêmera não entrega saída manual à UI.
 		func(_, _, _, _ string) {},

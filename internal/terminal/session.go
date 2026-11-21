@@ -207,7 +207,7 @@ func shellType(shell string) string {
 }
 
 // newSession cria e inicializa uma nova sessão PTY.
-func newSession(name, workDir, shell string, onOutput outputCallback, onRawOutput rawOutputCallback, onCommandStart commandStartCallback, onExit func(string, error)) (*Session, error) {
+func newSession(name, workDir, shell string, env []string, onOutput outputCallback, onRawOutput rawOutputCallback, onCommandStart commandStartCallback, onExit func(string, error)) (*Session, error) {
 	if shell == "" {
 		shell = defaultShell()
 	}
@@ -216,6 +216,7 @@ func newSession(name, workDir, shell string, onOutput outputCallback, onRawOutpu
 
 	opts := ptyx.SpawnOpts{
 		Prog: shell,
+		Env:  env,
 		Dir:  workDir,
 		Cols: defaultCols,
 		Rows: defaultRows,
