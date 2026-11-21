@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -369,20 +370,21 @@ func TestToolOutputAcrossJobDryRunAndHistory(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			tool.results = []tools.ToolResult{{Content: tc.content, Metadata: map[string]any{"source": "tool"}}}
-			tc.want["_meta_source"] = "tool"
+			want := maps.Clone(tc.want)
+			want["_meta_source"] = "tool"
 			run := executor.Execute(ctx, &Job{ID: "output-shape", Tool: tool.Name()}, &TriggerContext{Type: TriggerManual})
-			if run.Status != RunStatusCompleted || !reflect.DeepEqual(run.Output, tc.want) {
+			if run.Status != RunStatusCompleted || !reflect.DeepEqual(run.Output, want) {
 				t.Fatalf("execução: status=%s saída=%#v erro=%s", run.Status, run.Output, run.Error)
 			}
 			dry, err := manager.TestToolDryRunContext(ctx, TestToolRequest{ToolName: tool.Name()})
-			if err != nil || dry == nil || !dry.Success || !reflect.DeepEqual(dry.Output, tc.want) {
+			if err != nil || dry == nil || !dry.Success || !reflect.DeepEqual(dry.Output, want) {
 				t.Fatalf("dry run=%+v erro=%v", dry, err)
 			}
 			invocations, err := repo.List(ctx, toolinvocations.Filter{OriginID: run.RunID})
 			if err != nil || len(invocations) != 1 {
 				t.Fatalf("invocações=%+v erro=%v", invocations, err)
 			}
-			wantHistory := tc.want
+			wantHistory := want
 			if tc.name == "branco" {
 				wantHistory = map[string]any{"_meta_source": "tool"}
 			}
@@ -416,7 +418,9 @@ func TestJobShellRedactsSecretCommandMetadata(t *testing.T) {
 		{"canonical", "command", "example " + token, map[string]any{"command": template}},
 		{"capitalized", "Command", "example " + token, map[string]any{"Command": template}},
 		{"uppercase", "COMMAND", "example " + token, map[string]any{"COMMAND": template}},
-		// O marshal ordena as chaves. No shell, a última variante prevalece.
+		// O marshal ordena as chaves, e o shell usa a última variante. Em public_last,
+		// o comando público é executado, mas a presença de outra variante sensível
+		// torna conservadora a projeção de command nos metadados.
 		{"public_last", "COMMAND", "example public", map[string]any{"COMMAND": template, "command": "example public"}},
 		{"secret_last", "Command", "example " + token, map[string]any{"COMMAND": "example public", "Command": template}},
 	} {
@@ -438,14 +442,14 @@ func checkSecretCommandMetadata(t *testing.T, route string, inputs map[string]an
 	if route == "job" {
 		run := executor.Execute(ctx, &Job{ID: "secret-shell", Tool: tool.Name(), Inputs: inputs}, &TriggerContext{Type: TriggerManual})
 		if run.Status != RunStatusCompleted || run.ResolvedInputs[secretKey] != redactedValue {
-			t.Fatalf("run=%+v", run)
+			t.Fatal("execução ou redação dos argumentos falhou")
 		}
 		output = run.Output
 	} else {
 		manager := mustNewManager(t, ManagerConfig{ToolRegistry: executor.toolRegistry, ToolInvocations: executor.toolInvocations, SecretStore: executor.secretStore})
 		result, err := manager.TestToolDryRunContext(ctx, TestToolRequest{ToolName: tool.Name(), Inputs: inputs, AllowUnsafe: true})
 		if err != nil || result == nil || !result.Success {
-			t.Fatalf("resultado=%+v erro=%v", result, err)
+			t.Fatal("dry-run falhou")
 		}
 		output = result.Output
 	}
@@ -457,17 +461,21 @@ func checkSecretCommandMetadata(t *testing.T, route string, inputs map[string]an
 		t.Fatalf("invocações=%d, erro=%v", len(records), err)
 	}
 	record := records[0]
-	if strings.Contains(string(record.Input)+string(record.Output)+string(record.Metadata), token) {
+	snapshot, err := json.Marshal(record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(snapshot), token) {
 		t.Fatal("token encontrado no ledger")
 	}
 	for _, result := range []map[string]any{output, invocationOutput(string(record.Output))} {
 		if result["_meta_command"] != redactedValue || result["_meta_exitCode"] == nil || result["content"] != "ok" {
-			t.Fatalf("resultado=%+v", result)
+			t.Fatal("projeção de comando ou metadados incorretos")
 		}
 	}
 	public := executor.Execute(ctx, &Job{ID: "public-shell", Tool: tool.Name(), Inputs: map[string]any{"command": "example public"}}, &TriggerContext{Type: TriggerManual})
 	if public.Status != RunStatusCompleted || public.Output["_meta_command"] != "example public" {
-		t.Fatalf("redação interferiu na próxima invocação: %+v", public)
+		t.Fatal("redação interferiu na próxima invocação")
 	}
 }
 

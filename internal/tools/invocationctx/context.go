@@ -30,9 +30,15 @@ func WithShellCommandMetadata(ctx context.Context, command string) context.Conte
 	return context.WithValue(ctx, shellCommandMetadataKey{}, command)
 }
 
+// LookupShellCommandMetadata informa se a chamada tem uma projeção pública explícita.
+func LookupShellCommandMetadata(ctx context.Context) (string, bool) {
+	command, ok := ctx.Value(shellCommandMetadataKey{}).(string)
+	return command, ok
+}
+
 // ShellCommandMetadata devolve o comando como deve aparecer nos metadados desta chamada.
 func ShellCommandMetadata(ctx context.Context, command string) string {
-	if safe, ok := ctx.Value(shellCommandMetadataKey{}).(string); ok {
+	if safe, ok := LookupShellCommandMetadata(ctx); ok {
 		return safe
 	}
 	return command

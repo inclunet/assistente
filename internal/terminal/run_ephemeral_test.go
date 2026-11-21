@@ -2,6 +2,10 @@ package terminal
 
 import (
 	"context"
+	"encoding/json"
+	"sync/atomic"
+
+	"assistente/internal/tools/invocationctx"
 	"errors"
 	"os"
 	"os/exec"
@@ -39,6 +43,42 @@ func TestRunEphemeralNaoCriaSecaoPersistente(t *testing.T) {
 	}
 	if mgr.Stats().TotalSessions != 0 {
 		t.Errorf("Stats deve ser 0 após ephemeral, got %d", mgr.Stats().TotalSessions)
+	}
+}
+
+func TestSensitiveCommandRedactedInTerminalEventsAndHistory(t *testing.T) {
+	const token = "token-sintetico-do-teste"
+	const masked = "[redacted]"
+	command := "echo executado # " + token
+	ctx := invocationctx.WithShellCommandMetadata(t.Context(), masked)
+	var startSeen, leaked atomic.Bool
+	manager := NewManager(DefaultManagerConfig(), func(event string, data any) {
+		payload, err := json.Marshal(data)
+		if err != nil || strings.Contains(string(payload), token) {
+			leaked.Store(true)
+		}
+		if event == "terminal:command_start" {
+			props, ok := data.(map[string]any)
+			startSeen.Store(ok && props["command"] == masked)
+		}
+	})
+	dir := t.TempDir()
+	t.Cleanup(manager.CloseAll)
+	entry, err := manager.RunEphemeral(ctx, dir, command, 15*time.Second, "test")
+	if err != nil || entry == nil || entry.Command != masked || entry.Output != "executado" || entry.ExitCode != 0 {
+		t.Fatal("entrada efêmera não preservou a execução e a redação")
+	}
+	s, err := manager.Create("teste", dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	entry, err = manager.RunCommand(ctx, s.ID(), command, 15*time.Second, "test")
+	if err != nil || entry == nil || entry.Command != masked || entry.Output != "executado" || entry.ExitCode != 0 {
+		t.Fatal("entrada persistente não preservou a execução e a redação")
+	}
+	history, err := manager.GetHistory(s.ID())
+	if err != nil || len(history) != 1 || history[0].Command != masked || history[0].Output != "executado" || !startSeen.Load() || leaked.Load() {
+		t.Fatal("histórico ou eventos não preservaram a redação")
 	}
 }
 

@@ -220,7 +220,14 @@ func (rc *RunCommand) Execute(ctx context.Context, args json.RawMessage) (tools.
 	// seguro do parse (programas + contagem de args). Reasons so vao para o
 	// log quando a decisao for diferente de approve, e mesmo assim usam
 	// summarizePolicyReasons (sem repetir args do comando).
-	commandSummary := redactCommandForLog(a.Command, policyResult)
+	commandSummary, sensitive := invocationctx.LookupShellCommandMetadata(ctx)
+	if sensitive {
+		// Os motivos incluem o programa detectado, que também pode vir de um segredo.
+		// A decisão já foi calculada sobre o comando integral.
+		policyResult.Reasons = []string{commandSummary}
+	} else {
+		commandSummary = redactCommandForLog(a.Command, policyResult)
+	}
 	if decision == allowlist.DecisionDeny {
 		denied := tools.ToolResult{
 			Failure: &tools.ToolFailure{Code: FailureCommandRefused, Kind: tools.ErrorKindAuthorization, Retryable: false},

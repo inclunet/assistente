@@ -227,7 +227,7 @@ func (m *Manager) RunEphemeral(ctx context.Context, workDir, command string, tim
 	}()
 
 	commandID := uuid.NewString()
-	entry := &HistoryEntry{ID: commandID, Command: command, Source: source, StartedAt: time.Now()}
+	entry := newCommandHistoryEntry(ctx, commandID, command, source)
 	if err := session.beginCommandWithID(commandID); err != nil {
 		return nil, err
 	}
@@ -273,12 +273,7 @@ func (m *Manager) RunCommand(ctx context.Context, sessionID, command string, tim
 	}
 
 	commandID := uuid.NewString()
-	entry := &HistoryEntry{
-		ID:        commandID,
-		Command:   command,
-		Source:    source,
-		StartedAt: time.Now(),
-	}
+	entry := newCommandHistoryEntry(ctx, commandID, command, source)
 	if err := session.beginCommandWithID(commandID); err != nil {
 		return nil, err
 	}

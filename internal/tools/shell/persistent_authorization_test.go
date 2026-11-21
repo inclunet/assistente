@@ -18,9 +18,49 @@ import (
 	"assistente/internal/shelltrust"
 	"assistente/internal/testutil/authorizationfixture"
 	"assistente/internal/tools"
+	"assistente/internal/tools/invocationctx"
 	"assistente/internal/trustscope"
 	"gorm.io/gorm"
 )
+
+func TestSensitiveProgramInPolicyLogsAndRefusals(t *testing.T) {
+	const program = "sintetico-programa-417"
+	const masked = "[redacted]"
+	for _, route := range []string{"policy", "user"} {
+		t.Run(route, func(t *testing.T) {
+			var logs bytes.Buffer
+			previous := slog.Default()
+			slog.SetDefault(slog.New(slog.NewTextHandler(&logs, nil)))
+			t.Cleanup(func() { slog.SetDefault(previous) })
+			asked := false
+			rc := NewRunCommand(nil, func(_ context.Context, command, _ string) (bool, error) {
+				asked = true
+				if command != program {
+					t.Fatal("autorização recebeu o comando errado")
+				}
+				return false, nil
+			}, func(context.Context) (*allowlist.Allowlist, error) {
+				policy := &allowlist.Allowlist{DefaultAction: "confirm"}
+				if route == "policy" {
+					policy.AlwaysDeny = []string{program}
+				}
+				return policy, nil
+			}, t.TempDir())
+			args, err := json.Marshal(map[string]string{"command": program})
+			if err != nil {
+				t.Fatal(err)
+			}
+			ctx := invocationctx.WithShellCommandMetadata(t.Context(), masked)
+			result, err := rc.Execute(ctx, args)
+			if err != nil || !result.IsError || result.Failure == nil || result.Failure.Code != FailureCommandRefused || asked != (route == "user") {
+				t.Fatal("semântica da recusa foi alterada")
+			}
+			if strings.Contains(logs.String(), program) || strings.Contains(result.Content, program) || !strings.Contains(logs.String(), masked) || !strings.Contains(result.Content, masked) {
+				t.Fatal("log ou motivo da recusa não preservou a redação")
+			}
+		})
+	}
+}
 
 func TestDirectorySymlinkSwapDuringConsentDoesNotExecute(t *testing.T) {
 	root, first, second := t.TempDir(), t.TempDir(), t.TempDir()

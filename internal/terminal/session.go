@@ -2,6 +2,7 @@ package terminal
 
 import (
 	"assistente/internal/logging"
+	"assistente/internal/tools/invocationctx"
 	"bytes"
 	"context"
 	"errors"
@@ -547,6 +548,12 @@ func (s *Session) finishCommand() {
 	s.commandPending = false
 }
 
+// O histórico e os eventos compartilham a projeção pública do comando.
+// O wrapper do PTY recebe o comando original, inclusive em sessões persistentes.
+func newCommandHistoryEntry(ctx context.Context, id, command, source string) *HistoryEntry {
+	return &HistoryEntry{ID: id, Command: invocationctx.ShellCommandMetadata(ctx, command), Source: source, StartedAt: time.Now()}
+}
+
 // RunCommand executa um comando na sessão PTY e retorna o output.
 // O comando é envolvido com markers para detectar início/fim e exit code.
 func (s *Session) RunCommand(ctx context.Context, command string, timeout time.Duration, source, commandID string) (*HistoryEntry, error) {
@@ -565,12 +572,7 @@ func (s *Session) runCommandInDirectory(ctx context.Context, command, directory 
 	}
 	s.managedCommandID = commandID
 	s.mu.Unlock()
-	entry := &HistoryEntry{
-		ID:        commandID,
-		Command:   command,
-		StartedAt: time.Now(),
-		Source:    source,
-	}
+	entry := newCommandHistoryEntry(ctx, commandID, command, source)
 	// Cria marker único para esta execução
 	marker := newCommandMarkerForShell(shellType(s.shell))
 

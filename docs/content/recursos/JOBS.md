@@ -97,6 +97,9 @@ há uma segunda cópia desses payloads no run. O replay em `dry-run` usa essa
 invocação canônica e fica indisponível quando a entrada foi redigida. Se um
 comando usa um template de segredo, o campo `command` também aparece redigido
 nos metadados do resultado, tanto em execuções como em testes de ferramenta.
+O histórico do terminal persistente e o contexto que você envia dele ao chat
+também usam esse comando redigido. O programa recebe o valor resolvido e o
+texto que ele imprimir em sua própria saída continua visível.
 
 Eventos não ficam em fila. Quando nenhum consumidor está habilitado — porque o
 job ou a pipeline consumidora foi desativado — o evento é descartado e não
