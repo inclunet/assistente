@@ -227,8 +227,8 @@ function InstalledPlugins() {
     setBusy(true);
     try {
       const attempts: Promise<void>[] = [];
-      if (pendingSync.current.jobs) attempts.push(SyncPendingJobs().then(() => { pendingSync.current.jobs = false; }));
-      if (pendingSync.current.mcp) attempts.push(SyncMCP().then(() => { pendingSync.current.mcp = false; }));
+      if (pendingSync.current.jobs) attempts.push(Promise.resolve().then(SyncPendingJobs).then(() => { pendingSync.current.jobs = false; }));
+      if (pendingSync.current.mcp) attempts.push(Promise.resolve().then(SyncMCP).then(() => { pendingSync.current.mcp = false; }));
       const results = await Promise.allSettled(attempts);
       if (results.some(result => result.status === 'rejected')) {
         if (mounted.current) setError('plugins.syncPending');
