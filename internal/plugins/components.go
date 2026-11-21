@@ -1,7 +1,6 @@
 package plugins
 
 import (
-	"encoding/json"
 	"gopkg.in/yaml.v3"
 	"path"
 	"regexp"
@@ -15,22 +14,28 @@ import (
 // Component identifies a contribution within a revision; runtime keys are
 // allocated separately, so the same skill name can occur in several packages.
 type Component struct {
-	Endpoint  string `json:"endpoint,omitempty"`
-	Active    bool   `json:"active"`
-	Slug      string `json:"slug,omitempty"`
-	Key       string `json:"key"`
-	Kind      string `json:"kind"`
-	Name      string `json:"name"`
-	Entry     string `json:"entry"`
-	Reason    string `json:"reason,omitempty"`
-	Transport string `json:"transport,omitempty"`
+	RequestsShell bool   `json:"requestsShell,omitempty"`
+	Endpoint      string `json:"endpoint,omitempty"`
+	Active        bool   `json:"active"`
+	Slug          string `json:"slug,omitempty"`
+	Key           string `json:"key"`
+	Kind          string `json:"kind"`
+	Name          string `json:"name"`
+	Entry         string `json:"entry"`
+	Reason        string `json:"reason,omitempty"`
+	Transport     string `json:"transport,omitempty"`
 }
 
 func DiscoverComponents(snapshot *pluginpackage.LocalSnapshot) []Component {
 	var components []Component
+	requiresManifestSupport := len(snapshot.Manifest.Unmapped) > 0
 	supplemental := map[string]bool{}
 	for entry := range snapshot.Files {
 		parts := strings.Split(entry, "/")
+		if snapshot.Manifest.Format != "" && snapshot.Manifest.Format != pluginpackage.AgentPlugins &&
+			(parts[0] == "hooks" || (snapshot.Manifest.Format == pluginpackage.Cursor && (parts[0] == "rules" || strings.HasPrefix(entry, ".cursor/rules/"))) || entry == ".cursor/hooks.json" || entry == "hooks.json") {
+			requiresManifestSupport = true
+		}
 		if len(parts) >= 3 && parts[0] == "skills" && (len(parts) != 3 || parts[2] != "SKILL.md") {
 			supplemental[parts[1]] = true
 		}
@@ -43,31 +48,32 @@ func DiscoverComponents(snapshot *pluginpackage.LocalSnapshot) []Component {
 		name := parts[1]
 		component := Component{Kind: "skill", Name: name, Entry: entry, Key: path.Join("skills", name)}
 		meta, body, err := skills.Parse(string(raw))
+		if err == nil && meta.Name == "" && snapshot.Manifest.Format != "" && snapshot.Manifest.Format != pluginpackage.AgentPlugins {
+			meta.Name = name
+		}
 		if err != nil || meta.Name != name || strings.TrimSpace(meta.Description) == "" {
 			component.Kind = "invalidSkill"
 		} else if !portableSkillName.MatchString(name) || strings.Contains(name, "--") || len(name) > 64 {
 			component.Kind = "invalidSkill"
-		} else if skills.ContainsShellCommands(body) {
+		} else if snapshot.Manifest.Format == pluginpackage.ClaudeCode && (strings.Contains(body, "```!") || strings.Contains(body, "CLAUDE_PLUGIN_ROOT") || strings.Contains(body, "CLAUDE_PLUGIN_DATA")) {
+			component.Reason = "shellCommands"
+		} else if snapshot.Manifest.Format != pluginpackage.ClaudeCode && skills.ContainsShellCommands(body) {
 			component.Reason = "shellCommands"
 		} else if supplemental[name] {
 			component.Reason = "supportingFiles"
 		} else {
 			component.Reason = skillRequirements(string(raw))
+			component.RequestsShell = snapshot.Manifest.Format == pluginpackage.ClaudeCode && skills.ContainsClaudeCommand(body)
 		}
 		components = append(components, component)
 	}
-	if raw, ok := snapshot.Files["mcp.json"]; ok {
-		var fields map[string]json.RawMessage
-		var schema string
-		var servers map[string]json.RawMessage
-		if json.Unmarshal(raw, &fields) != nil || len(fields) != 2 ||
-			json.Unmarshal(fields["$schema"], &schema) != nil || schema != "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json" ||
-			json.Unmarshal(fields["mcpServers"], &servers) != nil || servers == nil {
-			components = append(components, Component{Key: "mcp.json", Kind: "invalidMcp", Entry: "mcp.json", Name: "mcp.json"})
+	if filename, servers, exists := mcpEntries(snapshot); exists {
+		if servers == nil {
+			components = append(components, Component{Key: filename, Kind: "invalidMcp", Entry: filename, Name: filename})
 		} else {
 			for name, value := range servers {
 				transport, valid := mcpTransport(value)
-				component := Component{Kind: "mcp", Name: name, Entry: "mcp.json", Key: "mcp/" + name}
+				component := Component{Kind: "mcp", Name: name, Entry: filename, Key: "mcp/" + name}
 				if !valid {
 					component.Kind = "invalidMcp"
 				} else {
@@ -80,6 +86,13 @@ func DiscoverComponents(snapshot *pluginpackage.LocalSnapshot) []Component {
 					}
 				}
 				components = append(components, component)
+			}
+		}
+	}
+	if requiresManifestSupport {
+		for n := range components {
+			if components[n].Reason == "" {
+				components[n].Reason = "manifestConfiguration"
 			}
 		}
 	}

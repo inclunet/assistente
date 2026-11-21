@@ -66,6 +66,15 @@ func prepareCommands(ctx context.Context, skill *Skill, content string, base boo
 }
 
 func renderCommands(ctx context.Context, skill *Skill, content string, run SkillCommandRunner, expand func(string) string) (string, error) {
+	if skill.Source == "plugin" && strings.HasPrefix(skill.Slug, PluginPrefix) {
+		if skill.PackageFormat == "claude-code" {
+			return renderClaudeCommands(ctx, skill, content, run, expand)
+		}
+		if expand != nil {
+			content = expand(content)
+		}
+		return content, nil
+	}
 	lines := strings.Split(content, "\n")
 	var allowed []string
 	if skill.Tools != nil && skill.Tools.BashCommands != nil {

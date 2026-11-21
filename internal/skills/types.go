@@ -1,6 +1,7 @@
 package skills
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -209,6 +210,8 @@ type MCPToolDef struct {
 
 // Skill representa um skill completo com metadados, conteúdo e localização.
 type Skill struct {
+	CheckCommandActivation func(context.Context) error `json:"-"`
+	PackageFormat          string                      `json:"-"`
 	SkillMetadata
 	Slug    string `json:"slug"`    // nome do diretório
 	Source  string `json:"source"`  // "exe", "home", "workdir"

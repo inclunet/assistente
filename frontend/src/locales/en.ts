@@ -151,6 +151,8 @@ notSaved: 'The decision applies only to this operation: it could not be remember
     },
 
     plugins: {
+      manifestPending: 'The manifest declares configuration that this adapter cannot apply yet.',
+      commandPolicy: 'Commands in this skill use the usual command approval rules.',
       category: 'Category',
       authentication: 'Authentication',
       catalogAuthError: 'The store requires authentication during installation. This package declares an MCP server requiring configuration at the destination.',

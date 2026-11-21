@@ -5,14 +5,15 @@ import "context"
 // ExecutionContext carrega metadados da origem do toolcalling (ex: skill invocado via /slash).
 // Ele é propagado via context.Context até as Tool.Execute(...) para enforcement de permissões.
 type ExecutionContext struct {
-	InvokedSkillSlug   string
-	Filesystem         *FilesystemScope
-	AllowedTools       []string
-	DeniedTools        []string
-	AllowedBash        []string
-	DeniedBash         []string
-	NetworkAllowedHost []string
-	NetworkDeniedHost  []string
+	CheckCommandActivation func(context.Context) error
+	InvokedSkillSlug       string
+	Filesystem             *FilesystemScope
+	AllowedTools           []string
+	DeniedTools            []string
+	AllowedBash            []string
+	DeniedBash             []string
+	NetworkAllowedHost     []string
+	NetworkDeniedHost      []string
 }
 
 // FilesystemScope define allowlist/denylist de caminhos (glob) para ferramentas de filesystem.

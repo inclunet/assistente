@@ -11,6 +11,7 @@ import (
 
 	"assistente/internal/allowlist"
 	"assistente/internal/commandpolicy"
+	"assistente/internal/tools"
 )
 
 func TestRunCommand_RejectsMissingCommand(t *testing.T) {
@@ -440,5 +441,25 @@ func TestRunCommand_ConfirmRejected(t *testing.T) {
 	}
 	if !result.IsError {
 		t.Fatalf("expected error result when user rejects confirmation")
+	}
+}
+
+func TestPluginRevokedDuringCommandConfirmation(t *testing.T) {
+	active := true
+	rc := NewRunCommand(nil, func(context.Context, string, string) (bool, error) {
+		active = false
+		return true, nil
+	}, nil, t.TempDir())
+	ctx := tools.WithExecutionContext(context.Background(), tools.ExecutionContext{
+		CheckCommandActivation: func(context.Context) error {
+			if active {
+				t.Fatal("expected the command confirmation before admission")
+			}
+			return fmt.Errorf("revoked")
+		},
+	})
+	result, err := rc.Execute(ctx, json.RawMessage(`{"command":"echo test"}`))
+	if err != nil || !result.IsError || !strings.Contains(result.Content, "ativação do plugin") {
+		t.Fatal(result, err)
 	}
 }
