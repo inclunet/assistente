@@ -1,11 +1,15 @@
 package terminal
 
 import (
+	"bytes"
 	"context"
+	"errors"
 	"io"
+	"os"
 	"strings"
 	"sync"
 	"testing"
+	"testing/iotest"
 	"time"
 
 	"github.com/KennethanCeyer/ptyx"
@@ -239,8 +243,8 @@ func TestClosePTYReleasesNaturalExitOnlyOnce(t *testing.T) {
 	ptySession := &fakePTYSession{}
 	session := &Session{id: "term-natural-exit", ptySession: ptySession}
 
-	session.closePTY(false)
-	session.closePTY(false)
+	session.closePTY()
+	session.closePTY()
 
 	if ptySession.closeCalls != 1 || ptySession.killCalls != 0 {
 		t.Fatalf("close=%d kill=%d", ptySession.closeCalls, ptySession.killCalls)
@@ -268,5 +272,283 @@ func TestCompleteCommandEntryMarksFailureWithoutResult(t *testing.T) {
 	}
 	if got.EndedAt.IsZero() || got.EndedAt.Before(startedAt) {
 		t.Fatalf("endedAt inválido: %v", got.EndedAt)
+	}
+}
+
+func TestWaitForMarkerPreservesReadFailureAndCancellation(t *testing.T) {
+	readErr := errors.New("falha de leitura do PTY")
+	for _, tc := range []struct {
+		name      string
+		readerErr error
+		cancel    bool
+		wantErr   error
+		code      int
+	}{
+		{"eof", io.EOF, false, nil, 0},
+		{"leitura", readErr, false, readErr, -1},
+		{"descritor fechado sem encerrar a sessão", os.ErrClosed, false, os.ErrClosed, -1},
+		{"cancelado_ao_drenar", io.EOF, true, context.Canceled, -1},
+		{"prazo_depois_da_falha_de_leitura", readErr, true, context.DeadlineExceeded, -1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			marker := newCommandMarkerForShell("bash")
+			reader := io.MultiReader(strings.NewReader(marker.startTag+"\nparcial"), iotest.ErrReader(tc.readerErr))
+			session := &Session{
+				ptySession: &fakePTYSession{},
+				ptyReader:  reader,
+				readerCtx:  t.Context(),
+			}
+			session.Start()
+			<-session.readerDone
+			deadline := time.Now().Add(time.Second)
+			if tc.wantErr == context.DeadlineExceeded {
+				deadline = time.Time{}
+			}
+			ctx, cancel := context.WithDeadline(t.Context(), deadline)
+			defer cancel()
+			if tc.cancel {
+				cancel()
+			}
+			output, code, err := session.waitForMarker(ctx, marker, "test")
+			if !errors.Is(err, tc.wantErr) || (tc.readerErr != io.EOF && !errors.Is(err, tc.readerErr)) || code != tc.code || output != "parcial" {
+				t.Fatalf("output=%q code=%d err=%v", output, code, err)
+			}
+		})
+	}
+}
+
+type blockedWaitPTY struct {
+	fakePTYSession
+	waitStarted chan struct{}
+	releaseWait chan struct{}
+}
+
+func (p *blockedWaitPTY) Wait() error {
+	close(p.waitStarted)
+	<-p.releaseWait
+	return nil
+}
+
+func TestReadFailureReturnsWhileProcessWaitIsPending(t *testing.T) {
+	marker := newCommandMarkerForShell("bash")
+	readErr := errors.New("falha de leitura")
+	pty := &blockedWaitPTY{waitStarted: make(chan struct{}), releaseWait: make(chan struct{})}
+	session := &Session{ptySession: pty, readerCtx: t.Context(),
+		ptyReader: io.MultiReader(strings.NewReader(marker.startTag+"\nparcial"), iotest.ErrReader(readErr)),
+	}
+	session.Start()
+	t.Cleanup(func() {
+		close(pty.releaseWait)
+		select {
+		case <-session.closeDone:
+		case <-time.After(time.Second):
+			t.Fatal("recursos do processo não foram liberados")
+		}
+		if pty.killCalls != 1 || pty.closeCalls != 1 {
+			t.Fatalf("kill=%d close=%d", pty.killCalls, pty.closeCalls)
+		}
+	})
+	select {
+	case <-pty.waitStarted:
+	case <-time.After(time.Second):
+		t.Fatal("coleta não iniciou")
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+	defer cancel()
+	output, code, err := session.waitForMarker(ctx, marker, "test")
+	if !errors.Is(err, readErr) || code != -1 || output != "parcial" {
+		t.Fatalf("output=%q code=%d err=%v", output, code, err)
+	}
+}
+
+type failingWritePTY struct {
+	fakePTYSession
+	wrapper  chan string
+	released chan struct{}
+}
+
+func (p *failingWritePTY) PtyWriter() io.Writer { return p }
+
+func (p *failingWritePTY) Write(data []byte) (int, error) {
+	p.wrapper <- string(data)
+	<-p.released
+	return 0, io.ErrClosedPipe
+}
+
+func (p *failingWritePTY) Close() error {
+	close(p.released)
+	return p.fakePTYSession.Close()
+}
+
+func TestCloseBeforeCommandWriteKeepsHistoryAndCause(t *testing.T) {
+	processExit := errors.New("encerramento do processo antes do envio")
+	for _, cause := range []error{io.ErrUnexpectedEOF, ErrSessionClosed, processExit} {
+		s := &Session{id: "early-close", shell: "bash", readerCtx: t.Context()}
+		s.onCommandStart = func(_, _, _, _ string) {
+			switch cause {
+			case processExit:
+				s.ensureLifecycleChannels()
+				s.processErr = cause
+				close(s.processDone)
+				s.markExited(cause)
+			case ErrSessionClosed:
+				if err := s.Close(); err != nil {
+					t.Fatal(err)
+				}
+			default:
+				s.closeAfterReadFailure(cause)
+			}
+		}
+		manager := NewManager(DefaultManagerConfig(), nil)
+		manager.sessions[s.id] = s
+		entry, err := manager.RunCommand(t.Context(), s.id, "example", time.Second, "test")
+		if entry == nil || entry.ExitCode != -1 || !errors.Is(err, cause) {
+			t.Fatalf("causa=%v entrada=%+v erro=%v", cause, entry, err)
+		}
+		if got := s.GetHistory(); len(got) != 1 || got[0].ID != entry.ID || got[0].ExitCode != -1 {
+			t.Fatalf("histórico=%+v", got)
+		}
+	}
+}
+
+func TestReadFailureWhileWritingCommand(t *testing.T) {
+	for _, started := range []bool{false, true} {
+		name := "antes_do_inicio"
+		if started {
+			name = "apos_inicio"
+		}
+		t.Run(name, func(t *testing.T) {
+			pty := &failingWritePTY{wrapper: make(chan string, 1), released: make(chan struct{})}
+			reader, writer := io.Pipe()
+			defer func() { _ = reader.Close() }()
+			defer func() { _ = writer.Close() }()
+			var emitted strings.Builder
+			session := &Session{id: "test", shell: "bash", ptySession: pty, ptyReader: reader, readerCtx: t.Context(),
+				onOutput: func(_, _, output string) { emitted.WriteString(output) },
+			}
+			session.Start()
+			manager := NewManager(DefaultManagerConfig(), nil)
+			manager.sessions[session.id] = session
+			type outcome struct {
+				entry *HistoryEntry
+				err   error
+			}
+			finished := make(chan outcome, 1)
+			go func() {
+				entry, err := manager.RunCommand(t.Context(), session.id, "comando", time.Minute, "test")
+				finished <- outcome{entry, err}
+			}()
+
+			var wrapper string
+			select {
+			case wrapper = <-pty.wrapper:
+			case <-time.After(time.Second):
+				t.Fatal("escrita do comando não iniciou")
+			}
+			raw, want := wrapper+"\n", ""
+			if started {
+				_, tag, ok := strings.Cut(wrapper, "'"+markerStart)
+				if !ok {
+					t.Fatal("tag de início ausente da moldura bash")
+				}
+				tag, _, _ = strings.Cut(tag, "'")
+				want = "  parte  \n_"
+				raw += markerStart + tag + "\n" + want
+			}
+			if _, err := io.WriteString(writer, raw); err != nil {
+				t.Fatal(err)
+			}
+			readErr := errors.New("leitura interrompida")
+			if err := writer.CloseWithError(readErr); err != nil {
+				t.Fatal(err)
+			}
+			select {
+			case result := <-finished:
+				if !errors.Is(result.err, readErr) || !errors.Is(result.err, io.ErrClosedPipe) || result.entry == nil ||
+					result.entry.ExitCode != -1 || result.entry.Output != want || emitted.String() != want {
+					t.Fatalf("entrada=%+v erro=%v streaming=%q", result.entry, result.err, emitted.String())
+				}
+				if history := session.GetHistory(); len(history) != 1 || history[0].Output != want {
+					t.Fatalf("histórico=%v", history)
+				}
+			case <-time.After(time.Second):
+				t.Fatal("falha do leitor não liberou o writer")
+			}
+			<-session.closeDone
+			if pty.killCalls != 1 || pty.closeCalls != 1 {
+				t.Fatalf("kill=%d close=%d", pty.killCalls, pty.closeCalls)
+			}
+		})
+	}
+}
+
+func TestWaitForMarkerFlushesUnsentPartialOutput(t *testing.T) {
+	const first = "  começo "
+	const tail = "fim  \n_\n\n"
+	for _, mode := range []string{"cancelado", "fechado", "leitura"} {
+		t.Run(mode, func(t *testing.T) {
+			marker := newCommandMarkerForShell("bash")
+			ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
+			defer cancel()
+			readErr := errors.New("falha na leitura")
+			wantErr := map[string]error{"cancelado": context.Canceled, "fechado": ErrSessionClosed, "leitura": readErr}[mode]
+			var input bytes.Buffer
+			session := &Session{ptyWriter: &input}
+			session.ensureLifecycleChannels()
+			session.outputBuf.WriteString("echo\n" + marker.startTag + "\n" + first)
+			var emitted strings.Builder
+			session.onOutput = func(_, _, chunk string) {
+				emitted.WriteString(chunk)
+				if emitted.Len() != len(first) {
+					return
+				}
+				// O restante chega depois de a primeira parte alcançar o consumidor.
+				session.outputBuf.WriteString(tail)
+				switch mode {
+				case "leitura":
+					session.readerErr = readErr
+				case "fechado":
+					session.explicitClose = true
+				case "cancelado":
+					session.outputBuf.WriteString("\n" + marker.endTag + "1!\nprompt")
+					cancel()
+					return
+				}
+				session.signalReaderDone()
+			}
+			output, code, err := session.waitForMarker(ctx, marker, "cmd")
+			if mode == "cancelado" && input.String() != "\x03" {
+				t.Fatalf("entrada após cancelamento=%q", input.Bytes())
+			}
+			if !errors.Is(err, wantErr) || code != -1 || output != first+tail || emitted.String() != output {
+				t.Fatalf("output=%q streaming=%q code=%d err=%v", output, emitted.String(), code, err)
+			}
+		})
+	}
+}
+
+type noEOFPTY struct{ *drainingPTYSession }
+
+func (p *noEOFPTY) Kill() error {
+	p.record("kill")
+	close(p.processDone)
+	// O leitor continua bloqueado no pipe até o fallback fechar o descritor.
+	return nil
+}
+
+func TestCloseReleasesReaderWhenPTYDoesNotDeliverEOF(t *testing.T) {
+	pty := &noEOFPTY{newDrainingPTYSession()}
+	defer func() { _ = pty.writer.Close() }()
+	s := &Session{ptySession: pty, readerCtx: t.Context()}
+	s.Start()
+	start := time.Now()
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if elapsed := time.Since(start); elapsed < readerDrainTimeout {
+		t.Fatalf("descritor fechado antes do prazo de drenagem: %s", elapsed)
+	}
+	if events := strings.Join(pty.eventSnapshot(), ","); events != "kill,wait-start,wait-end,close" {
+		t.Fatalf("ordem de encerramento: %s", events)
 	}
 }
