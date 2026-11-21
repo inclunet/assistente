@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { useLayoutEffect, useRef } from 'react';
 import { Topbar } from './Topbar';
+import { flushWorkspaceNavigation } from '../../store/workspaceStore';
 import { CommandContextProvider, useCommandContextScope } from '../../lib/commandContextReact';
 import { registerChatClearSurface } from '../../lib/commandChatClear';
 import { registerEditorFileSurface } from '../../lib/commandEditorFile';
@@ -35,7 +36,7 @@ vi.mock('@wailsjs/runtime/runtime', () => ({ EventsOn: (name: string, fn: (paylo
 vi.mock('@wailsjs/go/wailsapi/Workspace', () => ({ GetActiveWorkspace: vi.fn(async () => null) }));
 vi.mock('../pickers/ProfilePicker', () => ({ ProfilePicker: () => null }));
 
-const api = { BeginContextualDeckUICommand: vi.fn(), BeginUICommand: vi.fn(), BeginContextualPaletteUICommand: vi.fn(),
+const api = { ReportLocalPaletteCommand: vi.fn(), BeginContextualDeckUICommand: vi.fn(), BeginUICommand: vi.fn(), BeginContextualPaletteUICommand: vi.fn(),
   ExecuteContextualDeckLayerCommand: vi.fn(), ExecuteContextualPaletteLayerCommand: vi.fn(), ExecutePaletteCommand: vi.fn(),
   PrepareTerminalInterruptCommand: vi.fn(), PrepareTerminalSessionCommand: vi.fn(),
   TakeUICommand: vi.fn(), CompleteUICommand: vi.fn(), CancelUICommand: vi.fn(), GetUICommandResult: vi.fn(), CommitWorkspaceTabCommand: vi.fn() };
@@ -72,6 +73,7 @@ describe('Topbar physical contextual Deck offers — real providers and ports', 
     state.workspace.workspace = { id: 'workspace-a', defaultProfile: 'focused', activeTabId: 'tab-a', tabs: [{ id: 'tab-a', type: 'chat' }] };
     commandId = 'workspace.tab.chat.create';
     Object.values(api).forEach(fn => fn.mockReset()); Object.values(files).forEach(fn => fn.mockReset());
+    api.ReportLocalPaletteCommand.mockResolvedValue(undefined);
     api.BeginContextualDeckUICommand.mockImplementation(async () => reservation());
     api.TakeUICommand.mockImplementation(async () => handoff());
     api.GetUICommandResult.mockResolvedValue({ invocationId: 'invocation', status: 'succeeded' });
@@ -90,6 +92,16 @@ describe('Topbar physical contextual Deck offers — real providers and ports', 
       await waitFor(() => expect(api.CommitWorkspaceTabCommand).toHaveBeenCalledExactlyOnceWith('ticket', 'handoff'));
       expect(api.BeginContextualDeckUICommand).toHaveBeenCalledExactlyOnceWith('offer', 'map', { surfaceType: 'chat', surfaceId: 'tab-a', profile: 'focused', appPage: 'workspace' });
       expect(api.BeginUICommand).not.toHaveBeenCalled(); expect(api.BeginContextualPaletteUICommand).not.toHaveBeenCalled();
+    } finally { view.unmount(); }
+  });
+
+  it('registra a recusa da barreira com origem do Stream Deck', async () => {
+    vi.mocked(flushWorkspaceNavigation).mockResolvedValueOnce(false);
+    const { view, event } = await mount();
+    try {
+      await act(async () => event());
+      await waitFor(() => expect(api.ReportLocalPaletteCommand).toHaveBeenCalledWith(commandId, expect.any(String), 'not_completed', expect.any(Number), 'context_navigation', 'streamdeck.key'));
+      expect(api.CommitWorkspaceTabCommand).not.toHaveBeenCalled();
     } finally { view.unmount(); }
   });
 
