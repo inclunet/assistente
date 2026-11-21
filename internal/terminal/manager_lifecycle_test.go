@@ -929,6 +929,8 @@ func TestCloseReleasesReaderWhenPTYDoesNotDeliverEOF(t *testing.T) {
 	}
 }
 
+// A sessão sem PTY força a saída antes da escrita. O caminho de execução real
+// é exercitado por TestPersistentExitPublishesResultBeforeExit.
 func TestNaturalExitWaitsForCommandResult(t *testing.T) {
 	var events []string
 	s := &Session{state: StateIdle, shell: "bash", onExit: func(string, error) { events = append(events, "exited") }}

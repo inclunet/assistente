@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, createEvent, render, screen, fireEvent, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { ChatInput } from './ChatInput';
 import type { MediaFile } from '../../services/mediaService';
 
@@ -83,6 +84,26 @@ describe('ChatInput', () => {
 
     expect(onSend).toHaveBeenCalledWith('Oi', undefined);
     expect(textarea).toHaveValue('');
+  });
+
+  it('mantém o rascunho editável com envio bloqueado e permite copiar no modo de leitura', async () => {
+    const user = userEvent.setup();
+    const onSend = vi.fn();
+    const { rerender } = render(<ChatInput onSend={onSend} disabled slashMenuEnabled={false} />);
+    const input = screen.getByRole('textbox') as HTMLTextAreaElement;
+    await user.type(input, 'rascunho{Enter}');
+    expect(input).toHaveValue('rascunho');
+    expect(onSend).not.toHaveBeenCalled();
+
+    rerender(<ChatInput onSend={onSend} disabled editorReadOnly slashMenuEnabled={false} />);
+    await user.type(input, 'novo');
+    expect(input).toHaveValue('rascunho');
+    input.select();
+    expect((await user.copy())?.getData('text/plain')).toBe('rascunho');
+
+    rerender(<ChatInput onSend={onSend} slashMenuEnabled={false} />);
+    await user.type(input, ' novo{Enter}');
+    expect(onSend).toHaveBeenCalledWith('rascunho novo', undefined);
   });
 
   it('preserva foco e cursor quando ArrowUp não tem destino de navegação', () => {

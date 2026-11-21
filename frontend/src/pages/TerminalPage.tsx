@@ -104,6 +104,7 @@ export default function TerminalPage({ sessionId: explicitSessionId }: TerminalP
 
   const {
     sessions,
+    isLoadingSessions,
     historyBySession,
     activeEntryBySession = {},
     loadingHistoryBySession,
@@ -111,6 +112,9 @@ export default function TerminalPage({ sessionId: explicitSessionId }: TerminalP
     sendInput,
     setupEventListeners,
   } = useTerminalStore();
+  const activeSession = currentSessionId ? sessions.find(s => s.id === currentSessionId) : undefined;
+  const sessionIsLive = Boolean(activeSession);
+  const [focusRequest, setFocusRequest] = useState<{ sessionId?: string; origin: Element | null } | null>(null);
 
   useEffect(() => {
     const cleanup = setupEventListeners();
@@ -118,15 +122,20 @@ export default function TerminalPage({ sessionId: explicitSessionId }: TerminalP
   }, [setupEventListeners]);
 
   useEffect(() => {
-    if (isActive && currentSessionId && inputRef.current) {
+    if (!isActive || !currentSessionId || isModalOpen() || useWorkspaceChatModalStore.getState().isOpen) {
+      setFocusRequest(null);
+    } else if (inputRef.current && !inputRef.current.readOnly) {
+      setFocusRequest(null);
       inputRef.current.focus();
+    } else {
+      setFocusRequest({ sessionId: currentSessionId, origin: document.activeElement });
     }
   }, [currentSessionId, isActive]);
 
   // Foco de painel unificado: o WorkspaceLayout roteia o foco da aba ativa via
   // workspacePanelFocusRegistry (troca por atalho, fechar aba, F6, retorno de
-  // modal). O handler apenas marca um pedido; um efeito foca o input assim que
-  // a sessão está pronta — mesmo padrão de editor/tasklist.
+  // modal). Durante a listagem, o pedido permanece associado à aba e à posição
+  // do foco. Se a pessoa navegar, a resposta tardia não a tira do novo controle.
   const isPanelActiveRef = useRef(isActive);
   isPanelActiveRef.current = isActive;
   const canFocusWorkspacePanelImmediately = useCallback(() => {
@@ -137,11 +146,9 @@ export default function TerminalPage({ sessionId: explicitSessionId }: TerminalP
     ) return false;
     const sessionId = currentSessionIdRef.current;
     const input = inputRef.current;
-    if (!sessionId || !input || !input.isConnected || input.disabled) return false;
+    if (!sessionId || !input || !input.isConnected || input.readOnly) return false;
     return useTerminalStore.getState().sessions.some((session) => session.id === sessionId);
   }, []);
-  const [panelFocusNonce, setPanelFocusNonce] = useState(0);
-  const consumedPanelFocusNonceRef = useRef(0);
 
   useEffect(() => {
     const tabId = panelTab.id;
@@ -151,7 +158,7 @@ export default function TerminalPage({ sessionId: explicitSessionId }: TerminalP
         || isModalOpen()
         || useWorkspaceChatModalStore.getState().isOpen
       ) return false;
-      setPanelFocusNonce((nonce) => nonce + 1);
+      setFocusRequest({ sessionId: currentSessionIdRef.current, origin: document.activeElement });
       return true;
     }, () => {
       if (!canFocusWorkspacePanelImmediately()) return false;
@@ -163,35 +170,26 @@ export default function TerminalPage({ sessionId: explicitSessionId }: TerminalP
   }, [canFocusWorkspacePanelImmediately, panelTab.id]);
 
   useEffect(() => {
-    if (
-      panelFocusNonce === 0
-      || consumedPanelFocusNonceRef.current === panelFocusNonce
-      || !isActive
-      || isModalOpen()
-      || !currentSessionId
-    ) {
-      return;
-    }
-    const nonce = panelFocusNonce;
-    const raf = requestAnimationFrame(() => {
-      if (consumedPanelFocusNonceRef.current === nonce) return;
-      if (!isPanelActiveRef.current || isModalOpen()) return;
-      // Não roubar o foco quando ele já está num nó do histórico (o usuário
-      // está navegando a saída anterior); o roteamento de painel não pode
-      // sobrepor essa posição intencional.
-      const active = document.activeElement as HTMLElement | null;
-      if (active && active !== inputRef.current && active.closest('.terminal-node')) {
-        consumedPanelFocusNonceRef.current = nonce;
+    if (!isActive || !focusRequest || focusRequest.sessionId !== currentSessionId) return;
+    const cancel = () => setFocusRequest(null);
+    document.addEventListener('focusin', cancel);
+    const waitingForSession = currentSessionId && !sessionIsLive && isLoadingSessions;
+    const frame = waitingForSession ? undefined : requestAnimationFrame(() => {
+      if (!isPanelActiveRef.current || isModalOpen() || useWorkspaceChatModalStore.getState().isOpen ||
+          document.activeElement !== focusRequest.origin || focusRequest.origin?.closest('.terminal-node')) {
+        cancel();
         return;
       }
-      const input = inputRef.current;
-      if (input) {
-        input.focus();
-        consumedPanelFocusNonceRef.current = nonce;
-      }
+      const target = sessionIsLive ? inputRef.current : terminalPickerTriggerRef.current ?? newTerminalButtonRef.current;
+      document.removeEventListener('focusin', cancel);
+      cancel();
+      target?.focus();
     });
-    return () => cancelAnimationFrame(raf);
-  }, [panelFocusNonce, isActive, currentSessionId]);
+    return () => {
+      document.removeEventListener('focusin', cancel);
+      if (frame !== undefined) cancelAnimationFrame(frame);
+    };
+  }, [focusRequest, isActive, currentSessionId, sessionIsLive, isLoadingSessions]);
 
   const terminalOperationInstanceId = `terminal-operation:${panelTab.id}`;
 
@@ -223,8 +221,6 @@ export default function TerminalPage({ sessionId: explicitSessionId }: TerminalP
     return () => window.removeEventListener('keydown', handleKeyDown, true);
   }, [currentSessionId, isActive, terminalOperationInstanceId]);
 
-  const activeSession = currentSessionId ? sessions.find(s => s.id === currentSessionId) : undefined;
-  const sessionIsLive = Boolean(activeSession);
   useLayoutEffect(() => {
     const input = inputRef.current;
     if (!input) return;
@@ -232,8 +228,6 @@ export default function TerminalPage({ sessionId: explicitSessionId }: TerminalP
         !isModalOpen() && !useWorkspaceChatModalStore.getState().isOpen) {
       (terminalPickerTriggerRef.current ?? newTerminalButtonRef.current)?.focus();
     }
-    // ChatInput bloqueia o envio, mas mantém seu editor disponível para rascunhos.
-    input.disabled = !sessionIsLive;
   }, [sessionIsLive, isActive]);
   const currentHistory = currentSessionId ? (historyBySession[currentSessionId] || []) : [];
   const currentRunningCommandId = currentSessionId
@@ -277,7 +271,7 @@ export default function TerminalPage({ sessionId: explicitSessionId }: TerminalP
   const canOpenPresentationCommand = useCallback((id: PagePresentationCommandID) => {
     if (id === 'terminal.sessions.open') return Boolean(terminalPickerTriggerRef.current && !terminalPickerTriggerRef.current.disabled);
     if (id === 'terminal.focus.input') {
-      return Boolean(currentSessionId && inputRef.current && !inputRef.current.disabled);
+      return Boolean(currentSessionId && inputRef.current && !inputRef.current.readOnly);
     }
     if (id === 'terminal.focus.history') return Boolean(currentSessionId && currentHistory.length > 0);
     return false;
@@ -558,6 +552,7 @@ export default function TerminalPage({ sessionId: explicitSessionId }: TerminalP
           ref={inputRef}
           onSend={handleSendInput}
           disabled={!activeSession}
+          editorReadOnly={!activeSession}
           placeholder={
             !activeSession
               ? t('terminal.placeholders.creating')

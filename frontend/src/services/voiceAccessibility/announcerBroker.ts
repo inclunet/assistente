@@ -178,7 +178,7 @@ function flushNextDeferredAnnouncement() {
   const message = resolveMessage(next.request);
   emit(message, next.priority);
   const readingMs = estimateAnnouncementReadingMs(message);
-  if (next.durable) {
+  if (next.durable || next.request.protectsReading) {
     // Este aviso esperou justamente porque não pode se perder; deixá-lo ser
     // substituído no meio o perderia do mesmo jeito. Um aviso de estado, ao
     // contrário, deve ceder lugar a um estado mais recente: é o mais novo que
