@@ -198,12 +198,7 @@ func (m *Manager) toolShellEnv() []string {
 // RunEphemeral executa um comando sem criar seção persistente visível.
 // Não adiciona a sessão ao pool nem emite session_created/closed — evita
 // flicker no Terminal e não ocupa o limite de sessões.
-func (m *Manager) RunEphemeral(ctx context.Context, workDir, command string, timeout time.Duration, source string) (*HistoryEntry, error) {
-	return m.RunEphemeralWithDisplay(ctx, workDir, CommandText{Raw: command, Display: command}, timeout, source)
-}
-
-// RunEphemeralWithDisplay executa o comando e publica sua representação de exibição.
-func (m *Manager) RunEphemeralWithDisplay(ctx context.Context, workDir string, command CommandText, timeout time.Duration, source string) (*HistoryEntry, error) {
+func (m *Manager) RunEphemeral(ctx context.Context, workDir string, command CommandText, timeout time.Duration, source string) (*HistoryEntry, error) {
 	absolute, err := filepath.Abs(workDir)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrDirectoryUnresolved, err)

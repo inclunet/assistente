@@ -264,7 +264,7 @@ func (m *MockSessionManager) Close(sessionID string) error {
 	return nil
 }
 
-func (m *MockSessionManager) RunEphemeralWithDisplay(ctx context.Context, workDir string, command terminal.CommandText, timeout time.Duration, source string) (*terminal.HistoryEntry, error) {
+func (m *MockSessionManager) RunEphemeral(ctx context.Context, workDir string, command terminal.CommandText, timeout time.Duration, source string) (*terminal.HistoryEntry, error) {
 	m.runEphemeralCalls.Add(1)
 	m.runCommandText = command.Raw
 	m.runCommandDisplay = command.Display

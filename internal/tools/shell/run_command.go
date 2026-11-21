@@ -51,7 +51,7 @@ type GetAllowlistFunc func(context.Context) (*allowlist.Allowlist, error)
 type SessionManager interface {
 	Acquire(ctx context.Context, workDir string) (*terminal.Session, error)
 	RunCommandWithDisplay(ctx context.Context, sessionID string, command terminal.CommandText, timeout time.Duration, requesterID string) (*terminal.HistoryEntry, error)
-	RunEphemeralWithDisplay(ctx context.Context, workDir string, command terminal.CommandText, timeout time.Duration, source string) (*terminal.HistoryEntry, error)
+	RunEphemeral(ctx context.Context, workDir string, command terminal.CommandText, timeout time.Duration, source string) (*terminal.HistoryEntry, error)
 	Release(sessionID string)
 	Close(sessionID string) error
 }
@@ -282,7 +282,7 @@ func (rc *RunCommand) Execute(ctx context.Context, args json.RawMessage) (tools.
 		rc.sessionMgr.Release(sessionID)
 	} else {
 		// Execução efêmera por padrão: não cria aba persistente nem ocupa o limite.
-		entry, err = rc.sessionMgr.RunEphemeralWithDisplay(ctx, workDir, command, timeout, "llm")
+		entry, err = rc.sessionMgr.RunEphemeral(ctx, workDir, command, timeout, "llm")
 		if errors.Is(err, terminal.ErrDirectoryUnresolved) {
 			return shellPrerequisiteFailure(ctx, "directory_unresolved", "Não foi possível resolver o diretório para autorização."), nil
 		}

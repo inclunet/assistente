@@ -34,7 +34,8 @@ func ShellConsentPrefix(ctx context.Context) string {
 	return command.prefix
 }
 
-// WithShellCommandMetadata define a representação segura do comando para o histórico.
+// WithShellCommandMetadata marca o comando como protegido. O texto público vale para
+// o histórico; uma confirmação oculta o comando resolvido e só admite aprovação pontual.
 func WithShellCommandMetadata(ctx context.Context, command string) context.Context {
 	return WithProtectedShellCommand(ctx, command, "")
 }

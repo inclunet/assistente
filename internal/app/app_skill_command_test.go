@@ -29,7 +29,7 @@ type skillTestTerminal struct {
 	exitCode int
 }
 
-func (s *skillTestTerminal) RunEphemeralWithDisplay(ctx context.Context, dir string, command terminal.CommandText, timeout time.Duration, source string) (*terminal.HistoryEntry, error) {
+func (s *skillTestTerminal) RunEphemeral(ctx context.Context, dir string, command terminal.CommandText, timeout time.Duration, source string) (*terminal.HistoryEntry, error) {
 	s.calls++
 	entry := &terminal.HistoryEntry{ExitCode: s.exitCode, Output: "private-output", Command: command.Display}
 	if s.exitCode == -1 {

@@ -24,7 +24,8 @@ func TestRunEphemeralNaoCriaSecaoPersistente(t *testing.T) {
 		events = append(events, event)
 	})
 
-	entry, err := mgr.RunEphemeral(context.Background(), "", "echo hello", 0, "test")
+	const rawCommand = "echo hello"
+	entry, err := mgr.RunEphemeral(context.Background(), "", CommandText{Raw: rawCommand, Display: rawCommand}, 0, "test")
 	if err != nil {
 		t.Fatalf("RunEphemeral erro: %v", err)
 	}
@@ -63,7 +64,7 @@ func TestSensitiveCommandRedactedInTerminalEventsAndHistory(t *testing.T) {
 	})
 	dir := t.TempDir()
 	t.Cleanup(manager.CloseAll)
-	entry, err := manager.RunEphemeralWithDisplay(ctx, dir, text, 15*time.Second, "test")
+	entry, err := manager.RunEphemeral(ctx, dir, text, 15*time.Second, "test")
 	if err != nil || entry == nil || entry.Command != masked || entry.Output != "executado" || entry.ExitCode != 0 {
 		t.Fatal("entrada efêmera não preservou a execução e a redação")
 	}
@@ -97,7 +98,7 @@ func TestRunEphemeralTimeoutCompletesCleanupBeforeReturning(t *testing.T) {
 	}
 
 	started := time.Now()
-	entry, err := manager.RunEphemeral(context.Background(), "", command, 150*time.Millisecond, "test")
+	entry, err := manager.RunEphemeral(context.Background(), "", CommandText{Raw: command, Display: command}, 150*time.Millisecond, "test")
 	elapsed := time.Since(started)
 
 	if err == nil {
@@ -125,7 +126,7 @@ func TestPowerShellNoNewlineThroughPTY(t *testing.T) {
 		cmd  string
 		code int
 	}{{"Write-Host -NoNewline 'sample'", 0}, {"Write-Host -NoNewline 'sample'; cmd /c exit 7", 7}} {
-		entry, err := mgr.RunEphemeral(t.Context(), "", tc.cmd, 15*time.Second, "test")
+		entry, err := mgr.RunEphemeral(t.Context(), "", CommandText{Raw: tc.cmd, Display: tc.cmd}, 15*time.Second, "test")
 		if err != nil || entry == nil || strings.TrimSpace(entry.Output) != "sample" || entry.ExitCode != tc.code {
 			t.Fatalf("entry=%+v err=%v", entry, err)
 		}
@@ -139,7 +140,7 @@ func TestPowerShellCmdletFailureAfterNativeSuccess(t *testing.T) {
 	cfg := DefaultManagerConfig()
 	cfg.DefaultShell = "powershell.exe"
 	for _, command := range []string{"cmd /c exit 0; Get-Item -LiteralPath 'Z:/missing-skill-review-file' -ErrorAction SilentlyContinue", "cmd /c 'echo diagnostic 1>&2 & exit 0' 2>&1; Get-Item -LiteralPath 'Z:/missing-skill-review-file' -ErrorAction Ignore"} {
-		entry, err := NewManager(cfg, nil).RunEphemeral(t.Context(), "", command, 15*time.Second, "test")
+		entry, err := NewManager(cfg, nil).RunEphemeral(t.Context(), "", CommandText{Raw: command, Display: command}, 15*time.Second, "test")
 		if err != nil || entry == nil || entry.ExitCode == 0 {
 			t.Fatalf("%+v %v", entry, err)
 		}
@@ -152,7 +153,8 @@ func TestPowerShellNativeStderrWithZeroExit(t *testing.T) {
 	}
 	cfg := DefaultManagerConfig()
 	cfg.DefaultShell = "powershell.exe"
-	entry, err := NewManager(cfg, nil).RunEphemeral(t.Context(), "", "cmd /c 'echo sample 1>&2 & exit 0' 2>&1", 15*time.Second, "test")
+	const rawCommand = "cmd /c 'echo sample 1>&2 & exit 0' 2>&1"
+	entry, err := NewManager(cfg, nil).RunEphemeral(t.Context(), "", CommandText{Raw: rawCommand, Display: rawCommand}, 15*time.Second, "test")
 	if err != nil || entry == nil || entry.ExitCode != 0 || !strings.Contains(entry.Output, "sample") {
 		t.Fatalf("%+v %v", entry, err)
 	}
@@ -208,7 +210,7 @@ func TestPowerShellPipelineAndGroupedStatus(t *testing.T) {
 		{"cmd /c exit 7; (Write-Output ok)", 0},
 	} {
 		t.Run(tc.command, func(t *testing.T) {
-			entry, err := NewManager(cfg, nil).RunEphemeral(t.Context(), t.TempDir(), tc.command, 15*time.Second, "test")
+			entry, err := NewManager(cfg, nil).RunEphemeral(t.Context(), t.TempDir(), CommandText{Raw: tc.command, Display: tc.command}, 15*time.Second, "test")
 			if err != nil || entry == nil || entry.ExitCode != tc.exit {
 				t.Fatalf("esperado=%d entry=%+v err=%v", tc.exit, entry, err)
 			}
@@ -417,7 +419,7 @@ func TestPowerShellGroupingPreservesOutputOnThrow(t *testing.T) {
 		if !errors.As(err, &controlExit) || controlExit.ExitCode() != 1 || controlLines[len(controlLines)-1] != "falha" {
 			t.Fatalf("controle %q: saída=%q erro=%v", group, want, err)
 		}
-		entry, err := NewManager(cfg, nil).RunEphemeral(t.Context(), t.TempDir(), group, 15*time.Second, "test")
+		entry, err := NewManager(cfg, nil).RunEphemeral(t.Context(), t.TempDir(), CommandText{Raw: group, Display: group}, 15*time.Second, "test")
 		if err != nil || entry == nil || entry.ExitCode != controlExit.ExitCode() || !strings.Contains(entry.Output, "falha") {
 			t.Fatalf("grupo=%q entry=%+v err=%v", group, entry, err)
 		}
@@ -459,7 +461,7 @@ func TestPowerShellHashPreservesOutputAndExitCode(t *testing.T) {
 		{"sintaxe", "if ( # nota", "", 1, "diagnostic"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			entry, err := NewManager(cfg, nil).RunEphemeral(t.Context(), t.TempDir(), tc.command, 10*time.Second, "test")
+			entry, err := NewManager(cfg, nil).RunEphemeral(t.Context(), t.TempDir(), CommandText{Raw: tc.command, Display: tc.command}, 10*time.Second, "test")
 			if err != nil || entry == nil || entry.ExitCode != tc.code {
 				t.Fatalf("esperado %d, entry=%+v err=%v", tc.code, entry, err)
 			}
@@ -489,7 +491,8 @@ func TestBashExitBeforeEndMarker(t *testing.T) {
 	}
 	cfg := DefaultManagerConfig()
 	cfg.DefaultShell = "bash"
-	entry, err := NewManager(cfg, nil).RunEphemeral(t.Context(), t.TempDir(), "printf 'antes'; exit 3", 10*time.Second, "test")
+	const rawCommand = "printf 'antes'; exit 3"
+	entry, err := NewManager(cfg, nil).RunEphemeral(t.Context(), t.TempDir(), CommandText{Raw: rawCommand, Display: rawCommand}, 10*time.Second, "test")
 	if err != nil || entry == nil || entry.ExitCode != 3 || !strings.HasPrefix(entry.Output, "antes") {
 		t.Fatalf("entry=%+v err=%v", entry, err)
 	}

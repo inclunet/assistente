@@ -178,7 +178,7 @@ type shellDispatchProbe struct {
 	entry      *terminal.HistoryEntry
 }
 
-func (p *shellDispatchProbe) RunEphemeralWithDisplay(_ context.Context, _ string, command terminal.CommandText, _ time.Duration, _ string) (*terminal.HistoryEntry, error) {
+func (p *shellDispatchProbe) RunEphemeral(_ context.Context, _ string, command terminal.CommandText, _ time.Duration, _ string) (*terminal.HistoryEntry, error) {
 	p.command = command
 	p.calls++
 	if p.calls == 1 && p.startupErr != nil {
