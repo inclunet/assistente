@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"fmt"
 
 	"assistente/internal/questionnaire"
@@ -20,6 +21,22 @@ const (
 	decisionAllow = "allow"
 	decisionDeny  = "deny"
 )
+
+func askShellConfirmation(ctx context.Context, router *questionnaire.Router, surface questionnaire.Surface, req shelltrust.PromptRequest) (shelltrust.PromptDecision, error) {
+	actions := questionnaire.AuthorizationActions{Scopes: req.AvailableScopes}
+	payload := shellConfirmationPayload(req).WithAcceptedResponse(func(resp questionnaire.Response) {
+		choice, err := actions.Parse(resp)
+		if err == nil && choice.Effect == "deny" {
+			shelltrust.NotifyAcceptedRefusal(ctx)
+		}
+	})
+	resp, err := router.Ask(ctx, surface, payload)
+	if err != nil {
+		return shelltrust.PromptDecision{}, err
+	}
+	choice, err := actions.Parse(resp)
+	return shelltrust.PromptDecision{Approve: choice.Effect == "allow", Scope: choice.Scope}, err
+}
 
 // shellConfirmationPayload monta a confirmação de execução de comando (AEP-0091).
 func shellConfirmationPayload(req shelltrust.PromptRequest) questionnaire.RequestPayload {

@@ -491,8 +491,8 @@ func TestPolicyRefusalBeforeExecutorDeadline(t *testing.T) {
 		// A escrita só termina quando o teste lê o log da política. O relógio
 		// virtual avança enquanto a entrega do resultado está bloqueada.
 		reader, writer := io.Pipe()
-		defer reader.Close()
-		defer writer.Close()
+		defer func() { _ = reader.Close() }()
+		defer func() { _ = writer.Close() }()
 		previous := slog.Default()
 		defer log.SetOutput(log.Writer())
 		defer log.SetFlags(log.Flags())
@@ -521,8 +521,8 @@ func TestPrerequisiteFailureBeforeInterruption(t *testing.T) {
 		t.Run(map[bool]string{false: "prazo da ferramenta", true: "cancelamento do turno"}[parentCancel], func(t *testing.T) {
 			synctest.Test(t, func(t *testing.T) {
 				reader, writer := io.Pipe()
-				defer reader.Close()
-				defer writer.Close()
+				defer func() { _ = reader.Close() }()
+				defer func() { _ = writer.Close() }()
 				previous := slog.Default()
 				defer log.SetOutput(log.Writer())
 				defer log.SetFlags(log.Flags())

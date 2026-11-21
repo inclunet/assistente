@@ -139,7 +139,7 @@ func TestPrerequisiteWarningIdentifiesCallAndCause(t *testing.T) {
 				}
 			case "store_unavailable":
 				repo, db := authorizationfixture.Open(t, t.TempDir())
-				if err := db.Callback().Query().Before("gorm:query").Register("test:store_unavailable", func(tx *gorm.DB) { tx.AddError(errors.New(secret)) }); err != nil {
+				if err := db.Callback().Query().Before("gorm:query").Register("test:store_unavailable", func(tx *gorm.DB) { _ = tx.AddError(errors.New(secret)) }); err != nil {
 					t.Fatal(err)
 				}
 				auth.Manager = shelltrust.NewManager(trustscope.Options{Repository: repo})

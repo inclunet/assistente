@@ -32,7 +32,7 @@ O Assistente consulta a política do comando no contexto da conversa. Quando
 é preciso decidir, o diálogo de shell mostra o comando, o diretório e as
 opções de duração disponíveis. Aprovar permite continuar. Recusar, cancelar
 ou encontrar uma negativa vigente interrompe o turno antes do envio ao modelo.
-Se o prazo do diálogo expirar sem resposta, a skill base omite a linha e a invocação por barra termina.
+No desktop, se o aplicativo aceitar **Negar** ou **Cancelar** antes do prazo, a recusa interrompe o turno mesmo que o diálogo demore a fechar. Se o prazo do diálogo expirar sem resposta, a skill base omite a linha e a invocação por barra termina.
 Uma aprovação lembrada segue o mesmo escopo das demais execuções de shell.
 
 Em **Skills**: grid com nome/descrição/modo (Auto/Manual) e origem; crie, edite, duplique ou remova skills. `Ctrl+N` cria um skill quando essa aba de Configurações está ativa.

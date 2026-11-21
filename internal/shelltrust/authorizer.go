@@ -60,6 +60,14 @@ func WithDecisionObserver(ctx context.Context, observe func(bool, error)) contex
 	return context.WithValue(ctx, decisionObserverKey{}, observe)
 }
 
+// NotifyAcceptedRefusal registra somente uma negativa pontual já aceita e
+// validada pelo adaptador da superfície.
+func NotifyAcceptedRefusal(ctx context.Context) {
+	if observe, ok := ctx.Value(decisionObserverKey{}).(func(bool, error)); ok && observe != nil {
+		observe(false, nil)
+	}
+}
+
 func (a *Authorizer) Authorize(ctx context.Context, command, directory string) (bool, error) {
 	if a.Manager != nil {
 		ctx = a.Manager.Capture(ctx)

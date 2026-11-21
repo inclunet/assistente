@@ -475,3 +475,52 @@ func TestAcceptedResponseSurvivesDeadline(t *testing.T) {
 		})
 	}
 }
+
+func TestAcceptedResponseNotifiesOutsideManagerLock(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		opened := make(chan string, 1)
+		mgr := NewManager(func(event string, data any) {
+			if event == EventQuestionnaire {
+				opened <- data.(map[string]any)["id"].(string)
+			}
+		})
+		observing := make(chan int, 1)
+		release := make(chan struct{})
+		payload := RequestPayload{}.WithAcceptedResponse(func(Response) {
+			observing <- mgr.PendingCount()
+			<-release
+		})
+		ctx, cancel := context.WithCancel(t.Context())
+		defer cancel()
+		completed := make(chan Response, 1)
+		go func() {
+			resp, err := mgr.RequestQuestionnaire(ctx, payload)
+			if err != nil {
+				t.Error(err)
+			}
+			completed <- resp
+		}()
+		id := <-opened
+		go func() {
+			if err := mgr.Respond(id, nil, true); err != nil {
+				t.Error(err)
+			}
+		}()
+		if count := <-observing; count != 0 {
+			t.Errorf("pedidos pendentes após a aceitação: %d", count)
+		}
+		cancel()
+		synctest.Wait()
+		select {
+		case <-completed:
+			t.Error("solicitante retomou antes da notificação")
+			close(release)
+			return
+		default:
+		}
+		close(release)
+		if resp := <-completed; resp.ID != id || !resp.Cancelled {
+			t.Fatalf("resposta=%+v", resp)
+		}
+	})
+}

@@ -100,6 +100,14 @@ type RequestPayload struct {
 	CreatedAt    string              `json:"createdAt"`
 	response     chan Response
 	waitCtx      context.Context
+	onAccepted   func(Response)
+}
+
+// WithAcceptedResponse notifica o solicitante quando Respond aceita a resposta
+// deste diálogo no desktop, antes de liberar quem espera por ela.
+func (p RequestPayload) WithAcceptedResponse(notify func(Response)) RequestPayload {
+	p.onAccepted = notify
+	return p
 }
 
 // Response representa a resposta do usuário.
@@ -152,6 +160,7 @@ func (m *Manager) RequestQuestionnaire(ctx context.Context, payload RequestPaylo
 
 	req := &RequestPayload{
 		waitCtx:      timeoutCtx,
+		onAccepted:   payload.onAccepted,
 		ID:           uuid.New().String()[:8],
 		Kind:         payload.Kind,
 		Severity:     payload.Severity,
@@ -226,12 +235,12 @@ func (m *Manager) RequestQuestionnaire(ctx context.Context, payload RequestPaylo
 		// resposta aceita antes do prazo continua válida se os dois canais
 		// estiverem prontos quando o solicitante retomar a execução.
 		m.mu.Lock()
+		_, pending := m.pending[req.ID]
 		delete(m.pending, req.ID)
 		m.mu.Unlock()
-		select {
-		case resp := <-req.response:
-			return resp, nil
-		default:
+		if !pending {
+			// Respond já reservou a entrega e está notificando o solicitante.
+			return <-req.response, nil
 		}
 		// A pergunta acabou sem dono, mas o diálogo continua na tela pedindo
 		// uma decisão que não chega a lugar nenhum. Quem está lendo precisa
@@ -268,10 +277,11 @@ func (m *Manager) emitClosed(requestID, reason string) {
 // Respond envia a resposta do usuário para um questionário pendente.
 func (m *Manager) Respond(requestID string, answers map[string]any, cancelled bool) error {
 	m.mu.Lock()
-	defer m.mu.Unlock()
+
 	req, ok := m.pending[requestID]
 
 	if !ok || req.waitCtx.Err() != nil {
+		m.mu.Unlock()
 		return fmt.Errorf("solicitação de questionário '%s' não encontrada ou expirada", requestID)
 	}
 
@@ -282,7 +292,12 @@ func (m *Manager) Respond(requestID string, answers map[string]any, cancelled bo
 	}
 
 	delete(m.pending, requestID)
-	req.response <- resp
+	m.mu.Unlock()
+	// O observador é do solicitante. Nunca o execute sob o lock do gerenciador.
+	defer func() { req.response <- resp }()
+	if req.onAccepted != nil {
+		req.onAccepted(resp)
+	}
 	return nil
 }
 
