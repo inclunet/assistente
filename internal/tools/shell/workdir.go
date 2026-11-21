@@ -28,12 +28,12 @@ func resolveProjectWorkDir(projectRoot, requested string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("%w: %w", errProjectDirectoryUnresolved, directoryDiagnostic(err))
 	}
-	canonicalRoot, err := canonicalizeProjectPath(root)
+	canonicalRoot, err := existingDirectoryPath(root)
 	if err != nil {
 		return "", fmt.Errorf("%w: %w", errProjectDirectoryUnresolved, directoryDiagnostic(err))
 	}
 	target := filepath.Join(root, filepath.Clean(requested))
-	canonicalTarget, err := canonicalizeProjectPath(target)
+	canonicalTarget, err := existingDirectoryPath(target)
 	if err != nil {
 		return "", directoryDiagnostic(err)
 	}
@@ -48,10 +48,29 @@ func resolveProjectWorkDir(projectRoot, requested string) (string, error) {
 	return canonicalTarget, nil
 }
 
+func existingDirectoryPath(path string) (string, error) {
+	resolved, err := terminal.ResolveDirectoryPath(path)
+	if err != nil {
+		return "", err
+	}
+	info, err := os.Stat(resolved)
+	if err != nil {
+		return "", err
+	}
+	if !info.IsDir() {
+		return "", errNotDirectory
+	}
+	return resolved, nil
+}
+
+var errNotDirectory = errors.New("o caminho não é um diretório")
+
 // O resultado da ferramenta pode ser persistido. Erros do sistema de arquivos
 // frequentemente carregam caminhos absolutos do host junto com a causa.
 func directoryDiagnostic(err error) error {
 	switch {
+	case errors.Is(err, errNotDirectory):
+		return errNotDirectory
 	case errors.Is(err, os.ErrPermission):
 		return errors.New("permissão insuficiente para acessar o diretório")
 	case errors.Is(err, os.ErrNotExist):

@@ -49,7 +49,7 @@ interativa. Uma sequência de controle incompleta de até 4 KiB pode aparecer
 como texto ao encerrar a leitura. Acima desse limite, o terminal descarta
 a cópia literal e volta a mostrar texto quando a sequência termina ou é cancelada.
 
-Ao usar a ferramenta com `working_directory`, informe um caminho relativo ao projeto. Se esse argumento for inválido, a ferramenta devolve o motivo para que o caminho possa ser corrigido. Se o próprio diretório do projeto não puder ser resolvido, a autorização fica indisponível.
+Ao usar a ferramenta com `working_directory`, informe o caminho relativo de uma pasta existente no projeto. Tanto no modo efêmero quanto no persistente, a ferramenta informa se a pasta indicada não existe ou se o caminho aponta para um arquivo. Se o próprio diretório do projeto estiver indisponível, a autorização fica indisponível.
 
 ## Sessões
 

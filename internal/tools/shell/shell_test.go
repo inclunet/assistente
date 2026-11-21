@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"sync/atomic"
@@ -845,7 +847,11 @@ func TestWorkingDirectoryRelativePath(t *testing.T) {
 		DefaultAction: "deny",
 	}
 
-	rc := NewRunCommand(mgr, nil, func(context.Context) (*allowlist.Allowlist, error) { return al, nil }, "/project")
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "subdir", "nested"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	rc := NewRunCommand(mgr, nil, func(context.Context) (*allowlist.Allowlist, error) { return al, nil }, root)
 	result, err := rc.Execute(context.Background(), json.RawMessage(`{
 		"command":"pwd",
 		"working_directory":"subdir/nested"
@@ -879,7 +885,11 @@ func TestMetadataCompleto(t *testing.T) {
 		DefaultAction: "deny",
 	}
 
-	rc := NewRunCommand(mgr, nil, func(context.Context) (*allowlist.Allowlist, error) { return al, nil }, "/mydir")
+	root := t.TempDir()
+	if err := os.Mkdir(filepath.Join(root, "subdir"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	rc := NewRunCommand(mgr, nil, func(context.Context) (*allowlist.Allowlist, error) { return al, nil }, root)
 	result, err := rc.Execute(context.Background(), json.RawMessage(`{
 		"command":"echo test",
 		"working_directory":"subdir",
