@@ -171,7 +171,14 @@ func (a *App) authenticatedCommandProductContext(ctx context.Context) (*commandP
 
 // BeginUICommand só confirma recepção. A execução continua no serviço único:
 // autenticação, autorização, ledger e CAS precedem Start e qualquer handoff.
-func (a *App) BeginUICommand(commandID string) (commandui.Reservation, error) {
+func (a *App) BeginUICommand(commandID string) (result commandui.Reservation, err error) {
+	started := time.Now()
+	admitted := false
+	defer func() {
+		if err != nil && !admitted {
+			logCommandExecution(diagnosticRegisteredCommand(a, commandID), "", "palette", "admission", started, "", nil, err)
+		}
+	}()
 	p, err := a.authenticatedCommandProduct()
 	if err != nil {
 		return commandui.Reservation{}, err
@@ -183,6 +190,7 @@ func (a *App) BeginUICommand(commandID string) (commandui.Reservation, error) {
 	if !ok || commandExecutionClassForDefinition(definition) == commandExecutionLocalUI || (commandExecutionClassForDefinition(definition) != commandExecutionAuditedUI && !isWorkspaceMutationCommand(commandID)) || !definition.AllowsSource(commandcatalog.Palette) {
 		return commandui.Reservation{}, commandexecution.ErrDenied
 	}
+	admitted = true
 	return a.beginCommandUI(p, commandID, func(reservation commandui.Reservation) (commandexecution.EnvelopeCandidate, error) {
 		return commandPaletteCandidate(reservation.InvocationID, reservation.InvocationID, commandID, json.RawMessage(`{}`))
 	}, p.execute, nil)
