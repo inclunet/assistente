@@ -84,7 +84,7 @@ Fora de blocos de código, a diretiva pode ser explícita ou começar por um pro
 
 Uma negativa expressa do usuário ou da política usa `shell_command_refused` e interrompe o turno. Fechar o diálogo pela ação de cancelar conta como negativa pontual.
 
-Na falta de confirmação, o código é `shell_confirmation_unavailable`. Falhas de política, diretório ou consulta às concessões usam `shell_prerequisite_unavailable`, inclusive na releitura após uma aprovação. O diagnóstico registra a categoria da causa e o ID da chamada. Nesses casos, a base omite a linha e sua saída parcial, e a barra encerra a invocação.
+Na falta de confirmação, o código é `shell_confirmation_unavailable`. Um argumento `working_directory` inválido recebe um diagnóstico de entrada que permite corrigir a chamada. Falhas de política, resolução do diretório do projeto ou consulta às concessões usam `shell_prerequisite_unavailable`, inclusive na releitura após uma aprovação. O diagnóstico registra a categoria da causa e o ID da chamada. Nesses casos, a base omite a linha e sua saída parcial, e a barra encerra a invocação.
 
 No desktop, o questionário entrega a resposta aceita antes do prazo conforme o [AEP-0091](0091-dialogos-de-decisao-unificados.md). O adaptador valida a ação oferecida e publica a recusa antes de `Respond` retornar. A aprovação ainda exige revalidação. Se ela terminar antes de vencer o prazo, a interrupção subsequente é classificada como cancelamento ou timeout da operação. Se o prazo expirar sem resposta, a confirmação fica indisponível e a ferramenta não tenta novamente.
 

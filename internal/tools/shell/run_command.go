@@ -183,7 +183,7 @@ func (rc *RunCommand) Execute(ctx context.Context, args json.RawMessage) (tools.
 		workDir = info.CWD
 	} else if a.WorkingDirectory != "" {
 		resolvedWorkDir, resolveErr := resolveProjectWorkDir(rc.workDir, a.WorkingDirectory)
-		if errors.Is(resolveErr, errDirectoryUnresolved) {
+		if errors.Is(resolveErr, errProjectDirectoryUnresolved) {
 			return shellPrerequisiteFailure(ctx, "directory_unresolved", "Não foi possível resolver o diretório para autorização."), nil
 		}
 		if resolveErr != nil {
@@ -508,6 +508,8 @@ func confirmShellCommand(ctx context.Context, confirm ConfirmFunc, command, work
 	}
 	return nil
 }
+		// O log preserva a causa operacional; o resultado informa que o prazo
+		// encerrou a confirmação antes de uma autorização válida.
 
 func shellPrerequisiteFailure(ctx context.Context, reason, message string) tools.ToolResult {
 	failure := tools.ToolResult{IsError: true, Content: message,

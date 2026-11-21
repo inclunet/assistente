@@ -183,6 +183,43 @@ func TestPrerequisiteWarningIdentifiesCallAndCause(t *testing.T) {
 	}
 }
 
+func TestInvalidRequestedDirectoryReturnsArgumentError(t *testing.T) {
+	for _, name := range []string{"nul", "broken_symlink"} {
+		t.Run(name, func(t *testing.T) {
+			dir := t.TempDir()
+			requested := "invalid\x00"
+			if name == "broken_symlink" {
+				requested = "broken-link"
+				if err := os.Symlink(filepath.Join(dir, "absent"), filepath.Join(dir, requested)); err != nil {
+					if runtime.GOOS == "windows" {
+						t.Skipf("symlink indisponível: %v", err)
+					}
+					t.Fatal(err)
+				}
+			}
+
+			var output bytes.Buffer
+			previous := slog.Default()
+			slog.SetDefault(slog.New(slog.NewTextHandler(&output, &slog.HandlerOptions{Level: slog.LevelWarn})))
+			t.Cleanup(func() { slog.SetDefault(previous) })
+			terminal := &MockSessionManager{}
+			rc := NewRunCommand(terminal, nil, nil, dir)
+			args, err := json.Marshal(map[string]string{"command": "example", "working_directory": requested})
+			if err != nil {
+				t.Fatal(err)
+			}
+			result, err := rc.Execute(authorizationfixture.Context(), args)
+			cause, invalid := strings.CutPrefix(result.Content, "working_directory inválido: ")
+			if err != nil || !result.IsError || !invalid || cause == "" || result.Failure != nil || terminal.runEphemeralCalls != 0 {
+				t.Fatalf("result=%+v err=%v calls=%d", result, err, terminal.runEphemeralCalls)
+			}
+			if strings.Contains(output.String(), "directory_unresolved") {
+				t.Fatalf("argumento inválido diagnosticado como pré-requisito: %s", &output)
+			}
+		})
+	}
+}
+
 func TestPrerequisiteWarningAfterConfirmationCancellation(t *testing.T) {
 	var output bytes.Buffer
 	previous := slog.Default()
