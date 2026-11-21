@@ -123,7 +123,7 @@ type Session struct {
 	// Ativo entre a troca de dono e a publicação de command_start. O
 	// leitor continua drenando o PTY mesmo se o callback fechar a sessão.
 	rawStarting    bool
-	rawDuringStart strings.Builder
+	rawDuringStart []string
 	exitAfterStart func()
 
 	// onOutput é chamado com chunks de output filtrado durante RunCommand (LLM)
@@ -304,7 +304,7 @@ func (s *Session) reserveRawDelivery(raw string) string {
 		return ""
 	}
 	if s.rawStarting {
-		s.rawDuringStart.WriteString(raw)
+		s.rawDuringStart = append(s.rawDuringStart, raw)
 		return ""
 	}
 	s.rawDeliveries.Add(1)
@@ -346,9 +346,9 @@ func (s *Session) startCommandOutput(marker *CommandMarker, entry *HistoryEntry)
 	}
 	for {
 		s.outputMu.Lock()
-		raw := s.rawDuringStart.String()
-		s.rawDuringStart.Reset()
-		if raw == "" {
+		queued := s.rawDuringStart
+		s.rawDuringStart = nil
+		if len(queued) == 0 {
 			s.rawStarting = false
 			notifyExit := s.exitAfterStart
 			s.exitAfterStart = nil
@@ -359,7 +359,9 @@ func (s *Session) startCommandOutput(marker *CommandMarker, entry *HistoryEntry)
 			return
 		}
 		s.outputMu.Unlock()
-		s.onRawOutput(s.id, raw)
+		for _, raw := range queued {
+			s.onRawOutput(s.id, raw)
+		}
 	}
 }
 
