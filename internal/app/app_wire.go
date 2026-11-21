@@ -8,6 +8,7 @@ import (
 	"assistente/internal/core/ports"
 	"assistente/internal/database"
 	"assistente/internal/logging"
+	"assistente/internal/plugins"
 	"assistente/internal/wailsapi"
 	"assistente/internal/workspace"
 	"context"
@@ -33,6 +34,12 @@ func (a *App) wireAllowlist() {
 	})
 	if a.allowlistsAPI != nil {
 		wailsapi.AttachAllowlists(a.allowlistsAPI, wailsSession{app: a}, a.allowlistCtrl)
+	}
+}
+
+func (a *App) wirePlugins() {
+	if a.pluginsAPI != nil && a.dialogPort != nil {
+		wailsapi.AttachPlugins(a.pluginsAPI, wailsSession{app: a}, plugins.NewInventory(database.DB()), a.dialogPort.OpenDirectoryDialog, a.captureDialogAdmission)
 	}
 }
 

@@ -179,6 +179,8 @@ func run(args []string) (exitCode int) {
 	application.SetTokensAPI(a, tokensAPI)
 	allowlistsAPI := wailsapi.NewAllowlists()
 	application.SetAllowlistsAPI(a, allowlistsAPI)
+	pluginsAPI := wailsapi.NewPlugins()
+	application.SetPluginsAPI(a, pluginsAPI)
 	skillsAPI := wailsapi.NewSkills()
 	application.SetSkillsAPI(a, skillsAPI)
 	toolsAPI := wailsapi.NewTools()
@@ -286,6 +288,7 @@ func run(args []string) (exitCode int) {
 			wailsapi.NewProbe(),
 			tokensAPI,
 			allowlistsAPI,
+			pluginsAPI,
 			skillsAPI,
 			toolsAPI,
 			commandCatalogAPI,

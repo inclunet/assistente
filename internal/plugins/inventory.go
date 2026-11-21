@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"time"
 
+	"assistente/internal/commandsecurity"
 	"assistente/internal/database"
 	"assistente/internal/pluginpackage"
 	"gorm.io/gorm"
@@ -32,6 +34,15 @@ func (i *Inventory) List(ctx context.Context) ([]database.PluginInstallation, er
 // previously installed digest. The complete captured revision and its pointer
 // commit together. Repeating an already published installation is idempotent.
 func (i *Inventory) InstallLocal(ctx context.Context, reviewedOrigin, reviewedDigest, previousDigest string) (database.PluginInstallation, error) {
+	return i.InstallReviewed(ctx, reviewedOrigin, reviewedDigest, previousDigest, func(publish func() error) error {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		return publish()
+	})
+}
+
+func (i *Inventory) InstallReviewed(ctx context.Context, reviewedOrigin, reviewedDigest, previousDigest string, admit commandsecurity.Admission) (database.PluginInstallation, error) {
 	owner, err := database.RequireUserID(ctx)
 	if err != nil {
 		return database.PluginInstallation{}, err
@@ -48,7 +59,12 @@ func (i *Inventory) InstallLocal(ctx context.Context, reviewedOrigin, reviewedDi
 		return database.PluginInstallation{}, err
 	}
 	var installed database.PluginInstallation
-	err = database.WithSQLiteImmediateTransaction(ctx, i.db, "plugins.install", func(tx *gorm.DB) error {
+	if admit == nil {
+		return database.PluginInstallation{}, database.ErrUserScopeRequired
+	}
+	publishCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	err = database.WithSQLiteAdmittedCommit(publishCtx, i.db, "plugins.install", func(tx *gorm.DB) error {
 		installed = database.PluginInstallation{}
 		identity := database.PluginInstallation{UserID: owner, Name: snapshot.Manifest.Name, Origin: snapshot.Origin}
 		lookup := tx.Where(&identity).First(&installed).Error
@@ -80,7 +96,7 @@ func (i *Inventory) InstallLocal(ctx context.Context, reviewedOrigin, reviewedDi
 		}
 		revision := database.PluginRevision{InstallationID: installed.ID, Digest: snapshot.Digest, Files: files}
 		return tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&revision).Error
-	})
+	}, admit)
 	if err != nil {
 		return database.PluginInstallation{}, err
 	}
