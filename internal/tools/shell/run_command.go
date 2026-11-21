@@ -343,6 +343,7 @@ func (rc *RunCommand) Execute(ctx context.Context, args json.RawMessage) (tools.
 		}
 		if entry != nil {
 			metadata["commandId"] = entry.ID
+			metadata["duration"] = entry.EndedAt.Sub(entry.StartedAt).String()
 		}
 		result := tools.ToolResult{
 			Content:  fmt.Sprintf("Erro ao executar comando: %v\n\nOutput parcial:\n%s", err, output),
