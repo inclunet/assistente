@@ -193,6 +193,8 @@ func shellType(shell string) string {
 	switch strings.ToLower(filepath.Base(shell)) {
 	case "powershell.exe", "powershell", "pwsh.exe", "pwsh":
 		return "powershell"
+	case "zsh", "zsh.exe":
+		return "zsh"
 	default:
 		return "bash"
 	}

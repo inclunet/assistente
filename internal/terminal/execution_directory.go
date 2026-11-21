@@ -18,12 +18,12 @@ func powerShellDirectoryGuard(directory string) string {
 
 // A falha ao entrar no diretório impede a execução do comando do usuário.
 // Aspas são escapadas segundo o shell, sem interpolação de caminhos.
-func posixCommandInDirectory(command, directory string) string {
+func posixCommandInDirectory(command, directory, prefix string) string {
 	if directory == "" {
 		return command
 	}
 	path := strings.ReplaceAll(directory, "'", "'\"'\"'")
 	// eval recebe um único literal, sem expansão antecipada. Isso mantém a
 	// leitura por linhas do shell, inclusive alias definido na linha anterior.
-	return fmt.Sprintf("if command cd -P -- '%s' && command test \"$(command pwd -P)\" = '%s'; then command eval %s; else false; fi", path, path, quotePOSIXScript(command))
+	return fmt.Sprintf("if %[1]s cd -P -- '%[2]s' && %[1]s test \"$(%[1]s pwd -P)\" = '%[2]s'; then %[1]s eval %[3]s; else false; fi", prefix, path, quotePOSIXScript(command))
 }

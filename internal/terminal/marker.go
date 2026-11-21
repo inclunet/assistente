@@ -55,7 +55,7 @@ func (m *CommandMarker) wrapCommandInDirectory(command, directory, shellType str
 	case "powershell", "powershell.exe", "pwsh", "pwsh.exe":
 		return m.wrapPowerShell(command, directory)
 	default:
-		return m.wrapBash(posixCommandInDirectory(command, directory))
+		return m.wrapPOSIX(command, directory, shellType)
 	}
 }
 
@@ -65,14 +65,21 @@ func quotePOSIXScript(command string) string {
 	return "' " + strings.ReplaceAll(command, "'", "'\"'\"'") + "'"
 }
 
-// wrapBash gera comando wrapped para bash/sh/zsh.
-func (m *CommandMarker) wrapBash(command string) string {
+func (m *CommandMarker) wrapPOSIX(command, directory, shellType string) string {
+	// No zsh nativo, command procura executáveis externos. builtin seleciona
+	// os comandos internos sem mudar a opção POSIX_BUILTINS da sessão.
+	prefix := "command"
+	if shellType == "zsh" {
+		prefix = "builtin"
+	}
+	body := posixCommandInDirectory(command, directory, prefix)
+
 	// printf em vez de echo para evitar problemas com \n
 	// A quebra inicial separa o marker de prompts sem newline (por exemplo sh),
 	// inclusive quando o comando foi enviado antes de o shell exibir o prompt.
 	return fmt.Sprintf(
-		"printf '\\n%%s\\n' '%s'; command eval %s; printf '\\n%%s%%s%s\\n' '%s' $?",
-		m.startTag, quotePOSIXScript(command), markerStatusTerminator, m.endTag,
+		"printf '\\n%%s\\n' '%s'; %s eval %s; printf '\\n%%s%%s%s\\n' '%s' $?",
+		m.startTag, prefix, quotePOSIXScript(body), markerStatusTerminator, m.endTag,
 	)
 }
 

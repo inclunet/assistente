@@ -191,3 +191,53 @@ func TestEphemeralSupportsPOSIXShell(t *testing.T) {
 		t.Fatalf("execução POSIX: %+v %v", entry, err)
 	}
 }
+
+func TestNativeZshMarkerAndDirectory(t *testing.T) {
+	zsh, err := exec.LookPath("zsh")
+	if err != nil {
+		t.Skip("zsh indisponível")
+	}
+	dir, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	quotedDir := filepath.Join(dir, "a'b [teste]")
+	if err := os.Mkdir(quotedDir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		directory, command, output string
+		code                       int
+	}{
+		{"", "printf ok", "ok", 0},
+		{"", "(exit 7)", "", 7},
+		{"", "printf '", "", 1},
+		{quotedDir, "pwd -P", quotedDir, 0},
+		{quotedDir, "(exit 7)", "", 7},
+		{quotedDir, "printf '", "", 1},
+		{filepath.Join(dir, "ausente"), "printf EXECUTED", "", 1},
+	} {
+		kind := shellType(zsh)
+		marker := newCommandMarkerForShell(kind)
+		frame := marker.wrapCommandInDirectory(tc.command, tc.directory, kind)
+		out, err := exec.CommandContext(t.Context(), zsh, "-fc", "unsetopt POSIX_BUILTINS\n"+frame+"\n[[ ! -o POSIX_BUILTINS ]]").Output()
+		result := parseMarkerOutput(marker, string(out))
+		if err != nil || !result.Found || result.ExitCode != tc.code || result.Output != tc.output {
+			t.Fatalf("diretório=%q comando=%q resultado=%+v erro=%v", tc.directory, tc.command, result, err)
+		}
+	}
+
+	// O shell interativo muda o diretório no startup; o executor efêmero
+	// deve restabelecê-lo e conservar as opções nativas que o perfil escolheu.
+	profile := t.TempDir()
+	t.Setenv("ZDOTDIR", profile)
+	if err := os.WriteFile(filepath.Join(profile, ".zshrc"), []byte("unsetopt POSIX_BUILTINS\ncd /\nasst_started=yes\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	cfg := DefaultManagerConfig()
+	cfg.DefaultShell = zsh
+	entry, err := NewManager(cfg, nil).RunEphemeral(t.Context(), quotedDir, "pwd -P; ([[ $asst_started == yes && ! -o POSIX_BUILTINS ]] && exit 7)", 10*time.Second, "test")
+	if err != nil || entry == nil || entry.ExitCode != 7 || strings.TrimSpace(entry.Output) != quotedDir {
+		t.Fatalf("zsh no PTY: entry=%+v erro=%v", entry, err)
+	}
+}
