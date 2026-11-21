@@ -67,9 +67,21 @@ func TestLegacyDirectiveStartsWithDeclaredProgram(t *testing.T) {
 			t.Errorf("programa inicial não reconhecido em %q", line)
 		}
 	}
-	for _, text := range []string{"texto pwd", "; pwd", "pwd-extra", "pwdMode=manual pwd exemplo"} {
+	for _, text := range []string{"texto pwd", "; pwd", "pwd-extra", "pwdMode=manual pwd exemplo", "pwdMode=manual;pwd", ">pwd pwd"} {
 		if startsWithDeclaredProgram(text, []string{"pwd"}) {
 			t.Errorf("prosa reconhecida em %q", text)
+		}
+	}
+}
+
+func TestAssignmentBeforeLegacyDirectiveRemainsText(t *testing.T) {
+	const body = "!pwdMode=manual pwd exemplo"
+	s := invocableSkill(body)
+	s.Tools = &ToolPermissions{BashCommands: &BashCommands{Allowed: []string{"pwd"}}}
+	for _, base := range []bool{false, true} {
+		doc, err := planCommandLines(t.Context(), s, body, base, nil, nil, "")
+		if err != nil || len(doc.commands) != 0 || strings.Join(doc.lines, "\n") != body {
+			t.Fatalf("base=%v documento=%+v erro=%v", base, doc, err)
 		}
 	}
 }

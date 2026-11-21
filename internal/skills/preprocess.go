@@ -185,12 +185,14 @@ func startsWithDeclaredProgram(command string, allowed []string) bool {
 	if len(allowed) == 0 {
 		return false
 	}
-	atoms := commandpolicy.Parse(command).Commands
-	if len(atoms) == 0 || len(atoms[0].EnvAssignments) != 0 || !strings.HasPrefix(command, atoms[0].Program) {
-		return false
+	// A forma legada começa pelo nome literal. O parser da política pode pular
+	// atribuições e redirecionamentos para localizar um programa posterior.
+	word := command
+	if end := strings.IndexAny(command, " \t\r\n;&|<>"); end >= 0 {
+		word = command[:end]
 	}
-	return slices.ContainsFunc(allowed, func(name string) bool {
-		return strings.EqualFold(strings.TrimSpace(name), atoms[0].Program)
+	return word != "" && slices.ContainsFunc(allowed, func(name string) bool {
+		return strings.EqualFold(strings.TrimSpace(name), word)
 	})
 }
 

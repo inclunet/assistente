@@ -129,7 +129,7 @@ func TestPolicyUnavailableAfterApproval(t *testing.T) {
 func TestPrerequisiteWarningIdentifiesCallAndCause(t *testing.T) {
 	for _, tc := range []struct{ path, reason string }{
 		{"directory_changed", "directory_changed"}, {"store_unavailable", "store_unavailable"},
-		{"policy_unavailable", "policy_unavailable"}, {"initial_policy", "policy_unavailable"}, {"initial_directory", "directory_unresolved"},
+		{"policy_unavailable", "policy_unavailable"}, {"initial_policy", "policy_unavailable"}, {"initial_directory", "directory_unresolved"}, {"explicit_directory", "directory_unresolved"},
 	} {
 		t.Run(tc.path, func(t *testing.T) {
 			var output bytes.Buffer
@@ -143,10 +143,14 @@ func TestPrerequisiteWarningIdentifiesCallAndCause(t *testing.T) {
 			}
 			auth := &shelltrust.Authorizer{}
 			command := "git push"
+			var requestedDir string
 			var policy GetAllowlistFunc
 			switch tc.path {
 			case "initial_policy":
 				policy = func(context.Context) (*allowlist.Allowlist, error) { return nil, errors.New(secret) }
+			case "explicit_directory":
+				requestedDir = "."
+				fallthrough
 			case "initial_directory":
 				dir += "\x00"
 			case "directory_changed":
@@ -165,7 +169,7 @@ func TestPrerequisiteWarningIdentifiesCallAndCause(t *testing.T) {
 			}
 			reg := tools.NewRegistry()
 			reg.MustRegister(NewRunCommand(nil, auth.Authorize, policy, dir))
-			args, err := json.Marshal(runCommandArgs{Command: command})
+			args, err := json.Marshal(runCommandArgs{Command: command, WorkingDirectory: requestedDir})
 			if err != nil {
 				t.Fatal(err)
 			}

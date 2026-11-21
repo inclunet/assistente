@@ -183,6 +183,9 @@ func (rc *RunCommand) Execute(ctx context.Context, args json.RawMessage) (tools.
 		workDir = info.CWD
 	} else if a.WorkingDirectory != "" {
 		resolvedWorkDir, resolveErr := resolveProjectWorkDir(rc.workDir, a.WorkingDirectory)
+		if errors.Is(resolveErr, errDirectoryUnresolved) {
+			return shellPrerequisiteFailure(ctx, "directory_unresolved", "Não foi possível resolver o diretório para autorização."), nil
+		}
 		if resolveErr != nil {
 			return tools.ToolResult{
 				Content: "working_directory inválido: " + resolveErr.Error(),
