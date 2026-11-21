@@ -376,13 +376,26 @@ func TestDispatchPassesPublicCommandToEveryTerminal(t *testing.T) {
 }
 
 func TestProtectedDirectoryOnFailedAndPartialExecution(t *testing.T) {
-	for _, dispatchErr := range []error{errors.New("erro em pasta-confidencial"), context.DeadlineExceeded} {
-		mgr := &MockSessionManager{fakeRunErr: dispatchErr, fakeEntry: &terminal.HistoryEntry{Output: "saída parcial"}}
+	for _, tc := range []struct {
+		cause              error
+		output, diagnostic string
+	}{
+		{terminal.ErrSessionRead, "saída parcial", terminal.ErrSessionRead.Error()},
+		{terminal.ErrSessionWrite, "", terminal.ErrSessionWrite.Error()},
+		{terminal.ErrSessionClosed, "", terminal.ErrSessionClosed.Error()},
+		{terminal.ErrSessionBusy, "", terminal.ErrSessionBusy.Error()},
+		{terminal.ErrSessionUnavailable, "", terminal.ErrSessionUnavailable.Error()},
+		{context.DeadlineExceeded, "", "Prazo encerrado"},
+		{context.DeadlineExceeded, "saída parcial", "TIMEOUT"},
+		{context.Canceled, "", "cancelada"},
+		{errors.New("erro interno"), "", "diretório protegido"},
+	} {
+		mgr := &MockSessionManager{fakeRunErr: errors.Join(tc.cause, errors.New("pasta-confidencial")), fakeEntry: &terminal.HistoryEntry{Output: tc.output}}
 		rc := NewRunCommand(mgr, nil, func(context.Context) (*allowlist.Allowlist, error) {
 			return &allowlist.Allowlist{AutoApprove: []string{"echo *"}, DefaultAction: "deny"}, nil
 		}, t.TempDir())
 		result, err := rc.Execute(invocationctx.WithShellDirectoryMetadata(t.Context(), "[redacted]"), json.RawMessage(`{"command":"echo ok"}`))
-		if err != nil || result.Metadata["workDir"] != "[redacted]" || !strings.Contains(result.Content, "saída parcial") || strings.Contains(result.Content, "pasta-confidencial") {
+		if err != nil || result.Metadata["workDir"] != "[redacted]" || !strings.Contains(result.Content, tc.output) || !strings.Contains(result.Content, tc.diagnostic) || strings.Contains(result.Content, "pasta-confidencial") {
 			t.Fatal("a falha deve preservar a saída e ocultar os metadados privados")
 		}
 	}

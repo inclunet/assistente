@@ -361,7 +361,7 @@ func (rc *RunCommand) Execute(ctx context.Context, args json.RawMessage) (tools.
 		}
 		message := fmt.Sprintf("Erro ao executar comando: %v", err)
 		if directory.PublicOverride != "" {
-			message = "Erro ao executar comando no diretório protegido."
+			message = protectedExecutionError(err)
 		}
 		// A sessão fornece os horários na entrada de histórico. Sem ela, a duração é desconhecida.
 		if entry != nil {
@@ -443,6 +443,24 @@ func publicPolicyProjection(result commandpolicy.EvaluationResult, sensitive boo
 		}
 	}
 	return public
+}
+
+// protectedExecutionError publica somente categorias conhecidas. Causas
+// encadeadas do sistema operacional podem conter o caminho privado.
+func protectedExecutionError(err error) string {
+	for _, cause := range []error{terminal.ErrSessionRead, terminal.ErrSessionWrite, terminal.ErrSessionClosed, terminal.ErrSessionBusy, terminal.ErrSessionUnavailable} {
+		if errors.Is(err, cause) {
+			return "Erro ao executar comando: " + cause.Error()
+		}
+	}
+	switch {
+	case errors.Is(err, context.DeadlineExceeded):
+		return "Prazo encerrado durante a execução do comando."
+	case errors.Is(err, context.Canceled):
+		return "Execução do comando cancelada."
+	default:
+		return "Erro ao executar comando no diretório protegido."
+	}
 }
 
 func sessionStartFailure(decision allowlist.Decision, err error) tools.ToolResult {

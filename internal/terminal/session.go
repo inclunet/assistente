@@ -546,7 +546,7 @@ func (s *Session) deliverExit(err error) {
 
 func (s *Session) beginCommandWithID(commandID string) error {
 	if s.faultOwnsCleanup() {
-		return fmt.Errorf("sessão %s indisponível após falha no PTY", s.id)
+		return fmt.Errorf("%w após falha no PTY (%s)", ErrSessionUnavailable, s.id)
 	}
 	s.ioMu.Lock()
 	defer s.ioMu.Unlock()
@@ -554,7 +554,11 @@ func (s *Session) beginCommandWithID(commandID string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.state != StateIdle {
-		return fmt.Errorf("sessão %s não está disponível (estado: %s)", s.id, s.state.String())
+		cause := ErrSessionUnavailable
+		if s.state == StateRunning {
+			cause = ErrSessionBusy
+		}
+		return fmt.Errorf("%w: sessão %s não está disponível (estado: %s)", cause, s.id, s.state.String())
 	}
 	if commandID == "" {
 		commandID = uuid.NewString()
@@ -747,6 +751,12 @@ func (s *Session) runCommandInDirectory(ctx context.Context, command CommandText
 
 // ErrSessionClosed indica que o fechamento explícito interrompeu o comando.
 var ErrSessionClosed = errors.New("sessão encerrada explicitamente")
+
+// ErrSessionBusy indica uma sessão com outro comando em andamento.
+var ErrSessionBusy = errors.New("sessão ocupada")
+
+// ErrSessionUnavailable indica uma sessão ausente ou incapaz de receber comandos.
+var ErrSessionUnavailable = errors.New("sessão indisponível")
 
 // ErrSessionWrite indica falha de escrita de um comando no PTY.
 var ErrSessionWrite = errors.New("falha ao enviar comando para sessão")

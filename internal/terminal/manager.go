@@ -276,7 +276,7 @@ func (m *Manager) RunCommandWithDisplay(ctx context.Context, sessionID string, c
 	m.mu.RUnlock()
 
 	if !ok {
-		return nil, fmt.Errorf("sessão '%s' não encontrada", sessionID)
+		return nil, fmt.Errorf("%w: sessão '%s' não encontrada", ErrSessionUnavailable, sessionID)
 	}
 
 	if timeout == 0 {
