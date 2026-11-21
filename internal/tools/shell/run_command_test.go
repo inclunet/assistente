@@ -237,7 +237,8 @@ func TestLogPolicyDecisionPreservesMessageAndDoesNotLeakCommand(t *testing.T) {
 		t.Run(decision.String(), func(t *testing.T) {
 			result := baseResult
 			result.Decision = decision
-			reasons := summarizePolicyReasons(result)
+			public := publicPolicyProjection(result, false)
+			reasons := summarizePolicyReasons(public)
 			wantMessage := fmt.Sprintf("Comando: %s, decisão: %s", commandSummary, decision.String())
 			if decision != allowlist.DecisionApprove {
 				wantMessage += fmt.Sprintf(", motivos: %s", reasons)
@@ -250,7 +251,7 @@ func TestLogPolicyDecisionPreservesMessageAndDoesNotLeakCommand(t *testing.T) {
 			if decision != allowlist.DecisionApprove {
 				logCtx = context.Background()
 			}
-			logPolicyDecision(logCtx, logger, commandSummary, result)
+			logPolicyDecision(logCtx, logger, commandSummary, public)
 
 			if strings.Contains(output.String(), secret) {
 				t.Fatalf("log estruturado vazou segredo: %s", output.String())

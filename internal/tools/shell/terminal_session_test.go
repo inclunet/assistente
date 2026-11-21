@@ -2,6 +2,7 @@ package shell
 
 import (
 	"assistente/internal/terminal"
+	"assistente/internal/tools"
 	"context"
 	"encoding/json"
 	"errors"
@@ -167,7 +168,7 @@ func TestTerminalSessionCreateNaoExpoeCaminhoDoShell(t *testing.T) {
 	cfg.DefaultShell = filepath.Join(dir, "shell-privado-sintetico")
 	manager := terminal.NewManager(cfg, nil)
 	got, err := NewTerminalSession(manager, dir).Execute(t.Context(), json.RawMessage(`{"action":"create"}`))
-	if err != nil || !got.IsError || got.Content != "Executável do terminal não encontrado." || strings.Contains(got.Content, "shell-privado-sintetico") || got.Failure != nil {
+	if err != nil || !got.IsError || got.Content != "Executável do terminal não encontrado." || strings.Contains(got.Content, "shell-privado-sintetico") || got.Failure == nil || got.Failure.Code != FailureSessionStart || got.Failure.Kind != tools.ErrorKindUnavailable || got.Failure.Retryable {
 		t.Fatalf("resultado=%+v err=%v", got, err)
 	}
 }
@@ -175,7 +176,7 @@ func TestTerminalSessionCreateNaoExpoeCaminhoDoShell(t *testing.T) {
 func TestTerminalSessionCreatePreservaCategoriaDeLotacao(t *testing.T) {
 	manager := &fakeTerminalSessionManager{err: terminal.ErrSessionCapacity}
 	got, err := NewTerminalSession(manager, t.TempDir()).Execute(t.Context(), json.RawMessage(`{"action":"create"}`))
-	if err != nil || !got.IsError || got.Content != "Recurso do terminal temporariamente indisponível." || got.Failure != nil {
+	if err != nil || !got.IsError || got.Content != "Recurso do terminal temporariamente indisponível." || got.Failure == nil || got.Failure.Code != FailureSessionStart || !got.Failure.Retryable {
 		t.Fatalf("resultado=%+v err=%v", got, err)
 	}
 }

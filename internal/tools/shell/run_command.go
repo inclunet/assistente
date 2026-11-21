@@ -230,7 +230,7 @@ func (rc *RunCommand) Execute(ctx context.Context, args json.RawMessage) (tools.
 	if decision == allowlist.DecisionDeny {
 		denied := tools.ToolResult{
 			Failure: &tools.ToolFailure{Code: FailureCommandRefused, Kind: tools.ErrorKindAuthorization, Retryable: false},
-			Content: fmt.Sprintf("Comando bloqueado pela política de comandos: %s\nMotivos: %s", commandSummary, publicReasonText(publicPolicy.Reasons, "; ")),
+			Content: fmt.Sprintf("Comando bloqueado pela política de comandos: %s\nMotivos: %s", commandSummary, publicPolicy.reasonText("; ")),
 			IsError: true,
 		}
 		tools.PublishAuthorizationRefusal(ctx, FailureCommandRefused, denied)
@@ -412,12 +412,15 @@ func (rc *RunCommand) Execute(ctx context.Context, args json.RawMessage) (tools.
 	return protected, nil
 }
 
-// publicPolicyProjection mantém a avaliação original privada e substitui apenas
-// seus motivos na projeção que poderá ser exibida ou persistida.
 const protectedPolicyReason = "detalhes protegidos"
 
-func publicPolicyProjection(result commandpolicy.EvaluationResult, sensitive bool) commandpolicy.EvaluationResult {
-	public := result
+type publicPolicyResult struct {
+	commandpolicy.EvaluationResult
+	protected bool
+}
+
+func publicPolicyProjection(result commandpolicy.EvaluationResult, sensitive bool) publicPolicyResult {
+	public := publicPolicyResult{EvaluationResult: result, protected: sensitive}
 	if sensitive {
 		public.Reasons = make([]string, len(result.Reasons))
 		for i := range public.Reasons {
@@ -488,7 +491,7 @@ func logPolicyDecision(
 	ctx context.Context,
 	logger *slog.Logger,
 	commandSummary string,
-	result commandpolicy.EvaluationResult,
+	result publicPolicyResult,
 ) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -659,12 +662,11 @@ func redactProgramSegment(program string) string {
 	return program[:eq] + "=<redacted>"
 }
 
-// publicReasonText evita repetir a mesma descrição ao ocultar diversos motivos.
-func publicReasonText(reasons []string, separator string) string {
-	if len(reasons) > 0 && reasons[0] == protectedPolicyReason {
-		return fmt.Sprintf("%d motivo(s) da política; %s", len(reasons), protectedPolicyReason)
+func (p publicPolicyResult) reasonText(separator string) string {
+	if p.protected {
+		return protectedPolicyReason
 	}
-	return strings.Join(reasons, separator)
+	return strings.Join(p.Reasons, separator)
 }
 
 // summarizePolicyReasons gera um resumo curto para log LOCAL. Como esses
@@ -672,7 +674,7 @@ func publicReasonText(reasons []string, separator string) string {
 // EXCLUSIVAMENTE Reasons (safe, sem patterns/description) — DetailedReasons
 // fica reservado para uso ao vivo na UI do desktop, onde o usuario ja tem
 // visibilidade do conteudo da allowlist e nao ha risco de envio externo.
-func summarizePolicyReasons(result commandpolicy.EvaluationResult) string {
+func summarizePolicyReasons(result publicPolicyResult) string {
 	parts := make([]string, 0, 5)
 	parts = append(parts, fmt.Sprintf("atomos=%d", len(result.Parse.Commands)))
 	parts = append(parts, fmt.Sprintf("motivos=%d", len(result.Reasons)))
@@ -687,7 +689,7 @@ func summarizePolicyReasons(result commandpolicy.EvaluationResult) string {
 		parts = append(parts, "parse_errors="+strconv.Itoa(len(result.Parse.Errors)))
 	}
 	if len(result.Reasons) > 0 {
-		parts = append(parts, "reasons=["+publicReasonText(result.Reasons, " | ")+"]")
+		parts = append(parts, "reasons=["+result.reasonText(" | ")+"]")
 	}
 	return strings.Join(parts, " ")
 }

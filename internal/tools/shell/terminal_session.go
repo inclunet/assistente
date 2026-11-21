@@ -113,8 +113,11 @@ func (t *TerminalSession) Execute(_ context.Context, raw json.RawMessage) (tools
 		}
 		info, err := t.manager.CreateToolSession(strings.TrimSpace(args.Name), workDir)
 		if err != nil {
-			message, _, _ := classifySessionStartError(err)
-			return tools.ToolResult{Content: message, IsError: true}, nil
+			message, kind, transient := classifySessionStartError(err)
+			return tools.ToolResult{
+				Content: message, IsError: true,
+				Failure: &tools.ToolFailure{Code: FailureSessionStart, Kind: kind, Retryable: transient, NotDispatched: true},
+			}, nil
 		}
 		link := fmt.Sprintf("assistente://terminal/%s", info.ID)
 		displayName := strings.TrimSpace(info.Name)
