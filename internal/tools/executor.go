@@ -14,6 +14,7 @@ import (
 	"unicode/utf8"
 
 	"assistente/internal/logging"
+	"assistente/internal/tools/invocationctx"
 )
 
 type pendingConfirmationKey struct{}
@@ -29,21 +30,21 @@ const (
 type confirmationState struct {
 	result   ToolResult
 	status   confirmationStatus
-	accepted *atomic.Bool
+	accepted *invocationctx.ConfirmationReceipt
 	refusal  ToolResult
 }
 
 // PendingConfirmation registra a falha que o executor deve devolver se o
 // próprio prazo acabar durante a decisão. O callback publica a recusa definitiva
 // somente para o código de recusa esperado. nil encerra a espera por aprovação.
-// A superfície pode marcar a flag na aceitação, antes de entregar a resposta.
+// O recibo arbitra o aceite da superfície e o encerramento da espera.
 // Outras falhas mantêm a confirmação pendente.
-func PendingConfirmation(ctx context.Context, failureCode, refusalCode, refusalMessage string) (func(*ToolResult), *atomic.Bool) {
+func PendingConfirmation(ctx context.Context, failureCode, refusalCode, refusalMessage string) (func(*ToolResult), *invocationctx.ConfirmationReceipt) {
 	state, _ := ctx.Value(pendingConfirmationKey{}).(*atomic.Pointer[confirmationState])
 	if state == nil {
 		return func(*ToolResult) {}, nil
 	}
-	accepted := new(atomic.Bool)
+	accepted := new(invocationctx.ConfirmationReceipt)
 	refusal := ToolResult{IsError: true, Content: refusalMessage, Failure: &ToolFailure{Code: refusalCode, Kind: ErrorKindAuthorization}}
 	pending := ToolResult{IsError: true, Content: "Prazo encerrado durante a confirmação.", Failure: &ToolFailure{Code: failureCode, Kind: ErrorKindAuthorization}}
 	state.Store(&confirmationState{accepted: accepted, refusal: refusal, result: pending})
@@ -441,7 +442,7 @@ func (e *Executor) executeSingle(ctx context.Context, call ToolCall) (execution 
 }
 
 func (e *Executor) finishExecution(ctx, toolCtx context.Context, call ToolCall, start time.Time, result *ToolExecutionResult, confirmation *confirmationState, collector *securitySignalCollector) ToolExecutionResult {
-	if confirmation != nil && confirmation.accepted != nil && confirmation.accepted.Load() {
+	if confirmation != nil && confirmation.accepted != nil && confirmation.accepted.Close() {
 		confirmation = &confirmationState{status: confirmationRefused, result: confirmation.refusal}
 	}
 	toolName := call.Function.Name

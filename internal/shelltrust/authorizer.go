@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"strings"
-	"sync/atomic"
 
 	"assistente/internal/allowlist"
 	"assistente/internal/authorization"
@@ -54,19 +53,19 @@ type Authorizer struct {
 }
 
 type decisionObserverKey struct{}
-type acceptedRefusalKey struct{}
+type confirmationReceiptKey struct{}
 
 // WithDecisionObserver permite ao solicitante receber a conclusão da autorização
 // antes do log, pelo mesmo contrato de retorno de Authorize.
-func WithDecisionObserver(ctx context.Context, observe func(bool, error), accepted *atomic.Bool) context.Context {
-	ctx = context.WithValue(ctx, acceptedRefusalKey{}, accepted)
+func WithDecisionObserver(ctx context.Context, observe func(bool, error), accepted *invocationctx.ConfirmationReceipt) context.Context {
+	ctx = context.WithValue(ctx, confirmationReceiptKey{}, accepted)
 	return context.WithValue(ctx, decisionObserverKey{}, observe)
 }
 
-// AcceptedRefusal sinaliza ao executor uma recusa aceita pela superfície,
+// ConfirmationReceipt sinaliza ao executor uma recusa aceita pela superfície,
 // inclusive enquanto o solicitante ainda aguarda a entrega da resposta.
-func AcceptedRefusal(ctx context.Context) *atomic.Bool {
-	flag, _ := ctx.Value(acceptedRefusalKey{}).(*atomic.Bool)
+func ConfirmationReceipt(ctx context.Context) *invocationctx.ConfirmationReceipt {
+	flag, _ := ctx.Value(confirmationReceiptKey{}).(*invocationctx.ConfirmationReceipt)
 	return flag
 }
 

@@ -5,10 +5,11 @@ import (
 	"errors"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"testing"
 	"testing/synctest"
 	"time"
+
+	"assistente/internal/tools/invocationctx"
 )
 
 func TestRequestQuestionnaire_Answered(t *testing.T) {
@@ -478,6 +479,29 @@ func TestAcceptedResponseSurvivesDeadline(t *testing.T) {
 	}
 }
 
+func TestRespondCannotAcceptAfterExecutorClosesReceipt(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	var receipt invocationctx.ConfirmationReceipt
+	var mgr *Manager
+	mgr = NewManager(func(event string, data any) {
+		if event != EventQuestionnaire {
+			return
+		}
+		id := data.(map[string]any)["id"].(string)
+		if receipt.Close() {
+			t.Fatal("recusa sem resposta")
+		}
+		if err := mgr.Respond(id, nil, true); err == nil || !strings.Contains(err.Error(), "expirada") {
+			t.Fatalf("resposta após encerramento: %v", err)
+		}
+		cancel()
+	})
+	if _, err := mgr.RequestQuestionnaire(ctx, RequestPayload{}.WithConfirmationReceipt(AuthorizationActions{}, &receipt)); !errors.Is(err, context.Canceled) {
+		t.Fatalf("encerramento: %v", err)
+	}
+}
+
 func TestAcceptedResponseNotifiesOutsideManagerLock(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		opened := make(chan string, 1)
@@ -488,9 +512,9 @@ func TestAcceptedResponseNotifiesOutsideManagerLock(t *testing.T) {
 		})
 		observing := make(chan int, 1)
 		release := make(chan struct{})
-		var accepted atomic.Bool
-		payload := RequestPayload{}.WithAcceptedRefusal(AuthorizationActions{}, &accepted).WithAcceptedResponse(func(Response) {
-			if !accepted.Load() {
+		var accepted invocationctx.ConfirmationReceipt
+		payload := RequestPayload{}.WithConfirmationReceipt(AuthorizationActions{}, &accepted).WithAcceptedResponse(func(Response) {
+			if !accepted.Close() {
 				t.Error("recusa ainda não publicada quando a resposta se tornou observável")
 			}
 			observing <- mgr.PendingCount()
