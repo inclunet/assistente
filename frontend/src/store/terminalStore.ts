@@ -282,7 +282,11 @@ export const useTerminalStore = create<TerminalState>((set) => ({
       const firstEvent = Boolean(sessionId && !endedSessions.has(sessionId));
       removeExitedSession(data);
       // Eventos repetidos não anunciam duas vezes, inclusive antes da listagem inicial.
-      if (firstEvent) announce(i18next.t('terminal.announce.exited', { name: session?.name || sessionId }));
+      if (firstEvent) {
+        announce(session?.name?.trim()
+          ? i18next.t('terminal.announce.exited', { name: session.name })
+          : i18next.t('terminal.announce.terminated'));
+      }
     };
     unsubs.push(EventsOn('terminal:session_closed', announceSessionEnded));
     unsubs.push(EventsOn('terminal:exited', announceSessionEnded));
@@ -331,7 +335,7 @@ export const useTerminalStore = create<TerminalState>((set) => ({
     unsubs.push(EventsOn('terminal:raw_output', (data: { sessionId: string; output: string }) => {
       if (terminalOutputListenerRefCount === 0 || endedSessions.has(data.sessionId)) return;
       // Agenda anúncio do output (com debounce para esperar fim do streaming)
-      if (terminalOutputListenerRefCount > 0) scheduleOutputAnnounce(data.sessionId, data.output);
+      scheduleOutputAnnounce(data.sessionId, data.output);
 
       set(state => {
         const sessionHistory = state.historyBySession[data.sessionId];
@@ -385,13 +389,11 @@ export const useTerminalStore = create<TerminalState>((set) => ({
     // Comando finalizado (apenas para RunCommand com markers — LLM)
     unsubs.push(EventsOn('terminal:command_end', (data: { sessionId: string; commandId: string; output: string; exitCode: number }) => {
       if (terminalOutputListenerRefCount === 0 || endedSessions.has(data.sessionId)) return;
-      if (terminalOutputListenerRefCount > 0) {
-        playReceiveSound();
-        const outputPreview = data.output
-          ? (data.output.length > 300 ? data.output.slice(0, 300) + i18next.t('terminal.announce.truncatedSuffix') : data.output)
-          : i18next.t('terminal.announce.emptyOutput');
-        announce(i18next.t('terminal.announce.outputWithExit', { output: outputPreview, exitCode: data.exitCode }));
-      }
+      playReceiveSound();
+      const outputPreview = data.output
+        ? (data.output.length > 300 ? data.output.slice(0, 300) + i18next.t('terminal.announce.truncatedSuffix') : data.output)
+        : i18next.t('terminal.announce.emptyOutput');
+      announce(i18next.t('terminal.announce.outputWithExit', { output: outputPreview, exitCode: data.exitCode }));
       set(state => {
         const sessionHistory = state.historyBySession[data.sessionId] || [];
         const updatedHistory = sessionHistory.map(entry => {

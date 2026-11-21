@@ -47,9 +47,7 @@ export function WorkspaceLayout() {
 
   useEffect(() => {
     const terminal = useTerminalStore.getState();
-    const cleanup = terminal.setupEventListeners({ lifecycleOnly: true });
-    void terminal.loadSessions();
-    return cleanup;
+    return terminal.setupEventListeners({ lifecycleOnly: true });
   }, []);
 
   const isWorkspaceRoute = pathname === '/' || pathname === '';

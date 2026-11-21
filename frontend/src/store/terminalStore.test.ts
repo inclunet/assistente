@@ -171,7 +171,7 @@ describe('terminalStore', () => {
       terminalEventHandlers.get('terminal:session_closed')?.({ sessionId: 's3' });
       terminalEventHandlers.get('terminal:exited')?.({ sessionId: 's3' });
       expect(announce).toHaveBeenCalledTimes(3);
-      expect(announce).toHaveBeenLastCalledWith(i18next.t('terminal.announce.exited', { name: 's3' }));
+      expect(announce).toHaveBeenLastCalledWith(i18next.t('terminal.announce.terminated'));
     } finally { cleanup(); vi.useRealTimers(); }
   });
 

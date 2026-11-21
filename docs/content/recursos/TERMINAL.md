@@ -44,6 +44,8 @@ para impedir que o próximo comando complete a linha anterior. Isso também vale
 quando você abre um terminal persistente e pede ao modelo que use essa sessão.
 A aba continua aberta, mas o campo de comando fica desabilitado. Para continuar,
 use a barra de ferramentas para escolher outra sessão ou criar uma nova.
+O leitor de telas anuncia o encerramento mesmo com a aba de terminal fechada.
+Quando o nome da sessão está disponível, o anúncio o inclui.
 
 No PowerShell, você pode iniciar o comando com `using namespace` para usar
 nomes de tipos abreviados. Por exemplo, depois de `using namespace System.Text`,

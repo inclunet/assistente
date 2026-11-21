@@ -216,6 +216,8 @@ Pendente ou parcial:
   aguarda a limpeza até o seu prazo ou cancelamento. Se o processo ou leitor continuar bloqueado,
   a limpeza prossegue em segundo plano. A saída já recebida acompanha o erro, inclusive se o prazo vencer.
   O evento de término do comando precede o de saída da sessão.
+  A área de trabalho escuta o encerramento mesmo com a aba fechada. A abertura da aba
+  carrega a lista. O anúncio usa o nome conhecido da sessão ou uma mensagem genérica.
 - **Controles do terminal.** O leitor reconhece mudanças de largura fora de sequências de controle.
   Uma DCS pode ocupar várias linhas até seu terminador ou cancelamento. A moldura cancela controles
   pendentes antes das marcas de início e fim. Ao trocar a entrada ativa, a sessão entrega primeiro

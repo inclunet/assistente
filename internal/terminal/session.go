@@ -1174,6 +1174,7 @@ func (s *Session) finishClose(readErr, killErr error) error {
 
 // faultOwnsCleanup indica que o backend já tem um responsável pela drenagem e
 // pela publicação de exited. Os chamadores de comando não repetem essa espera.
+// A sessão continua ocupando uma vaga do gerenciador enquanto a limpeza estiver pendente.
 func (s *Session) faultOwnsCleanup() bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
