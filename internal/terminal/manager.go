@@ -207,6 +207,9 @@ func (m *Manager) RunEphemeral(ctx context.Context, workDir, command string, tim
 	}
 	session.Start()
 	defer func() {
+		if session.faultOwnsCleanup() {
+			return
+		}
 		if err := session.Close(); err != nil {
 			logging.Warnf(ctx, "terminal.manager", "[Terminal] falha ao fechar sessão efêmera: %v", err)
 		}
@@ -230,7 +233,7 @@ func (m *Manager) Release(sessionID string) {
 	session, ok := m.sessions[sessionID]
 	m.mu.RUnlock()
 
-	if !ok {
+	if !ok || session.faultOwnsCleanup() {
 		return
 	}
 
@@ -502,12 +505,8 @@ func (m *Manager) Close(sessionID string) error {
 	delete(m.sessions, sessionID)
 	m.mu.Unlock()
 
-	err := session.Close()
-	session.mu.Lock()
-	writeClosing := session.writeClosing
-	session.mu.Unlock()
-	if writeClosing {
-		// O comando já é dono do encerramento e publicará exited após command_end.
+	notify, err := session.closeForManager()
+	if !notify {
 		return err
 	}
 
