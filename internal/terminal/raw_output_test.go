@@ -147,6 +147,46 @@ type manualTestWriter func([]byte) (int, error)
 
 func (write manualTestWriter) Write(p []byte) (int, error) { return write(p) }
 
+func TestSendInputPreservesReportedCRAcrossOwners(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		reads []string
+		want  string
+	}{
+		{"LF completa o CR de A", []string{"\nb"}, "b"},
+		{"texto antes de LF", []string{"b\nc"}, "b\nc"},
+		{"runa dividida antes de LF", []string{"\xc3", "\xa9\nb"}, "é\nb"},
+		{"novo CRLF", []string{"\r\nb"}, "\nb"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var events []string
+			var owner string
+			s := &Session{ptyWriter: io.Discard,
+				onCommandStart: func(_, id, _, _ string) {
+					owner = id
+					events = append(events, "início/"+id)
+				},
+				onRawOutput: func(_, text string) { events = append(events, owner+"/"+text) },
+			}
+			if _, err := s.SendInput("primeiro", "A"); err != nil {
+				t.Fatal(err)
+			}
+			s.recordOutput("a\r")
+			if _, err := s.SendInput("segundo", "B"); err != nil {
+				t.Fatal(err)
+			}
+			for _, chunk := range tc.reads {
+				s.recordOutput(chunk)
+			}
+			s.finishRawOutput()
+			want := []string{"início/A", "A/a\n", "início/B", "B/" + tc.want}
+			if !slices.Equal(events, want) {
+				t.Fatalf("eventos=%q esperados=%q", events, want)
+			}
+		})
+	}
+}
+
 func TestManualOutputAcrossManagedCommand(t *testing.T) {
 	reader, writer := io.Pipe()
 	defer func() { _ = reader.Close() }()
@@ -156,7 +196,7 @@ func TestManualOutputAcrossManagedCommand(t *testing.T) {
 	s := &Session{shell: "bash", readerCtx: t.Context(), ptyReader: reader,
 		onRawOutput: func(_, chunk string) {
 			manual.WriteString(chunk)
-			if chunk == "antes" {
+			if chunk == "antes\n" {
 				manualStarted <- struct{}{}
 			}
 		},
@@ -171,7 +211,7 @@ func TestManualOutputAcrossManagedCommand(t *testing.T) {
 		return len(p), err
 	})
 	s.Start()
-	if _, err := io.WriteString(writer, "antes\x1b]0;título"); err != nil {
+	if _, err := io.WriteString(writer, "antes\r\x1b]0;título"); err != nil {
 		t.Fatal(err)
 	}
 	select {
@@ -186,14 +226,14 @@ func TestManualOutputAcrossManagedCommand(t *testing.T) {
 	if err != nil || entry == nil || entry.ExitCode != 0 || entry.Output != "executado" {
 		t.Fatalf("comando=%+v erro=%v", entry, err)
 	}
-	if _, err := io.WriteString(writer, "ainda oculto\x18depois"); err != nil {
+	if _, err := io.WriteString(writer, "ainda oculto\x18\ndepois"); err != nil {
 		t.Fatal(err)
 	}
 	if err := writer.Close(); err != nil {
 		t.Fatal(err)
 	}
 	<-s.readerDone
-	if got := manual.String(); got != "antesdepois" {
+	if got := manual.String(); got != "antes\n\ndepois" {
 		t.Fatalf("saída manual=%q", got)
 	}
 }
