@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"strings"
@@ -395,6 +396,44 @@ func TestUnavailableCommandWriterKeepsHistory(t *testing.T) {
 		}
 		if got := s.GetHistory(); len(got) != 1 || got[0].ID != entry.ID {
 			t.Fatalf("histórico=%+v", got)
+		}
+	}
+}
+
+func TestPartialWriteDeliversAlreadyBufferedCommandOutput(t *testing.T) {
+	const want = "  parcial  \n_"
+	for _, reader := range []string{"aberto", "EOF"} {
+		for _, footer := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/rodape=%t", reader, footer), func(t *testing.T) {
+				var emitted []string
+				s := &Session{id: "partial-write", shell: "bash", readerCtx: t.Context(), onOutput: func(_, _, chunk string) { emitted = append(emitted, chunk) }}
+				s.ensureLifecycleChannels()
+				s.ptyWriter = manualTestWriter(func(data []byte) (int, error) {
+					_, tag, ok := strings.Cut(string(data), "'"+markerStart)
+					if !ok {
+						t.Fatal("moldura sem início")
+					}
+					id, _, _ := strings.Cut(tag, "'")
+					raw := string(data) + "\n" + markerStart + id + "\n" + want
+					if footer {
+						raw += "\n" + markerEnd + id + "0!\n"
+					}
+					s.recordOutput(raw)
+					if reader == "EOF" {
+						s.signalReaderDone()
+					}
+					return len(data) - 1, io.ErrClosedPipe
+				})
+				manager := NewManager(DefaultManagerConfig(), nil)
+				manager.sessions[s.id] = s
+				entry, err := manager.RunCommand(t.Context(), s.id, "example", time.Minute, "test")
+				if !errors.Is(err, io.ErrClosedPipe) || entry == nil || entry.Output != want || entry.ExitCode != -1 || len(emitted) != 1 || emitted[0] != want {
+					t.Fatalf("entrada=%+v erro=%v streaming=%q", entry, err, emitted)
+				}
+				if history := s.GetHistory(); len(history) != 1 || history[0].Output != want || history[0].ExitCode != -1 {
+					t.Fatalf("histórico=%v", history)
+				}
+			})
 		}
 	}
 }

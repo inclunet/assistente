@@ -266,8 +266,9 @@ func TestNativeZshPersistentStartupByOrigin(t *testing.T) {
 			dir := t.TempDir()
 			t.Setenv("ZDOTDIR", dir)
 			t.Setenv("skip_global_compinit", "")
-			// No controle manual, o próprio perfil registra o valor herdado
-			// antes de dispensar o completador para permitir o teste via PTY.
+			// O perfil registra o valor herdado. No caso manual, ele define a
+			// variável depois disso para evitar o diálogo do completador no teste;
+			// não verifica o comportamento interativo desse diálogo.
 			profile := "asst_origin=${skip_global_compinit:-manual}\n"
 			if origin == "manual" {
 				profile += "skip_global_compinit=1\n"

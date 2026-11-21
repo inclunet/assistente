@@ -562,7 +562,7 @@ func TestTimeoutWithPartialOutput(t *testing.T) {
 	if !contains(result.Content, "TIMEOUT") {
 		t.Errorf("esperado '[TIMEOUT' no output, got %q", result.Content)
 	}
-	if result.Metadata["duration"] != "200ms" || strings.Contains(result.Content, "5s") {
+	if result.Metadata["duration"] != "200ms" || !strings.Contains(result.Content, "200ms") || strings.Contains(result.Content, "5s") {
 		t.Fatalf("prazo configurado apresentado como tempo decorrido: %+v", result)
 	}
 	if !contains(result.Content, "partial output") {
@@ -922,10 +922,12 @@ func TestMetadataTimeoutWithoutOutput(t *testing.T) {
 	mgr := &MockSessionManager{
 		fakeRunErr: context.DeadlineExceeded,
 		fakeEntry: &terminal.HistoryEntry{
-			ID:       "cmd-132",
-			Command:  "hang",
-			Output:   "",
-			ExitCode: -1,
+			ID:        "cmd-132",
+			StartedAt: time.Unix(100, 0),
+			EndedAt:   time.Unix(100, 250000000),
+			Command:   "hang",
+			Output:    "",
+			ExitCode:  -1,
 		},
 	}
 
@@ -950,6 +952,9 @@ func TestMetadataTimeoutWithoutOutput(t *testing.T) {
 	// Validar que metadata contém exitCode=-1
 	if exitCode, ok := result.Metadata["exitCode"].(int); !ok || exitCode != -1 {
 		t.Errorf("esperado exitCode=-1 em metadata, got %v", result.Metadata["exitCode"])
+	}
+	if result.Metadata["duration"] != "250ms" {
+		t.Errorf("duração da entrada = %v, esperado 250ms", result.Metadata["duration"])
 	}
 	if commandID, ok := result.Metadata["commandId"].(string); !ok || commandID != "cmd-132" {
 		t.Errorf("esperado commandId=cmd-132 em metadata, got %v", result.Metadata["commandId"])
