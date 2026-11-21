@@ -175,6 +175,8 @@ export function JobBuilder({ editJob, onClose, onSaved }: JobBuilderProps) {
   const [draft, setDraft] = useState<JobDraft>(() =>
     editJob ? jobToDraft(editJob) : createEmptyDraft()
   );
+  const requiredInputs = editJob?.plugin_installation_id || draft.tool === editJob?.tool
+    ? editJob?.required_inputs : undefined;
   const [localDrafts, setLocalDrafts] = useState<Record<string,string>>({});
   const inputsValid = Object.values(localDrafts).every(raw => parseLocalInput(raw).valid);
   const [toolSchema, setToolSchema] = useState<Record<string, unknown> | null>(null);
@@ -530,7 +532,7 @@ export function JobBuilder({ editJob, onClose, onSaved }: JobBuilderProps) {
   return (
     <div className="job-builder">
       <div className="job-builder__content">
-        {Boolean(editJob?.required_inputs?.length) && <p>{t('plugins.jobInputs', {fields: editJob!.required_inputs!.join(', ')})}</p>}
+        {Boolean(requiredInputs?.length) && <p>{t('plugins.jobInputs', {fields: requiredInputs!.join(', ')})}</p>}
         {error && (
           <div className="job-builder__error">
             <span>{error}</span>
@@ -641,7 +643,7 @@ export function JobBuilder({ editJob, onClose, onSaved }: JobBuilderProps) {
 
                 <SchemaForm
                   schema={toolSchema as never}
-                  configuredFields={editJob?.required_inputs}
+                  configuredFields={requiredInputs}
                   localDrafts={localDrafts}
                   onLocalDraft={(field,raw) => setLocalDrafts(current => ({...current,[field]:raw}))}
                   values={draft.inputs}

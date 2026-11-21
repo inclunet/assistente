@@ -182,6 +182,17 @@ func TestCopyManagedJobAfterRevocation(t *testing.T) {
 	if err != nil || copied.Name != "Nome editado" {
 		t.Fatalf("edição perdida: %+v, %v", copied, err)
 	}
+	if err := db.Create(&database.ToolCatalog{Name: "review", Origin: "builtin", AvailabilityStatus: "available"}).Error; err != nil {
+		t.Fatal(err)
+	}
+	copied.Tool, copied.Inputs = "review", nil
+	if err := repo.SaveJob(owner, copied); err != nil {
+		t.Fatalf("troca de ferramenta local: %v", err)
+	}
+	copied, err = repo.GetJob(owner, copySlug)
+	if err != nil || len(copied.RequiredInputs) != 0 {
+		t.Fatalf("requisitos da ferramenta anterior: %+v %v", copied, err)
+	}
 	if _, err := store.CopyJob(owner, "outra", source.ID, request, "Cópia", admit); err == nil {
 		t.Fatal("origem incorreta aceita")
 	}

@@ -682,11 +682,13 @@ func (r *DBRepository) SaveJob(ctx context.Context, job *Job) error {
 				row.PluginInstallationID = existing.PluginInstallationID
 				row.PluginDigest = existing.PluginDigest
 				row.PluginRefreshPending = existing.PluginRefreshPending
-				row.PluginRequiredInputs = existing.PluginRequiredInputs
+				if existing.PluginInstallationID != "" || row.ToolName == existing.ToolName {
+					row.PluginRequiredInputs = existing.PluginRequiredInputs
+				}
 				row.PluginComponentKey = existing.PluginComponentKey
-				if row.Enabled && existing.PluginRequiredInputs != "" {
+				if row.Enabled && row.PluginRequiredInputs != "" {
 					var required []string
-					if err := json.Unmarshal([]byte(existing.PluginRequiredInputs), &required); err != nil {
+					if err := json.Unmarshal([]byte(row.PluginRequiredInputs), &required); err != nil {
 						return err
 					}
 					for _, field := range required {
