@@ -510,20 +510,22 @@ func (m *Manager) Close(sessionID string) error {
 		return err
 	}
 
-	// Emite evento de fechamento
-	m.emitEvent("terminal:session_closed", map[string]string{
-		"sessionId": sessionID,
-	})
-
+	m.emitSessionClosed(sessionID)
 	return err
 }
 
-func (m *Manager) removeIfSame(sessionID string, expected *Session) {
+func (m *Manager) emitSessionClosed(sessionID string) {
+	m.emitEvent("terminal:session_closed", map[string]string{"sessionId": sessionID})
+}
+
+func (m *Manager) removeIfSame(sessionID string, expected *Session) bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if current, ok := m.sessions[sessionID]; ok && current == expected {
 		delete(m.sessions, sessionID)
+		return true
 	}
+	return false
 }
 
 // CloseAll encerra todas as sessões. Chamado no shutdown do app.
