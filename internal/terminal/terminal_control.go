@@ -36,6 +36,12 @@ const (
 func (c *terminalControl) start() { *c = terminalControl{kind: '\x1b'} }
 
 func (c *terminalControl) consume(ch byte, columns *int) escapeStep {
+	// CAN e SUB descartam o controle em curso. O próximo byte já é texto
+	// comum ou o início de outro escape.
+	if ch == '\x18' || ch == '\x1a' {
+		c.kind = 0
+		return escapeEnd
+	}
 	switch {
 	case c.kind == '\x1b':
 		if ch == '[' || ch == ']' || ch == 'P' || ch == 'X' || ch == '^' || ch == '_' || ch >= 0x20 && ch <= 0x2f {
@@ -66,7 +72,8 @@ func (c *terminalControl) consume(ch byte, columns *int) escapeStep {
 			c.kind = 0
 			return escapeEnd
 		}
-		if ch != '\n' {
+		// DCS pode transportar várias linhas antes de ST ou de cancelamento.
+		if ch != '\n' || c.kind == 'P' {
 			c.last = ch
 			return escapeMore
 		}
