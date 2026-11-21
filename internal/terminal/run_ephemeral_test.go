@@ -210,6 +210,32 @@ func TestPowerShellNamespaceAndNativeReturn(t *testing.T) {
 	}
 }
 
+func TestPowerShellGroupAndTargetWhitespaceThroughPTY(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("Windows PowerShell")
+	}
+	cfg := DefaultManagerConfig()
+	cfg.DefaultShell = "powershell.exe"
+	manager := NewManager(cfg, nil)
+	session, err := manager.Create("espaço entre tokens", t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(manager.CloseAll)
+	for _, gap := range []string{"\v", "\u0085", "\u00a0", "\u2003", "\u2028", "\u3000", "`\r", "`\r\n", "<# nota #>"} {
+		for _, command := range []string{
+			gap + "(cmd.exe /c exit 7)",
+			"(cmd.exe /c exit 7)" + gap,
+			"&" + gap + "(Get-Command cmd.exe) /c exit 7",
+		} {
+			entry, err := manager.RunCommand(t.Context(), session.ID(), command, 15*time.Second, "test")
+			if err != nil || entry == nil || entry.ExitCode != 7 || strings.TrimSpace(entry.Output) != "" {
+				t.Fatalf("comando=%q entry=%+v err=%v", command, entry, err)
+			}
+		}
+	}
+}
+
 func TestPowerShellStrictModeThroughPTY(t *testing.T) {
 	if runtime.GOOS != "windows" {
 		t.Skip("Windows PowerShell")

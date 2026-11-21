@@ -479,6 +479,7 @@ func TestPowerShellOnlyPreparesGroupedCommands(t *testing.T) {
 		{"Write-Output 'issue #42'", false}, {"Write-Output ok # comentário", false},
 		{"# nota\r(cmd /c exit 7)", true}, {"# nota\r\n(cmd /c exit 7)", true},
 		{"# nota\r& (Get-Command cmd.exe) /c exit 7", true}, {"# nota\u2028(cmd /c exit 7)", false},
+		{"Write-Output\u00a0(Get-Date)", false}, {"Write-Output '\u2003(issue #42)'", false},
 		{"Write-Output (Get-Date) # comentário", false}, {"Write-Output '(issue #42)'", false},
 		{"& (Get-Command cmd.exe) /c exit 7", true}, {"(cmd /c exit 7) # anotação", true}, {"$(cmd /c exit 7)", true}, {"@(cmd /c exit 7)", true},
 	} {
