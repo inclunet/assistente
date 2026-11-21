@@ -110,6 +110,8 @@ explícita, que reavalia a política e as concessões vigentes.
 Em jobs, uma falha ao mapear a saída encerra a tentativa mesmo se a ferramenta já tiver
 terminado com sucesso. O registro da invocação conserva o resultado da ferramenta.
 
+`TestRunCommandValidatesExistingWorkDirBeforeAuthorization` verifica a distinção entre raiz indisponível e destino inválido nas execuções efêmera e persistente.
+
 `TestPolicyUnavailableAfterApproval` cobre a releitura da política. `TestShellAuthorizerPublishesBeforeDecisionLog` cobre timeout entre a aprovação e o despacho. `TestJobDoesNotReplayAuthorizedShellCommand` verifica um único despacho e uma única invocação registrada mesmo quando o job permite retries. `TestJobDoesNotReplayShellAfterOutputSecretFailure` cobre a falha na transformação da saída do job depois que o shell concluiu o comando. `TestShellResponseAcceptedBeforeExecutorDeadline` cobre negativa, cancelamento, aprovação, ação inválida, opção não oferecida e resposta tardia.
 
 Os testes `TestBaseSkillOperationalErrorsOmitOnlyCommandLine`, `TestBaseRefusalPrecedesSlashCommand` e `TestSkillCommandInAdmittedTurn` cobrem essas decisões.
