@@ -332,7 +332,8 @@ func (c *UpdaterController) promptForUpdate(ctx context.Context, info *updater.U
 func (c *UpdaterController) applyUpdateWithProgress(ctx context.Context) {
 	c.emitter.Emit("update:started", nil)
 
-	applyCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
+	// Inclui metadados, transferência (até 15 minutos) e aplicação.
+	applyCtx, cancel := context.WithTimeout(ctx, 20*time.Minute)
 	defer cancel()
 
 	logging.Infof(ctx, "controllers.updater-controller", "[Updater] Iniciando download e aplicação da atualização...")
