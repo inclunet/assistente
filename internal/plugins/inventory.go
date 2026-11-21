@@ -60,11 +60,15 @@ func (i *Inventory) InstallLocal(ctx context.Context, reviewedOrigin, reviewedDi
 }
 
 func (i *Inventory) InstallReviewed(ctx context.Context, reviewedOrigin, reviewedDigest, previousDigest string, admit commandsecurity.Admission) (database.PluginInstallation, error) {
+	return i.InstallSource(ctx, reviewedOrigin, reviewedDigest, previousDigest, admit, func() (*pluginpackage.LocalSnapshot, error) { return pluginpackage.InspectLocal(reviewedOrigin) })
+}
+
+func (i *Inventory) InstallSource(ctx context.Context, reviewedOrigin, reviewedDigest, previousDigest string, admit commandsecurity.Admission, inspect func() (*pluginpackage.LocalSnapshot, error)) (database.PluginInstallation, error) {
 	owner, err := database.RequireUserID(ctx)
 	if err != nil {
 		return database.PluginInstallation{}, err
 	}
-	snapshot, err := pluginpackage.InspectLocal(reviewedOrigin)
+	snapshot, err := inspect()
 	if err != nil {
 		return database.PluginInstallation{}, err
 	}
@@ -83,6 +87,12 @@ func (i *Inventory) InstallReviewed(ctx context.Context, reviewedOrigin, reviewe
 	publishCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	err = database.WithSQLiteAdmittedCommit(publishCtx, i.db, "plugins.install", func(tx *gorm.DB) error {
+		if snapshot.DiscoveryRepositoryID != "" {
+			var repo database.PluginRepository
+			if err := tx.Select("id").Where("user_id=? AND id=? AND revision=?", owner, snapshot.DiscoveryRepositoryID, snapshot.DiscoveryRepositoryRevision).Take(&repo).Error; err != nil {
+				return err
+			}
+		}
 		installed = database.PluginInstallation{}
 		identity := database.PluginInstallation{UserID: owner, Name: snapshot.Manifest.Name, Origin: snapshot.Origin}
 		lookup := tx.Where(&identity).First(&installed).Error
@@ -92,6 +102,7 @@ func (i *Inventory) InstallReviewed(ctx context.Context, reviewedOrigin, reviewe
 				return ErrInstallationChanged
 			}
 			installed = identity
+			installed.DiscoveryRepositoryID = snapshot.DiscoveryRepositoryID
 			installed.Digest = snapshot.Digest
 			installed.Version = snapshot.Manifest.Version
 			if err := tx.Create(&installed).Error; err != nil {

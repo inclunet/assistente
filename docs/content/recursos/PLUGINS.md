@@ -32,3 +32,9 @@ Nos detalhes do plugin, você pode remover o servidor ou mantê-lo como servidor
 Abra os detalhes do plugin e escolha **Desativar** para encerrar as ativações de skills e remover os servidores MCP vinculados. O pacote e suas revisões ficam na conta. Depois de **Habilitar**, ative individualmente os componentes que deseja voltar a usar.
 
 Escolha **Desinstalar** para remover também as revisões armazenadas. Confira o nome do plugin na confirmação. Se um servidor vinculado tiver sido editado, escolha **Manter como servidor independente** nos detalhes e repita a operação. A pasta original do pacote e os servidores independentes são preservados.
+
+## Consultar uma loja local
+
+Em **Plugins → Repositórios**, escolha **Adicionar pasta de repositório** e selecione a pasta raiz da loja. O Assistente reconhece índices locais de Claude Code, Cursor e Codex. Na aba **Catálogo**, pesquise pelo nome, autor ou origem. Selecione uma linha e pressione Enter para conferir a prévia. Nesta etapa, a instalação pelo catálogo aceita pacotes Agent Plugins 1.0.0 em subpastas do repositório.
+
+A aba **Repositórios** informa a data do último índice salvo. Escolha **Atualizar** para reler a pasta. Se ela estiver indisponível, você pode pesquisar a cópia do índice armazenada na conta. Para examinar ou instalar um pacote, sua pasta precisa estar acessível. **Remover repositório** retira a loja do catálogo e preserva as instalações feitas a partir dela.
