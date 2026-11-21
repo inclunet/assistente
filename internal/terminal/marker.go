@@ -193,7 +193,7 @@ const failedPowerShellStatus = `& {
 	$stmts = $scope.Statements;
 ` + powerShellLastOperation + `
 	if ($targets -and $targets.ContainsKey('Offset')) {
-		$last = $ast.Find({ param($node) $node -is [System.Management.Automation.Language.PipelineAst] -and $node.Extent.StartOffset -eq $targets['Offset'] }, $false)
+		$last = $ast.Find({ param($node) $node -is [System.Management.Automation.Language.PipelineAst] -and $node.Extent.StartOffset -eq $targets['Offset'] }, $false);
 		$scope = $last
 	};
 	if ($last -isnot [System.Management.Automation.Language.PipelineAst] -or !$ExecutionContext.SessionState.PSVariable.Get('LASTEXITCODE')) { return 1 };
