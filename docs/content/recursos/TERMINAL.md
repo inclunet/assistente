@@ -21,7 +21,7 @@ Cada sessão mantém:
 - Estado: Idle, Busy ou Closed
 - Saída formatada
 
-No Bash, no zsh e nos shells POSIX, o status é o da última operação do comando.
+No Bash, no zsh e nos shells POSIX, o status é o da última operação do comando. Na execução efêmera com zsh no Linux, o perfil do usuário continua ativo. O Assistente dispensa a inicialização automática do completador global do Ubuntu para evitar que uma pergunta de configuração consuma parte do comando. Terminais manuais carregam o completador conforme a configuração do sistema.
 No PowerShell, uma operação final bem-sucedida devolve zero, mesmo após um
 programa anterior falhar. Uma falha de cmdlet devolve 1, e um programa
 nativo identificado como a última operação conserva seu código de saída. Se o

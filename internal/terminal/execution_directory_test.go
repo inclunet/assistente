@@ -231,13 +231,24 @@ func TestNativeZshMarkerAndDirectory(t *testing.T) {
 	// deve restabelecê-lo e conservar as opções nativas que o perfil escolheu.
 	profile := t.TempDir()
 	t.Setenv("ZDOTDIR", profile)
+	t.Setenv("skip_global_compinit", "")
+	// Reproduz a leitura de uma tecla pelo compinit global do Ubuntu mesmo
+	// nas distribuições que não incluem esse completador no perfil.
+	zshenv := "if [[ $OSTYPE == linux* && -z $skip_global_compinit && -o interactive ]]; then read -q; fi\n"
+	if err := os.WriteFile(filepath.Join(profile, ".zshenv"), []byte(zshenv), 0600); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(filepath.Join(profile, ".zshrc"), []byte("unsetopt POSIX_BUILTINS\ncd /\nasst_started=yes\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
 	cfg := DefaultManagerConfig()
 	cfg.DefaultShell = zsh
-	entry, err := NewManager(cfg, nil).RunEphemeral(t.Context(), quotedDir, "pwd -P; ([[ $asst_started == yes && ! -o POSIX_BUILTINS ]] && exit 7)", 10*time.Second, "test")
+	entry, err := NewManager(cfg, nil).RunEphemeral(t.Context(), quotedDir, "print -r -- executado >> execucoes; pwd -P; ([[ $asst_started == yes && ! -o POSIX_BUILTINS ]] && exit 7)", 10*time.Second, "test")
 	if err != nil || entry == nil || entry.ExitCode != 7 || strings.TrimSpace(entry.Output) != quotedDir {
 		t.Fatalf("zsh no PTY: entry=%+v erro=%v", entry, err)
+	}
+	executions, err := os.ReadFile(filepath.Join(quotedDir, "execucoes"))
+	if err != nil || string(executions) != "executado\n" {
+		t.Fatalf("execuções=%q erro=%v", executions, err)
 	}
 }
