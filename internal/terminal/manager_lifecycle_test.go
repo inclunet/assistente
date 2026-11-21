@@ -385,16 +385,17 @@ func TestCloseBeforeCommandWriteKeepsHistoryAndCause(t *testing.T) {
 	for _, cause := range []error{io.ErrUnexpectedEOF, ErrSessionClosed, processExit} {
 		s := &Session{id: "early-close", shell: "bash", readerCtx: t.Context()}
 		s.onCommandStart = func(_, _, _, _ string) {
-			if cause == processExit {
+			switch cause {
+			case processExit:
 				s.ensureLifecycleChannels()
 				s.processErr = cause
 				close(s.processDone)
 				s.markExited(cause)
-			} else if cause == ErrSessionClosed {
+			case ErrSessionClosed:
 				if err := s.Close(); err != nil {
 					t.Fatal(err)
 				}
-			} else {
+			default:
 				s.closeAfterReadFailure(cause)
 			}
 		}
