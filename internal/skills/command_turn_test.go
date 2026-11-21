@@ -688,7 +688,7 @@ func TestSupportingFileWarningsFollowAttemptAndInvocation(t *testing.T) {
 	s.Slug = "test-skill"
 	source := &slugOnlyFileSource{
 		contextProviderSourceStub: contextProviderSourceStub{skills: []Skill{*s}},
-		listErr:                   os.ErrPermission,
+		listErr:                   &os.PathError{Op: "readdir", Path: "caminho-privado", Err: os.ErrPermission},
 	}
 	p := NewContextProvider(source)
 	req := contextprovider.BuildRequest{EnabledSkills: []string{s.Slug}, ToolCallingEnabled: true}
@@ -710,7 +710,23 @@ func TestSupportingFileWarningsFollowAttemptAndInvocation(t *testing.T) {
 	build(t.Context())
 	build(t.Context())
 	check(0)
+	catalog := func(ctx context.Context) {
+		t.Helper()
+		blocks, err := p.Build(ctx, contextprovider.BuildRequest{ToolCallingEnabled: true})
+		if err != nil || len(blocks) != 1 || blocks[0].Name != "available_skills" ||
+			!strings.Contains(blocks[0].Content, "Identifier: `"+s.Slug+"`") || strings.Contains(blocks[0].Content, "Supporting files:") {
+			t.Fatalf("catálogo: blocos=%v erro=%v", blocks, err)
+		}
+	}
+	catalog(t.Context())
+	check(0)
 	turn := WithCommandTurn(t.Context(), nil)
+	catalog(turn)
+	catalog(turn)
+	if out := logs.String(); strings.Count(out, "level=WARN") != 1 || strings.Contains(out, "caminho-privado") ||
+		!strings.Contains(out, "skill="+s.Slug) || !strings.Contains(out, "reason=permission_denied") {
+		t.Fatalf("esperado um único aviso da listagem do catálogo: %s", out)
+	}
 	build(turn)
 	build(turn)
 	check(1)

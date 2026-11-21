@@ -392,4 +392,10 @@ func TestCatalogFileRetryPreservesBaseReservation(t *testing.T) {
 	if err != nil || len(final) != 2 || initial[0] != final[0] || !strings.Contains(final[1].Content, "later/SKILL.md.aux") || calls != 1 || src.calls != 3 {
 		t.Fatalf("final: %v err=%v execuções=%d listagens=%d", final, err, calls, src.calls)
 	}
+	prepared := ctx.Value(commandTurnKey{}).(*commandTurn).prepared
+	cached := prepared.last
+	again, err := p.Build(ctx, req)
+	if err != nil || cached == nil || prepared.last != cached || !slices.Equal(again, final) || calls != 1 || src.calls != 3 {
+		t.Fatalf("reuso após recuperação: %v err=%v execuções=%d listagens=%d", again, err, calls, src.calls)
+	}
 }

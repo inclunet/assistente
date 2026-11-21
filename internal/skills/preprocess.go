@@ -164,11 +164,11 @@ type skillWarning struct {
 	slug, kind string
 }
 
-// A prévia da base é silenciosa. Uma invocação explícita sem turno é uma tentativa própria.
-func firstSkillWarning(ctx context.Context, slug, kind string, base bool) bool {
+// A prévia do prompt é silenciosa. Uma invocação explícita sem turno é uma tentativa própria.
+func firstSkillWarning(ctx context.Context, slug, kind string, promptBuild bool) bool {
 	turn, _ := ctx.Value(commandTurnKey{}).(*commandTurn)
 	if turn == nil {
-		return !base
+		return !promptBuild
 	}
 	key := skillWarning{slug: slug, kind: kind}
 	if turn.warnings[key] {

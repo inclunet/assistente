@@ -203,7 +203,7 @@ func (p *ContextProvider) build(ctx context.Context, req contextprovider.BuildRe
 	}
 
 	budget := req.Budget(p.Name(), defaultContextProviderBudget)
-	catalogContent := buildAvailableSkillsBlock(onDemandSkills, p.source)
+	catalogContent := buildAvailableSkillsBlock(ctx, onDemandSkills, p.source)
 	blocks := make([]contextprovider.Block, 0, 2)
 	baseBudget := budget
 	if catalogContent != "" {
@@ -364,7 +364,7 @@ func (turn *commandTurn) renderBase(ctx context.Context, skill *Skill, doc comma
 	return content, err
 }
 
-func buildAvailableSkillsBlock(availableSkills []Skill, source ContextProviderSource) string {
+func buildAvailableSkillsBlock(ctx context.Context, availableSkills []Skill, source ContextProviderSource) string {
 	modelInvocable := make([]Skill, 0, len(availableSkills))
 	for _, skill := range availableSkills {
 		if skill.IsModelInvocable() {
@@ -397,7 +397,9 @@ func buildAvailableSkillsBlock(availableSkills []Skill, source ContextProviderSo
 		sb.WriteString("`\n")
 		// Arquivos são opcionais no catálogo: seu envelope tem reserva fixa e
 		// usa só o saldo da base. A preparação repete uma listagem que falhou.
-		_ = writeSupportingFiles(&sb, source, skill.Slug, "  Supporting files:", "    - `", "`")
+		if err := writeSupportingFiles(&sb, source, skill.Slug, "  Supporting files:", "    - `", "`"); err != nil {
+			warnSupportingFiles(ctx, skill.Slug, err, true)
+		}
 	}
 	sb.WriteString("</available_skills>")
 	return sb.String()
@@ -414,8 +416,8 @@ func writeSkillHeading(sb *strings.Builder, skill Skill) {
 	sb.WriteString("\n")
 }
 
-func warnSupportingFiles(ctx context.Context, slug string, err error, base bool) {
-	if !firstSkillWarning(ctx, slug, "supporting_files", base) {
+func warnSupportingFiles(ctx context.Context, slug string, err error, promptBuild bool) {
+	if !firstSkillWarning(ctx, slug, "supporting_files", promptBuild) {
 		return
 	}
 	reason := "listing_failed"
