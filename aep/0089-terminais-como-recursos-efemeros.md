@@ -212,7 +212,10 @@ Pendente ou parcial:
   informa no texto e nos metadados a duração registrada pela sessão, inclusive no timeout sem saída.
   Em comandos gerenciados, uma falha de escrita depois do início fica no histórico com código -1.
   Uma falha de escrita encerra a sessão, inclusive quando nenhum byte foi escrito.
-  Assim, o comando seguinte nunca completa uma linha enviada apenas em parte.
+  A sessão recusa novas entradas imediatamente. Depois que a escrita devolve erro, o comando
+  aguarda a limpeza até o seu prazo ou cancelamento. Se o processo ou leitor continuar bloqueado,
+  a limpeza prossegue em segundo plano. A saída já recebida acompanha o erro, inclusive se o prazo vencer.
+  O evento de término do comando precede o de saída da sessão.
 - **Controles do terminal.** O leitor reconhece mudanças de largura fora de sequências de controle.
   Uma DCS pode ocupar várias linhas até seu terminador ou cancelamento. A moldura cancela controles
   pendentes antes das marcas de início e fim. Ao trocar a entrada ativa, a sessão entrega primeiro
