@@ -909,8 +909,13 @@ func TestFalhaDePermissaoRealNaoExpoeCaminhoDoShell(t *testing.T) {
 	}
 	dir := t.TempDir()
 	executable := filepath.Join(dir, "shell-secreto")
-	if err := os.WriteFile(executable, []byte("#!/bin/sh\n"), 0600); err != nil {
+	// Um diretório não pode ser executado, mesmo em filesystems que ignoram
+	// bits de permissão. Confirme a causa antes de exercitar o gerenciador PTY.
+	if err := os.Mkdir(executable, 0700); err != nil {
 		t.Fatal(err)
+	}
+	if err := exec.Command(executable).Run(); !errors.Is(err, os.ErrPermission) {
+		t.Fatalf("pré-condição: executar diretório deveria retornar EACCES, got %v", err)
 	}
 	cfg := terminal.DefaultManagerConfig()
 	cfg.DefaultShell = executable
