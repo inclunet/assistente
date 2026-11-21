@@ -5,9 +5,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
+	"log"
 	"log/slog"
 	"strings"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"assistente/internal/allowlist"
@@ -474,4 +477,34 @@ func TestRefusalReceivedWhenConfirmationContextEnds(t *testing.T) {
 	if err != nil || got.Failure == nil || got.Failure.Code != FailureCommandRefused {
 		t.Fatalf("recusa=%+v err=%v", got, err)
 	}
+}
+
+func TestPolicyRefusalBeforeExecutorDeadline(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		// A escrita só termina quando o teste lê o log da política. O relógio
+		// virtual avança enquanto a entrega do resultado está bloqueada.
+		reader, writer := io.Pipe()
+		defer reader.Close()
+		defer writer.Close()
+		previous := slog.Default()
+		defer log.SetOutput(log.Writer())
+		defer log.SetFlags(log.Flags())
+		slog.SetDefault(slog.New(slog.NewTextHandler(writer, nil)))
+		defer slog.SetDefault(previous)
+		reg := tools.NewRegistry()
+		reg.MustRegister(NewRunCommand(nil, nil, func(context.Context) (*allowlist.Allowlist, error) {
+			return &allowlist.Allowlist{AlwaysDeny: []string{"git push"}}, nil
+		}, "."))
+		cfg := tools.DefaultExecutorConfig()
+		cfg.ToolTimeout = time.Second
+		got := tools.NewExecutor(reg, cfg).ExecuteOne(t.Context(), tools.ToolCall{ID: "policy", Function: tools.FunctionCall{Name: "run_command", Arguments: `{"command":"git push"}`}})
+		if got.Error != nil || got.ErrorCode != FailureCommandRefused || got.ErrorKind != tools.ErrorKindAuthorization || got.Retryable || !got.RetryabilityKnown || got.DurationMs != cfg.ToolTimeout.Milliseconds() {
+			t.Fatalf("negativa após prazo: %+v", got)
+		}
+		var log [4096]byte
+		n, err := reader.Read(log[:])
+		if err != nil || !strings.Contains(string(log[:n]), "decision=deny") {
+			t.Fatalf("log da decisão: %q err=%v", log[:n], err)
+		}
+	})
 }

@@ -213,7 +213,17 @@ func (rc *RunCommand) Execute(ctx context.Context, args json.RawMessage) (tools.
 	// log quando a decisao for diferente de approve, e mesmo assim usam
 	// summarizePolicyReasons (sem repetir args do comando).
 	commandSummary := redactCommandForLog(a.Command, policyResult)
-	logPolicyDecision(ctx, logging.Logger(ctx, "tools.shell.run-command"), commandSummary, policyResult)
+	if decision == allowlist.DecisionDeny {
+		denied := tools.ToolResult{
+			Failure: &tools.ToolFailure{Code: FailureCommandRefused, Kind: tools.ErrorKindAuthorization, Retryable: false},
+			Content: fmt.Sprintf("Comando bloqueado pela política de comandos: %s\nMotivos: %s", commandSummary, strings.Join(policyResult.Reasons, "; ")),
+			IsError: true,
+		}
+		tools.PublishAuthorizationRefusal(ctx, denied)
+		logPolicyDecision(ctx, nil, commandSummary, policyResult)
+		return denied, nil
+	}
+	logPolicyDecision(ctx, nil, commandSummary, policyResult)
 	originalWorkDir := workDir
 	if decision == allowlist.DecisionConfirm && !a.Persistent && a.TerminalID == "" {
 		resolved, err := canonicalizeProjectPath(workDir)
@@ -223,22 +233,7 @@ func (rc *RunCommand) Execute(ctx context.Context, args json.RawMessage) (tools.
 		workDir = resolved
 	}
 
-	switch decision {
-	case allowlist.DecisionDeny:
-		// Nao retornamos a.Command cru: este Content e enviado ao LLM e poderia
-		// vazar tokens/senhas em flags ou env inline. Usamos o mesmo resumo
-		// redigido aplicado nos logs (programas + contagem de args). Reasons
-		// (vs DetailedReasons) e o slice "safe" do EvaluationResult — citamos
-		// apenas programa, tipo de regra e indice (rule[N]/always_deny[N]) e
-		// nunca interpolamos pattern bruto, subcommands/args/description que o
-		// usuario possa ter colocado na allowlist com dados sensiveis.
-		return tools.ToolResult{
-			Failure: &tools.ToolFailure{Code: FailureCommandRefused, Kind: tools.ErrorKindAuthorization, Retryable: false},
-			Content: fmt.Sprintf("Comando bloqueado pela política de comandos: %s\nMotivos: %s", commandSummary, strings.Join(policyResult.Reasons, "; ")),
-			IsError: true,
-		}, nil
-
-	case allowlist.DecisionConfirm:
+	if decision == allowlist.DecisionConfirm {
 		if rc.confirmFn == nil {
 			return unavailableShellAuthorization("Comando requer autorização, mas não há interlocutor disponível."), nil
 		}

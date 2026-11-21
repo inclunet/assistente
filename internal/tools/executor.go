@@ -38,9 +38,20 @@ func PendingConfirmation(ctx context.Context, failureCode string) func(*ToolResu
 			state.Store(nil)
 			return
 		}
-		if decision.Failure != nil {
-			state.Store(&confirmationState{result: *decision, final: true})
-		}
+		PublishAuthorizationRefusal(ctx, *decision)
+	}
+}
+
+// PublishAuthorizationRefusal registra uma negativa definitiva, inclusive quando
+// a política decide sem abrir uma confirmação. O executor pode recebê-la mesmo
+// que o prazo expire antes de a ferramenta terminar de entregar o diagnóstico.
+func PublishAuthorizationRefusal(ctx context.Context, decision ToolResult) {
+	if ctx == nil || decision.Failure == nil {
+		return
+	}
+	state, _ := ctx.Value(pendingConfirmationKey{}).(*atomic.Pointer[confirmationState])
+	if state != nil {
+		state.Store(&confirmationState{result: decision, final: true})
 	}
 }
 
