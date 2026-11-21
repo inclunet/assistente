@@ -88,7 +88,7 @@ const powerShellSpace = `[\x09-\x0d\x85\p{Z}]`
 const powerShellContinuation = `\x60(?:\r\n?|\n)`
 const powerShellGap = `(?:` + powerShellSpace + `|` + powerShellContinuation + `|(?s:<#.*?#>))`
 
-var computedPowerShellTarget = regexp.MustCompile(`(?:^|[;({|]|` + powerShellGap + `)[&.]` + powerShellGap + `*[($@"{]`)
+var powerShellInvocation = regexp.MustCompile(`(?:^|[;({|]|` + powerShellGap + `)[&.]`)
 var standalonePowerShellGroup = regexp.MustCompile(`(?:^|[;\r\n{]|#>)` + powerShellGap + `*[$@]?\(`)
 var powerShellGroupEnd = regexp.MustCompile(`\)(?:;|` + powerShellGap + `)*\z`)
 var powerShellNamespace = regexp.MustCompile(`(?i)(?:^|[;\r\n]|#>)` + powerShellGap + `*using` + powerShellGap + `+namespace\b`)
@@ -105,7 +105,8 @@ func (m *CommandMarker) wrapPowerShell(command, directory string) string {
 	// A decisão usa apenas o texto do usuário, antes da guarda de diretório.
 	grouped := standalonePowerShellGroup.MatchString(command) && (powerShellGroupEnd.MatchString(command) || strings.ContainsAny(command, "#}") || strings.Contains(strings.ToLower(command), "return"))
 	namespace := powerShellNamespace.MatchString(command)
-	prepare := namespace || grouped || computedPowerShellTarget.MatchString(command)
+	computed := strings.ContainsAny(command, "$(") && powerShellInvocation.MatchString(command)
+	prepare := namespace || grouped || computed
 	state, setup, cleanup, success := "$null", "", code[1:], "$?"
 	if prepare {
 		state = "$__asstState" + m.id
@@ -130,7 +131,11 @@ func (m *CommandMarker) wrapPowerShell(command, directory string) string {
 	frame := fmt.Sprintf("'try { ' + %s + ' } finally { ' + {%s}.ToString() + ' }'", source, status)
 	script := "[scriptblock]::Create(" + frame + ")"
 	if prepare {
-		script = fmt.Sprintf("%s (%s) {%s} '%s' '%s'", singlePowerShellLine(prepareGroupedPowerShell), source, status, state, parseGuard)
+		normalize := "$null"
+		if computed {
+			normalize = singlePowerShellLine(powerShellBareTargetExpression)
+		}
+		script = fmt.Sprintf("%s (%s) {%s} '%s' '%s' %s", singlePowerShellLine(prepareGroupedPowerShell), source, status, state, parseGuard, normalize)
 	}
 	return fmt.Sprintf("%s; %stry { %s. (%s) } catch { Microsoft.PowerShell.Utility\\Write-Error -ErrorRecord $_ -ErrorAction Continue; %s=1 }; Write-Host (%s + %s); Microsoft.PowerShell.Utility\\Remove-Variable -Name %s -ErrorAction Ignore", start, setup, parseGuard, script, code, end, code, cleanup)
 }
@@ -208,11 +213,43 @@ const failedPowerShellStatus = `& {
 	return 0
 }`
 
+// Um nome como cmd$ext é um argumento expansível. Em posição de expressão,
+// a mesma grafia poderia invocar um comando. O parser decodifica suas partes
+// literais com marcadores no lugar das expansões; só os nós de interpolação
+// identificados na AST original voltam como código, uma vez e na ordem original.
+const powerShellBareTargetExpression = `{
+	param($arg);
+	$raw = $arg.Extent.Text;
+	$mark = '__asstLiteralZ';
+	while ($arg.Value.Contains($mark)) { $mark = '_' + $mark };
+	$nodes = $arg.NestedExpressions;
+	for ($k = $nodes.Count - 1; $k -ge 0; $k--) {
+		$pos = $nodes[$k].Extent;
+		$off = $pos.StartOffset - $arg.Extent.StartOffset;
+		$raw = $raw.Remove($off, $pos.EndOffset - $pos.StartOffset).Insert($off, $mark)
+	};
+	$t = $null;
+	$err = $null;
+	$ast = [System.Management.Automation.Language.Parser]::ParseInput('_ ' + $raw, [ref]$t, [ref]$err);
+	if ($err.Count -or $ast.EndBlock.Statements.Count -ne 1) { return };
+	$stages = $ast.EndBlock.Statements[0].PipelineElements;
+	if ($stages.Count -ne 1 -or $stages[0].CommandElements.Count -ne 2) { return };
+	$literal = $stages[0].CommandElements[1];
+	if ($literal -isnot [System.Management.Automation.Language.StringConstantExpressionAst]) { return };
+	$parts = $literal.Value.Split([string[]]@($mark), [StringSplitOptions]::None);
+	if ($parts.Length -ne $nodes.Count + 1) { return };
+	$pieces = for ($k = 0; $k -lt $parts.Length; $k++) {
+		"'" + [System.Management.Automation.Language.CodeGeneration]::EscapeSingleQuotedStringContent($parts[$k]) + "'";
+		if ($k -lt $nodes.Count) { '"' + $nodes[$k].Extent.Text + '"' }
+	};
+	return '(' + ($pieces -join ' + ') + ')'
+}`
+
 // Capture $? antes que o agrupamento o restaure. Preserve os delimitadores:
 // @() pode descartar toda a saída acumulada em uma falha terminante.
 // () só admite um pipeline; a subexpressão interna comporta seu try/finally.
 const prepareGroupedPowerShell = `& {
-	param($source, $status, $capture, $guard);
+	param($source, $status, $capture, $guard, $normalize);
 	$tokens = $null;
 	$errors = $null;
 	$ast = [System.Management.Automation.Language.Parser]::ParseInput($source, [ref]$tokens, [ref]$errors);
@@ -253,8 +290,16 @@ const prepareGroupedPowerShell = `& {
 		for ($n = $stages.Count - 1; $n -ge 0; $n--) {
 			$stage = $stages[$n];
 			if ($stage -isnot [System.Management.Automation.Language.CommandAst] -or $stage.GetCommandName()) { continue };
-			$target = $stage.CommandElements[0].Extent;
-			$source = $source.Insert($target.EndOffset, ')').Insert($target.StartOffset, '(' + $capture + '[' + $n + '] = ')
+			$arg = $stage.CommandElements[0];
+			$target = $arg.Extent;
+			$text = $target.Text;
+			if ($arg -is [System.Management.Automation.Language.ExpandableStringExpressionAst] -and $arg.StringConstantType -eq 'BareWord') {
+				if (!$normalize) { continue };
+				$text = & $normalize $arg;
+				if (!$text) { continue }
+			};
+			$replacement = '(' + $capture + '[' + $n + '] = ' + $text + ')';
+			$source = $source.Remove($target.StartOffset, $target.EndOffset - $target.StartOffset).Insert($target.StartOffset, $replacement)
 		};
 		if ($prefix) { $source = $source.Insert($last.Extent.StartOffset, $prefix) }
 	};

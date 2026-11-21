@@ -236,6 +236,43 @@ func TestPowerShellGroupAndTargetWhitespaceThroughPTY(t *testing.T) {
 	}
 }
 
+func TestPowerShellExpandedCommandNameThroughPTY(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("Windows PowerShell")
+	}
+	cfg := DefaultManagerConfig()
+	cfg.DefaultShell = "powershell.exe"
+	manager := NewManager(cfg, nil)
+	session, err := manager.Create("alvo expansível", t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(manager.CloseAll)
+	for _, tc := range []struct {
+		cmd, output string
+		code        int
+	}{
+		{"$ext='.exe'; & cmd$ext /c exit 7", "", 7},
+		{"& cm'd'$ext /c exit 7", "", 7},
+		{"Set-Alias -Name 'asst$(throw)' -Value Write-Output; $end=''; & asst'$(throw)'$end ok", "ok", 0},
+		{"& \"cmd$ext\" /c exit 7", "", 7},
+		{"$n = 0; & cmd$($n++; $ext) /c exit 7", "", 7},
+		{"Write-Output $n", "1", 0},
+		{"$tail='put'; cmd /c exit 7; & Write-Out$tail $?", "False", 0},
+		{"$tail='Item'; cmd /c exit 7; & Get-$tail missing-leaf -ErrorAction Ignore", "", 1},
+		{"& missing_asst$ext", "CommandNotFoundException", 1},
+	} {
+		entry, err := manager.RunCommand(t.Context(), session.ID(), tc.cmd, 15*time.Second, "test")
+		if err != nil || entry == nil || entry.ExitCode != tc.code {
+			t.Fatalf("comando=%q entry=%+v err=%v", tc.cmd, entry, err)
+		}
+		out := strings.TrimSpace(entry.Output)
+		if out != tc.output && (tc.output != "CommandNotFoundException" || !strings.Contains(out, tc.output)) {
+			t.Fatalf("comando=%q saída=%q", tc.cmd, out)
+		}
+	}
+}
+
 func TestPowerShellStrictModeThroughPTY(t *testing.T) {
 	if runtime.GOOS != "windows" {
 		t.Skip("Windows PowerShell")
