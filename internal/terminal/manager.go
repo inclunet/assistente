@@ -174,7 +174,7 @@ func (m *Manager) RunEphemeral(ctx context.Context, workDir, command string, tim
 	}
 	session, err := newSession("", workDir, m.config.DefaultShell,
 		func(_, _, _ string) {},
-		func(_, _ string) {},
+		nil, // A sessão efêmera não entrega saída manual à UI.
 		func(_, _, _, _ string) {},
 		func(string, error) {},
 	)

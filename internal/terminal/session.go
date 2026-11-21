@@ -85,8 +85,7 @@ type SessionInfo struct {
 // Usado pelo waitForMarker para emitir output filtrado (sem echo/markers) durante RunCommand.
 type outputCallback func(sessionID, commandID, chunk string)
 
-// rawOutputCallback é chamado para CADA chunk lido do PTY (output bruto, com ANSI limpo).
-// Usado para streaming contínuo no Terminal Page (modo raw).
+// rawOutputCallback entrega texto da sessão manual após interpretar os controles do PTY.
 type rawOutputCallback func(sessionID, chunk string)
 
 type commandStartCallback func(sessionID, commandID, command, source string)
@@ -301,12 +300,19 @@ func (s *Session) startCommandOutput(marker *CommandMarker) {
 func (s *Session) readLoop(ctx context.Context) {
 	defer s.signalReaderDone()
 
-	buf := make([]byte, 4096)
+	buf := make([]byte, ptyReadSize)
 	reader := s.ptyReader
+	var raw rawTerminalOutput
+	emitRaw := func(chunk string) {
+		if s.onRawOutput != nil && chunk != "" {
+			s.onRawOutput(s.id, chunk)
+		}
+	}
 
 	for {
 		select {
 		case <-ctx.Done():
+			emitRaw(raw.finish())
 			return
 		default:
 		}
@@ -318,18 +324,12 @@ func (s *Session) readLoop(ctx context.Context) {
 			// Acumula no buffer (para RunCommand com markers)
 			suppress := s.recordOutput(chunk)
 
-			// Emite raw output para Terminal Page (quando não está em RunCommand/marker mode)
-			if !suppress && s.onRawOutput != nil {
-				// Limpa ANSI e normaliza line endings para exibição
-				cleaned := StripANSI(chunk)
-				cleaned = strings.ReplaceAll(cleaned, "\r\n", "\n")
-				cleaned = strings.ReplaceAll(cleaned, "\r", "\n")
-				if cleaned != "" {
-					s.onRawOutput(s.id, cleaned)
-				}
+			if s.onRawOutput != nil {
+				emitRaw(raw.append(chunk, suppress))
 			}
 		}
 		if err != nil {
+			emitRaw(raw.finish())
 			if errors.Is(err, io.EOF) || runtime.GOOS == "linux" && errors.Is(err, syscall.EIO) {
 				// O último slave do PTY no Linux fecha com EIO no master.
 				err = nil

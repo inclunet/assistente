@@ -68,6 +68,10 @@ func (t *parsedTerminalText) feed(chunk string) {
 			t.cr = false
 		}
 		switch chunk[0] {
+		case '\x18':
+			// CAN fora de um escape não ocupa uma célula no terminal.
+			t.crlf, t.rawCR = false, false
+			chunk = chunk[1:]
 		case '\r':
 			t.cr, t.rawCR = true, true
 			t.crlf = false
@@ -87,7 +91,7 @@ func (t *parsedTerminalText) feed(chunk string) {
 			chunk = chunk[1:]
 		default:
 			t.crlf, t.rawCR = false, false
-			n := strings.IndexAny(chunk, "\r\n\x1b")
+			n := strings.IndexAny(chunk, "\r\n\x1b\x18")
 			if n < 0 {
 				n = len(chunk)
 			}
@@ -125,7 +129,9 @@ func (t *parsedTerminalText) flushEscape() {
 			t.write("\r")
 			t.cr = false
 		}
-		literal := StripANSI(string(t.escape))
+		// Um DCS incompleto pode conter várias linhas. Normalize suas quebras
+		// como as do texto que chegou fora do controle.
+		literal := strings.ReplaceAll(StripANSI(string(t.escape)), "\r\n", "\n")
 		if strings.HasSuffix(literal, "\r") {
 			literal = literal[:len(literal)-1]
 			t.cr, t.rawCR = true, true
@@ -291,18 +297,28 @@ func (s *markerStream) progress() (delta []byte, result ParseResult) {
 	}
 	if result.Found {
 		visible = s.start + len(result.Output)
-	} else if visible > s.sent && data[visible-1] >= utf8.RuneSelf {
-		first := visible - 1
-		for first > max(s.sent, visible-utf8.UTFMax) && !utf8.RuneStart(data[first]) {
-			first--
-		}
-		if !utf8.FullRune(data[first:visible]) {
-			visible = first
-		}
+	} else if visible > s.sent {
+		visible = s.sent + completeUTF8Prefix(data[s.sent:visible])
 	}
 	if visible > s.sent {
 		delta = data[s.sent:visible]
 		s.sent = visible
 	}
 	return
+}
+
+// Preserva a última runa para a próxima entrega se seus bytes ainda estão chegando.
+func completeUTF8Prefix(data []byte) int {
+	n := len(data)
+	if n == 0 || data[n-1] < utf8.RuneSelf {
+		return n
+	}
+	first := n - 1
+	for first > max(0, n-utf8.UTFMax) && !utf8.RuneStart(data[first]) {
+		first--
+	}
+	if !utf8.FullRune(data[first:]) {
+		return first
+	}
+	return n
 }
