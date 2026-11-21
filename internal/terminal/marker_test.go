@@ -50,9 +50,9 @@ func TestStripANSI(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := StripANSI(tt.input)
+			result := stripANSI(tt.input)
 			if result != tt.expected {
-				t.Errorf("StripANSI(%q) = %q, want %q", tt.input, result, tt.expected)
+				t.Errorf("stripANSI(%q) = %q, want %q", tt.input, result, tt.expected)
 			}
 		})
 	}
@@ -96,7 +96,7 @@ func TestCommandMarker_WrapPowerShell(t *testing.T) {
 	}
 }
 
-func parseMarkerOutput(m *CommandMarker, raw string) ParseResult {
+func parseMarkerOutput(m *CommandMarker, raw string) parseResult {
 	_, result := newMarkerStream(m).append(raw)
 	return result
 }
@@ -351,7 +351,7 @@ func TestPOSIXMarkersCancelOpenControlsAcrossReads(t *testing.T) {
 	for cut := 0; cut <= len(raw); cut++ {
 		stream := newMarkerStream(m)
 		var emitted strings.Builder
-		var result ParseResult
+		var result parseResult
 		for _, part := range []string{raw[:cut], raw[cut:]} {
 			var delta []byte
 			delta, result = stream.append(part)
@@ -606,6 +606,18 @@ func TestPowerShellPreparationSelection(t *testing.T) {
 		{"(cmd /c exit 7); return-value", false}, {"(cmd /c exit 7); return.value", false},
 		{"(cmd /c exit 7); returné", false}, {"(cmd /c exit 7); return$part", false},
 		{"(cmd /c exit 7); Write-Output return", false}, {"(cmd /c exit 7); 'return'", false},
+		{"Get-ChildItem . -Filter $pattern", false}, {"Get-Item . $cmd", false},
+		{"Get-ChildItem . | Get-Item . $cmd", false}, {"Write-Output return . $cmd", false},
+		{"Get-ChildItem <# cwd #> . -Filter $pattern", false},
+		{". $cmd", true}, {"echo x | . $cmd", true}, {"echo x; . $cmd", true},
+		{"$x = . $cmd", true}, {"$x += . $cmd", true}, {"return . $cmd", true},
+		{"if ($ok) { ReTuRn . $cmd }", true}, {"exit . $cmd", true}, {"throw . $cmd", true},
+		{"break . $cmd", true}, {"continue . $cmd", true},
+		{"foreach ($item in . $cmd) {}", true}, {"Get-Item . $cmd; . $cmd", true},
+		{`Copy-Item $a .\b`, false}, {`Copy-Item $a ../b`, false}, {`Get-Item .git $file`, false},
+		{`Write-Output .log ($a)`, false}, {`&cmd$ext`, true},
+		{`.$cmd`, true}, {`.($cmd)`, true}, {`."$cmd"`, true}, {`.'cmd' $arg`, true},
+		{".\u00a0$cmd", true}, {".`\r\n$cmd", true},
 		{"using namespace System.Text; [StringBuilder]::new()", true},
 	} {
 		if got := selectPowerShellPreparation(tc.cmd).needed(); got != tc.needed {
@@ -625,8 +637,8 @@ func TestMarkerStreamConsumesOnlyNewBytes(t *testing.T) {
 	var emitted strings.Builder
 	for read := range len(raw) {
 		session.outputBuf.WriteByte(raw[read])
-		chunk := session.outputSince(read)
-		if chunk != raw[read:read+1] || session.outputSince(read+1) != "" {
+		chunk := session.takeCommandOutput()
+		if chunk != raw[read:read+1] || session.takeCommandOutput() != "" {
 			t.Fatalf("offset %d, chunk %q", read, chunk)
 		}
 		delta, result := stream.append(chunk)
@@ -706,7 +718,7 @@ func TestMarkerStreamLongTailAndFragmentedControls(t *testing.T) {
 		stream.append(m.startTag + "\n" + tail)
 		var emitted strings.Builder
 		emitted.WriteString(tail)
-		var result ParseResult
+		var result parseResult
 		for i := 0; i < len(rest) && !result.Found; i += step {
 			var delta []byte
 			delta, result = stream.append(rest[i:min(i+step, len(rest))])
@@ -732,7 +744,7 @@ func TestInvalidFooterImmediatelyReturnsToOutput(t *testing.T) {
 func TestMarkerStreamConsumesSplitControlSequences(t *testing.T) {
 	for _, seq := range []string{"\x1b[2@", "\x1b[1 q", "\x1b[>c", "\x1b[200~", "\x1b(B", "\x1b7", "\x1bP1;2|dado\x1b\\"} {
 		raw := "a" + seq + "b"
-		if StripANSI(raw) != "ab" {
+		if stripANSI(raw) != "ab" {
 			t.Fatalf("controle não removido: %q", seq)
 		}
 		for split := range len(raw) + 1 {

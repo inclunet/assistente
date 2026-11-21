@@ -91,7 +91,14 @@ const powerShellSpace = `[\x09-\x0d\x85\p{Z}]`
 const powerShellContinuation = `\x60(?:\r\n?|\n)`
 const powerShellGap = `(?:` + powerShellSpace + `|` + powerShellContinuation + `|(?s:<#.*?#>))`
 
-var powerShellInvocation = regexp.MustCompile(`(?:^|[;({|]|` + powerShellGap + `)[&.]`)
+// O ponto em modo de argumento pode ser o diretório atual (Get-ChildItem .).
+// Somente a posição de comando admite dot-sourcing, com ou sem espaço
+// antes de uma variável, expressão ou string. A AST confirma o alvo.
+const powerShellDotStatement = `(?:^|[;({|=\r\n])` + powerShellGap + `*(?:(?:return|throw|exit|break|continue)` + powerShellGap + `+)?`
+const powerShellForeachSource = `\(` + powerShellGap + `*\$(?:\{[^}]+\}|[\pL\pN_:]+)` + powerShellGap + `+in` + powerShellGap + `+`
+
+var powerShellInvocation = regexp.MustCompile(`(?i)(?:(?:^|[;({|]|` + powerShellGap + `)&|(?:` +
+	powerShellDotStatement + `|` + powerShellForeachSource + `)\.(?:` + powerShellGap + `|[$({"']))`)
 var standalonePowerShellGroup = regexp.MustCompile(`(?:^|[;\r\n{]|#>)` + powerShellGap + `*[$@]?\(`)
 var powerShellGroupEnd = regexp.MustCompile(`\)(?:;|` + powerShellGap + `)*\z`)
 var powerShellNamespace = regexp.MustCompile(`(?i)(?:^|[;\r\n]|#>)` + powerShellGap + `*using` + powerShellGap + `+namespace\b`)
@@ -349,8 +356,8 @@ func singlePowerShellLine(script string) string {
 	return strings.Join(lines, " ")
 }
 
-// ParseResult representa o resultado do parsing de output com markers.
-type ParseResult struct {
+// parseResult representa o resultado do parsing de output com markers.
+type parseResult struct {
 	// Output é o conteúdo entre os markers (o output real do comando)
 	Output string
 
@@ -361,7 +368,7 @@ type ParseResult struct {
 	Found bool
 }
 
-// StripANSI remove todas as sequências ANSI escape de uma string.
-func StripANSI(s string) string {
+// stripANSI remove todas as sequências ANSI escape de uma string.
+func stripANSI(s string) string {
 	return ansiEscape.ReplaceAllString(s, "")
 }

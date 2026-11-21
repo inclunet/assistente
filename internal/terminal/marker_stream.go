@@ -9,6 +9,10 @@ import (
 	"github.com/rivo/uniseg"
 )
 
+// Um controle incompleto curto pode ser devolvido literalmente no EOF. Depois
+// desse limite ainda reconhecemos ST, BEL e cancelamento pelo estado do parser.
+const maxControlLiteral = 4096
+
 // parsedTerminalText acumula os bytes normalizados. Somente a confirmação de
 // um redesenho do ConPTY pode retirar a quebra de linha mais recente.
 type parsedTerminalText struct {
@@ -108,7 +112,9 @@ func (t *parsedTerminalText) escapeByte(ch byte) bool {
 	switch t.control.consume(ch, &t.columns) {
 	case escapeMore:
 		// Um escape herdado começou antes do comando e só precisa ser consumido.
-		if len(t.escape) != 0 {
+		if len(t.escape) == maxControlLiteral {
+			t.escape = nil
+		} else if len(t.escape) != 0 {
 			t.escape = append(t.escape, ch)
 		}
 	case escapeEnd:
@@ -131,7 +137,7 @@ func (t *parsedTerminalText) flushEscape() {
 		}
 		// Um DCS incompleto pode conter várias linhas. Normalize suas quebras
 		// como as do texto que chegou fora do controle.
-		literal := strings.ReplaceAll(StripANSI(string(t.escape)), "\r\n", "\n")
+		literal := strings.ReplaceAll(stripANSI(string(t.escape)), "\r\n", "\n")
 		if strings.HasSuffix(literal, "\r") {
 			literal = literal[:len(literal)-1]
 			t.cr, t.rawCR = true, true
@@ -197,7 +203,7 @@ func newMarkerStream(marker *CommandMarker) *markerStream {
 	return &markerStream{marker: marker, text: parsedTerminalText{conPTY: marker.conPTY, columns: marker.viewportColumns, marker: marker, control: marker.control}}
 }
 
-func (s *markerStream) append(chunk string) ([]byte, ParseResult) {
+func (s *markerStream) append(chunk string) ([]byte, parseResult) {
 	before := len(s.text.data)
 	var last byte
 	if before > 0 {
@@ -207,12 +213,12 @@ func (s *markerStream) append(chunk string) ([]byte, ParseResult) {
 	// Um controle pendente pode consumir vários blocos sem alterar o texto.
 	// O único recuo possível substitui ou remove a última quebra de linha.
 	if before == len(s.text.data) && (before == 0 || last == s.text.data[before-1]) {
-		return nil, ParseResult{}
+		return nil, parseResult{}
 	}
 	return s.progress()
 }
 
-func (s *markerStream) progress() (delta []byte, result ParseResult) {
+func (s *markerStream) progress() (delta []byte, result parseResult) {
 	data := s.text.data
 	previous := s.scanned
 	s.scanned = len(data)

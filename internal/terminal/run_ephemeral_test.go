@@ -258,6 +258,12 @@ func TestPowerShellExpandedCommandNameThroughPTY(t *testing.T) {
 	}{
 		{"$ext='.exe'; & cmd$ext /c exit 7", "", 7},
 		{"& cm'd'$ext /c exit 7", "", 7},
+		{`$cmd='cmd.exe'; .$cmd /c exit 7`, "", 7},
+		{`Write-Output unused | . $cmd /c exit 7`, "", 7},
+		{`return . $cmd /c exit 7`, "", 7},
+		{`.($cmd) /c exit 7`, "", 7},
+		{`."$cmd" /c exit 7`, "", 7},
+		{`$a='file-a'; Set-Content $a ok; Copy-Item $a .\b; Get-Content .\b`, "ok", 0},
 		{"Set-Alias -Name 'asst$(throw)' -Value Write-Output; $end=''; & asst'$(throw)'$end ok", "ok", 0},
 		{"& \"cmd$ext\" /c exit 7", "", 7},
 		{"$n = 0; & cmd$($n++; $ext) /c exit 7", "", 7},

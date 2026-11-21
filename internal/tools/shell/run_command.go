@@ -291,8 +291,8 @@ func (rc *RunCommand) Execute(ctx context.Context, args json.RawMessage) (tools.
 	}
 
 	if err != nil {
-		// Timeout ou erro — mas se temos output parcial, retorna como sucesso
-		// para que o LLM possa analisar o resultado parcial
+		// Um prazo expirado pode entregar saída parcial. A duração da entrada
+		// reflete a execução mesmo quando o contexto pai venceu primeiro.
 		output := ""
 		if entry != nil {
 			output = entry.Output
@@ -302,7 +302,7 @@ func (rc *RunCommand) Execute(ctx context.Context, args json.RawMessage) (tools.
 
 		if isTimeout && output != "" {
 			// Timeout COM output: retorna como sucesso com nota sobre timeout
-			content := fmt.Sprintf("[TIMEOUT após %ds — o prazo de execução terminou. Output parcial capturado:]\n\n%s", int(timeout.Seconds()), output)
+			content := "[TIMEOUT — o prazo de execução terminou. Output parcial capturado:]\n\n" + output
 
 			result := tools.ToolResult{
 				Content: content,
@@ -312,7 +312,7 @@ func (rc *RunCommand) Execute(ctx context.Context, args json.RawMessage) (tools.
 						"workDir":   workDir,
 						"exitCode":  -1,
 						"timeout":   true,
-						"duration":  timeout.String(),
+						"duration":  entry.EndedAt.Sub(entry.StartedAt).String(),
 						"commandId": entry.ID,
 					}
 					if sessionID != "" {

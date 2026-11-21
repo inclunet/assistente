@@ -21,7 +21,14 @@ Cada sessão mantém:
 - Estado: Idle, Busy ou Closed
 - Saída formatada
 
-No Bash, no zsh e nos shells POSIX, o status é o da última operação do comando. Na execução efêmera com zsh no Linux, o perfil do usuário continua ativo. O Assistente dispensa a inicialização automática do completador global do Ubuntu para evitar que uma pergunta de configuração consuma parte do comando. Terminais manuais carregam o completador conforme a configuração do sistema.
+No Bash, no zsh e nos shells POSIX, o status é o da última operação do comando.
+No Linux, sessões zsh efêmeras e sessões persistentes criadas pelo modelo
+carregam o perfil do usuário e dispensam o completador global do Ubuntu.
+Assim, a pergunta de configuração do completador não consome parte do comando.
+Sessões abertas manualmente carregam o completador conforme a configuração do sistema.
+Se o zsh fizer uma pergunta na abertura de uma dessas sessões, responda na aba
+antes de pedir ao modelo que use aquele terminal pelo identificador.
+
 No PowerShell, uma operação final bem-sucedida devolve zero, mesmo após um
 programa anterior falhar. Uma falha de cmdlet devolve 1, e um programa
 nativo identificado como a última operação conserva seu código de saída. Se o
@@ -36,7 +43,11 @@ No PowerShell, você pode iniciar o comando com `using namespace` para usar
 nomes de tipos abreviados. Por exemplo, depois de `using namespace System.Text`,
 `[StringBuilder]::new('texto').ToString()` devolve `texto`.
 
-A saída registrada é textual. Programas que movem o cursor para redesenhar linhas anteriores podem aparecer de forma diferente no histórico e na tela interativa.
+A saída registrada é textual. Programas que movem o cursor para redesenhar
+linhas anteriores podem aparecer de forma diferente no histórico e na tela
+interativa. Uma sequência de controle incompleta de até 4 KiB pode aparecer
+como texto ao encerrar a leitura. Acima desse limite, o terminal descarta
+a cópia literal e volta a mostrar texto quando a sequência termina ou é cancelada.
 
 Ao usar a ferramenta com `working_directory`, informe um caminho relativo ao projeto. Se esse argumento for inválido, a ferramenta devolve o motivo para que o caminho possa ser corrigido. Se o próprio diretório do projeto não puder ser resolvido, a autorização fica indisponível.
 

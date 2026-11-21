@@ -115,7 +115,7 @@ type Session struct {
 	createdAt        time.Time
 	lastUsed         time.Time
 
-	// outputBuf acumula todo o output do PTY em background (para RunCommand com markers)
+	// outputBuf contém apenas os bytes pendentes de um comando estruturado.
 	outputBuf     bytes.Buffer
 	outputMu      sync.Mutex
 	rawOutput     rawTerminalOutput
@@ -286,7 +286,9 @@ func (s *Session) ensurePTYIO() {
 // bloco uma vez, sem copiar o buffer anterior nem rever o histórico sob o lock.
 func (s *Session) recordOutput(chunk string) {
 	s.outputMu.Lock()
-	s.outputBuf.WriteString(chunk)
+	if s.suppressRawOutput {
+		s.outputBuf.WriteString(chunk)
+	}
 	if runtime.GOOS == "windows" && shellType(s.shell) == "powershell" {
 		s.viewportControl.trackViewport(chunk, &s.viewportColumns)
 	}
@@ -578,6 +580,7 @@ func (s *Session) runCommandInDirectory(ctx context.Context, command, directory 
 	defer func() {
 		s.outputMu.Lock()
 		s.suppressRawOutput = false
+		s.outputBuf = bytes.Buffer{}
 		s.outputMu.Unlock()
 	}()
 
@@ -591,6 +594,11 @@ func (s *Session) runCommandInDirectory(ctx context.Context, command, directory 
 	}
 	logging.Debugf(ctx, "terminal.session", "[Terminal] RunCommand session=%s os=%s enter=%q cmdLen=%d shell=%s",
 		s.id, runtime.GOOS, enter, len(wrappedCmd), s.shell)
+	failBeforeResult := func(cause error) (*HistoryEntry, error) {
+		entry.ExitCode, entry.EndedAt = -1, time.Now()
+		s.addHistoryEntry(entry)
+		return entry, cause
+	}
 	s.ioMu.Lock()
 	s.mu.Lock()
 	if s.state != StateRunning {
@@ -610,14 +618,12 @@ func (s *Session) runCommandInDirectory(ctx context.Context, command, directory 
 		if cause == nil {
 			cause = fmt.Errorf("sessão %s foi encerrada antes do início do comando", s.id)
 		}
-		entry.ExitCode, entry.EndedAt = -1, time.Now()
-		s.addHistoryEntry(entry)
-		return entry, cause
+		return failBeforeResult(cause)
 	}
 	s.mu.Unlock()
 	if s.ptyWriter == nil {
 		s.ioMu.Unlock()
-		return nil, fmt.Errorf("sessão %s não possui writer PTY", s.id)
+		return failBeforeResult(fmt.Errorf("sessão %s não possui writer PTY", s.id))
 	}
 	nWritten, err := s.ptyWriter.Write([]byte(wrappedCmd + enter))
 	s.mu.Lock()
@@ -630,10 +636,10 @@ func (s *Session) runCommandInDirectory(ctx context.Context, command, directory 
 		select {
 		case <-s.readerDone:
 			if s.readerErr == nil {
-				return nil, writeErr
+				return failBeforeResult(writeErr)
 			}
 		default:
-			return nil, writeErr
+			return failBeforeResult(writeErr)
 		}
 	} else {
 		logging.Debugf(ctx, "terminal.session", "[Terminal] Write OK: %d bytes escritos para sessão %s", nWritten, s.id)
@@ -707,22 +713,21 @@ func (s *Session) waitForMarker(ctx context.Context, marker *CommandMarker, comm
 			s.onOutput(s.id, commandID, output[streamSentLen:])
 		}
 	}()
-	read := 0
 	stream := newMarkerStream(marker)
 
 	for {
 		select {
 		case <-ctx.Done():
-			return s.canceledCommandResult(ctx, stream, read)
+			return s.canceledCommandResult(ctx, stream)
 
 		case <-s.readerDone:
 			// Um comando pode encerrar o próprio shell antes do marcador final.
 			// Só aceite o status do processo após drenar o leitor e observar o
 			// marcador de início. Fechamento externo e cancelamento são erros.
 			if ctx.Err() != nil {
-				return s.canceledCommandResult(ctx, stream, read)
+				return s.canceledCommandResult(ctx, stream)
 			}
-			result := stream.finish(s.outputSince(read))
+			result := stream.finish(s.takeCommandOutput())
 			if result.Found {
 				return result.Output, result.ExitCode, nil
 			}
@@ -730,13 +735,12 @@ func (s *Session) waitForMarker(ctx context.Context, marker *CommandMarker, comm
 
 		case <-ticker.C:
 			if ctx.Err() != nil {
-				return s.canceledCommandResult(ctx, stream, read)
+				return s.canceledCommandResult(ctx, stream)
 			}
-			chunk := s.outputSince(read)
+			chunk := s.takeCommandOutput()
 			if chunk == "" {
 				continue
 			}
-			read += len(chunk)
 			delta, result := stream.append(chunk)
 			if s.onOutput != nil && len(delta) > 0 {
 				s.onOutput(s.id, commandID, string(delta))
@@ -749,13 +753,17 @@ func (s *Session) waitForMarker(ctx context.Context, marker *CommandMarker, comm
 	}
 }
 
-func (s *Session) outputSince(read int) string {
+// Troque o lote sob o mutex. O leitor já pode receber o próximo bloco
+// enquanto o comando converte e interpreta os bytes retirados.
+func (s *Session) takeCommandOutput() string {
 	s.outputMu.Lock()
-	defer s.outputMu.Unlock()
-	return string(s.outputBuf.Bytes()[read:])
+	pending := s.outputBuf.Bytes()
+	s.outputBuf = bytes.Buffer{}
+	s.outputMu.Unlock()
+	return string(pending)
 }
 
-func (stream *markerStream) finish(chunk string) ParseResult {
+func (stream *markerStream) finish(chunk string) parseResult {
 	stream.text.feed(chunk)
 	stream.text.finish()
 	_, result := stream.progress()
@@ -786,7 +794,7 @@ func (stream *markerStream) outputBeforeFooter() string {
 	return string(output)
 }
 
-func (s *Session) canceledCommandResult(ctx context.Context, stream *markerStream, read int) (string, int, error) {
+func (s *Session) canceledCommandResult(ctx context.Context, stream *markerStream) (string, int, error) {
 	// Timeout ou cancelamento: envia Ctrl+C e aguarda brevemente a
 	// drenagem. RunEphemeral fará em seguida o cleanup completo
 	// (Kill + Wait + EOF do leitor + Close), antes de retornar.
@@ -795,17 +803,17 @@ func (s *Session) canceledCommandResult(ctx context.Context, stream *markerStrea
 	} else {
 		logging.Infof(context.Background(), "terminal.session", "[Terminal] Comando cancelado na sessão %s", s.id)
 	}
-	var result ParseResult
+	var result parseResult
 	select {
 	case <-s.readerDone:
 	default:
 		if err := s.Interrupt(); err != nil {
 			logging.Errorf(context.Background(), "terminal.session", "[Terminal] Erro ao enviar Ctrl+C após timeout: %v", err)
 		}
-		read, result = s.drainAfterInterrupt(stream, read)
+		result = s.drainAfterInterrupt(stream)
 	}
 	if !result.Found {
-		result = stream.finish(s.outputSince(read))
+		result = stream.finish(s.takeCommandOutput())
 	}
 	if result.Found {
 		result.Output = stream.outputBeforeFooter()
@@ -828,23 +836,22 @@ func (s *Session) canceledCommandResult(ctx context.Context, stream *markerStrea
 	return result.Output, -1, fmt.Errorf("fim do comando não observado: %w", cause)
 }
 
-func (s *Session) drainAfterInterrupt(stream *markerStream, read int) (int, ParseResult) {
+func (s *Session) drainAfterInterrupt(stream *markerStream) parseResult {
 	deadline := time.NewTimer(interruptDrainTimeout)
 	defer deadline.Stop()
 	ticker := time.NewTicker(25 * time.Millisecond)
 	defer ticker.Stop()
 	for {
-		chunk := s.outputSince(read)
-		read += len(chunk)
+		chunk := s.takeCommandOutput()
 		if _, result := stream.append(chunk); result.Found {
-			return read, result
+			return result
 		}
 		select {
 		case <-ticker.C:
 		case <-s.readerDone:
-			return read, ParseResult{}
+			return parseResult{}
 		case <-deadline.C:
-			return read, ParseResult{}
+			return parseResult{}
 		}
 	}
 }

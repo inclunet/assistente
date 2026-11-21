@@ -16,6 +16,11 @@ type rawTerminalOutput struct {
 
 func (r *rawTerminalOutput) append(chunk string, suppressed bool) string {
 	if suppressed {
+		// Um bloco da moldura separa o CR manual anterior da próxima
+		// leitura visível, mesmo quando o bloco não produz texto na UI.
+		if chunk != "" {
+			r.reportedCR, r.text.cr = false, false
+		}
 		r.text.control.trackViewport(chunk, &r.text.columns)
 		return ""
 	}
@@ -27,8 +32,9 @@ func (r *rawTerminalOutput) append(chunk string, suppressed bool) string {
 // continua a ser interpretado sem transferir seu prefixo literal ao novo dono.
 func (r *rawTerminalOutput) changeOwner() string {
 	previous := r.take(true)
-	control := r.text.control
-	*r = rawTerminalOutput{text: parsedTerminalText{control: control}}
+	// O início de uma entrada não insere bytes no fluxo do PTY. Conserve
+	// o CR anunciado para que o parser reconheça seu possível LF.
+	r.text = parsedTerminalText{control: r.text.control, cr: r.reportedCR}
 	return previous
 }
 

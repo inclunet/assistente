@@ -122,3 +122,101 @@ func BenchmarkStartCommandOutput(b *testing.B) {
 		})
 	}
 }
+
+func TestPartialControlLiteralLimitAtEOF(t *testing.T) {
+	for _, start := range []string{"\x1bP", "\x1b]"} {
+		for _, size := range []int{maxControlLiteral - 1, maxControlLiteral, maxControlLiteral + 1} {
+			sequence := start + strings.Repeat("x", size-len(start))
+			m := newCommandMarkerForShell("bash")
+			s := newMarkerStream(m)
+			s.append(m.startTag + "\nantes")
+			s.append(sequence[:size-1])
+			s.finish(sequence[size-1:])
+			want := "antes"
+			if size <= maxControlLiteral {
+				want += sequence
+			}
+			if got := s.partialOutput(); got != want {
+				t.Fatalf("início=%q tamanho=%d: parcial tem %d bytes, esperados %d", start, size, len(got), len(want))
+			}
+		}
+	}
+}
+
+func TestLargeControlsKeepBoundedStateInManualAndManagedOutput(t *testing.T) {
+	const payloadSize = 3 << 20
+	block := strings.Repeat("x", ptyReadSize)
+	for _, tc := range []struct {
+		name, start, end, want string
+	}{
+		{"DCS_ST", "\x1bP", "\x1b\\depois", "antesdepois"},
+		{"DCS_CAN", "\x1bP", "\x18depois", "antesdepois"},
+		{"DCS_EOF", "\x1bP", "", "antes"},
+		{"OSC_ST", "\x1b]", "\x1b\\depois", "antesdepois"},
+		{"OSC_BEL", "\x1b]", "\adepois", "antesdepois"},
+		{"OSC_EOF", "\x1b]", "", "antes"},
+		{"OSC_inválido", "\x1b]", "\ndepois", "antes\ndepois"},
+	} {
+		for _, mode := range []string{"manual", "gerenciado"} {
+			t.Run(tc.name+"/"+mode, func(t *testing.T) {
+				var emitted strings.Builder
+				session := &Session{onRawOutput: func(_, chunk string) { emitted.WriteString(chunk) }}
+				m := newCommandMarkerForShell("powershell")
+				parser := newMarkerStream(m)
+				managed := mode == "gerenciado"
+				if managed {
+					session.startCommandOutput(m, &HistoryEntry{})
+				}
+				deliver := func(chunk string) {
+					session.recordOutput(chunk)
+					if managed {
+						delta, result := parser.append(session.takeCommandOutput())
+						if result.Found {
+							t.Fatal("marca reconhecida dentro do controle")
+						}
+						emitted.Write(delta)
+					}
+				}
+				if managed {
+					deliver(m.startTag + "\n")
+				}
+				deliver("antes" + tc.start)
+				for sent := 0; sent < payloadSize; sent += len(block) {
+					deliver(block)
+				}
+				text := &session.rawOutput.text
+				if managed {
+					text = &parser.text
+				}
+				if cap(text.escape) > maxControlLiteral || len(text.data) > 2*ptyReadSize || session.outputBuf.Cap() != 0 || emitted.String() != "antes" {
+					t.Fatalf("controle=%d texto=%d buffer bruto=%d bytes emitidos=%d", cap(text.escape), len(text.data), session.outputBuf.Cap(), emitted.Len())
+				}
+				deliver(m.endTag + "9!")
+				for i := range len(tc.end) {
+					deliver(tc.end[i : i+1])
+				}
+				if tc.end != "" {
+					deliver("\x1b]pequeno\a") // novo controle volta a ser reconhecido
+				}
+				if managed {
+					if tc.end == "" {
+						parser.finish("")
+						if got := parser.partialOutput(); got != tc.want {
+							t.Fatalf("saída parcial=%q", got)
+						}
+					} else {
+						result := parser.finish(m.endTag + "0!")
+						if !result.Found || result.ExitCode != 0 || result.Output != tc.want {
+							t.Fatalf("resultado após o controle=%+v", result)
+						}
+					}
+				} else {
+					session.finishRawOutput()
+				}
+				if emitted.String() != tc.want {
+					t.Fatalf("saída transmitida=%q", emitted.String())
+				}
+			})
+		}
+	}
+}

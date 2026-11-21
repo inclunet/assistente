@@ -62,6 +62,7 @@ func TestConPTYClosedReaderUsesSignaledProcessStatus(t *testing.T) {
 			readErr := &os.PathError{Op: "read", Path: "conpty-stdout", Err: os.ErrClosed}
 			reader := io.MultiReader(strings.NewReader(marker.startTag+"\r\nparcial"), iotest.ErrReader(readErr))
 			session := &Session{ptySession: pty, readerCtx: t.Context(), ptyReader: reader}
+			session.startCommandOutput(marker, &HistoryEntry{})
 			session.Start()
 			<-session.readerDone
 			output, code, err := session.waitForMarker(t.Context(), marker, "test")

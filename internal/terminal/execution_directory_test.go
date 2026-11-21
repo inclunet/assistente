@@ -252,3 +252,68 @@ func TestNativeZshMarkerAndDirectory(t *testing.T) {
 		t.Fatalf("execuções=%q erro=%v", executions, err)
 	}
 }
+
+func TestNativeZshPersistentStartupByOrigin(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("compinit global do zsh no Linux")
+	}
+	zsh, err := exec.LookPath("zsh")
+	if err != nil {
+		t.Skip("zsh indisponível")
+	}
+	for _, origin := range []string{"run_command", "terminal_session", "manual"} {
+		t.Run(origin, func(t *testing.T) {
+			dir := t.TempDir()
+			t.Setenv("ZDOTDIR", dir)
+			t.Setenv("skip_global_compinit", "")
+			// No controle manual, o próprio perfil registra o valor herdado
+			// antes de dispensar o completador para permitir o teste via PTY.
+			profile := "asst_origin=${skip_global_compinit:-manual}\n"
+			if origin == "manual" {
+				profile += "skip_global_compinit=1\n"
+			} else {
+				profile += "[[ -z $skip_global_compinit ]] && read -q\n"
+			}
+			if err := os.WriteFile(filepath.Join(dir, ".zshenv"), []byte(profile), 0600); err != nil {
+				t.Fatal(err)
+			}
+			cfg := DefaultManagerConfig()
+			cfg.DefaultShell = zsh
+			manager := NewManager(cfg, nil)
+			t.Cleanup(manager.CloseAll)
+			var id string
+			switch origin {
+			case "run_command":
+				session, err := manager.Acquire(t.Context(), dir)
+				if err != nil {
+					t.Fatal(err)
+				}
+				id = session.ID()
+			case "terminal_session":
+				info, err := manager.CreateToolSession("modelo", dir)
+				if err != nil {
+					t.Fatal(err)
+				}
+				id = info.ID
+			case "manual":
+				info, err := manager.CreateInfo("usuário", dir)
+				if err != nil {
+					t.Fatal(err)
+				}
+				id = info.ID
+			}
+			entry, err := manager.RunCommand(t.Context(), id, "print -r -- $asst_origin >> visitas; pwd -P; (exit 7)", 10*time.Second, "test")
+			if err != nil || entry == nil || entry.ExitCode != 7 || strings.TrimSpace(entry.Output) != dir {
+				t.Fatalf("entry=%+v erro=%v", entry, err)
+			}
+			visits, err := os.ReadFile(filepath.Join(dir, "visitas"))
+			want := "1\n"
+			if origin == "manual" {
+				want = "manual\n"
+			}
+			if err != nil || string(visits) != want {
+				t.Fatalf("execuções=%q esperado=%q erro=%v", visits, want, err)
+			}
+		})
+	}
+}
