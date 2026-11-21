@@ -24,21 +24,23 @@ export function useTerminalSurfaceController(tab: WorkspaceTab, isActive: boolea
         return;
       }
 
-      void store.loadSessions().then(() => {
-        if (!isWorkspaceTabActive(tab.id)) return;
-
+      // Uma listagem pode ser descartada e substituída por outra após um
+      // evento de lifecycle. Observe a sessão até a resposta vigente chegar.
+      let observing = true;
+      const hydrate = () => {
+        if (!observing || !isWorkspaceTabActive(tab.id)) return;
         const reloaded = useTerminalStore.getState();
-        if (reloaded.sessions.some((session) => session.id === sessionId)) {
-          if (!reloaded.historyBySession[sessionId]) {
-            void reloaded.loadHistory(sessionId);
-          }
-        }
-      }).catch((error: unknown) => {
+        if (!reloaded.sessions.some((session) => session.id === sessionId)) return;
+        observing = false;
+        if (!reloaded.historyBySession[sessionId]) void reloaded.loadHistory(sessionId);
+      };
+      const unsubscribe = useTerminalStore.subscribe(hydrate);
+      void store.loadSessions().then(hydrate).catch((error: unknown) => {
         if (isWorkspaceTabActive(tab.id)) {
           logger.error('[TerminalSurfaceController] Erro ao carregar sessões:', error);
         }
       });
-      return;
+      return () => { observing = false; unsubscribe(); };
     }
   }, [isActive, isWsInitialized, sessionId, tab.id, tab.type]);
 }

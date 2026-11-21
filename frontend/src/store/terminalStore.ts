@@ -22,6 +22,7 @@ let pendingOutputSessionId = '';
 let terminalEventListenerRefCount = 0;
 let terminalOutputListenerRefCount = 0;
 let terminalSessionReadGeneration = 0;
+const terminalSessionReadReplacements = new Map<number, Promise<boolean>>();
 let terminalEventListenerCleanup: (() => void) | null = null;
 let legacyCommandSequence = 0;
 
@@ -89,14 +90,26 @@ export const useTerminalStore = create<TerminalState>((set) => ({
     set({ isLoadingSessions: true });
     try {
       const sessions = await ListTerminalSessions();
-      if (!currentOwner || request !== terminalSessionReadGeneration) return false;
+      if (!currentOwner) return false;
+      if (request !== terminalSessionReadGeneration) {
+        const replacement = terminalSessionReadReplacements.get(request);
+        if (!replacement) return false;
+        const refreshed = await replacement;
+        return currentOwner && refreshed;
+      }
       set({ sessions: sessions || [] });
       return true;
     } catch (err) {
+      const replacement = terminalSessionReadReplacements.get(request);
+      if (currentOwner && replacement) {
+        const refreshed = await replacement;
+        return currentOwner && refreshed;
+      }
       logger.error('[Terminal] Erro ao carregar sessões:', err);
       return false;
     } finally {
       unsubscribe();
+      terminalSessionReadReplacements.delete(request);
       if (request === terminalSessionReadGeneration) set({ isLoadingSessions: false });
     }
   },
@@ -212,6 +225,7 @@ export const useTerminalStore = create<TerminalState>((set) => ({
     unsubs.push(EventsOn('terminal:session_created', (data: SessionInfo) => {
       if (endedSessions.has(data.id) || useTerminalStore.getState().sessions.some((session) => session.id === data.id)) return;
       const refresh = useTerminalStore.getState().isLoadingSessions;
+      const superseded = terminalSessionReadGeneration;
       terminalSessionReadGeneration += 1;
       set(state => {
         // O evento pode cruzar com loadSessions(); a sessão já conhecida é
@@ -226,7 +240,7 @@ export const useTerminalStore = create<TerminalState>((set) => ({
             : state.historyBySession,
         };
       });
-      if (refresh) void useTerminalStore.getState().loadSessions();
+      if (refresh) terminalSessionReadReplacements.set(superseded, useTerminalStore.getState().loadSessions());
     }));
 
     // Sessão fechada
@@ -234,7 +248,9 @@ export const useTerminalStore = create<TerminalState>((set) => ({
       const sessionId = data.terminalId || data.sessionId;
       if (!sessionId || endedSessions.has(sessionId)) return;
       const refresh = useTerminalStore.getState().isLoadingSessions;
+      const superseded = terminalSessionReadGeneration;
       terminalSessionReadGeneration += 1;
+      // IDs são únicos; limite a memória usada para descartar eventos tardios.
       endedSessions.add(sessionId);
       if (endedSessions.size > 1024) endedSessions.delete(endedSessions.values().next().value!);
       if (pendingOutputSessionId === sessionId) {
@@ -258,7 +274,7 @@ export const useTerminalStore = create<TerminalState>((set) => ({
           loadingHistoryBySession: newLoadingHistory,
         };
       });
-      if (refresh) void useTerminalStore.getState().loadSessions();
+      if (refresh) terminalSessionReadReplacements.set(superseded, useTerminalStore.getState().loadSessions());
     };
     const announceSessionEnded = (data: { sessionId?: string; terminalId?: string }) => {
       const sessionId = data.terminalId || data.sessionId;

@@ -89,10 +89,29 @@ describe('terminalStore', () => {
       const request = useTerminalStore.getState().loadSessions();
       terminalEventHandlers.get('terminal:exited')?.({ sessionId: 'stale' });
       pending.resolve([terminal.SessionInfo.createFrom({ id: 'stale' })]);
-      expect(await request).toBe(false);
+      expect(await request).toBe(true);
       expect(useTerminalStore.getState().sessions.map((session) => session.id)).toEqual(['alive']);
       expect(useTerminalStore.getState().isLoadingSessions).toBe(false);
     } finally { cleanup(); }
+  });
+
+  it('não considera válida a relistagem substituta após troca de usuário', async () => {
+    const owner = useAuthStore.getState();
+    const original = createDeferred<terminal.SessionInfo[]>();
+    const replacement = createDeferred<terminal.SessionInfo[]>();
+    vi.mocked(ListTerminalSessions).mockReturnValueOnce(original.promise).mockReturnValueOnce(replacement.promise);
+    useAuthStore.setState({ isAuthenticated: true, user: { userId: 'a', sessionId: 'a', role: 'user' } });
+    const cleanup = useTerminalStore.getState().setupEventListeners();
+    try {
+      const request = useTerminalStore.getState().loadSessions();
+      terminalEventHandlers.get('terminal:exited')?.({ sessionId: 'closed' });
+      original.resolve([terminal.SessionInfo.createFrom({ id: 'closed' })]);
+      await Promise.resolve();
+      useAuthStore.setState({ user: { userId: 'b', sessionId: 'b', role: 'user' } });
+      replacement.resolve([terminal.SessionInfo.createFrom({ id: 'private-a' })]);
+      expect(await request).toBe(false);
+      expect(useTerminalStore.getState().sessions).toEqual([]);
+    } finally { cleanup(); useAuthStore.setState(owner); }
   });
 
   it('escuta encerramentos em segundo plano e carrega o histórico ao abrir a aba', async () => {
