@@ -4,6 +4,8 @@ import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { isJobProfileAuthorizationError, useJobStore } from '../store/jobStore';
 import { useResourceEditRequest } from '../hooks/useResourceEditRequest';
+import { CopyJob } from '@wailsjs/go/wailsapi/Plugins';
+import { Button } from '../components/ui/Button';
 import { Modal } from '../components/ui/Modal';
 import { Toolbar } from '../components/ui/Toolbar';
 import { DataGrid, DataGridColumn } from '../components/ui/DataGrid';
@@ -94,6 +96,9 @@ export default function JobsPage() {
   const [builderOpen, setBuilderOpen] = useState(false);
   const [editingJob, setEditingJob] = useState<jobs.Job | null>(null);
 
+  const copyRequest = useRef<{ source: string; request: string } | null>(null);
+  const copying = useRef(false);
+  const [copyBusy, setCopyBusy] = useState(false);
   const toolbarRef = useRef<HTMLDivElement>(null);
   const gridRef = useRef<HTMLDivElement>(null);
   const mountedRef = useRef(true);
@@ -266,6 +271,37 @@ export default function JobsPage() {
       if (mountedRef.current && request === editRequest.current) addToast(t('common.error'), 'error');
     }
   }, [fetchJobDetail, addToast, t]);
+
+  const copySavedJob = async () => {
+    const job = editingJob;
+    if (!job?.plugin_installation_id || copying.current) return;
+    copying.current = true;
+    setCopyBusy(true);
+    const generation = editRequest.current;
+    const current = () => mountedRef.current && generation === editRequest.current;
+    try {
+      const accepted = await confirm({
+        title: t('plugins.copyJob'),
+        message: t('plugins.copyJobConfirm', { name: job.name }),
+        confirmText: t('plugins.copyJob'),
+        cancelText: t('common.cancel'),
+      });
+      if (!accepted || !current()) return;
+      if (copyRequest.current?.source !== job.id) {
+        copyRequest.current = { source: job.id, request: crypto.randomUUID() };
+      }
+      const name = t('plugins.copyJobName', { name: job.name });
+      await CopyJob(job.plugin_installation_id, job.id, copyRequest.current.request, name);
+      copyRequest.current = null;
+      if (current()) announce(t('plugins.copyJobDone', { name }));
+      await fetchJobs();
+    } catch {
+      if (current()) addToast(t('plugins.copyJobFailed'), 'error');
+    } finally {
+      copying.current = false;
+      if (mountedRef.current) setCopyBusy(false);
+    }
+  };
 
   useResourceEditRequest('jobs', {
     onEdit: id => void handleEditJob(id),
@@ -549,9 +585,12 @@ export default function JobsPage() {
         returnFocusOnClose={false}
       >
         {editingJob?.plugin_installation_id && (
-          <Link to="/plugins" onClick={() => useNavigationStore.getState().requestResourceEdit('plugins', editingJob.plugin_installation_id!)}>
-            {t('plugins.openJobOrigin', { id: editingJob.plugin_installation_id })}
-          </Link>
+          <>
+            <Link to="/plugins" onClick={() => useNavigationStore.getState().requestResourceEdit('plugins', editingJob.plugin_installation_id!)}>
+              {t('plugins.openJobOrigin', { id: editingJob.plugin_installation_id })}
+            </Link>
+            <Button disabled={copyBusy} onClick={() => void copySavedJob()}>{t('plugins.copyJob')}</Button>
+          </>
         )}
         <JobBuilder
           editJob={editingJob}

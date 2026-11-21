@@ -510,7 +510,7 @@ func (r *DBRepository) CreateJob(ctx context.Context, job *Job) error {
 	}
 	return r.retry(ctx, "create_job", func() error {
 		return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-			return r.createJobTx(ctx, tx, userID, slug, job)
+			return r.createJobTx(ctx, tx, userID, slug, "", job)
 		})
 	})
 }
@@ -530,7 +530,7 @@ func CreateDisabledPluginJobTx(ctx context.Context, tx *gorm.DB, job *Job, insta
 		return err
 	}
 	repo := NewDBRepository(tx)
-	if err := repo.createJobTx(ctx, tx, owner, normalizeSlug(job.ID), job); err != nil {
+	if err := repo.createJobTx(ctx, tx, owner, normalizeSlug(job.ID), "", job); err != nil {
 		return err
 	}
 	required, err := json.Marshal(job.RequiredInputs)
@@ -540,7 +540,45 @@ func CreateDisabledPluginJobTx(ctx context.Context, tx *gorm.DB, job *Job, insta
 	return tx.Model(&database.Job{}).Where("id=? AND user_id=?", job.DatabaseID, owner).Updates(map[string]any{"plugin_installation_id": installationID, "plugin_digest": digest, "plugin_component_key": key, "plugin_required_inputs": string(required), "plugin_refresh_pending": true}).Error
 }
 
-func (r *DBRepository) createJobTx(ctx context.Context, tx *gorm.DB, userID, slug string, job *Job) error {
+// CopyManagedJobTx copies the saved definition in the owner's transaction. A retry
+// of the same request returns the same copy without resetting later user edits.
+func CopyManagedJobTx(ctx context.Context, tx *gorm.DB, installationID, sourceSlug, request, name string) (string, error) {
+	owner, err := database.RequireUserID(ctx)
+	if err != nil {
+		return "", err
+	}
+	requestID, err := uuid.Parse(request)
+	if err != nil || installationID == "" || strings.TrimSpace(name) == "" {
+		return "", ErrInvalidJobDefinition
+	}
+	repo := NewDBRepository(tx)
+	job, err := repo.GetJob(ctx, sourceSlug)
+	if err != nil {
+		return "", err
+	}
+	if job.PluginInstallationID != installationID {
+		return "", ErrJobNotFound
+	}
+	id := uuid.NewSHA1(uuid.NameSpaceOID, []byte(strings.Join([]string{"plugin-job-copy", owner, job.DatabaseID, requestID.String()}, "\x00"))).String()
+	slug := "local-" + id
+	var count int64
+	if err := tx.Model(&database.Job{}).Where("id=? AND user_id=? AND slug=?", id, owner, slug).Count(&count).Error; err != nil || count > 0 {
+		return slug, err
+	}
+	job.ID, job.Name, job.Enabled = slug, strings.TrimSpace(name), false
+	job.PluginInstallationID, job.PluginDigest, job.DatabaseID = "", "", ""
+	job.RequiredInputs = nil
+	job.Metadata = Metadata{CreatedBy: "ui"}
+	if err := Validate(job); err != nil {
+		return "", err
+	}
+	if err := repo.createJobTx(ctx, tx, owner, slug, id, job); err != nil {
+		return "", err
+	}
+	return slug, tx.Model(&database.Job{}).Where("id=? AND user_id=?", id, owner).UpdateColumn("plugin_refresh_pending", true).Error
+}
+
+func (r *DBRepository) createJobTx(ctx context.Context, tx *gorm.DB, userID, slug, rowID string, job *Job) error {
 	pipelineID, err := r.pipelineIDForSlugTx(ctx, tx, userID, job.Pipeline)
 	if err != nil {
 		return err
@@ -553,6 +591,7 @@ func (r *DBRepository) createJobTx(ctx context.Context, tx *gorm.DB, userID, slu
 	if err != nil {
 		return err
 	}
+	row.ID = rowID
 	allowed, err := r.enabledJobGrantValidTx(tx, userID, "", job)
 	if err != nil {
 		return err

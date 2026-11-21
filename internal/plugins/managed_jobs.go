@@ -80,6 +80,28 @@ func (i *Inventory) PrepareJob(ctx context.Context, id, digest, key string, admi
 	return slug, nil
 }
 
+// CopyJob preserves the owner's saved changes even after the managed revision is revoked.
+func (i *Inventory) CopyJob(ctx context.Context, installationID, slug, request, name string, admit commandsecurity.Admission) (string, error) {
+	if admit == nil || i.refreshJob == nil {
+		return "", ErrComponentUnavailable
+	}
+	var copied string
+	publish, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	err := database.WithSQLiteAdmittedCommit(publish, i.db, "plugins.job.copy", func(tx *gorm.DB) error {
+		var err error
+		copied, err = jobs.CopyManagedJobTx(ctx, tx, installationID, slug, request, name)
+		return err
+	}, admit)
+	if err != nil {
+		return "", err
+	}
+	if err := admit(func() error { return i.syncPendingJob(ctx, copied) }); err != nil {
+		return copied, errors.Join(ErrJobSyncPending, err)
+	}
+	return copied, nil
+}
+
 // Revoke the exact installed generation while preserving the native job and its history.
 // Re-enabling an installation never revives the previous grant.
 func revokeJobs(tx *gorm.DB, owner, id string) ([]string, error) {

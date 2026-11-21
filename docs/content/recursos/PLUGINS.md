@@ -69,6 +69,8 @@ Nos detalhes do plugin instalado, confira a ferramenta e os acionadores pedidos 
 
 Desativar, atualizar ou remover o plugin interrompe novos disparos da revisão anterior. O Assistente conserva o registro do job e seu histórico. Reativar o plugin exige preparar a definição outra vez. Se a alteração for salva e o agendador ficar indisponível, use a ação de sincronização na página Plugins para repetir a atualização da sessão.
 
+No editor de Jobs, escolha **Criar cópia independente** para preservar a versão salva na mesma conta. A cópia começa desativada, usa um histórico novo e exige suas próprias autorizações. As alterações ainda em edição ficam no job original. A ação continua disponível após a remoção do plugin.
+
 ## Gerar um pacote com o builder
 
 Abra **Plugins → Criar plugin**. Informe um identificador de pacote e, se quiser, sua versão. Na seção **Perfis de conversa**, marque os identificadores dos perfis locais desejados. A prévia mostra o nome, a descrição e as preferências de geração que serão distribuídas. Provedores da sua conta, regras de comandos e credenciais ficam fora do pacote. Marque as skills de instrução que deseja incluir. O builder preserva o SKILL.md original das skills portáveis sem arquivos auxiliares e permite conferir seu conteúdo na prévia. Marque as listas que deseja distribuir como modelos e informe uma chave estável para cada uma. Para incluir tarefas iniciais, marque a opção da lista correspondente. Os campos publicados são os títulos e as descrições das tarefas selecionadas, a hierarquia, o título e a descrição da lista e a definição do workflow. Notas pessoais, responsáveis, conclusão e histórico ficam na sua conta.

@@ -115,3 +115,65 @@ func TestManagedJobRevisionAndRecovery(t *testing.T) {
 		t.Fatalf("reparo duplicado: %d, %v", refreshes, err)
 	}
 }
+
+func TestCopyManagedJobAfterRevocation(t *testing.T) {
+	db := managedJobTestDB(t)
+	owner := database.WithUserID(t.Context(), "ana")
+	other := database.WithUserID(t.Context(), "bob")
+	source := &jobs.Job{ID: "lembrete", Name: "Lembrete", Tool: "notify",
+		Inputs: map[string]any{"text": "edição local"}, Triggers: []jobs.Trigger{{Type: jobs.TriggerManual}}}
+	if err := jobs.CreateDisabledPluginJobTx(owner, db, source, "origem", "revisao", "jobs/lembrete"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := revokeJobs(db, "ana", "origem"); err != nil {
+		t.Fatal(err)
+	}
+	unavailable := true
+	store := NewInventory(db).WithJobRefresh(func(context.Context, string) error {
+		if unavailable {
+			return errors.New("offline")
+		}
+		return nil
+	})
+	admit := func(f func() error) error { return f() }
+	const request = "ed2712e4-28c5-4c7b-90b9-8c2705aa9e02"
+	copyJob := func(ctx context.Context) (string, error) {
+		return store.CopyJob(ctx, "origem", source.ID, request, "Cópia", admit)
+	}
+	if _, err := copyJob(other); err == nil {
+		t.Fatal("cópia entre contas")
+	}
+	copySlug, err := copyJob(owner)
+	if !errors.Is(err, ErrJobSyncPending) {
+		t.Fatalf("falha após commit: %v", err)
+	}
+	repo := jobs.NewDBRepository(db)
+	copied, err := repo.GetJob(owner, copySlug)
+	if err != nil {
+		t.Fatal(err)
+	}
+	original, err := repo.GetJob(owner, source.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if copied.Enabled || copied.DatabaseID == original.DatabaseID || copied.PluginInstallationID != "" ||
+		copied.Inputs["text"] != "edição local" || len(copied.Triggers) != 1 || copied.Name != "Cópia" {
+		t.Fatalf("cópia inesperada: %+v", copied)
+	}
+	copied.Name = "Nome editado"
+	if err := repo.SaveJob(owner, copied); err != nil {
+		t.Fatal(err)
+	}
+	unavailable = false
+	repeated, err := copyJob(owner)
+	if err != nil || repeated != copySlug {
+		t.Fatalf("repetição: %s, %v", repeated, err)
+	}
+	copied, err = repo.GetJob(owner, copySlug)
+	if err != nil || copied.Name != "Nome editado" {
+		t.Fatalf("edição perdida: %+v, %v", copied, err)
+	}
+	if _, err := store.CopyJob(owner, "outra", source.ID, request, "Cópia", admit); err == nil {
+		t.Fatal("origem incorreta aceita")
+	}
+}

@@ -16,6 +16,8 @@ export function BuilderSkillNames():Promise<Array<string>>;
 
 export function ChangeInstallation(arg1:string,arg2:string,arg3:string):Promise<void>;
 
+export function CopyJob(arg1:string,arg2:string,arg3:string,arg4:string):Promise<string>;
+
 export function CreateListFromTemplate(arg1:string,arg2:string,arg3:string,arg4:string):Promise<string>;
 
 export function DiscardPreview(arg1:string):Promise<void>;
