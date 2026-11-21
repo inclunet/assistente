@@ -14,18 +14,19 @@ import (
 // Component identifies a contribution within a revision; runtime keys are
 // allocated separately, so the same skill name can occur in several packages.
 type Component struct {
-	Tool          string   `json:"tool,omitempty"`
-	JobTriggers   []string `json:"jobTriggers,omitempty"`
-	RequestsShell bool     `json:"requestsShell,omitempty"`
-	Endpoint      string   `json:"endpoint,omitempty"`
-	Active        bool     `json:"active"`
-	Slug          string   `json:"slug,omitempty"`
-	Key           string   `json:"key"`
-	Kind          string   `json:"kind"`
-	Name          string   `json:"name"`
-	Entry         string   `json:"entry"`
-	Reason        string   `json:"reason,omitempty"`
-	Transport     string   `json:"transport,omitempty"`
+	Tool              string   `json:"tool,omitempty"`
+	JobRequiredInputs []string `json:"jobRequiredInputs,omitempty"`
+	JobTriggers       []string `json:"jobTriggers,omitempty"`
+	RequestsShell     bool     `json:"requestsShell,omitempty"`
+	Endpoint          string   `json:"endpoint,omitempty"`
+	Active            bool     `json:"active"`
+	Slug              string   `json:"slug,omitempty"`
+	Key               string   `json:"key"`
+	Kind              string   `json:"kind"`
+	Name              string   `json:"name"`
+	Entry             string   `json:"entry"`
+	Reason            string   `json:"reason,omitempty"`
+	Transport         string   `json:"transport,omitempty"`
 }
 
 func DiscoverComponents(snapshot *pluginpackage.LocalSnapshot) []Component {

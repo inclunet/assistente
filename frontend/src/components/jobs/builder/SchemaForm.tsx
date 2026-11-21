@@ -31,6 +31,7 @@ interface JSONSchema {
 }
 
 interface SchemaFormProps {
+  configuredFields?: string[];
   schema: JSONSchema | null;
   values: Record<string, unknown>;
   onChange: (key: string, value: unknown) => void;
@@ -230,7 +231,17 @@ function SchemaField({
   }
 }
 
-export function SchemaForm({ schema, values, onChange, templateMode = false, templateContext }: SchemaFormProps) {
+function LocalInput({ name, value, onChange }: {name: string; value: unknown; onChange: (value: unknown) => void}) {
+  const {t} = useTranslation();
+  const [raw, setRaw] = useState(() => value == null ? '' : JSON.stringify(value));
+  return <Textarea label={name} value={raw} hint={t('plugins.localInputJson')} onChange={event => {
+    const next = event.target.value;
+    setRaw(next);
+    try { onChange(JSON.parse(next)); } catch { onChange(undefined); }
+  }} />;
+}
+
+export function SchemaForm({ schema, values, onChange, templateMode = false, templateContext, configuredFields = [] }: SchemaFormProps) {
   const { t } = useTranslation();
 
   const fields = useMemo(() => {
@@ -243,7 +254,8 @@ export function SchemaForm({ schema, values, onChange, templateMode = false, tem
     }));
   }, [schema]);
 
-  if (!schema || !schema.properties || fields.length === 0) {
+  const extra = configuredFields.filter(field => !Object.prototype.hasOwnProperty.call(schema?.properties ?? {}, field));
+  if (fields.length === 0 && extra.length === 0) {
     return (
       <div className="schema-form__empty">
         {t('jobs.builder.noInputs')}
@@ -256,6 +268,7 @@ export function SchemaForm({ schema, values, onChange, templateMode = false, tem
       {templateMode && (
         <p className="schema-form__hint" role="note">{t('jobs.builder.templateHint')}</p>
       )}
+      {extra.map(name => <LocalInput key={name} name={name} value={values[name]} onChange={value => onChange(name, value)} />)}
       {fields.map(({ name, prop, required }) => (
         <SchemaField
           key={name}

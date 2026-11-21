@@ -85,6 +85,7 @@ func nativeComponents(snap *pluginpackage.LocalSnapshot) []Component {
 		} else {
 			c.Name = def.Name
 			c.Tool = def.Tool
+			c.JobRequiredInputs = def.RequiredInputs
 			for _, trigger := range def.Triggers {
 				c.JobTriggers = append(c.JobTriggers, string(trigger.Type))
 			}

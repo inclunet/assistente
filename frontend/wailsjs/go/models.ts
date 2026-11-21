@@ -6599,6 +6599,7 @@ export namespace jobs {
 	    }
 	}
 	export class Job {
+	    required_inputs?: string[];
 	    plugin_installation_id?: string;
 	    id: string;
 	    name: string;
@@ -6625,6 +6626,7 @@ export namespace jobs {
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.required_inputs = source["required_inputs"];
 	        this.plugin_installation_id = source["plugin_installation_id"];
 	        this.id = source["id"];
 	        this.name = source["name"];
@@ -8128,6 +8130,7 @@ export namespace plugins {
 	    }
 	}
 	export class BuilderRequest {
+	    jobs?: string[];
 	    profiles?: string[];
 	    skills?: string[];
 	    name: string;
@@ -8140,6 +8143,7 @@ export namespace plugins {
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.jobs = source["jobs"];
 	        this.profiles = source["profiles"];
 	        this.skills = source["skills"];
 	        this.name = source["name"];
@@ -8168,6 +8172,7 @@ export namespace plugins {
 	
 	export class Component {
 	    tool?: string;
+	    jobRequiredInputs?: string[];
 	    jobTriggers?: string[];
 	    requestsShell?: boolean;
 	    endpoint?: string;
@@ -8187,6 +8192,7 @@ export namespace plugins {
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.tool = source["tool"];
+	        this.jobRequiredInputs = source["jobRequiredInputs"];
 	        this.jobTriggers = source["jobTriggers"];
 	        this.requestsShell = source["requestsShell"];
 	        this.endpoint = source["endpoint"];

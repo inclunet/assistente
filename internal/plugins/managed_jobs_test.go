@@ -14,7 +14,8 @@ import (
 	"gorm.io/gorm"
 )
 
-func TestManagedJobRevisionAndRecovery(t *testing.T) {
+func managedJobTestDB(t *testing.T) *gorm.DB {
+	t.Helper()
 	db, err := gorm.Open(sqlite.Open(filepath.Join(t.TempDir(), "jobs.db")), &gorm.Config{})
 	if err != nil {
 		t.Fatal(err)
@@ -30,6 +31,12 @@ func TestManagedJobRevisionAndRecovery(t *testing.T) {
 	if err = db.Create(&database.ToolCatalog{Name: "notify", Origin: "builtin", AvailabilityStatus: "available"}).Error; err != nil {
 		t.Fatal(err)
 	}
+	return db
+}
+
+func TestManagedJobRevisionAndRecovery(t *testing.T) {
+	db := managedJobTestDB(t)
+	var err error
 	root := t.TempDir()
 	dir := filepath.Join(root, nativeExtension, "jobs")
 	if err = os.MkdirAll(dir, 0700); err != nil {

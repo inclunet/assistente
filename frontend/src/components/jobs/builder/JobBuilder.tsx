@@ -508,7 +508,9 @@ export function JobBuilder({ editJob, onClose, onSaved }: JobBuilderProps) {
       onSaved?.();
       onClose();
     } catch (err) {
-      if (isJobProfileAuthorizationError(err) || String(err).includes('authorization_not_granted')) {
+      const required = /PLUGIN_JOB_INPUT_REQUIRED: ([a-zA-Z0-9_-]+)/.exec(String(err));
+      if (required) showError(t('plugins.missingJobInput', {name: required[1]}));
+      else if (isJobProfileAuthorizationError(err) || String(err).includes('authorization_not_granted')) {
         showProfileGrantError(err);
       } else {
         showError(String(err));
@@ -525,6 +527,7 @@ export function JobBuilder({ editJob, onClose, onSaved }: JobBuilderProps) {
   return (
     <div className="job-builder">
       <div className="job-builder__content">
+        {Boolean(editJob?.required_inputs?.length) && <p>{t('plugins.jobInputs', {fields: editJob!.required_inputs!.join(', ')})}</p>}
         {error && (
           <div className="job-builder__error">
             <span>{error}</span>
@@ -635,6 +638,7 @@ export function JobBuilder({ editJob, onClose, onSaved }: JobBuilderProps) {
 
                 <SchemaForm
                   schema={toolSchema as never}
+                  configuredFields={editJob?.required_inputs}
                   values={draft.inputs}
                   onChange={updateInput}
                   templateMode

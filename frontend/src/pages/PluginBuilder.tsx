@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { BuilderProfileNames, BuilderSkillNames, PreviewBuilder, SaveBuilder } from '@wailsjs/go/wailsapi/Plugins';
+import { BuilderJobNames, BuilderProfileNames, BuilderSkillNames, PreviewBuilder, SaveBuilder } from '@wailsjs/go/wailsapi/Plugins';
 import { GetAllTaskLists } from '@wailsjs/go/wailsapi/Tasklist';
 import { plugins, type database, type wailsapi } from '@wailsjs/go/models';
 import { useAnnouncer } from '../hooks/useAnnouncer';
@@ -12,6 +12,8 @@ export default function PluginBuilder() {
   const { t } = useTranslation();
   const { announce } = useAnnouncer();
   const [lists, setLists] = useState<database.TaskList[]>([]);
+  const [jobNames, setJobNames] = useState<string[]>([]);
+  const [jobSelection, setJobSelection] = useState<string[]>([]);
   const [profileOptions, setProfileOptions] = useState<string[]>([]);
   const [profileSelection, setProfileSelection] = useState<string[]>([]);
   const [skillNames, setSkillNames] = useState<string[]>([]);
@@ -21,21 +23,23 @@ export default function PluginBuilder() {
   const [selected, setSelected] = useState<Record<string, plugins.BuilderTaskList>>({});
   const [preview, setPreview] = useState<wailsapi.BuilderPreview | null>(null);
   const [status, setStatus] = useState('');
+  const [unavailableJob, setUnavailableJob] = useState('');
   const [busy, setBusy] = useState(true);
   const mounted = useRef(false);
   useEffect(() => {
     mounted.current = true;
-    void Promise.allSettled([GetAllTaskLists(), BuilderSkillNames(), BuilderProfileNames()]).then(([items, names, profileList]) => {
+    void Promise.allSettled([GetAllTaskLists(), BuilderSkillNames(), BuilderProfileNames(), BuilderJobNames()]).then(([items, names, profileList, jobList]) => {
       if (!mounted.current) return;
       if (items.status === 'fulfilled') setLists(items.value ?? []);
       if (names.status === 'fulfilled') setSkillNames(names.value ?? []);
       if (profileList.status === 'fulfilled') setProfileOptions(profileList.value ?? []);
-      if (profileList.status === 'rejected' || items.status === 'rejected' || names.status === 'rejected') setStatus('plugins.builderSourcesError');
+      if (jobList.status === 'fulfilled') setJobNames(jobList.value ?? []);
+      if (jobList.status === 'rejected' || profileList.status === 'rejected' || items.status === 'rejected' || names.status === 'rejected') setStatus('plugins.builderSourcesError');
       setBusy(false);
     });
     return () => { mounted.current = false; };
   }, []);
-  useEffect(() => { if (status) announce(t(status)); }, [status, t, announce]);
+  useEffect(() => { if (status) announce(t(status, {name:unavailableJob})); }, [status, unavailableJob, t, announce]);
   const invalidate = () => { setPreview(null); setStatus(''); };
   const change = (id: string, item?: plugins.BuilderTaskList) => {
     invalidate();
@@ -50,7 +54,7 @@ export default function PluginBuilder() {
     if (busy) return;
     setBusy(true);
     setStatus('');
-    const request = new plugins.BuilderRequest({name, version, skills:skillSelection, profiles:profileSelection, tasklists: Object.values(selected)});
+    const request = new plugins.BuilderRequest({name, version, jobs:jobSelection, skills:skillSelection, profiles:profileSelection, tasklists: Object.values(selected)});
     try {
       if (preview) {
         const saved = await SaveBuilder(request, preview.digest);
@@ -62,7 +66,9 @@ export default function PluginBuilder() {
     } catch (cause) {
       if (mounted.current) {
         setPreview(null);
-        setStatus(/PLUGIN_BUILDER_SKILL_UNAVAILABLE|SKILL_BUILDER_SUPPORTING_FILES/.test(String(cause)) ? 'plugins.builderSkillError' : 'plugins.builderError');
+        const failedJob = jobSelection.find(key => String(cause).endsWith('PLUGIN_BUILDER_JOB_UNAVAILABLE: ' + key));
+        setUnavailableJob(failedJob ?? '');
+        setStatus(/PLUGIN_BUILDER_SKILL_UNAVAILABLE|SKILL_BUILDER_SUPPORTING_FILES/.test(String(cause)) ? 'plugins.builderSkillError' : String(cause).includes('PLUGIN_BUILDER_JOB_UNAVAILABLE') ? 'plugins.builderJobError' : 'plugins.builderError');
       }
     }
     finally { if (mounted.current) setBusy(false); }
@@ -71,6 +77,15 @@ export default function PluginBuilder() {
     <h2>{t('plugins.builder')}</h2>
     <Input label={t('plugins.packageName')} value={name} required disabled={busy} onChange={event => {invalidate(); setName(event.target.value);}} />
     <Input label={t('plugins.version')} value={version} disabled={busy} onChange={event => {invalidate(); setVersion(event.target.value);}} />
+    <fieldset disabled={busy}>
+      <legend>{t('plugins.builderJobs')}</legend>
+      <p>{t('plugins.builderJobInputs')}</p>
+      {jobNames.map(slug => <Checkbox key={slug} label={slug} checked={jobSelection.includes(slug)} onChange={event => {
+        invalidate();
+        const checked = event.target.checked;
+        setJobSelection(previous => checked ? [...previous, slug] : previous.filter(value => value !== slug));
+      }} />)}
+    </fieldset>
     <fieldset disabled={busy}>
       <legend>{t('plugins.builderProfiles')}</legend>
       <p>{t('plugins.builderProfileFields')}</p>
@@ -105,7 +120,7 @@ export default function PluginBuilder() {
       <p>{preview.name}</p><p>SHA-256 · {preview.digest}</p>
       <ul>{preview.files.map(file => <li key={file}><details><summary>{file}</summary><pre>{preview.contents[file]}</pre></details></li>)}</ul>
     </section>}
-    <Button type="submit" disabled={busy || (Object.keys(selected).length === 0 && skillSelection.length === 0 && profileSelection.length === 0)}>{t(preview ? 'plugins.builderSave' : 'plugins.builderReview')}</Button>
-    {status && <p>{t(status)}</p>}
+    <Button type="submit" disabled={busy || (Object.keys(selected).length === 0 && skillSelection.length === 0 && profileSelection.length === 0 && jobSelection.length === 0)}>{t(preview ? 'plugins.builderSave' : 'plugins.builderReview')}</Button>
+    {status && <p>{t(status, {name:unavailableJob})}</p>}
   </form>;
 }
