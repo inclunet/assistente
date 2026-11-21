@@ -666,6 +666,59 @@ func TestUnclosedPreWarnsOncePerSkillAndAttempt(t *testing.T) {
 	}
 }
 
+func TestSupportingFileWarningsFollowAttemptAndInvocation(t *testing.T) {
+	var logs bytes.Buffer
+	previous := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelWarn})))
+	t.Cleanup(func() { slog.SetDefault(previous) })
+
+	s := invocableSkill("<pre>\nexemplo")
+	s.Slug = "test-skill"
+	source := &slugOnlyFileSource{
+		contextProviderSourceStub: contextProviderSourceStub{skills: []Skill{*s}},
+		listErr:                   os.ErrPermission,
+	}
+	p := NewContextProvider(source)
+	req := contextprovider.BuildRequest{EnabledSkills: []string{s.Slug}, ToolCallingEnabled: true}
+	build := func(ctx context.Context) {
+		t.Helper()
+		blocks, err := p.Build(ctx, req)
+		if err != nil || len(blocks) != 1 || !strings.Contains(blocks[0].Content, "exemplo") {
+			t.Fatalf("base: blocos=%v erro=%v", blocks, err)
+		}
+	}
+	check := func(want int) {
+		t.Helper()
+		out := logs.String()
+		if strings.Count(out, "level=WARN") != 2*want || strings.Count(out, "reason=permission_denied") != want ||
+			strings.Count(out, "Elemento <pre>") != want || strings.Count(out, "skill="+s.Slug) != 2*want {
+			t.Fatalf("esperados %d avisos de cada categoria para %s: %s", want, s.Slug, out)
+		}
+	}
+	build(t.Context())
+	build(t.Context())
+	check(0)
+	turn := WithCommandTurn(t.Context(), nil)
+	build(turn)
+	build(turn)
+	check(1)
+	build(WithCommandTurn(t.Context(), nil))
+	check(2)
+
+	mgr := &stubInvokerManager{skill: s, filesErr: os.ErrPermission}
+	invoke := func(ctx context.Context) {
+		t.Helper()
+		result, found, err := InvokeContext(ctx, "/"+s.Slug, mgr, "turn", invocablePolicy(s))
+		if err != nil || !found || result == nil || !strings.Contains(result.Content, "exemplo") {
+			t.Fatalf("invocação explícita: resultado=%v encontrada=%v erro=%v", result, found, err)
+		}
+	}
+	invoke(turn)
+	check(2)
+	invoke(t.Context())
+	check(3)
+}
+
 func TestBaseReservesSupportingFilesBeforeCommands(t *testing.T) {
 	s := providerSkill("base", "antes\n!echo run\ndepois", true)
 	s.Path = strings.Repeat("x", 220)

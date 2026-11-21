@@ -497,7 +497,7 @@ func TestRespondCannotAcceptAfterExecutorClosesReceipt(t *testing.T) {
 		}
 		cancel()
 	})
-	if _, err := mgr.RequestQuestionnaire(ctx, RequestPayload{}.WithConfirmationReceipt(AuthorizationActions{}, &receipt)); !errors.Is(err, context.Canceled) {
+	if _, err := mgr.RequestQuestionnaire(ctx, RequestPayload{}.WithAcceptGuard(func(resp Response) bool { return receipt.TryAccept(resp.Cancelled) })); !errors.Is(err, context.Canceled) {
 		t.Fatalf("encerramento: %v", err)
 	}
 }
@@ -512,9 +512,9 @@ func TestAcceptedResponseNotifiesOutsideManagerLock(t *testing.T) {
 		})
 		observing := make(chan int, 1)
 		release := make(chan struct{})
-		var accepted invocationctx.ConfirmationReceipt
-		payload := RequestPayload{}.WithConfirmationReceipt(AuthorizationActions{}, &accepted).WithAcceptedResponse(func(Response) {
-			if !accepted.Close() {
+		guardRan := false
+		payload := RequestPayload{}.WithAcceptGuard(func(resp Response) bool { guardRan = resp.Cancelled; return true }).WithAcceptedResponse(func(Response) {
+			if !guardRan {
 				t.Error("recusa ainda não publicada quando a resposta se tornou observável")
 			}
 			observing <- mgr.PendingCount()

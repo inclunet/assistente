@@ -302,7 +302,7 @@ func buildBaseSkillBlock(ctx context.Context, baseSkills []Skill, source Context
 		files.WriteByte('\n')
 		if err := writeSupportingFiles(&files, source, skill.Slug, "Supporting files (use read_file to access when needed):", "- `", "`"); err != nil {
 			filesComplete = false
-			warnSupportingFiles(ctx, skill.Slug, err)
+			warnSupportingFiles(ctx, skill.Slug, err, true)
 		}
 		part.heading, part.files = heading.String(), files.String()
 		planRunner := runner
@@ -414,7 +414,10 @@ func writeSkillHeading(sb *strings.Builder, skill Skill) {
 	sb.WriteString("\n")
 }
 
-func warnSupportingFiles(ctx context.Context, slug string, err error) {
+func warnSupportingFiles(ctx context.Context, slug string, err error, base bool) {
+	if !firstSkillWarning(ctx, slug, "supporting_files", base) {
+		return
+	}
 	reason := "listing_failed"
 	switch {
 	case errors.Is(err, fs.ErrNotExist):

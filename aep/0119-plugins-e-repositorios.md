@@ -74,7 +74,7 @@ A instalação de pacotes e as demais entregas das fases abaixo permanecem pende
 
 #### Orçamento do contexto
 
-Antes da autorização, a base reserva espaço para títulos, instruções, arquivos de apoio e resultados. Sem espaço, conserva o texto que couber e omite as execuções. A barra também reserva as instruções expandidas e uma parcela por comando. A preparação da base ocorre uma vez por tentativa, antes da barra. Ao reconstruir o prompt, o provedor aplica a seleção e o orçamento do pedido final. Só reutiliza saídas admitidas na preparação da mesma tentativa, sem iniciar comandos adicionais. O teste `TestPreparedBaseAppliesFinalSelectionAndBudget` cobre esse percurso. O teste `TestSlashBudgetPreservesInstructionsAroundOutput` cobre a preservação das instruções.
+Antes da autorização, a base reserva espaço para títulos, instruções, arquivos de apoio e resultados. Sem espaço, conserva o texto que couber e omite as execuções. A barra também reserva as instruções expandidas e uma parcela por comando. A preparação da base ocorre uma vez por tentativa, antes da barra. Ao reconstruir o prompt, o provedor aplica a seleção e o orçamento do pedido final. Só reutiliza saídas admitidas na preparação da mesma tentativa, sem iniciar comandos adicionais. Os avisos de listagem indisponível e de elemento HTML aberto são independentes. Cada um é registrado uma vez por skill e tentativa de execução. A prévia da base sem turno ativo suprime ambos. O teste `TestPreparedBaseAppliesFinalSelectionAndBudget` cobre a seleção e o orçamento. O teste `TestSlashBudgetPreservesInstructionsAroundOutput` cobre a preservação das instruções.
 
 #### Argumentos de comandos
 

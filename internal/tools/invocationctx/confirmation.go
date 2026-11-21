@@ -15,6 +15,8 @@ const (
 	confirmationClosed
 )
 
+// TryAccept registra a primeira resposta enquanto a espera está aberta. Retorna
+// false após outra resposta ou Close; refused identifica uma negativa definitiva.
 func (r *ConfirmationReceipt) TryAccept(refused bool) bool {
 	next := confirmationAnswered
 	if refused {

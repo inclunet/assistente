@@ -459,7 +459,7 @@ func confirmShellCommand(ctx context.Context, confirm ConfirmFunc, command, work
 		Content: fmt.Sprintf("Comando negado pelo usuário: %s", commandSummary),
 		IsError: true,
 	}
-	resolve, accepted := tools.PendingConfirmation(ctx, FailureConfirmationUnavailable, FailureCommandRefused, denied.Content)
+	resolve, receipt := tools.PendingConfirmation(ctx, FailureConfirmationUnavailable, FailureCommandRefused, denied.Content)
 	var failure *tools.ToolResult
 	// O autorizador real publica antes do seu log. Os demais ConfirmFunc
 	// entregam o mesmo resultado ao retornar, sem emitir uma segunda decisão.
@@ -478,12 +478,15 @@ func confirmShellCommand(ctx context.Context, confirm ConfirmFunc, command, work
 			failure = &unavailable
 		}
 	}
-	approved, err := confirm(shelltrust.WithDecisionObserver(ctx, observe, accepted), command, workDir)
+	approved, err := confirm(shelltrust.WithDecisionObserver(ctx, observe, receipt), command, workDir)
 	observe(approved, err)
 	if failure != nil {
 		return failure
 	}
 	if ctx.Err() != nil {
+		if errors.Is(err, shelltrust.ErrPrerequisiteUnavailable) {
+			warnShellPrerequisite(ctx, shelltrust.PrerequisiteReason(err))
+		}
 		result := unavailableShellAuthorization("Confirmação encerrada sem autorização válida.")
 		return &result
 	}
@@ -499,8 +502,12 @@ func shellPrerequisiteFailure(ctx context.Context, reason, message string) tools
 		Failure: &tools.ToolFailure{Code: FailurePrerequisiteUnavailable, Kind: tools.ErrorKindUnavailable, Retryable: false},
 	}
 	tools.PublishAuthorizationPrerequisiteFailure(ctx, failure)
-	logging.Logger(ctx, "tools.shell.run-command").WarnContext(ctx, "Pré-requisito da autorização shell indisponível", "reason", reason)
+	warnShellPrerequisite(ctx, reason)
 	return failure
+}
+
+func warnShellPrerequisite(ctx context.Context, reason string) {
+	logging.Logger(ctx, "tools.shell.run-command").WarnContext(ctx, "Pré-requisito da autorização shell indisponível", "reason", reason)
 }
 
 func unavailableShellAuthorization(message string) tools.ToolResult {

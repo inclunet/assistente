@@ -12,6 +12,8 @@ import (
 	"assistente/internal/tools/invocationctx"
 )
 
+var ErrConfirmationUnavailable = errors.New("confirmação shell sem interlocutor")
+
 var ErrPrerequisiteUnavailable = errors.New("pré-requisito de autorização shell indisponível")
 
 type prerequisiteReason string
@@ -57,13 +59,13 @@ type confirmationReceiptKey struct{}
 
 // WithDecisionObserver permite ao solicitante receber a conclusão da autorização
 // antes do log, pelo mesmo contrato de retorno de Authorize.
-func WithDecisionObserver(ctx context.Context, observe func(bool, error), accepted *invocationctx.ConfirmationReceipt) context.Context {
-	ctx = context.WithValue(ctx, confirmationReceiptKey{}, accepted)
+func WithDecisionObserver(ctx context.Context, observe func(bool, error), receipt *invocationctx.ConfirmationReceipt) context.Context {
+	ctx = context.WithValue(ctx, confirmationReceiptKey{}, receipt)
 	return context.WithValue(ctx, decisionObserverKey{}, observe)
 }
 
-// ConfirmationReceipt sinaliza ao executor uma recusa aceita pela superfície,
-// inclusive enquanto o solicitante ainda aguarda a entrega da resposta.
+// ConfirmationReceipt arbitra o aceite da resposta e o encerramento da espera,
+// preservando a recusa aceita mesmo antes da entrega ao solicitante.
 func ConfirmationReceipt(ctx context.Context) *invocationctx.ConfirmationReceipt {
 	flag, _ := ctx.Value(confirmationReceiptKey{}).(*invocationctx.ConfirmationReceipt)
 	return flag
@@ -140,7 +142,7 @@ func (a *Authorizer) Authorize(ctx context.Context, command, directory string) (
 	}
 	flow.Ask = func(ctx context.Context) (authorization.Consent[Entry], error) {
 		if a.Prompt == nil {
-			return authorization.Consent[Entry]{}, errors.New("confirmação shell sem interlocutor")
+			return authorization.Consent[Entry]{}, ErrConfirmationUnavailable
 		}
 		choice, err := a.Prompt(ctx, PromptRequest{Command: command, Directory: directory, AvailableScopes: scopes, PersistentTerminal: persistent})
 		if err != nil {

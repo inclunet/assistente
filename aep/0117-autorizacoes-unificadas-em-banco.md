@@ -181,6 +181,10 @@ somente na superfície desktop. Canais não herdam permissões concedidas no des
 sem interlocutor, o fluxo ACP continua negando sem esperar. Essas restrições são
 capabilities do adaptador/superfície, não stores ou diálogos separados.
 
+Quando a política exige confirmação shell e não há `Prompt` configurado, todos
+os chamadores recebem confirmação indisponível; a ausência de interlocutor não
+é tratada como uma negativa explícita do usuário.
+
 ### D6. Consentimento e gestão
 
 Um gerador comum de pedidos usa o roteador e o `DecisionDialog`: quem pede,

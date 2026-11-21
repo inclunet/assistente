@@ -2,6 +2,7 @@ package shelltrust
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"assistente/internal/allowlist"
@@ -134,5 +135,15 @@ func TestUnknownCommandCannotAcquireReusableGrant(t *testing.T) {
 	}}
 	if ok, err := a.Authorize(authorizationfixture.Context(), "echo secret", dir); err == nil || ok {
 		t.Fatalf("resposta adulterada autorizada: %v %v", ok, err)
+	}
+}
+
+func TestAuthorizeSemPromptRetornaConfirmacaoIndisponivel(t *testing.T) {
+	a := Authorizer{Policy: func(context.Context) (*allowlist.Allowlist, error) {
+		return &allowlist.Allowlist{DefaultAction: "confirm"}, nil
+	}}
+	approved, err := a.Authorize(authorizationfixture.Context(), "echo ok", t.TempDir())
+	if approved || !errors.Is(err, ErrConfirmationUnavailable) {
+		t.Fatalf("approved=%v err=%v", approved, err)
 	}
 }

@@ -37,11 +37,11 @@ type commandTurnKey struct{}
 
 // A preparação do prompt e os providers acessam este estado sequencialmente.
 type commandTurn struct {
-	budget            int
-	run               SkillCommandRunner
-	prepared          *preparedSkillContext
-	warnedUnclosedPre map[string]bool
-	err               error
+	budget   int
+	run      SkillCommandRunner
+	prepared *preparedSkillContext
+	warnings map[skillWarning]bool
+	err      error
 }
 
 // WithCommandTurn scopes prepared base content to one prompt construction.
@@ -160,17 +160,25 @@ func codeLineStarts(content string) (starts map[int]bool, unclosedPre bool) {
 	return starts, preStart >= 0
 }
 
-func warnUnclosedPre(ctx context.Context, slug string) {
-	if turn, _ := ctx.Value(commandTurnKey{}).(*commandTurn); turn != nil {
-		if turn.warnedUnclosedPre[slug] {
-			return
-		}
-		if turn.warnedUnclosedPre == nil {
-			turn.warnedUnclosedPre = make(map[string]bool)
-		}
-		turn.warnedUnclosedPre[slug] = true
+type skillWarning struct {
+	slug, kind string
+}
+
+// A prévia da base é silenciosa. Uma invocação explícita sem turno é uma tentativa própria.
+func firstSkillWarning(ctx context.Context, slug, kind string, base bool) bool {
+	turn, _ := ctx.Value(commandTurnKey{}).(*commandTurn)
+	if turn == nil {
+		return !base
 	}
-	logging.Logger(ctx, "skills.preprocess").Warn("Elemento <pre> sem fechamento no fim da skill", "skill", slug)
+	key := skillWarning{slug: slug, kind: kind}
+	if turn.warnings[key] {
+		return false
+	}
+	if turn.warnings == nil {
+		turn.warnings = make(map[skillWarning]bool)
+	}
+	turn.warnings[key] = true
+	return true
 }
 
 func startsWithDeclaredProgram(command string, allowed []string) bool {
@@ -238,8 +246,8 @@ func planCommandLines(ctx context.Context, skill *Skill, content string, base bo
 	shellToolAllowed := skill.Tools == nil || (!slices.Contains(skill.Tools.Denied, "run_command") &&
 		(len(skill.Tools.Allowed) == 0 || slices.Contains(skill.Tools.Allowed, "run_command")))
 	fenced, unclosedPre := codeLineStarts(content)
-	if unclosedPre && (!base || ctx.Value(commandTurnKey{}) != nil) {
-		warnUnclosedPre(ctx, skill.Slug)
+	if unclosedPre && firstSkillWarning(ctx, skill.Slug, "unclosed_pre", base) {
+		logging.Logger(ctx, "skills.preprocess").Warn("Elemento <pre> sem fechamento no fim da skill", "skill", skill.Slug)
 	}
 	offset := 0
 	for idx, line := range lines {

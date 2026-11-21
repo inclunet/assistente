@@ -28,10 +28,10 @@ const (
 )
 
 type confirmationState struct {
-	result   ToolResult
-	status   confirmationStatus
-	accepted *invocationctx.ConfirmationReceipt
-	refusal  ToolResult
+	result  ToolResult
+	status  confirmationStatus
+	receipt *invocationctx.ConfirmationReceipt
+	refusal ToolResult
 }
 
 // PendingConfirmation registra a falha que o executor deve devolver se o
@@ -44,17 +44,17 @@ func PendingConfirmation(ctx context.Context, failureCode, refusalCode, refusalM
 	if state == nil {
 		return func(*ToolResult) {}, nil
 	}
-	accepted := new(invocationctx.ConfirmationReceipt)
+	receipt := new(invocationctx.ConfirmationReceipt)
 	refusal := ToolResult{IsError: true, Content: refusalMessage, Failure: &ToolFailure{Code: refusalCode, Kind: ErrorKindAuthorization}}
 	pending := ToolResult{IsError: true, Content: "Prazo encerrado durante a confirmação.", Failure: &ToolFailure{Code: failureCode, Kind: ErrorKindAuthorization}}
-	state.Store(&confirmationState{accepted: accepted, refusal: refusal, result: pending})
+	state.Store(&confirmationState{receipt: receipt, refusal: refusal, result: pending})
 	return func(decision *ToolResult) {
 		if decision == nil {
 			state.Store(nil)
 			return
 		}
 		PublishAuthorizationRefusal(ctx, refusalCode, *decision)
-	}, accepted
+	}, receipt
 }
 
 // PublishAuthorizationRefusal registra uma negativa definitiva, inclusive quando
@@ -442,7 +442,7 @@ func (e *Executor) executeSingle(ctx context.Context, call ToolCall) (execution 
 }
 
 func (e *Executor) finishExecution(ctx, toolCtx context.Context, call ToolCall, start time.Time, result *ToolExecutionResult, confirmation *confirmationState, collector *securitySignalCollector) ToolExecutionResult {
-	if confirmation != nil && confirmation.accepted != nil && confirmation.accepted.Close() {
+	if confirmation != nil && confirmation.receipt != nil && confirmation.receipt.Close() {
 		confirmation = &confirmationState{status: confirmationRefused, result: confirmation.refusal}
 	}
 	toolName := call.Function.Name

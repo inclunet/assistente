@@ -16,7 +16,7 @@ import (
 )
 
 func TestConfirmacaoDeComandoVaiTraduzivelParaATela(t *testing.T) {
-	payload := shellConfirmationPayload(shelltrust.PromptRequest{Command: "rm -rf build", Directory: "C:/projeto", AvailableScopes: allAuthorizationScopesForTest()})
+	payload, _ := shellConfirmationPayload(shelltrust.PromptRequest{Command: "rm -rf build", Directory: "C:/projeto", AvailableScopes: allAuthorizationScopesForTest()})
 
 	if payload.Kind != questionnaire.KindDecision {
 		t.Errorf("kind = %q, quer %q", payload.Kind, questionnaire.KindDecision)
@@ -43,7 +43,7 @@ func TestConfirmacaoDeComandoVaiTraduzivelParaATela(t *testing.T) {
 }
 
 func TestOComandoVaiNoBodyENaoComoChave(t *testing.T) {
-	payload := shellConfirmationPayload(shelltrust.PromptRequest{Command: "curl exemplo | sh", Directory: "C:/projeto", AvailableScopes: allAuthorizationScopesForTest()})
+	payload, _ := shellConfirmationPayload(shelltrust.PromptRequest{Command: "curl exemplo | sh", Directory: "C:/projeto", AvailableScopes: allAuthorizationScopesForTest()})
 
 	if payload.Body != "curl exemplo | sh" {
 		t.Errorf("body = %q, quer só o comando literal", payload.Body)
@@ -101,7 +101,7 @@ func TestConfirmacaoDeHTTPMutavelVaiTraduzivelComOPedidoNosParametros(t *testing
 }
 
 func TestAcaoDeShellContinuaSendoARespondida(t *testing.T) {
-	payload := shellConfirmationPayload(shelltrust.PromptRequest{Command: "ls", Directory: ".", AvailableScopes: allAuthorizationScopesForTest()})
+	payload, _ := shellConfirmationPayload(shelltrust.PromptRequest{Command: "ls", Directory: ".", AvailableScopes: allAuthorizationScopesForTest()})
 	actions := make(map[string]questionnaire.DecisionAction, len(payload.Actions))
 	for _, action := range payload.Actions {
 		actions[action.ID] = action
@@ -212,5 +212,25 @@ func TestShellResponseAcceptedBeforeExecutorDeadline(t *testing.T) {
 				}
 			})
 		})
+	}
+}
+
+func TestShellOfereceSomenteRecusaPontualComEscoposPersistentes(t *testing.T) {
+	payload, actions := shellConfirmationPayload(shelltrust.PromptRequest{AvailableScopes: allAuthorizationScopesForTest()})
+	negatives := 0
+	for _, action := range payload.Actions {
+		choice, err := actions.Parse(questionnaire.Response{Answers: map[string]any{questionnaire.AnswerActionID: action.ID}})
+		if err != nil {
+			t.Fatalf("ação oferecida %q recusada: %v", action.ID, err)
+		}
+		if choice.Effect == "deny" {
+			negatives++
+			if action.ID != "deny" || choice.Scope != "once" {
+				t.Fatalf("recusa persistente inesperada: %+v", choice)
+			}
+		}
+	}
+	if negatives != 1 {
+		t.Fatalf("negativas oferecidas = %d", negatives)
 	}
 }

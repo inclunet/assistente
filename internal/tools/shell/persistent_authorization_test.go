@@ -14,6 +14,7 @@ import (
 
 	"assistente/internal/allowlist"
 	"assistente/internal/authorization"
+	"assistente/internal/logging"
 	"assistente/internal/shelltrust"
 	"assistente/internal/testutil/authorizationfixture"
 	"assistente/internal/tools"
@@ -175,5 +176,27 @@ func TestPrerequisiteWarningIdentifiesCallAndCause(t *testing.T) {
 				t.Fatalf("resultado=%+v log=%q", result, record)
 			}
 		})
+	}
+}
+
+func TestPrerequisiteWarningAfterConfirmationCancellation(t *testing.T) {
+	var output bytes.Buffer
+	previous := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&output, &slog.HandlerOptions{Level: slog.LevelWarn})))
+	t.Cleanup(func() { slog.SetDefault(previous) })
+	ctx, cancel := context.WithCancel(authorizationfixture.Context())
+	defer cancel()
+	ctx = logging.WithAttrScope(ctx, []string{"tool_call_id"}, slog.String("tool_call_id", "cancelled-call"))
+	auth := shelltrust.Authorizer{Policy: func(context.Context) (*allowlist.Allowlist, error) {
+		cancel()
+		return nil, errors.New("private-policy-detail")
+	}}
+	result := confirmShellCommand(ctx, auth.Authorize, "example check", t.TempDir(), "example")
+	if result == nil || result.Failure == nil || result.Failure.Code != FailureConfirmationUnavailable {
+		t.Fatalf("resultado após cancelamento: %+v", result)
+	}
+	logs := output.String()
+	if strings.Count(logs, "reason=policy_unavailable") != 1 || !strings.Contains(logs, "tool_call_id=cancelled-call") || strings.Contains(logs, "private-policy-detail") {
+		t.Fatalf("diagnóstico: %s", logs)
 	}
 }
