@@ -508,7 +508,8 @@ func TestAcceptedResponseReachesCallerAfterGuardAndCancellation(t *testing.T) {
 	acceptedID := ""
 	payload := RequestPayload{}.WithAcceptGuard(func(response Response) bool {
 		if !response.Cancelled {
-			t.Fatal("a guarda recebeu uma resposta diferente")
+			t.Error("a guarda recebeu uma resposta diferente")
+			return false
 		}
 		acceptedID = response.ID
 		return true

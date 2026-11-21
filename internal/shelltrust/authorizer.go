@@ -12,8 +12,10 @@ import (
 	"assistente/internal/tools/invocationctx"
 )
 
+// ErrConfirmationUnavailable indica que a decisão exige confirmação e não há interlocutor.
 var ErrConfirmationUnavailable = errors.New("confirmação shell sem interlocutor")
 
+// ErrPrerequisiteUnavailable identifica falha ao validar o diretório, a política ou as concessões.
 var ErrPrerequisiteUnavailable = errors.New("pré-requisito de autorização shell indisponível")
 
 type prerequisiteReason string
