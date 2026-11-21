@@ -4,6 +4,7 @@ import { act, createEvent, fireEvent, render, screen } from '@testing-library/re
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { WorkspacePanelProvider } from '../components/workspace/WorkspacePanelContext';
+import type { WorkspaceTab } from '../store/workspaceStore';
 import {
   canFocusWorkspacePanelImmediately,
   getWorkspacePanelImmediateFocusHandler,
@@ -180,10 +181,10 @@ const terminalTab = {
   state: { sessionId: 'term-1' },
 };
 
-function terminalPageView() {
+function terminalPageView(tab: WorkspaceTab = terminalTab) {
   return (
     <MemoryRouter initialEntries={['/terminal']}>
-      <WorkspacePanelProvider value={{ tab: terminalTab, isActive: true }}>
+      <WorkspacePanelProvider value={{ tab, isActive: true }}>
         <TerminalPage />
       </WorkspacePanelProvider>
     </MemoryRouter>
@@ -208,6 +209,7 @@ describe('TerminalPage', () => {
     vi.spyOn(document, 'hasFocus').mockReturnValue(true);
     storeState.historyBySession = { 'term-1': [] };
     storeState.activeEntryBySession = { 'term-1': null };
+    storeState.isLoadingSessions = false;
     storeState.sessions = [{ id: 'term-1', name: 'Terminal 1', cwd: '/tmp', state: 'running', shell: 'sh' }];
     workspaceMocks.workspace.activeTabId = 'terminal-tab';
     workspaceMocks.workspace.tabs[0].state = { sessionId: 'term-1' };
@@ -304,7 +306,55 @@ describe('TerminalPage', () => {
       requestWorkspacePanelFocus('terminal-tab');
     });
 
-    await vi.waitFor(() => expect(input).toHaveFocus());
+    await act(async () => { await new Promise(requestAnimationFrame); });
+    expect(input).toHaveFocus();
+  });
+
+  it.each([
+    { registry: false, moved: false },
+    { registry: true, moved: false },
+    { registry: false, moved: true },
+    { registry: true, moved: true },
+  ])('espera a listagem e respeita navegação durante a hidratação (registro $registry, foco movido $moved)', async ({ registry, moved }) => {
+    const live = storeState.sessions;
+    storeState.sessions = [];
+    storeState.isLoadingSessions = true;
+    const origin = document.activeElement;
+    const { rerender } = renderTerminalPage();
+    if (registry) act(() => { expect(requestWorkspacePanelFocus('terminal-tab')).toBe(true); });
+    await act(async () => { await new Promise(requestAnimationFrame); });
+    expect(document.activeElement).toBe(origin);
+    const other = screen.getByRole('button', { name: 'Novo' });
+    if (moved) act(() => other.focus());
+    storeState.sessions = live;
+    storeState.isLoadingSessions = false;
+    rerender(terminalPageView());
+    await act(async () => { await new Promise(requestAnimationFrame); });
+    expect(moved ? other : screen.getByRole('textbox')).toHaveFocus();
+  });
+
+  it.each([true, false])('uma aba sem vínculo atende o pedido de foco mesmo com listagem pendente (há sessões: %s)', async (hasSessions) => {
+    if (!hasSessions) storeState.sessions = [];
+    storeState.isLoadingSessions = true;
+    render(terminalPageView({ ...terminalTab, state: undefined }));
+    act(() => { expect(requestWorkspacePanelFocus('terminal-tab')).toBe(true); });
+    await act(async () => { await new Promise(requestAnimationFrame); });
+    expect(screen.getByRole('button', {
+      name: hasSessions ? /terminal.picker.label/ : 'Novo',
+    })).toHaveFocus();
+  });
+
+  it('oferece criar um terminal se a listagem termina sem localizar o vínculo', async () => {
+    storeState.isLoadingSessions = true;
+    storeState.sessions = [];
+    const { rerender } = renderTerminalPage();
+    const createButton = screen.getByRole('button', { name: 'Novo' });
+    await act(async () => { await new Promise(requestAnimationFrame); });
+    expect(createButton).not.toHaveFocus();
+    storeState.isLoadingSessions = false;
+    rerender(terminalPageView());
+    await act(async () => { await new Promise(requestAnimationFrame); });
+    expect(createButton).toHaveFocus();
   });
 
   it('abre o picker real pelo comando de apresentação', async () => {
