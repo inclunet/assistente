@@ -26,3 +26,9 @@ A interface indica quando arquivos auxiliares ou campos de configuração exigem
 Nos detalhes do plugin, confira o endereço e o transporte. Para servidores SSE ou Streamable HTTP compatíveis, escolha **Adicionar aos servidores MCP**. O servidor aparece na configuração de MCP da conta, onde você pode conectá-lo. O registro deixa a conexão automática desativada.
 
 Nos detalhes do plugin, você pode remover o servidor ou mantê-lo como servidor independente. Ao atualizar o plugin, servidores vinculados cuja configuração continua igual são removidos. Se você editou um deles, mantenha-o como independente antes de repetir a atualização para preservar sua configuração.
+
+## Desativar ou desinstalar
+
+Abra os detalhes do plugin e escolha **Desativar** para encerrar as ativações de skills e remover os servidores MCP vinculados. O pacote e suas revisões ficam na conta. Depois de **Habilitar**, ative individualmente os componentes que deseja voltar a usar.
+
+Escolha **Desinstalar** para remover também as revisões armazenadas. Confira o nome do plugin na confirmação. Se um servidor vinculado tiver sido editado, escolha **Manter como servidor independente** nos detalhes e repita a operação. A pasta original do pacote e os servidores independentes são preservados.

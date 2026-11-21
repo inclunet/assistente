@@ -151,6 +151,16 @@ notSaved: 'The decision applies only to this operation: it could not be remember
     },
 
     plugins: {
+      disable: 'Disable {{name}}',
+      disableConfirm: 'Disable the plugin and remove its activations and linked MCP servers? The installed revision will be kept.',
+      disableDone: 'Plugin {{name}} disabled.',
+      enable: 'Enable {{name}}',
+      enableConfirm: 'Allow new activations for this plugin? Choose the components to activate afterwards.',
+      enableDone: 'Plugin {{name}} enabled.',
+      uninstall: 'Uninstall {{name}}',
+      uninstallConfirm: 'Remove this plugin, its revision history and its linked components from this account?',
+      uninstallDone: 'Plugin {{name}} uninstalled.',
+      disabledNotice: 'Plugin disabled for this account.',
       syncPendingStale: 'Changes saved. The view could not refresh. Synchronize the MCP servers to retry.',
       syncPending: 'Changes saved. Synchronize the MCP servers to apply them to this session.',
       retrySync: 'Synchronize MCP servers',

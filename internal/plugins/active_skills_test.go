@@ -6,6 +6,7 @@ import (
 	"assistente/internal/skills"
 	"assistente/internal/sqlite"
 	"context"
+	"errors"
 	"gorm.io/gorm"
 	"os"
 	"path/filepath"
@@ -112,5 +113,56 @@ func TestInstalledSkillActivationAndSlashIsolation(t *testing.T) {
 	}
 	if active, err := store.ActiveSkills(alice); err != nil || len(active) != 0 {
 		t.Fatal(active, err)
+	}
+
+	allow := func(commit func() error) error { return commit() }
+	if err := store.ChangeInstallation(bob, row.ID, changed.Digest, "disable", allow); err == nil {
+		t.Fatal("foreign account disabled package")
+	}
+	if err := store.ChangeInstallation(alice, row.ID, row.Digest, "uninstall", allow); !errors.Is(err, ErrInstallationChanged) {
+		t.Fatal(err)
+	}
+	if err := store.SetSkillActive(alice, row.ID, changed.Digest, "skills/note", true); err != nil {
+		t.Fatal(err)
+	}
+	revoked := errors.New("revoked")
+	if err := store.ChangeInstallation(alice, row.ID, changed.Digest, "disable", func(func() error) error { return revoked }); !errors.Is(err, revoked) {
+		t.Fatal(err)
+	}
+	if active, err := store.ActiveSkills(alice); err != nil || len(active) != 1 {
+		t.Fatal(active, err)
+	}
+	if err := store.ChangeInstallation(alice, row.ID, changed.Digest, "disable", allow); err != nil {
+		t.Fatal(err)
+	}
+	if active, err := store.ActiveSkills(alice); err != nil || len(active) != 0 {
+		t.Fatal(active, err)
+	}
+	if err := store.SetSkillActive(alice, row.ID, changed.Digest, "skills/note", true); !errors.Is(err, ErrInstallationDisabled) {
+		t.Fatal(err)
+	}
+	if err := store.ChangeInstallation(alice, row.ID, changed.Digest, "enable", allow); err != nil {
+		t.Fatal(err)
+	}
+	if active, err := store.ActiveSkills(alice); err != nil || len(active) != 0 {
+		t.Fatal(active, err)
+	}
+	if err := store.SetSkillActive(alice, row.ID, changed.Digest, "skills/note", true); err != nil {
+		t.Fatal(err)
+	}
+	for range 2 {
+		if err := store.ChangeInstallation(alice, row.ID, changed.Digest, "uninstall", allow); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if rows, err := store.List(alice); err != nil || len(rows) != 0 {
+		t.Fatal(rows, err)
+	}
+	var count int64
+	if err := db.Model(&database.PluginRevision{}).Where("installation_id=?", row.ID).Count(&count).Error; err != nil || count != 0 {
+		t.Fatal(count, err)
+	}
+	if _, err := root.Stat("plugin.json"); err != nil {
+		t.Fatal(err)
 	}
 }

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { DiscardPreview, InstalledComponents, InstallReviewed, ListInstalled, PreviewLocal, RegisterMCP, RemoveMCP, SetSkillActive, SyncMCP } from '@wailsjs/go/wailsapi/Plugins';
+import { ChangeInstallation, DiscardPreview, InstalledComponents, InstallReviewed, ListInstalled, PreviewLocal, RegisterMCP, RemoveMCP, SetSkillActive, SyncMCP } from '@wailsjs/go/wailsapi/Plugins';
 import type { database, plugins, wailsapi } from '@wailsjs/go/models';
 import { Button } from '../components/ui/Button';
 import { DataGrid } from '../components/ui/DataGrid';
@@ -161,6 +161,35 @@ function InstalledPlugins() {
     finally { if (mounted.current) setBusy(false); }
   };
   const retrySync = (error === 'plugins.syncPending' || error === 'plugins.syncPendingStale') && <Button disabled={busy} onClick={() => void syncMCP()}>{t('plugins.retrySync')}</Button>;
+  const changeInstallation = async (action: 'enable' | 'disable' | 'uninstall') => {
+    if (busy || !details) return;
+    setBusy(true);
+    setError('');
+    const { installation } = details;
+    try {
+      const accepted = await confirm({
+        title: t('plugins.' + action, { name: installation.name }),
+        message: t('plugins.' + action + 'Confirm', { name: installation.name }),
+        confirmText: t('plugins.' + action, { name: installation.name }),
+        cancelText: t('common.cancel'),
+      });
+      if (!accepted || !mounted.current) return;
+      await ChangeInstallation(installation.id, installation.digest, action);
+      if (!mounted.current) return;
+      setDetails(null);
+      restoreFocus.current = true;
+      announce(t('plugins.' + action + 'Done', { name: installation.name }));
+      try { await refresh(); } catch { if (mounted.current) setError('plugins.listError'); }
+    } catch (cause) {
+      if (!mounted.current) return;
+      if (String(cause).includes('PLUGIN_MCP_SYNC_PENDING')) {
+        setDetails(null);
+        restoreFocus.current = true;
+        try { await refresh(); setError('plugins.syncPending'); }
+        catch { if (mounted.current) setError('plugins.syncPendingStale'); }
+      } else setError(String(cause).includes('PLUGIN_COMPONENT_EDITED') ? 'plugins.edited' : 'plugins.componentError');
+    } finally { if (mounted.current) setBusy(false); }
+  };
   const sameRevision = Boolean(preview && preview.previousDigest === preview.digest);
   const install = async () => {
     if (!preview || busy || sameRevision) return;
@@ -188,15 +217,20 @@ function InstalledPlugins() {
       : !busy && !error && <p>{t('plugins.empty')}</p>}
     {details && <Modal isOpen title={details.installation.name} onClose={() => setDetails(null)} allowClose={!busy} readingMode>
       {error && <><p>{t(error)}</p>{retrySync}</>}
+      {details.installation.disabled && <p>{t('plugins.disabledNotice')}</p>}
+      <Button disabled={busy} onClick={() => void changeInstallation(details.installation.disabled ? 'enable' : 'disable')}>
+        {t(details.installation.disabled ? 'plugins.enable' : 'plugins.disable', { name: details.installation.name })}
+      </Button>
+      <Button disabled={busy} onClick={() => void changeInstallation('uninstall')}>{t('plugins.uninstall', { name: details.installation.name })}</Button>
       <h2>{t('plugins.components')}</h2>
       {details.components.length === 0 ? <p>{t('plugins.noComponents')}</p> : <ul>{details.components.map(component => <li key={component.key}>
         <strong>{component.name}</strong> · {t(component.kind === 'skill' ? 'plugins.skill' : component.kind === 'mcp' ? 'plugins.mcp' : 'plugins.invalid')}
         {component.kind === 'skill' && !component.reason ? <>
           {component.active && <code> /{component.slug}</code>}
-          <Button disabled={busy} onClick={() => void changeComponent(component)}>{t(component.active ? 'plugins.deactivate' : 'plugins.activate', { name: component.name })}</Button>
+          <Button disabled={busy || details.installation.disabled} onClick={() => void changeComponent(component)}>{t(component.active ? 'plugins.deactivate' : 'plugins.activate', { name: component.name })}</Button>
         </> : component.kind === 'mcp' && !component.reason ? <>
           <p>{component.transport} · {component.endpoint}</p>
-          <Button disabled={busy} onClick={() => void changeComponent(component)}>{t(component.active ? 'plugins.removeServer' : 'plugins.registerServer', { name: component.name })}</Button>
+          <Button disabled={busy || details.installation.disabled} onClick={() => void changeComponent(component)}>{t(component.active ? 'plugins.removeServer' : 'plugins.registerServer', { name: component.name })}</Button>
           {component.active && <Button disabled={busy} onClick={() => void changeComponent(component, true)}>{t('plugins.keepServer', { name: component.name })}</Button>}
         </> : <p>{t(componentRequirement(component) ?? 'plugins.unavailable')}</p>}
       </li>)}</ul>}

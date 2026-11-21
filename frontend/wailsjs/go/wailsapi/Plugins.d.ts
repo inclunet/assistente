@@ -4,6 +4,8 @@ import {database} from '../models';
 import {plugins} from '../models';
 import {wailsapi} from '../models';
 
+export function ChangeInstallation(arg1:string,arg2:string,arg3:string):Promise<void>;
+
 export function DiscardPreview(arg1:string):Promise<void>;
 
 export function InstallReviewed(arg1:string):Promise<database.PluginInstallation>;
