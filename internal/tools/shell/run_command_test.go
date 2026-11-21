@@ -17,6 +17,7 @@ import (
 	"assistente/internal/allowlist"
 	"assistente/internal/commandpolicy"
 	"assistente/internal/shelltrust"
+	"assistente/internal/testutil/authorizationfixture"
 	"assistente/internal/tools"
 )
 
@@ -42,6 +43,10 @@ func TestPolicyLoadFailureDoesNotLogEditableValues(t *testing.T) {
 	}, ".")
 	if result, err := rc.evaluateCommand(context.Background(), "git status"); err == nil || result.Decision != allowlist.DecisionDeny {
 		t.Fatalf("falha não bloqueou: %+v", result)
+	}
+	got, err := rc.Execute(t.Context(), json.RawMessage(`{"command":"git status"}`))
+	if err != nil || got.Failure == nil || got.Failure.Code != FailurePrerequisiteUnavailable {
+		t.Fatalf("pré-requisito não classificado: %+v err=%v", got, err)
 	}
 	if output.Len() == 0 || strings.Contains(output.String(), "secret-token") {
 		t.Fatalf("log ausente ou com segredo: %s", output.String())
@@ -571,4 +576,75 @@ func TestPrerequisiteFailureAfterConfirmationDeadline(t *testing.T) {
 			t.Fatalf("falha observada depois do prazo=%+v err=%v", got, err)
 		}
 	})
+}
+
+type blockedDecisionLog struct {
+	component string
+	entered   chan struct{}
+	release   chan struct{}
+}
+
+func (w blockedDecisionLog) Write(p []byte) (int, error) {
+	if bytes.Contains(p, []byte("component="+w.component+" ")) || bytes.HasSuffix(bytes.TrimSpace(p), []byte("component="+w.component)) {
+		select {
+		case <-w.entered:
+		default:
+			close(w.entered)
+		}
+		<-w.release
+	}
+	return len(p), nil
+}
+
+func TestShellAuthorizerPublishesBeforeDecisionLog(t *testing.T) {
+	for _, tc := range []struct {
+		name, component, code string
+	}{
+		{"recusa do usuário", "authorization", FailureCommandRefused},
+		{"recusa da política na releitura", "authorization", FailureCommandRefused},
+		{"falha da política na releitura", "authorization", FailurePrerequisiteUnavailable},
+		{"falha da primeira leitura", "tools.shell.run-command", FailurePrerequisiteUnavailable},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			synctest.Test(t, func(t *testing.T) {
+				blocked := blockedDecisionLog{tc.component, make(chan struct{}), make(chan struct{})}
+				defer close(blocked.release)
+				previous := slog.Default()
+				defer log.SetOutput(log.Writer())
+				defer log.SetFlags(log.Flags())
+				slog.SetDefault(slog.New(slog.NewTextHandler(blocked, nil)))
+				defer slog.SetDefault(previous)
+
+				asked := false
+				policy := func(context.Context) (*allowlist.Allowlist, error) {
+					switch {
+					case tc.name == "falha da primeira leitura", asked && tc.code == FailurePrerequisiteUnavailable:
+						return nil, errors.New("loja indisponível")
+					case asked && tc.name == "recusa da política na releitura":
+						return &allowlist.Allowlist{AlwaysDeny: []string{"git push"}}, nil
+					default:
+						return &allowlist.Allowlist{DefaultAction: "confirm"}, nil
+					}
+				}
+				auth := shelltrust.Authorizer{Policy: policy, Prompt: func(context.Context, shelltrust.PromptRequest) (shelltrust.PromptDecision, error) {
+					asked = true
+					return shelltrust.PromptDecision{Approve: tc.name != "recusa do usuário"}, nil
+				}}
+				reg := tools.NewRegistry()
+				reg.MustRegister(NewRunCommand(nil, auth.Authorize, policy, dir))
+				cfg := tools.DefaultExecutorConfig()
+				cfg.ToolTimeout = time.Second
+				got := tools.NewExecutor(reg, cfg).ExecuteOne(authorizationfixture.Context(), tools.ToolCall{ID: "policy-before-log", Function: tools.FunctionCall{Name: "run_command", Arguments: `{"command":"git push"}`}})
+				select {
+				case <-blocked.entered:
+				default:
+					t.Fatal("o executor terminou antes de o log receber o resultado")
+				}
+				if got.ErrorCode != tc.code || got.Error != nil || got.Retryable || !got.RetryabilityKnown || got.DurationMs != cfg.ToolTimeout.Milliseconds() || asked != (tc.name != "falha da primeira leitura") {
+					t.Fatalf("perguntou=%t, resultado=%+v", asked, got)
+				}
+			})
+		})
+	}
 }

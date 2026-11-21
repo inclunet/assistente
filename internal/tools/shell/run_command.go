@@ -204,7 +204,10 @@ func (rc *RunCommand) Execute(ctx context.Context, args json.RawMessage) (tools.
 	// Avalia o comando contra a politica (allowlist + parser conservador)
 	policyResult, policyErr := rc.evaluateCommand(ctx, a.Command)
 	if policyErr != nil {
-		return unavailableShellPrerequisite("Política de autorização shell indisponível."), nil
+		failure := unavailableShellPrerequisite("Política de autorização shell indisponível.")
+		tools.PublishAuthorizationPrerequisiteFailure(ctx, failure)
+		logging.Errorf(ctx, "tools.shell.run-command", "Política de autorização shell indisponível")
+		return failure, nil
 	}
 	decision := policyResult.Decision
 	// Nunca logamos a string crua de a.Command: ela pode conter tokens em
@@ -240,34 +243,9 @@ func (rc *RunCommand) Execute(ctx context.Context, args json.RawMessage) (tools.
 		// confirmFn recebe o comando bruto: o usuario precisa ver tudo na
 		// UI local para decidir, e esse caminho nao vai para o LLM.
 		ctx = invocationctx.WithPersistentShell(ctx, a.Persistent || a.TerminalID != "")
-		resolveConfirmation := tools.PendingConfirmation(ctx, FailureConfirmationUnavailable)
-		approved, err := rc.confirmFn(ctx, a.Command, workDir)
-		if err == nil && !approved {
-			denied := tools.ToolResult{
-				Failure: &tools.ToolFailure{Code: FailureCommandRefused, Kind: tools.ErrorKindAuthorization, Retryable: false},
-				Content: fmt.Sprintf("Comando negado pelo usuário: %s", commandSummary),
-				IsError: true,
-			}
-			resolveConfirmation(&denied)
-			return denied, nil
+		if failure := confirmShellCommand(ctx, rc.confirmFn, a.Command, workDir, commandSummary); failure != nil {
+			return *failure, nil
 		}
-		if errors.Is(err, shelltrust.ErrPrerequisiteUnavailable) {
-			failure := unavailableShellPrerequisite("Não foi possível validar os pré-requisitos da autorização shell.")
-			if ctx.Err() == nil {
-				tools.PublishAuthorizationPrerequisiteFailure(ctx, failure)
-			} else {
-				failure = unavailableShellAuthorization("Confirmação encerrada sem autorização válida.")
-			}
-			logging.Logger(ctx, "tools.shell.run-command").WarnContext(ctx, "Pré-requisito da autorização shell indisponível", "reason", shelltrust.PrerequisiteReason(err))
-			return failure, nil
-		}
-		if err != nil {
-			return unavailableShellAuthorization(fmt.Sprintf("Erro ao solicitar confirmação: %v", err)), nil
-		}
-		if ctx.Err() != nil {
-			return unavailableShellAuthorization("Confirmação encerrada sem autorização válida."), nil
-		}
-		resolveConfirmation(nil)
 	}
 
 	if decision == allowlist.DecisionConfirm && !a.Persistent && a.TerminalID == "" {
@@ -478,6 +456,50 @@ func logPolicyDecision(
 	logger.Log(ctx, slog.LevelInfo, message, attrs...)
 }
 
+func confirmShellCommand(ctx context.Context, confirm ConfirmFunc, command, workDir, commandSummary string) *tools.ToolResult {
+	resolve := tools.PendingConfirmation(ctx, FailureConfirmationUnavailable)
+	var failure *tools.ToolResult
+	// O autorizador real publica antes do seu log. Os demais ConfirmFunc
+	// entregam o mesmo resultado ao retornar, sem emitir uma segunda decisão.
+	observe := func(approved bool, err error) {
+		if failure != nil {
+			return
+		}
+		switch {
+		case err == nil && !approved:
+			denied := tools.ToolResult{
+				Failure: &tools.ToolFailure{Code: FailureCommandRefused, Kind: tools.ErrorKindAuthorization},
+				Content: fmt.Sprintf("Comando negado pelo usuário: %s", commandSummary),
+				IsError: true,
+			}
+			resolve(&denied)
+			failure = &denied
+		case errors.Is(err, shelltrust.ErrPrerequisiteUnavailable) && ctx.Err() == nil:
+			unavailable := unavailableShellPrerequisite("Não foi possível validar os pré-requisitos da autorização shell.")
+			tools.PublishAuthorizationPrerequisiteFailure(ctx, unavailable)
+			failure = &unavailable
+		}
+	}
+	approved, err := confirm(shelltrust.WithDecisionObserver(ctx, observe), command, workDir)
+	observe(approved, err)
+	if errors.Is(err, shelltrust.ErrPrerequisiteUnavailable) {
+		logging.Logger(ctx, "tools.shell.run-command").WarnContext(ctx, "Pré-requisito da autorização shell indisponível", "reason", shelltrust.PrerequisiteReason(err))
+	}
+	if failure != nil {
+		return failure
+	}
+	if ctx.Err() != nil {
+		result := unavailableShellAuthorization("Confirmação encerrada sem autorização válida.")
+		return &result
+	}
+	if err != nil {
+		result := unavailableShellAuthorization(fmt.Sprintf("Erro ao solicitar confirmação: %v", err))
+		return &result
+	}
+	resolve(nil)
+	return nil
+}
+
 func unavailableShellPrerequisite(message string) tools.ToolResult {
 	return tools.ToolResult{IsError: true, Content: message,
 		Failure: &tools.ToolFailure{Code: FailurePrerequisiteUnavailable, Kind: tools.ErrorKindUnavailable, Retryable: false},
@@ -502,7 +524,7 @@ func (rc *RunCommand) evaluateCommand(ctx context.Context, command string) (comm
 
 	al, err := rc.getAllowlistFn(ctx)
 	if err != nil {
-		logging.Errorf(ctx, "tools.shell.run-command", "Política de autorização shell indisponível")
+
 		return commandpolicy.EvaluationResult{Decision: allowlist.DecisionDeny, Parse: commandpolicy.Parse(command), Reasons: []string{"política de autorização indisponível"}}, err
 	}
 	return commandpolicy.Evaluate(command, al), nil

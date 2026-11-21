@@ -52,6 +52,14 @@ type Authorizer struct {
 	PersistenceFailed func(context.Context, authorization.Request, error)
 }
 
+type decisionObserverKey struct{}
+
+// WithDecisionObserver permite ao solicitante receber a conclusão da autorização
+// antes do log, pelo mesmo contrato de retorno de Authorize.
+func WithDecisionObserver(ctx context.Context, observe func(bool, error)) context.Context {
+	return context.WithValue(ctx, decisionObserverKey{}, observe)
+}
+
 func (a *Authorizer) Authorize(ctx context.Context, command, directory string) (bool, error) {
 	if a.Manager != nil {
 		ctx = a.Manager.Capture(ctx)
@@ -112,6 +120,9 @@ func (a *Authorizer) Authorize(ctx context.Context, command, directory string) (
 				a.PersistenceFailed(ctx, req, err)
 			}
 		},
+	}
+	if observe, ok := ctx.Value(decisionObserverKey{}).(func(bool, error)); ok && observe != nil {
+		flow.Resolved = func(decision authorization.Decision, err error) { observe(decision.Effect == "allow", err) }
 	}
 	if a.Manager != nil {
 		flow.Remember = func(ctx context.Context, choice authorization.Consent[Entry]) error {
