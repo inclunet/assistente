@@ -62,9 +62,13 @@ func ReadLocal(directory string) ([]Index, error) {
 }
 
 func ReadRoot(root *os.Root) ([]Index, error) {
+	return ReadIndices(func(name string) ([]byte, error) { return pluginpackage.ReadFile(root, name, 10<<20) })
+}
+
+func ReadIndices(read func(string) ([]byte, error)) ([]Index, error) {
 	var result []Index
 	for _, index := range indices {
-		raw, err := pluginpackage.ReadFile(root, index.file, 10<<20)
+		raw, err := read(index.file)
 		if errors.Is(err, fs.ErrNotExist) {
 			continue
 		}

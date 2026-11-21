@@ -3,8 +3,8 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import PluginRepositories from './PluginRepositories';
 
-const mocks = vi.hoisted(() => ({ list: vi.fn(), preview: vi.fn(), refresh: vi.fn(), remove: vi.fn(), confirm: vi.fn(), announce: vi.fn() }));
-vi.mock('@wailsjs/go/wailsapi/Plugins', () => ({ ListRepositories: mocks.list, RefreshRepository: mocks.refresh, PreviewRepositoryEntry: mocks.preview, RemoveRepository: mocks.remove }));
+const mocks = vi.hoisted(() => ({ addRemote: vi.fn(), list: vi.fn(), preview: vi.fn(), refresh: vi.fn(), remove: vi.fn(), confirm: vi.fn(), announce: vi.fn() }));
+vi.mock('@wailsjs/go/wailsapi/Plugins', () => ({ AddRemoteRepository: mocks.addRemote, ListRepositories: mocks.list, RefreshRepository: mocks.refresh, PreviewRepositoryEntry: mocks.preview, RemoveRepository: mocks.remove }));
 vi.mock('../hooks/useAnnouncer', () => ({ useAnnouncer: () => ({ announce: mocks.announce }) }));
 vi.mock('../hooks/useConfirm', () => ({ useConfirm: () => mocks.confirm }));
 vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key, i18n: { language: 'en' } }) }));
@@ -42,5 +42,21 @@ describe('PluginRepositories', () => {
     await user.click(screen.getByRole('button', { name: 'plugins.removeRepoNamed' }));
     await waitFor(() => expect(mocks.confirm).toHaveBeenCalled());
     expect(mocks.remove).not.toHaveBeenCalled();
+  });
+  it('scopes the vault choice to the address in the form', async () => {
+    mocks.list.mockResolvedValue([]);
+    const user = userEvent.setup();
+    render(<PluginRepositories catalog={false} onPreview={vi.fn()} />);
+    const address = screen.getByRole('textbox', {name:'plugins.archiveURL'});
+    await waitFor(() => expect(address).toBeEnabled());
+    await user.type(address, 'https://first.example/store.zip');
+    const credential = screen.getByLabelText('plugins.archiveCredential');
+    await user.click(credential);
+    await user.clear(address);
+    await user.type(address, 'https://second.example/store.zip');
+    expect(credential).not.toBeChecked();
+    await user.click(credential);
+    await user.click(screen.getByRole('button', {name: 'plugins.addRemoteRepo'}));
+    expect(mocks.addRemote).toHaveBeenCalledWith('https://second.example/store.zip', true);
   });
 });

@@ -8,6 +8,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"assistente/internal/commandsecurity"
@@ -61,6 +62,9 @@ func (i *Inventory) SaveRepository(ctx context.Context, absolute, id, expected s
 		if err := i.db.WithContext(ctx).Where("id=? AND user_id=? AND revision=?", id, owner, expected).Take(&row).Error; err != nil {
 			return err
 		}
+		if strings.HasPrefix(row.Origin, "https://") {
+			return i.SaveRemoteRepository(ctx, row.Origin, row.CredentialRef != "", id, expected, admit)
+		}
 		absolute = row.Origin
 		expectedRoot = row.RootID
 	}
@@ -90,11 +94,19 @@ func (i *Inventory) SaveRepository(ctx context.Context, absolute, id, expected s
 	if err != nil {
 		return err
 	}
+	return i.publishRepository(ctx, owner, origin, rootID, "", id, expected, indices, admit)
+}
+
+func (i *Inventory) publishRepository(ctx context.Context, owner, origin, rootID, ref, id, expected string, indices []plugincatalog.Index, admit commandsecurity.Admission) error {
 	data, err := json.Marshal(indices)
 	if err != nil {
 		return err
 	}
-	digest := sha256.Sum256(data)
+	hashInput := data
+	if strings.HasPrefix(origin, "https://") {
+		hashInput = append(append([]byte(rootID), 0), data...)
+	}
+	digest := sha256.Sum256(hashInput)
 	revision := hex.EncodeToString(digest[:])
 	publish, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
@@ -103,14 +115,17 @@ func (i *Inventory) SaveRepository(ctx context.Context, absolute, id, expected s
 			var existing database.PluginRepository
 			lookup := tx.Where("user_id=? AND origin=?", owner, origin).Take(&existing).Error
 			if lookup == nil {
+				if ref != existing.CredentialRef {
+					return ErrInstallationChanged
+				}
 				return nil
 			}
 			if !errors.Is(lookup, gorm.ErrRecordNotFound) {
 				return lookup
 			}
-			return tx.Create(&database.PluginRepository{UserID: owner, Origin: origin, RootID: rootID, Indices: data, Revision: revision}).Error
+			return tx.Create(&database.PluginRepository{UserID: owner, Origin: origin, RootID: rootID, CredentialRef: ref, Indices: data, Revision: revision}).Error
 		}
-		result := tx.Model(&database.PluginRepository{}).Where("id=? AND user_id=? AND revision=?", id, owner, expected).Updates(map[string]any{"indices": data, "revision": revision})
+		result := tx.Model(&database.PluginRepository{}).Where("id=? AND user_id=? AND revision=?", id, owner, expected).Updates(map[string]any{"indices": data, "revision": revision, "root_id": rootID})
 		if result.Error != nil {
 			return result.Error
 		}
@@ -167,7 +182,7 @@ func (i *Inventory) InspectRepositoryEntry(ctx context.Context, id, revision str
 			if entry.Diagnostic != "" {
 				return nil, ErrComponentUnavailable
 			}
-			snap, err := pluginpackage.InspectRepositoryPackage(row.Origin, row.RootID, entry.Path)
+			snap, err := i.repositoryPackage(ctx, row, entry.Path)
 			if err != nil {
 				return nil, err
 			}

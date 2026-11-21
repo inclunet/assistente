@@ -147,6 +147,10 @@ func inspectOpened(root *os.Root, origin string, entryLimit, depthLimit int, fil
 	if err := collect(".", 0); err != nil {
 		return nil, err
 	}
+	return finishSnapshot(snapshot)
+}
+
+func finishSnapshot(snapshot *LocalSnapshot) (*LocalSnapshot, error) {
 	_, _, metadata, warnings, err := LocateManifest(func(name string) ([]byte, error) {
 		raw, ok := snapshot.Files[name]
 		if !ok {
