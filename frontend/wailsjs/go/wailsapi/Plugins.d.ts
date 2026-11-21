@@ -26,6 +26,8 @@ export function ListInstalled():Promise<Array<database.PluginInstallation>>;
 
 export function ListRepositories():Promise<Array<plugins.Repository>>;
 
+export function PrepareJob(arg1:string,arg2:string,arg3:string):Promise<string>;
+
 export function PreviewBuilder(arg1:plugins.BuilderRequest):Promise<wailsapi.BuilderPreview>;
 
 export function PreviewLocal():Promise<wailsapi.PluginPreview>;
@@ -47,3 +49,5 @@ export function SetProfileActive(arg1:string,arg2:string,arg3:string,arg4:boolea
 export function SetSkillActive(arg1:string,arg2:string,arg3:string,arg4:boolean):Promise<void>;
 
 export function SyncMCP():Promise<void>;
+
+export function SyncPendingJobs():Promise<void>;

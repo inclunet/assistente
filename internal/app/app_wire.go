@@ -51,6 +51,11 @@ func (a *App) wirePlugins() {
 			return a.mcpMgr.ReloadPackagedConfigs(ctx)
 		}).WithRemoteClient(func(ref string) *http.Client {
 			return plugins.RepositoryHTTPClient(a.credMgr, ref)
+		}).WithJobRefresh(func(ctx context.Context, slug string) error {
+			if a.jobMgr == nil {
+				return fmt.Errorf("gerenciador de jobs indisponível")
+			}
+			return a.jobMgr.RefreshPluginJob(ctx, slug)
 		}).WithProfileDefinition(a.profileManager.PortableDefinition, a.profileManager.BuilderSlugs).WithSkillDefinition(a.skillMgr.PortableDefinition, a.skillMgr.BuilderSlugs).WithListCreated(a.taskSvc.NotifyTemplateListCreated), a.dialogPort.OpenDirectoryDialog, a.captureDialogAdmission)
 	}
 }

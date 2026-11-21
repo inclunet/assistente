@@ -510,54 +510,79 @@ func (r *DBRepository) CreateJob(ctx context.Context, job *Job) error {
 	}
 	return r.retry(ctx, "create_job", func() error {
 		return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-			pipelineID, err := r.pipelineIDForSlugTx(ctx, tx, userID, job.Pipeline)
-			if err != nil {
-				return err
-			}
-			toolCatalogID, err := r.toolCatalogIDForNameTx(ctx, tx, userID, job.Tool)
-			if err != nil {
-				return err
-			}
-			row, err := jobDomainToModel(userID, slug, pipelineID, toolCatalogID, job)
-			if err != nil {
-				return err
-			}
-			allowed, err := r.enabledJobGrantValidTx(tx, userID, "", job)
-			if err != nil {
-				return err
-			}
-			if !allowed {
-				row.Enabled = false
-				job.Enabled = false
-			}
-			if err := tx.Create(row).Error; err != nil {
-				if isUniqueConstraintError(err) {
-					return fmt.Errorf("%w: %s", ErrJobAlreadyExists, slug)
-				}
-				return err
-			}
-			if err := r.saveTriggersTx(ctx, tx, userID, row.ID, job.Triggers); err != nil {
-				return err
-			}
-			if err := r.setResourceTagsTx(ctx, tx, userID, tagResourceJob, row.ID, job.Tags); err != nil {
-				return err
-			}
-			pipelineEnabled := pipelineID == nil
-			if pipelineID != nil {
-				var err error
-				pipelineEnabled, err = r.pipelineEnabledByIDTx(ctx, tx, userID, *pipelineID)
-				if err != nil {
-					return err
-				}
-			}
-			job.ID = slug
-			job.DatabaseID = row.ID
-			job.Pipeline = normalizeSlug(job.Pipeline)
-			job.PipelineEnabled = pipelineEnabled
-			job.Tags = uniqueSlugs(job.Tags)
-			return nil
+			return r.createJobTx(ctx, tx, userID, slug, job)
 		})
 	})
+}
+
+// CreateDisabledPluginJobTx writes the reviewed definition and its origin in
+// the caller's inventory transaction. The native repository resolves tools,
+// triggers, tags and job identity exactly as for a locally created job.
+func CreateDisabledPluginJobTx(ctx context.Context, tx *gorm.DB, job *Job, installationID, digest, key string) error {
+	owner, err := database.RequireUserID(ctx)
+	if err != nil {
+		return err
+	}
+	if job == nil || job.Enabled || installationID == "" || digest == "" || key == "" {
+		return ErrInvalidJobDefinition
+	}
+	if err := Validate(job); err != nil {
+		return err
+	}
+	repo := NewDBRepository(tx)
+	if err := repo.createJobTx(ctx, tx, owner, normalizeSlug(job.ID), job); err != nil {
+		return err
+	}
+	return tx.Model(&database.Job{}).Where("id=? AND user_id=?", job.DatabaseID, owner).Updates(map[string]any{"plugin_installation_id": installationID, "plugin_digest": digest, "plugin_component_key": key, "plugin_refresh_pending": true}).Error
+}
+
+func (r *DBRepository) createJobTx(ctx context.Context, tx *gorm.DB, userID, slug string, job *Job) error {
+	pipelineID, err := r.pipelineIDForSlugTx(ctx, tx, userID, job.Pipeline)
+	if err != nil {
+		return err
+	}
+	toolCatalogID, err := r.toolCatalogIDForNameTx(ctx, tx, userID, job.Tool)
+	if err != nil {
+		return err
+	}
+	row, err := jobDomainToModel(userID, slug, pipelineID, toolCatalogID, job)
+	if err != nil {
+		return err
+	}
+	allowed, err := r.enabledJobGrantValidTx(tx, userID, "", job)
+	if err != nil {
+		return err
+	}
+	if !allowed {
+		row.Enabled = false
+		job.Enabled = false
+	}
+	if err := tx.Create(row).Error; err != nil {
+		if isUniqueConstraintError(err) {
+			return fmt.Errorf("%w: %s", ErrJobAlreadyExists, slug)
+		}
+		return err
+	}
+	if err := r.saveTriggersTx(ctx, tx, userID, row.ID, job.Triggers); err != nil {
+		return err
+	}
+	if err := r.setResourceTagsTx(ctx, tx, userID, tagResourceJob, row.ID, job.Tags); err != nil {
+		return err
+	}
+	pipelineEnabled := pipelineID == nil
+	if pipelineID != nil {
+		var err error
+		pipelineEnabled, err = r.pipelineEnabledByIDTx(ctx, tx, userID, *pipelineID)
+		if err != nil {
+			return err
+		}
+	}
+	job.ID = slug
+	job.DatabaseID = row.ID
+	job.Pipeline = normalizeSlug(job.Pipeline)
+	job.PipelineEnabled = pipelineEnabled
+	job.Tags = uniqueSlugs(job.Tags)
+	return nil
 }
 
 func (r *DBRepository) SaveJob(ctx context.Context, job *Job) error {
@@ -600,6 +625,15 @@ func (r *DBRepository) SaveJob(ctx context.Context, job *Job) error {
 				row.ID = existing.ID
 				row.CreatedAt = existing.CreatedAt
 				row.CreatedBy = existing.CreatedBy
+				row.PluginInstallationID = existing.PluginInstallationID
+				row.PluginDigest = existing.PluginDigest
+				row.PluginRefreshPending = existing.PluginRefreshPending
+				row.PluginComponentKey = existing.PluginComponentKey
+				if row.Enabled && existing.PluginInstallationID != "" {
+					if err := checkPluginJobRevision(ctx, tx, userID, &existing); err != nil {
+						return err
+					}
+				}
 			}
 			allowed, err := r.enabledJobGrantValidTx(tx, userID, row.ID, job)
 			if err != nil {
@@ -2425,22 +2459,24 @@ func jobModelToDomainWithTags(row database.Job, tagSlugs []string) (*Job, error)
 		toolOrigin = row.ToolCatalog.Origin
 	}
 	return &Job{
-		ToolOrigin:     toolOrigin,
-		DatabaseID:     row.ID,
-		ID:             row.Slug,
-		Name:           row.Name,
-		Description:    row.Description,
-		Enabled:        row.Enabled,
-		Pipeline:       pipelineSlug,
-		Tags:           tagSlugs,
-		Triggers:       triggers,
-		Tool:           toolName,
-		Inputs:         inputs,
-		Output:         output,
-		Events:         events,
-		ErrorPolicy:    policy,
-		MaxRunsPerHour: row.MaxRunsPerHour,
-		DryRun:         dryRun,
+		PluginInstallationID: row.PluginInstallationID,
+		PluginDigest:         row.PluginDigest,
+		ToolOrigin:           toolOrigin,
+		DatabaseID:           row.ID,
+		ID:                   row.Slug,
+		Name:                 row.Name,
+		Description:          row.Description,
+		Enabled:              row.Enabled,
+		Pipeline:             pipelineSlug,
+		Tags:                 tagSlugs,
+		Triggers:             triggers,
+		Tool:                 toolName,
+		Inputs:               inputs,
+		Output:               output,
+		Events:               events,
+		ErrorPolicy:          policy,
+		MaxRunsPerHour:       row.MaxRunsPerHour,
+		DryRun:               dryRun,
 		Metadata: Metadata{
 			CreatedAt: row.CreatedAt.Format(time.RFC3339),
 			CreatedBy: row.CreatedBy,

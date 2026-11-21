@@ -78,7 +78,7 @@ func nativeComponents(snap *pluginpackage.LocalSnapshot) []Component {
 		}
 		seen[key] = true
 		entry := path.Join(nativeExtension, key+".json")
-		c := Component{Kind: "job", Key: key, Name: name, Entry: entry, Reason: "jobActivationPending"}
+		c := Component{Kind: "job", Key: key, Name: name, Entry: entry}
 		def, err := jobs.ReadPortableJob(name, snap.Files[entry])
 		if err != nil {
 			c.Reason = "invalidJob"

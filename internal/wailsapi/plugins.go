@@ -256,6 +256,10 @@ func (api *Plugins) RemoveMCP(id, digest, key string, preserve bool) error {
 	})
 }
 
+func (api *Plugins) SyncPendingJobs() error {
+	return api.mutateComponent(func(ctx context.Context, i *plugins.Inventory) error { return i.SyncPendingJobs(ctx) })
+}
+
 func (api *Plugins) SyncMCP() error {
 	return api.mutateComponent(func(ctx context.Context, i *plugins.Inventory) error { return i.SyncMCP(ctx) })
 }
@@ -283,4 +287,14 @@ func (api *Plugins) CreateListFromTemplate(id, digest, key, request string) (str
 		return err
 	})
 	return listID, err
+}
+
+func (api *Plugins) PrepareJob(id, digest, key string) (string, error) {
+	var slug string
+	err := api.withRepositorySession(func(ctx context.Context, inventory *plugins.Inventory, _ func() (string, error), admit commandsecurity.Admission) error {
+		var err error
+		slug, err = inventory.PrepareJob(ctx, id, digest, key, admit)
+		return err
+	})
+	return slug, err
 }

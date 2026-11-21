@@ -46,6 +46,10 @@ type JobPipeline struct {
 
 // Job armazena a definição persistente de uma automação.
 type Job struct {
+	PluginInstallationID string `json:"-" gorm:"index"`
+	PluginRefreshPending bool   `json:"-" gorm:"not null;default:false"`
+	PluginDigest         string `json:"-"`
+	PluginComponentKey   string `json:"-"`
 	UUIDModel
 	UserID     string  `json:"userId" gorm:"not null;index;uniqueIndex:ux_jobs_user_slug"`
 	PipelineID *string `json:"pipelineId,omitempty" gorm:"index"`

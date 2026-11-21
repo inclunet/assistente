@@ -46,6 +46,10 @@ export function ListRepositories() {
   return window['go']['wailsapi']['Plugins']['ListRepositories']();
 }
 
+export function PrepareJob(arg1, arg2, arg3) {
+  return window['go']['wailsapi']['Plugins']['PrepareJob'](arg1, arg2, arg3);
+}
+
 export function PreviewBuilder(arg1) {
   return window['go']['wailsapi']['Plugins']['PreviewBuilder'](arg1);
 }
@@ -88,4 +92,8 @@ export function SetSkillActive(arg1, arg2, arg3, arg4) {
 
 export function SyncMCP() {
   return window['go']['wailsapi']['Plugins']['SyncMCP']();
+}
+
+export function SyncPendingJobs() {
+  return window['go']['wailsapi']['Plugins']['SyncPendingJobs']();
 }

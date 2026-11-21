@@ -63,6 +63,12 @@ A prévia identifica o nome do job, a ferramenta solicitada e os tipos de aciona
 
 A prévia e os detalhes identificam os perfis de conversa fornecidos pelo plugin. Nos detalhes do plugin instalado, escolha **Ativar** no perfil desejado. Abra o seletor **Perfil** na barra da conversa e escolha seu nome. O perfil usa o provedor padrão, com as preferências de geração incluídas no pacote e ferramentas e skills desabilitadas. A ativação vale para sua conta. Se o plugin for atualizado, desativado ou removido, a aba que usava o perfil precisará de uma nova seleção.
 
+## Preparar um job no Assistente
+
+Nos detalhes do plugin instalado, confira a ferramenta e os acionadores pedidos pelo job. Escolha **Preparar job** e abra o link para o editor de Jobs. O job começa desativado. Revise as entradas e os horários no editor antes de habilitá-lo. Preparar a mesma definição novamente mantém o mesmo job da conta. O editor oferece um link de volta à instalação de origem. Testar a ferramenta no editor ou repetir uma execução pelo histórico exige que o job e a revisão continuem ativos.
+
+Desativar, atualizar ou remover o plugin interrompe novos disparos da revisão anterior. O Assistente conserva o registro do job e seu histórico. Reativar o plugin exige preparar a definição outra vez. Se a alteração for salva e o agendador ficar indisponível, use a ação de sincronização na página Plugins para repetir a atualização da sessão.
+
 ## Gerar um pacote com o builder
 
 Abra **Plugins → Criar plugin**. Informe um identificador de pacote e, se quiser, sua versão. Na seção **Perfis de conversa**, marque os identificadores dos perfis locais desejados. A prévia mostra o nome, a descrição e as preferências de geração que serão distribuídas. Provedores da sua conta, regras de comandos e credenciais ficam fora do pacote. Marque as skills de instrução que deseja incluir. O builder preserva o SKILL.md original das skills portáveis sem arquivos auxiliares e permite conferir seu conteúdo na prévia. Marque as listas que deseja distribuir como modelos e informe uma chave estável para cada uma. Para incluir tarefas iniciais, marque a opção da lista correspondente. Os campos publicados são os títulos e as descrições das tarefas selecionadas, a hierarquia, o título e a descrição da lista e a definição do workflow. Notas pessoais, responsáveis, conclusão e histórico ficam na sua conta.

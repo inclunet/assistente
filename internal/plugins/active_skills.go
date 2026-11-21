@@ -85,6 +85,13 @@ func (i *Inventory) InstalledComponents(ctx context.Context, id, digest string) 
 	for _, row := range granted {
 		slugs[row.ComponentKey] = row.Slug
 	}
+	var prepared []database.Job
+	if err := i.db.WithContext(ctx).Select("plugin_component_key,slug").Where("user_id=? AND plugin_installation_id=? AND plugin_digest=?", owner, id, digest).Find(&prepared).Error; err != nil {
+		return nil, err
+	}
+	for _, job := range prepared {
+		slugs[job.PluginComponentKey] = job.Slug
+	}
 	for n := range components {
 		slug, ok := slugs[components[n].Key]
 		components[n].Active = ok

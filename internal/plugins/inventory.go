@@ -19,6 +19,7 @@ var ErrPackageChanged = errors.New("o pacote mudou desde a prévia")
 var ErrInstallationChanged = errors.New("a instalação mudou desde a prévia")
 
 type Inventory struct {
+	refreshJob        func(context.Context, string) error
 	profileNames      func() ([]string, error)
 	profileDefinition func(string) ([]byte, error)
 	skillNames        func() []string
@@ -91,6 +92,7 @@ func (i *Inventory) InstallSource(ctx context.Context, reviewedOrigin, reviewedD
 	if admit == nil {
 		return database.PluginInstallation{}, database.ErrUserScopeRequired
 	}
+	var revokedJobs []string
 	mcpChanged := false
 	publishCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
@@ -134,6 +136,11 @@ func (i *Inventory) InstallSource(ctx context.Context, reviewedOrigin, reviewedD
 			if err := tx.Model(&database.PluginMCPBinding{}).Where("installation_id=?", installed.ID).Count(&count).Error; err != nil {
 				return err
 			}
+			revoked, err := revokeJobs(tx, owner, installed.ID)
+			if err != nil {
+				return err
+			}
+			revokedJobs = revoked
 			mcpChanged = count > 0
 			if err := removeMCPBindings(publishCtx, tx, installed.ID, "", false); err != nil {
 				return err
@@ -151,10 +158,5 @@ func (i *Inventory) InstallSource(ctx context.Context, reviewedOrigin, reviewedD
 	if err != nil {
 		return database.PluginInstallation{}, err
 	}
-	if mcpChanged {
-		if err := admit(func() error { return i.SyncMCP(ctx) }); err != nil {
-			return installed, errors.Join(ErrMCPSyncPending, err)
-		}
-	}
-	return installed, nil
+	return installed, i.refreshRuntime(ctx, revokedJobs, mcpChanged, admit)
 }

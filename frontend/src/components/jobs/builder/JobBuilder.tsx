@@ -395,7 +395,9 @@ export function JobBuilder({ editJob, onClose, onSaved }: JobBuilderProps) {
         }
       }
 
-      const result = await testTool(draft.tool, draft.inputs, freshEventData);
+      const result = editJob?.plugin_installation_id
+        ? await testTool(draft.tool, draft.inputs, freshEventData, editJob)
+        : await testTool(draft.tool, draft.inputs, freshEventData);
       if (result?.success) {
         setTestOutput(result.output ?? {});
         setTestDuration(result.duration ?? null);
@@ -412,7 +414,7 @@ export function JobBuilder({ editJob, onClose, onSaved }: JobBuilderProps) {
     } finally {
       setTesting(false);
     }
-  }, [announce, draft.tool, draft.inputs, draft.triggers, testTool, eventSchema, hasEventTrigger, showError, t]);
+  }, [announce, draft.tool, draft.inputs, draft.triggers, editJob, testTool, eventSchema, hasEventTrigger, showError, t]);
 
   const handleAuthorizeProfile = useCallback(async (jobId: string, profileSlug: string) => {
     if (!jobId || !profileSlug) return false;

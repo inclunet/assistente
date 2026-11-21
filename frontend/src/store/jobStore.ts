@@ -103,7 +103,7 @@ interface JobStoreState {
   fetchJobEvents: (date: string) => Promise<void>;
   fetchPipelines: () => Promise<void>;
   fetchToolCatalog: () => Promise<jobs.CatalogEntry[]>;
-  testTool: (toolName: string, inputs: Record<string, unknown>, eventData?: Record<string, unknown>) => Promise<jobs.TestToolResult | null>;
+  testTool: (toolName: string, inputs: Record<string, unknown>, eventData?: Record<string, unknown>, source?: Pick<jobs.Job, 'id' | 'plugin_installation_id'>) => Promise<jobs.TestToolResult | null>;
   saveJob: (jobJSON: string) => Promise<wailsapi.SaveJobResult>;
   getJobProfileGrantState: (jobId: string) => Promise<profileaccess.JobGrantState>;
   authorizeJobProfile: (jobId: string, profileSlug: string) => Promise<boolean>;
@@ -187,7 +187,8 @@ export const useJobStore = create<JobStoreState>((set, get) => {
         const result = await GetJob(id);
         set({ jobDetail: result, selectedJobId: id });
       } catch (err) {
-        set({ error: String(err) });
+        set({ error: String(err), jobDetail: null });
+        throw err;
       }
     },
 
@@ -308,13 +309,14 @@ export const useJobStore = create<JobStoreState>((set, get) => {
       }
     },
 
-    testTool: async (toolName: string, inputs: Record<string, unknown>, eventData?: Record<string, unknown>) => {
+    testTool: async (toolName: string, inputs: Record<string, unknown>, eventData?: Record<string, unknown>, source?: Pick<jobs.Job, 'id' | 'plugin_installation_id'>) => {
       try {
         const name = toolName.trim();
         const request: Record<string, unknown> = {
           tool_name: name,
           inputs,
           event_data: eventData,
+          ...(source?.plugin_installation_id ? {job_id: source.id, plugin_installation_id: source.plugin_installation_id} : {}),
         };
         if (isMCPBridgeToolName(name)) {
           const catalog = await get().fetchToolCatalog();

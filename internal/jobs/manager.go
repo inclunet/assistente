@@ -1263,6 +1263,22 @@ func (m *Manager) DeleteJobContext(ctx context.Context, id string) error {
 // Util para testar no builder antes de salvar e para dry-run explícito do catálogo.
 func (m *Manager) TestToolDryRunContext(parent context.Context, req TestToolRequest) (*TestToolResult, error) {
 	execCtx := m.contextFrom(parent)
+	var beforeExecute func(context.Context) error
+	if req.PluginInstallationID != "" {
+		job, err := m.cfg.Repository.GetJob(execCtx, req.JobID)
+		if err != nil {
+			return nil, err
+		}
+		if job.PluginInstallationID != req.PluginInstallationID {
+			return nil, ErrPluginJobInactive
+		}
+		execCtx, err = m.executor.pluginJobContext(execCtx, job)
+		if err != nil {
+			return nil, err
+		}
+		ec, _ := tools.GetExecutionContext(execCtx)
+		beforeExecute = ec.CheckCommandActivation
+	}
 	toolName := strings.TrimSpace(req.ToolName)
 	if toolName == "" {
 		return nil, fmt.Errorf("tool_name is required")
@@ -1368,6 +1384,7 @@ func (m *Manager) TestToolDryRunContext(parent context.Context, req TestToolRequ
 			},
 		},
 		PersistedArguments:     &persistedArguments,
+		BeforeExecute:          beforeExecute,
 		Origin:                 toolinvocations.Origin{Type: toolinvocations.OriginToolCatalog, ID: toolName},
 		ToolCatalogID:          strings.TrimSpace(req.ToolCatalogID),
 		DryRun:                 true,
@@ -2197,6 +2214,10 @@ func cloneJob(job *Job) (*Job, error) {
 	if err := json.Unmarshal(raw, &copy); err != nil {
 		return nil, fmt.Errorf("clone job %s: %w", job.ID, err)
 	}
+	copy.DatabaseID = job.DatabaseID
+	copy.ToolOrigin = job.ToolOrigin
+	copy.PluginInstallationID = job.PluginInstallationID
+	copy.PluginDigest = job.PluginDigest
 	copy.PipelineEnabled = job.PipelineEnabled
 	// Inputs uses omitempty for transport, but the definition fingerprint
 	// distinguishes an empty object from null. A detached copy must preserve

@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { Link } from 'react-router-dom';
+import { useResourceEditRequest } from '../hooks/useResourceEditRequest';
+import { useNavigationStore } from '../store/navigationStore';
 import { useTranslation } from 'react-i18next';
-import { CreateListFromTemplate, ChangeInstallation, DiscardPreview, InstalledComponents, InstallReviewed, ListInstalled, PreviewLocal, RegisterMCP, RemoveMCP, SetProfileActive, SetSkillActive, SyncMCP } from '@wailsjs/go/wailsapi/Plugins';
+import { CreateListFromTemplate, ChangeInstallation, DiscardPreview, InstalledComponents, InstallReviewed, ListInstalled, PreviewLocal, RegisterMCP, RemoveMCP, PrepareJob, SetProfileActive, SetSkillActive, SyncMCP, SyncPendingJobs } from '@wailsjs/go/wailsapi/Plugins';
 import type { database, plugins, wailsapi } from '@wailsjs/go/models';
 import { Button } from '../components/ui/Button';
 import { DataGrid } from '../components/ui/DataGrid';
@@ -28,14 +31,13 @@ function componentLabel(kind: string) {
 
 function componentRequirement(component: plugins.Component) {
   if (component.reason === 'invalidJob') return 'plugins.invalidJob';
-  if (component.reason === 'jobActivationPending') return 'plugins.jobActivationPending';
   if (component.reason === 'invalidProfile') return 'plugins.invalidProfile';
   if (component.reason === 'shellCommands') return 'plugins.shellPending';
   if (component.reason === 'supportingFiles') return 'plugins.filesPending';
   if (component.reason === 'manifestConfiguration') return 'plugins.manifestPending';
   if (component.reason === 'frontmatter') return 'plugins.fieldsPending';
   if (component.reason === 'configuration') return 'plugins.mcpConfigRequired';
-  if ((component.kind === 'mcp' || component.kind === 'profile' || component.kind === 'tasklistTemplate') && !component.reason) return undefined;
+  if ((component.kind === 'mcp' || component.kind === 'profile' || component.kind === 'job' || component.kind === 'tasklistTemplate') && !component.reason) return undefined;
   return component.kind === 'skill' ? undefined : 'plugins.unavailable';
 }
 
@@ -65,6 +67,7 @@ function InstalledPlugins() {
   const [details, setDetails] = useState<{ installation: database.PluginInstallation; components: plugins.Component[] } | null>(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(true);
+  const pendingSync = useRef({jobs:false, mcp:false});
   useEffect(() => {
     if (error) announce(t(error), 'assertive');
   }, [error, announce, t]);
@@ -90,6 +93,10 @@ function InstalledPlugins() {
   }, []);
   useEffect(() => {
     mounted.current = true;
+    void SyncPendingJobs().catch(() => {
+      pendingSync.current.jobs = true;
+      if (mounted.current) setError('plugins.syncPending');
+    });
     void refresh().catch(() => { if (mounted.current) setError('plugins.listError'); })
       .finally(() => { if (mounted.current) setBusy(false); });
     return () => { mounted.current = false; };
@@ -137,6 +144,14 @@ function InstalledPlugins() {
     } catch { if (mounted.current) setError('plugins.listError'); }
     finally { if (mounted.current) setBusy(false); }
   };
+  useResourceEditRequest('plugins', {
+    ready: !busy,
+    onEdit: id => {
+      const installation = items.find(item => item.id === id);
+      if (installation) void openDetails(installation);
+      else setError('plugins.originUnavailable');
+    },
+  });
   const refreshAfterSync = async () => {
     if (details) {
       const { installation } = details;
@@ -145,6 +160,14 @@ function InstalledPlugins() {
     } else {
       await refresh();
     }
+  };
+  const recordPendingSync = (cause: unknown) => {
+    const message = String(cause);
+    const jobs = message.includes('PLUGIN_JOB_SYNC_PENDING');
+    const mcp = message.includes('PLUGIN_MCP_SYNC_PENDING');
+    pendingSync.current.jobs ||= jobs;
+    pendingSync.current.mcp ||= mcp;
+    return jobs || mcp;
   };
   const showPendingSync = async () => {
     try {
@@ -180,6 +203,8 @@ function InstalledPlugins() {
         } else {
           await RegisterMCP(installation.id, installation.digest, component.key);
         }
+      } else if (component.kind === 'job') {
+        await PrepareJob(installation.id, installation.digest, component.key);
       } else if (component.kind === 'profile') {
         await SetProfileActive(installation.id, installation.digest, component.key, !component.active);
       } else {
@@ -188,10 +213,10 @@ function InstalledPlugins() {
       const components = await InstalledComponents(installation.id, installation.digest);
       if (mounted.current) {
         setDetails({ installation, components: components ?? [] });
-        announce(t(component.kind === 'mcp' ? 'plugins.serverChanged' : component.active ? 'plugins.deactivated' : 'plugins.activated', { name: component.name }));
+        announce(t(component.kind === 'job' ? 'plugins.jobPrepared' : component.kind === 'mcp' ? 'plugins.serverChanged' : component.active ? 'plugins.deactivated' : 'plugins.activated', { name: component.name }));
       }
     } catch (cause) {
-      if (String(cause).includes('PLUGIN_MCP_SYNC_PENDING')) {
+      if (recordPendingSync(cause)) {
         await showPendingSync();
       } else if (mounted.current) setError(String(cause).includes('PLUGIN_COMPONENT_EDITED') ? 'plugins.edited' : 'plugins.componentError');
     }
@@ -201,7 +226,14 @@ function InstalledPlugins() {
     if (busy) return;
     setBusy(true);
     try {
-      await SyncMCP();
+      if (pendingSync.current.jobs) {
+        await SyncPendingJobs();
+        pendingSync.current.jobs = false;
+      }
+      if (pendingSync.current.mcp) {
+        await SyncMCP();
+        pendingSync.current.mcp = false;
+      }
       try { await refreshAfterSync(); } catch { if (mounted.current) setError('plugins.syncPendingStale'); return; }
       if (mounted.current) { setError(''); announce(t('plugins.synchronized')); }
     } catch { if (mounted.current) setError('plugins.syncPending'); }
@@ -229,7 +261,7 @@ function InstalledPlugins() {
       try { await refresh(); } catch { if (mounted.current) setError('plugins.listError'); }
     } catch (cause) {
       if (!mounted.current) return;
-      if (String(cause).includes('PLUGIN_MCP_SYNC_PENDING')) {
+      if (recordPendingSync(cause)) {
         setDetails(null);
         restoreFocus.current = true;
         try { await refresh(); setError('plugins.syncPending'); }
@@ -247,7 +279,7 @@ function InstalledPlugins() {
       announce(t('plugins.installedNotice', { name: preview.name }));
       try { await refresh(); } catch { if (mounted.current) setError('plugins.listError'); }
     } catch (cause) {
-      if (String(cause).includes('PLUGIN_MCP_SYNC_PENDING')) {
+      if (recordPendingSync(cause)) {
         await showPendingSync();
       } else if (mounted.current) setError(String(cause).includes('PLUGIN_COMPONENT_EDITED') ? 'plugins.edited' : 'plugins.installError');
     } finally {
@@ -280,7 +312,11 @@ function InstalledPlugins() {
       <h2>{t('plugins.components')}</h2>
       {details.components.length === 0 ? <p>{t('plugins.noComponents')}</p> : <ul>{details.components.map(component => <li key={component.key}>
         <strong>{component.name}</strong> · {t(componentLabel(component.kind))}<JobRequirements component={component} />
-        {component.kind === 'tasklistTemplate' && !component.reason ?
+        {component.kind === 'job' && !component.reason ?
+          (component.active && component.slug ?
+            <Link to="/jobs" onClick={() => useNavigationStore.getState().requestResourceEdit('jobs', component.slug!)}>{t('plugins.editJob', {name:component.name})}</Link> :
+            <Button disabled={busy || details.installation.disabled} onClick={() => void changeComponent(component)}>{t('plugins.prepareJob', {name:component.name})}</Button>)
+          : component.kind === 'tasklistTemplate' && !component.reason ?
           <Button disabled={busy || details.installation.disabled} onClick={() => void changeComponent(component)}>{t('plugins.createList', {name:component.name})}</Button>
           : (component.kind === 'skill' || component.kind === 'profile') && !component.reason ? <>
           {component.requestsShell && <p>{t('plugins.commandPolicy')}</p>}

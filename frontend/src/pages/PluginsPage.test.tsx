@@ -4,8 +4,8 @@ import userEvent from '@testing-library/user-event';
 import { axe } from 'vitest-axe';
 import PluginsPage from './PluginsPage';
 
-const mocks = vi.hoisted(() => ({ profile: vi.fn(), createList: vi.fn(), repos: vi.fn(), catalogPreview: vi.fn(), lifecycle: vi.fn(), sync: vi.fn(), register: vi.fn(), remove: vi.fn(), confirm: vi.fn(), list: vi.fn(), components: vi.fn(), toggle: vi.fn(), preview: vi.fn(), install: vi.fn(), discard: vi.fn(), announce: vi.fn(), announceRequest: vi.fn() }));
-vi.mock('@wailsjs/go/wailsapi/Plugins', () => ({ CreateListFromTemplate: mocks.createList, ListRepositories: mocks.repos, PreviewRepositoryEntry: mocks.catalogPreview, ChangeInstallation: mocks.lifecycle, SyncMCP: mocks.sync, RegisterMCP: mocks.register, RemoveMCP: mocks.remove, InstalledComponents: mocks.components, SetSkillActive: mocks.toggle, SetProfileActive: mocks.profile, DiscardPreview: mocks.discard, ListInstalled: mocks.list, PreviewLocal: mocks.preview, InstallReviewed: mocks.install }));
+const mocks = vi.hoisted(() => ({ prepareJob: vi.fn(), profile: vi.fn(), createList: vi.fn(), repos: vi.fn(), catalogPreview: vi.fn(), lifecycle: vi.fn(), sync: vi.fn(), register: vi.fn(), remove: vi.fn(), confirm: vi.fn(), list: vi.fn(), components: vi.fn(), toggle: vi.fn(), preview: vi.fn(), install: vi.fn(), discard: vi.fn(), announce: vi.fn(), announceRequest: vi.fn() }));
+vi.mock('@wailsjs/go/wailsapi/Plugins', () => ({ CreateListFromTemplate: mocks.createList, ListRepositories: mocks.repos, PreviewRepositoryEntry: mocks.catalogPreview, ChangeInstallation: mocks.lifecycle, SyncMCP: mocks.sync, SyncPendingJobs: vi.fn().mockResolvedValue(undefined), RegisterMCP: mocks.register, RemoveMCP: mocks.remove, InstalledComponents: mocks.components, SetSkillActive: mocks.toggle, SetProfileActive: mocks.profile, PrepareJob: mocks.prepareJob, DiscardPreview: mocks.discard, ListInstalled: mocks.list, PreviewLocal: mocks.preview, InstallReviewed: mocks.install }));
 vi.mock('../hooks/useConfirm', () => ({ useConfirm: () => mocks.confirm }));
 vi.mock('../store/authStore', async importOriginal => {
   const actual = await importOriginal<typeof import('../store/authStore')>();
@@ -233,17 +233,30 @@ describe('PluginsPage', () => {
 
   it('shows the requested job tool and triggers without running or enabling it', async () => {
     mocks.preview.mockResolvedValue({token:'reviewed', name:'kit', digest:'sha', files:[], diagnostics:[], components:[
-      {kind:'job', key:'jobs/reminder', name:'Reminder', tool:'notify', jobTriggers:['interval'], reason:'jobActivationPending'},
+      {kind:'job', key:'jobs/reminder', name:'Reminder', tool:'notify', jobTriggers:['interval']},
     ]});
     const user=userEvent.setup();
     render(<PluginsPage />);
     const choose=await screen.findByRole('button', {name:'plugins.choose'});
     await waitFor(()=>expect(choose).toBeEnabled());
     await user.click(choose);
-    await screen.findByText('plugins.jobActivationPending');
+    await screen.findByText(/Reminder/);
     expect(screen.getByText(/plugins.jobTool/)).toBeVisible();
     expect(screen.getByText(/plugins.jobTrigger.interval/)).toBeVisible();
     expect(screen.queryByRole('button', {name:'plugins.activate'})).toBeNull();
+  });
+
+  it('prepares a disabled job only after a user action in installed details', async () => {
+    mocks.list.mockResolvedValue([{id:'one',name:'Demo',digest:'sha'}]);
+    mocks.components.mockResolvedValue([{kind:'job', key:'jobs/watch', name:'Watch', tool:'notify'}]);
+    const user=userEvent.setup();
+    render(<PluginsPage />);
+    const cell=await screen.findByRole('gridcell', {name:/Demo/});
+    cell.focus();
+    await user.keyboard('{Enter}');
+    expect(mocks.prepareJob).not.toHaveBeenCalled();
+    await user.click(await screen.findByRole('button', {name:'plugins.prepareJob'}));
+    expect(mocks.prepareJob).toHaveBeenCalledWith('one','sha','jobs/watch');
   });
 
   it('reports a supported template in preview before installation', async () => {
