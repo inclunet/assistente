@@ -252,8 +252,14 @@ func (rc *RunCommand) Execute(ctx context.Context, args json.RawMessage) (tools.
 			return denied, nil
 		}
 		if errors.Is(err, shelltrust.ErrPrerequisiteUnavailable) {
+			failure := unavailableShellPrerequisite("Não foi possível validar os pré-requisitos da autorização shell.")
+			if ctx.Err() == nil {
+				tools.PublishAuthorizationPrerequisiteFailure(ctx, failure)
+			} else {
+				failure = unavailableShellAuthorization("Confirmação encerrada sem autorização válida.")
+			}
 			logging.Logger(ctx, "tools.shell.run-command").WarnContext(ctx, "Pré-requisito da autorização shell indisponível", "reason", shelltrust.PrerequisiteReason(err))
-			return unavailableShellPrerequisite("Não foi possível validar os pré-requisitos da autorização shell."), nil
+			return failure, nil
 		}
 		if err != nil {
 			return unavailableShellAuthorization(fmt.Sprintf("Erro ao solicitar confirmação: %v", err)), nil

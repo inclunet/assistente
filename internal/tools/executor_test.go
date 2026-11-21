@@ -722,7 +722,7 @@ func TestExecutorConfirmationOnInterruption(t *testing.T) {
 			defer stop()
 			confirmation := &confirmationState{result: ToolResult{IsError: true, Content: "aguardando", Failure: &ToolFailure{Code: "unavailable", Kind: ErrorKindAuthorization}}}
 			if tc.refused {
-				confirmation.final = true
+				confirmation.status = confirmationRefused
 				confirmation.result.Content = "negado"
 				confirmation.result.Failure.Code = "refused"
 			}

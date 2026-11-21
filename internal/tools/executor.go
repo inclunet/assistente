@@ -18,9 +18,17 @@ import (
 
 type pendingConfirmationKey struct{}
 
+type confirmationStatus uint8
+
+const (
+	confirmationPending confirmationStatus = iota
+	confirmationFailed
+	confirmationRefused
+)
+
 type confirmationState struct {
 	result ToolResult
-	final  bool
+	status confirmationStatus
 }
 
 // PendingConfirmation registra a falha que o executor deve devolver se o
@@ -46,12 +54,22 @@ func PendingConfirmation(ctx context.Context, failureCode string) func(*ToolResu
 // a política decide sem abrir uma confirmação. O executor pode recebê-la mesmo
 // que o prazo expire antes de a ferramenta terminar de entregar o diagnóstico.
 func PublishAuthorizationRefusal(ctx context.Context, decision ToolResult) {
+	publishConfirmation(ctx, decision, confirmationRefused)
+}
+
+// PublishAuthorizationPrerequisiteFailure preserva uma falha já conhecida no
+// prazo da ferramenta. O cancelamento do chamador continua tendo precedência.
+func PublishAuthorizationPrerequisiteFailure(ctx context.Context, failure ToolResult) {
+	publishConfirmation(ctx, failure, confirmationFailed)
+}
+
+func publishConfirmation(ctx context.Context, decision ToolResult, status confirmationStatus) {
 	if ctx == nil || decision.Failure == nil {
 		return
 	}
 	state, _ := ctx.Value(pendingConfirmationKey{}).(*atomic.Pointer[confirmationState])
 	if state != nil {
-		state.Store(&confirmationState{result: decision, final: true})
+		state.Store(&confirmationState{result: decision, status: status})
 	}
 }
 
@@ -421,7 +439,7 @@ func (e *Executor) finishExecution(ctx, toolCtx context.Context, call ToolCall, 
 	interrupted := result == nil
 	if result != nil && confirmation != nil && toolCtx.Err() != nil {
 		interrupted = errors.Is(result.Error, toolCtx.Err()) ||
-			confirmation.final || result.ErrorCode == confirmation.result.Failure.Code
+			confirmation.status != confirmationPending || result.ErrorCode == confirmation.result.Failure.Code
 	}
 	if !interrupted {
 		// Reclassifica: se a goroutine retornou um erro genérico mas o contexto
@@ -446,7 +464,7 @@ func (e *Executor) finishExecution(ctx, toolCtx context.Context, call ToolCall, 
 		return *result
 	}
 	elapsed := time.Since(start).Milliseconds()
-	if ctx.Err() != nil && (confirmation == nil || !confirmation.final) {
+	if ctx.Err() != nil && (confirmation == nil || confirmation.status != confirmationRefused) {
 		// Contexto pai cancelado (usuário cancelou) — não é timeout
 		cancelled := ToolExecutionResult{
 			CallID:   call.ID,
@@ -483,7 +501,7 @@ func (e *Executor) finishExecution(ctx, toolCtx context.Context, call ToolCall, 
 		outcome.ErrorKind = confirmation.result.Failure.Kind
 		outcome.ErrorCode = confirmation.result.Failure.Code
 		outcome.Retryable = false
-		if confirmation.final {
+		if confirmation.status != confirmationPending {
 			outcome.Error = nil
 		}
 	}

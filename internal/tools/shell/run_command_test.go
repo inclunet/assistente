@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -15,6 +16,7 @@ import (
 
 	"assistente/internal/allowlist"
 	"assistente/internal/commandpolicy"
+	"assistente/internal/shelltrust"
 	"assistente/internal/tools"
 )
 
@@ -505,6 +507,68 @@ func TestPolicyRefusalBeforeExecutorDeadline(t *testing.T) {
 		n, err := reader.Read(log[:])
 		if err != nil || !strings.Contains(string(log[:n]), "decision=deny") {
 			t.Fatalf("log da decisão: %q err=%v", log[:n], err)
+		}
+	})
+}
+
+func TestPrerequisiteFailureBeforeInterruption(t *testing.T) {
+	for _, parentCancel := range []bool{false, true} {
+		t.Run(map[bool]string{false: "prazo da ferramenta", true: "cancelamento do turno"}[parentCancel], func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				reader, writer := io.Pipe()
+				defer reader.Close()
+				defer writer.Close()
+				previous := slog.Default()
+				defer log.SetOutput(log.Writer())
+				defer log.SetFlags(log.Flags())
+				slog.SetDefault(slog.New(slog.NewTextHandler(writer, &slog.HandlerOptions{Level: slog.LevelWarn})))
+				defer slog.SetDefault(previous)
+
+				reg := tools.NewRegistry()
+				reg.MustRegister(NewRunCommand(nil, func(context.Context, string, string) (bool, error) {
+					return false, shelltrust.ErrPrerequisiteUnavailable
+				}, nil, "."))
+				cfg := tools.DefaultExecutorConfig()
+				cfg.ToolTimeout = time.Second
+				ctx, cancel := context.WithCancel(t.Context())
+				defer cancel()
+				delivered := make(chan tools.ToolExecutionResult, 1)
+				go func() {
+					delivered <- tools.NewExecutor(reg, cfg).ExecuteOne(ctx, tools.ToolCall{ID: "prerequisite", Function: tools.FunctionCall{Name: "run_command", Arguments: `{"command":"example check"}`}})
+				}()
+				synctest.Wait() // a releitura falhou, e o aviso bloqueia a entrega do callback
+				if parentCancel {
+					cancel()
+				}
+				got := <-delivered
+				if parentCancel {
+					if !errors.Is(got.Error, context.Canceled) || got.ErrorKind != tools.ErrorKindCancelled || got.ErrorCode != "" || got.Retryable {
+						t.Fatalf("cancelamento=%+v", got)
+					}
+				} else if got.Error != nil || got.ErrorKind != tools.ErrorKindUnavailable || got.ErrorCode != FailurePrerequisiteUnavailable || got.Retryable || !got.RetryabilityKnown || got.DurationMs != cfg.ToolTimeout.Milliseconds() {
+					t.Fatalf("pré-requisito=%+v", got)
+				}
+				var record [4096]byte
+				n, err := reader.Read(record[:])
+				if err != nil || !strings.Contains(string(record[:n]), "Pré-requisito") {
+					t.Fatalf("log=%q err=%v", record[:n], err)
+				}
+			})
+		})
+	}
+}
+
+func TestPrerequisiteFailureAfterConfirmationDeadline(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+		defer cancel()
+		rc := NewRunCommand(nil, func(ctx context.Context, _, _ string) (bool, error) {
+			<-ctx.Done()
+			return false, errors.Join(shelltrust.ErrPrerequisiteUnavailable, ctx.Err())
+		}, nil, ".")
+		got, err := rc.Execute(ctx, json.RawMessage(`{"command":"example check"}`))
+		if err != nil || got.Failure == nil || got.Failure.Code != FailureConfirmationUnavailable || got.Failure.Retryable {
+			t.Fatalf("falha observada depois do prazo=%+v err=%v", got, err)
 		}
 	})
 }
