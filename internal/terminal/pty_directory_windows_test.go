@@ -31,14 +31,18 @@ func removePTYTestDir(remove func() error, timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
 	for {
 		err := remove()
-		if !errors.Is(err, windows.ERROR_DIR_NOT_EMPTY) || !time.Now().Before(deadline) {
+		// Os dois últimos códigos também são repetidos por testing.TempDir no Windows.
+		transient := errors.Is(err, windows.ERROR_DIR_NOT_EMPTY) ||
+			errors.Is(err, windows.ERROR_SHARING_VIOLATION) ||
+			errors.Is(err, windows.ERROR_ACCESS_DENIED)
+		if !transient || !time.Now().Before(deadline) {
 			return err
 		}
 		time.Sleep(25 * time.Millisecond)
 	}
 }
 
-func TestPTYDirectoryCleanupRetriesOnlyDirectoryNotEmpty(t *testing.T) {
+func TestPTYDirectoryCleanupRetriesTransientWindowsErrors(t *testing.T) {
 	pending := &os.PathError{Op: "unlinkat", Path: "pty", Err: windows.ERROR_DIR_NOT_EMPTY}
 	for _, tc := range []struct {
 		name              string
@@ -46,9 +50,11 @@ func TestPTYDirectoryCleanupRetriesOnlyDirectoryNotEmpty(t *testing.T) {
 		timeout           time.Duration
 		calls             int
 	}{
-		{"transitório", pending, nil, nil, time.Second, 2},
+		{"diretório não vazio", pending, nil, nil, time.Second, 2},
+		{"compartilhamento", windows.ERROR_SHARING_VIOLATION, nil, nil, time.Second, 2},
+		{"acesso negado", windows.ERROR_ACCESS_DENIED, nil, nil, time.Second, 2},
 		{"persistente", pending, pending, pending, 0, 1},
-		{"outra falha", windows.ERROR_ACCESS_DENIED, nil, windows.ERROR_ACCESS_DENIED, time.Second, 1},
+		{"outra falha", windows.ERROR_INVALID_PARAMETER, nil, windows.ERROR_INVALID_PARAMETER, time.Second, 1},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			calls := 0
