@@ -88,6 +88,9 @@ var computedPowerShellTarget = regexp.MustCompile(`(?:^|[\s;({|])(?:&|\.)\s*[($@
 // Parênteses em argumentos de um cmdlet não agrupam o pipeline do comando.
 var standalonePowerShellGroup = regexp.MustCompile(`(?m)(?:^|[;{]|#>)\s*[$@]?\(`)
 
+// O parser confirma a declaração e sua posição antes de abrir a moldura.
+var powerShellNamespace = regexp.MustCompile(`(?im)(?:^|;|#>)[\s\p{Z}]*using(?:[\s\p{Z}]+|\x60\r?\n|<#[\s\S]*?#>)+namespace\b`)
+
 // wrapPowerShell gera comando wrapped para PowerShell.
 func (m *CommandMarker) wrapPowerShell(command, directory string) string {
 	// O ConPTY pode colar a saída ao eco ou redesenhar o comando anterior.
@@ -99,7 +102,8 @@ func (m *CommandMarker) wrapPowerShell(command, directory string) string {
 	code := "$__asstCode" + m.id
 	// A decisão usa apenas o texto do usuário, antes da guarda de diretório.
 	grouped := standalonePowerShellGroup.MatchString(command) && (strings.HasSuffix(strings.TrimRight(command, "; \r\n\t"), ")") || strings.ContainsAny(command, "#}") || strings.Contains(strings.ToLower(command), "return"))
-	prepare := grouped || computedPowerShellTarget.MatchString(command)
+	namespace := powerShellNamespace.MatchString(command)
+	prepare := namespace || grouped || computedPowerShellTarget.MatchString(command)
 	state, setup, cleanup, success := "$null", "", code[1:], "$?"
 	if prepare {
 		state = "$__asstState" + m.id
@@ -108,15 +112,25 @@ func (m *CommandMarker) wrapPowerShell(command, directory string) string {
 		success += " -and " + state + "['Ok'] -ne $false"
 	}
 	status := fmt.Sprintf("%s = if (%s) { 0 } else { %s $MyInvocation.MyCommand.ScriptBlock.Ast %s }", code, success, singlePowerShellLine(failedPowerShellStatus), state)
-	body := powerShellDirectoryGuard(directory) + command
+	guard := powerShellDirectoryGuard(directory)
+	body, parseGuard := guard+command, ""
+	if namespace {
+		// O parser recebe o texto original. Confira o diretório antes dessa
+		// leitura e novamente antes de executar o corpo compilado.
+		body = command
+		if guard != "" {
+			setup += state + ".EnterDirectory = {" + guard + "}; "
+			parseGuard = "& (" + state + ".EnterDirectory); "
+		}
+	}
 	encoded := base64.StdEncoding.EncodeToString([]byte(body))
 	source := fmt.Sprintf("[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('%s')) + [Environment]::NewLine", encoded)
 	frame := fmt.Sprintf("'try { ' + %s + ' } finally { ' + {%s}.ToString() + ' }'", source, status)
 	script := "[scriptblock]::Create(" + frame + ")"
 	if prepare {
-		script = fmt.Sprintf("%s (%s) {%s} '%s'", singlePowerShellLine(prepareGroupedPowerShell), source, status, state)
+		script = fmt.Sprintf("%s (%s) {%s} '%s' '%s'", singlePowerShellLine(prepareGroupedPowerShell), source, status, state, parseGuard)
 	}
-	return fmt.Sprintf("%s; %stry { . (%s) } catch { Microsoft.PowerShell.Utility\\Write-Error -ErrorRecord $_ -ErrorAction Continue; %s=1 }; Write-Host (%s + %s); Microsoft.PowerShell.Utility\\Remove-Variable -Name %s -ErrorAction Ignore", start, setup, script, code, end, code, cleanup)
+	return fmt.Sprintf("%s; %stry { %s. (%s) } catch { Microsoft.PowerShell.Utility\\Write-Error -ErrorRecord $_ -ErrorAction Continue; %s=1 }; Write-Host (%s + %s); Microsoft.PowerShell.Utility\\Remove-Variable -Name %s -ErrorAction Ignore", start, setup, parseGuard, script, code, end, code, cleanup)
 }
 
 // A preparação e a leitura da falha precisam identificar a mesma operação.
@@ -196,10 +210,20 @@ const failedPowerShellStatus = `& {
 // @() pode descartar toda a saída acumulada em uma falha terminante.
 // () só admite um pipeline; a subexpressão interna comporta seu try/finally.
 const prepareGroupedPowerShell = `& {
-	param($source, $status, $capture);
+	param($source, $status, $capture, $guard);
 	$tokens = $null;
 	$errors = $null;
 	$ast = [System.Management.Automation.Language.Parser]::ParseInput($source, [ref]$tokens, [ref]$errors);
+	if ($errors.Count) { throw [System.Management.Automation.ParseException]::new($errors) };
+	$insertAt = 0;
+	$frame = 'try { ' + $guard;
+	if ($ast.UsingStatements.Count) {
+		foreach ($using in $ast.UsingStatements) {
+			if ($using.UsingStatementKind -ne 'Namespace') { $insertAt = 0; break };
+			$insertAt = $using.Extent.EndOffset
+		};
+		if ($insertAt) { $frame = [Environment]::NewLine + $frame }
+	};
 	$stmts = $ast.EndBlock.Statements;
 ` + powerShellLastOperation + `	$container = $null;
 	while ($last -is [System.Management.Automation.Language.PipelineAst] -and $last.PipelineElements.Count -eq 1) {
@@ -214,7 +238,6 @@ const prepareGroupedPowerShell = `& {
 		} else { break };
 		$container = $group
 	};
-	$frame = 'try { ';
 	if ($last -is [System.Management.Automation.Language.PipelineAst] -and $last.PipelineElements.Count -and $last.PipelineElements[-1] -is [System.Management.Automation.Language.CommandAst]) {
 		$stages = $last.PipelineElements;
 		$prefix = '';
@@ -233,7 +256,7 @@ const prepareGroupedPowerShell = `& {
 		};
 		if ($prefix) { $source = $source.Insert($last.Extent.StartOffset, $prefix) }
 	};
-	return [scriptblock]::Create($frame + $source + ' } finally { ' + $status.ToString() + ' }')
+	return [scriptblock]::Create($source.Insert($insertAt, $frame) + ' } finally { ' + $status.ToString() + ' }')
 }`
 
 // Preserva espaços dentro de literais do script ao remover o recuo das linhas.

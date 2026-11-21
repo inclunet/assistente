@@ -719,7 +719,15 @@ func (s *Session) canceledCommandResult(ctx context.Context, stream *markerStrea
 	} else {
 		result.Output = stream.partialOutput()
 	}
-	return result.Output, -1, fmt.Errorf("fim do comando não observado: %w", ctx.Err())
+	cause := ctx.Err()
+	select {
+	case <-s.readerDone:
+		if s.readerErr != nil {
+			cause = errors.Join(cause, s.readerErr)
+		}
+	default:
+	}
+	return result.Output, -1, fmt.Errorf("fim do comando não observado: %w", cause)
 }
 
 func (s *Session) drainAfterInterrupt(stream *markerStream, read int) (int, ParseResult) {
