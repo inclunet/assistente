@@ -16,6 +16,7 @@ import (
 	"assistente/internal/allowlist"
 	"assistente/internal/terminal"
 	"assistente/internal/tools"
+	"assistente/internal/tools/invocationctx"
 	"assistente/internal/userctx"
 )
 
@@ -193,6 +194,7 @@ type MockSessionManager struct {
 	runEphemeralCalls atomic.Int32
 	runSessionID      string
 	runCommandText    string
+	runCommandDisplay string
 	runTimeout        time.Duration
 	liveSessions      map[string]bool
 	sessionCWD        map[string]string
@@ -226,10 +228,11 @@ func (m *MockSessionManager) Acquire(ctx context.Context, workDir string) (*term
 	return m.fakeSession, nil
 }
 
-func (m *MockSessionManager) RunCommand(ctx context.Context, sessionID string, command string, timeout time.Duration, requesterID string) (*terminal.HistoryEntry, error) {
+func (m *MockSessionManager) RunCommandWithDisplay(ctx context.Context, sessionID string, command terminal.CommandText, timeout time.Duration, requesterID string) (*terminal.HistoryEntry, error) {
 	m.runCommandCalls++
 	m.runSessionID = sessionID
-	m.runCommandText = command
+	m.runCommandText = command.Raw
+	m.runCommandDisplay = command.Display
 	m.runTimeout = timeout
 	if m.fakeRunErr != nil {
 		return m.fakeEntry, m.fakeRunErr
@@ -237,7 +240,7 @@ func (m *MockSessionManager) RunCommand(ctx context.Context, sessionID string, c
 	if m.fakeEntry == nil {
 		m.fakeEntry = &terminal.HistoryEntry{
 			ID:       "cmd-1",
-			Command:  command,
+			Command:  command.Display,
 			Output:   "",
 			ExitCode: 0,
 		}
@@ -261,9 +264,10 @@ func (m *MockSessionManager) Close(sessionID string) error {
 	return nil
 }
 
-func (m *MockSessionManager) RunEphemeral(ctx context.Context, workDir, command string, timeout time.Duration, source string) (*terminal.HistoryEntry, error) {
+func (m *MockSessionManager) RunEphemeralWithDisplay(ctx context.Context, workDir string, command terminal.CommandText, timeout time.Duration, source string) (*terminal.HistoryEntry, error) {
 	m.runEphemeralCalls.Add(1)
-	m.runCommandText = command
+	m.runCommandText = command.Raw
+	m.runCommandDisplay = command.Display
 	m.runTimeout = timeout
 	if m.fakeRunErr != nil {
 		// Se há entry configurado, devolve junto do erro (caso timeout com output parcial);
@@ -344,6 +348,30 @@ func TestRunCommandPreservesOriginalPipelineAndUsesDefaultTimeout(t *testing.T) 
 	}
 	if mgr.runTimeout != 15*time.Second {
 		t.Fatalf("timeout padrão = %s, esperado 15s", mgr.runTimeout)
+	}
+}
+
+func TestDispatchPassesPublicCommandToEveryTerminal(t *testing.T) {
+	const raw, display = "echo sintetico", "[redacted]"
+	for _, route := range []string{"ephemeral", "persistent", "existing"} {
+		t.Run(route, func(t *testing.T) {
+			mgr := &MockSessionManager{liveSessions: map[string]bool{"existing": true}, sessionCWD: map[string]string{"existing": t.TempDir()}}
+			rc := NewRunCommand(mgr, nil, func(context.Context) (*allowlist.Allowlist, error) {
+				return &allowlist.Allowlist{AutoApprove: []string{"echo *"}, DefaultAction: "deny"}, nil
+			}, ".")
+			args := runCommandArgs{Command: raw, Persistent: route == "persistent"}
+			if route == "existing" {
+				args.TerminalID = "existing"
+			}
+			input, err := json.Marshal(args)
+			if err != nil {
+				t.Fatal(err)
+			}
+			result, err := rc.Execute(invocationctx.WithShellCommandMetadata(t.Context(), display), input)
+			if err != nil || result.IsError || mgr.runCommandText != raw || mgr.runCommandDisplay != display || result.Metadata["command"] != display {
+				t.Fatal("despacho perdeu comando executável ou representação pública")
+			}
+		})
 	}
 }
 

@@ -3,9 +3,6 @@ package terminal
 import (
 	"context"
 	"encoding/json"
-	"sync/atomic"
-
-	"assistente/internal/tools/invocationctx"
 	"errors"
 	"os"
 	"os/exec"
@@ -14,6 +11,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -30,7 +28,7 @@ func TestRunEphemeralNaoCriaSecaoPersistente(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RunEphemeral erro: %v", err)
 	}
-	if entry == nil || entry.Output == "" {
+	if entry == nil || entry.Command != "echo hello" || entry.Output == "" {
 		t.Fatalf("entry vazia: %#v", entry)
 	}
 	if len(mgr.List()) != 0 {
@@ -50,7 +48,8 @@ func TestSensitiveCommandRedactedInTerminalEventsAndHistory(t *testing.T) {
 	const token = "token-sintetico-do-teste"
 	const masked = "[redacted]"
 	command := "echo executado # " + token
-	ctx := invocationctx.WithShellCommandMetadata(t.Context(), masked)
+	ctx := t.Context()
+	text := CommandText{Raw: command, Display: masked}
 	var startSeen, leaked atomic.Bool
 	manager := NewManager(DefaultManagerConfig(), func(event string, data any) {
 		payload, err := json.Marshal(data)
@@ -64,7 +63,7 @@ func TestSensitiveCommandRedactedInTerminalEventsAndHistory(t *testing.T) {
 	})
 	dir := t.TempDir()
 	t.Cleanup(manager.CloseAll)
-	entry, err := manager.RunEphemeral(ctx, dir, command, 15*time.Second, "test")
+	entry, err := manager.RunEphemeralWithDisplay(ctx, dir, text, 15*time.Second, "test")
 	if err != nil || entry == nil || entry.Command != masked || entry.Output != "executado" || entry.ExitCode != 0 {
 		t.Fatal("entrada efêmera não preservou a execução e a redação")
 	}
@@ -72,13 +71,20 @@ func TestSensitiveCommandRedactedInTerminalEventsAndHistory(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	entry, err = manager.RunCommand(ctx, s.ID(), command, 15*time.Second, "test")
+	entry, err = manager.RunCommandWithDisplay(ctx, s.ID(), text, 15*time.Second, "test")
 	if err != nil || entry == nil || entry.Command != masked || entry.Output != "executado" || entry.ExitCode != 0 {
 		t.Fatal("entrada persistente não preservou a execução e a redação")
 	}
 	history, err := manager.GetHistory(s.ID())
 	if err != nil || len(history) != 1 || history[0].Command != masked || history[0].Output != "executado" || !startSeen.Load() || leaked.Load() {
 		t.Fatal("histórico ou eventos não preservaram a redação")
+	}
+
+	// O controlador do terminal usa a assinatura por string para a entrada manual.
+	const manual = "echo manual"
+	entry, err = manager.RunCommand(ctx, s.ID(), manual, 15*time.Second, "user")
+	if err != nil || entry == nil || entry.Command != manual || entry.Output != "manual" {
+		t.Fatal("a entrada manual não preservou o comando exibido")
 	}
 }
 

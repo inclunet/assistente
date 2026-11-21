@@ -199,6 +199,11 @@ func (m *Manager) toolShellEnv() []string {
 // Não adiciona a sessão ao pool nem emite session_created/closed — evita
 // flicker no Terminal e não ocupa o limite de sessões.
 func (m *Manager) RunEphemeral(ctx context.Context, workDir, command string, timeout time.Duration, source string) (*HistoryEntry, error) {
+	return m.RunEphemeralWithDisplay(ctx, workDir, CommandText{Raw: command, Display: command}, timeout, source)
+}
+
+// RunEphemeralWithDisplay executa o comando e publica sua representação de exibição.
+func (m *Manager) RunEphemeralWithDisplay(ctx context.Context, workDir string, command CommandText, timeout time.Duration, source string) (*HistoryEntry, error) {
 	absolute, err := filepath.Abs(workDir)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrDirectoryUnresolved, err)
@@ -227,7 +232,7 @@ func (m *Manager) RunEphemeral(ctx context.Context, workDir, command string, tim
 	}()
 
 	commandID := uuid.NewString()
-	entry := newCommandHistoryEntry(ctx, commandID, command, source)
+	entry := newCommandHistoryEntry(commandID, command.Display, source)
 	if err := session.beginCommandWithID(commandID); err != nil {
 		return nil, err
 	}
@@ -260,6 +265,11 @@ func (m *Manager) Release(sessionID string) {
 // RunCommand executa um comando em uma sessão específica.
 // Emite eventos Wails de início e fim para o frontend.
 func (m *Manager) RunCommand(ctx context.Context, sessionID, command string, timeout time.Duration, source string) (*HistoryEntry, error) {
+	return m.RunCommandWithDisplay(ctx, sessionID, CommandText{Raw: command, Display: command}, timeout, source)
+}
+
+// RunCommandWithDisplay executa o comando e publica sua representação de exibição.
+func (m *Manager) RunCommandWithDisplay(ctx context.Context, sessionID string, command CommandText, timeout time.Duration, source string) (*HistoryEntry, error) {
 	m.mu.RLock()
 	session, ok := m.sessions[sessionID]
 	m.mu.RUnlock()
@@ -273,7 +283,7 @@ func (m *Manager) RunCommand(ctx context.Context, sessionID, command string, tim
 	}
 
 	commandID := uuid.NewString()
-	entry := newCommandHistoryEntry(ctx, commandID, command, source)
+	entry := newCommandHistoryEntry(commandID, command.Display, source)
 	if err := session.beginCommandWithID(commandID); err != nil {
 		return nil, err
 	}

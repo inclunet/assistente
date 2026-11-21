@@ -50,8 +50,8 @@ type GetAllowlistFunc func(context.Context) (*allowlist.Allowlist, error)
 // Permite mockar o Manager para testes.
 type SessionManager interface {
 	Acquire(ctx context.Context, workDir string) (*terminal.Session, error)
-	RunCommand(ctx context.Context, sessionID string, command string, timeout time.Duration, requesterID string) (*terminal.HistoryEntry, error)
-	RunEphemeral(ctx context.Context, workDir, command string, timeout time.Duration, source string) (*terminal.HistoryEntry, error)
+	RunCommandWithDisplay(ctx context.Context, sessionID string, command terminal.CommandText, timeout time.Duration, requesterID string) (*terminal.HistoryEntry, error)
+	RunEphemeralWithDisplay(ctx context.Context, workDir string, command terminal.CommandText, timeout time.Duration, source string) (*terminal.HistoryEntry, error)
 	Release(sessionID string)
 	Close(sessionID string) error
 }
@@ -262,12 +262,13 @@ func (rc *RunCommand) Execute(ctx context.Context, args json.RawMessage) (tools.
 	if err := ctx.Err(); err != nil {
 		return tools.ToolResult{}, err
 	}
+	command := terminal.CommandText{Raw: a.Command, Display: invocationctx.ShellCommandMetadata(ctx, a.Command)}
 	var sessionID string
 	var entry *terminal.HistoryEntry
 	var err error
 	if a.TerminalID != "" {
 		sessionID = a.TerminalID
-		entry, err = rc.sessionMgr.RunCommand(ctx, sessionID, a.Command, timeout, "llm")
+		entry, err = rc.sessionMgr.RunCommandWithDisplay(ctx, sessionID, command, timeout, "llm")
 	} else if a.Persistent {
 		// AEP-0089: Acquire cria uma sessão nova e nunca captura uma idle.
 		session, acquireErr := rc.sessionMgr.Acquire(ctx, workDir)
@@ -276,12 +277,12 @@ func (rc *RunCommand) Execute(ctx context.Context, args json.RawMessage) (tools.
 			return sessionStartFailure(decision, err), nil
 		}
 		sessionID = session.ID()
-		entry, err = rc.sessionMgr.RunCommand(ctx, sessionID, a.Command, timeout, "llm")
+		entry, err = rc.sessionMgr.RunCommandWithDisplay(ctx, sessionID, command, timeout, "llm")
 		// Sessão persistente permanece viva (idle) para uso interativo.
 		rc.sessionMgr.Release(sessionID)
 	} else {
 		// Execução efêmera por padrão: não cria aba persistente nem ocupa o limite.
-		entry, err = rc.sessionMgr.RunEphemeral(ctx, workDir, a.Command, timeout, "llm")
+		entry, err = rc.sessionMgr.RunEphemeralWithDisplay(ctx, workDir, command, timeout, "llm")
 		if errors.Is(err, terminal.ErrDirectoryUnresolved) {
 			return shellPrerequisiteFailure(ctx, "directory_unresolved", "Não foi possível resolver o diretório para autorização."), nil
 		}
@@ -291,7 +292,6 @@ func (rc *RunCommand) Execute(ctx context.Context, args json.RawMessage) (tools.
 		// sessionID permanece vazio — sem deep link para terminal inexistente.
 	}
 
-	metadataCommand := invocationctx.ShellCommandMetadata(ctx, a.Command)
 	if err != nil {
 		// Um prazo expirado pode entregar saída parcial. A duração da entrada
 		// reflete a execução mesmo quando o contexto pai venceu primeiro.
@@ -311,7 +311,7 @@ func (rc *RunCommand) Execute(ctx context.Context, args json.RawMessage) (tools.
 				Content: content,
 				Metadata: func() map[string]any {
 					m := map[string]any{
-						"command":   metadataCommand,
+						"command":   command.Display,
 						"workDir":   workDir,
 						"exitCode":  -1,
 						"timeout":   true,
@@ -339,7 +339,7 @@ func (rc *RunCommand) Execute(ctx context.Context, args json.RawMessage) (tools.
 
 		// Erro real (sem output ou sem timeout)
 		metadata := map[string]any{
-			"command":  metadataCommand,
+			"command":  command.Display,
 			"workDir":  workDir,
 			"exitCode": -1,
 		}
@@ -382,7 +382,7 @@ func (rc *RunCommand) Execute(ctx context.Context, args json.RawMessage) (tools.
 		Content: content,
 		Metadata: func() map[string]any {
 			m := map[string]any{
-				"command":   metadataCommand,
+				"command":   command.Display,
 				"workDir":   workDir,
 				"exitCode":  entry.ExitCode,
 				"duration":  entry.EndedAt.Sub(entry.StartedAt).String(),

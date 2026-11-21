@@ -171,14 +171,14 @@ func TestJobExecutor_RecordsToolInvocationForRun(t *testing.T) {
 
 type shellDispatchProbe struct {
 	shell.SessionManager
-	command    string
+	command    terminal.CommandText
 	calls      int
 	startupErr error
 	dispatches int
 	entry      *terminal.HistoryEntry
 }
 
-func (p *shellDispatchProbe) RunEphemeral(_ context.Context, _, command string, _ time.Duration, _ string) (*terminal.HistoryEntry, error) {
+func (p *shellDispatchProbe) RunEphemeralWithDisplay(_ context.Context, _ string, command terminal.CommandText, _ time.Duration, _ string) (*terminal.HistoryEntry, error) {
 	p.command = command
 	p.calls++
 	if p.calls == 1 && p.startupErr != nil {
@@ -453,7 +453,7 @@ func checkSecretCommandMetadata(t *testing.T, route string, inputs map[string]an
 		}
 		output = result.Output
 	}
-	if probe.calls != 1 || probe.command != expectedCommand {
+	if probe.calls != 1 || probe.command.Raw != expectedCommand || probe.command.Display != redactedValue {
 		t.Fatal("comando resolvido não chegou à execução")
 	}
 	records, err := repo.List(ctx, toolinvocations.Filter{Limit: 10})

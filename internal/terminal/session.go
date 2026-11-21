@@ -2,7 +2,6 @@ package terminal
 
 import (
 	"assistente/internal/logging"
-	"assistente/internal/tools/invocationctx"
 	"bytes"
 	"context"
 	"errors"
@@ -549,19 +548,24 @@ func (s *Session) finishCommand() {
 	s.commandPending = false
 }
 
-// O histórico e os eventos compartilham a projeção pública do comando.
-// O wrapper do PTY recebe o comando original, inclusive em sessões persistentes.
-func newCommandHistoryEntry(ctx context.Context, id, command, source string) *HistoryEntry {
-	return &HistoryEntry{ID: id, Command: invocationctx.ShellCommandMetadata(ctx, command), Source: source, StartedAt: time.Now()}
+// CommandText separa o texto enviado ao PTY da representação destinada aos
+// eventos e ao histórico. A autorização ocorre antes do despacho ao terminal.
+type CommandText struct {
+	Raw     string
+	Display string
+}
+
+func newCommandHistoryEntry(id, display, source string) *HistoryEntry {
+	return &HistoryEntry{ID: id, Command: display, Source: source, StartedAt: time.Now()}
 }
 
 // RunCommand executa um comando na sessão PTY e retorna o output.
 // O comando é envolvido com markers para detectar início/fim e exit code.
 func (s *Session) RunCommand(ctx context.Context, command string, timeout time.Duration, source, commandID string) (*HistoryEntry, error) {
-	return s.runCommandInDirectory(ctx, command, "", timeout, source, commandID, nil)
+	return s.runCommandInDirectory(ctx, CommandText{Raw: command, Display: command}, "", timeout, source, commandID, nil)
 }
 
-func (s *Session) runCommandInDirectory(ctx context.Context, command, directory string, timeout time.Duration, source, commandID string, onEnd func(*HistoryEntry, error)) (resultEntry *HistoryEntry, resultErr error) {
+func (s *Session) runCommandInDirectory(ctx context.Context, command CommandText, directory string, timeout time.Duration, source, commandID string, onEnd func(*HistoryEntry, error)) (resultEntry *HistoryEntry, resultErr error) {
 	var notifyExit func(string, error)
 	defer func() {
 		if onEnd != nil {
@@ -582,7 +586,7 @@ func (s *Session) runCommandInDirectory(ctx context.Context, command, directory 
 	}
 	s.managedCommandID = commandID
 	s.mu.Unlock()
-	entry := newCommandHistoryEntry(ctx, commandID, command, source)
+	entry := newCommandHistoryEntry(commandID, command.Display, source)
 	// Cria marker único para esta execução
 	marker := newCommandMarkerForShell(shellType(s.shell))
 
@@ -597,7 +601,7 @@ func (s *Session) runCommandInDirectory(ctx context.Context, command, directory 
 	}()
 
 	// Envia o comando wrapped com markers
-	wrappedCmd := marker.wrapCommandInDirectory(command, directory, shellType(s.shell))
+	wrappedCmd := marker.wrapCommandInDirectory(command.Raw, directory, shellType(s.shell))
 	// Windows ConPTY espera CR (\r) para simular Enter.
 	// Unix PTY espera LF (\n) para executar o comando.
 	enter := "\n"
