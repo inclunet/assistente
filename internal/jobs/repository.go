@@ -2675,22 +2675,12 @@ func invocationArguments(raw string) map[string]any {
 
 func invocationOutput(raw string) map[string]any {
 	result := toolinvocations.ExtractToolInvocationResult(raw)
-	output := make(map[string]any)
-	if strings.TrimSpace(result.Content) != "" {
-		if err := json.Unmarshal([]byte(result.Content), &output); err != nil {
-			var array []any
-			if json.Unmarshal([]byte(result.Content), &array) == nil {
-				output["content"] = array
-			} else {
-				output["content"] = result.Content
-			}
-		} else if output == nil {
-			output = map[string]any{"content": result.Content}
-		}
+	// O histórico omite conteúdo composto apenas por espaços, mesmo quando
+	// a execução o disponibilizou literalmente aos templates do job.
+	if strings.TrimSpace(result.Content) == "" {
+		result.Content = ""
 	}
-	for key, value := range result.Metadata {
-		output["_meta_"+key] = value
-	}
+	output := jobToolOutput(result, nil)
 	if len(output) == 0 {
 		return nil
 	}

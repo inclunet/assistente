@@ -86,7 +86,22 @@ Uma negativa expressa do usuário ou da política usa `shell_command_refused` e 
 
 Na falta de confirmação, o código é `shell_confirmation_unavailable`. Um argumento `working_directory` inválido recebe um diagnóstico de entrada que permite corrigir a chamada. Falhas de política, resolução do diretório do projeto ou consulta às concessões usam `shell_prerequisite_unavailable`, inclusive na releitura após uma aprovação. O diagnóstico registra a categoria da causa e o ID da chamada. Nesses casos, a base omite a linha e sua saída parcial, e a barra encerra a invocação.
 
-No desktop, o questionário entrega a resposta aceita antes do prazo conforme o [AEP-0091](0091-dialogos-de-decisao-unificados.md). O adaptador valida a ação oferecida e publica a recusa antes de `Respond` retornar. A aprovação ainda exige revalidação. Se ela terminar antes de vencer o prazo, a interrupção subsequente é classificada como cancelamento ou timeout da operação. O executor conserva o prazo do chamador. Depois de autorização pontual, lembrada ou pela política, uma falha operacional tem retry automático desabilitado, inclusive no intervalo entre a aprovação e o despacho ao terminal. O loop do agente e os jobs consomem essa classificação. Uma nova invocação explícita avalia a política e as concessões vigentes. Se o prazo expirar sem resposta, a confirmação fica indisponível e a ferramenta não tenta novamente.
+No desktop, o questionário entrega a resposta aceita antes do prazo conforme o
+[AEP-0091](0091-dialogos-de-decisao-unificados.md). O adaptador valida a ação oferecida
+e publica a recusa antes de `Respond` retornar. A aprovação ainda exige revalidação.
+Se o diálogo expirar sem resposta, a confirmação fica indisponível.
+
+O executor conserva o prazo do chamador. Após uma aprovação revalidada, uma interrupção
+é classificada como cancelamento ou timeout da operação. Se o prazo terminar entre a
+decisão e o envio, a tentativa termina sem abrir outra confirmação.
+
+O agente e os jobs podem repetir uma falha transitória de criação da sessão quando a
+política já permite a execução e o terminal confirma que o comando não foi enviado.
+Após uma confirmação pontual ou um possível despacho, a repetição exige uma nova chamada
+explícita, que reavalia a política e as concessões vigentes.
+
+Em jobs, uma falha ao mapear a saída encerra a tentativa mesmo se a ferramenta já tiver
+terminado com sucesso. O registro da invocação conserva o resultado da ferramenta.
 
 `TestPolicyUnavailableAfterApproval` cobre a releitura da política. `TestShellAuthorizerPublishesBeforeDecisionLog` cobre timeout entre a aprovação e o despacho. `TestJobDoesNotReplayAuthorizedShellCommand` verifica um único despacho e uma única invocação registrada mesmo quando o job permite retries. `TestJobDoesNotReplayShellAfterOutputSecretFailure` cobre a falha na transformação da saída do job depois que o shell concluiu o comando. `TestShellResponseAcceptedBeforeExecutorDeadline` cobre negativa, cancelamento, aprovação, ação inválida, opção não oferecida e resposta tardia.
 

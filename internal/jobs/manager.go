@@ -1402,28 +1402,9 @@ func (m *Manager) TestToolDryRunContext(parent context.Context, req TestToolRequ
 		}, nil
 	}
 
-	output := make(map[string]any)
-	if result.Content != "" {
-		if jsonErr := json.Unmarshal([]byte(result.Content), &output); jsonErr != nil {
-			var arr []any
-			if arrErr := json.Unmarshal([]byte(result.Content), &arr); arrErr == nil {
-				output["content"] = arr
-			} else {
-				output["content"] = result.Content
-			}
-		} else if output == nil {
-			output = map[string]any{"content": result.Content}
-		}
-	}
-	if result.Metadata != nil {
-		for k, v := range result.Metadata {
-			output["_meta_"+k] = v
-		}
-	}
-
 	return &TestToolResult{
 		Success:       true,
-		Output:        output,
+		Output:        jobToolOutput(result, nil),
 		Duration:      duration.String(),
 		Origin:        origin,
 		MCPServerID:   strings.TrimSpace(req.MCPServerID),
