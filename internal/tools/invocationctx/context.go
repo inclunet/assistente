@@ -1,6 +1,9 @@
 package invocationctx
 
-import "context"
+import (
+	"context"
+	"crypto/sha256"
+)
 
 // InvocationContext carrega informações sobre o contexto de onde a tool foi invocada.
 // É propagado via context.Context pelo agentic loop.
@@ -25,8 +28,10 @@ type workspaceKey struct{}
 type persistentShellKey struct{}
 type shellCommandMetadataKey struct{}
 type protectedShellCommand struct {
-	metadata string
-	prefix   string
+	metadata     string
+	prefix       string
+	template     string
+	resolvedHash [sha256.Size]byte
 }
 
 func ShellConsentPrefix(ctx context.Context) string {
@@ -43,7 +48,27 @@ func WithShellCommandMetadata(ctx context.Context, command string) context.Conte
 // WithProtectedShellCommand agrupa a representação do histórico e o primeiro
 // token literal do template, quando conhecido antes da resolução.
 func WithProtectedShellCommand(ctx context.Context, metadata, prefix string) context.Context {
-	return context.WithValue(ctx, shellCommandMetadataKey{}, protectedShellCommand{metadata, prefix})
+	return context.WithValue(ctx, shellCommandMetadataKey{}, protectedShellCommand{metadata: metadata, prefix: prefix})
+}
+
+// WithShellConsentTemplate vincula a fonte pública verificada ao despacho
+// que a resolveu. O questionário nunca recebe o valor resolvido nem seu hash.
+func WithShellConsentTemplate(ctx context.Context, source, resolved string) context.Context {
+	command, ok := ctx.Value(shellCommandMetadataKey{}).(protectedShellCommand)
+	if !ok {
+		return ctx
+	}
+	command.template, command.resolvedHash = source, sha256.Sum256([]byte(resolved))
+	return context.WithValue(ctx, shellCommandMetadataKey{}, command)
+}
+
+// ShellConsentTemplate retorna a fonte somente para o comando que a originou.
+func ShellConsentTemplate(ctx context.Context, resolved string) string {
+	command, _ := ctx.Value(shellCommandMetadataKey{}).(protectedShellCommand)
+	if command.template != "" && command.resolvedHash == sha256.Sum256([]byte(resolved)) {
+		return command.template
+	}
+	return ""
 }
 
 // LookupShellCommandMetadata informa se a chamada tem uma projeção pública explícita.

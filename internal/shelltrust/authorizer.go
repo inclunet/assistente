@@ -42,6 +42,7 @@ type PromptRequest struct {
 	PersistentTerminal bool
 	ProtectedCommand   bool
 	LiteralPrefix      string
+	PublicTemplate     string
 	Command            string
 	Directory          string
 	AvailableScopes    []authorization.Scope
@@ -174,6 +175,7 @@ func (a *Authorizer) Authorize(ctx context.Context, command, directory string) (
 		if protected {
 			// Nem o diretório resolvido tem proveniência pública garantida.
 			// Um trim do template pode colar o segredo ao token que o precede.
+			req.PublicTemplate = invocationctx.ShellConsentTemplate(ctx, command)
 			prefix := invocationctx.ShellConsentPrefix(ctx)
 			rest, matches := strings.CutPrefix(strings.TrimLeft(command, " \t"), prefix)
 			if prefix != "" && matches && (strings.HasPrefix(rest, " ") || strings.HasPrefix(rest, "\t")) {

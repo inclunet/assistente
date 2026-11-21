@@ -196,10 +196,13 @@ consecutivas e ausência de anúncios duplicados (AEP-0091).
 Para um comando de job marcado como protegido, a política avalia a operação
 resolvida. Quando exige consentimento, a pergunta informa que há um valor
 protegido e oferece apenas aprovação ou recusa desta execução. O questionário
-recebe somente a apresentação pública: o primeiro token literal do template
-pode identificar o início do comando se for inequívoco e continuar separado
-após a resolução. O diretório e as demais partes ficam ocultos. A mesma
-apresentação serve ao desktop, aos anúncios acessíveis e aos canais. A chamada
+pode receber o template original, sem avaliá-lo para exibição, quando uma única
+chave de comando o vincula à operação e sua fonte contém somente referências
+simples ao cofre e um nome literal de programa opcional. Em outras formas,
+apenas o primeiro token literal pode identificar a operação se continuar
+inequívoco e separado após a resolução. Variantes conflitantes da chave de
+comando ocultam ambas as apresentações. O valor resolvido e o diretório ficam
+ocultos no desktop, nos anúncios acessíveis e nos canais. A chamada
 não consulta nem cria uma concessão reutilizável a partir de valores do cofre.
 Se a política passar a negar a operação entre a aprovação e o despacho, o
 resultado e o registro da invocação atribuem o bloqueio à política. A recusa

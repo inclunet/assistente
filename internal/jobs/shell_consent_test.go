@@ -16,13 +16,16 @@ func TestShellConsentUsesOnlyLiteralTemplatePrefix(t *testing.T) {
 	const marker = "valor-sintetico-consentimento"
 	const template = `example {{ secret "token" }}`
 	for _, tc := range []struct {
-		name, prefix string
-		inputs       map[string]any
+		name, prefix, source string
+		inputs               map[string]any
 	}{
-		{"literal", "example", map[string]any{"Command": template}},
-		{"programa do cofre", "", map[string]any{"command": `{{ secret "token" }}`}},
-		{"token unido pelo template", "", map[string]any{"command": `example {{- secret "token" }}`}},
-		{"colisão", "", map[string]any{"COMMAND": "public", "command": template}},
+		{"literal", "example", template, map[string]any{"Command": template}},
+		{"programa do cofre", "", `{{ secret "token" }}`, map[string]any{"command": `{{ secret "token" }}`}},
+		{"token unido pelo template", "", "", map[string]any{"command": `example {{- secret "token" }}`}},
+		{"argumento literal privado", "example", "", map[string]any{"command": `example valor-particular {{ secret "token" }}`}},
+		{"expressão adicional", "example", "", map[string]any{"command": `example {{ print "privado" }} {{ secret "token" }}`}},
+		{"colisão inversa", "", "", map[string]any{"Command": template, "command": "public"}},
+		{"colisão", "", "", map[string]any{"COMMAND": "public", "command": template}},
 	} {
 		for _, route := range []string{"job", "dry-run"} {
 			t.Run(tc.name+"/"+route, func(t *testing.T) {
@@ -47,7 +50,7 @@ func TestShellConsentUsesOnlyLiteralTemplatePrefix(t *testing.T) {
 						t.Fatal("teste de ferramenta não concluiu")
 					}
 				}
-				if probe.calls != 1 || !prompt.ProtectedCommand || prompt.Command != "" || prompt.Directory != "" || prompt.LiteralPrefix != tc.prefix ||
+				if probe.calls != 1 || !prompt.ProtectedCommand || prompt.Command != "" || prompt.Directory != "" || prompt.LiteralPrefix != tc.prefix || prompt.PublicTemplate != tc.source ||
 					len(prompt.AvailableScopes) != 1 || prompt.AvailableScopes[0] != "once" {
 					t.Fatal("a apresentação, os escopos ou a execução do comando foram incorretos")
 				}

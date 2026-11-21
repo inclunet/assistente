@@ -14,6 +14,13 @@ const redactedValue = "[redacted]"
 // operação na pergunta. Nunca extraímos o programa do valor do cofre.
 var shellTemplatePrefix = regexp.MustCompile(`^[ \t]*([a-zA-Z][a-zA-Z0-9._-]{0,63})[ \t]+`)
 
+// Formas literais de origem verificável: programa opcional e referências
+// simples ao cofre. Argumentos livres, caminhos, comentários, pipelines e
+// outras expressões podem conter dados privados já no próprio template.
+const publicSecretAction = `\{\{[\t ]*secret[\t ]+"[A-Za-z_][A-Za-z0-9_-]{0,63}"[\t ]*\}\}`
+
+var publicShellTemplate = regexp.MustCompile(`^[\t ]*(?:[A-Za-z][A-Za-z0-9._-]{0,63}[\t ]+)?` + publicSecretAction + `(?:[\t ]+` + publicSecretAction + `)*[\t ]*$`)
+
 // RedactResolvedInputs keeps run history useful without persisting secrets
 // resolved from templates or values entered directly into sensitive fields.
 func RedactResolvedInputs(original, resolved map[string]any) map[string]any {
@@ -29,7 +36,7 @@ func RedactResolvedInputs(original, resolved map[string]any) map[string]any {
 
 // O shell ecoa o comando nos metadados. Propague a redação antes que ele
 // produza o resultado, inclusive para saídas parciais ou armazenadas à parte.
-func withRedactedCommandMetadata(ctx context.Context, original, persisted map[string]any) context.Context {
+func withRedactedCommandMetadata(ctx context.Context, original, resolved, persisted map[string]any) context.Context {
 	// encoding/json aceita variantes de caixa nas chaves de uma struct. Se
 	// houver mais de uma, qualquer uma redigida deve proteger os metadados.
 	matches := 0
@@ -42,14 +49,19 @@ func withRedactedCommandMetadata(ctx context.Context, original, persisted map[st
 			}
 		}
 	}
-	if protectedKey != "" {
-		var prefix string
-		if template, ok := original[protectedKey].(string); ok && matches == 1 && containsSecretTemplate(template) {
-			if match := shellTemplatePrefix.FindStringSubmatch(template); match != nil {
-				prefix = match[1]
-			}
+	if protectedKey == "" {
+		return ctx
+	}
+	template, _ := original[protectedKey].(string)
+	var prefix string
+	if matches == 1 && containsSecretTemplate(template) {
+		if match := shellTemplatePrefix.FindStringSubmatch(template); match != nil {
+			prefix = match[1]
 		}
-		return invocationctx.WithProtectedShellCommand(ctx, redactedValue, prefix)
+	}
+	ctx = invocationctx.WithProtectedShellCommand(ctx, redactedValue, prefix)
+	if command, ok := resolved[protectedKey].(string); ok && matches == 1 && publicShellTemplate.MatchString(template) {
+		return invocationctx.WithShellConsentTemplate(ctx, template, command)
 	}
 	return ctx
 }

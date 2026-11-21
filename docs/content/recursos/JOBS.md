@@ -101,10 +101,19 @@ O histórico do terminal persistente e o contexto que você envia dele ao chat
 também usam esse comando redigido. O programa recebe o valor resolvido e o
 texto que ele imprimir em sua própria saída continua visível.
 
-Jobs autônomos não têm interlocutor. Se a política exigir confirmação, a
-tentativa termina sem executar o comando nem abrir uma pergunta no desktop ou
-em um canal. O teste de ferramenta do catálogo também precisa de uma política
-que permita o comando quando não houver conversa associada.
+Jobs autônomos e o teste manual de ferramenta do catálogo não têm interlocutor,
+mesmo com uma conversa aberta no aplicativo. Se o comando depender de uma
+nova confirmação, a tentativa termina antes da execução. Um comando comum
+pode prosseguir quando a política o permite ou existe uma concessão válida.
+A opção de testar ferramentas com efeitos não concede autorização de shell.
+
+Quando uma chamada traz a origem de uma conversa e precisa de consentimento,
+a pergunta chega ao desktop ou ao canal dessa conversa. Para comandos
+protegidos, a decisão vale apenas para aquela execução. A pergunta pode mostrar
+o template original, por exemplo `example {{ secret "token" }}`, se ele contiver
+apenas referências simples ao cofre e, opcionalmente, o nome literal do
+programa. Quando houver outros dados, ela mostra no máximo o nome verificável
+do programa. O valor resolvido e o diretório ficam ocultos.
 
 Eventos não ficam em fila. Quando nenhum consumidor está habilitado — porque o
 job ou a pipeline consumidora foi desativado — o evento é descartado e não

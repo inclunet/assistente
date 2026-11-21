@@ -1359,7 +1359,7 @@ func (m *Manager) TestToolDryRunContext(parent context.Context, req TestToolRequ
 	if m.cfg.ToolInvocations == nil {
 		return nil, errors.New("tool invocation ledger not configured")
 	}
-	ctx = withRedactedCommandMetadata(ctx, req.Inputs, persistedInputs)
+	ctx = withRedactedCommandMetadata(ctx, req.Inputs, inputs, persistedInputs)
 	exec := m.cfg.ToolInvocations.Execute(ctx, toolinvocations.ExecuteRequest{
 		Call: tools.ToolCall{
 			ID:   fmt.Sprintf("tool_catalog_%d", time.Now().UnixNano()),
