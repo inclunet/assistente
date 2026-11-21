@@ -199,6 +199,12 @@ Pendente ou parcial:
 - um terminal visual completo pode regredir acessibilidade se substituir o
   transcript navegável.
 
+### Resultado de comandos no PTY
+
+A sessão acompanha os marcadores e entrega a saída enquanto o processo escreve. Se o comando encerra o próprio shell, a sessão recupera o status do processo após observar o início e drenar a leitura. Cancelamento, falha do leitor e fechamento explícito preservam a causa e a saída parcial disponível. O PowerShell preserva o status da última operação também em retornos antecipados.
+
+`TestBashExitBeforeEndMarker` e `TestExplicitCloseAfterStartDoesNotCompleteCommand` exercitam os dois tipos de encerramento. `TestPowerShellReturnInPersistentSession` compara a saída do histórico e os eventos durante a execução. `BenchmarkMarkerStreamScale` mede o custo das entregas sucessivas em tamanhos crescentes.
+
 ## Critérios de aceitação
 
 - [x] Uma conversa pode criar e usar mais de um terminal pelas tools explícitas.

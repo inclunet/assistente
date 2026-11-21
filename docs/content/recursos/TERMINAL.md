@@ -35,6 +35,8 @@ O timeout pode ser configurado em cada chamada da ferramenta. Quando ele é
 atingido, o Assistente envia `Ctrl+C`, aguarda e drena a saída restante e só
 então encerra uma sessão efêmera, evitando perder as últimas linhas do comando.
 
+Se um comando encerrar o próprio shell, o histórico registra o código devolvido pelo processo e a saída disponível. Fechar a sessão manualmente durante um comando interrompe a espera e indica que ele não terminou normalmente.
+
 ## Histórico de Comandos
 
 Cada entrada no histórico registra:
