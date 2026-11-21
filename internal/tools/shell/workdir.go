@@ -48,6 +48,8 @@ func resolveProjectWorkDir(projectRoot, requested string) (string, error) {
 	return canonicalTarget, nil
 }
 
+// Resolver a raiz e o destino existentes antes de compará-los também normaliza
+// os aliases de nomes curtos (8.3) no Windows.
 func existingDirectoryPath(path string) (string, error) {
 	resolved, err := terminal.ResolveDirectoryPath(path)
 	if err != nil {

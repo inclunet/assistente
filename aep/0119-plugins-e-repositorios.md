@@ -112,7 +112,11 @@ terminado com sucesso. O registro da invocação conserva o resultado da ferrame
 
 `TestRunCommandValidatesExistingWorkDirBeforeAuthorization` verifica a distinção entre raiz indisponível e destino inválido nas execuções efêmera e persistente, inclusive quando a chamada omite o diretório. `TestRunCommandRevalidatesDefaultRootAfterConsent` verifica a substituição da raiz por um arquivo durante a confirmação. `TestExplicitTerminalConfirmationUsesSessionCWD` cobre o uso de uma sessão existente após a remoção da raiz do projeto.
 
-`TestPolicyUnavailableAfterApproval` cobre a releitura da política. `TestShellAuthorizerPublishesBeforeDecisionLog` cobre timeout entre a aprovação e o despacho. `TestJobDoesNotReplayAuthorizedShellCommand` verifica um único despacho e uma única invocação registrada mesmo quando o job permite retries. `TestJobDoesNotReplayShellAfterOutputSecretFailure` cobre a falha na transformação da saída do job depois que o shell concluiu o comando. `TestShellResponseAcceptedBeforeExecutorDeadline` cobre negativa, cancelamento, aprovação, ação inválida, opção não oferecida e resposta tardia.
+- `TestPolicyUnavailableAfterApproval` cobre a releitura da política.
+- `TestShellAuthorizerPublishesBeforeDecisionLog` cobre o prazo entre aprovação e despacho.
+- `TestJobDoesNotReplayAuthorizedShellCommand` verifica um único despacho e um único registro, mesmo quando o job permite novas tentativas.
+- `TestJobDoesNotReplayShellAfterOutputSecretFailure` cobre a falha no mapeamento da saída após a conclusão do comando.
+- `TestShellResponseAcceptedBeforeExecutorDeadline` cobre recusa, cancelamento, aprovação, ação inválida, opção não oferecida e resposta tardia.
 
 Os testes `TestBaseSkillOperationalErrorsOmitOnlyCommandLine`, `TestBaseRefusalPrecedesSlashCommand` e `TestSkillCommandInAdmittedTurn` cobrem essas decisões.
 
