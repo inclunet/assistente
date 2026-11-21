@@ -14,9 +14,6 @@ var errProjectDirectoryUnresolved = errors.New("não foi possível resolver o di
 
 func resolveProjectWorkDir(projectRoot, requested string) (string, error) {
 	requested = strings.TrimSpace(requested)
-	if requested == "" {
-		return projectRoot, nil
-	}
 	if strings.IndexByte(requested, 0) >= 0 {
 		return "", errors.New("o caminho contém um caractere NUL")
 	}
@@ -31,6 +28,9 @@ func resolveProjectWorkDir(projectRoot, requested string) (string, error) {
 	canonicalRoot, err := existingDirectoryPath(root)
 	if err != nil {
 		return "", fmt.Errorf("%w: %w", errProjectDirectoryUnresolved, directoryDiagnostic(err))
+	}
+	if requested == "" || requested == "." {
+		return canonicalRoot, nil
 	}
 	target := filepath.Join(root, filepath.Clean(requested))
 	canonicalTarget, err := existingDirectoryPath(target)
@@ -79,45 +79,6 @@ func directoryDiagnostic(err error) error {
 		return errors.New("o caminho contém um componente inválido")
 	default:
 		return errors.New("não foi possível resolver o caminho informado")
-	}
-}
-
-// canonicalizeProjectPath resolves the existing portion of a path and then
-// appends any non-existing suffix. EvalSymlinks cannot resolve a target that
-// has not been created yet; using its lexical spelling in that case can mix a
-// canonical long Windows path with an 8.3 alias from the other operand.
-func canonicalizeProjectPath(path string) (string, error) {
-	absolute, err := filepath.Abs(path)
-	if err != nil {
-		return "", err
-	}
-
-	missing := make([]string, 0, 2)
-	current := filepath.Clean(absolute)
-	for {
-		resolved, resolveErr := terminal.ResolveDirectoryPath(current)
-		if resolveErr == nil {
-			for i := len(missing) - 1; i >= 0; i-- {
-				resolved = filepath.Join(resolved, missing[i])
-			}
-			return resolved, nil
-		}
-		if !os.IsNotExist(resolveErr) {
-			return "", resolveErr
-		}
-		if info, lstatErr := os.Lstat(current); lstatErr == nil {
-			if info.Mode()&os.ModeSymlink != 0 {
-				return "", fmt.Errorf("não foi possível resolver symlink em working_directory: %w", resolveErr)
-			}
-		} else if !os.IsNotExist(lstatErr) {
-			return "", lstatErr
-		}
-		parent := filepath.Dir(current)
-		if parent == current {
-			return "", resolveErr
-		}
-		missing = append(missing, filepath.Base(current))
-		current = parent
 	}
 }
 

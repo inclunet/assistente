@@ -183,7 +183,7 @@ func (rc *RunCommand) Execute(ctx context.Context, args json.RawMessage) (tools.
 			}, nil
 		}
 		workDir = info.CWD
-	} else if a.WorkingDirectory != "" {
+	} else {
 		resolvedWorkDir, resolveErr := resolveProjectWorkDir(rc.workDir, a.WorkingDirectory)
 		if errors.Is(resolveErr, errProjectDirectoryUnresolved) {
 			return shellPrerequisiteFailure(ctx, "directory_unresolved", "Não foi possível resolver o diretório para autorização."), nil
@@ -239,14 +239,6 @@ func (rc *RunCommand) Execute(ctx context.Context, args json.RawMessage) (tools.
 		return denied, nil
 	}
 	logPolicyDecision(ctx, nil, commandSummary, policyResult)
-	originalWorkDir := workDir
-	if decision == allowlist.DecisionConfirm && !a.Persistent && a.TerminalID == "" {
-		resolved, err := canonicalizeProjectPath(workDir)
-		if err != nil {
-			return shellPrerequisiteFailure(ctx, "directory_unresolved", "Não foi possível resolver o diretório para autorização."), nil
-		}
-		workDir = resolved
-	}
 
 	if decision == allowlist.DecisionConfirm {
 		if rc.confirmFn == nil {
@@ -260,10 +252,9 @@ func (rc *RunCommand) Execute(ctx context.Context, args json.RawMessage) (tools.
 		}
 	}
 
-	if decision == allowlist.DecisionConfirm && !a.Persistent && a.TerminalID == "" {
-		current, err := canonicalizeProjectPath(originalWorkDir)
-		target, targetErr := canonicalizeProjectPath(workDir)
-		if err != nil || targetErr != nil || current != workDir || target != workDir {
+	if decision == allowlist.DecisionConfirm && a.TerminalID == "" {
+		current, err := resolveProjectWorkDir(rc.workDir, a.WorkingDirectory)
+		if err != nil || current != workDir {
 			return shellPrerequisiteFailure(ctx, "directory_changed", "O diretório mudou durante a autorização."), nil
 		}
 	}

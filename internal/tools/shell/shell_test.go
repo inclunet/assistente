@@ -449,7 +449,8 @@ func TestExplicitTerminalConfirmationUsesSessionCWD(t *testing.T) {
 		confirmedCWD = workDir
 		return false, nil
 	}
-	rc := NewRunCommand(mgr, confirmFn, func(context.Context) (*allowlist.Allowlist, error) { return al, nil }, ".")
+	missingRoot := filepath.Join(t.TempDir(), "projeto-removido")
+	rc := NewRunCommand(mgr, confirmFn, func(context.Context) (*allowlist.Allowlist, error) { return al, nil }, missingRoot)
 
 	result, err := rc.Execute(context.Background(), json.RawMessage(
 		`{"command":"echo ok","terminal_id":"term-explicit"}`,
