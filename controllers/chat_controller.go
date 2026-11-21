@@ -35,7 +35,7 @@ type ChatControllerConfig struct {
 	ConvRepo          chat.ConversationRepository
 	MsgGateway        *messaging.Gateway
 	ResponseNotifier  *messaging.ResponseNotifier
-	OnSpeechRequest   func(conversationID string, messageID string, role, text, origin, profileSlug string, interrupt bool)
+	OnSpeechRequest   func(ctx context.Context, conversationID string, messageID string, role, text, origin, profileSlug string, interrupt bool)
 	OpenEditorPaths   func() []string
 	WorkspacePath     func() string
 }

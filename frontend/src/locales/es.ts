@@ -173,7 +173,6 @@ notSaved: 'La decisión vale solo para esta operación: no se pudo recordar. Ser
       builderError: 'No se pudo preparar o guardar el paquete. Compruebe los identificadores y revise los recursos seleccionados.',
       profile: 'Perfil de conversación',
       invalidProfile: 'Definición de perfil no válida. Comprueba el archivo JSON indicado por el paquete.',
-      profileActivationPending: 'La activación de este perfil de plugin sigue en desarrollo.',
       tasklistTemplate: 'Plantilla de lista de tareas',
       createList: 'Crear una lista a partir de {{name}}',
       createdList: 'Se creó {{name}}. Está disponible en Listas de tareas.',

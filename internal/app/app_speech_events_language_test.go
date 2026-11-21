@@ -1,6 +1,12 @@
 package app
 
 import (
+	"assistente/internal/database"
+	"assistente/internal/plugins"
+	"assistente/internal/sqlite"
+	"gorm.io/gorm"
+	"path/filepath"
+
 	"os"
 	"strings"
 	"testing"
@@ -68,7 +74,7 @@ func TestDispatchSpeechEventLocalizesCodeBlockLabel(t *testing.T) {
 			emitter := &testEmitter{}
 			app := &App{profileManager: pm, emitter: emitter}
 
-			event, err := app.dispatchSpeechEvent(ChatSpeakRequest{
+			event, err := app.dispatchSpeechEvent(t.Context(), ChatSpeakRequest{
 				ConversationID: "1",
 				ProfileSlug:    slug,
 				Role:           "assistant",
@@ -101,7 +107,7 @@ func TestDispatchSpeechEventIgnoresEmptyText(t *testing.T) {
 	emitter := &testEmitter{}
 	app := &App{profileManager: pm, emitter: emitter}
 
-	event, err := app.dispatchSpeechEvent(ChatSpeakRequest{
+	event, err := app.dispatchSpeechEvent(t.Context(), ChatSpeakRequest{
 		ConversationID: "1",
 		Role:           "assistant",
 		Text:           "   ",
@@ -114,5 +120,40 @@ func TestDispatchSpeechEventIgnoresEmptyText(t *testing.T) {
 	}
 	if emitter.count() != 0 {
 		t.Fatalf("esperava nenhum evento emitido, obteve %d", emitter.count())
+	}
+}
+
+func TestDispatchSpeechResolvesPluginProfileForSpeaker(t *testing.T) {
+	manager := setupSpeechProfileEnv(t)
+	db, err := gorm.Open(sqlite.Open(filepath.Join(t.TempDir(), "speech.db")), &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	conn, err := db.DB()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = conn.Close() })
+	if err := db.AutoMigrate(&database.PluginInstallation{}, &database.PluginProfileActivation{}); err != nil {
+		t.Fatal(err)
+	}
+	install := database.PluginInstallation{UserID: "alice", Origin: "local", Name: "speak", Digest: "v1"}
+	if err := db.Create(&install).Error; err != nil {
+		t.Fatal(err)
+	}
+	row := database.PluginProfileActivation{InstallationID: install.ID, ComponentKey: "profiles/speak", Digest: "v1", Slug: "plugin--speaker", Definition: []byte(`{"name":"Speaker"}`)}
+	if err := db.Create(&row).Error; err != nil {
+		t.Fatal(err)
+	}
+	manager.SetPluginSource(plugins.NewInventory(db))
+	emitter := &testEmitter{}
+	app := &App{profileManager: manager, emitter: emitter}
+	req := ChatSpeakRequest{ConversationID: "conv", Role: "assistant", Text: "Hello", ProfileSlug: row.Slug}
+	if _, err := app.dispatchSpeechEvent(database.WithUserID(t.Context(), "bob"), req); err == nil {
+		t.Fatal("foreign profile")
+	}
+	event, err := app.dispatchSpeechEvent(database.WithUserID(t.Context(), "alice"), req)
+	if err != nil || event == nil || len(emitter.find("chat:speak")) != 1 {
+		t.Fatal(event, err)
 	}
 }

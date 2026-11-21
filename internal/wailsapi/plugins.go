@@ -235,6 +235,12 @@ func (api *Plugins) mutateComponent(apply func(context.Context, *plugins.Invento
 	return err
 }
 
+func (api *Plugins) SetProfileActive(id, digest, key string, active bool) error {
+	return api.withRepositorySession(func(ctx context.Context, inventory *plugins.Inventory, _ func() (string, error), admit commandsecurity.Admission) error {
+		return inventory.SetProfileActive(ctx, id, digest, key, active, admit)
+	})
+}
+
 func (api *Plugins) SetSkillActive(id, digest, key string, active bool) error {
 	return api.mutateComponent(func(ctx context.Context, i *plugins.Inventory) error {
 		return i.SetSkillActive(ctx, id, digest, key, active)

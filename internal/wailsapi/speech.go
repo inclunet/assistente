@@ -12,7 +12,7 @@ import (
 // SpeechDispatcher resolve DispatchSpeech via helpers do *App (perfil, strip,
 // emit chat:speak). Implementado pelo App via adapter privado — não entra no Bind.
 type SpeechDispatcher interface {
-	DispatchSpeech(req apidto.ChatSpeakRequest) error
+	DispatchSpeech(ctx context.Context, req apidto.ChatSpeakRequest) error
 }
 
 // Speech é o bind Wails do domínio speech / TTS/STT (AEP-0088).
@@ -282,7 +282,7 @@ func (api *Speech) DispatchSpeech(req apidto.ChatSpeakRequest) error {
 		return err
 	}
 	_, err = WithUser(session, func(ctx context.Context) (struct{}, error) {
-		return struct{}{}, dispatcher.DispatchSpeech(req)
+		return struct{}{}, dispatcher.DispatchSpeech(ctx, req)
 	})
 	return err
 }

@@ -474,7 +474,7 @@ func TestAgenticLoopRunner_FinishLimitReachedFalaOAviso(t *testing.T) {
 	svc := newTestAgentService(ServiceConfig{
 		Emitter: em,
 		MsgRepo: &mockMsgRepo{},
-		OnSpeechRequest: func(convID, msgID string, role, text, origin, profileSlug string, interrupt bool) {
+		OnSpeechRequest: func(_ context.Context, convID, msgID string, role, text, origin, profileSlug string, interrupt bool) {
 			speechAtEventCount = len(em.find("chat:done"))
 			calls = append(calls, speechCall{convID, msgID, role, text, origin, profileSlug, interrupt})
 		},

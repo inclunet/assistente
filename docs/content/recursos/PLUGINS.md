@@ -57,7 +57,7 @@ Abra os detalhes de um plugin instalado que forneça um modelo de lista de taref
 
 ## Conferir perfis incluídos no pacote
 
-A prévia e os detalhes identificam os perfis de conversa fornecidos pelo plugin. Nesta versão, você pode conferir o nome do perfil e saber se a definição é compatível. A ativação para uso em conversas ainda está em desenvolvimento.
+A prévia e os detalhes identificam os perfis de conversa fornecidos pelo plugin. Nos detalhes do plugin instalado, escolha **Ativar** no perfil desejado. Abra o seletor **Perfil** na barra da conversa e escolha seu nome. O perfil usa o provedor padrão, com as preferências de geração incluídas no pacote e ferramentas e skills desabilitadas. A ativação vale para sua conta. Se o plugin for atualizado, desativado ou removido, a aba que usava o perfil precisará de uma nova seleção.
 
 ## Gerar um pacote com o builder
 

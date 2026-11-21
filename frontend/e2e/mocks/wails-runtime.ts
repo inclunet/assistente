@@ -556,6 +556,7 @@ export function buildWailsMockScript(): string {
     GetActiveProfile: defaultProfile,
     GetActiveProfileSlug: 'default',
     GetProfiles: [defaultProfile],
+    GetConversationProfiles: [defaultProfile],
     GetProfile: defaultProfile,
     SetActiveProfile: undefined,
 

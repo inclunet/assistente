@@ -388,7 +388,7 @@ func (a *App) initToolRegistry() {
 		if slug == "" {
 			return a.allowlistMgr.Get(ctx, "padrao")
 		}
-		profile, err := a.profileManager.Get(slug)
+		profile, err := a.profileManager.GetForContext(ctx, slug)
 		if err != nil {
 			return nil, err
 		}

@@ -121,7 +121,10 @@ func (c *SkillsController) GetUserInvocableSkillsForProfile(ctx context.Context,
 		profileSlug = strings.TrimSpace(profileSlug)
 		var profile *profiles.Profile
 		if profileSlug != "" {
-			profile, err = c.profileMgr.Get(profileSlug)
+			profile, err = c.profileMgr.GetForContext(ctx, profileSlug)
+			if err != nil && profiles.IsPluginProfile(profileSlug) {
+				return nil, err
+			}
 			if err != nil {
 				profile, err = c.profileMgr.GetActive()
 				if err != nil {

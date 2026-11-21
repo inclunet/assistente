@@ -217,7 +217,7 @@ func TestSaveAndFinish_FinalizeFailureIsTerminalAndRecoverable(t *testing.T) {
 		MsgRepo:          repo,
 		ResponseNotifier: notifier,
 		TriggerSummarize: func(context.Context, string, string, int) { summarizeCalls++ },
-		OnSpeechRequest:  func(string, string, string, string, string, string, bool) { speechCalls++ },
+		OnSpeechRequest:  func(context.Context, string, string, string, string, string, string, bool) { speechCalls++ },
 	})
 
 	svc.SaveAndFinish(context.Background(), "conv-1", "turn-1", "assistant-1", AgenticResult{

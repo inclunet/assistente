@@ -3,11 +3,13 @@ import { describe, expect, it, vi } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { ProfilePicker } from './ProfilePicker';
 
+const getConversationProfilesSpy = vi.fn();
 const getProfilesSpy = vi.fn();
 const getActiveSpy = vi.fn();
 const setActiveSpy = vi.fn();
 
 vi.mock('@wailsjs/go/wailsapi/Profiles', () => ({
+  GetConversationProfiles: () => getConversationProfilesSpy(),
   GetProfiles: () => getProfilesSpy(),
   GetActiveProfileSlug: () => getActiveSpy(),
   SetActiveProfile: (slug: string) => setActiveSpy(slug),
@@ -41,6 +43,15 @@ vi.mock('./BasePicker', () => ({
 }));
 
 describe('ProfilePicker', () => {
+  it('seleciona um perfil instalado somente para a conversa', async () => {
+    getConversationProfilesSpy.mockResolvedValueOnce([{ name: 'Writer', slug: 'plugin--writer', source: 'plugin' }]);
+    const change = vi.fn();
+    render(<ProfilePicker includePluginProfiles value="" onChange={change} />);
+    fireEvent.click(await screen.findByRole('button', {name: 'Selecionar-plugin--writer'}));
+    expect(change).toHaveBeenCalledWith('plugin--writer');
+    expect(setActiveSpy).not.toHaveBeenCalled();
+  });
+
   it('dispara onChange no modo controlado', async () => {
     getProfilesSpy.mockResolvedValueOnce([
       { name: 'Padrao', slug: 'padrao', description: '', icon: '', source: 'local' },

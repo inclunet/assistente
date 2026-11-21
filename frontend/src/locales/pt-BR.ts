@@ -174,7 +174,6 @@ notSaved: 'A decisão vale somente para esta operação: não foi possível lemb
       builderError: 'Não foi possível preparar ou salvar o pacote. Confira os identificadores e revise os recursos selecionados.',
       profile: 'Perfil de conversa',
       invalidProfile: 'Definição de perfil inválida. Confira o arquivo JSON indicado pelo pacote.',
-      profileActivationPending: 'A ativação deste perfil de plugin ainda está em desenvolvimento.',
       tasklistTemplate: 'Modelo de lista de tarefas',
       createList: 'Criar lista a partir de {{name}}',
       createdList: 'Lista {{name}} criada. Ela está disponível em Listas de tarefas.',

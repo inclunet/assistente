@@ -53,6 +53,15 @@ func (p *Profiles) GetProfiles() ([]profiles.ProfileInfo, error) {
 	})
 }
 
+// GetConversationProfiles includes account-owned profiles usable by a conversation.
+func (p *Profiles) GetConversationProfiles() ([]profiles.ProfileInfo, error) {
+	session, ctrl, err := p.deps()
+	if err != nil {
+		return nil, err
+	}
+	return WithUser(session, ctrl.GetProfilesForContext)
+}
+
 // GetProfile retorna um perfil pelo slug.
 func (p *Profiles) GetProfile(slug string) (*profiles.Profile, error) {
 	session, ctrl, err := p.deps()
@@ -60,7 +69,7 @@ func (p *Profiles) GetProfile(slug string) (*profiles.Profile, error) {
 		return nil, err
 	}
 	return WithUser(session, func(ctx context.Context) (*profiles.Profile, error) {
-		return ctrl.GetProfile(slug)
+		return ctrl.GetProfileForContext(ctx, slug)
 	})
 }
 

@@ -32,6 +32,14 @@ type PluginSkillActivation struct {
 	Definition     string `gorm:"not null" json:"-"`
 }
 
+type PluginProfileActivation struct {
+	InstallationID string `gorm:"primaryKey"`
+	ComponentKey   string `gorm:"primaryKey"`
+	Digest         string `gorm:"not null"`
+	Slug           string `gorm:"uniqueIndex;not null"`
+	Definition     []byte `gorm:"not null" json:"-"`
+}
+
 type PluginMCPBinding struct {
 	InstallationID string `gorm:"primaryKey"`
 	ComponentKey   string `gorm:"primaryKey"`
