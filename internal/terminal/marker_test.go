@@ -334,6 +334,38 @@ func TestWrapCommandBashOutputWithoutFinalNewline(t *testing.T) {
 	}
 }
 
+func TestPOSIXMarkersCancelOpenControlsAcrossReads(t *testing.T) {
+	sh, err := exec.LookPath("sh")
+	if err != nil {
+		t.Skip("shell POSIX indisponível")
+	}
+	m := newCommandMarkerForShell("bash")
+	command := `printf 'antes\033Pdados\n'; (exit 7)`
+	out, err := exec.Command(sh, "-c", m.wrapCommandInDirectory(command, "", "sh")).Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	// O primeiro controle pertence ao prompt, o segundo ao comando. Use aqui
+	// os bytes que o shell emite para as duas marcas, inclusive os CAN.
+	raw := "\x1bPpendente\n" + string(out)
+	for cut := 0; cut <= len(raw); cut++ {
+		stream := newMarkerStream(m)
+		var emitted strings.Builder
+		var result ParseResult
+		for _, part := range []string{raw[:cut], raw[cut:]} {
+			var delta []byte
+			delta, result = stream.append(part)
+			emitted.Write(delta)
+			if result.Found {
+				break
+			}
+		}
+		if !result.Found || result.ExitCode != 7 || result.Output != "antes" || emitted.String() != "antes" {
+			t.Fatalf("corte=%d resultado=%+v streaming=%q", cut, result, emitted.String())
+		}
+	}
+}
+
 func TestPOSIXFooterSurvivesCommentsAndSyntaxErrors(t *testing.T) {
 	sh, err := exec.LookPath("sh")
 	if err != nil {

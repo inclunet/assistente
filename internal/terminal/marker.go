@@ -74,11 +74,12 @@ func (m *CommandMarker) wrapPOSIX(command, directory, shellType string) string {
 	}
 	body := posixCommandInDirectory(command, directory, prefix)
 
-	// printf em vez de echo para evitar problemas com \n
+	// CAN cancela qualquer controle VT aberto antes das marcas, inclusive DCS
+	// multilinha. O shell emite o byte ao executar printf, depois do eco.
 	// A quebra inicial separa o marker de prompts sem newline (por exemplo sh),
 	// inclusive quando o comando foi enviado antes de o shell exibir o prompt.
 	return fmt.Sprintf(
-		"printf '\\n%%s\\n' '%s'; %s eval %s; printf '\\n%%s%%s%s\\n' '%s' $?",
+		"printf '\\030\\n%%s\\n' '%s'; %s eval %s; printf '\\030\\n%%s%%s%s\\n' '%s' $?",
 		m.startTag, prefix, quotePOSIXScript(body), markerStatusTerminator, m.endTag,
 	)
 }
@@ -124,8 +125,8 @@ func selectPowerShellPreparation(command string) powerShellPreparation {
 func (m *CommandMarker) wrapPowerShell(command, directory string) string {
 	// O ConPTY pode colar a saída ao eco ou redesenhar o comando anterior.
 	// Só o shell concatena os fragmentos: o eco nunca contém as tags deste comando.
-	start := fmt.Sprintf("Write-Host ([Environment]::NewLine + '%s' + '%s')", markerStart, m.id+markerSuffix)
-	end := fmt.Sprintf("('%s' + '%s')", markerEnd, m.id+markerSuffix)
+	start := fmt.Sprintf("Write-Host ([string][char]24 + [Environment]::NewLine + '%s' + '%s')", markerStart, m.id+markerSuffix)
+	end := fmt.Sprintf("([string][char]24 + '%s' + '%s')", markerEnd, m.id+markerSuffix)
 	// Na falha, o próprio scriptblock compilado identifica o pipeline final e
 	// a origem de um NativeCommandError. O caminho de sucesso só lê $?.
 	code := "$__asstCode" + m.id

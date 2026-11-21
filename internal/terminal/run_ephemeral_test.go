@@ -559,3 +559,43 @@ func TestPowerShellReturnInPersistentSession(t *testing.T) {
 		}
 	}
 }
+
+func TestPersistentShellFooterAfterUnterminatedDCS(t *testing.T) {
+	cfg := DefaultManagerConfig()
+	cfg.DefaultShell = "bash"
+	first := "printf '\\033Pdados\\n'"
+	failed := "printf 'antes\\033Pdados\\n'; (exit 7)"
+	valid := "printf 'a\\033P0|dados\\ncontinua\\033\\\\b'"
+	if runtime.GOOS == "windows" {
+		cfg.DefaultShell = "powershell.exe"
+		first = "[Console]::Write(([string][char]27 + 'Pdados' + [Environment]::NewLine))"
+		failed = "[Console]::Write(('antes' + [char]27 + 'Pdados' + [Environment]::NewLine)); cmd /c exit 7"
+		valid = "[Console]::Write(('a' + [char]27 + 'P0|dados' + [Environment]::NewLine + 'continua' + [char]27 + '\\b'))"
+	}
+	var streamed strings.Builder
+	m := NewManager(cfg, func(event string, data any) {
+		if payload, ok := data.(map[string]string); event == "terminal:command_output" && ok {
+			streamed.WriteString(payload["output"])
+		}
+	})
+	s, err := m.Create("dcs", t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(m.CloseAll)
+	for _, tc := range []struct {
+		command, want string
+		status        int
+	}{
+		{first, "", 0},
+		{failed, "antes", 7},
+		{valid, "ab", 0},
+		{"echo ok", "ok", 0},
+	} {
+		streamed.Reset()
+		entry, err := m.RunCommand(t.Context(), s.ID(), tc.command, 8*time.Second, "test")
+		if err != nil || entry == nil || entry.Output != tc.want || entry.ExitCode != tc.status || streamed.String() != tc.want {
+			t.Fatalf("comando=%q entrada=%+v streaming=%q erro=%v", tc.command, entry, streamed.String(), err)
+		}
+	}
+}
