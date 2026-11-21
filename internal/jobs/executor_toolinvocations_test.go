@@ -166,10 +166,14 @@ func TestJobExecutor_RecordsToolInvocationForRun(t *testing.T) {
 type shellDispatchProbe struct {
 	shell.SessionManager
 	calls int
+	entry *terminal.HistoryEntry
 }
 
 func (p *shellDispatchProbe) RunEphemeral(context.Context, string, string, time.Duration, string) (*terminal.HistoryEntry, error) {
 	p.calls++
+	if p.entry != nil {
+		return p.entry, nil
+	}
 	return nil, errors.New("resultado do comando indisponível após o despacho")
 }
 
@@ -205,6 +209,43 @@ func TestJobDoesNotReplayAuthorizedShellCommand(t *testing.T) {
 				t.Fatalf("invocações=%+v erro=%v", record, err)
 			}
 		})
+	}
+}
+
+func TestJobDoesNotReplayShellAfterOutputSecretFailure(t *testing.T) {
+	probe := &shellDispatchProbe{entry: &terminal.HistoryEntry{Output: "ok"}}
+	prompts := 0
+	tool := shell.NewRunCommand(probe, func(context.Context, string, string) (bool, error) {
+		prompts++
+		return true, nil
+	}, nil, t.TempDir())
+	executor, repo, ctx := invocationBackedExecutor(t, tool)
+	job := &Job{
+		ID: "shell-output-secret", Tool: tool.Name(), Inputs: map[string]any{"command": "echo ok"},
+		Output:      OutputConfig{Map: map[string]string{"value": `{{ secret "output" }}`}},
+		ErrorPolicy: ErrorPolicy{Strategy: ErrorRetry, MaxRetries: 2, RetryDelay: "1ms"},
+	}
+	run := executor.Execute(ctx, job, &TriggerContext{Type: TriggerManual})
+	if run.Status != RunStatusFailed || run.RetryCount != 0 || probe.calls != 1 || prompts != 1 ||
+		!strings.Contains(run.Error, "resolve output map") || !strings.Contains(run.Error, "no secret store configured") {
+		t.Fatalf("despachos=%d confirmações=%d run=%+v", probe.calls, prompts, run)
+	}
+	record, err := repo.List(ctx, toolinvocations.Filter{OriginID: run.RunID})
+	if err != nil || len(record) != 1 || record[0].Status != toolinvocations.StatusSucceeded {
+		t.Fatalf("invocações=%+v erro=%v", record, err)
+	}
+}
+
+func TestJobShellNullOutputPreservesMetadata(t *testing.T) {
+	probe := &shellDispatchProbe{entry: &terminal.HistoryEntry{Output: "null"}}
+	tool := shell.NewRunCommand(probe, func(context.Context, string, string) (bool, error) {
+		return true, nil
+	}, nil, t.TempDir())
+	executor, _, ctx := invocationBackedExecutor(t, tool)
+	job := &Job{ID: "shell-null", Tool: tool.Name(), Inputs: map[string]any{"command": "echo null"}}
+	run := executor.Execute(ctx, job, &TriggerContext{Type: TriggerManual})
+	if run.Status != RunStatusCompleted || run.Output["content"] != "null" || run.Output["_meta_command"] != "echo null" || probe.calls != 1 {
+		t.Fatalf("despachos=%d run=%+v", probe.calls, run)
 	}
 }
 

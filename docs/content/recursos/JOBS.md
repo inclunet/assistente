@@ -37,6 +37,10 @@ tempo ainda pode produzir erro no log; a correção não elimina toda contençã
   permanentes classificadas pela tool, como argumentos/configuração inválidos,
   profile indisponível ou autorização sem interlocutor, encerram o run na
   primeira tentativa.
+- Em `run_command`, se o prazo vencer após a aprovação, o job encerra a
+  tentativa. Isso vale também quando a política dispensa o diálogo. Se o comando já tiver
+  terminado e o mapeamento da saída falhar, o job informa o erro e preserva o
+  registro da execução. Uma nova execução depende de outra chamada.
 - Armazenado no SQLite, com retenção de 30 dias e isolado por usuário.
 - Gerenciado em **Jobs**: grid com busca, criar/editar, ativar/desativar, ver logs e timeline.
 
