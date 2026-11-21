@@ -1,18 +1,24 @@
 package shell
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 
 	"assistente/internal/allowlist"
 	"assistente/internal/authorization"
 	"assistente/internal/shelltrust"
 	"assistente/internal/testutil/authorizationfixture"
+	"assistente/internal/tools"
+	"assistente/internal/trustscope"
+	"gorm.io/gorm"
 )
 
 func TestDirectorySymlinkSwapDuringConsentDoesNotExecute(t *testing.T) {
@@ -109,5 +115,50 @@ func TestPolicyUnavailableAfterApproval(t *testing.T) {
 	result, err := rc.Execute(authorizationfixture.Context(), json.RawMessage(`{"command":"example check"}`))
 	if !approved || err != nil || result.Failure == nil || result.Failure.Code != FailurePrerequisiteUnavailable || terminal.runEphemeralCalls != 0 {
 		t.Fatalf("approved=%t result=%+v err=%v calls=%d", approved, result, err, terminal.runEphemeralCalls)
+	}
+}
+
+func TestPrerequisiteWarningIdentifiesCallAndCause(t *testing.T) {
+	for _, reason := range []string{"directory_changed", "store_unavailable", "policy_unavailable"} {
+		t.Run(reason, func(t *testing.T) {
+			var output bytes.Buffer
+			previous := slog.Default()
+			slog.SetDefault(slog.New(slog.NewTextHandler(&output, &slog.HandlerOptions{Level: slog.LevelWarn})))
+			t.Cleanup(func() { slog.SetDefault(previous) })
+			const secret = "sensitive-test-value"
+			dir := filepath.Join(t.TempDir(), secret)
+			if err := os.Mkdir(dir, 0700); err != nil {
+				t.Fatal(err)
+			}
+			auth := &shelltrust.Authorizer{}
+			command := "git push"
+			switch reason {
+			case "directory_changed":
+				auth.Prompt = func(context.Context, shelltrust.PromptRequest) (shelltrust.PromptDecision, error) {
+					return shelltrust.PromptDecision{Approve: true, Scope: authorization.ScopeOnce}, os.Rename(dir, dir+"-moved")
+				}
+			case "store_unavailable":
+				repo, db := authorizationfixture.Open(t, t.TempDir())
+				if err := db.Callback().Query().Before("gorm:query").Register("test:store_unavailable", func(tx *gorm.DB) { tx.AddError(errors.New(secret)) }); err != nil {
+					t.Fatal(err)
+				}
+				auth.Manager = shelltrust.NewManager(trustscope.Options{Repository: repo})
+			case "policy_unavailable":
+				command = "example --token=" + secret
+				auth.Policy = func(context.Context) (*allowlist.Allowlist, error) { return nil, errors.New(secret) }
+			}
+			reg := tools.NewRegistry()
+			reg.MustRegister(NewRunCommand(nil, auth.Authorize, nil, dir))
+			args, err := json.Marshal(runCommandArgs{Command: command})
+			if err != nil {
+				t.Fatal(err)
+			}
+			const callID = "actual-call-id"
+			result := tools.NewExecutor(reg, tools.DefaultExecutorConfig()).ExecuteOne(authorizationfixture.Context(), tools.ToolCall{ID: callID, Function: tools.FunctionCall{Name: "run_command", Arguments: string(args)}})
+			record := output.String()
+			if result.ErrorCode != FailurePrerequisiteUnavailable || !strings.Contains(record, "level=WARN") || !strings.Contains(record, "tool_call_id="+callID) || !strings.Contains(record, "reason="+reason) || strings.Contains(record, secret) || strings.Contains(result.Result.Content, secret) {
+				t.Fatalf("resultado=%+v log=%q", result, record)
+			}
+		})
 	}
 }

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"testing/synctest"
 	"time"
@@ -734,6 +735,38 @@ func TestExecutorConfirmationOnInterruption(t *testing.T) {
 			} {
 				got := e.finishExecution(parent, toolCtx, call, time.Now(), callback, confirmation, &securitySignalCollector{})
 				if got.ErrorCode != tc.wantCode || got.ErrorKind != tc.wantKind || !errors.Is(got.Error, tc.wantErr) || got.Retryable || !got.RetryabilityKnown || !got.Result.IsError {
+					t.Fatalf("callback=%+v resultado=%+v", callback, got)
+				}
+			}
+		})
+	}
+}
+
+func TestPendingConfirmationRequiresClassifiedDecision(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		decision *ToolResult
+		wantCode string
+		wantKind ErrorKind
+	}{
+		{"sem Failure", &ToolResult{IsError: true, Content: "não classificado"}, "unavailable", ErrorKindAuthorization},
+		{"aprovação", nil, "", ErrorKindTimeout},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			parent := t.Context()
+			ctx, stop := context.WithDeadline(parent, time.Time{})
+			defer stop()
+			var state atomic.Pointer[confirmationState]
+			resolve := PendingConfirmation(context.WithValue(ctx, pendingConfirmationKey{}, &state), "unavailable")
+			resolve(tc.decision)
+			e := NewExecutor(NewRegistry(), DefaultExecutorConfig())
+			call := ToolCall{ID: "decision", Function: FunctionCall{Name: "ask"}}
+			for _, callback := range []*ToolExecutionResult{
+				nil,
+				{Error: ctx.Err(), ErrorKind: ErrorKindTimeout, Result: ToolResult{IsError: true}, Retryable: true, RetryabilityKnown: true},
+			} {
+				got := e.finishExecution(parent, ctx, call, time.Now(), callback, state.Load(), &securitySignalCollector{})
+				if got.ErrorCode != tc.wantCode || got.ErrorKind != tc.wantKind || !errors.Is(got.Error, context.DeadlineExceeded) || got.Retryable != (tc.decision == nil) {
 					t.Fatalf("callback=%+v resultado=%+v", callback, got)
 				}
 			}

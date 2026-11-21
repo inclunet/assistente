@@ -14,6 +14,26 @@ import (
 
 var ErrPrerequisiteUnavailable = errors.New("pré-requisito de autorização shell indisponível")
 
+type prerequisiteReason string
+
+const (
+	directoryChanged  prerequisiteReason = "directory_changed"
+	storeUnavailable  prerequisiteReason = "store_unavailable"
+	policyUnavailable prerequisiteReason = "policy_unavailable"
+)
+
+func (r prerequisiteReason) Error() string        { return string(r) }
+func (r prerequisiteReason) Is(target error) bool { return target == ErrPrerequisiteUnavailable }
+
+// PrerequisiteReason retorna apenas categorias internas que podem aparecer no log.
+func PrerequisiteReason(err error) string {
+	var reason prerequisiteReason
+	if errors.As(err, &reason) {
+		return string(reason)
+	}
+	return "unknown"
+}
+
 type PromptRequest struct {
 	PersistentTerminal bool
 	Command            string
@@ -44,7 +64,7 @@ func (a *Authorizer) Authorize(ctx context.Context, command, directory string) (
 		var err error
 		scopes, err = a.Manager.AvailableScopes(ctx)
 		if err != nil {
-			return false, errors.Join(ErrPrerequisiteUnavailable, err)
+			return false, errors.Join(storeUnavailable, err)
 		}
 	}
 	flow := authorization.Flow[Entry]{
@@ -52,12 +72,12 @@ func (a *Authorizer) Authorize(ctx context.Context, command, directory string) (
 			if reusable {
 				current, valid := Represent(command, directory)
 				if !valid || current.Directory != selector.Directory {
-					return authorization.Decision{}, errors.Join(ErrPrerequisiteUnavailable, errors.New("diretório shell mudou durante a autorização"))
+					return authorization.Decision{}, directoryChanged
 				}
 			}
 			if a.Manager != nil {
 				if _, err := a.Manager.AvailableScopes(ctx); err != nil {
-					return authorization.Decision{}, errors.Join(ErrPrerequisiteUnavailable, err)
+					return authorization.Decision{}, errors.Join(storeUnavailable, err)
 				}
 			}
 			var policy *allowlist.Allowlist
@@ -65,7 +85,7 @@ func (a *Authorizer) Authorize(ctx context.Context, command, directory string) (
 				var err error
 				policy, err = a.Policy(ctx)
 				if err != nil {
-					return authorization.Decision{}, errors.Join(ErrPrerequisiteUnavailable, err)
+					return authorization.Decision{}, errors.Join(policyUnavailable, err)
 				}
 			}
 			result := commandpolicy.Evaluate(command, policy)
@@ -78,7 +98,7 @@ func (a *Authorizer) Authorize(ctx context.Context, command, directory string) (
 			if reusable && a.Manager != nil {
 				match := a.Manager.Find(ctx, selector)
 				if match.Err != nil {
-					return authorization.Decision{}, errors.Join(ErrPrerequisiteUnavailable, match.Err)
+					return authorization.Decision{}, errors.Join(storeUnavailable, match.Err)
 				}
 				if match.Found {
 					return authorization.Decision{Effect: "allow", Scope: match.Scope}, nil

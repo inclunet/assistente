@@ -257,6 +257,7 @@ func (rc *RunCommand) Execute(ctx context.Context, args json.RawMessage) (tools.
 			return denied, nil
 		}
 		if errors.Is(err, shelltrust.ErrPrerequisiteUnavailable) {
+			logging.Logger(ctx, "tools.shell.run-command").WarnContext(ctx, "Pré-requisito da autorização shell indisponível", "reason", shelltrust.PrerequisiteReason(err))
 			return unavailableShellPrerequisite("Não foi possível validar os pré-requisitos da autorização shell."), nil
 		}
 		if err != nil {

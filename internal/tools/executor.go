@@ -6,11 +6,14 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 	"unicode/utf8"
+
+	"assistente/internal/logging"
 )
 
 type pendingConfirmationKey struct{}
@@ -22,7 +25,8 @@ type confirmationState struct {
 
 // PendingConfirmation registra a falha que o executor deve devolver se o
 // próprio prazo acabar durante a decisão. O callback publica a recusa definitiva
-// ou, após aprovação válida, restaura o timeout normal com nil.
+// com Failure ou, após aprovação válida, restaura o timeout normal com nil.
+// Um resultado sem Failure não declara uma decisão e mantém o estado corrente.
 func PendingConfirmation(ctx context.Context, failureCode string) func(*ToolResult) {
 	state, _ := ctx.Value(pendingConfirmationKey{}).(*atomic.Pointer[confirmationState])
 	if state == nil {
@@ -34,7 +38,9 @@ func PendingConfirmation(ctx context.Context, failureCode string) func(*ToolResu
 			state.Store(nil)
 			return
 		}
-		state.Store(&confirmationState{result: *decision, final: true})
+		if decision.Failure != nil {
+			state.Store(&confirmationState{result: *decision, final: true})
+		}
 	}
 }
 
@@ -218,6 +224,7 @@ func (e *Executor) executeSingle(ctx context.Context, call ToolCall) (execution 
 	// o executor devolve imediatamente.
 	collector := &securitySignalCollector{}
 	execCtx := withSecuritySignalCollector(WithMaxResultSize(toolCtx, e.config.MaxResultSize), collector)
+	execCtx = logging.WithAttrScope(execCtx, []string{"tool_call_id"}, slog.String("tool_call_id", call.ID))
 	var pending atomic.Pointer[confirmationState]
 	execCtx = context.WithValue(execCtx, pendingConfirmationKey{}, &pending)
 	resultCh := make(chan ToolExecutionResult, 1)
