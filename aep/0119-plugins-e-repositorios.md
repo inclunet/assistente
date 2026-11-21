@@ -84,7 +84,7 @@ Fora de blocos de código, a diretiva pode ser explícita ou começar por um pro
 
 #### Classificação das falhas
 
-Uma negativa expressa do usuário ou da política usa `shell_command_refused` e interrompe o turno. Fechar o diálogo pela ação de cancelar conta como negativa pontual.
+Uma recusa expressa da pessoa usa `shell_command_refused`. Um veto da política usa `shell_policy_vetoed`, inclusive quando a política muda durante a confirmação. Ambos interrompem o turno. Fechar o diálogo pela ação de cancelar conta como negativa pontual.
 
 Na falta de confirmação, o código é `shell_confirmation_unavailable`. Um argumento `working_directory` inválido recebe um diagnóstico de entrada que permite corrigir a chamada. Falhas de política, resolução do diretório do projeto ou consulta às concessões usam `shell_prerequisite_unavailable`, inclusive na releitura após uma aprovação. O diagnóstico registra a categoria da causa e o ID da chamada. Nesses casos, a base omite a linha e sua saída parcial, e a barra encerra a invocação.
 

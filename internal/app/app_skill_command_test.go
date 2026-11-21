@@ -15,6 +15,7 @@ import (
 	"assistente/internal/contextprovider"
 	"assistente/internal/database"
 	"assistente/internal/events"
+	"assistente/internal/shelltrust"
 	"assistente/internal/skills"
 	"assistente/internal/terminal"
 	"assistente/internal/toolinvocations"
@@ -45,6 +46,7 @@ func TestSkillCommandInAdmittedTurn(t *testing.T) {
 		success, refused, ledger, posix, unavailable bool
 	}{
 		{name: "preapproved", policy: "approve", calls: 1, success: true, ledger: true},
+		{name: "veto-after-approval", prompts: 1, refused: true, ledger: true},
 		{name: "policy-denied", policy: "deny", refused: true, ledger: true},
 		{name: "allow", prompts: 1, calls: 1, success: true, ledger: true},
 		{name: "confirmation-unavailable", prompts: 1, unavailable: true, ledger: true},
@@ -95,7 +97,7 @@ func TestSkillCommandInAdmittedTurn(t *testing.T) {
 				}
 			}
 			registry := tools.NewRegistry()
-			registry.MustRegister(shell.NewRunCommand(sessions, func(ctx context.Context, raw, dir string) (bool, error) {
+			confirm := func(ctx context.Context, raw, dir string) (bool, error) {
 				prompts++
 				if raw != command {
 					t.Errorf("unexpected command %q", raw)
@@ -105,7 +107,18 @@ func TestSkillCommandInAdmittedTurn(t *testing.T) {
 					return false, context.DeadlineExceeded
 				}
 				return !tc.refused, nil
-			}, policy, t.TempDir()))
+			}
+			if tc.name == "veto-after-approval" {
+				active := &allowlist.Allowlist{DefaultAction: "confirm"}
+				policy = func(context.Context) (*allowlist.Allowlist, error) { return active, nil }
+				auth := shelltrust.Authorizer{Policy: policy, Prompt: func(context.Context, shelltrust.PromptRequest) (shelltrust.PromptDecision, error) {
+					prompts++
+					active.AlwaysDeny = []string{"example-tool"}
+					return shelltrust.PromptDecision{Approve: true, Scope: "once"}, nil
+				}}
+				confirm = auth.Authorize
+			}
+			registry.MustRegister(shell.NewRunCommand(sessions, confirm, policy, t.TempDir()))
 			a.toolInvocationSvc = toolinvocations.NewService(toolinvocations.NewDBRepository(db), tools.NewExecutor(registry, tools.DefaultExecutorConfig()))
 			switch tc.name {
 			case "no-turn":

@@ -96,7 +96,7 @@ func TestRunCommand_DeniedByAllowlist(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected nil error, got %v", err)
 	}
-	if !result.IsError || result.Failure == nil || result.Failure.Code != FailureCommandRefused || result.Failure.Kind != tools.ErrorKindAuthorization || result.Failure.Retryable {
+	if !result.IsError || result.Failure == nil || result.Failure.Code != FailurePolicyVetoed || result.Failure.Kind != tools.ErrorKindAuthorization || result.Failure.Retryable {
 		t.Fatalf("classificação da negativa: %+v", result.Failure)
 	}
 }
@@ -550,7 +550,7 @@ func TestPolicyRefusalBeforeExecutorDeadline(t *testing.T) {
 		cfg := tools.DefaultExecutorConfig()
 		cfg.ToolTimeout = time.Second
 		got := tools.NewExecutor(reg, cfg).ExecuteOne(t.Context(), tools.ToolCall{ID: "policy", Function: tools.FunctionCall{Name: "run_command", Arguments: `{"command":"git push"}`}})
-		if got.Error != nil || got.ErrorCode != FailureCommandRefused || got.ErrorKind != tools.ErrorKindAuthorization || got.Retryable || !got.RetryabilityKnown || got.DurationMs != cfg.ToolTimeout.Milliseconds() {
+		if got.Error != nil || got.ErrorCode != FailurePolicyVetoed || got.ErrorKind != tools.ErrorKindAuthorization || got.Retryable || !got.RetryabilityKnown || got.DurationMs != cfg.ToolTimeout.Milliseconds() {
 			t.Fatalf("negativa após prazo: %+v", got)
 		}
 		var log [4096]byte
@@ -689,7 +689,7 @@ func TestShellAuthorizerPublishesBeforeDecisionLog(t *testing.T) {
 	}{
 		{"aprovação", "authorization", ""},
 		{"recusa do usuário", "authorization", FailureCommandRefused},
-		{"recusa da política na releitura", "authorization", FailureCommandRefused},
+		{"recusa da política na releitura", "authorization", FailurePolicyVetoed},
 		{"falha da política na releitura", "authorization", FailurePrerequisiteUnavailable},
 		{"falha da primeira leitura", "tools.shell.run-command", FailurePrerequisiteUnavailable},
 	} {

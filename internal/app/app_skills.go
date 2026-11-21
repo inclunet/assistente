@@ -91,7 +91,7 @@ func (a *App) runSkillCommand(ctx context.Context, skill *skills.Skill, command 
 	})
 	if failure := receipt.Execution.Result.Failure; failure != nil {
 		switch failure.Code {
-		case shell.FailureCommandRefused:
+		case shell.FailureCommandRefused, shell.FailurePolicyVetoed:
 			return "", fmt.Errorf("skill %q: %w", skill.Slug, contextprovider.ErrCommandRefused)
 		case shell.FailureConfirmationUnavailable:
 			return "", fmt.Errorf("skill %q: %w", skill.Slug, contextprovider.ErrCommandNotAuthorized)

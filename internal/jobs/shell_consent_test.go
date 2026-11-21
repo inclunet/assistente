@@ -58,11 +58,11 @@ func TestShellConsentUsesOnlyLiteralTemplatePrefix(t *testing.T) {
 
 func TestShellJobRecordsWhoRefusedTheCommand(t *testing.T) {
 	for _, tc := range []struct {
-		name, diagnostic string
-		approve          bool
+		name, diagnostic, code string
+		approve                bool
 	}{
-		{"veto após aprovação", "bloqueado pela política de comandos", true},
-		{"recusa explícita", "negado pelo usuário", false},
+		{"veto após aprovação", "bloqueado pela política de comandos", shell.FailurePolicyVetoed, true},
+		{"recusa explícita", "negado pelo usuário", shell.FailureCommandRefused, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			const marker = "valor-protegido-79"
@@ -91,7 +91,7 @@ func TestShellJobRecordsWhoRefusedTheCommand(t *testing.T) {
 			}
 			record := records[0]
 			content := toolinvocations.ExtractToolInvocationResult(string(record.Output)).Content
-			if record.ErrorCode != shell.FailureCommandRefused || record.Retryable || !record.RetryabilityKnown ||
+			if record.ErrorCode != tc.code || record.Retryable || !record.RetryabilityKnown ||
 				!strings.Contains(content, tc.diagnostic) || strings.Contains(content, marker) {
 				t.Fatal("a invocação registrada perdeu a origem da recusa ou expôs o valor protegido")
 			}

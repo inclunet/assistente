@@ -52,7 +52,11 @@ func TestSensitiveProgramInPolicyLogsAndRefusals(t *testing.T) {
 			}
 			ctx := invocationctx.WithShellCommandMetadata(t.Context(), masked)
 			result, err := rc.Execute(ctx, args)
-			if err != nil || !result.IsError || result.Failure == nil || result.Failure.Code != FailureCommandRefused || asked != (route == "user") {
+			wantCode := FailureCommandRefused
+			if route == "policy" {
+				wantCode = FailurePolicyVetoed
+			}
+			if err != nil || !result.IsError || result.Failure == nil || result.Failure.Code != wantCode || asked != (route == "user") {
 				t.Fatal("semântica da recusa foi alterada")
 			}
 			if strings.Contains(logs.String(), program) || strings.Contains(result.Content, program) || !strings.Contains(logs.String(), masked) || !strings.Contains(result.Content, masked) {

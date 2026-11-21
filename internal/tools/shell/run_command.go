@@ -23,7 +23,9 @@ import (
 )
 
 const (
-	// FailureCommandRefused identifica uma decisão de autorização definitiva para esta tentativa.
+	// FailureCommandRefused identifica a recusa expressa da pessoa.
+	// FailurePolicyVetoed identifica um veto da política vigente.
+	FailurePolicyVetoed            = "shell_policy_vetoed"
 	FailureCommandRefused          = "shell_command_refused"
 	FailureConfirmationUnavailable = "shell_confirmation_unavailable"
 	FailurePrerequisiteUnavailable = "shell_prerequisite_unavailable"
@@ -229,11 +231,11 @@ func (rc *RunCommand) Execute(ctx context.Context, args json.RawMessage) (tools.
 	}
 	if decision == allowlist.DecisionDeny {
 		denied := tools.ToolResult{
-			Failure: &tools.ToolFailure{Code: FailureCommandRefused, Kind: tools.ErrorKindAuthorization, Retryable: false},
+			Failure: &tools.ToolFailure{Code: FailurePolicyVetoed, Kind: tools.ErrorKindAuthorization, Retryable: false},
 			Content: fmt.Sprintf("Comando bloqueado pela política de comandos: %s\nMotivos: %s", commandSummary, publicPolicy.reasonText("; ")),
 			IsError: true,
 		}
-		tools.PublishAuthorizationRefusal(ctx, FailureCommandRefused, denied)
+		tools.PublishAuthorizationRefusal(ctx, FailurePolicyVetoed, denied)
 		logPolicyDecision(ctx, nil, commandSummary, publicPolicy)
 		return denied, nil
 	}
@@ -544,9 +546,12 @@ func confirmShellCommand(ctx context.Context, confirm ConfirmFunc, command, work
 			}
 		case err == nil:
 			if outcome == shelltrust.DeniedByPolicy {
-				denied.Content = fmt.Sprintf("Comando bloqueado pela política de comandos: %s", commandSummary)
+				denied.Failure.Code = FailurePolicyVetoed
+				denied.Content = fmt.Sprintf("Comando bloqueado pela política de comandos: %s\nMotivos: a política vigente vetou o comando na reavaliação.", commandSummary)
+				tools.PublishAuthorizationRefusal(ctx, FailurePolicyVetoed, denied)
+			} else {
+				resolve(&denied)
 			}
-			resolve(&denied)
 			failure = &denied
 		case errors.Is(err, shelltrust.ErrPrerequisiteUnavailable) && ctx.Err() == nil:
 			unavailable := shellPrerequisiteFailure(ctx, shelltrust.PrerequisiteReason(err), "Não foi possível validar os pré-requisitos da autorização shell.")
