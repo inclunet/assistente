@@ -5,6 +5,7 @@ import (
 	"errors"
 	"sync"
 	"testing"
+	"testing/synctest"
 	"time"
 )
 
@@ -438,5 +439,39 @@ func TestRequestQuestionnaireSerializesBackendDialogs(t *testing.T) {
 		}
 	case <-time.After(time.Second):
 		t.Fatal("terceiro diálogo não concluiu")
+	}
+}
+
+func TestAcceptedResponseSurvivesDeadline(t *testing.T) {
+	for _, before := range []bool{true, false} {
+		t.Run(map[bool]string{true: "accepted-first", false: "deadline-first"}[before], func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				var mgr *Manager
+				var respondErr error
+				closed := false
+				mgr = NewManager(func(event string, data any) {
+					if event == EventQuestionnaireClosed {
+						closed = true
+						return
+					}
+					id := data.(map[string]any)["id"].(string)
+					if !before {
+						time.Sleep(2 * time.Second)
+					}
+					respondErr = mgr.Respond(id, nil, true)
+					if before {
+						time.Sleep(2 * time.Second)
+					}
+				})
+				resp, err := mgr.RequestQuestionnaire(t.Context(), RequestPayload{Timeout: time.Second})
+				if before {
+					if err != nil || respondErr != nil || !resp.Cancelled || closed {
+						t.Fatalf("response=%+v err=%v respond=%v closed=%v", resp, err, respondErr, closed)
+					}
+				} else if err == nil || respondErr == nil || resp.Cancelled || !closed {
+					t.Fatalf("response=%+v err=%v respond=%v closed=%v", resp, err, respondErr, closed)
+				}
+			})
+		})
 	}
 }

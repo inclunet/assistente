@@ -99,6 +99,7 @@ type RequestPayload struct {
 	Timeout      time.Duration       `json:"-"` // 0 = DefaultTimeout
 	CreatedAt    string              `json:"createdAt"`
 	response     chan Response
+	waitCtx      context.Context
 }
 
 // Response representa a resposta do usuário.
@@ -141,7 +142,16 @@ func (m *Manager) RequestQuestionnaire(ctx context.Context, payload RequestPaylo
 		return Response{}, fmt.Errorf("solicitação cancelada antes de abrir o diálogo: %w", ctx.Err())
 	}
 
+	timeout := payload.Timeout
+	if timeout <= 0 {
+		timeout = DefaultTimeout
+	}
+
+	timeoutCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
 	req := &RequestPayload{
+		waitCtx:      timeoutCtx,
 		ID:           uuid.New().String()[:8],
 		Kind:         payload.Kind,
 		Severity:     payload.Severity,
@@ -208,18 +218,21 @@ func (m *Manager) RequestQuestionnaire(ctx context.Context, payload RequestPaylo
 	}
 	m.emitEvent(EventQuestionnaire, eventData)
 
-	timeout := payload.Timeout
-	if timeout <= 0 {
-		timeout = DefaultTimeout
-	}
-
-	timeoutCtx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
-
 	select {
 	case resp := <-req.response:
 		return resp, nil
 	case <-timeoutCtx.Done():
+		// Respond serializa a aceitação com a retirada da solicitação. Uma
+		// resposta aceita antes do prazo continua válida se os dois canais
+		// estiverem prontos quando o solicitante retomar a execução.
+		m.mu.Lock()
+		delete(m.pending, req.ID)
+		m.mu.Unlock()
+		select {
+		case resp := <-req.response:
+			return resp, nil
+		default:
+		}
 		// A pergunta acabou sem dono, mas o diálogo continua na tela pedindo
 		// uma decisão que não chega a lugar nenhum. Quem está lendo precisa
 		// saber disso — ainda mais quem lê por leitor de telas, que teria de
@@ -255,10 +268,10 @@ func (m *Manager) emitClosed(requestID, reason string) {
 // Respond envia a resposta do usuário para um questionário pendente.
 func (m *Manager) Respond(requestID string, answers map[string]any, cancelled bool) error {
 	m.mu.Lock()
+	defer m.mu.Unlock()
 	req, ok := m.pending[requestID]
-	m.mu.Unlock()
 
-	if !ok {
+	if !ok || req.waitCtx.Err() != nil {
 		return fmt.Errorf("solicitação de questionário '%s' não encontrada ou expirada", requestID)
 	}
 
@@ -268,12 +281,9 @@ func (m *Manager) Respond(requestID string, answers map[string]any, cancelled bo
 		Cancelled: cancelled,
 	}
 
-	select {
-	case req.response <- resp:
-		return nil
-	default:
-		return fmt.Errorf("resposta já enviada para questionário '%s'", requestID)
-	}
+	delete(m.pending, requestID)
+	req.response <- resp
+	return nil
 }
 
 // PendingCount retorna o número de solicitações pendentes.
