@@ -630,35 +630,32 @@ func (s *Session) runCommandInDirectory(ctx context.Context, command, directory 
 	s.commandPending = false
 	s.mu.Unlock()
 	s.ioMu.Unlock()
-	writeErr := err
-	if writeErr != nil {
-		writeErr = fmt.Errorf("falha ao enviar comando para sessão %s: %w", s.id, writeErr)
-		select {
-		case <-s.readerDone:
-			if s.readerErr == nil {
-				return failBeforeResult(writeErr)
-			}
-		default:
-			return failBeforeResult(writeErr)
+	if err != nil {
+		writeErr := fmt.Errorf("falha ao enviar comando para sessão %s: %w", s.id, err)
+		// O leitor pode ter recebido a resposta antes de Write retornar o erro.
+		// Entregue apenas o lote já registrado, mesmo que o leitor siga aberto.
+		stream := newMarkerStream(marker)
+		result := stream.finish(s.takeCommandOutput())
+		if result.Found {
+			entry.Output = stream.outputBeforeFooter()
+		} else {
+			entry.Output = stream.partialOutput()
 		}
-	} else {
-		logging.Debugf(ctx, "terminal.session", "[Terminal] Write OK: %d bytes escritos para sessão %s", nWritten, s.id)
+		if s.onOutput != nil && entry.Output != "" {
+			s.onOutput(s.id, entry.ID, entry.Output)
+		}
+		s.mu.Lock()
+		readErr := s.readerErr
+		s.mu.Unlock()
+		return failBeforeResult(errors.Join(writeErr, readErr))
 	}
+	logging.Debugf(ctx, "terminal.session", "[Terminal] Write OK: %d bytes escritos para sessão %s", nWritten, s.id)
 
 	timeoutCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
 	entry.Output, entry.ExitCode, err = s.waitForMarker(timeoutCtx, marker, entry.ID)
 	entry.EndedAt = time.Now()
-	if writeErr != nil {
-		// Kill/Close liberou a escrita. Entregue também os bytes que
-		// o leitor já havia recebido e preserve as duas causas.
-		if !errors.Is(err, s.readerErr) {
-			err = errors.Join(err, s.readerErr)
-		}
-		entry.ExitCode = -1
-		err = errors.Join(writeErr, err)
-	}
 	s.addHistoryEntry(entry)
 	return entry, err
 }
