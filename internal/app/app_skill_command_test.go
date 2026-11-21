@@ -98,7 +98,8 @@ func TestSkillCommandInAdmittedTurn(t *testing.T) {
 			registry.MustRegister(shell.NewRunCommand(sessions, func(ctx context.Context, raw, dir string) (bool, error) {
 				prompts++
 				if raw != command {
-					t.Fatalf("unexpected command %q", raw)
+					t.Errorf("unexpected command %q", raw)
+					return false, nil
 				}
 				if tc.unavailable {
 					return false, context.DeadlineExceeded

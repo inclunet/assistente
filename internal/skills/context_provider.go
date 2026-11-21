@@ -147,9 +147,7 @@ func (p *ContextProvider) Build(ctx context.Context, req contextprovider.BuildRe
 			files: make(map[string][]string), outputs: make(map[string]map[int]string),
 		}
 		prepared := turn.prepared
-		if src, ok := p.source.(interface {
-			listSupportingFiles(string) ([]string, error)
-		}); ok {
+		if src, ok := p.source.(supportingFileLister); ok {
 			prepared.filesAt = src.listSupportingFiles
 			prepared.paths = make(map[string]string)
 		}

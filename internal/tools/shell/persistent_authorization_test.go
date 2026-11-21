@@ -238,10 +238,10 @@ func TestInvalidRequestedDirectoryReturnsArgumentError(t *testing.T) {
 			}
 			result, err := rc.Execute(authorizationfixture.Context(), args)
 			cause, invalid := strings.CutPrefix(result.Content, "working_directory inválido: ")
-			if err != nil || !result.IsError || !invalid || cause == "" || result.Failure != nil || terminal.runEphemeralCalls != 0 {
+			if err != nil || !result.IsError || !invalid || cause == "" || strings.Contains(result.Content, dir) || strings.Contains(result.Content, requested) || result.Failure != nil || terminal.runEphemeralCalls != 0 {
 				t.Fatalf("result=%+v err=%v calls=%d", result, err, terminal.runEphemeralCalls)
 			}
-			if strings.Contains(output.String(), "directory_unresolved") {
+			if strings.Contains(output.String(), "directory_unresolved") || strings.Contains(output.String(), dir) {
 				t.Fatalf("argumento inválido diagnosticado como pré-requisito: %s", &output)
 			}
 		})

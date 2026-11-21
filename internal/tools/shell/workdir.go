@@ -17,32 +17,50 @@ func resolveProjectWorkDir(projectRoot, requested string) (string, error) {
 	if requested == "" {
 		return projectRoot, nil
 	}
+	if strings.IndexByte(requested, 0) >= 0 {
+		return "", errors.New("o caminho contém um caractere NUL")
+	}
 	if filepath.IsAbs(requested) || looksLikeForeignAbsolutePath(requested) {
 		return "", fmt.Errorf("working_directory deve ser relativo ao diretório do projeto")
 	}
 
 	root, err := filepath.Abs(projectRoot)
 	if err != nil {
-		return "", fmt.Errorf("%w: %w", errProjectDirectoryUnresolved, err)
+		return "", fmt.Errorf("%w: %w", errProjectDirectoryUnresolved, directoryDiagnostic(err))
 	}
 	canonicalRoot, err := canonicalizeProjectPath(root)
 	if err != nil {
-		return "", fmt.Errorf("%w: %w", errProjectDirectoryUnresolved, err)
+		return "", fmt.Errorf("%w: %w", errProjectDirectoryUnresolved, directoryDiagnostic(err))
 	}
 	target := filepath.Join(root, filepath.Clean(requested))
 	canonicalTarget, err := canonicalizeProjectPath(target)
 	if err != nil {
-		return "", err
+		return "", directoryDiagnostic(err)
 	}
 
 	relative, err := filepath.Rel(canonicalRoot, canonicalTarget)
 	if err != nil {
-		return "", fmt.Errorf("working_directory inválido: %w", err)
+		return "", errors.New("não é possível relacionar o caminho ao diretório do projeto")
 	}
 	if relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
 		return "", fmt.Errorf("working_directory deve permanecer dentro do diretório do projeto")
 	}
 	return canonicalTarget, nil
+}
+
+// O resultado da ferramenta pode ser persistido. Erros do sistema de arquivos
+// frequentemente carregam caminhos absolutos do host junto com a causa.
+func directoryDiagnostic(err error) error {
+	switch {
+	case errors.Is(err, os.ErrPermission):
+		return errors.New("permissão insuficiente para acessar o diretório")
+	case errors.Is(err, os.ErrNotExist):
+		return errors.New("o diretório ou destino do link simbólico não existe")
+	case errors.Is(err, os.ErrInvalid):
+		return errors.New("o caminho contém um componente inválido")
+	default:
+		return errors.New("não foi possível resolver o caminho informado")
+	}
 }
 
 // canonicalizeProjectPath resolves the existing portion of a path and then

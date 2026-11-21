@@ -156,6 +156,8 @@ func invocationFiles(mgr InvokerManager, slug, manifestPath string) ([]string, e
 	if source, ok := mgr.(supportingFileLister); ok && manifestPath != "" {
 		return source.listSupportingFiles(manifestPath)
 	}
+	// Adaptadores que só expõem o catálogo por slug conservam sua própria
+	// resolução de origem; não é possível fixar o manifesto nesse contrato.
 	return mgr.GetSkillFiles(slug)
 }
 
