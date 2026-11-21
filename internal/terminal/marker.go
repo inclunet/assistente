@@ -106,6 +106,8 @@ var powerShellInvocation = regexp.MustCompile(`(?i)(?:(?:^|[;({|]|` + powerShell
 
 // Candidatos após } são conservadores: a AST decide se o ponto é invocação;
 // texto ambíguo pode acionar preparação, sem tentar analisar o shell em Go.
+// Uma interpolação como "${base}.$ext" também pode selecionar essa rota.
+// A AST distingue o dado interpolado de uma invocação após o fim do bloco.
 var powerShellAfterBlock = regexp.MustCompile(`}` + powerShellGap + `*\.(?:` + powerShellGap + `|[$({"'])`)
 var standalonePowerShellGroup = regexp.MustCompile(`(?:^|[;\r\n{]|#>)` + powerShellGap + `*[$@]?\(`)
 var powerShellGroupEnd = regexp.MustCompile(`\)(?:;|` + powerShellGap + `)*\z`)

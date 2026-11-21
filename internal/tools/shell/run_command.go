@@ -342,12 +342,14 @@ func (rc *RunCommand) Execute(ctx context.Context, args json.RawMessage) (tools.
 			metadata["terminalId"] = sessionID
 			metadata["deepLink"] = deepLinkForSession(sessionID)
 		}
+		message := fmt.Sprintf("Erro ao executar comando: %v", err)
 		if entry != nil {
+			message += "\nDuração registrada: " + duration
 			metadata["commandId"] = entry.ID
 			metadata["duration"] = duration
 		}
 		result := tools.ToolResult{
-			Content:  fmt.Sprintf("Erro ao executar comando: %v\n\nOutput parcial:\n%s", err, output),
+			Content:  message + "\n\nOutput parcial:\n" + output,
 			IsError:  true,
 			Metadata: metadata,
 		}
