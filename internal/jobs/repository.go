@@ -619,9 +619,15 @@ func (r *DBRepository) SaveJob(ctx context.Context, job *Job) error {
 			err = tx.Where("user_id = ? AND slug = ?", userID, slug).First(&existing).Error
 			switch {
 			case errors.Is(err, gorm.ErrRecordNotFound):
+				if job.PluginInstallationID != "" {
+					return ErrPluginJobInactive
+				}
 			case err != nil:
 				return err
 			default:
+				if job.PluginInstallationID != "" && job.PluginInstallationID != existing.PluginInstallationID {
+					return ErrPluginJobInactive
+				}
 				row.ID = existing.ID
 				row.CreatedAt = existing.CreatedAt
 				row.CreatedBy = existing.CreatedBy

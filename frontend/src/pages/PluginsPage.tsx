@@ -226,13 +226,13 @@ function InstalledPlugins() {
     if (busy) return;
     setBusy(true);
     try {
-      if (pendingSync.current.jobs) {
-        await SyncPendingJobs();
-        pendingSync.current.jobs = false;
-      }
-      if (pendingSync.current.mcp) {
-        await SyncMCP();
-        pendingSync.current.mcp = false;
+      const attempts: Promise<void>[] = [];
+      if (pendingSync.current.jobs) attempts.push(SyncPendingJobs().then(() => { pendingSync.current.jobs = false; }));
+      if (pendingSync.current.mcp) attempts.push(SyncMCP().then(() => { pendingSync.current.mcp = false; }));
+      const results = await Promise.allSettled(attempts);
+      if (results.some(result => result.status === 'rejected')) {
+        if (mounted.current) setError('plugins.syncPending');
+        return;
       }
       try { await refreshAfterSync(); } catch { if (mounted.current) setError('plugins.syncPendingStale'); return; }
       if (mounted.current) { setError(''); announce(t('plugins.synchronized')); }

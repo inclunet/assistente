@@ -257,8 +257,7 @@ export default function JobsPage() {
   const handleEditJob = useCallback(async (jobId: string) => {
     const request = ++editRequest.current;
     try {
-      await fetchJobDetail(jobId);
-      const detail = useJobStore.getState().jobDetail;
+      const detail = await fetchJobDetail(jobId);
       if (!mountedRef.current || request !== editRequest.current || !detail || detail.id !== jobId) return;
       setEditingJob(detail);
       setBuilderOpen(true);

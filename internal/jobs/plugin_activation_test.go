@@ -85,4 +85,10 @@ func TestCatalogTestRevalidatesManagedJob(t *testing.T) {
 	if _, err := m.TestToolDryRunContext(owner, req); !errors.Is(err, ErrPluginJobInactive) {
 		t.Fatalf("replay autorizado após revogação: %v", err)
 	}
+	if err := repo.DeleteJob(owner, observed.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.SaveJob(owner, observed); !errors.Is(err, ErrPluginJobInactive) {
+		t.Fatalf("editor recriou job excluído: %v", err)
+	}
 }

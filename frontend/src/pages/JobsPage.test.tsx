@@ -198,7 +198,9 @@ describe('JobsPage', () => {
   it('abre o job preparado mesmo quando a lista ainda mostra apenas jobs anteriores', async () => {
     const slug = 'plugin-review';
     storeState.fetchJobDetail.mockImplementation(async () => {
-      replaceStore({ jobDetail: { id: slug, plugin_installation_id: 'installed' } as jobs.Job });
+      const detail = { id: slug, plugin_installation_id: 'installed' } as jobs.Job;
+      replaceStore({ jobDetail: detail });
+      return detail;
     });
     useNavigationStore.getState().requestResourceEdit('jobs', slug);
     render(<MemoryRouter><JobsPage /></MemoryRouter>);

@@ -458,6 +458,7 @@ export function JobBuilder({ editJob, onClose, onSaved }: JobBuilderProps) {
       const finalId = draft.id || slugify(draft.name);
       const jobData = {
         ...draft,
+        plugin_installation_id: editJob?.plugin_installation_id,
         id: finalId,
         tags: draft.tags.filter(Boolean),
         output: testOutput ? { schema: testOutput } : undefined,
@@ -515,7 +516,7 @@ export function JobBuilder({ editJob, onClose, onSaved }: JobBuilderProps) {
     } finally {
       setSaving(false);
     }
-  }, [announce, draft, handleAuthorizeProfile, isSubagentJob, onClose, onSaved, profileExpression, refreshProfileGrants, saveJob, showError, showProfileGrantError, t, testOutput, toggleJob]);
+  }, [announce, draft, editJob, handleAuthorizeProfile, isSubagentJob, onClose, onSaved, profileExpression, refreshProfileGrants, saveJob, showError, showProfileGrantError, t, testOutput, toggleJob]);
 
   const handleFanoutSelect = useCallback((path: string) => {
     updateEvents('for_each', path);

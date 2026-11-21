@@ -94,7 +94,7 @@ interface JobStoreState {
   pipelines: jobs.PipelineInfo[];
 
   fetchJobs: () => Promise<void>;
-  fetchJobDetail: (id: string) => Promise<void>;
+  fetchJobDetail: (id: string) => Promise<jobs.Job>;
   toggleJob: (id: string, enabled: boolean) => Promise<void>;
   runJob: (id: string) => Promise<jobs.RunLog | null>;
   dryRunJob: (id: string) => Promise<jobs.DryRunResult | null>;
@@ -114,6 +114,7 @@ interface JobStoreState {
 }
 
 export const useJobStore = create<JobStoreState>((set, get) => {
+  let detailRequest = 0;
   // Listeners de eventos do backend (Wails EventsEmit)
   if (typeof window !== 'undefined' && (window as unknown as Record<string, unknown>).runtime) {
     EventsOn('jobs:updated', () => {
@@ -183,11 +184,13 @@ export const useJobStore = create<JobStoreState>((set, get) => {
     },
 
     fetchJobDetail: async (id: string) => {
+      const request = ++detailRequest;
       try {
         const result = await GetJob(id);
-        set({ jobDetail: result, selectedJobId: id });
+        if (request === detailRequest) set({ jobDetail: result, selectedJobId: id });
+        return result;
       } catch (err) {
-        set({ error: String(err), jobDetail: null });
+        if (request === detailRequest) set({ error: String(err), jobDetail: null });
         throw err;
       }
     },
