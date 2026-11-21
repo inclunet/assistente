@@ -163,7 +163,7 @@ func (rc *RunCommand) Execute(ctx context.Context, args json.RawMessage) (tools.
 
 	// Resolve a sessão e o diretório exibido na confirmação antes de qualquer
 	// efeito colateral. Um terminal existente é autoritativo sobre seu CWD.
-	workDir := rc.workDir
+	var workDir string
 	if a.TerminalID != "" {
 		if strings.TrimSpace(a.WorkingDirectory) != "" {
 			return tools.ToolResult{
