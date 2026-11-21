@@ -9,7 +9,9 @@ import (
 	"io"
 	"log"
 	"log/slog"
+	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"testing/synctest"
 	"time"
@@ -17,6 +19,7 @@ import (
 	"assistente/internal/allowlist"
 	"assistente/internal/commandpolicy"
 	"assistente/internal/shelltrust"
+	"assistente/internal/terminal"
 	"assistente/internal/testutil/authorizationfixture"
 	"assistente/internal/tools"
 )
@@ -459,20 +462,57 @@ func TestRunCommand_ConfirmRejected(t *testing.T) {
 }
 
 func TestExecutorTimeoutDuringShellConfirmationDoesNotRetry(t *testing.T) {
-	release := make(chan struct{})
-	defer close(release)
-	rc := NewRunCommand(nil, func(ctx context.Context, _, _ string) (bool, error) {
-		<-ctx.Done()
-		<-release // A goroutine fica aqui até o defer fechar release depois da verificação do timeout.
-		return false, ctx.Err()
-	}, nil, t.TempDir())
-	reg := tools.NewRegistry()
-	reg.MustRegister(rc)
-	cfg := tools.DefaultExecutorConfig()
-	cfg.ToolTimeout = 200 * time.Millisecond
-	result := tools.NewExecutor(reg, cfg).ExecuteOne(t.Context(), tools.ToolCall{ID: "ask", Function: tools.FunctionCall{Name: "run_command", Arguments: `{"command":"example check"}`}})
-	if result.ErrorCode != FailureConfirmationUnavailable || result.ErrorKind != tools.ErrorKindAuthorization || result.Retryable || !result.RetryabilityKnown {
-		t.Fatalf("resultado=%+v", result)
+	dir := t.TempDir()
+	synctest.Test(t, func(t *testing.T) {
+		var prompts atomic.Int32
+		release := make(chan struct{})
+		defer close(release)
+		rc := NewRunCommand(nil, func(ctx context.Context, _, _ string) (bool, error) {
+			prompts.Add(1)
+			<-release
+			return false, ctx.Err()
+		}, nil, dir)
+		reg := tools.NewRegistry()
+		reg.MustRegister(rc)
+		cfg := tools.DefaultExecutorConfig()
+		cfg.ToolTimeout = time.Second
+		result := tools.NewExecutor(reg, cfg).ExecuteOne(t.Context(), tools.ToolCall{ID: "ask", Function: tools.FunctionCall{Name: "run_command", Arguments: `{"command":"example check"}`}})
+		if prompts.Load() != 1 || result.ErrorCode != FailureConfirmationUnavailable || result.ErrorKind != tools.ErrorKindAuthorization || result.Retryable || !result.RetryabilityKnown {
+			t.Fatalf("diálogos=%d resultado=%+v", prompts.Load(), result)
+		}
+	})
+}
+
+func TestExecutorClassifiesShellStartBeforeDispatch(t *testing.T) {
+	dir := t.TempDir()
+	cfg := terminal.DefaultManagerConfig()
+	cfg.DefaultShell = filepath.Join(dir, "shell-inexistente")
+	for _, persistent := range []bool{false, true} {
+		for _, byPolicy := range []bool{false, true} {
+			t.Run(fmt.Sprintf("persistente=%t/politica=%t", persistent, byPolicy), func(t *testing.T) {
+				var prompts atomic.Int32
+				al := &allowlist.Allowlist{DefaultAction: "confirm"}
+				if byPolicy {
+					al.AutoApprove = []string{"echo"}
+				}
+				manager := terminal.NewManager(cfg, nil)
+				t.Cleanup(manager.CloseAll)
+				reg := tools.NewRegistry()
+				reg.MustRegister(NewRunCommand(manager, func(context.Context, string, string) (bool, error) {
+					prompts.Add(1)
+					return true, nil
+				}, func(context.Context) (*allowlist.Allowlist, error) { return al, nil }, dir))
+				call := tools.ToolCall{ID: "startup", Function: tools.FunctionCall{Name: "run_command", Arguments: fmt.Sprintf(`{"command":"echo ok","persistent":%t}`, persistent)}}
+				got := tools.NewExecutor(reg, tools.DefaultExecutorConfig()).ExecuteOne(t.Context(), call)
+				wantPrompts := int32(1)
+				if byPolicy {
+					wantPrompts = 0
+				}
+				if !got.Result.IsError || got.ErrorCode != FailureSessionStart || got.ErrorKind != tools.ErrorKindUnavailable || !got.RetryabilityKnown || got.Retryable != byPolicy || prompts.Load() != wantPrompts {
+					t.Fatalf("resultado=%+v diálogos=%d", got, prompts.Load())
+				}
+			})
+		}
 	}
 }
 

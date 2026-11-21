@@ -3,6 +3,7 @@ package terminal
 import (
 	"assistente/internal/logging"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -12,6 +13,9 @@ import (
 
 	"github.com/google/uuid"
 )
+
+// ErrSessionStart indica que a criação da sessão falhou antes de enviar o comando.
+var ErrSessionStart = errors.New("não foi possível iniciar a sessão de terminal")
 
 const (
 	// DefaultMaxSessions é o número máximo de sessões simultâneas.
@@ -187,7 +191,7 @@ func (m *Manager) RunEphemeral(ctx context.Context, workDir, command string, tim
 		func(string, error) {},
 	)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%w: %w", ErrSessionStart, err)
 	}
 	session.Start()
 	defer func() {

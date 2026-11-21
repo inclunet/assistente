@@ -26,6 +26,7 @@ const (
 	confirmationFailed
 	confirmationRefused
 	confirmationApproved
+	confirmationApprovedByPolicy
 )
 
 type confirmationState struct {
@@ -58,11 +59,11 @@ func PendingConfirmation(ctx context.Context, failureCode, refusalCode, refusalM
 	}, receipt
 }
 
-// PublishAuthorizationApproval registra a liberação pela política mesmo
-// quando ela dispensa confirmação. Uma nova tentativa exigirá nova invocação.
+// PublishAuthorizationApproval registra a liberação pela política, sem
+// aprovação pontual. A ferramenta pode atestar uma falha anterior ao despacho.
 func PublishAuthorizationApproval(ctx context.Context) {
 	if state, ok := ctx.Value(pendingConfirmationKey{}).(*atomic.Pointer[confirmationState]); ok {
-		state.Store(&confirmationState{status: confirmationApproved})
+		state.Store(&confirmationState{status: confirmationApprovedByPolicy})
 	}
 }
 
@@ -451,10 +452,10 @@ func (e *Executor) executeSingle(ctx context.Context, call ToolCall) (execution 
 }
 
 func (e *Executor) finishExecution(ctx, toolCtx context.Context, call ToolCall, start time.Time, result *ToolExecutionResult, confirmation *confirmationState, collector *securitySignalCollector) ToolExecutionResult {
-	approved := confirmation != nil && confirmation.status == confirmationApproved
+	byPolicy := confirmation != nil && confirmation.status == confirmationApprovedByPolicy
+	approved := byPolicy || confirmation != nil && confirmation.status == confirmationApproved
 	if approved {
-		// A espera pela decisão terminou. O diagnóstico passa a ser operacional,
-		// mas a execução autorizada não pode ser repetida automaticamente.
+		// A espera pela decisão terminou. O diagnóstico passa a ser operacional.
 		confirmation = nil
 	}
 	if confirmation != nil && confirmation.receipt != nil && confirmation.receipt.Close() {
@@ -465,6 +466,9 @@ func (e *Executor) finishExecution(ctx, toolCtx context.Context, call ToolCall, 
 	// Sua resposta de confirmação indisponível e um erro de contexto puro
 	// descrevem a mesma interrupção que toolCtx.Done.
 	interrupted := result == nil
+	if byPolicy && result != nil && result.Result.Failure != nil && result.Result.Failure.Retryable && toolCtx.Err() != nil {
+		interrupted = true
+	}
 	if result != nil && confirmation != nil && toolCtx.Err() != nil {
 		interrupted = errors.Is(result.Error, toolCtx.Err()) ||
 			confirmation.status != confirmationPending || result.ErrorCode == confirmation.result.Failure.Code
@@ -490,7 +494,9 @@ func (e *Executor) finishExecution(ctx, toolCtx context.Context, call ToolCall, 
 			}
 		}
 		if approved && result.Result.IsError {
-			result.Retryable = false
+			// Só a política sem diálogo admite uma falha que a própria
+			// ferramenta classificou como segura antes do despacho.
+			result.Retryable = byPolicy && result.Result.Failure != nil && result.Result.Failure.Retryable
 			result.RetryabilityKnown = true
 		}
 		return *result

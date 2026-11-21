@@ -24,6 +24,7 @@ const (
 	FailureCommandRefused          = "shell_command_refused"
 	FailureConfirmationUnavailable = "shell_confirmation_unavailable"
 	FailurePrerequisiteUnavailable = "shell_prerequisite_unavailable"
+	FailureSessionStart            = "shell_session_start_failed"
 	// defaultTimeout é o timeout padrão para execução de comandos (15s)
 	defaultTimeout = 15 * time.Second
 
@@ -274,10 +275,7 @@ func (rc *RunCommand) Execute(ctx context.Context, args json.RawMessage) (tools.
 		session, acquireErr := rc.sessionMgr.Acquire(ctx, workDir)
 		err = acquireErr
 		if err != nil {
-			return tools.ToolResult{
-				Content: fmt.Sprintf("Erro ao criar sessão de terminal: %v", err),
-				IsError: true,
-			}, nil
+			return sessionStartFailure(ctx, decision, err), nil
 		}
 		sessionID = session.ID()
 		entry, err = rc.sessionMgr.RunCommand(ctx, sessionID, a.Command, timeout, "llm")
@@ -286,6 +284,9 @@ func (rc *RunCommand) Execute(ctx context.Context, args json.RawMessage) (tools.
 	} else {
 		// Execução efêmera por padrão: não cria aba persistente nem ocupa o limite.
 		entry, err = rc.sessionMgr.RunEphemeral(ctx, workDir, a.Command, timeout, "llm")
+		if errors.Is(err, terminal.ErrSessionStart) {
+			return sessionStartFailure(ctx, decision, err), nil
+		}
 		// sessionID permanece vazio — sem deep link para terminal inexistente.
 	}
 
@@ -403,6 +404,20 @@ func (rc *RunCommand) Execute(ctx context.Context, args json.RawMessage) (tools.
 		}, nil
 	}
 	return protected, nil
+}
+
+func sessionStartFailure(ctx context.Context, decision allowlist.Decision, err error) tools.ToolResult {
+	kind := tools.ErrorKindUnavailable
+	switch {
+	case errors.Is(err, context.Canceled), errors.Is(ctx.Err(), context.Canceled):
+		kind = tools.ErrorKindCancelled
+	case errors.Is(err, context.DeadlineExceeded), errors.Is(ctx.Err(), context.DeadlineExceeded):
+		kind = tools.ErrorKindTimeout
+	}
+	return tools.ToolResult{
+		Content: fmt.Sprintf("Erro ao criar sessão de terminal: %v", err), IsError: true,
+		Failure: &tools.ToolFailure{Code: FailureSessionStart, Kind: kind, Retryable: decision == allowlist.DecisionApprove && kind == tools.ErrorKindUnavailable},
+	}
 }
 
 func validateSkillBashCommand(ctx context.Context, command string) (tools.ToolResult, bool) {
