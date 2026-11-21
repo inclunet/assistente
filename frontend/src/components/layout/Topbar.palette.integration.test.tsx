@@ -1289,6 +1289,8 @@ describe('Criação de abas — Topbar, Toolbar e Menu reais', () => {
 
   it('limita somente o carregamento travado e permite tentar novamente sem reabrir resposta antiga', async () => {
     await mountCreation();
+    const report = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(window, 'go', { configurable: true, value: { app: { App: { ReportLocalPaletteCommand: report } } } });
     let finishOld!: (items: unknown[]) => void;
     listCommandCatalog.mockReturnValueOnce(new Promise(resolve => { finishOld = resolve; }));
     vi.useFakeTimers();
@@ -1300,6 +1302,7 @@ describe('Criação de abas — Topbar, Toolbar e Menu reais', () => {
       });
       expect(screen.queryByRole('menu', { name: 'workspace.newTabMenu' })).not.toBeInTheDocument();
       expect(state.announce).toHaveBeenCalledWith('commandPalette.error');
+      expect(report).toHaveBeenCalledWith('', expect.any(String), 'failed', 5000, 'creation_catalog', 'keyboard.local');
       fireEvent.keyDown(document.activeElement!, { key: 'c', code: 'KeyC' });
       expect(state.commitBackendCommand).not.toHaveBeenCalled();
       await act(async () => {
@@ -1311,7 +1314,7 @@ describe('Criação de abas — Topbar, Toolbar e Menu reais', () => {
       expect(screen.getByRole('menuitem', { name: /^editor,/ })).toBeInTheDocument();
       await act(async () => { fireEvent.keyDown(document.activeElement!, { key: 'c', code: 'KeyC' }); });
       expect(state.commitBackendCommand).toHaveBeenCalledTimes(1);
-    } finally { vi.useRealTimers(); }
+    } finally { vi.useRealTimers(); Reflect.deleteProperty(window, 'go'); }
   });
 
   it.each(['letter', 'arrows', 'escape'] as const)('mantém o menu após um minuto e permite %s sem prazo motor', async mode => {
@@ -1970,6 +1973,8 @@ describe('Topbar palette — integração real do Combobox compartilhado', () =>
 
   it.each(navigationPaletteCases)('leva %s pela paleta real até %s sem execução durável', async (commandID, label, route) => {
     const user = userEvent.setup();
+    const report = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(window, 'go', { configurable: true, value: { app: { App: { ReportLocalPaletteCommand: report } } } });
     vi.spyOn(document, 'hasFocus').mockReturnValue(true);
     state.loadMap.mockResolvedValue({
       generation: `g-palette-${commandID}`,
@@ -1985,6 +1990,7 @@ describe('Topbar palette — integração real do Combobox compartilhado', () =>
       await user.keyboard('{ArrowDown}{Enter}');
 
       await waitFor(() => expect(navigate).toHaveBeenCalledExactlyOnceWith(route));
+      expect(report).toHaveBeenCalledWith(commandID, expect.any(String), 'accepted', expect.any(Number), 'local_ui', 'palette');
       expect(beginUICommand).not.toHaveBeenCalled();
       expect(state.beginLocalCommandUIKey).not.toHaveBeenCalled();
       expect(state.dispatchLocalCommandKey).not.toHaveBeenCalled();
@@ -1992,6 +1998,7 @@ describe('Topbar palette — integração real do Combobox compartilhado', () =>
       expect(completeUICommand).not.toHaveBeenCalled();
     } finally {
       view.unmount();
+      Reflect.deleteProperty(window, 'go');
     }
   });
 
