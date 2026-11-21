@@ -201,6 +201,9 @@ pode identificar o início do comando se for inequívoco e continuar separado
 após a resolução. O diretório e as demais partes ficam ocultos. A mesma
 apresentação serve ao desktop, aos anúncios acessíveis e aos canais. A chamada
 não consulta nem cria uma concessão reutilizável a partir de valores do cofre.
+Se a política passar a negar a operação entre a aprovação e o despacho, o
+resultado e o registro da invocação atribuem o bloqueio à política. A recusa
+explícita da pessoa continua definitiva assim que é aceita.
 
 Falha ao salvar uma autorização não pode aparecer como concessão persistente.
 Uma aprovação já concedida para a operação atual pode prosseguir como `once`,

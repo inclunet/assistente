@@ -61,9 +61,17 @@ type Authorizer struct {
 type decisionObserverKey struct{}
 type confirmationReceiptKey struct{}
 
+type DecisionOutcome uint8
+
+const (
+	DeniedByUser DecisionOutcome = iota
+	DeniedByPolicy
+	Approved
+)
+
 // WithDecisionObserver permite ao solicitante receber a conclusão da autorização
 // antes do log, pelo mesmo contrato de retorno de Authorize.
-func WithDecisionObserver(ctx context.Context, observe func(bool, error), receipt *invocationctx.ConfirmationReceipt) context.Context {
+func WithDecisionObserver(ctx context.Context, observe func(DecisionOutcome, error), receipt *invocationctx.ConfirmationReceipt) context.Context {
 	ctx = context.WithValue(ctx, confirmationReceiptKey{}, receipt)
 	return context.WithValue(ctx, decisionObserverKey{}, observe)
 }
@@ -94,6 +102,7 @@ func (a *Authorizer) Authorize(ctx context.Context, command, directory string) (
 			return false, errors.Join(storeUnavailable, err)
 		}
 	}
+	outcome := DeniedByUser
 	flow := authorization.Flow[Entry]{
 		Evaluate: func(ctx context.Context) (authorization.Decision, error) {
 			if reusable {
@@ -117,6 +126,7 @@ func (a *Authorizer) Authorize(ctx context.Context, command, directory string) (
 			}
 			result := commandpolicy.Evaluate(command, policy)
 			if result.Decision == allowlist.DecisionDeny {
+				outcome = DeniedByPolicy
 				if protected {
 					return authorization.Decision{Effect: "deny", Reason: "política de comandos"}, nil
 				}
@@ -143,8 +153,13 @@ func (a *Authorizer) Authorize(ctx context.Context, command, directory string) (
 			}
 		},
 	}
-	if observe, ok := ctx.Value(decisionObserverKey{}).(func(bool, error)); ok && observe != nil {
-		flow.Resolved = func(decision authorization.Decision, err error) { observe(decision.Effect == "allow", err) }
+	if observe, ok := ctx.Value(decisionObserverKey{}).(func(DecisionOutcome, error)); ok && observe != nil {
+		flow.Resolved = func(decision authorization.Decision, err error) {
+			if decision.Effect == "allow" {
+				outcome = Approved
+			}
+			observe(outcome, err)
+		}
 	}
 	if a.Manager != nil {
 		flow.Remember = func(ctx context.Context, choice authorization.Consent[Entry]) error {

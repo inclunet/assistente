@@ -530,17 +530,20 @@ func confirmShellCommand(ctx context.Context, confirm ConfirmFunc, command, work
 	approvedInTime := false
 	// O autorizador real publica antes do seu log. Os demais ConfirmFunc
 	// entregam o mesmo resultado ao retornar, sem emitir uma segunda decisão.
-	observe := func(approved bool, err error) {
+	observe := func(outcome shelltrust.DecisionOutcome, err error) {
 		if failure != nil {
 			return
 		}
 		switch {
-		case err == nil && approved:
+		case err == nil && outcome == shelltrust.Approved:
 			if ctx.Err() == nil {
 				approvedInTime = true
 				resolve(nil)
 			}
 		case err == nil:
+			if outcome == shelltrust.DeniedByPolicy {
+				denied.Content = fmt.Sprintf("Comando bloqueado pela política de comandos: %s", commandSummary)
+			}
 			resolve(&denied)
 			failure = &denied
 		case errors.Is(err, shelltrust.ErrPrerequisiteUnavailable) && ctx.Err() == nil:
@@ -549,7 +552,11 @@ func confirmShellCommand(ctx context.Context, confirm ConfirmFunc, command, work
 		}
 	}
 	approved, err := confirm(shelltrust.WithDecisionObserver(ctx, observe, receipt), command, workDir)
-	observe(approved, err)
+	outcome := shelltrust.DeniedByUser
+	if approved {
+		outcome = shelltrust.Approved
+	}
+	observe(outcome, err)
 	if failure != nil {
 		return failure
 	}

@@ -2,10 +2,13 @@ package jobs
 
 import (
 	"context"
+	"strings"
 	"testing"
 
+	"assistente/internal/allowlist"
 	"assistente/internal/shelltrust"
 	"assistente/internal/terminal"
+	"assistente/internal/toolinvocations"
 	"assistente/internal/tools/shell"
 )
 
@@ -50,5 +53,48 @@ func TestShellConsentUsesOnlyLiteralTemplatePrefix(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+func TestShellJobRecordsWhoRefusedTheCommand(t *testing.T) {
+	for _, tc := range []struct {
+		name, diagnostic string
+		approve          bool
+	}{
+		{"veto após aprovação", "bloqueado pela política de comandos", true},
+		{"recusa explícita", "negado pelo usuário", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			const marker = "valor-protegido-79"
+			policy := &allowlist.Allowlist{DefaultAction: "confirm"}
+			readPolicy := func(context.Context) (*allowlist.Allowlist, error) { return policy, nil }
+			prompts := 0
+			auth := shelltrust.Authorizer{Policy: readPolicy, Prompt: func(context.Context, shelltrust.PromptRequest) (shelltrust.PromptDecision, error) {
+				prompts++
+				policy.AlwaysDeny = []string{marker}
+				return shelltrust.PromptDecision{Approve: tc.approve, Scope: "once"}, nil
+			}}
+			probe := new(shellDispatchProbe)
+			tool := shell.NewRunCommand(probe, auth.Authorize, readPolicy, t.TempDir())
+			executor, repo, ctx := invocationBackedExecutor(t, tool)
+			executor.secretStore = secretStoreFunc(func(context.Context, string) (string, error) { return marker, nil })
+			job := &Job{ID: "recusa", Tool: tool.Name(), Inputs: map[string]any{"command": `{{ secret "programa" }}`},
+				ErrorPolicy: ErrorPolicy{Strategy: ErrorRetry, MaxRetries: 1, RetryDelay: "1ms"}}
+			run := executor.Execute(ctx, job, &TriggerContext{Type: TriggerManual})
+			if run.Status != RunStatusFailed || !strings.Contains(run.Error, tc.diagnostic) || strings.Contains(run.Error, marker) ||
+				run.RetryCount != 0 || prompts != 1 || probe.calls != 0 {
+				t.Fatal("o job não preservou a origem da recusa ou despachou a operação")
+			}
+			records, err := repo.List(ctx, toolinvocations.Filter{OriginID: run.RunID})
+			if err != nil || len(records) != 1 {
+				t.Fatal("invocação ausente")
+			}
+			record := records[0]
+			content := toolinvocations.ExtractToolInvocationResult(string(record.Output)).Content
+			if record.ErrorCode != shell.FailureCommandRefused || record.Retryable || !record.RetryabilityKnown ||
+				!strings.Contains(content, tc.diagnostic) || strings.Contains(content, marker) {
+				t.Fatal("a invocação registrada perdeu a origem da recusa ou expôs o valor protegido")
+			}
+		})
 	}
 }
