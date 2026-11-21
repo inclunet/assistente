@@ -665,14 +665,26 @@ func TestWriteFailureHonorsCommandTimeout(t *testing.T) {
 func TestWriteCleanupPreservesIndependentReadError(t *testing.T) {
 	reader, writer := io.Pipe()
 	readErr := errors.New("leitura interrompida por outra causa")
-	p := &stalledCleanupPTY{reader: reader, writer: writer, killed: make(chan struct{}), readErr: readErr}
-	s := &Session{id: "read-during-write-cleanup", shell: "bash", readerCtx: t.Context(), ptySession: p, ptyWriter: manualTestWriter(func([]byte) (int, error) { return 0, io.ErrShortWrite })}
+	waitErr := errors.New("erro independente de espera")
+	exited := make(chan error, 1)
+	p := &stalledCleanupPTY{reader: reader, writer: writer, killed: make(chan struct{}), readErr: readErr, waitErr: waitErr}
+	s := &Session{id: "read-during-write-cleanup", shell: "bash", readerCtx: t.Context(), ptySession: p, onExit: func(_ string, err error) { exited <- err }, ptyWriter: manualTestWriter(func([]byte) (int, error) { return 0, io.ErrShortWrite })}
 	m := NewManager(DefaultManagerConfig(), nil)
 	m.sessions[s.id] = s
 	s.Start()
 	_, err := m.RunCommand(t.Context(), s.id, "example", time.Minute, "test")
 	if !errors.Is(err, ErrSessionRead) || !errors.Is(err, readErr) || !errors.Is(err, ErrSessionWrite) || !errors.Is(err, io.ErrShortWrite) {
 		t.Fatalf("causas: %v", err)
+	}
+	select {
+	case eventErr := <-exited:
+		for _, cause := range []error{readErr, waitErr, ErrSessionWrite} {
+			if !errors.Is(eventErr, cause) || strings.Count(eventErr.Error(), cause.Error()) != 1 {
+				t.Fatalf("causa %q ausente ou repetida em exited: %v", cause, eventErr)
+			}
+		}
+	case <-time.After(time.Second):
+		t.Fatal("exited não entregue")
 	}
 }
 

@@ -1195,13 +1195,19 @@ func (s *Session) notifyFaultExit() {
 		s.mu.Unlock()
 		return
 	}
-	cause := errors.Join(s.readerErr, s.closeErr)
+	var cause error
 	if d := s.commandDelivery; d != nil {
 		if !d.ended {
 			s.mu.Unlock()
 			return
 		}
-		cause = errors.Join(d.err, cause)
+		cause = d.err
+	}
+	// Se o comando venceu antes do cleanup, podem existir causas novas.
+	for _, late := range []error{s.readerErr, s.closeErr} {
+		if late != nil && !errors.Is(cause, late) {
+			cause = errors.Join(cause, late)
+		}
 	}
 	s.mu.Unlock()
 	s.exitOnce.Do(func() { s.deliverExit(cause) })
