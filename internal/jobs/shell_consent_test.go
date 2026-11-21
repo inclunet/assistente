@@ -20,7 +20,7 @@ func TestShellConsentUsesOnlyLiteralTemplatePrefix(t *testing.T) {
 		inputs               map[string]any
 	}{
 		{"literal", "example", template, map[string]any{"Command": template}},
-		{"programa do cofre", "", `{{ secret "token" }}`, map[string]any{"command": `{{ secret "token" }}`}},
+		{"programa do cofre", "", "", map[string]any{"command": `{{ secret "token" }}`}},
 		{"token unido pelo template", "", "", map[string]any{"command": `example {{- secret "token" }}`}},
 		{"argumento literal privado", "example", "", map[string]any{"command": `example valor-particular {{ secret "token" }}`}},
 		{"expressão adicional", "example", "", map[string]any{"command": `example {{ print "privado" }} {{ secret "token" }}`}},

@@ -75,12 +75,19 @@ func TestProtectedShellConsentOnDesktopAndChannel(t *testing.T) {
 			}
 			ctx = invocationctx.WithShellConsentTemplate(ctx, source, "example "+secret)
 			allowed, err = authorizer.Authorize(ctx, "example "+secret, secret+"-diretorio")
-			if allowed || err != nil || strings.Contains(visible, secret) || !strings.Contains(body, source) || !strings.Contains(visible, "única execução") {
+			if allowed || err != nil || strings.Contains(visible, secret) || !strings.Contains(body, source) || !strings.Contains(visible, "começa com example") || !strings.Contains(visible, "única execução") {
 				t.Fatal("a superfície não exibiu exclusivamente o template de origem")
 			}
 			allowed, err = authorizer.Authorize(ctx, "example diferente", secret+"-diretorio")
 			if allowed || err != nil || strings.Contains(body, source) || strings.Contains(visible, secret) {
 				t.Fatal("template público herdado indevidamente por outra operação")
+			}
+			const vaultProgram = `{{ secret "programa" }}`
+			ctx = invocationctx.WithProtectedShellCommand(authorizationfixture.Context(), "[redacted]", "")
+			ctx = invocationctx.WithShellConsentTemplate(ctx, vaultProgram, secret)
+			allowed, err = authorizer.Authorize(ctx, secret, secret+"-diretorio")
+			if allowed || err != nil || strings.Contains(visible, secret) || strings.Contains(body, vaultProgram) || !strings.Contains(visible, "Os detalhes ficam ocultos") || !strings.Contains(visible, "única execução") {
+				t.Fatal("a superfície deve usar a confirmação genérica quando o programa vem do cofre")
 			}
 		})
 	}
@@ -110,7 +117,6 @@ func TestManualCatalogShellConsentHasNoConversation(t *testing.T) {
 	askedWithoutConversation := false
 	router := questionnaire.NewRouter(nil, nil)
 	auth := shelltrust.Authorizer{Prompt: func(ctx context.Context, req shelltrust.PromptRequest) (shelltrust.PromptDecision, error) {
-
 		inv, _ := invocationctx.Get(ctx)
 		surface := resolveProfileAccessSurface(ctx, inv.Source, inv.ConversationID, database.GetConversationInfoWithContext)
 		askedWithoutConversation = surface.Kind == questionnaire.SurfaceNone && req.PublicTemplate != ""

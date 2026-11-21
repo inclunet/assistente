@@ -14,12 +14,12 @@ const redactedValue = "[redacted]"
 // operação na pergunta. Nunca extraímos o programa do valor do cofre.
 var shellTemplatePrefix = regexp.MustCompile(`^[ \t]*([a-zA-Z][a-zA-Z0-9._-]{0,63})[ \t]+`)
 
-// Formas literais de origem verificável: programa opcional e referências
+// Formas literais de origem verificável: programa literal e referências
 // simples ao cofre. Argumentos livres, caminhos, comentários, pipelines e
 // outras expressões podem conter dados privados já no próprio template.
 const publicSecretAction = `\{\{[\t ]*secret[\t ]+"[A-Za-z_][A-Za-z0-9_-]{0,63}"[\t ]*\}\}`
 
-var publicShellTemplate = regexp.MustCompile(`^[\t ]*(?:[A-Za-z][A-Za-z0-9._-]{0,63}[\t ]+)?` + publicSecretAction + `(?:[\t ]+` + publicSecretAction + `)*[\t ]*$`)
+var publicShellTemplate = regexp.MustCompile(`^[\t ]*[A-Za-z][A-Za-z0-9._-]{0,63}[\t ]+` + publicSecretAction + `(?:[\t ]+` + publicSecretAction + `)*[\t ]*$`)
 
 // RedactResolvedInputs keeps run history useful without persisting secrets
 // resolved from templates or values entered directly into sensitive fields.

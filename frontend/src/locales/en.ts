@@ -4920,7 +4920,7 @@ notSaved: 'The decision applies only to this operation: it could not be remember
           description: 'The assistant wants to run:\n\n{{command}}\n\nin: {{workDir}}',
           prompt: 'Allow running this command?',
           protectedPrompt: 'This job command uses a protected value. Its details are hidden. Allow it to run once in the shell?',
-          protectedTemplatePrompt: 'This job command uses a protected value. Allow the command shown in the template to run once?',
+          protectedTemplatePrompt: 'This job command starts with {{prefix}}. The template shows the vault reference. Allow it to run once in the shell?',
           templateLabel: 'Original command template',
           protectedPrefixPrompt: 'This job command begins with {{prefix}} and uses a protected value. The remaining details are hidden. Allow it to run once in the shell?',
           workDir: 'Directory: {{workDir}}',

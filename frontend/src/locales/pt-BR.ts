@@ -4922,7 +4922,7 @@ notSaved: 'A decisão vale somente para esta operação: não foi possível lemb
           description: 'O assistente quer executar:\n\n{{command}}\n\nem: {{workDir}}',
           prompt: 'Permitir a execução deste comando?',
           protectedPrompt: 'Este comando de job usa um valor protegido. Os detalhes ficam ocultos. Permitir uma única execução no shell?',
-          protectedTemplatePrompt: 'Este comando de job usa um valor protegido. Permitir uma única execução do comando mostrado no template?',
+          protectedTemplatePrompt: 'O comando de job começa com {{prefix}}. O template mostra a referência ao cofre. Permitir uma única execução no shell?',
           templateLabel: 'Template original do comando',
           protectedPrefixPrompt: 'O comando de job começa com {{prefix}} e usa um valor protegido. Os demais detalhes ficam ocultos. Permitir uma única execução no shell?',
           workDir: 'Diretório: {{workDir}}',

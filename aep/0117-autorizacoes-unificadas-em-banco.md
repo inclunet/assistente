@@ -198,14 +198,16 @@ resolvida. Quando exige consentimento, a pergunta informa que há um valor
 protegido e oferece apenas aprovação ou recusa desta execução. O questionário
 pode receber o template original, sem avaliá-lo para exibição, quando uma única
 chave de comando o vincula à operação e sua fonte contém somente referências
-simples ao cofre e um nome literal de programa opcional. Em outras formas,
+simples ao cofre depois de um nome literal de programa. Quando o programa vem
+do cofre, a pergunta usa a descrição genérica de comando protegido e oculta
+também o template. Em outras formas,
 apenas o primeiro token literal pode identificar a operação se continuar
 inequívoco e separado após a resolução. Variantes conflitantes da chave de
 comando ocultam ambas as apresentações. O valor resolvido e o diretório ficam
 ocultos no desktop, nos anúncios acessíveis e nos canais. A chamada
 não consulta nem cria uma concessão reutilizável a partir de valores do cofre.
-Se a política passar a negar a operação entre a aprovação e o despacho, o
-resultado e o registro da invocação atribuem o bloqueio à política. A recusa
+O veto na avaliação inicial e o veto entre a aprovação e o despacho são
+atribuídos à política no resultado e no registro da invocação. A recusa
 explícita da pessoa continua definitiva assim que é aceita.
 
 Falha ao salvar uma autorização não pode aparecer como concessão persistente.

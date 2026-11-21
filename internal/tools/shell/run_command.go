@@ -23,13 +23,17 @@ import (
 )
 
 const (
-	// FailureCommandRefused identifica a recusa expressa da pessoa.
 	// FailurePolicyVetoed identifica um veto da política vigente.
-	FailurePolicyVetoed            = "shell_policy_vetoed"
-	FailureCommandRefused          = "shell_command_refused"
+	FailurePolicyVetoed = "shell_policy_vetoed"
+	// FailureCommandRefused identifica a recusa expressa da pessoa.
+	FailureCommandRefused = "shell_command_refused"
+	// FailureConfirmationUnavailable indica que não houve uma decisão válida.
 	FailureConfirmationUnavailable = "shell_confirmation_unavailable"
+	// FailurePrerequisiteUnavailable identifica falha ao verificar um pré-requisito.
 	FailurePrerequisiteUnavailable = "shell_prerequisite_unavailable"
-	FailureSessionStart            = "shell_session_start_failed"
+	// FailureSessionStart identifica uma falha de abertura da sessão do terminal.
+	FailureSessionStart = "shell_session_start_failed"
+
 	// defaultTimeout é o timeout padrão para execução de comandos (15s)
 	defaultTimeout = 15 * time.Second
 
@@ -552,6 +556,8 @@ func confirmShellCommand(ctx context.Context, confirm ConfirmFunc, command, work
 			if outcome == shelltrust.DeniedByPolicy {
 				denied.Failure.Code = FailurePolicyVetoed
 				denied.Content = fmt.Sprintf("Comando bloqueado pela política de comandos: %s\nMotivos: a política vigente vetou o comando na reavaliação.", commandSummary)
+				// resolve aceita apenas o código de recusa da pessoa. Publique o
+				// veto com seu próprio código antes que o prazo encerre a espera.
 				tools.PublishAuthorizationRefusal(ctx, FailurePolicyVetoed, denied)
 			} else {
 				resolve(&denied)

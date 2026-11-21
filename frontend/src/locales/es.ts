@@ -4924,7 +4924,7 @@ notSaved: 'La decisión vale solo para esta operación: no se pudo recordar. Ser
           description: 'El asistente quiere ejecutar:\n\n{{command}}\n\nen: {{workDir}}',
           prompt: '¿Permitir la ejecución de este comando?',
           protectedPrompt: 'Este comando de tarea usa un valor protegido. Sus detalles están ocultos. ¿Permitir una sola ejecución en el shell?',
-          protectedTemplatePrompt: 'Este comando de tarea usa un valor protegido. ¿Permitir una sola ejecución del comando que muestra la plantilla?',
+          protectedTemplatePrompt: 'El comando de tarea comienza con {{prefix}}. La plantilla muestra la referencia a la bóveda. ¿Permitir una sola ejecución en el shell?',
           templateLabel: 'Plantilla original del comando',
           protectedPrefixPrompt: 'El comando de tarea comienza con {{prefix}} y usa un valor protegido. Los demás detalles están ocultos. ¿Permitir una sola ejecución en el shell?',
           workDir: 'Directorio: {{workDir}}',

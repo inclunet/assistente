@@ -48,12 +48,15 @@ func shellConfirmationPayload(req shelltrust.PromptRequest) (questionnaire.Reque
 				fmt.Sprintf("O comando de job começa com %s e usa um valor protegido. Os demais detalhes ficam ocultos. Permitir uma única execução no shell?", req.LiteralPrefix))
 		}
 		var bodyLabel questionnaire.Text
-		if req.PublicTemplate != "" {
-			description = questionnaire.Keyed("app.questionnaire.shell.protectedTemplatePrompt", "Este comando de job usa um valor protegido. Permitir uma única execução do comando mostrado no template?")
+		var body string
+		if req.PublicTemplate != "" && req.LiteralPrefix != "" {
+			body = req.PublicTemplate
+			description = questionnaire.KeyedWith("app.questionnaire.shell.protectedTemplatePrompt", map[string]any{"prefix": req.LiteralPrefix},
+				fmt.Sprintf("O comando de job começa com %s. O template mostra a referência ao cofre. Permitir uma única execução no shell?", req.LiteralPrefix))
 			bodyLabel = questionnaire.Keyed("app.questionnaire.shell.templateLabel", "Template original do comando")
 		}
 		return questionnaire.RequestPayload{
-			Body: req.PublicTemplate, BodyLabel: bodyLabel,
+			Body: body, BodyLabel: bodyLabel,
 			Kind: questionnaire.KindDecision, Title: questionnaire.Keyed("app.questionnaire.shell.title", "Confirmar execução de comando"),
 			Description: description, AllowCancel: true, Actions: actions.Actions(),
 		}, actions

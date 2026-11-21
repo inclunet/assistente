@@ -111,8 +111,9 @@ Quando uma chamada traz a origem de uma conversa e precisa de consentimento,
 a pergunta chega ao desktop ou ao canal dessa conversa. Para comandos
 protegidos, a decisão vale apenas para aquela execução. A pergunta pode mostrar
 o template original, por exemplo `example {{ secret "token" }}`, se ele contiver
-apenas referências simples ao cofre e, opcionalmente, o nome literal do
-programa. Quando houver outros dados, ela mostra no máximo o nome verificável
+o nome literal do programa seguido apenas de referências simples ao cofre.
+Se o programa vier do cofre, a pergunta informa que os detalhes ficam ocultos.
+Quando houver outros dados, ela mostra no máximo o nome verificável
 do programa. O valor resolvido e o diretório ficam ocultos.
 
 Eventos não ficam em fila. Quando nenhum consumidor está habilitado — porque o
