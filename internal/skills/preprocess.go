@@ -37,10 +37,11 @@ type commandTurnKey struct{}
 
 // A preparação do prompt e os providers acessam este estado sequencialmente.
 type commandTurn struct {
-	budget   int
-	run      SkillCommandRunner
-	prepared *preparedSkillContext
-	err      error
+	budget            int
+	run               SkillCommandRunner
+	prepared          *preparedSkillContext
+	warnedUnclosedPre map[string]bool
+	err               error
 }
 
 // WithCommandTurn scopes prepared base content to one prompt construction.
@@ -76,13 +77,13 @@ var parentArgumentSegment = regexp.MustCompile(`(?:^|[ /\\=:"'])\.\.(?:[ /\\:"']
 var shellArgumentText = regexp.MustCompile(`^(?:[\pL\pN._][\pL\pN._/-]*(?: +[\pL\pN._][\pL\pN._/-]*)*)?$`)
 
 // O parser CommonMark resolve o recuo relativo de cercas em listas e citações.
-func codeLineStarts(content string) map[int]bool {
-	if !strings.Contains(content, "!") {
-		return nil
+func codeLineStarts(content string) (starts map[int]bool, unclosedPre bool) {
+	if !strings.ContainsAny(content, "!<") {
+		return nil, false
 	}
 	source := []byte(content)
 	root := goldmark.DefaultParser().Parse(text.NewReader(source))
-	starts := make(map[int]bool)
+	starts = make(map[int]bool)
 	// O CommonMark delimita os trechos HTML; o tokenizador distingue tags de
 	// comentários, valores de atributos e texto cru em script/style. Um <pre>
 	// pode atravessar mais de um nó Markdown, por exemplo após uma linha vazia.
@@ -154,7 +155,20 @@ func codeLineStarts(content string) map[int]bool {
 	if preStart >= 0 {
 		markPre(len(source))
 	}
-	return starts
+	return starts, preStart >= 0
+}
+
+func warnUnclosedPre(ctx context.Context, slug string) {
+	if turn, _ := ctx.Value(commandTurnKey{}).(*commandTurn); turn != nil {
+		if turn.warnedUnclosedPre[slug] {
+			return
+		}
+		if turn.warnedUnclosedPre == nil {
+			turn.warnedUnclosedPre = make(map[string]bool)
+		}
+		turn.warnedUnclosedPre[slug] = true
+	}
+	logging.Logger(ctx, "skills.preprocess").Warn("Elemento <pre> sem fechamento no fim da skill", "skill", slug)
 }
 
 // Inspecione só os operandos que recebem dados da invocação. A análise da
@@ -208,7 +222,10 @@ func planCommandLines(ctx context.Context, skill *Skill, content string, base bo
 	}
 	shellToolAllowed := skill.Tools == nil || (!slices.Contains(skill.Tools.Denied, "run_command") &&
 		(len(skill.Tools.Allowed) == 0 || slices.Contains(skill.Tools.Allowed, "run_command")))
-	fenced := codeLineStarts(content)
+	fenced, unclosedPre := codeLineStarts(content)
+	if unclosedPre {
+		warnUnclosedPre(ctx, skill.Slug)
+	}
 	offset := 0
 	for idx, line := range lines {
 		trimmed := strings.TrimSpace(line)

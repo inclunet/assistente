@@ -1,8 +1,10 @@
 package skills
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -608,5 +610,43 @@ func TestMultilineCodeSpanKeepsCommandsLiteral(t *testing.T) {
 		if err != nil || got != "saída\n"+example+"\nsaída" || !reflect.DeepEqual(calls, []string{"echo before", "echo after"}) {
 			t.Fatalf("base=%v chamadas=%v corpo=%q erro=%v", base, calls, got, err)
 		}
+	}
+}
+
+func TestUnclosedPreWarnsOncePerSkillAndAttempt(t *testing.T) {
+	var logs bytes.Buffer
+	previous := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelWarn})))
+	t.Cleanup(func() { slog.SetDefault(previous) })
+
+	const private = "SEGREDO_DO_EXEMPLO"
+	unclosed := providerSkill("manual", "<div>\n<PRE>\n!echo "+private, true)
+	unclosed.Tools = &ToolPermissions{BashCommands: &BashCommands{Allowed: []string{"echo"}}}
+	closed := providerSkill("completo", "<pre>\n!echo "+private+"\n</pre>", false)
+	withoutCommands := providerSkill("sem-comando", "<pre>\n"+private, false)
+	p := NewContextProvider(contextProviderSourceStub{skills: []Skill{unclosed, closed, withoutCommands}})
+	run := func(context.Context, *Skill, string) (string, error) { t.Fatal("exemplo executado"); return "", nil }
+	build := func(ctx context.Context, slug string, budget int) {
+		t.Helper()
+		req := contextprovider.BuildRequest{EnabledSkills: []string{slug}, ToolCallingEnabled: true, ProviderBudgets: map[string]int{"skills": budget}}
+		blocks, err := p.Build(ctx, req)
+		if err != nil || len(blocks) != 1 || !strings.Contains(blocks[0].Content, private) {
+			t.Fatalf("slug=%q blocos=%v erro=%v", slug, blocks, err)
+		}
+		if slug == "manual" && !strings.Contains(blocks[0].Content, "!echo "+private) {
+			t.Fatalf("exemplo alterado: %v", blocks)
+		}
+	}
+	ctx := WithCommandTurn(t.Context(), run)
+	build(ctx, "manual", 400)
+	build(ctx, "manual", 400)
+	build(ctx, "manual", 450)
+	build(ctx, "completo", 400)
+	build(ctx, "sem-comando", 400)
+	build(WithCommandTurn(t.Context(), run), "manual", 400)
+	output := logs.String()
+	if strings.Count(output, "level=WARN") != 3 || strings.Count(output, "skill=manual") != 2 ||
+		strings.Count(output, "skill=sem-comando") != 1 || strings.Contains(output, private) || strings.Contains(output, "!echo") {
+		t.Fatalf("avisos: %s", output)
 	}
 }
