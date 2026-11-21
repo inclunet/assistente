@@ -407,50 +407,67 @@ func TestJobShellNullOutputPreservesMetadata(t *testing.T) {
 }
 
 func TestJobShellRedactsSecretCommandMetadata(t *testing.T) {
+	const template = `example {{ secret "token" }}`
 	const token = "valor-sintetico-3417"
-	for _, route := range []string{"job", "dry-run"} {
-		t.Run(route, func(t *testing.T) {
-			probe := &shellDispatchProbe{entry: &terminal.HistoryEntry{Output: "ok"}}
-			tool := shell.NewRunCommand(probe, func(context.Context, string, string) (bool, error) { return true, nil }, nil, t.TempDir())
-			executor, repo, ctx := invocationBackedExecutor(t, tool)
-			executor.secretStore = secretStoreFunc(func(context.Context, string) (string, error) { return token, nil })
-			inputs := map[string]any{"command": `example {{ secret "token" }}`}
-			var output map[string]any
-			if route == "job" {
-				run := executor.Execute(ctx, &Job{ID: "secret-shell", Tool: tool.Name(), Inputs: inputs}, &TriggerContext{Type: TriggerManual})
-				if run.Status != RunStatusCompleted || run.ResolvedInputs["command"] != redactedValue {
-					t.Fatalf("run=%+v", run)
-				}
-				output = run.Output
-			} else {
-				manager := mustNewManager(t, ManagerConfig{ToolRegistry: executor.toolRegistry, ToolInvocations: executor.toolInvocations, SecretStore: executor.secretStore})
-				result, err := manager.TestToolDryRunContext(ctx, TestToolRequest{ToolName: tool.Name(), Inputs: inputs, AllowUnsafe: true})
-				if err != nil || result == nil || !result.Success {
-					t.Fatalf("resultado=%+v erro=%v", result, err)
-				}
-				output = result.Output
-			}
-			if probe.calls != 1 || probe.command != "example "+token {
-				t.Fatal("comando resolvido não chegou à execução")
-			}
-			records, err := repo.List(ctx, toolinvocations.Filter{Limit: 10})
-			if err != nil || len(records) != 1 {
-				t.Fatalf("invocações=%d, erro=%v", len(records), err)
-			}
-			record := records[0]
-			if strings.Contains(string(record.Input)+string(record.Output)+string(record.Metadata), token) {
-				t.Fatal("token encontrado no ledger")
-			}
-			for _, result := range []map[string]any{output, invocationOutput(string(record.Output))} {
-				if result["_meta_command"] != redactedValue || result["_meta_exitCode"] == nil || result["content"] != "ok" {
-					t.Fatalf("resultado=%+v", result)
-				}
-			}
-			public := executor.Execute(ctx, &Job{ID: "public-shell", Tool: tool.Name(), Inputs: map[string]any{"command": "example public"}}, &TriggerContext{Type: TriggerManual})
-			if public.Status != RunStatusCompleted || public.Output["_meta_command"] != "example public" {
-				t.Fatalf("redação interferiu na próxima invocação: %+v", public)
-			}
-		})
+	for _, tc := range []struct {
+		name, secretKey, expectedCommand string
+		inputs                           map[string]any
+	}{
+		{"canonical", "command", "example " + token, map[string]any{"command": template}},
+		{"capitalized", "Command", "example " + token, map[string]any{"Command": template}},
+		{"uppercase", "COMMAND", "example " + token, map[string]any{"COMMAND": template}},
+		// O marshal ordena as chaves. No shell, a última variante prevalece.
+		{"public_last", "COMMAND", "example public", map[string]any{"COMMAND": template, "command": "example public"}},
+		{"secret_last", "Command", "example " + token, map[string]any{"COMMAND": "example public", "Command": template}},
+	} {
+		for _, route := range []string{"job", "dry-run"} {
+			t.Run(tc.name+"/"+route, func(t *testing.T) {
+				checkSecretCommandMetadata(t, route, tc.inputs, tc.secretKey, tc.expectedCommand, token)
+			})
+		}
+	}
+}
+
+func checkSecretCommandMetadata(t *testing.T, route string, inputs map[string]any, secretKey, expectedCommand, token string) {
+	t.Helper()
+	probe := &shellDispatchProbe{entry: &terminal.HistoryEntry{Output: "ok"}}
+	tool := shell.NewRunCommand(probe, func(context.Context, string, string) (bool, error) { return true, nil }, nil, t.TempDir())
+	executor, repo, ctx := invocationBackedExecutor(t, tool)
+	executor.secretStore = secretStoreFunc(func(context.Context, string) (string, error) { return token, nil })
+	var output map[string]any
+	if route == "job" {
+		run := executor.Execute(ctx, &Job{ID: "secret-shell", Tool: tool.Name(), Inputs: inputs}, &TriggerContext{Type: TriggerManual})
+		if run.Status != RunStatusCompleted || run.ResolvedInputs[secretKey] != redactedValue {
+			t.Fatalf("run=%+v", run)
+		}
+		output = run.Output
+	} else {
+		manager := mustNewManager(t, ManagerConfig{ToolRegistry: executor.toolRegistry, ToolInvocations: executor.toolInvocations, SecretStore: executor.secretStore})
+		result, err := manager.TestToolDryRunContext(ctx, TestToolRequest{ToolName: tool.Name(), Inputs: inputs, AllowUnsafe: true})
+		if err != nil || result == nil || !result.Success {
+			t.Fatalf("resultado=%+v erro=%v", result, err)
+		}
+		output = result.Output
+	}
+	if probe.calls != 1 || probe.command != expectedCommand {
+		t.Fatal("comando resolvido não chegou à execução")
+	}
+	records, err := repo.List(ctx, toolinvocations.Filter{Limit: 10})
+	if err != nil || len(records) != 1 {
+		t.Fatalf("invocações=%d, erro=%v", len(records), err)
+	}
+	record := records[0]
+	if strings.Contains(string(record.Input)+string(record.Output)+string(record.Metadata), token) {
+		t.Fatal("token encontrado no ledger")
+	}
+	for _, result := range []map[string]any{output, invocationOutput(string(record.Output))} {
+		if result["_meta_command"] != redactedValue || result["_meta_exitCode"] == nil || result["content"] != "ok" {
+			t.Fatalf("resultado=%+v", result)
+		}
+	}
+	public := executor.Execute(ctx, &Job{ID: "public-shell", Tool: tool.Name(), Inputs: map[string]any{"command": "example public"}}, &TriggerContext{Type: TriggerManual})
+	if public.Status != RunStatusCompleted || public.Output["_meta_command"] != "example public" {
+		t.Fatalf("redação interferiu na próxima invocação: %+v", public)
 	}
 }
 
