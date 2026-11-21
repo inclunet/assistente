@@ -233,3 +233,17 @@ func TestParseArgs_MixedQuotes(t *testing.T) {
 		t.Errorf("arg[2]: expected %q, got %q", "plain", args[2])
 	}
 }
+
+func TestArgumentExpansionSkipsPlainText(t *testing.T) {
+	args := make([]string, 100)
+	expand := argumentExpander("", args)
+	const line = "Texto sem marcador"
+	allocs := testing.AllocsPerRun(100, func() {
+		if expand(line) != line {
+			t.Fatal("texto alterado")
+		}
+	})
+	if allocs != 0 {
+		t.Fatalf("alocações por linha: %v", allocs)
+	}
+}

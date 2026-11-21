@@ -15,6 +15,9 @@ func argumentFallback(content, args string) string {
 // argumentExpander applies substitutions to a single piece of skill-authored text.
 func argumentExpander(rawArgs string, args []string, vars ...map[string]string) func(string) string {
 	return func(content string) string {
+		if !strings.Contains(content, "$") {
+			return content
+		}
 		result := content
 		// 1. Substitui $ARGUMENTS[N] PRIMEIRO (bracket syntax, 0-based, mais específico)
 		for i := len(args) - 1; i >= 0; i-- {
