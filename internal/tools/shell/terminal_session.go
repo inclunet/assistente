@@ -1,6 +1,7 @@
 package shell
 
 import (
+	"assistente/internal/allowlist"
 	"assistente/internal/terminal"
 	"assistente/internal/tools"
 	"context"
@@ -113,7 +114,7 @@ func (t *TerminalSession) Execute(_ context.Context, raw json.RawMessage) (tools
 		}
 		info, err := t.manager.CreateToolSession(strings.TrimSpace(args.Name), workDir)
 		if err != nil {
-			return tools.ToolResult{Content: "Erro ao criar terminal: " + err.Error(), IsError: true}, nil
+			return tools.ToolResult{Content: sessionStartFailure(allowlist.DecisionConfirm, err).Content, IsError: true}, nil
 		}
 		link := fmt.Sprintf("assistente://terminal/%s", info.ID)
 		displayName := strings.TrimSpace(info.Name)
