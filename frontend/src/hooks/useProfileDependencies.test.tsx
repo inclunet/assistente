@@ -25,7 +25,7 @@ vi.mock('@wailsjs/go/wailsapi/Profiles', () => ({
 }));
 
 vi.mock('@wailsjs/go/wailsapi/Skills', () => ({
-  GetSkills: (...args: unknown[]) => getSkillsMock(...args),
+  GetSelectableSkills: (...args: unknown[]) => getSkillsMock(...args),
 }));
 
 vi.mock('@wailsjs/runtime/runtime', () => ({

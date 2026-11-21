@@ -18,3 +18,12 @@ type PluginRevision struct {
 	// as JSON preserves binary files without deserializing third-party objects.
 	Files []byte `gorm:"not null" json:"-"`
 }
+
+// PluginSkillActivation belongs to the exact reviewed package revision.
+type PluginSkillActivation struct {
+	InstallationID string `gorm:"primaryKey"`
+	ComponentKey   string `gorm:"primaryKey"`
+	Digest         string `gorm:"not null"`
+	Slug           string `gorm:"uniqueIndex;not null"`
+	Definition     string `gorm:"not null" json:"-"`
+}

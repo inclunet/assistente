@@ -40,11 +40,11 @@ type ChatParams = llm.ChatParams
 // does not need to import internal/prompt (which already imports internal/chat).
 type SystemPromptBuilder interface {
 	BuildWithContextBlocks(messages []llm.Message, enabledSkills []string, disableSkills bool, disableOnDemand bool, tplData any, contextBlocks []contextprovider.Block) []llm.Message
-	BuildTemplateData(activeProfile *profiles.Profile, params llm.ChatParams, conversationID string) TemplateData
+	BuildTemplateData(ctx context.Context, activeProfile *profiles.Profile, params llm.ChatParams, conversationID string) TemplateData
 	// ApplySkillToolScope reprojeta os campos de seleção de tools do TemplateData
 	// sob a allowlist/denylist do skill invocado, para o system prompt refletir o
 	// MESMO conjunto de tools que vai nas definitions do turno.
-	ApplySkillToolScope(data TemplateData, skillAllowed, skillDenied []string) TemplateData
+	ApplySkillToolScope(ctx context.Context, data TemplateData, skillAllowed, skillDenied []string) TemplateData
 }
 
 type WorkspaceProvider interface {
@@ -839,7 +839,7 @@ func (i *Interactor) PrepareMessages(ctx context.Context, req PrepareMessagesReq
 	ctx = skills.WithCommandTurn(invocationctx.With(ctx, invocation), runner)
 	var skillTplData TemplateData
 	if i.promptBuilder != nil {
-		skillTplData = i.promptBuilder.BuildTemplateData(req.ActiveProfile, req.Params, req.ConversationID)
+		skillTplData = i.promptBuilder.BuildTemplateData(ctx, req.ActiveProfile, req.Params, req.ConversationID)
 	}
 
 	var slashSkillContent string
@@ -850,7 +850,7 @@ func (i *Interactor) PrepareMessages(ctx context.Context, req PrepareMessagesReq
 	var pendingInvokedExecutionContext *tools.ExecutionContext
 	var taskListContextEnabled bool
 	_, _, isSlashCommand := skills.ParseSlashCommand(req.UserContent)
-	skillPolicy, policyReady, policyErr := i.BuildSkillSelectionPolicy(req.ActiveProfile)
+	skillPolicy, policyReady, policyErr := i.BuildSkillSelectionPolicy(ctx, req.ActiveProfile)
 	if policyErr != nil {
 		if !isSlashCommand {
 			logging.Errorf(ctx, "chat.interactor", "[chat] erro ao carregar política de skills; seguindo sem autoativação/contexto de skills: %v", policyErr)
@@ -952,7 +952,7 @@ func (i *Interactor) PrepareMessages(ctx context.Context, req PrepareMessagesReq
 		// tool (ex.: tool_catalog) já removida das defs pelo applySkillScope.
 		if i.promptBuilder != nil && invokedExecutionContext != nil &&
 			(len(invokedExecutionContext.AllowedTools) > 0 || len(invokedExecutionContext.DeniedTools) > 0) {
-			scopedTplData := i.promptBuilder.ApplySkillToolScope(skillTplData, invokedExecutionContext.AllowedTools, invokedExecutionContext.DeniedTools)
+			scopedTplData := i.promptBuilder.ApplySkillToolScope(ctx, skillTplData, invokedExecutionContext.AllowedTools, invokedExecutionContext.DeniedTools)
 			if toolSelectionChanged(skillTplData, scopedTplData) {
 				skillTplData = scopedTplData
 				// Só o bloco tool_protocol depende da seleção de tools; os demais
@@ -1074,11 +1074,11 @@ func formatBaseSkillArguments(slug, args string) string {
 	return sb.String()
 }
 
-func (i *Interactor) BuildSkillSelectionPolicy(activeProfile *profiles.Profile) (skills.SelectionPolicy, bool, error) {
+func (i *Interactor) BuildSkillSelectionPolicy(ctx context.Context, activeProfile *profiles.Profile) (skills.SelectionPolicy, bool, error) {
 	if i.skillMgr == nil {
 		return skills.SelectionPolicy{}, false, nil
 	}
-	allSkills, err := i.skillMgr.GetAllSkillsFull()
+	allSkills, err := skills.ListForContext(ctx, i.skillMgr)
 	if err != nil {
 		return skills.SelectionPolicy{}, false, fmt.Errorf("erro ao carregar política de skills: %w", err)
 	}
@@ -1093,12 +1093,12 @@ func (i *Interactor) BuildSkillSelectionPolicy(activeProfile *profiles.Profile) 
 	return skills.ResolveSelectionPolicy(allSkills, enabledSkills, disableSkills, disableOnDemand), true, nil
 }
 
-func (i *Interactor) ValidateSkillInvocation(activeProfile *profiles.Profile, userContent string, conversationID string, surfaceOrigin *ports.ChatSurfaceOrigin) error {
+func (i *Interactor) ValidateSkillInvocation(ctx context.Context, activeProfile *profiles.Profile, userContent string, conversationID string, surfaceOrigin *ports.ChatSurfaceOrigin) error {
 	slug, _, ok := skills.ParseSlashCommand(userContent)
 	if !ok {
 		return nil
 	}
-	policy, policyReady, err := i.BuildSkillSelectionPolicy(activeProfile)
+	policy, policyReady, err := i.BuildSkillSelectionPolicy(ctx, activeProfile)
 	if err != nil {
 		if i.emitter != nil {
 			i.emitter.Emit("chat:error", ports.ErrorEvent{ConversationID: conversationID, Error: err.Error(), SurfaceOrigin: surfaceOrigin})
@@ -1108,7 +1108,13 @@ func (i *Interactor) ValidateSkillInvocation(activeProfile *profiles.Profile, us
 	if !policyReady {
 		return nil
 	}
-	skill, err := i.skillMgr.Get(slug)
+	skill := policy.PluginSkill(slug)
+	if skill == nil && strings.HasPrefix(slug, skills.PluginPrefix) {
+		return fmt.Errorf("skill de plugin indisponível")
+	}
+	if skill == nil {
+		skill, err = i.skillMgr.Get(slug)
+	}
 	if err != nil || skill == nil || !skill.IsUserInvocable() {
 		return nil
 	}

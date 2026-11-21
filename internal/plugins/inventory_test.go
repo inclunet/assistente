@@ -27,7 +27,7 @@ func TestLocalInventoryPublishesReviewedRevisionPerAccount(t *testing.T) {
 	if err := db.Exec("PRAGMA journal_mode=WAL").Error; err != nil {
 		t.Fatal(err)
 	}
-	if err := db.AutoMigrate(&database.PluginInstallation{}, &database.PluginRevision{}); err != nil {
+	if err := db.AutoMigrate(&database.PluginInstallation{}, &database.PluginRevision{}, &database.PluginSkillActivation{}); err != nil {
 		t.Fatal(err)
 	}
 	store := NewInventory(db)

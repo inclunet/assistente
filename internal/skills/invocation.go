@@ -57,7 +57,11 @@ func ParseSlashCommand(content string) (slug string, args string, ok bool) {
 	slug = strings.ToLower(parts[0])
 
 	// Valida que o slug parece um nome de skill (letras minúsculas, números, hifens)
-	for _, ch := range slug {
+	name := strings.TrimPrefix(slug, PluginPrefix)
+	if name == "" {
+		return "", "", false
+	}
+	for _, ch := range name {
 		if (ch < 'a' || ch > 'z') && (ch < '0' || ch > '9') && ch != '-' {
 			return "", "", false
 		}
@@ -88,7 +92,14 @@ func InvokeContext(ctx context.Context, userContent string, mgr InvokerManager, 
 		return nil, false, nil
 	}
 
-	skill, err := mgr.Get(slug)
+	var err error
+	skill := policy.PluginSkill(slug)
+	if skill == nil && strings.HasPrefix(slug, PluginPrefix) {
+		return nil, true, fmt.Errorf("skill de plugin indisponível")
+	}
+	if skill == nil {
+		skill, err = mgr.Get(slug)
+	}
 	if err != nil {
 		logging.Errorf(context.Background(), "skills.invocation", "[Skills] Skill /%s não encontrado: %v", slug, err)
 		return nil, false, nil
@@ -138,7 +149,10 @@ func InvokeContext(ctx context.Context, userContent string, mgr InvokerManager, 
 	sb.WriteString("\n")
 
 	// Progressive file loading: lista arquivos complementares do skill
-	supplementary, _ := mgr.GetSkillFiles(slug)
+	var supplementary []string
+	if skill.Source != "plugin" {
+		supplementary, _ = mgr.GetSkillFiles(slug)
+	}
 	if len(supplementary) > 0 {
 		sb.WriteString("\nSupporting files (use read_file to access when needed):\n")
 		for _, f := range supplementary {
@@ -167,4 +181,15 @@ func InvokeContext(ctx context.Context, userContent string, mgr InvokerManager, 
 	}
 
 	return result, true, nil
+}
+
+func (p SelectionPolicy) PluginSkill(slug string) *Skill {
+	for _, group := range [][]Skill{p.Base, p.OnDemand, p.Disabled} {
+		for n := range group {
+			if group[n].Source == "plugin" && group[n].Slug == slug {
+				return &group[n]
+			}
+		}
+	}
+	return nil
 }

@@ -29,7 +29,7 @@ func TestPluginPreviewUsesSelectedDirectoryAndSession(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = conn.Close() })
-	if err := db.AutoMigrate(&database.PluginInstallation{}, &database.PluginRevision{}); err != nil {
+	if err := db.AutoMigrate(&database.PluginInstallation{}, &database.PluginRevision{}, &database.PluginSkillActivation{}); err != nil {
 		t.Fatal(err)
 	}
 	inventory := plugins.NewInventory(db)

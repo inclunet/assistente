@@ -82,7 +82,7 @@ func (t *Tool) Execute(ctx context.Context, args json.RawMessage) (tools.ToolRes
 		return tools.ToolResult{Content: "carregamento sob demanda de skills está desativado neste perfil", IsError: true}, nil
 	}
 
-	allSkills, err := t.skills.GetAllSkillsFull()
+	allSkills, err := skills.ListForContext(ctx, t.skills)
 	if err != nil {
 		return tools.ToolResult{Content: fmt.Sprintf("erro ao listar skills: %v", err), IsError: true}, nil
 	}

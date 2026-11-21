@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { EventsOn } from '@wailsjs/runtime/runtime';
 import { GetAllowlists } from '@wailsjs/go/wailsapi/Allowlists';
 import { GetContextProviders } from '@wailsjs/go/wailsapi/Profiles';
-import { GetSkills } from '@wailsjs/go/wailsapi/Skills';
+import { GetSelectableSkills } from '@wailsjs/go/wailsapi/Skills';
 import { GetAvailableTools } from '@wailsjs/go/wailsapi/Tools';
 import type { apidto, allowlist, contextprovider, skills } from '../../wailsjs/go/models';
 
@@ -40,7 +40,7 @@ export function useProfileDependencies(): ProfileDependencies {
         const [toolsData, allowlistsData, skillsData, contextProvidersData] = await Promise.allSettled([
           GetAvailableTools(),
           GetAllowlists(),
-          GetSkills(),
+          GetSelectableSkills(),
           GetContextProviders(),
         ]);
         setTools(fulfilledOrEmpty(toolsData));

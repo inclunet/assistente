@@ -3,7 +3,9 @@ package app
 import (
 	"assistente/internal/agent"
 	"assistente/internal/commandcatalog"
+	"assistente/internal/database"
 	"assistente/internal/logging"
+	"assistente/internal/plugins"
 	"assistente/internal/skills"
 	"assistente/internal/toolinvocations"
 	"assistente/internal/tools"
@@ -23,7 +25,12 @@ import (
 
 // initSkills inicializa o gerenciador de skills
 func (a *App) initSkills() {
-	a.skillMgr = skills.NewManager()
+	a.skillMgr = skills.NewManagerWithInstalledSkills(func(ctx context.Context) ([]skills.Skill, error) {
+		if _, ok := database.UserIDFromContext(ctx); !ok {
+			return nil, nil
+		}
+		return plugins.NewInventory(database.DB()).ActiveSkills(ctx)
+	})
 	if err := a.skillMgr.EnsureDir(); err != nil {
 		logging.Errorf(context.Background(), "app.app-skills", "[Skills] Erro ao garantir diretório de skills: %v", err)
 	}

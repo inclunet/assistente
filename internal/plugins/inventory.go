@@ -93,6 +93,9 @@ func (i *Inventory) InstallReviewed(ctx context.Context, reviewedOrigin, reviewe
 			if update.RowsAffected != 1 {
 				return ErrInstallationChanged
 			}
+			if err := tx.Where("installation_id = ?", installed.ID).Delete(&database.PluginSkillActivation{}).Error; err != nil {
+				return err
+			}
 		}
 		revision := database.PluginRevision{InstallationID: installed.ID, Digest: snapshot.Digest, Files: files}
 		return tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&revision).Error
