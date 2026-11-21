@@ -284,6 +284,9 @@ func (rc *RunCommand) Execute(ctx context.Context, args json.RawMessage) (tools.
 	} else {
 		// Execução efêmera por padrão: não cria aba persistente nem ocupa o limite.
 		entry, err = rc.sessionMgr.RunEphemeral(ctx, workDir, a.Command, timeout, "llm")
+		if errors.Is(err, terminal.ErrDirectoryUnresolved) {
+			return shellPrerequisiteFailure(ctx, "directory_unresolved", "Não foi possível resolver o diretório para autorização."), nil
+		}
 		if errors.Is(err, terminal.ErrSessionStart) {
 			return sessionStartFailure(ctx, decision, err), nil
 		}
@@ -308,7 +311,7 @@ func (rc *RunCommand) Execute(ctx context.Context, args json.RawMessage) (tools.
 				Content: content,
 				Metadata: func() map[string]any {
 					m := map[string]any{
-						"command":   a.Command,
+						"command":   invocationctx.ShellCommandMetadata(ctx, a.Command),
 						"workDir":   workDir,
 						"exitCode":  -1,
 						"timeout":   true,
@@ -336,7 +339,7 @@ func (rc *RunCommand) Execute(ctx context.Context, args json.RawMessage) (tools.
 
 		// Erro real (sem output ou sem timeout)
 		metadata := map[string]any{
-			"command":  a.Command,
+			"command":  invocationctx.ShellCommandMetadata(ctx, a.Command),
 			"workDir":  workDir,
 			"exitCode": -1,
 		}
@@ -376,7 +379,7 @@ func (rc *RunCommand) Execute(ctx context.Context, args json.RawMessage) (tools.
 		Content: content,
 		Metadata: func() map[string]any {
 			m := map[string]any{
-				"command":   a.Command,
+				"command":   invocationctx.ShellCommandMetadata(ctx, a.Command),
 				"workDir":   workDir,
 				"exitCode":  entry.ExitCode,
 				"duration":  entry.EndedAt.Sub(entry.StartedAt).String(),

@@ -14,6 +14,9 @@ import (
 	"github.com/google/uuid"
 )
 
+// ErrDirectoryUnresolved indica falha ao resolver o diretório antes de iniciar o shell.
+var ErrDirectoryUnresolved = errors.New("não foi possível resolver o diretório do terminal")
+
 // ErrSessionStart indica que a criação da sessão falhou antes de enviar o comando.
 var ErrSessionStart = errors.New("não foi possível iniciar a sessão de terminal")
 
@@ -191,11 +194,11 @@ func (m *Manager) toolShellEnv() []string {
 func (m *Manager) RunEphemeral(ctx context.Context, workDir, command string, timeout time.Duration, source string) (*HistoryEntry, error) {
 	absolute, err := filepath.Abs(workDir)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%w: %w", ErrDirectoryUnresolved, err)
 	}
 	workDir, err = ResolveDirectoryPath(absolute)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%w: %w", ErrDirectoryUnresolved, err)
 	}
 	if timeout == 0 {
 		timeout = m.config.DefaultTimeout

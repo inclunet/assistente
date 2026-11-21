@@ -771,3 +771,28 @@ func TestConfirmacaoAprovadaAntesOuDepoisDoCancelamento(t *testing.T) {
 		}
 	})
 }
+
+func TestDiretorioPadraoIndisponivelComPoliticaAprovada(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "diretorio-secreto-inexistente")
+	var logs bytes.Buffer
+	previous := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&logs, nil)))
+	defer slog.SetDefault(previous)
+	manager := terminal.NewManager(terminal.DefaultManagerConfig(), nil)
+	rc := NewRunCommand(manager, nil, func(context.Context) (*allowlist.Allowlist, error) {
+		return &allowlist.Allowlist{AutoApprove: []string{"echo marker"}, DefaultAction: "confirm"}, nil
+	}, dir)
+	got, err := rc.Execute(t.Context(), json.RawMessage(`{"command":"echo marker"}`))
+	if err != nil || got.Failure == nil || got.Failure.Code != FailurePrerequisiteUnavailable || got.Failure.Kind != tools.ErrorKindUnavailable || got.Failure.Retryable {
+		t.Fatalf("resultado=%+v erro=%v", got, err)
+	}
+	if strings.Contains(got.Content, dir) || strings.Contains(logs.String(), dir) || strings.Contains(logs.String(), "diretorio-secreto-inexistente") {
+		t.Fatalf("diretório exposto: resultado=%q logs=%q", got.Content, logs.String())
+	}
+	if !strings.Contains(logs.String(), "reason=directory_unresolved") {
+		t.Fatalf("diagnóstico ausente: %q", logs.String())
+	}
+	if len(manager.List()) != 0 {
+		t.Fatal("sessão criada apesar de diretório indisponível")
+	}
+}
