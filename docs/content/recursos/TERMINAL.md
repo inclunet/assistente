@@ -26,11 +26,17 @@ No PowerShell, uma operação final bem-sucedida devolve zero, mesmo após um
 programa anterior falhar. Uma falha de cmdlet devolve 1, e um programa
 nativo identificado como a última operação conserva seu código de saída. Se o
 PowerShell indicar falha e o terminal não conseguir identificar qual operação
-falhou dentro de uma expressão composta, o status é 1.
+falhou dentro de uma expressão composta, o status é 1. Isso pode ocorrer em um pipeline no qual
+um programa termina com erro e envia a saída a um cmdlet como `Get-Item`, ou
+quando um `return` condicional pode ter encerrado o comando antes da etapa final.
+O terminal conserva o código nativo quando a saída passa apenas por `Out-String`
+ou `Out-String -Stream`.
 
 No PowerShell, você pode iniciar o comando com `using namespace` para usar
 nomes de tipos abreviados. Por exemplo, depois de `using namespace System.Text`,
 `[StringBuilder]::new('texto').ToString()` devolve `texto`.
+
+A saída registrada é textual. Programas que movem o cursor para redesenhar linhas anteriores podem aparecer de forma diferente no histórico e na tela interativa.
 
 ## Sessões
 
@@ -41,6 +47,8 @@ Múltiplas sessões podem existir simultaneamente (até 10 por padrão), cada um
 | Máximo de sessões | 10 |
 | Timeout padrão | 15 segundos |
 | Histórico por sessão | 200 entradas |
+
+Uma falha de leitura, um cancelamento ou o fechamento explícito da sessão devolve erro com a saída parcial disponível. Se o leitor já falhou quando o prazo vence, o diagnóstico conserva as duas causas.
 
 O timeout pode ser configurado em cada chamada da ferramenta. Quando ele é
 atingido, o Assistente envia `Ctrl+C`, aguarda e drena a saída restante e só

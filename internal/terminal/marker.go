@@ -1,22 +1,21 @@
 package terminal
 
 import (
-	"bytes"
 	"encoding/base64"
 	"fmt"
 	"regexp"
 	"runtime"
-	"strconv"
 	"strings"
 
 	"github.com/google/uuid"
 )
 
 const (
-	markerPrefix = "__ASSISTENTE_"
-	markerStart  = markerPrefix + "START_"
-	markerEnd    = markerPrefix + "END_"
-	markerSuffix = "__"
+	markerPrefix           = "__ASSISTENTE_"
+	markerStart            = markerPrefix + "START_"
+	markerEnd              = markerPrefix + "END_"
+	markerSuffix           = "__"
+	markerStatusTerminator = "!"
 )
 
 // ansiEscape remove sequências ANSI escape do texto.
@@ -37,6 +36,7 @@ type CommandMarker struct {
 	inlineEnd       bool
 	conPTY          bool
 	viewportColumns int
+	control         terminalControl
 }
 
 func newCommandMarkerForShell(shell string) *CommandMarker {
@@ -71,8 +71,8 @@ func (m *CommandMarker) wrapBash(command string) string {
 	// A quebra inicial separa o marker de prompts sem newline (por exemplo sh),
 	// inclusive quando o comando foi enviado antes de o shell exibir o prompt.
 	return fmt.Sprintf(
-		"printf '\\n%%s\\n' '%s'; command eval %s; printf '\\n%%s%%s\\n' '%s' $?",
-		m.startTag, quotePOSIXScript(command), m.endTag,
+		"printf '\\n%%s\\n' '%s'; command eval %s; printf '\\n%%s%%s%s\\n' '%s' $?",
+		m.startTag, quotePOSIXScript(command), markerStatusTerminator, m.endTag,
 	)
 }
 
@@ -153,7 +153,7 @@ func (m *CommandMarker) wrapPowerShell(command, directory string) string {
 		}
 		script = fmt.Sprintf("%s (%s) {%s} '%s' '%s' %s", singlePowerShellLine(prepareGroupedPowerShell), source, status, state, parseGuard, normalize)
 	}
-	return fmt.Sprintf("%s; %stry { %s. (%s) } catch { Microsoft.PowerShell.Utility\\Write-Error -ErrorRecord $_ -ErrorAction Continue; %s=1 }; Write-Host (%s + %s); Microsoft.PowerShell.Utility\\Remove-Variable -Name %s -ErrorAction Ignore", start, setup, parseGuard, script, code, end, code, cleanup)
+	return fmt.Sprintf("%s; %stry { %s. (%s) } catch { Microsoft.PowerShell.Utility\\Write-Error -ErrorRecord $_ -ErrorAction Continue; %s=1 }; Write-Host (%s + %s + '%s'); Microsoft.PowerShell.Utility\\Remove-Variable -Name %s -ErrorAction Ignore", start, setup, parseGuard, script, code, end, code, markerStatusTerminator, cleanup)
 }
 
 // A preparação e a leitura da falha precisam identificar a mesma operação.
@@ -189,43 +189,53 @@ const powerShellLastOperation = `	$last = $null;
 // confira a posição real do erro e aceite só os formatadores conhecidos.
 const failedPowerShellStatus = `& {
 	param($ast, $targets);
-	$stmts = $ast.EndBlock.Statements[0].Body.Statements;
+	$scope = $ast.EndBlock.Statements[0].Body;
+	$stmts = $scope.Statements;
 ` + powerShellLastOperation + `
 	if ($targets -and $targets.ContainsKey('Offset')) {
 		$last = $ast.Find({ param($node) $node -is [System.Management.Automation.Language.PipelineAst] -and $node.Extent.StartOffset -eq $targets['Offset'] }, $false)
+		$scope = $last
 	};
 	if ($last -isnot [System.Management.Automation.Language.PipelineAst] -or !$ExecutionContext.SessionState.PSVariable.Get('LASTEXITCODE')) { return 1 };
+	$start = $last.Extent.StartOffset;
+	$end = $last.Extent.EndOffset;
+	$earlyReturn = $scope.Find({
+		param($node);
+		if ($node -isnot [System.Management.Automation.Language.ReturnStatementAst]) { return $false };
+		return $node.Extent.EndOffset -le $start -or ($node.Extent.StartOffset -ge $start -and $node.Extent.StartOffset -lt $end)
+	}, $false);
+	if ($earlyReturn) { return 1 };
 	$stages = $last.PipelineElements;
+	$n = $stages.Count - 1;
+	while ($n -gt 0) {
+		$stage = $stages[$n];
+		if ($stage -isnot [System.Management.Automation.Language.CommandAst] -or $stage.Redirections.Count) { break };
+		$name = $stage.GetCommandName();
+		if ($name -notin 'Out-String','Microsoft.PowerShell.Utility\Out-String') { break };
+		$argsList = $stage.CommandElements;
+		if ($argsList.Count -gt 2) { break };
+		if ($argsList.Count -eq 2 -and ($argsList[1] -isnot [System.Management.Automation.Language.CommandParameterAst] -or $argsList[1].ParameterName -ine 'Stream' -or $argsList[1].Argument)) { break };
+		$formatter = $ExecutionContext.InvokeCommand.GetCommand($name, 'All');
+		if ($formatter -isnot [System.Management.Automation.CmdletInfo] -or $formatter.ImplementingType.FullName -ne 'Microsoft.PowerShell.Commands.OutStringCommand') { break };
+		$n--
+	};
 	if ($LASTEXITCODE) {
-		for ($n = 0; $n -lt $stages.Count; $n++) {
-			$stage = $stages[$n];
-			if ($stage -isnot [System.Management.Automation.Language.CommandAst]) { continue };
-			$target = $stage.GetCommandName();
-			if ($targets -and $targets.ContainsKey($n)) { $target = $targets[$n] };
-			if (!$target -or $target -is [scriptblock]) { continue };
-			$info = if ($target -is [System.Management.Automation.CommandInfo]) { $target } else { $ExecutionContext.InvokeCommand.GetCommand([string]$target, 'All') };
-			while ($info -is [System.Management.Automation.AliasInfo]) { $info = $info.ResolvedCommand };
-			if ($info -and $info.CommandType -in 'Application','ExternalScript') { return $LASTEXITCODE }
-		};
+		$stage = $stages[$n];
+		if ($stage -isnot [System.Management.Automation.Language.CommandAst]) { return 1 };
+		$target = $stage.GetCommandName();
+		if ($targets -and $targets.ContainsKey($n)) { $target = $targets[$n] };
+		if (!$target -or $target -is [scriptblock]) { return 1 };
+		$info = if ($target -is [System.Management.Automation.CommandInfo]) { $target } else { $ExecutionContext.InvokeCommand.GetCommand([string]$target, 'All') };
+		while ($info -is [System.Management.Automation.AliasInfo]) { $info = $info.ResolvedCommand };
+		if ($info -and $info.CommandType -in 'Application','ExternalScript') { return $LASTEXITCODE };
 		return 1
 	};
-	if (!$Error.Count) { return 1 };
+	if ($n -ne 0 -or !$Error.Count -or $LASTEXITCODE -ne 0) { return 1 };
 	$e = $Error[0];
-	if ($LASTEXITCODE -ne 0 -or !$e -or $e.FullyQualifiedErrorId -notlike 'NativeCommandError*' -or !$stages.Count) { return 1 };
+	if (!$e -or $e.FullyQualifiedErrorId -notlike 'NativeCommandError*') { return 1 };
 	$first = $stages[0].Extent.StartScriptPosition;
 	$pos = $e.InvocationInfo;
 	if ($first.LineNumber -ne $pos.ScriptLineNumber -or $first.ColumnNumber -ne $pos.OffsetInLine -or $first.Line.TrimEnd() -cne $pos.Line.TrimEnd()) { return 1 };
-	for ($n = 1; $n -lt $stages.Count; $n++) {
-		$stage = $stages[$n];
-		if ($stage -isnot [System.Management.Automation.Language.CommandAst] -or $stage.Redirections.Count) { return 1 };
-		$argsList = $stage.CommandElements;
-		if ($argsList.Count -gt 2) { return 1 };
-		if ($argsList.Count -eq 2 -and ($argsList[1] -isnot [System.Management.Automation.Language.CommandParameterAst] -or $argsList[1].ParameterName -ine 'Stream' -or $argsList[1].Argument)) { return 1 };
-		$name = $stage.GetCommandName();
-		if ($name -notin 'Out-String','Microsoft.PowerShell.Utility\Out-String') { return 1 };
-		$formatter = $ExecutionContext.InvokeCommand.GetCommand($name, 'All');
-		if ($formatter -isnot [System.Management.Automation.CmdletInfo] -or $formatter.ImplementingType.FullName -ne 'Microsoft.PowerShell.Commands.OutStringCommand') { return 1 }
-	};
 	return 0
 }`
 
@@ -341,21 +351,6 @@ type ParseResult struct {
 
 	// Found indica se os markers foram encontrados no output
 	Found bool
-}
-
-var partialCSI = regexp.MustCompile("\x1b(?:\\[[?0-9;]*)?$")
-
-var conPTYResize = regexp.MustCompile("\x1b\\[8;[0-9]+;([0-9]+)t")
-
-// O ConPTY emite CSI 8;linhas;colunas t quando o próprio shell muda o viewport.
-func viewportAfterOutput(raw []byte, columns int) int {
-	if !bytes.Contains(raw, []byte("\x1b[8;")) {
-		return columns
-	}
-	for _, match := range conPTYResize.FindAllSubmatch(raw, -1) {
-		columns, _ = strconv.Atoi(string(match[1])) // largura inválida desativa a reconstrução
-	}
-	return columns
 }
 
 // StripANSI remove todas as sequências ANSI escape de uma string.

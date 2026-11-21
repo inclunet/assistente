@@ -380,6 +380,36 @@ func (p *failingWritePTY) Close() error {
 	return p.fakePTYSession.Close()
 }
 
+func TestCloseBeforeCommandWriteKeepsHistoryAndCause(t *testing.T) {
+	processExit := errors.New("encerramento do processo antes do envio")
+	for _, cause := range []error{io.ErrUnexpectedEOF, ErrSessionClosed, processExit} {
+		s := &Session{id: "early-close", shell: "bash", readerCtx: t.Context()}
+		s.onCommandStart = func(_, _, _, _ string) {
+			if cause == processExit {
+				s.ensureLifecycleChannels()
+				s.processErr = cause
+				close(s.processDone)
+				s.markExited(cause)
+			} else if cause == ErrSessionClosed {
+				if err := s.Close(); err != nil {
+					t.Fatal(err)
+				}
+			} else {
+				s.closeAfterReadFailure(cause)
+			}
+		}
+		manager := NewManager(DefaultManagerConfig(), nil)
+		manager.sessions[s.id] = s
+		entry, err := manager.RunCommand(t.Context(), s.id, "example", time.Second, "test")
+		if entry == nil || entry.ExitCode != -1 || !errors.Is(err, cause) {
+			t.Fatalf("causa=%v entrada=%+v erro=%v", cause, entry, err)
+		}
+		if got := s.GetHistory(); len(got) != 1 || got[0].ID != entry.ID || got[0].ExitCode != -1 {
+			t.Fatalf("histórico=%+v", got)
+		}
+	}
+}
+
 func TestReadFailureWhileWritingCommand(t *testing.T) {
 	for _, started := range []bool{false, true} {
 		name := "antes_do_inicio"
@@ -479,7 +509,7 @@ func TestWaitForMarkerFlushesUnsentPartialOutput(t *testing.T) {
 				case "fechado":
 					session.explicitClose = true
 				case "cancelado":
-					session.outputBuf.WriteString("\n" + marker.endTag + "1\nprompt")
+					session.outputBuf.WriteString("\n" + marker.endTag + "1!\nprompt")
 					cancel()
 					return
 				}

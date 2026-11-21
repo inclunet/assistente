@@ -564,6 +564,18 @@ func TestTimeoutWithPartialOutput(t *testing.T) {
 	}
 }
 
+func TestPartialOutputKeepsTerminalFailures(t *testing.T) {
+	for _, cause := range []error{context.Canceled, terminal.ErrSessionClosed, terminal.ErrSessionRead, errors.Join(context.DeadlineExceeded, terminal.ErrSessionRead)} {
+		mgr := &MockSessionManager{fakeRunErr: cause, fakeEntry: &terminal.HistoryEntry{Output: "parcial", ExitCode: -1}}
+		policy := &allowlist.Allowlist{AutoApprove: []string{"*"}, DefaultAction: "deny"}
+		rc := NewRunCommand(mgr, nil, func(context.Context) (*allowlist.Allowlist, error) { return policy, nil }, ".")
+		result, err := rc.Execute(t.Context(), json.RawMessage(`{"command":"example"}`))
+		if err != nil || !result.IsError || result.Metadata["timeout"] == true || !strings.Contains(result.Content, "parcial") || !strings.Contains(result.Content, cause.Error()) {
+			t.Fatalf("causa=%v resultado=%+v erro=%v", cause, result, err)
+		}
+	}
+}
+
 func TestGenericErrorWithLargePartialOutputIsRecoverable(t *testing.T) {
 	output := strings.Repeat("erro-parcial-", maxOutputForLLM)
 	mgr := &MockSessionManager{

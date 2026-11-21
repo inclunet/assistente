@@ -93,19 +93,27 @@ func TestConPTYResizeAcrossSessionCommands(t *testing.T) {
 		if suffix == "" {
 			t.Fatal("o PTY simulado não encontrou o identificador do comando")
 		}
-		s.outputMu.Lock()
-		defer s.outputMu.Unlock()
 		command++
-		if command == 2 {
-			s.outputBuf.WriteString("3t") // completa o CSI do comando anterior
+		switch command {
+		case 2:
+			s.recordOutput("3t\x1b\\") // CSI falso dentro de DCS
+		case 3:
+			s.recordOutput("3t\a") // CSI falso dentro de OSC
+		case 4:
+			s.recordOutput("3t") // CSI real partido na troca de comando
 		}
-		s.outputBuf.WriteString(markerStart + suffix + "\r\nabc\r\n\x1b[2;3Hcde\r\n" + markerEnd + suffix + "0\r\n")
-		if command == 1 {
-			s.outputBuf.WriteString(strings.Repeat("prompt ", 8192) + "\x1b[8;40;")
+		s.recordOutput(markerStart + suffix + "\r\nabc\r\n\x1b[2;3Hcde\r\n" + markerEnd + suffix + "0!\r\n")
+		switch command {
+		case 1:
+			s.recordOutput("\x1bP" + strings.Repeat("x", 65536) + "\x1b[8;40;")
+		case 2:
+			s.recordOutput("\x1b]0;\x1b[8;40;")
+		case 3:
+			s.recordOutput("prompt \x1b[8;40;")
 		}
 		return len(wrapper), nil
 	})
-	for _, want := range []string{"abc\ncde", "abcde"} {
+	for _, want := range []string{"abc\ncde", "abc\ncde", "abc\ncde", "abcde"} {
 		if err := s.beginCommandWithID("test"); err != nil {
 			t.Fatal(err)
 		}

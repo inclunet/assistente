@@ -19,6 +19,7 @@ type parsedTerminalText struct {
 	lastText         int
 	row, previousRow int
 	cr, rawCR, crlf  bool
+	control          terminalControl
 	escape           []byte
 	escapeAfterCRLF  bool
 	replay           string
@@ -45,10 +46,10 @@ func (t *parsedTerminalText) feed(chunk string) {
 			chunk = chunk[n:]
 			t.replayed += n
 			if t.replayed == len(t.replay) {
-				// O ConPTY pode redesenhar a última célula de um marcador.
+				// O ConPTY pode redesenhar a última célula do marcador de início.
 				// Nesse caso descarte a célula repetida e mantenha o delimitador.
 				beforeBreak := t.data[:len(t.data)-1]
-				if !t.marker.endsProtocolLine(beforeBreak) {
+				if !bytes.HasSuffix(beforeBreak, []byte(t.marker.startTag)) {
 					t.data = beforeBreak
 				}
 				t.row = len(t.data)
@@ -56,7 +57,7 @@ func (t *parsedTerminalText) feed(chunk string) {
 			}
 			continue
 		}
-		if len(t.escape) != 0 {
+		if t.control.kind != 0 {
 			if t.escapeByte(chunk[0]) {
 				chunk = chunk[1:]
 			}
@@ -80,6 +81,7 @@ func (t *parsedTerminalText) feed(chunk string) {
 			chunk = chunk[1:]
 		case '\x1b':
 			t.rawCR = false
+			t.control.start()
 			t.escape = append(t.escape, '\x1b')
 			t.escapeAfterCRLF, t.crlf = t.crlf, false
 			chunk = chunk[1:]
@@ -98,48 +100,23 @@ func (t *parsedTerminalText) feed(chunk string) {
 // CSI e OSC podem atravessar leituras. Ao encontrar um escape inválido,
 // preserve o texto e reexamine o byte que encerrou a tentativa.
 func (t *parsedTerminalText) escapeByte(ch byte) bool {
-	switch {
-	case len(t.escape) == 1 && (ch == '[' || ch == ']' || ch == 'P' || ch == 'X' || ch == '^' || ch == '_'):
-		t.escape = append(t.escape, ch)
-		return true
-	case len(t.escape) == 1 || (t.escape[1] >= 0x20 && t.escape[1] <= 0x2f):
-		if ch >= 0x20 && ch <= 0x2f {
+	kind := t.control.kind
+	switch t.control.consume(ch, &t.columns) {
+	case escapeMore:
+		// Um escape herdado começou antes do comando e só precisa ser consumido.
+		if len(t.escape) != 0 {
 			t.escape = append(t.escape, ch)
-			return true
 		}
-		if ch >= 0x30 && ch <= 0x7e {
-			t.escape = t.escape[:0]
-			return true
-		}
-	case t.escape[1] != '[':
-		if (t.escape[1] == ']' && ch == '\a') || (ch == '\\' && t.escape[len(t.escape)-1] == '\x1b') {
-			t.escape = t.escape[:0]
-			return true
-		}
-		if ch != '\n' {
-			t.escape = append(t.escape, ch)
-			return true
-		}
-	// CSI aceita parâmetros (0x30–0x3f), depois intermediários (0x20–0x2f).
-	case (ch >= 0x20 && ch <= 0x2f) || (ch >= 0x30 && ch <= 0x3f && t.escape[len(t.escape)-1] >= 0x30):
-		t.escape = append(t.escape, ch)
-		return true
-	case ch >= 0x40 && ch <= 0x7e:
-		if t.conPTY {
-			switch ch {
-			case 't':
-				t.columns = viewportAfterOutput(append(t.escape, ch), t.columns)
-			case 'H':
-				if t.escapeAfterCRLF {
-					t.beginReplay()
-				}
-			}
+	case escapeEnd:
+		if t.conPTY && kind == '[' && ch == 'H' && t.escapeAfterCRLF && len(t.escape) >= 2 {
+			t.beginReplay()
 		}
 		t.escape = t.escape[:0]
-		return true
+	case escapeInvalid:
+		t.flushEscape()
+		return false
 	}
-	t.flushEscape()
-	return false
+	return true
 }
 
 func (t *parsedTerminalText) flushEscape() {
@@ -188,21 +165,6 @@ func (t *parsedTerminalText) beginReplay() {
 	}
 }
 
-func (m *CommandMarker) endsProtocolLine(data []byte) bool {
-	if bytes.HasSuffix(data, []byte(m.startTag)) {
-		return true
-	}
-	// Um status escrito pelo shell ocupa até 20 bytes decimais com o sinal.
-	// Limite a busca à moldura, inclusive em uma linha muito longa sem quebras.
-	tail := data[max(0, len(data)-len(m.endTag)-20):]
-	at := bytes.LastIndex(tail, []byte(m.endTag))
-	if at < 0 {
-		return false
-	}
-	_, err := strconv.Atoi(string(tail[at+len(m.endTag):]))
-	return err == nil
-}
-
 func (t *parsedTerminalText) finish() {
 	t.flushEscape()
 	if t.cr {
@@ -226,7 +188,7 @@ type markerStream struct {
 }
 
 func newMarkerStream(marker *CommandMarker) *markerStream {
-	return &markerStream{marker: marker, text: parsedTerminalText{conPTY: marker.conPTY, columns: marker.viewportColumns, marker: marker}}
+	return &markerStream{marker: marker, text: parsedTerminalText{conPTY: marker.conPTY, columns: marker.viewportColumns, marker: marker, control: marker.control}}
 }
 
 func (s *markerStream) append(chunk string) ([]byte, ParseResult) {
@@ -292,19 +254,26 @@ func (s *markerStream) progress() (delta []byte, result ParseResult) {
 	if s.candidate != 0 {
 		if s.statusScan >= 0 {
 			s.statusScan = min(s.statusScan, len(data))
-			n := bytes.IndexByte(data[s.statusScan:], '\n')
-			if n >= 0 {
-				line := data[s.candidate : s.statusScan+n]
-				s.statusScan = -1
-				if code, err := strconv.Atoi(string(bytes.TrimSpace(line))); err == nil {
+			n := bytes.IndexAny(data[s.statusScan:], markerStatusTerminator+"\n")
+			if n < 0 {
+				s.statusScan = len(data)
+			} else {
+				at := s.statusScan + n
+				status := string(bytes.TrimSpace(data[s.candidate:at]))
+				code, err := strconv.Atoi(status)
+				switch {
+				case data[at] == markerStatusTerminator[0] && err == nil:
+					s.statusScan = -1
 					result.Found = true
 					result.ExitCode = code
 					result.Output = string(bytes.TrimRight(data[s.start:s.candidate-len(end)], "\n"))
-				} else {
+				case s.marker.conPTY && data[at] == '\n' && at == len(data)-1 && (err == nil || status == "" || status == "-" || status == "+"):
+					// Na margem, a próxima leitura pode desfazer esse CRLF.
+					// Só o terminador confirma que todos os dígitos chegaram.
+					s.statusScan = at
+				default:
 					s.candidate = 0 // A linha inteira pertence à saída do comando.
 				}
-			} else {
-				s.statusScan = len(data)
 			}
 		}
 	}
