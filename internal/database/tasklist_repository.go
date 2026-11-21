@@ -39,6 +39,17 @@ func taskListWorkflowQuery(ctx context.Context, base *gorm.DB) *gorm.DB {
 
 // ==================== TaskList Operations ====================
 
+func CheckTaskListCapacity(ctx context.Context, tx *gorm.DB) error {
+	var count int64
+	if err := ScopeByUser(ctx, tx.Model(&TaskList{}), "user_id").Count(&count).Error; err != nil {
+		return err
+	}
+	if count >= MaxTaskLists {
+		return errors.New("limite de tasklists atingido")
+	}
+	return nil
+}
+
 // CreateTaskListWithContext cria uma nova tasklist pertencente ao usuário do
 // contexto, com workflow padrão.
 // templateWorkflow pode ser nil para usar workflow padrão (A Fazer, Em
@@ -52,12 +63,8 @@ func CreateTaskListWithContext(ctx context.Context, title, description string, t
 	// Adquire o writer antes das leituras, evitando promover um snapshot WAL
 	// obsoleto para escrita. Limite, slug e workflow pertencem à mesma transação.
 	err := withSQLiteImmediateTransaction(ctx, db, "tasklist.create", func(tx *gorm.DB) error {
-		var count int64
-		if err := ScopeByUser(ctx, tx.Model(&TaskList{}), "user_id").Count(&count).Error; err != nil {
+		if err := CheckTaskListCapacity(ctx, tx); err != nil {
 			return err
-		}
-		if count >= MaxTaskLists {
-			return errors.New("limite de tasklists atingido")
 		}
 		// Uma nova tentativa não reutiliza IDs/associações de uma transação revertida.
 		taskList = &TaskList{

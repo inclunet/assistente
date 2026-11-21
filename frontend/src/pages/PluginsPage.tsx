@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { ChangeInstallation, DiscardPreview, InstalledComponents, InstallReviewed, ListInstalled, PreviewLocal, RegisterMCP, RemoveMCP, SetSkillActive, SyncMCP } from '@wailsjs/go/wailsapi/Plugins';
+import { CreateListFromTemplate, ChangeInstallation, DiscardPreview, InstalledComponents, InstallReviewed, ListInstalled, PreviewLocal, RegisterMCP, RemoveMCP, SetSkillActive, SyncMCP } from '@wailsjs/go/wailsapi/Plugins';
 import type { database, plugins, wailsapi } from '@wailsjs/go/models';
 import { Button } from '../components/ui/Button';
 import { DataGrid } from '../components/ui/DataGrid';
@@ -20,7 +20,7 @@ function componentRequirement(component: plugins.Component) {
   if (component.reason === 'manifestConfiguration') return 'plugins.manifestPending';
   if (component.reason === 'frontmatter') return 'plugins.fieldsPending';
   if (component.reason === 'configuration') return 'plugins.mcpConfigRequired';
-  if (component.kind === 'mcp' && !component.reason) return undefined;
+  if ((component.kind === 'mcp' || component.kind === 'tasklistTemplate') && !component.reason) return undefined;
   return component.kind === 'skill' ? undefined : 'plugins.unavailable';
 }
 
@@ -103,6 +103,7 @@ function InstalledPlugins() {
   };
   const openDetails = async (installation: database.PluginInstallation) => {
     if (busy) return;
+    setCreatedList('');
     detailsOpener.current = document.activeElement instanceof HTMLElement ? document.activeElement.closest<HTMLElement>('[role="gridcell"]') : null;
     setBusy(true);
     setError('');
@@ -127,12 +128,26 @@ function InstalledPlugins() {
       if (mounted.current) setError('plugins.syncPending');
     } catch { if (mounted.current) setError('plugins.syncPendingStale'); }
   };
+  const listRequests = useRef(new Map<string,string>());
+  const [createdList, setCreatedList] = useState('');
   const changeComponent = async (component: plugins.Component, preserve = false) => {
     if (!details || busy) return;
     setBusy(true);
     setError('');
     const { installation } = details;
     try {
+      if (component.kind === 'tasklistTemplate') {
+        const key = JSON.stringify([installation.id, installation.digest, component.key]);
+        const request = listRequests.current.get(key) ?? crypto.randomUUID();
+        listRequests.current.set(key, request);
+        await CreateListFromTemplate(installation.id, installation.digest, component.key, request);
+        listRequests.current.delete(key);
+        if (mounted.current) {
+          setCreatedList(component.name);
+          announce(t('plugins.createdList', { name: component.name }));
+        }
+        return;
+      }
       if (component.kind === 'mcp') {
         if (component.active) {
           const accepted = await confirm({ title: t(preserve ? 'plugins.keepServer' : 'plugins.removeServer', { name: component.name }), message: t(preserve ? 'plugins.keepConfirm' : 'plugins.removeConfirm', { name: component.name }), confirmText: t(preserve ? 'plugins.keepServer' : 'plugins.removeServer', { name: component.name }), cancelText: t('common.cancel') });
@@ -234,10 +249,13 @@ function InstalledPlugins() {
         {t(details.installation.disabled ? 'plugins.enable' : 'plugins.disable', { name: details.installation.name })}
       </Button>
       <Button disabled={busy} onClick={() => void changeInstallation('uninstall')}>{t('plugins.uninstall', { name: details.installation.name })}</Button>
+      {createdList && <p>{t('plugins.createdList', {name:createdList})}</p>}
       <h2>{t('plugins.components')}</h2>
       {details.components.length === 0 ? <p>{t('plugins.noComponents')}</p> : <ul>{details.components.map(component => <li key={component.key}>
-        <strong>{component.name}</strong> · {t(component.kind === 'skill' ? 'plugins.skill' : component.kind === 'mcp' ? 'plugins.mcp' : 'plugins.invalid')}
-        {component.kind === 'skill' && !component.reason ? <>
+        <strong>{component.name}</strong> · {t(component.kind === 'skill' ? 'plugins.skill' : component.kind === 'mcp' ? 'plugins.mcp' : component.kind === 'tasklistTemplate' ? 'plugins.tasklistTemplate' : 'plugins.invalid')}
+        {component.kind === 'tasklistTemplate' && !component.reason ?
+          <Button disabled={busy || details.installation.disabled} onClick={() => void changeComponent(component)}>{t('plugins.createList', {name:component.name})}</Button>
+          : component.kind === 'skill' && !component.reason ? <>
           {component.requestsShell && <p>{t('plugins.commandPolicy')}</p>}
           {component.active && <code> /{component.slug}</code>}
           <Button disabled={busy || details.installation.disabled} onClick={() => void changeComponent(component)}>{t(component.active ? 'plugins.deactivate' : 'plugins.activate', { name: component.name })}</Button>
@@ -266,7 +284,7 @@ function InstalledPlugins() {
         <dt>SHA-256</dt><dd>{preview.digest}</dd>
       </dl>
       {preview.previousDigest && <p>{t(sameRevision ? 'plugins.current' : 'plugins.updateNotice')}</p>}
-      {(preview.components ?? []).length > 0 && <ul aria-label={t('plugins.components')}>{preview.components.map(component => <li key={component.key}>{component.name} · {t(component.kind === 'skill' ? 'plugins.skill' : component.kind === 'mcp' ? 'plugins.mcp' : 'plugins.invalid')}{component.requestsShell && <span> · {t('plugins.commandPolicy')}</span>}{component.endpoint && <span> · {component.endpoint}</span>}{componentRequirement(component) && <p>{t(componentRequirement(component)!)}</p>}</li>)}</ul>}
+      {(preview.components ?? []).length > 0 && <ul aria-label={t('plugins.components')}>{preview.components.map(component => <li key={component.key}>{component.name} · {t(component.kind === 'skill' ? 'plugins.skill' : component.kind === 'mcp' ? 'plugins.mcp' : component.kind === 'tasklistTemplate' ? 'plugins.tasklistTemplate' : 'plugins.invalid')}{component.requestsShell && <span> · {t('plugins.commandPolicy')}</span>}{component.endpoint && <span> · {component.endpoint}</span>}{componentRequirement(component) && <p>{t(componentRequirement(component)!)}</p>}</li>)}</ul>}
       {(preview.diagnostics ?? []).length > 0 && <p>{t('plugins.warnings', { count: preview.diagnostics.length })}</p>}
       <details><summary>{t('plugins.files', { count: preview.files.length })}</summary><ul>{preview.files.map(path => <li key={path}>{path}</li>)}</ul></details>
       </> }]} />}

@@ -27,7 +27,7 @@ type Component struct {
 }
 
 func DiscoverComponents(snapshot *pluginpackage.LocalSnapshot) []Component {
-	var components []Component
+	components := taskListComponents(snapshot)
 	requiresManifestSupport := len(snapshot.Manifest.Unmapped) > 0
 	supplemental := map[string]bool{}
 	for entry := range snapshot.Files {
