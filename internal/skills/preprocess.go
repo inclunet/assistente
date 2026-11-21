@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 
@@ -40,18 +41,24 @@ type commandTurn struct {
 	budget   int
 	run      SkillCommandRunner
 	prepared *preparedSkillContext
-	warnings map[skillWarning]bool
+	warnings *sync.Map // chaves skillWarning, compartilhadas apenas nesta tentativa
 	err      error
 }
 
 // WithCommandTurn scopes prepared base content to one prompt construction.
 func WithCommandTurn(ctx context.Context, run SkillCommandRunner) context.Context {
-	return context.WithValue(ctx, commandTurnKey{}, &commandTurn{budget: -1, run: run})
+	return context.WithValue(ctx, commandTurnKey{}, &commandTurn{budget: -1, run: run, warnings: new(sync.Map)})
 }
 
 // WithSlashCommandTurn reserves the provider's budget for this invocation.
 func WithSlashCommandTurn(ctx context.Context, run SkillCommandRunner, budget int) context.Context {
-	return context.WithValue(ctx, commandTurnKey{}, &commandTurn{run: run, budget: budget})
+	var warnings *sync.Map
+	if parent, ok := ctx.Value(commandTurnKey{}).(*commandTurn); ok {
+		warnings = parent.warnings
+	} else {
+		warnings = new(sync.Map)
+	}
+	return context.WithValue(ctx, commandTurnKey{}, &commandTurn{run: run, budget: budget, warnings: warnings})
 }
 
 func CommandTurnError(ctx context.Context) error {
@@ -170,15 +177,8 @@ func firstSkillWarning(ctx context.Context, slug, kind string, promptBuild bool)
 	if turn == nil {
 		return !promptBuild
 	}
-	key := skillWarning{slug: slug, kind: kind}
-	if turn.warnings[key] {
-		return false
-	}
-	if turn.warnings == nil {
-		turn.warnings = make(map[skillWarning]bool)
-	}
-	turn.warnings[key] = true
-	return true
+	_, repeated := turn.warnings.LoadOrStore(skillWarning{slug: slug, kind: kind}, struct{}{})
+	return !repeated
 }
 
 func startsWithDeclaredProgram(command string, allowed []string) bool {

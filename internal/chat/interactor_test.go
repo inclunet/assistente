@@ -1,9 +1,12 @@
 package chat
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
+	"os"
 	"strings"
 	"testing"
 
@@ -1924,6 +1927,58 @@ func TestPrepareMessagesBaseSkillRefusalPreservesOriginAndMessages(t *testing.T)
 	event := emitter.findError()
 	if !errors.Is(result.Err, denied) || len(result.Messages) != 1 || result.Messages[0].Content != "hello" || event == nil || event.Error != denied.Error() || event.ConversationID != "conversation" || event.SurfaceOrigin != origin {
 		t.Fatalf("result=%+v event=%+v", result, event)
+	}
+}
+
+type missingSupportFiles struct {
+	staticSkillRuntimeManager
+	listings int
+}
+
+func (m *missingSupportFiles) GetSkillFiles(slug string) ([]string, error) {
+	if slug == "helper" {
+		m.listings++
+		return nil, os.ErrPermission
+	}
+	return m.staticSkillRuntimeManager.GetSkillFiles(slug)
+}
+
+func TestPrepareMessagesDeduplicatesSlashAndCatalogWarningPerAttempt(t *testing.T) {
+	var logs bytes.Buffer
+	original := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelWarn})))
+	t.Cleanup(func() { slog.SetDefault(original) })
+
+	src := &missingSupportFiles{staticSkillRuntimeManager: staticSkillRuntimeManager{skills: map[string]*skills.Skill{
+		"base":   {Slug: "base", SkillMetadata: skills.SkillMetadata{Name: "base"}, Content: "instruções base"},
+		"helper": {Slug: "helper", SkillMetadata: skills.SkillMetadata{Name: "helper"}, Content: "instruções por barra"},
+	}}}
+	builder := &capturingPromptBuilder{baseToolCallingEnabled: true, baseEnabledTools: []string{"load_skill"}}
+	i := NewInteractor(InteractorConfig{SkillMgr: src, ContextProviders: contextprovider.NewRegistry(skills.NewContextProvider(src), slashskill.NewContextProvider()), PromptBuilder: builder,
+		SkillCommands: func(context.Context, *skills.Skill, string) (string, error) {
+			t.Fatal("skill textual executou comando")
+			return "", nil
+		},
+	})
+	profile := &profiles.Profile{}
+	profile.Chat.EnabledSkills = []string{"base", "helper"}
+	req := PrepareMessagesRequest{Messages: []llm.Message{{Role: "user", Content: "/helper"}}, UserContent: "/helper", ConversationID: "conv", TurnID: "turn", ActiveProfile: profile, AllowSkillShell: true}
+	for range 2 {
+		logs.Reset()
+		src.listings = 0
+		result := i.PrepareMessages(t.Context(), req)
+		if result.Err != nil || !strings.Contains(builder.slashSkillContent(), "instruções por barra") || src.listings < 2 {
+			t.Fatalf("resultado=%+v listagens=%d blocos=%+v", result, src.listings, builder.contextBlocks)
+		}
+		catalogIncludesHelper := false
+		for _, block := range builder.contextBlocks {
+			if block.Name == "available_skills" && strings.Contains(block.Content, "Identifier: `helper`") {
+				catalogIncludesHelper = true
+			}
+		}
+		if !catalogIncludesHelper || strings.Count(logs.String(), "Listagem de arquivos de apoio indisponível") != 1 || !strings.Contains(logs.String(), "skill=helper") {
+			t.Fatalf("catálogo=%t avisos=%s", catalogIncludesHelper, logs.String())
+		}
 	}
 }
 
