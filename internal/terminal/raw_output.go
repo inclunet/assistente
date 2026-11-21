@@ -16,17 +16,20 @@ type rawTerminalOutput struct {
 
 func (r *rawTerminalOutput) append(chunk string, suppressed bool) string {
 	if suppressed {
-		// Só o estado do controle atravessa a moldura. Um prefixo iniciado
-		// pela própria moldura nunca vira texto manual, inclusive no EOF.
-		previous := r.take(true)
-		control := r.text.control
-		r.text = parsedTerminalText{control: control}
-		r.reportedCR = false
 		r.text.control.trackViewport(chunk, &r.text.columns)
-		return previous
+		return ""
 	}
 	r.text.feed(chunk)
 	return r.take(false)
+}
+
+// Uma runa interrompida pertence à entrada anterior. Um controle aberto
+// continua a ser interpretado sem transferir seu prefixo literal ao novo dono.
+func (r *rawTerminalOutput) changeOwner() string {
+	previous := r.take(true)
+	control := r.text.control
+	*r = rawTerminalOutput{text: parsedTerminalText{control: control}}
+	return previous
 }
 
 func (r *rawTerminalOutput) finish() string {

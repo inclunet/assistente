@@ -116,8 +116,15 @@ type Session struct {
 	lastUsed         time.Time
 
 	// outputBuf acumula todo o output do PTY em background (para RunCommand com markers)
-	outputBuf bytes.Buffer
-	outputMu  sync.Mutex
+	outputBuf     bytes.Buffer
+	outputMu      sync.Mutex
+	rawOutput     rawTerminalOutput
+	rawDeliveries sync.WaitGroup
+	// Ativo entre a troca de dono e a publicação de command_start. O
+	// leitor continua drenando o PTY mesmo se o callback fechar a sessão.
+	rawStarting    bool
+	rawDuringStart strings.Builder
+	exitAfterStart func()
 
 	// onOutput é chamado com chunks de output filtrado durante RunCommand (LLM)
 	onOutput outputCallback
@@ -276,23 +283,84 @@ func (s *Session) ensurePTYIO() {
 
 // A troca de comando apenas copia o estado fixo. O leitor interpreta cada
 // bloco uma vez, sem copiar o buffer anterior nem rever o histórico sob o lock.
-func (s *Session) recordOutput(chunk string) bool {
+func (s *Session) recordOutput(chunk string) {
 	s.outputMu.Lock()
-	defer s.outputMu.Unlock()
 	s.outputBuf.WriteString(chunk)
 	if runtime.GOOS == "windows" && shellType(s.shell) == "powershell" {
 		s.viewportControl.trackViewport(chunk, &s.viewportColumns)
 	}
-	return s.suppressRawOutput
+	var raw string
+	if s.onRawOutput != nil {
+		raw = s.reserveRawDelivery(s.rawOutput.append(chunk, s.suppressRawOutput))
+	}
+	s.outputMu.Unlock()
+	s.deliverReservedRaw(raw)
 }
 
-func (s *Session) startCommandOutput(marker *CommandMarker) {
+// Chamado com outputMu. A reserva impede que command_start ultrapasse um
+// callback cujo bloco já foi atribuído à entrada anterior.
+func (s *Session) reserveRawDelivery(raw string) string {
+	if raw == "" {
+		return ""
+	}
+	if s.rawStarting {
+		s.rawDuringStart.WriteString(raw)
+		return ""
+	}
+	s.rawDeliveries.Add(1)
+	return raw
+}
+
+func (s *Session) deliverReservedRaw(raw string) {
+	if raw != "" {
+		defer s.rawDeliveries.Done()
+		s.onRawOutput(s.id, raw)
+	}
+}
+
+func (s *Session) finishRawOutput() {
 	s.outputMu.Lock()
-	defer s.outputMu.Unlock()
-	marker.viewportColumns = s.viewportColumns
-	marker.control = s.viewportControl
-	s.outputBuf.Reset()
-	s.suppressRawOutput = true
+	raw := s.reserveRawDelivery(s.rawOutput.finish())
+	s.outputMu.Unlock()
+	s.deliverReservedRaw(raw)
+}
+
+func (s *Session) startCommandOutput(marker *CommandMarker, entry *HistoryEntry) {
+	s.outputMu.Lock()
+	if marker != nil {
+		marker.viewportColumns = s.viewportColumns
+		marker.control = s.viewportControl
+		s.outputBuf.Reset()
+		s.suppressRawOutput = true
+	}
+	s.rawStarting = true
+	previous := s.rawOutput.changeOwner()
+	s.outputMu.Unlock()
+
+	s.rawDeliveries.Wait()
+	if previous != "" {
+		s.onRawOutput(s.id, previous)
+	}
+	if s.onCommandStart != nil {
+		s.onCommandStart(s.id, entry.ID, entry.Command, entry.Source)
+	}
+	for {
+		s.outputMu.Lock()
+		raw := s.rawDuringStart.String()
+		s.rawDuringStart.Reset()
+		if raw == "" {
+			s.rawStarting = false
+			notifyExit := s.exitAfterStart
+			s.exitAfterStart = nil
+			s.outputMu.Unlock()
+			if notifyExit != nil {
+				notifyExit()
+			}
+			return
+		}
+		s.outputMu.Unlock()
+		s.onRawOutput(s.id, raw)
+	}
 }
 
 // readLoop lê continuamente do PTY e acumula no buffer.
@@ -302,17 +370,11 @@ func (s *Session) readLoop(ctx context.Context) {
 
 	buf := make([]byte, ptyReadSize)
 	reader := s.ptyReader
-	var raw rawTerminalOutput
-	emitRaw := func(chunk string) {
-		if s.onRawOutput != nil && chunk != "" {
-			s.onRawOutput(s.id, chunk)
-		}
-	}
 
 	for {
 		select {
 		case <-ctx.Done():
-			emitRaw(raw.finish())
+			s.finishRawOutput()
 			return
 		default:
 		}
@@ -322,14 +384,10 @@ func (s *Session) readLoop(ctx context.Context) {
 			chunk := string(buf[:n])
 
 			// Acumula no buffer (para RunCommand com markers)
-			suppress := s.recordOutput(chunk)
-
-			if s.onRawOutput != nil {
-				emitRaw(raw.append(chunk, suppress))
-			}
+			s.recordOutput(chunk)
 		}
 		if err != nil {
-			emitRaw(raw.finish())
+			s.finishRawOutput()
 			if errors.Is(err, io.EOF) || runtime.GOOS == "linux" && errors.Is(err, syscall.EIO) {
 				// O último slave do PTY no Linux fecha com EIO no master.
 				err = nil
@@ -438,6 +496,15 @@ func (s *Session) markExited(err error) {
 		explicitClose := s.explicitClose
 		s.mu.Unlock()
 		if !explicitClose && s.onExit != nil {
+			// A UI remove a sessão ao receber onExit. Se o leitor terminou
+			// durante command_start, conclua a entrega dessa entrada primeiro.
+			s.outputMu.Lock()
+			if s.rawStarting {
+				s.exitAfterStart = func() { s.onExit(s.id, err) }
+				s.outputMu.Unlock()
+				return
+			}
+			s.outputMu.Unlock()
 			s.onExit(s.id, err)
 		}
 	})
@@ -499,15 +566,11 @@ func (s *Session) runCommandInDirectory(ctx context.Context, command, directory 
 		StartedAt: time.Now(),
 		Source:    source,
 	}
-	if s.onCommandStart != nil {
-		s.onCommandStart(s.id, entry.ID, entry.Command, entry.Source)
-	}
-
 	// Cria marker único para esta execução
 	marker := newCommandMarkerForShell(shellType(s.shell))
 
 	// Suprime raw output durante execução com markers (para não poluir o Terminal Page)
-	s.startCommandOutput(marker)
+	s.startCommandOutput(marker, entry)
 
 	defer func() {
 		s.outputMu.Lock()
@@ -877,9 +940,7 @@ func (s *Session) SendInput(input, commandID string) (*HistoryEntry, error) {
 		ExitCode:  -999, // sentinel: "raw/interativo, sem exit code"
 		Source:    "user-raw",
 	}
-	if s.onCommandStart != nil {
-		s.onCommandStart(s.id, entry.ID, entry.Command, entry.Source)
-	}
+	s.startCommandOutput(nil, entry)
 	s.ioMu.Lock()
 	s.mu.Lock()
 	canWrite := s.state == StateRunning

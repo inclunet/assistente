@@ -3,7 +3,9 @@ package terminal
 import (
 	"errors"
 	"io"
+	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"testing/iotest"
 	"time"
@@ -33,14 +35,122 @@ func TestReadLoopDeliversManualOutputAcrossReads(t *testing.T) {
 	}
 }
 
+func TestCommandStartWaitsForPreviousManualDelivery(t *testing.T) {
+	for _, managed := range []bool{true, false} {
+		name := "manual"
+		if managed {
+			name = "gerenciado"
+		}
+		for _, tail := range []string{"", "\x18depois\x1b]nova"} {
+			testName := name + "/EOF"
+			if tail != "" {
+				testName = name + "/dados_e_EOF"
+			}
+			t.Run(testName, func(t *testing.T) {
+				reader, writer := io.Pipe()
+				defer func() { _ = writer.Close() }()
+				defer func() { _ = reader.Close() }()
+				reading := make(chan struct{})
+				release := make(chan struct{})
+				unblock := sync.OnceFunc(func() { close(release) })
+				defer unblock()
+				var mu sync.Mutex
+				var events []string
+				owner := "anterior"
+				s := &Session{readerCtx: t.Context(), ptyReader: reader, ptyWriter: io.Discard}
+				s.onRawOutput = func(_, chunk string) {
+					if chunk == "antes" {
+						close(reading)
+						<-release
+					}
+					mu.Lock()
+					events = append(events, owner+"/"+chunk)
+					mu.Unlock()
+				}
+				s.onExit = func(_ string, _ error) {
+					mu.Lock()
+					events = append(events, "fim")
+					mu.Unlock()
+				}
+				s.onCommandStart = func(_, id, _, _ string) {
+					mu.Lock()
+					owner = id
+					events = append(events, "início")
+					mu.Unlock()
+					// O leitor deve conseguir drenar inclusive enquanto este callback
+					// aguarda o encerramento. A saída pode pertencer ao novo dono.
+					if tail != "" {
+						_, _ = io.WriteString(writer, tail)
+					}
+					_ = writer.Close()
+					<-s.readerDone
+				}
+				s.Start()
+				if _, err := io.WriteString(writer, "antes\xe2\x1bPpendente"); err != nil {
+					t.Fatal(err)
+				}
+				select {
+				case <-reading:
+				case <-time.After(time.Second):
+					t.Fatal("leitura anterior não iniciou")
+				}
+				done := make(chan struct{})
+				go func() {
+					defer close(done)
+					if managed {
+						if err := s.beginCommandWithID("novo"); err != nil {
+							t.Error(err)
+							return
+						}
+						_, _ = s.RunCommand(t.Context(), "comando", time.Second, "teste", "novo")
+					} else {
+						_, _ = s.SendInput("comando", "novo")
+					}
+				}()
+				deadline := time.After(time.Second)
+				ticker := time.NewTicker(time.Millisecond)
+				defer ticker.Stop()
+				for {
+					s.outputMu.Lock()
+					starting := s.rawStarting
+					s.outputMu.Unlock()
+					if starting {
+						break
+					}
+					select {
+					case <-deadline:
+						t.Fatal("troca de dono não iniciou")
+					case <-ticker.C:
+					}
+				}
+				unblock()
+				select {
+				case <-done:
+				case <-time.After(2 * time.Second):
+					t.Fatal("command_start bloqueou a drenagem do leitor")
+				}
+				mu.Lock()
+				defer mu.Unlock()
+				want := []string{"anterior/antes", "anterior/\uFFFD", "início", "fim"}
+				if !managed && tail != "" {
+					want = []string{"anterior/antes", "anterior/\uFFFD", "início", "novo/depois\x1b]nova", "fim"}
+				}
+				if !slices.Equal(events, want) {
+					t.Fatalf("eventos=%q esperados=%q", events, want)
+				}
+			})
+		}
+	}
+}
+
 type manualTestWriter func([]byte) (int, error)
 
 func (write manualTestWriter) Write(p []byte) (int, error) { return write(p) }
 
 func TestManualOutputAcrossManagedCommand(t *testing.T) {
 	reader, writer := io.Pipe()
-	defer reader.Close()
-	defer writer.Close()
+	defer func() { _ = reader.Close() }()
+	defer func() { _ = writer.Close() }()
 	manualStarted := make(chan struct{}, 1)
 	var manual strings.Builder
 	s := &Session{shell: "bash", readerCtx: t.Context(), ptyReader: reader,
