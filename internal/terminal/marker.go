@@ -1,6 +1,7 @@
 package terminal
 
 import (
+	"bytes"
 	"encoding/base64"
 	"fmt"
 	"regexp"
@@ -49,12 +50,6 @@ func newCommandMarkerForShell(shell string) *CommandMarker {
 	}
 }
 
-// WrapCommand envolve um comando com markers de início/fim.
-// O shell type determina a sintaxe usada (bash vs powershell).
-func (m *CommandMarker) WrapCommand(command, shellType string) string {
-	return m.wrapCommandInDirectory(command, "", shellType)
-}
-
 func (m *CommandMarker) wrapCommandInDirectory(command, directory, shellType string) string {
 	switch shellType {
 	case "powershell", "powershell.exe", "pwsh", "pwsh.exe":
@@ -93,6 +88,31 @@ var standalonePowerShellGroup = regexp.MustCompile(`(?:^|[;\r\n{]|#>)` + powerSh
 var powerShellGroupEnd = regexp.MustCompile(`\)(?:;|` + powerShellGap + `)*\z`)
 var powerShellNamespace = regexp.MustCompile(`(?i)(?:^|[;\r\n]|#>)` + powerShellGap + `*using` + powerShellGap + `+namespace\b`)
 
+// O retorno começa uma instrução. No modo de comando do PowerShell, ponto,
+// hífen e cifrão podem integrar o mesmo token; uma fronteira de palavra Go
+// também reconheceria nomes como return-value.
+var powerShellReturn = regexp.MustCompile(`(?i)(?:^|[;\r\n{]|#>)` + powerShellGap + `*return(?:\z|` + powerShellSpace + `|[\x00&(),;{|}])`)
+
+type powerShellPreparation struct {
+	grouped   bool
+	namespace bool
+	computed  bool
+}
+
+func (p powerShellPreparation) needed() bool {
+	return p.grouped || p.namespace || p.computed
+}
+
+// A decisão usa apenas o texto do usuário, antes da guarda de diretório.
+func selectPowerShellPreparation(command string) powerShellPreparation {
+	return powerShellPreparation{
+		grouped: standalonePowerShellGroup.MatchString(command) &&
+			(powerShellGroupEnd.MatchString(command) || strings.ContainsAny(command, "#}") || powerShellReturn.MatchString(command)),
+		namespace: powerShellNamespace.MatchString(command),
+		computed:  strings.ContainsAny(command, "$(") && powerShellInvocation.MatchString(command),
+	}
+}
+
 // wrapPowerShell gera comando wrapped para PowerShell.
 func (m *CommandMarker) wrapPowerShell(command, directory string) string {
 	// O ConPTY pode colar a saída ao eco ou redesenhar o comando anterior.
@@ -102,13 +122,9 @@ func (m *CommandMarker) wrapPowerShell(command, directory string) string {
 	// Na falha, o próprio scriptblock compilado identifica o pipeline final e
 	// a origem de um NativeCommandError. O caminho de sucesso só lê $?.
 	code := "$__asstCode" + m.id
-	// A decisão usa apenas o texto do usuário, antes da guarda de diretório.
-	grouped := standalonePowerShellGroup.MatchString(command) && (powerShellGroupEnd.MatchString(command) || strings.ContainsAny(command, "#}") || strings.Contains(strings.ToLower(command), "return"))
-	namespace := powerShellNamespace.MatchString(command)
-	computed := strings.ContainsAny(command, "$(") && powerShellInvocation.MatchString(command)
-	prepare := namespace || grouped || computed
+	preparation := selectPowerShellPreparation(command)
 	state, setup, cleanup, success := "$null", "", code[1:], "$?"
-	if prepare {
+	if preparation.needed() {
 		state = "$__asstState" + m.id
 		setup = state + " = @{}; "
 		cleanup += "," + state[1:]
@@ -117,7 +133,7 @@ func (m *CommandMarker) wrapPowerShell(command, directory string) string {
 	status := fmt.Sprintf("%s = if (%s) { 0 } else { %s $MyInvocation.MyCommand.ScriptBlock.Ast %s }", code, success, singlePowerShellLine(failedPowerShellStatus), state)
 	guard := powerShellDirectoryGuard(directory)
 	body, parseGuard := guard+command, ""
-	if namespace {
+	if preparation.namespace {
 		// O parser recebe o texto original. Confira o diretório antes dessa
 		// leitura e novamente antes de executar o corpo compilado.
 		body = command
@@ -130,9 +146,9 @@ func (m *CommandMarker) wrapPowerShell(command, directory string) string {
 	source := fmt.Sprintf("[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('%s')) + [Environment]::NewLine", encoded)
 	frame := fmt.Sprintf("'try { ' + %s + ' } finally { ' + {%s}.ToString() + ' }'", source, status)
 	script := "[scriptblock]::Create(" + frame + ")"
-	if prepare {
+	if preparation.needed() {
 		normalize := "$null"
-		if computed {
+		if preparation.computed {
 			normalize = singlePowerShellLine(powerShellBareTargetExpression)
 		}
 		script = fmt.Sprintf("%s (%s) {%s} '%s' '%s' %s", singlePowerShellLine(prepareGroupedPowerShell), source, status, state, parseGuard, normalize)
@@ -327,27 +343,17 @@ type ParseResult struct {
 	Found bool
 }
 
-// StartTag retorna o start marker para detecção durante streaming.
-func (m *CommandMarker) StartTag() string {
-	return m.startTag
-}
-
-// EndTag retorna o end marker para detecção durante streaming.
-func (m *CommandMarker) EndTag() string {
-	return m.endTag
-}
-
 var partialCSI = regexp.MustCompile("\x1b(?:\\[[?0-9;]*)?$")
 
 var conPTYResize = regexp.MustCompile("\x1b\\[8;[0-9]+;([0-9]+)t")
 
 // O ConPTY emite CSI 8;linhas;colunas t quando o próprio shell muda o viewport.
-func viewportAfterOutput(raw string, columns int) int {
-	if !strings.Contains(raw, "\x1b[8;") {
+func viewportAfterOutput(raw []byte, columns int) int {
+	if !bytes.Contains(raw, []byte("\x1b[8;")) {
 		return columns
 	}
-	for _, match := range conPTYResize.FindAllStringSubmatch(raw, -1) {
-		columns, _ = strconv.Atoi(match[1]) // largura inválida desativa a reconstrução
+	for _, match := range conPTYResize.FindAllSubmatch(raw, -1) {
+		columns, _ = strconv.Atoi(string(match[1])) // largura inválida desativa a reconstrução
 	}
 	return columns
 }

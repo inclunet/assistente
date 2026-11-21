@@ -13,6 +13,7 @@ import (
 // um redesenho do ConPTY pode retirar a quebra de linha mais recente.
 type parsedTerminalText struct {
 	conPTY           bool
+	marker           *CommandMarker
 	columns          int
 	data             []byte
 	lastText         int
@@ -44,7 +45,12 @@ func (t *parsedTerminalText) feed(chunk string) {
 			chunk = chunk[n:]
 			t.replayed += n
 			if t.replayed == len(t.replay) {
-				t.data = t.data[:len(t.data)-1]
+				// O ConPTY pode redesenhar a última célula de um marcador.
+				// Nesse caso descarte a célula repetida e mantenha o delimitador.
+				beforeBreak := t.data[:len(t.data)-1]
+				if !t.marker.endsProtocolLine(beforeBreak) {
+					t.data = beforeBreak
+				}
 				t.row = len(t.data)
 				t.replay, t.replayed = "", 0
 			}
@@ -122,7 +128,7 @@ func (t *parsedTerminalText) escapeByte(ch byte) bool {
 		if t.conPTY {
 			switch ch {
 			case 't':
-				t.columns = viewportAfterOutput(string(t.escape)+"t", t.columns)
+				t.columns = viewportAfterOutput(append(t.escape, ch), t.columns)
 			case 'H':
 				if t.escapeAfterCRLF {
 					t.beginReplay()
@@ -182,6 +188,21 @@ func (t *parsedTerminalText) beginReplay() {
 	}
 }
 
+func (m *CommandMarker) endsProtocolLine(data []byte) bool {
+	if bytes.HasSuffix(data, []byte(m.startTag)) {
+		return true
+	}
+	// Um status escrito pelo shell ocupa até 20 bytes decimais com o sinal.
+	// Limite a busca à moldura, inclusive em uma linha muito longa sem quebras.
+	tail := data[max(0, len(data)-len(m.endTag)-20):]
+	at := bytes.LastIndex(tail, []byte(m.endTag))
+	if at < 0 {
+		return false
+	}
+	_, err := strconv.Atoi(string(tail[at+len(m.endTag):]))
+	return err == nil
+}
+
 func (t *parsedTerminalText) finish() {
 	t.flushEscape()
 	if t.cr {
@@ -205,7 +226,7 @@ type markerStream struct {
 }
 
 func newMarkerStream(marker *CommandMarker) *markerStream {
-	return &markerStream{marker: marker, text: parsedTerminalText{conPTY: marker.conPTY, columns: marker.viewportColumns}}
+	return &markerStream{marker: marker, text: parsedTerminalText{conPTY: marker.conPTY, columns: marker.viewportColumns, marker: marker}}
 }
 
 func (s *markerStream) append(chunk string) ([]byte, ParseResult) {

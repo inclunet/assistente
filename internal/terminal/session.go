@@ -488,18 +488,17 @@ func (s *Session) runCommandInDirectory(ctx context.Context, command, directory 
 
 	// Suprime raw output durante execução com markers (para não poluir o Terminal Page)
 	s.outputMu.Lock()
-	var pendingEscape string
+	pendingBytes := 0
 	if marker.conPTY {
-		previous := s.outputBuf.String()
+		previous := s.outputBuf.Bytes()
 		s.viewportColumns = viewportAfterOutput(previous, s.viewportColumns)
 		marker.viewportColumns = s.viewportColumns
-		if esc := strings.LastIndexByte(previous, '\x1b'); esc >= 0 && partialCSI.MatchString(previous[esc:]) {
+		if esc := bytes.LastIndexByte(previous, '\x1b'); esc >= 0 && partialCSI.Match(previous[esc:]) {
 			// A próxima leitura pode completar um resize iniciado antes do comando.
-			pendingEscape = previous[esc:]
+			pendingBytes = copy(previous, previous[esc:])
 		}
 	}
-	s.outputBuf.Reset()
-	s.outputBuf.WriteString(pendingEscape)
+	s.outputBuf.Truncate(pendingBytes)
 	s.suppressRawOutput = true
 	s.outputMu.Unlock()
 

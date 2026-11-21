@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"os/exec"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -59,12 +60,12 @@ func TestStripANSI(t *testing.T) {
 func TestCommandMarker_WrapBash(t *testing.T) {
 	m := newCommandMarkerForShell("bash")
 
-	wrapped := m.WrapCommand("ls -la", "bash")
+	wrapped := m.wrapCommandInDirectory("ls -la", "", "bash")
 
-	if !strings.Contains(wrapped, m.StartTag()) {
+	if !strings.Contains(wrapped, m.startTag) {
 		t.Errorf("wrapped command should contain start tag, got: %s", wrapped)
 	}
-	if !strings.Contains(wrapped, m.EndTag()) {
+	if !strings.Contains(wrapped, m.endTag) {
 		t.Errorf("wrapped command should contain end tag, got: %s", wrapped)
 	}
 	if !strings.Contains(wrapped, "ls -la") {
@@ -78,9 +79,9 @@ func TestCommandMarker_WrapBash(t *testing.T) {
 func TestCommandMarker_WrapPowerShell(t *testing.T) {
 	m := newCommandMarkerForShell("powershell")
 
-	wrapped := m.WrapCommand("Get-Process", "powershell")
+	wrapped := m.wrapCommandInDirectory("Get-Process", "", "powershell")
 
-	if strings.Contains(wrapped, m.StartTag()) || strings.Contains(wrapped, m.EndTag()) {
+	if strings.Contains(wrapped, m.startTag) || strings.Contains(wrapped, m.endTag) {
 		t.Fatal("o eco do comando contém um marcador completo")
 	}
 	if !strings.Contains(wrapped, markerStart) || !strings.Contains(wrapped, markerEnd) || !strings.Contains(wrapped, m.id+markerSuffix) {
@@ -112,9 +113,9 @@ func TestCommandMarker_ParseOutput_Success(t *testing.T) {
 
 	// Simula output com start marker no início de linha (após prompt)
 	raw := "some prompt text\n" +
-		m.StartTag() + "\n" +
+		m.startTag + "\n" +
 		"file1.txt\nfile2.txt\nfile3.txt\n" +
-		m.EndTag() + "0\n"
+		m.endTag + "0\n"
 
 	result := parseMarkerOutput(m, raw)
 
@@ -137,9 +138,9 @@ func TestCommandMarker_ParseOutput_NonZeroExit(t *testing.T) {
 
 	// Start marker no início de uma linha
 	raw := "prompt> some-cmd\n" +
-		m.StartTag() + "\n" +
+		m.startTag + "\n" +
 		"command not found\n" +
-		m.EndTag() + "127\n"
+		m.endTag + "127\n"
 
 	result := parseMarkerOutput(m, raw)
 
@@ -158,9 +159,9 @@ func TestCommandMarker_ParseOutput_WithANSI(t *testing.T) {
 	m := newCommandMarkerForShell("bash")
 
 	raw := "prompt\n" +
-		"\x1b[32m" + m.StartTag() + "\x1b[0m\n" +
+		"\x1b[32m" + m.startTag + "\x1b[0m\n" +
 		"\x1b[31mERROR\x1b[0m: test\n" +
-		"\x1b[32m" + m.EndTag() + "1\x1b[0m\n"
+		"\x1b[32m" + m.endTag + "1\x1b[0m\n"
 
 	result := parseMarkerOutput(m, raw)
 
@@ -189,8 +190,8 @@ func TestCommandMarker_ParseOutput_EmptyOutput(t *testing.T) {
 	m := newCommandMarkerForShell("bash")
 
 	// Start marker no início do texto
-	raw := m.StartTag() + "\n" +
-		m.EndTag() + "0\n"
+	raw := m.startTag + "\n" +
+		m.endTag + "0\n"
 
 	result := parseMarkerOutput(m, raw)
 
@@ -209,10 +210,10 @@ func TestCommandMarker_UniqueIDs(t *testing.T) {
 	m1 := newCommandMarkerForShell("bash")
 	m2 := newCommandMarkerForShell("bash")
 
-	if m1.StartTag() == m2.StartTag() {
+	if m1.startTag == m2.startTag {
 		t.Error("different markers should have different start tags")
 	}
-	if m1.EndTag() == m2.EndTag() {
+	if m1.endTag == m2.endTag {
 		t.Error("different markers should have different end tags")
 	}
 }
@@ -227,10 +228,10 @@ func TestCommandMarker_ParseOutput_WithPTYEcho(t *testing.T) {
 	// Simula output real de um PTY com PowerShell:
 	// 1. Prompt + echo do comando wrappado (contém markers embutidos)
 	// 2. Output real do Write-Host (markers em linhas próprias)
-	raw := "PS C:\\Users\\test> Write-Host '" + m.StartTag() + "'; echo hello; Write-Host ('" + m.EndTag() + "' + $LASTEXITCODE)\r\n" +
-		m.StartTag() + "\r\n" +
+	raw := "PS C:\\Users\\test> Write-Host '" + m.startTag + "'; echo hello; Write-Host ('" + m.endTag + "' + $LASTEXITCODE)\r\n" +
+		m.startTag + "\r\n" +
 		"hello\r\n" +
-		m.EndTag() + "0\r\n" +
+		m.endTag + "0\r\n" +
 		"PS C:\\Users\\test> "
 
 	result := parseMarkerOutput(m, raw)
@@ -252,10 +253,10 @@ func TestCommandMarker_ParseOutput_WithPTYEcho(t *testing.T) {
 func TestCommandMarker_ParseOutput_WithPTYEcho_ExitCode(t *testing.T) {
 	m := newCommandMarkerForShell("powershell")
 
-	raw := "PS C:\\> Write-Host '" + m.StartTag() + "'; cmd /c exit 1; Write-Host ('" + m.EndTag() + "' + $LASTEXITCODE)\r\n" +
-		m.StartTag() + "\r\n" +
+	raw := "PS C:\\> Write-Host '" + m.startTag + "'; cmd /c exit 1; Write-Host ('" + m.endTag + "' + $LASTEXITCODE)\r\n" +
+		m.startTag + "\r\n" +
 		"\r\n" +
-		m.EndTag() + "1\r\n" +
+		m.endTag + "1\r\n" +
 		"PS C:\\> "
 
 	result := parseMarkerOutput(m, raw)
@@ -275,10 +276,10 @@ func TestCommandMarker_ParseOutput_WithPTYEcho_ExitCode(t *testing.T) {
 func TestCommandMarker_ParseOutput_BashEcho(t *testing.T) {
 	m := newCommandMarkerForShell("bash")
 
-	raw := "user@host:~$ printf '%s\\n' '" + m.StartTag() + "'; ls; printf '%s%s\\n' '" + m.EndTag() + "' $?\n" +
-		m.StartTag() + "\n" +
+	raw := "user@host:~$ printf '%s\\n' '" + m.startTag + "'; ls; printf '%s%s\\n' '" + m.endTag + "' $?\n" +
+		m.startTag + "\n" +
 		"file1.txt\nfile2.txt\n" +
-		m.EndTag() + "0\n" +
+		m.endTag + "0\n" +
 		"user@host:~$ "
 
 	result := parseMarkerOutput(m, raw)
@@ -299,9 +300,9 @@ func TestCommandMarker_ParseOutput_WindowsLineEndings(t *testing.T) {
 	m := newCommandMarkerForShell("powershell")
 
 	raw := "prompt\r\n" +
-		m.StartTag() + "\r\n" +
+		m.startTag + "\r\n" +
 		"line1\r\nline2\r\n" +
-		m.EndTag() + "0\r\n"
+		m.endTag + "0\r\n"
 
 	result := parseMarkerOutput(m, raw)
 
@@ -322,7 +323,7 @@ func TestWrapCommandBashOutputWithoutFinalNewline(t *testing.T) {
 		t.Skip("shell POSIX indisponível")
 	}
 	marker := newCommandMarkerForShell("bash")
-	out, err := exec.Command(sh, "-c", marker.WrapCommand("printf sample; (exit 7)", "sh")).CombinedOutput()
+	out, err := exec.Command(sh, "-c", marker.wrapCommandInDirectory("printf sample; (exit 7)", "", "sh")).CombinedOutput()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -349,7 +350,7 @@ func TestPOSIXFooterSurvivesCommentsAndSyntaxErrors(t *testing.T) {
 		{"value='a b'; printf '%s' \"$value\"", "a b", 0},
 	} {
 		m := newCommandMarkerForShell("bash")
-		out, err := exec.Command(sh, "-c", m.WrapCommand(tc.command, "sh")).Output()
+		out, err := exec.Command(sh, "-c", m.wrapCommandInDirectory(tc.command, "", "sh")).Output()
 		result := parseMarkerOutput(m, string(out))
 		if err != nil || !result.Found || result.ExitCode != tc.code || result.Output != tc.output {
 			t.Fatalf("comando=%q resultado=%+v erro=%v", tc.command, result, err)
@@ -359,7 +360,7 @@ func TestPOSIXFooterSurvivesCommentsAndSyntaxErrors(t *testing.T) {
 
 func TestCommandMarkerRequiresCompleteStatusLine(t *testing.T) {
 	m := newCommandMarkerForShell("bash")
-	raw := m.StartTag() + "\noutput\n" + m.EndTag()
+	raw := m.startTag + "\noutput\n" + m.endTag
 	for _, tail := range []string{"", "\n", "0", "12", "bad\n", "\n0\n"} {
 		if parseMarkerOutput(m, raw+tail).Found {
 			t.Errorf("accepted incomplete status %q", tail)
@@ -369,7 +370,7 @@ func TestCommandMarkerRequiresCompleteStatusLine(t *testing.T) {
 
 func TestStatusWhitespaceRequiresCompleteNumericLine(t *testing.T) {
 	marker := newCommandMarkerForShell("bash")
-	prefix := marker.StartTag() + "\nhello\n" + marker.EndTag()
+	prefix := marker.startTag + "\nhello\n" + marker.endTag
 	if got := parseMarkerOutput(marker, prefix+" 7 \r\n"); !got.Found || got.ExitCode != 7 {
 		t.Fatal(got)
 	}
@@ -385,7 +386,7 @@ func TestPowerShellMarkerAfterEchoWithoutNewline(t *testing.T) {
 	}
 	for _, command := range []string{"cmd /c exit 7", "(cmd /c exit 7)"} {
 		marker := newCommandMarkerForShell("powershell")
-		script := "Write-Host -NoNewline 'eco sem quebra'; " + marker.WrapCommand(command, "powershell")
+		script := "Write-Host -NoNewline 'eco sem quebra'; " + marker.wrapCommandInDirectory(command, "", "powershell")
 		output, err := exec.Command(shell, "-NoProfile", "-NonInteractive", "-Command", script).CombinedOutput()
 		result := parseMarkerOutput(marker, string(output))
 		if err != nil || !result.Found || result.ExitCode != 7 || result.Output != "" {
@@ -420,15 +421,54 @@ func TestPowerShellSplitRedrawDoesNotLeakControlBytes(t *testing.T) {
 		want := "ab" + glyph + "c"
 		for split := range len(raw) + 1 {
 			stream := newMarkerStream(marker)
-			delta, _ := stream.append(marker.StartTag() + "\n" + raw[:split])
+			delta, _ := stream.append(marker.startTag + "\n" + raw[:split])
 			partial := string(delta)
 			if !strings.HasPrefix(want, partial) {
 				t.Fatalf("split=%d parcial=%q", split, partial)
 			}
-			delta, result := stream.append(raw[split:] + "\r\n" + marker.EndTag() + "0\r\n")
+			delta, result := stream.append(raw[split:] + "\r\n" + marker.endTag + "0\r\n")
 			if !result.Found || result.Output != want || partial+string(delta) != want {
 				t.Fatalf("split=%d emitido=%q resultado=%+v", split, partial+string(delta), result)
 			}
+		}
+	}
+}
+
+func TestConPTYRedrawAtStartMarkerPreservesBodyAcrossReads(t *testing.T) {
+	m := newCommandMarkerForShell("powershell")
+	m.conPTY = true
+	m.viewportColumns = len(m.startTag)
+	redraw := m.startTag + "\r\n\x1b[1;" + strconv.Itoa(m.viewportColumns) + "H_"
+	for split := 0; split <= len(redraw); split++ {
+		stream := newMarkerStream(m)
+		stream.append(redraw[:split])
+		stream.append(redraw[split:])
+		if !stream.started || stream.partialOutput() != "" {
+			t.Fatalf("corte %d: início=%t saída=%q", split, stream.started, stream.partialOutput())
+		}
+		delta, result := stream.append("corpo\r\n" + m.endTag + "3\r\n")
+		if !result.Found || result.ExitCode != 3 || result.Output != "corpo" || string(delta) != "corpo" {
+			t.Fatalf("corte %d: resultado=%+v delta=%q", split, result, delta)
+		}
+	}
+}
+
+func TestConPTYRedrawAtEndMarkerPreservesExitAcrossReads(t *testing.T) {
+	m := newCommandMarkerForShell("powershell")
+	m.conPTY = true
+	m.viewportColumns = len(m.endTag) + 1
+	raw := m.startTag + "\r\ncorpo\r\n" + m.endTag + "3\r\n\x1b[1;" + strconv.Itoa(m.viewportColumns) + "H3PS> "
+	for split := 0; split <= len(raw); split++ {
+		stream := newMarkerStream(m)
+		first, result := stream.append(raw[:split])
+		output := string(first)
+		if !result.Found {
+			var delta []byte
+			delta, result = stream.append(raw[split:])
+			output += string(delta)
+		}
+		if !result.Found || result.ExitCode != 3 || result.Output != "corpo" || output != "corpo" {
+			t.Fatalf("corte %d: resultado=%+v saída=%q", split, result, output)
 		}
 	}
 }
@@ -437,7 +477,7 @@ func TestProcessExitPreservesIncompleteConPTYRedraw(t *testing.T) {
 	marker := newCommandMarkerForShell("powershell")
 	marker.conPTY = true
 	marker.viewportColumns = 3
-	raw := marker.StartTag() + "\r\nabe\u0301\r\n\x1b[39;3He"
+	raw := marker.startTag + "\r\nabe\u0301\r\n\x1b[39;3He"
 	session := &Session{processDone: make(chan struct{})}
 	close(session.processDone)
 	stream := newMarkerStream(marker)
@@ -468,11 +508,10 @@ func TestConPTYViewportChangesWithinOutput(t *testing.T) {
 	}
 }
 
-func TestPowerShellOnlyPreparesGroupedCommands(t *testing.T) {
-	marker := newCommandMarkerForShell("powershell")
+func TestPowerShellPreparationSelection(t *testing.T) {
 	for _, tc := range []struct {
-		cmd     string
-		grouped bool
+		cmd    string
+		needed bool
 	}{
 		{"Write-Output ok", false}, {"cmd /c exit 7; return", false},
 		{"cmd.exe /c --% echo sample", false}, {"throw 'falhou'", false},
@@ -482,12 +521,16 @@ func TestPowerShellOnlyPreparesGroupedCommands(t *testing.T) {
 		{"Write-Output\u00a0(Get-Date)", false}, {"Write-Output '\u2003(issue #42)'", false},
 		{"Write-Output (Get-Date) # comentário", false}, {"Write-Output '(issue #42)'", false},
 		{"& (Get-Command cmd.exe) /c exit 7", true}, {"(cmd /c exit 7) # anotação", true}, {"$(cmd /c exit 7)", true}, {"@(cmd /c exit 7)", true},
+		{"(cmd /c exit 7); return", true}, {"(cmd /c exit 7)\rReTuRn value", true},
+		{"(cmd /c exit 7); return\u00a0value", true}, {"(cmd /c exit 7); return,42", true},
+		{"(cmd /c exit 7); returned", false}, {"(cmd /c exit 7); $returnValue", false},
+		{"(cmd /c exit 7); return-value", false}, {"(cmd /c exit 7); return.value", false},
+		{"(cmd /c exit 7); returné", false}, {"(cmd /c exit 7); return$part", false},
+		{"(cmd /c exit 7); Write-Output return", false}, {"(cmd /c exit 7); 'return'", false},
+		{"using namespace System.Text; [StringBuilder]::new()", true},
 	} {
-		for _, directory := range []string{"", t.TempDir()} {
-			script := marker.wrapCommandInDirectory(tc.cmd, directory, "powershell")
-			if strings.Contains(script, "[System.Management.Automation.Language.Parser]::ParseInput(") != tc.grouped {
-				t.Errorf("preparação de AST inesperada para %q (diretório=%q)", tc.cmd, directory)
-			}
+		if got := selectPowerShellPreparation(tc.cmd).needed(); got != tc.needed {
+			t.Errorf("preparação de %q = %t, esperava %t", tc.cmd, got, tc.needed)
 		}
 	}
 }
@@ -498,7 +541,7 @@ func TestMarkerStreamConsumesOnlyNewBytes(t *testing.T) {
 	marker.viewportColumns = 80
 	stream := newMarkerStream(marker)
 	session := Session{}
-	raw := marker.StartTag() + "\r\x1b[0m\nprimeira\r\x1b[31m\n\x1b[8;40;3tabé\r\n\x1b[2;3Héc\r\nsegunda\r\n\x1b[31mvermelha\x1b[0m\r\nfim\r\n" + marker.EndTag() + "0\r\n"
+	raw := marker.startTag + "\r\x1b[0m\nprimeira\r\x1b[31m\n\x1b[8;40;3tabé\r\n\x1b[2;3Héc\r\nsegunda\r\n\x1b[31mvermelha\x1b[0m\r\nfim\r\n" + marker.endTag + "0\r\n"
 	want := "primeira\nabéc\nsegunda\nvermelha\nfim"
 	var emitted strings.Builder
 	for read := range len(raw) {
@@ -536,9 +579,9 @@ func TestConPTYStartAfterRedrawnEcho(t *testing.T) {
 	m := newCommandMarkerForShell("powershell")
 	m.conPTY = true
 	old := newCommandMarkerForShell("powershell")
-	echo := old.WrapCommand("Write-Output anterior", "powershell") + old.StartTag() + "\r\nanterior\r\n" + old.EndTag() + "0\r\n" +
-		m.WrapCommand("cmd /c exit 4; Write-Output ok; return", "powershell")
-	start := m.StartTag() + "\r\n"
+	echo := old.wrapCommandInDirectory("Write-Output anterior", "", "powershell") + old.startTag + "\r\nanterior\r\n" + old.endTag + "0\r\n" +
+		m.wrapCommandInDirectory("cmd /c exit 4; Write-Output ok; return", "", "powershell")
+	start := m.startTag + "\r\n"
 	for split := range len(start) {
 		stream := newMarkerStream(m)
 		if delta, _ := stream.append(echo + start[:split]); stream.started || len(delta) != 0 {
@@ -559,7 +602,7 @@ func TestConPTYStartAfterRedrawnEcho(t *testing.T) {
 	if output, code, err := session.exitedCommandResult(stream); err != nil || output != "ok" || code != 0 {
 		t.Fatalf("término do shell=%v saída=%q código=%d", err, output, code)
 	}
-	raw := partial + "\r\n" + m.EndTag() + "0\r\n"
+	raw := partial + "\r\n" + m.endTag + "0\r\n"
 	if result := parseMarkerOutput(m, raw); !result.Found || result.Output != "ok" || result.ExitCode != 0 {
 		t.Fatalf("resultado=%t saída=%q código=%d", result.Found, result.Output, result.ExitCode)
 	}
@@ -569,15 +612,15 @@ func TestMarkerStreamLongTailAndFragmentedControls(t *testing.T) {
 	m := newCommandMarkerForShell("powershell")
 	tail := strings.Repeat("a", 131072)
 	stream := newMarkerStream(m)
-	if delta, _ := stream.append(m.StartTag() + "\n" + tail); string(delta) != tail {
+	if delta, _ := stream.append(m.startTag + "\n" + tail); string(delta) != tail {
 		t.Fatal("texto sem quebra ficou retido")
 	}
 	controls := "\x1b]" + tail + "\a\r\x1b[0m\n"
-	want := tail + "\n" + m.EndTag() + "invalido\núltimo"
-	rest := controls + m.EndTag() + "invalido\núltimo\n" + m.EndTag() + " 27 \r\n"
+	want := tail + "\n" + m.endTag + "invalido\núltimo"
+	rest := controls + m.endTag + "invalido\núltimo\n" + m.endTag + " 27 \r\n"
 	for _, step := range []int{1, 7, 4096} {
 		stream = newMarkerStream(m)
-		stream.append(m.StartTag() + "\n" + tail)
+		stream.append(m.startTag + "\n" + tail)
 		var emitted strings.Builder
 		emitted.WriteString(tail)
 		var result ParseResult
@@ -595,8 +638,8 @@ func TestMarkerStreamLongTailAndFragmentedControls(t *testing.T) {
 func TestInvalidFooterImmediatelyReturnsToOutput(t *testing.T) {
 	m := newCommandMarkerForShell("bash")
 	stream := newMarkerStream(m)
-	stream.append(m.StartTag() + "\n")
-	payload := m.EndTag() + "inválido\nseguinte"
+	stream.append(m.startTag + "\n")
+	payload := m.endTag + "inválido\nseguinte"
 	delta, result := stream.append(payload)
 	if result.Found || string(delta) != payload || stream.partialOutput() != payload {
 		t.Fatalf("delta=%q resultado=%+v saída parcial=%q", delta, result, stream.partialOutput())
@@ -612,9 +655,9 @@ func TestMarkerStreamConsumesSplitControlSequences(t *testing.T) {
 		for split := range len(raw) + 1 {
 			m := newCommandMarkerForShell("bash")
 			stream := newMarkerStream(m)
-			first, _ := stream.append(m.StartTag() + "\n" + raw[:split])
+			first, _ := stream.append(m.startTag + "\n" + raw[:split])
 			emitted := string(first)
-			last, parsed := stream.append(raw[split:] + "\n" + m.EndTag() + "0\n")
+			last, parsed := stream.append(raw[split:] + "\n" + m.endTag + "0\n")
 			if !parsed.Found || parsed.Output != "ab" || emitted+string(last) != "ab" {
 				t.Fatalf("controle=%q corte=%d resultado=%+v saída=%q", seq, split, parsed, emitted+string(last))
 			}
@@ -625,7 +668,7 @@ func TestMarkerStreamConsumesSplitControlSequences(t *testing.T) {
 func TestMarkerStreamOSCWithSplitStringTerminator(t *testing.T) {
 	marker := newCommandMarkerForShell("bash")
 	stream := newMarkerStream(marker)
-	stream.append(marker.StartTag() + "\n")
+	stream.append(marker.startTag + "\n")
 	if delta, _ := stream.append("antes\x1b]0;título\x1b"); string(delta) != "antes" {
 		t.Fatalf("antes do terminador: %q", delta)
 	}
@@ -652,13 +695,13 @@ func BenchmarkMarkerStreamScale(b *testing.B) {
 				b.SetBytes(int64(kib * 1024))
 				for b.Loop() {
 					stream := newMarkerStream(marker)
-					stream.append(marker.StartTag() + "\n")
+					stream.append(marker.startTag + "\n")
 					emitted := 0
 					for range kib / 4 {
 						delta, _ := stream.append(chunk)
 						emitted += len(delta)
 					}
-					delta, result := stream.append("\n" + marker.EndTag() + "0\n")
+					delta, result := stream.append("\n" + marker.endTag + "0\n")
 					if !result.Found || emitted+len(delta) != len(result.Output) {
 						b.Fatal("sem fim")
 					}

@@ -5,9 +5,11 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"regexp"
 	"strings"
 	"testing"
 	"testing/iotest"
+	"time"
 
 	"github.com/KennethanCeyer/ptyx"
 	"golang.org/x/sys/windows"
@@ -58,7 +60,7 @@ func TestConPTYClosedReaderUsesSignaledProcessStatus(t *testing.T) {
 			marker := newCommandMarkerForShell("powershell")
 			pty := &processStatusPTY{pid: tc.pid, waitErr: &ptyx.ExitError{ExitCode: 3}}
 			readErr := &os.PathError{Op: "read", Path: "conpty-stdout", Err: os.ErrClosed}
-			reader := io.MultiReader(strings.NewReader(marker.StartTag()+"\r\nparcial"), iotest.ErrReader(readErr))
+			reader := io.MultiReader(strings.NewReader(marker.startTag+"\r\nparcial"), iotest.ErrReader(readErr))
 			session := &Session{ptySession: pty, readerCtx: t.Context(), ptyReader: reader}
 			session.Start()
 			<-session.readerDone
@@ -73,5 +75,43 @@ func TestConPTYClosedReaderUsesSignaledProcessStatus(t *testing.T) {
 				t.Errorf("Kill foi chamado %d vezes", pty.killCalls)
 			}
 		})
+	}
+}
+
+type ptyOutputWriter func([]byte) (int, error)
+
+func (write ptyOutputWriter) Write(p []byte) (int, error) { return write(p) }
+
+func TestConPTYResizeAcrossSessionCommands(t *testing.T) {
+	s := &Session{shell: "powershell.exe", viewportColumns: 80}
+	command := 0
+	// O PTY simulado só precisa do identificador do protocolo para responder
+	// com as tags. A sintaxe usada pelo shell para montá-las pode variar.
+	markerID := regexp.MustCompile(`[0-9a-f]{8}` + regexp.QuoteMeta(markerSuffix))
+	s.ptyWriter = ptyOutputWriter(func(wrapper []byte) (int, error) {
+		suffix := string(markerID.Find(wrapper))
+		if suffix == "" {
+			t.Fatal("o PTY simulado não encontrou o identificador do comando")
+		}
+		s.outputMu.Lock()
+		defer s.outputMu.Unlock()
+		command++
+		if command == 2 {
+			s.outputBuf.WriteString("3t") // completa o CSI do comando anterior
+		}
+		s.outputBuf.WriteString(markerStart + suffix + "\r\nabc\r\n\x1b[2;3Hcde\r\n" + markerEnd + suffix + "0\r\n")
+		if command == 1 {
+			s.outputBuf.WriteString(strings.Repeat("prompt ", 8192) + "\x1b[8;40;")
+		}
+		return len(wrapper), nil
+	})
+	for _, want := range []string{"abc\ncde", "abcde"} {
+		if err := s.beginCommandWithID("test"); err != nil {
+			t.Fatal(err)
+		}
+		entry, err := s.RunCommand(t.Context(), "echo", time.Second, "test", "test")
+		if err != nil || entry == nil || entry.Output != want {
+			t.Fatalf("comando %d: entrada=%+v erro=%v", command, entry, err)
+		}
 	}
 }
