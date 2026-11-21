@@ -21,6 +21,8 @@ export interface ChatInputProps {
   onCancelStreaming?: () => void;
   isStreaming?: boolean;
   disabled?: boolean;
+  /** Permite selecionar o texto sem editar o rascunho. */
+  editorReadOnly?: boolean;
   placeholder?: string;
   maxFiles?: number;
   /** Devolve true quando o handoff para a lista de mensagens foi realizado. */
@@ -49,6 +51,7 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
     onCancelStreaming,
     isStreaming = false,
     disabled = false,
+    editorReadOnly = false,
     placeholder,
     maxFiles = 5,
     onArrowUp,
@@ -226,7 +229,10 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
 
     if (textareaRef.current) {
       textareaRef.current.style.height = 'auto';
-      requestAnimationFrame(() => textareaRef.current?.focus());
+      requestAnimationFrame(() => {
+        const input = textareaRef.current;
+        if (input && !input.readOnly) input.focus();
+      });
     }
   }, [clearOnSend, closeSlashMenu, disabled, isProcessing, onSend, setMediaFiles, setMessage, textareaRef]);
 
@@ -247,7 +253,7 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
     () => filterSlashItems(slashItems, slashFilter),
     [slashItems, slashFilter],
   );
-  const isSlashMenuOpen = showSlashMenu && slashItems.length > 0;
+  const isSlashMenuOpen = !editorReadOnly && showSlashMenu && slashItems.length > 0;
   const activeSlashIndex = filteredSlashItems.length > 0
     ? Math.min(slashSelectedIndex, filteredSlashItems.length - 1)
     : 0;
@@ -549,6 +555,7 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
           ref={textareaRef}
           className="chat-input__textarea"
           value={message}
+          readOnly={editorReadOnly}
           onChange={(e) => {
             setMessage(e.target.value);
             updateSlashMenu(e.target.value);

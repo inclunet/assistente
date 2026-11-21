@@ -26,10 +26,8 @@ const storeMocks = vi.hoisted(() => ({
 
 const terminalPageMocks = vi.hoisted(() => ({
   registeredAdapter: null as unknown,
-  slashMenuEnabled: undefined as boolean | undefined,
   surfaceGetter: null as (() => unknown) | null,
   modalOpen: false,
-  onSend: null as ((message: string) => Promise<boolean | void>) | null,
 }));
 
 const workspaceMocks = vi.hoisted(() => ({
@@ -66,6 +64,7 @@ vi.mock('react-i18next', () => ({
         'terminal.placeholders.creating': 'Criando terminal...',
         'terminal.placeholders.command': 'Digite um comando',
         'terminal.aria.toolbar': 'Barra de ferramentas do terminal',
+        'chat.messageLabel': 'chat-input',
       } as Record<string, string>)[key] ?? key,
   }),
 }));
@@ -91,33 +90,6 @@ vi.mock('../components/terminal/TerminalHistory', async () => {
         ))}
       </div>
     )),
-  };
-});
-
-vi.mock('../components/chat/ChatInput', async () => {
-  const React = await import('react');
-  return {
-    ChatInput: React.forwardRef<HTMLTextAreaElement, {
-      placeholder: string;
-      slashMenuEnabled?: boolean;
-      onSend: (message: string) => Promise<boolean | void>;
-      onArrowUp?: () => boolean;
-    }>(({ placeholder, slashMenuEnabled, onSend, onArrowUp }, ref) => {
-      terminalPageMocks.slashMenuEnabled = slashMenuEnabled;
-      terminalPageMocks.onSend = onSend;
-      return (
-        <textarea
-          ref={ref}
-          aria-label="chat-input"
-          placeholder={placeholder}
-          onKeyDown={(event) => {
-            if (event.key === 'Enter') onSend(event.currentTarget.value);
-            if (event.key === 'ArrowUp' && event.currentTarget.selectionStart === 0 &&
-                event.currentTarget.selectionEnd === 0 && onArrowUp?.()) event.preventDefault();
-          }}
-        />
-      );
-    }),
   };
 });
 
@@ -231,11 +203,9 @@ describe('TerminalPage', () => {
     storeMocks.sendInput.mockReset();
     workspaceMocks.updateTab.mockReset();
     terminalPageMocks.registeredAdapter = null;
-    terminalPageMocks.slashMenuEnabled = undefined;
     terminalPageMocks.surfaceGetter = null;
     terminalPageMocks.modalOpen = false;
     vi.spyOn(document, 'hasFocus').mockReturnValue(true);
-    terminalPageMocks.onSend = null;
     storeState.historyBySession = { 'term-1': [] };
     storeState.activeEntryBySession = { 'term-1': null };
     storeState.sessions = [{ id: 'term-1', name: 'Terminal 1', cwd: '/tmp', state: 'running', shell: 'sh' }];
@@ -280,7 +250,7 @@ describe('TerminalPage', () => {
     storeState.sessions = otherSession ? [{ ...storeState.sessions[0], id: 'term-2' }] : [];
     rerender(terminalPageView());
 
-    expect(input).toBeDisabled();
+    expect(input).toHaveAttribute('readonly');
     expect(editorFocused && otherSession
       ? screen.getByRole('button', { name: /terminal.picker.label/ })
       : otherButton).toHaveFocus();
@@ -303,6 +273,24 @@ describe('TerminalPage', () => {
 
     // A closure antiga não pode seguir o retarget da aba para a nova sessão.
     expect(terminalPageMocks.surfaceGetter?.()).toBeNull();
+  });
+
+  it('o foco agendado pelo envio não volta ao editor após o encerramento', async () => {
+    const { rerender } = renderTerminalPage();
+    const input = screen.getByRole('textbox');
+    const frames: FrameRequestCallback[] = [];
+    vi.spyOn(window, 'requestAnimationFrame').mockImplementation(callback => frames.push(callback));
+    input.focus();
+    fireEvent.change(input, { target: { value: 'exit' } });
+    await act(async () => { fireEvent.keyDown(input, { key: 'Enter' }); });
+    expect(storeMocks.sendInput).toHaveBeenCalledWith('term-1', 'exit');
+    expect(frames.length).toBeGreaterThan(0);
+    storeState.sessions = [];
+    rerender(terminalPageView());
+    const createButton = screen.getByRole('button', { name: 'Novo' });
+    expect(createButton).toHaveFocus();
+    act(() => { frames.forEach(callback => callback(0)); });
+    expect(createButton).toHaveFocus();
   });
 
   it('registra handler de foco de painel e foca o input ao ser solicitado', async () => {
@@ -576,21 +564,23 @@ describe('TerminalPage', () => {
     window.removeEventListener(TERMINAL_OPERATION_EVENT, request);
   });
 
-  it('desabilita o menu slash e envia "/" como texto normal ao shell', () => {
+  it('desabilita o menu slash e envia "/" como texto normal ao shell', async () => {
     renderTerminalPage();
 
     const input = screen.getByLabelText('chat-input');
     fireEvent.change(input, { target: { value: '/' } });
-    fireEvent.keyDown(input, { key: 'Enter' });
-
-    expect(terminalPageMocks.slashMenuEnabled).toBe(false);
+    expect(input).toHaveRole('textbox');
+    await act(async () => { fireEvent.keyDown(input, { key: 'Enter' }); });
     expect(storeMocks.sendInput).toHaveBeenCalledWith('term-1', '/');
   });
 
   it('retorna aceitação explícita para o ChatInput limpar o comando enviado', async () => {
     renderTerminalPage();
 
-    await expect(terminalPageMocks.onSend?.('pwd')).resolves.toBe(true);
+    const input = screen.getByRole('textbox');
+    fireEvent.change(input, { target: { value: 'pwd' } });
+    await act(async () => { fireEvent.keyDown(input, { key: 'Enter' }); });
+    expect(input).toHaveValue('');
     expect(storeMocks.sendInput).toHaveBeenCalledWith('term-1', 'pwd');
   });
 

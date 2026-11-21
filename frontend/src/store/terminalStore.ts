@@ -51,7 +51,7 @@ function scheduleOutputAnnounce(sessionId: string, chunk: string) {
     const text = output.trim();
     if (text) {
       playReceiveSound();
-      const preview = truncated ? output + i18next.t('terminal.announce.truncatedSuffix') : text;
+      const preview = truncated ? text + i18next.t('terminal.announce.truncatedSuffix') : text;
       announceTerminalResult(i18next.t('terminal.announce.output', { output: preview }));
     }
   }, 500);
@@ -62,12 +62,11 @@ function scheduleOutputAnnounce(sessionId: string, chunk: string) {
 export type SessionInfo = terminal.SessionInfo;
 export type HistoryEntry = terminal.HistoryEntry;
 
-// Limites do histórico definido em internal/terminal/session.go. A resposta
-// final do backend já inclui seu próprio aviso quando o resultado foi cortado.
+// Até 200 entradas e 50 KiB de conteúdo por entrada, como no histórico do backend.
+// O marcador de corte é adicional: ‘…’ no stream e o aviso original no resultado final.
 const historyEntryLimit = 200;
 const historyOutputLimit = 50 * 1024;
 const historyEncoder = new TextEncoder();
-const historyDecoder = new TextDecoder('utf-8', { ignoreBOM: true });
 const historyBuffer = new Uint8Array(historyOutputLimit);
 const historyBytes = new WeakMap<HistoryEntry, number>();
 
@@ -83,7 +82,7 @@ function appendHistoryOutput(entry: HistoryEntry, chunk: string): HistoryEntry {
   const remaining = historyBuffer.subarray(0, historyOutputLimit - used);
   const { read, written } = historyEncoder.encodeInto(chunk, remaining);
   const truncated = read !== chunk.length;
-  const addition = truncated ? historyDecoder.decode(remaining.subarray(0, written)) + '…' : chunk;
+  const addition = truncated ? chunk.slice(0, read) + '…' : chunk;
   const updated = terminal.HistoryEntry.createFrom({ ...entry, output: entry.output + addition });
   // Não permita que bytes seguintes ultrapassem um caractere que não coube.
   historyBytes.set(updated, truncated ? historyOutputLimit + 1 : used + written);

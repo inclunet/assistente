@@ -118,7 +118,7 @@ export default function TerminalPage({ sessionId: explicitSessionId }: TerminalP
   }, [setupEventListeners]);
 
   useEffect(() => {
-    if (isActive && currentSessionId && inputRef.current) {
+    if (isActive && currentSessionId && inputRef.current && !inputRef.current.readOnly) {
       inputRef.current.focus();
     }
   }, [currentSessionId, isActive]);
@@ -137,7 +137,7 @@ export default function TerminalPage({ sessionId: explicitSessionId }: TerminalP
     ) return false;
     const sessionId = currentSessionIdRef.current;
     const input = inputRef.current;
-    if (!sessionId || !input || !input.isConnected || input.disabled) return false;
+    if (!sessionId || !input || !input.isConnected || input.readOnly) return false;
     return useTerminalStore.getState().sessions.some((session) => session.id === sessionId);
   }, []);
   const [panelFocusNonce, setPanelFocusNonce] = useState(0);
@@ -186,7 +186,8 @@ export default function TerminalPage({ sessionId: explicitSessionId }: TerminalP
       }
       const input = inputRef.current;
       if (input) {
-        input.focus();
+        if (input.readOnly) (terminalPickerTriggerRef.current ?? newTerminalButtonRef.current)?.focus();
+        else input.focus();
         consumedPanelFocusNonceRef.current = nonce;
       }
     });
@@ -232,8 +233,6 @@ export default function TerminalPage({ sessionId: explicitSessionId }: TerminalP
         !isModalOpen() && !useWorkspaceChatModalStore.getState().isOpen) {
       (terminalPickerTriggerRef.current ?? newTerminalButtonRef.current)?.focus();
     }
-    // ChatInput bloqueia o envio, mas mantém seu editor disponível para rascunhos.
-    input.disabled = !sessionIsLive;
   }, [sessionIsLive, isActive]);
   const currentHistory = currentSessionId ? (historyBySession[currentSessionId] || []) : [];
   const currentRunningCommandId = currentSessionId
@@ -277,7 +276,7 @@ export default function TerminalPage({ sessionId: explicitSessionId }: TerminalP
   const canOpenPresentationCommand = useCallback((id: PagePresentationCommandID) => {
     if (id === 'terminal.sessions.open') return Boolean(terminalPickerTriggerRef.current && !terminalPickerTriggerRef.current.disabled);
     if (id === 'terminal.focus.input') {
-      return Boolean(currentSessionId && inputRef.current && !inputRef.current.disabled);
+      return Boolean(currentSessionId && inputRef.current && !inputRef.current.readOnly);
     }
     if (id === 'terminal.focus.history') return Boolean(currentSessionId && currentHistory.length > 0);
     return false;
@@ -558,6 +557,7 @@ export default function TerminalPage({ sessionId: explicitSessionId }: TerminalP
           ref={inputRef}
           onSend={handleSendInput}
           disabled={!activeSession}
+          editorReadOnly={!activeSession}
           placeholder={
             !activeSession
               ? t('terminal.placeholders.creating')

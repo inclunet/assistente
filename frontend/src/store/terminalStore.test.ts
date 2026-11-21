@@ -189,7 +189,9 @@ describe('terminalStore', () => {
     try {
       terminalEventHandlers.get('terminal:raw_output')?.({ sessionId: 'a', output: 'A' + ' '.repeat(300) + 'B' });
       vi.runAllTimers();
-      expect(announce.mock.calls[0][0]).toContain(i18next.t('terminal.announce.truncatedSuffix'));
+      expect(announce.mock.calls[0][0]).toBe(i18next.t('terminal.announce.output', {
+        output: 'A' + i18next.t('terminal.announce.truncatedSuffix'),
+      }));
       terminalEventHandlers.get('terminal:command_end')?.({ sessionId: 'a', commandId: 'cmd', output: 'fim', exitCode: 7 });
       terminalEventHandlers.get('terminal:exited')?.({ sessionId: 'a' });
       expect(announce).toHaveBeenCalledTimes(1);

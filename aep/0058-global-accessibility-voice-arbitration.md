@@ -95,7 +95,8 @@ trocado de aba durante a espera.
 
 Resultados consecutivos do terminal aguardam a leitura em andamento e protegem a
 própria leitura quando entregues. Assim, o encerramento da sessão pode ser anunciado
-depois da saída e do código do comando.
+depois da saída e do código do comando. O teste do broker cobre o pedido que combina
+espera e proteção, tanto para progresso quanto para conclusão, inclusive após a entrega.
 
 A fila tem um teto. Ao enchê-la, o aviso de estado cede o lugar primeiro; se só
 restarem conclusões, sai a mais antiga. Um despejo maior que isso ao fim da

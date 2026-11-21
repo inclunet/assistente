@@ -88,6 +88,23 @@ describe('announcerBroker', () => {
       expect(sink).toHaveBeenCalledWith('Mensagens 1 a 20 de 34 carregadas', 'polite');
     });
 
+    it.each(['progress', 'completion'] as const)('espera e protege a leitura após entregar %s', (eventType) => {
+      const first = 'Leitura inicial';
+      const next = 'Texto aguardando sua vez';
+      const last = 'Operação concluída';
+      announceWithOrigin({ message: first, protectsReading: true });
+      announceWithOrigin({ message: next, eventType, protectsReading: true, waitsForReading: true });
+      expect(sink.mock.calls).toEqual([[first, 'polite']]);
+      vi.advanceTimersByTime(estimateAnnouncementReadingMs(first));
+      expect(sink.mock.calls).toEqual([[first, 'polite'], [next, 'polite']]);
+
+      announceWithOrigin({ message: last, eventType: 'completion' });
+      vi.advanceTimersByTime(estimateAnnouncementReadingMs(next) - 1);
+      expect(sink).toHaveBeenCalledTimes(2);
+      vi.advanceTimersByTime(1);
+      expect(sink).toHaveBeenNthCalledWith(3, last, 'polite');
+    });
+
     it('guarda apenas o aviso mais recente entre os adiados', () => {
       announceWithOrigin({ message: content, eventType: 'completion', protectsReading: true });
       sink.mockClear();

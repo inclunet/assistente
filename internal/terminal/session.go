@@ -540,6 +540,8 @@ func (s *Session) deliverExit(err error) {
 	s.onExit(s.id, err)
 }
 
+// Depois da reserva gerenciada, RunCommand e RunEphemeral entram diretamente em
+// runCommandInDirectory, que entrega o resultado antes de liberar a saída pendente.
 func (s *Session) beginCommandWithID(commandID string) error {
 	return s.reserveCommand(commandID, &commandDelivery{})
 }
