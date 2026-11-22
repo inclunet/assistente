@@ -220,12 +220,14 @@ describe('terminalStore', () => {
       vi.mocked(ListTerminalSessions).mockReturnValueOnce(older.promise).mockReturnValueOnce(latest.promise);
       const first = useTerminalStore.getState().loadSessions();
       const second = useTerminalStore.getState().loadSessions();
+      const start = (sessionId: string) => terminalEventHandlers.get('terminal:command_start')?.({ sessionId, commandId: 'c', source: 'llm' });
+      start('antes');
       older.resolve([]);
       expect(await first).toBe(false);
-      terminalEventHandlers.get('terminal:command_start')?.({ sessionId: 's', commandId: 'c', source: 'llm' });
-      latest.resolve([terminal.SessionInfo.createFrom({ id: 's', state: 'idle' })]);
+      start('depois');
+      latest.resolve(['antes', 'depois'].map(id => terminal.SessionInfo.createFrom({ id, state: 'idle' })));
       expect(await second).toBe(true);
-      expect(useTerminalStore.getState().sessions[0].state).toBe('running');
+      expect(useTerminalStore.getState().sessions.map(session => session.state)).toEqual(['running', 'running']);
     } finally { cleanup(); }
   });
 
