@@ -35,8 +35,8 @@ function terminalOrigin(sessionId: string) {
   return { surfaceType: 'terminal' as const, terminalSessionId: sessionId };
 }
 
-function announceTerminalResult(sessionId: string, message: string, inactiveMessage: string | (() => string)) {
-  announceWithOrigin({ origin: terminalOrigin(sessionId), message, inactiveMessage, eventType: 'completion',
+function announceTerminalResult(sessionId: string, message: string, inactiveMessage: string | (() => string), inactiveFallback?: string) {
+  announceWithOrigin({ origin: terminalOrigin(sessionId), message, inactiveMessage, inactiveFallback, eventType: 'completion',
     waitsForReading: true, protectsReading: true });
 }
 
@@ -488,6 +488,9 @@ export const useTerminalStore = create<TerminalState>((set) => ({
         const { sessionId, exitCode } = data;
         const titleAtCompletion = tab?.title?.trim();
         const nameAtCompletion = useTerminalStore.getState().sessions.find(session => session.id === sessionId)?.name?.trim();
+        const fallback = i18next.t('terminal.announce.backgroundResult', {
+          name: nameAtCompletion || titleAtCompletion || i18next.t('terminal.pageTitle'), exitCode,
+        });
         announceTerminalResult(sessionId, i18next.t('terminal.announce.outputWithExit', { output: outputPreview, exitCode }), () => {
           const tabs = useWorkspaceStore.getState().workspace?.tabs ?? [];
           const index = tabs.findIndex(candidate => candidate.type === 'terminal' && candidate.state?.sessionId === sessionId);
@@ -497,7 +500,7 @@ export const useTerminalStore = create<TerminalState>((set) => ({
           const name = sessionName || tabs[index]?.title?.trim() || (index >= 0
             ? i18next.t('terminal.announce.unnamedTab', { position: index + 1 }) : titleAtCompletion || i18next.t('terminal.pageTitle'));
           return i18next.t('terminal.announce.backgroundResult', { name, exitCode });
-        });
+        }, fallback);
       }
       if (!tracksHistory(data.sessionId)) {
         set(state => ({ sessions: changeSessionState(state.sessions, data.sessionId, 'idle') }));
