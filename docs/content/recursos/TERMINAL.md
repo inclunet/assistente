@@ -44,7 +44,8 @@ para impedir que o próximo comando complete a linha anterior. Isso também vale
 quando você abre um terminal persistente e pede ao modelo que use essa sessão.
 A aba continua aberta e o campo de comando fica somente para leitura. Você pode
 selecionar e copiar o rascunho. Quando você digita um comando na aba, o campo
-só é limpo depois que o backend aceita o envio. O campo informa quando a lista
+só é limpo depois que o backend aceita o envio, mesmo se a sessão terminar
+antes da resposta. Se você já editou o texto, a edição é preservada. O campo informa quando a lista
 está carregando e quando a sessão vinculada já terminou. Para voltar a editar,
 use a barra de ferramentas para escolher outra sessão ou criar uma nova.
 A saída comum só é lida quando a sessão está na aba ativa. Se você trocar de

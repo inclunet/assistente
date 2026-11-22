@@ -77,6 +77,7 @@ export type HistoryEntry = terminal.HistoryEntry;
 // Até 200 entradas e 50 KiB de conteúdo por entrada, como no histórico do backend.
 // O marcador de corte é adicional: ‘…’ no stream e o aviso original no resultado final.
 // Antes da primeira abertura, só o comando gerenciado em curso precisa acompanhar o stream.
+// Hidratar, concluir ou encerrar a sessão remove sua entrada. O último listener limpa as restantes.
 const unobservedCommands = new Map<string, HistoryEntry>();
 const historyEntryLimit = 200;
 const historyOutputLimit = 50 * 1024;
@@ -485,7 +486,9 @@ export const useTerminalStore = create<TerminalState>((set) => ({
           ? (data.output.length > 300 ? data.output.slice(0, 300) + i18next.t('terminal.announce.truncatedSuffix') : data.output)
           : i18next.t('terminal.announce.emptyOutput');
         const name = useTerminalStore.getState().sessions.find(session => session.id === data.sessionId)?.name?.trim()
-          || tab?.title?.trim() || i18next.t('terminal.pageTitle');
+          || tab?.title?.trim() || (tab && workspace
+            ? i18next.t('terminal.announce.unnamedTab', { position: workspace.tabs.indexOf(tab) + 1 })
+            : i18next.t('terminal.pageTitle'));
         announceTerminalResult(data.sessionId, i18next.t('terminal.announce.outputWithExit', { output: outputPreview, exitCode: data.exitCode }),
           i18next.t('terminal.announce.backgroundResult', { name, exitCode: data.exitCode }));
       }

@@ -283,6 +283,28 @@ describe('TerminalPage', () => {
     expect(terminalPageMocks.surfaceGetter?.()).toBeNull();
   });
 
+  it.each([true, false])('reconcilia o envio após o encerramento da sessão (aceito: %s)', async accepted => {
+    let settle!: (accepted: boolean) => void;
+    storeMocks.sendInput.mockReturnValueOnce(new Promise<boolean>(resolve => { settle = resolve; }));
+    const { rerender } = renderTerminalPage();
+    const input = screen.getByRole('textbox');
+    fireEvent.change(input, { target: { value: 'exit' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    storeState.sessions = [];
+    rerender(terminalPageView());
+    expect(input).toHaveAttribute('readonly');
+    expect(input).toHaveValue('exit');
+    await act(async () => { settle(accepted); });
+    expect(input).toHaveValue(accepted ? '' : 'exit');
+    storeState.sessions = [{ id: 'term-2', name: 'Outro', cwd: '/', state: 'idle', shell: 'sh' }];
+    rerender(terminalPageView({ ...terminalTab, state: { sessionId: 'term-2' } }));
+    expect(input).not.toHaveAttribute('readonly');
+    if (accepted) {
+      fireEvent.keyDown(input, { key: 'Enter' });
+      expect(storeMocks.sendInput).toHaveBeenCalledTimes(1);
+    } else expect(input).toHaveValue('exit');
+  });
+
   it('o foco agendado pelo envio não volta ao editor após o encerramento', async () => {
     const { rerender } = renderTerminalPage();
     const input = screen.getByRole('textbox');
