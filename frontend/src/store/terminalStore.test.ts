@@ -1,9 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { terminal } from '../../wailsjs/go/models';
 import { resolveTerminalCommandId, useTerminalStore } from './terminalStore';
+import { useWorkspaceStore, type WorkspaceData } from './workspaceStore';
+import { isVoiceAccessibilityOriginActive } from '../services/voiceAccessibility/types';
 import { useAuthStore } from './authStore';
 import { ListTerminalSessions, SendTerminalInput } from '@wailsjs/go/wailsapi/Terminal';
-import { registerAnnouncerSink, unregisterAnnouncerSink } from '../services/voiceAccessibility/announcerBroker';
+import { announceWithOrigin, registerVoiceAccessibilityActiveResolver, registerAnnouncerSink, unregisterAnnouncerSink } from '../services/voiceAccessibility/announcerBroker';
 import en from '../locales/en';
 import i18next from 'i18next';
 
@@ -274,6 +276,33 @@ describe('terminalStore', () => {
       terminalEventHandlers.get('terminal:session_closed')?.({ sessionId: 's1' });
       expect(announce).toHaveBeenCalledTimes(1);
     } finally { cleanup(); vi.useRealTimers(); }
+  });
+
+  it('reavalia a sessão na entrega e resume a conclusão da aba inativa', () => {
+    vi.useFakeTimers();
+    const original = useWorkspaceStore.getState().workspace;
+    const workspace: WorkspaceData = { id: 'w', name: 'W', activeTabId: 'tab-a', tabs: [
+      { id: 'tab-a', type: 'terminal', title: 'Build', position: 0, state: { sessionId: 'a' } },
+      { id: 'tab-b', type: 'terminal', title: 'Logs', position: 1, state: { sessionId: 'b' } },
+    ] };
+    useWorkspaceStore.setState({ workspace });
+    const reset = registerVoiceAccessibilityActiveResolver(origin =>
+      isVoiceAccessibilityOriginActive(origin, useWorkspaceStore.getState().workspace));
+    const page = useTerminalStore.getState().setupEventListeners();
+    try {
+      announceWithOrigin({ message: 'Leitura em curso', protectsReading: true });
+      const emit = (event: string, sessionId: string, output: string) =>
+        terminalEventHandlers.get('terminal:' + event)?.({ sessionId, commandId: 'cmd', output, exitCode: 7 });
+      emit('raw_output', 'b', 'inativa');
+      emit('raw_output', 'a', 'prévia da aba anterior');
+      vi.advanceTimersByTime(500);
+      emit('command_end', 'a', 'detalhe da execução');
+      useWorkspaceStore.setState({ workspace: { ...workspace, activeTabId: 'tab-b' } });
+      vi.runAllTimers();
+      expect(announce.mock.calls.map(([message]) => message)).toEqual([
+        'Leitura em curso', i18next.t('terminal.announce.backgroundResult', { name: 'Build', exitCode: 7 }),
+      ]);
+    } finally { page(); reset(); useWorkspaceStore.setState({ workspace: original }); vi.useRealTimers(); }
   });
 
   it('entrega o resultado ao leitor antes do encerramento e indica saída cortada após espaços', () => {

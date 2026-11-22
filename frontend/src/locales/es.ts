@@ -2009,6 +2009,7 @@ notSaved: 'La decisión vale solo para esta operación: no se pudo recordar. Ser
       tabs: { closed: 'Terminal cerrado.', of: 'de', label: 'Terminales', listLabel: 'Lista de terminales abiertos', running: 'Ejecutando', close: 'Cerrar', newShortcut: 'Crear nuevo terminal, Ctrl+T', newTooltip: 'Nuevo terminal (Ctrl+T)' },
       announce: {
         output: 'Salida: {{output}}',
+        backgroundResult: '{{name}}: comando finalizado con código {{exitCode}}.',
         outputWithExit: 'Salida: {{output}}. Código de salida: {{exitCode}}',
         truncatedSuffix: '… truncado',
         emptyOutput: 'vacía',
