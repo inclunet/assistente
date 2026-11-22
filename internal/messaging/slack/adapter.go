@@ -241,7 +241,8 @@ func postMessageOptions(apiBaseURL, text, threadTS, idempotencyKey string, plain
 		slack.MsgOptionPostMessageParameters(params),
 	}
 	if plainText {
-		opts = append(opts, slack.MsgOptionDisableMarkdown())
+		opts = append(opts, slack.MsgOptionDisableMarkdown(), slack.MsgOptionParse(false),
+			slack.MsgOptionDisableLinkUnfurl(), slack.MsgOptionDisableMediaUnfurl())
 	}
 	if key := strings.TrimSpace(idempotencyKey); key != "" {
 		base := apiBaseURL

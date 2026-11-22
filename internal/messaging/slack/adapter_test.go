@@ -725,7 +725,8 @@ func TestPostMessageOptions_LiteralConsent(t *testing.T) {
 	opts := postMessageOptions(slack.APIURL, source, "", "", true)
 	_, values, err := slack.UnsafeApplyMsgOptions("xoxb-test", "C1", slack.APIURL,
 		append([]slack.MsgOption{slack.MsgOptionPost()}, opts...)...)
-	if err != nil || values.Get("text") != encoded || values.Get("mrkdwn") != "false" {
+	if err != nil || values.Get("text") != encoded || values.Get("mrkdwn") != "false" ||
+		values.Get("parse") != "none" || values.Get("unfurl_links") != "false" || values.Get("unfurl_media") != "false" {
 		t.Fatalf("a pergunta deve preservar o template literal: %v, %v", values, err)
 	}
 }

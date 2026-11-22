@@ -109,8 +109,12 @@ A opção de testar ferramentas com efeitos não concede autorização de shell.
 
 Quando uma chamada traz a origem de uma conversa e precisa de consentimento,
 a pergunta chega ao desktop ou ao canal dessa conversa. No Slack, o texto da
-pergunta conserva referências como `<!channel>` e `<url|rótulo>` literalmente. Para comandos
-protegidos, a decisão vale apenas para aquela execução. A pergunta pode mostrar
+pergunta conserva referências como `<!channel>` e `<url|rótulo>` literalmente.
+Links da pergunta aparecem como texto, com as prévias de sites e mídia desativadas.
+Se o corpo da pergunta contiver caracteres de controle ou de formatação invisíveis,
+o canal o mostra entre aspas e representa esses caracteres por sequências de escape.
+
+Para comandos protegidos, a decisão vale apenas para aquela execução. A pergunta pode mostrar
 o template original, por exemplo `example {{ secret "token" }}`, se ele contiver
 o nome literal do programa seguido apenas de referências simples ao cofre.
 Se o programa vier do cofre, a pergunta informa que os detalhes ficam ocultos.
