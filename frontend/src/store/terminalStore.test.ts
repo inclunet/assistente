@@ -163,7 +163,10 @@ describe('terminalStore', () => {
     } finally { lifecycle(); }
   });
 
-  it('preserva a saída manual recebida durante a leitura do mesmo comando no histórico', async () => {
+  it.each([
+    { chunk: 'local', final: 'local!' },
+    { chunk: 'a'.repeat(51197) + '🌍', final: 'a'.repeat(51197) + '…' },
+  ])('preserva a saída e o limite do stream manual durante a hidratação (caso $#)', async ({ chunk, final }) => {
     const cleanup = useTerminalStore.getState().setupEventListeners();
     const snapshot = createDeferred<terminal.HistoryEntry[]>();
     mockGetTerminalHistory.mockReturnValueOnce(snapshot.promise);
@@ -171,10 +174,11 @@ describe('terminalStore', () => {
       terminalEventHandlers.get('terminal:session_created')?.(terminal.SessionInfo.createFrom({ id: 's1' }));
       const load = useTerminalStore.getState().loadHistory('s1');
       terminalEventHandlers.get('terminal:command_start')?.({ sessionId: 's1', commandId: 'c', command: 'pwd', source: 'user-raw' });
-      terminalEventHandlers.get('terminal:raw_output')?.({ sessionId: 's1', output: 'local' });
+      terminalEventHandlers.get('terminal:raw_output')?.({ sessionId: 's1', output: chunk });
       snapshot.resolve([terminal.HistoryEntry.createFrom({ id: 'c', command: 'pwd', source: 'user-raw', output: '', endedAt: '0001-01-01T00:00:00Z' })]);
       await load;
-      expect(useTerminalStore.getState().historyBySession.s1).toEqual([expect.objectContaining({ id: 'c', output: 'local' })]);
+      terminalEventHandlers.get('terminal:raw_output')?.({ sessionId: 's1', output: '!' });
+      expect(useTerminalStore.getState().historyBySession.s1).toEqual([expect.objectContaining({ id: 'c', output: final })]);
     } finally { cleanup(); }
   });
 
