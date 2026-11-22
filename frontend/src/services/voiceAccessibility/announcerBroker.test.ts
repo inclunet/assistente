@@ -72,6 +72,21 @@ describe('announcerBroker', () => {
       vi.useRealTimers();
     });
 
+    it.each([true, false])('só calcula o resumo na entrega em segundo plano (origem ativa ao falar: %s)', activeAtDelivery => {
+      let active = false;
+      let name = 'Antes';
+      unregisterResolver = registerVoiceAccessibilityActiveResolver(origin => !origin?.tabId || active);
+      const summary = vi.fn(() => name);
+      announceWithOrigin({ message: content, protectsReading: true });
+      announceWithOrigin({ message: 'Conclusão', origin: { tabId: 'origem' }, eventType: 'completion', inactiveMessage: summary });
+      expect(summary).not.toHaveBeenCalled();
+      active = activeAtDelivery;
+      name = 'Depois';
+      vi.advanceTimersByTime(estimateAnnouncementReadingMs(content));
+      expect(summary).toHaveBeenCalledTimes(activeAtDelivery ? 0 : 1);
+      expect(sink).toHaveBeenLastCalledWith(activeAtDelivery ? 'Conclusão' : 'Depois', 'polite');
+    });
+
     it('adia aviso secundário e o fala depois da leitura terminar', () => {
       announceWithOrigin({ message: content, eventType: 'completion', protectsReading: true });
       sink.mockClear();

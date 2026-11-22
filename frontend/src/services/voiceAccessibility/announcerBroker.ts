@@ -9,7 +9,7 @@ export type AnnouncePriority = 'polite' | 'assertive';
 
 export interface VoiceAnnounceRequest extends VoiceAccessibilityRequestBase {
   message: string;
-  /** Resumo já identificado para a entrega em segundo plano. */
+  /** Resumo para entrega em segundo plano. A função calcula o texto no momento da fala. */
   inactiveMessage?: string | (() => string);
   announcePriority?: AnnouncePriority;
   /**

@@ -224,6 +224,7 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
     const settle = (accepted: boolean | void) => {
       // `true` é a admissão explícita. Com clearOnSend=false, a superfície
       // persistida mantém o rascunho até o pipeline AEP limpá-lo após o sucesso.
+      // Depois da desmontagem, o aceite não deve chamar os setters do editor anterior.
       if (accepted === true && clearOnSend && textareaRef.current) {
         if (!options.preserveMessage && textRevision.current === sentTextRevision && messageRef.current === rawMessage) {
           setMessage('');
