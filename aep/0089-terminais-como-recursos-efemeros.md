@@ -219,7 +219,8 @@ Pendente ou parcial:
   comando encerra o shell. O histórico já carregado continua recebendo eventos em segundo
   plano. Ao voltar à aba, ele inclui os comandos executados nesse intervalo.
   Na primeira abertura durante um comando, a aba recupera a saída em andamento
-  e preserva o resultado que chegar durante a leitura do histórico. A última
+  e preserva o resultado que chegar durante a leitura do histórico, inclusive a saída
+  manual já exibida quando a consulta devolve o mesmo comando sem saída. A última
   prévia de saída manual é entregue antes do anúncio de encerramento.
   O editor preserva o rascunho após rejeição do envio. O aceite limpa o texto
   enviado se ele continua no campo, inclusive se a sessão já tiver terminado. Ao carregar a lista,

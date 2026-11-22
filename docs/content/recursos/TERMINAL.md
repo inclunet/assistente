@@ -91,6 +91,8 @@ Se um comando encerrar o próprio shell, a ferramenta devolve o código do proce
 
 ## Histórico de Comandos
 
+A saída manual que já apareceu na tela é preservada quando o histórico termina de carregar.
+
 Cada entrada no histórico registra:
 
 - Comando executado
