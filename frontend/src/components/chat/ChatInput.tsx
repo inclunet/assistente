@@ -72,10 +72,10 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
   const [localMediaFiles, setLocalMediaFiles] = useState<MediaFile[]>([]);
   const [isDragging, setIsDragging] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
-  const draftGeneration = useRef(0);
+  const attachmentGeneration = useRef(0);
   useLayoutEffect(() => {
     if (editorReadOnly) setIsDragging(false);
-    return () => { draftGeneration.current++; };
+    return () => { attachmentGeneration.current++; };
   }, [editorReadOnly]);
   const internalTextareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -191,7 +191,6 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
     sendInFlightRef.current = true;
     setIsSendPending(true);
     const sentMediaFiles = draftMediaFiles.length > 0 ? draftMediaFiles : undefined;
-    const generation = draftGeneration.current;
     const pendingDraftMessage = rawMessage;
     const pendingDraftMediaFiles = [...draftMediaFiles];
 
@@ -217,7 +216,7 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
     const settle = (accepted: boolean | void) => {
       // `true` é a admissão explícita. Com clearOnSend=false, a superfície
       // persistida mantém o rascunho até o pipeline AEP limpá-lo após o sucesso.
-      if (accepted === true && clearOnSend && generation === draftGeneration.current) {
+      if (accepted === true && clearOnSend && textareaRef.current) {
         if (!options.preserveMessage && messageRef.current === pendingDraftMessage) {
           setMessage('');
         }
@@ -347,7 +346,7 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
 
   const handleFileSelect = async (files: File[]) => {
     const currentMediaFiles = mediaFilesRef.current;
-    const generation = draftGeneration.current;
+    const generation = attachmentGeneration.current;
     if (editorReadOnly || files.length === 0 || currentMediaFiles.length >= maxFiles) return;
     
     setIsProcessing(true);
@@ -355,7 +354,7 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
       const remainingSlots = maxFiles - currentMediaFiles.length;
       const filesToProcess = files.slice(0, remainingSlots);
       const processed = await processMediaFiles(filesToProcess);
-      if (generation !== draftGeneration.current) return;
+      if (generation !== attachmentGeneration.current) return;
       const latestMediaFiles = mediaFilesRef.current;
       const latestRemainingSlots = maxFiles - latestMediaFiles.length;
       if (latestRemainingSlots <= 0) return;

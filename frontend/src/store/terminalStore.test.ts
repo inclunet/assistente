@@ -212,6 +212,23 @@ describe('terminalStore', () => {
     } finally { cleanup(); }
   });
 
+  it('a consulta superada mantém os eventos da listagem mais recente', async () => {
+    const cleanup = useTerminalStore.getState().setupEventListeners({ lifecycleOnly: true });
+    try {
+      const older = createDeferred<terminal.SessionInfo[]>();
+      const latest = createDeferred<terminal.SessionInfo[]>();
+      vi.mocked(ListTerminalSessions).mockReturnValueOnce(older.promise).mockReturnValueOnce(latest.promise);
+      const first = useTerminalStore.getState().loadSessions();
+      const second = useTerminalStore.getState().loadSessions();
+      older.resolve([]);
+      expect(await first).toBe(false);
+      terminalEventHandlers.get('terminal:command_start')?.({ sessionId: 's', commandId: 'c', source: 'llm' });
+      latest.resolve([terminal.SessionInfo.createFrom({ id: 's', state: 'idle' })]);
+      expect(await second).toBe(true);
+      expect(useTerminalStore.getState().sessions[0].state).toBe('running');
+    } finally { cleanup(); }
+  });
+
   it('conserva comandos executados enquanto um histórico já carregado está fora da tela', async () => {
     const cleanup = useTerminalStore.getState().setupEventListeners({ lifecycleOnly: true });
     const closePage = useTerminalStore.getState().setupEventListeners();
@@ -278,11 +295,11 @@ describe('terminalStore', () => {
     } finally { cleanup(); vi.useRealTimers(); }
   });
 
-  it('reavalia a sessão na entrega e resume a conclusão da aba inativa', () => {
+  it.each(['Build', ''])('reavalia a sessão na entrega e identifica a aba inativa (título: %s)', title => {
     vi.useFakeTimers();
     const original = useWorkspaceStore.getState().workspace;
     const workspace: WorkspaceData = { id: 'w', name: 'W', activeTabId: 'tab-a', tabs: [
-      { id: 'tab-a', type: 'terminal', title: 'Build', position: 0, state: { sessionId: 'a' } },
+      { id: 'tab-a', type: 'terminal', title, position: 0, state: { sessionId: 'a' } },
       { id: 'tab-b', type: 'terminal', title: 'Logs', position: 1, state: { sessionId: 'b' } },
     ] };
     useWorkspaceStore.setState({ workspace });
@@ -300,7 +317,7 @@ describe('terminalStore', () => {
       useWorkspaceStore.setState({ workspace: { ...workspace, activeTabId: 'tab-b' } });
       vi.runAllTimers();
       expect(announce.mock.calls.map(([message]) => message)).toEqual([
-        'Leitura em curso', i18next.t('terminal.announce.backgroundResult', { name: 'Build', exitCode: 7 }),
+        'Leitura em curso', i18next.t('terminal.announce.backgroundResult', { name: title || i18next.t('terminal.announce.unnamedTab', { position: 1 }), exitCode: 7 }),
       ]);
     } finally { page(); reset(); useWorkspaceStore.setState({ workspace: original }); vi.useRealTimers(); }
   });

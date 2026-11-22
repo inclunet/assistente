@@ -221,7 +221,8 @@ Pendente ou parcial:
   Na primeira abertura durante um comando, a aba recupera a saída em andamento
   e preserva o resultado que chegar durante a leitura do histórico. A última
   prévia de saída manual é entregue antes do anúncio de encerramento.
-  O editor preserva o rascunho após rejeição do envio. Ao carregar a lista,
+  O editor preserva o rascunho após rejeição do envio. O aceite limpa o texto
+  enviado se ele continua no campo, inclusive se a sessão já tiver terminado. Ao carregar a lista,
   mantém o pedido de foco se a origem desaparecer e respeita a navegação da pessoa.
   A área de trabalho escuta o encerramento mesmo com a aba fechada. A abertura da aba
   carrega a lista. O anúncio usa o nome conhecido da sessão ou uma mensagem genérica.

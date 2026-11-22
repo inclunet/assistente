@@ -2006,6 +2006,7 @@ notSaved: 'The decision applies only to this operation: it could not be remember
       tabs: { closed: 'Terminal closed.', of: 'of', label: 'Terminals', listLabel: 'List of open terminals', running: 'Running', close: 'Close', newShortcut: 'Create new terminal, Ctrl+T', newTooltip: 'New terminal (Ctrl+T)' },
       announce: {
         output: 'Output: {{output}}',
+        unnamedTab: 'Terminal in tab {{position}}',
         backgroundResult: '{{name}}: command finished with exit code {{exitCode}}.',
         outputWithExit: 'Output: {{output}}. Exit code: {{exitCode}}',
         truncatedSuffix: '… truncated',
