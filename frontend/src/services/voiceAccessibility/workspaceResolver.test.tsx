@@ -65,6 +65,7 @@ describe('useVoiceAccessibilityWorkspaceResolver', () => {
       expect(active()).toBe(false);
       rerender({ visible: true });
       expect(active()).toBe(true);
+      expect(hoisted.subscribe).toHaveBeenCalledTimes(1);
     } finally { hoisted.workspace = original; }
   });
 

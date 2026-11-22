@@ -646,6 +646,7 @@ notSaved: 'La decisión vale solo para esta operación: no se pudo recordar. Ser
     },
 
     voiceAccessibility: {
+      backgroundTerminalActivity: 'Actividad del terminal en segundo plano',
       inactiveAnnouncement: '{{title}}: {{message}}',
     },
 

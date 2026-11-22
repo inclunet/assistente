@@ -13,7 +13,7 @@ import {
 import { EventsOn } from '@wailsjs/runtime/runtime';
 import { terminal } from '../../wailsjs/go/models';
 import { playSendSound, playReceiveSound } from '../services/audioFeedback';
-import { announceWithOrigin, isVoiceAccessibilityOriginCurrentlyActive } from '../services/voiceAccessibility/announcerBroker';
+import { type VoiceAnnounceRequest, announceWithOrigin, isVoiceAccessibilityOriginCurrentlyActive } from '../services/voiceAccessibility/announcerBroker';
 import i18next from 'i18next';
 
 // Debounce para anúncio de output (acumula chunks e espera streaming parar)
@@ -35,8 +35,8 @@ function terminalOrigin(sessionId: string) {
   return { surfaceType: 'terminal' as const, terminalSessionId: sessionId };
 }
 
-function announceTerminalResult(sessionId: string, message: string, inactiveMessage: string | (() => string), inactiveFallback?: string) {
-  announceWithOrigin({ origin: terminalOrigin(sessionId), message, inactiveMessage, inactiveFallback, eventType: 'completion',
+function announceTerminalResult(sessionId: string, message: string, inactiveMessage: NonNullable<VoiceAnnounceRequest['inactiveMessage']>) {
+  announceWithOrigin({ origin: terminalOrigin(sessionId), message, inactiveMessage, eventType: 'completion',
     waitsForReading: true, protectsReading: true });
 }
 
@@ -479,7 +479,9 @@ export const useTerminalStore = create<TerminalState>((set) => ({
       const pending = unobservedCommands.get(data.sessionId);
       unobservedCommands.delete(data.sessionId);
       const workspace = useWorkspaceStore.getState().workspace;
-      const tab = workspace?.tabs.find(candidate => candidate.type === 'terminal' && candidate.state?.sessionId === data.sessionId);
+      const tabsAtCompletion = workspace?.tabs ?? [];
+      const tabIndex = tabsAtCompletion.findIndex(candidate => candidate.type === 'terminal' && candidate.state?.sessionId === data.sessionId);
+      const tab = tabsAtCompletion[tabIndex];
       if (terminalOutputListenerRefCount > 0 || tab) {
         if (isVoiceAccessibilityOriginCurrentlyActive(terminalOrigin(data.sessionId))) playReceiveSound();
         const outputPreview = data.output
@@ -488,19 +490,20 @@ export const useTerminalStore = create<TerminalState>((set) => ({
         const { sessionId, exitCode } = data;
         const titleAtCompletion = tab?.title?.trim();
         const nameAtCompletion = useTerminalStore.getState().sessions.find(session => session.id === sessionId)?.name?.trim();
-        const fallback = i18next.t('terminal.announce.backgroundResult', {
-          name: nameAtCompletion || titleAtCompletion || i18next.t('terminal.pageTitle'), exitCode,
-        });
-        announceTerminalResult(sessionId, i18next.t('terminal.announce.outputWithExit', { output: outputPreview, exitCode }), () => {
+        const tabLabelAtCompletion = titleAtCompletion || (tabIndex >= 0
+          ? i18next.t('terminal.announce.unnamedTab', { position: tabIndex + 1 }) : i18next.t('terminal.pageTitle'));
+        const fallback = i18next.t('terminal.announce.backgroundResult', { name: nameAtCompletion || tabLabelAtCompletion, exitCode });
+        const resolve = () => {
           const tabs = useWorkspaceStore.getState().workspace?.tabs ?? [];
           const index = tabs.findIndex(candidate => candidate.type === 'terminal' && candidate.state?.sessionId === sessionId);
           const session = useTerminalStore.getState().sessions.find(candidate => candidate.id === sessionId);
           // O fechamento pode retirar a sessão do catálogo antes de a fila chegar a ela.
           const sessionName = session ? session.name?.trim() : nameAtCompletion;
           const name = sessionName || tabs[index]?.title?.trim() || (index >= 0
-            ? i18next.t('terminal.announce.unnamedTab', { position: index + 1 }) : titleAtCompletion || i18next.t('terminal.pageTitle'));
+            ? i18next.t('terminal.announce.unnamedTab', { position: index + 1 }) : tabLabelAtCompletion);
           return i18next.t('terminal.announce.backgroundResult', { name, exitCode });
-        }, fallback);
+        };
+        announceTerminalResult(sessionId, i18next.t('terminal.announce.outputWithExit', { output: outputPreview, exitCode }), { resolve, fallback });
       }
       if (!tracksHistory(data.sessionId)) {
         set(state => ({ sessions: changeSessionState(state.sessions, data.sessionId, 'idle') }));

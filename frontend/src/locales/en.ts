@@ -647,6 +647,7 @@ notSaved: 'The decision applies only to this operation: it could not be remember
     },
 
     voiceAccessibility: {
+      backgroundTerminalActivity: 'Background terminal activity',
       inactiveAnnouncement: '{{title}}: {{message}}',
     },
 

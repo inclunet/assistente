@@ -304,6 +304,7 @@ describe('terminalStore', () => {
     { title: 'Build', before: 'Antigo', after: '', expected: 'Build' },
     { title: 'Build', before: 'Antigo', after: null, expected: 'Antigo' },
     { title: 'Build', before: '', after: null, expected: 'Build' },
+    { title: '', before: '', after: null, expected: undefined },
   ])('identifica a sessão na entrega (aba "$title", nome "$before" → "$after")', ({ title, before, after, expected }) => {
     vi.useFakeTimers();
     const original = useWorkspaceStore.getState().workspace;
@@ -328,7 +329,7 @@ describe('terminalStore', () => {
       useWorkspaceStore.setState({ workspace: { ...workspace, tabs: after === null ? workspace.tabs.slice(1) : [...workspace.tabs].reverse(), activeTabId: 'tab-b' } });
       vi.runAllTimers();
       expect(announce.mock.calls.map(([message]) => message)).toEqual([
-        'Leitura em curso', i18next.t('terminal.announce.backgroundResult', { name: expected ?? i18next.t('terminal.announce.unnamedTab', { position: 2 }), exitCode: 7 }),
+        'Leitura em curso', i18next.t('terminal.announce.backgroundResult', { name: expected ?? i18next.t('terminal.announce.unnamedTab', { position: after === null ? 1 : 2 }), exitCode: 7 }),
       ]);
     } finally { page(); reset(); useWorkspaceStore.setState({ workspace: original }); vi.useRealTimers(); }
   });
