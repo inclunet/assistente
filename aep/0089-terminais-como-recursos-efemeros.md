@@ -218,6 +218,9 @@ Pendente ou parcial:
   O evento de término do comando precede o de saída da sessão, inclusive quando o próprio
   comando encerra o shell. O histórico já carregado continua recebendo eventos em segundo
   plano. Ao voltar à aba, ele inclui os comandos executados nesse intervalo.
+  Na primeira abertura durante um comando, a aba recupera a saída em andamento
+  e preserva o resultado que chegar durante a leitura do histórico. A última
+  prévia de saída manual é entregue antes do anúncio de encerramento.
   O editor preserva o rascunho após rejeição do envio. Ao carregar a lista,
   mantém o pedido de foco se a origem desaparecer e respeita a navegação da pessoa.
   A área de trabalho escuta o encerramento mesmo com a aba fechada. A abertura da aba

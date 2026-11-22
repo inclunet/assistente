@@ -5,6 +5,7 @@ import type { WorkspaceTab } from '../../store/workspaceStore';
 const terminalMocks = vi.hoisted(() => ({
   sessions: [] as Array<{ id: string }>,
   historyBySession: {} as Record<string, unknown[]>,
+  partialHistoryBySession: {} as Record<string, boolean>,
   createSession: vi.fn(),
   closeSession: vi.fn(),
   loadSessions: vi.fn(),
@@ -54,6 +55,7 @@ describe('useTerminalSurfaceController', () => {
   beforeEach(() => {
     terminalMocks.sessions = [];
     terminalMocks.historyBySession = {};
+    terminalMocks.partialHistoryBySession = {};
     terminalMocks.createSession.mockReset();
     terminalMocks.closeSession.mockReset();
     terminalMocks.loadSessions.mockReset();
@@ -118,6 +120,14 @@ describe('useTerminalSurfaceController', () => {
       expect(terminalMocks.loadHistory).toHaveBeenCalledWith('session-2');
     });
     expect(terminalMocks.createSession).not.toHaveBeenCalled();
+  });
+
+  it.each([true, false])('só reconcilia o cache existente quando parcial: %s', partial => {
+    terminalMocks.sessions = [{ id: 's' }];
+    terminalMocks.historyBySession.s = [{}];
+    terminalMocks.partialHistoryBySession.s = partial;
+    renderHook(() => useTerminalSurfaceController({ ...terminalTab, state: { sessionId: 's' } }, true));
+    expect(terminalMocks.loadHistory).toHaveBeenCalledTimes(partial ? 1 : 0);
   });
 
   it('preserva sessão existente quando painel volta a ficar ativo', () => {

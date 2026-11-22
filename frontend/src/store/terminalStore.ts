@@ -38,6 +38,17 @@ function cancelOutputAnnouncement(sessionId: string) {
   pendingAnnouncements.delete(sessionId);
 }
 
+function flushOutputAnnouncement(sessionId: string) {
+  const pending = pendingAnnouncements.get(sessionId);
+  if (!pending) return;
+  cancelOutputAnnouncement(sessionId);
+  const text = pending.output.trim();
+  if (!text) return;
+  playReceiveSound();
+  const preview = pending.truncated ? text + i18next.t('terminal.announce.truncatedSuffix') : text;
+  announceTerminalResult(i18next.t('terminal.announce.output', { output: preview }));
+}
+
 function scheduleOutputAnnounce(sessionId: string, chunk: string) {
   const pending = pendingAnnouncements.get(sessionId);
   const previous = pending?.output ?? '';
@@ -46,15 +57,7 @@ function scheduleOutputAnnounce(sessionId: string, chunk: string) {
   const remaining = 300 - previous.length;
   const output = previous + content.slice(0, remaining);
   const truncated = pending?.truncated || (content.length > remaining && /\S/.test(content.slice(remaining)));
-  const timer = setTimeout(() => {
-    pendingAnnouncements.delete(sessionId);
-    const text = output.trim();
-    if (text) {
-      playReceiveSound();
-      const preview = truncated ? text + i18next.t('terminal.announce.truncatedSuffix') : text;
-      announceTerminalResult(i18next.t('terminal.announce.output', { output: preview }));
-    }
-  }, 500);
+  const timer = setTimeout(() => flushOutputAnnouncement(sessionId), 500);
   pendingAnnouncements.set(sessionId, { output, truncated, timer });
 }
 
@@ -64,6 +67,8 @@ export type HistoryEntry = terminal.HistoryEntry;
 
 // Até 200 entradas e 50 KiB de conteúdo por entrada, como no histórico do backend.
 // O marcador de corte é adicional: ‘…’ no stream e o aviso original no resultado final.
+// Antes da primeira abertura, só o comando gerenciado em curso precisa acompanhar o stream.
+const unobservedCommands = new Map<string, HistoryEntry>();
 const historyEntryLimit = 200;
 const historyOutputLimit = 50 * 1024;
 const historyEncoder = new TextEncoder();
@@ -89,9 +94,14 @@ function appendHistoryOutput(entry: HistoryEntry, chunk: string): HistoryEntry {
   return updated;
 }
 
+function changeSessionState(sessions: SessionInfo[], sessionId: string, state: string) {
+  return sessions.map(session => session.id === sessionId ? terminal.SessionInfo.createFrom({ ...session, state }) : session);
+}
+
 interface TerminalState {
   sessions: SessionInfo[];
   historyBySession: Record<string, HistoryEntry[]>;
+  partialHistoryBySession: Record<string, boolean>;
   /** ID do último entry que está recebendo raw output (modo interativo) */
   activeEntryBySession: Record<string, string | null>;
   isLoadingSessions: boolean;
@@ -111,12 +121,14 @@ interface TerminalState {
 export const useTerminalStore = create<TerminalState>((set) => ({
   sessions: [],
   historyBySession: {},
+  partialHistoryBySession: {},
   activeEntryBySession: {},
   isLoadingSessions: false,
   sessionListFailed: false,
   loadingHistoryBySession: {},
 
   loadSessions: async () => {
+    const initialSessions = new Map(useTerminalStore.getState().sessions.map(session => [session.id, session]));
     const request = ++terminalSessionReadGeneration;
     const owner = useAuthStore.getState();
     let currentOwner = true;
@@ -134,7 +146,14 @@ export const useTerminalStore = create<TerminalState>((set) => ({
         const refreshed = await replacement;
         return currentOwner && refreshed;
       }
-      set({ sessions: sessions || [] });
+      set(state => {
+        const current = new Map(state.sessions.map(session => [session.id, session]));
+        return { sessions: (sessions || []).map(session => {
+          const updated = current.get(session.id);
+          return updated && updated !== initialSessions.get(session.id)
+            ? terminal.SessionInfo.createFrom({ ...session, state: updated.state }) : session;
+        }) };
+      });
       return true;
     } catch (err) {
       const replacement = terminalSessionReadReplacements.get(request);
@@ -199,7 +218,13 @@ export const useTerminalStore = create<TerminalState>((set) => ({
   },
 
   loadHistory: async (sessionId: string) => {
+    const pending = unobservedCommands.get(sessionId);
+    if (pending) unobservedCommands.delete(sessionId);
     set(state => ({
+      ...(pending && {
+        historyBySession: { ...state.historyBySession, [sessionId]: [pending] },
+        activeEntryBySession: { ...state.activeEntryBySession, [sessionId]: pending.id },
+      }),
       loadingHistoryBySession: {
         ...state.loadingHistoryBySession,
         [sessionId]: true,
@@ -211,11 +236,19 @@ export const useTerminalStore = create<TerminalState>((set) => ({
         const sessionExists = state.sessions.some(session => session.id === sessionId);
         if (!sessionExists) return state;
 
+        const partial = { ...state.partialHistoryBySession };
+        delete partial[sessionId];
+        const entries = new Map((history || []).map(entry => [entry.id, entry]));
+        for (const entry of state.historyBySession[sessionId] ?? []) {
+          const stored = entries.get(entry.id);
+          if (!stored || (!stored.endedAt && entry.endedAt)) entries.set(entry.id, entry);
+        }
         return {
           historyBySession: {
             ...state.historyBySession,
-            [sessionId]: history || [],
+            [sessionId]: Array.from(entries.values()).slice(-historyEntryLimit),
           },
+          partialHistoryBySession: partial,
         };
       });
     } catch (err) {
@@ -273,7 +306,8 @@ export const useTerminalStore = create<TerminalState>((set) => ({
         // entrada visual.
         if (state.sessions.some((session) => session.id === data.id)) return state;
         return {
-          sessions: [...state.sessions, data],
+          sessions: [...state.sessions, unobservedCommands.has(data.id)
+            ? terminal.SessionInfo.createFrom({ ...data, state: 'running' }) : data],
           isLoadingSessions: false,
           historyBySession: terminalOutputListenerRefCount > 0
             ? { ...state.historyBySession, [data.id]: state.historyBySession[data.id] ?? [] }
@@ -291,12 +325,15 @@ export const useTerminalStore = create<TerminalState>((set) => ({
       const superseded = terminalSessionReadGeneration;
       terminalSessionReadGeneration += 1;
       // IDs são únicos; limite a memória usada para descartar eventos tardios.
+      unobservedCommands.delete(sessionId);
       endedSessions.add(sessionId);
       if (endedSessions.size > 1024) endedSessions.delete(endedSessions.values().next().value!);
-      cancelOutputAnnouncement(sessionId);
+      flushOutputAnnouncement(sessionId);
       set(state => {
         const newHistory = { ...state.historyBySession };
         delete newHistory[sessionId];
+        const partial = { ...state.partialHistoryBySession };
+        delete partial[sessionId];
         const newActiveEntry = { ...state.activeEntryBySession };
         delete newActiveEntry[sessionId];
         const newLoadingHistory = { ...state.loadingHistoryBySession };
@@ -305,6 +342,7 @@ export const useTerminalStore = create<TerminalState>((set) => ({
           sessions: state.sessions.filter(s => s.id !== sessionId),
           isLoadingSessions: false,
           historyBySession: newHistory,
+          partialHistoryBySession: partial,
           activeEntryBySession: newActiveEntry,
           loadingHistoryBySession: newLoadingHistory,
         };
@@ -328,7 +366,7 @@ export const useTerminalStore = create<TerminalState>((set) => ({
 
     // Comando iniciado (raw mode — cria entry para receber output)
     unsubs.push(EventsOn('terminal:command_start', (data: { sessionId: string; commandId?: string; command: string; source: string }) => {
-      if (!tracksHistory(data.sessionId)) return;
+      if (endedSessions.has(data.sessionId)) return;
       // Limpa pending output do comando anterior
       cancelOutputAnnouncement(data.sessionId);
 
@@ -342,6 +380,14 @@ export const useTerminalStore = create<TerminalState>((set) => ({
         source: data.source,
       });
 
+      if (!tracksHistory(data.sessionId)) {
+        if (data.source !== 'user-raw') {
+          unobservedCommands.set(data.sessionId, tempEntry);
+          set(state => ({ sessions: changeSessionState(state.sessions, data.sessionId, 'running') }));
+        }
+        return;
+      }
+      unobservedCommands.delete(data.sessionId);
       set(state => {
         const sessionHistory = state.historyBySession[data.sessionId] || [];
         const recent = sessionHistory.length >= historyEntryLimit ? sessionHistory.slice(1 - historyEntryLimit) : sessionHistory;
@@ -350,17 +396,15 @@ export const useTerminalStore = create<TerminalState>((set) => ({
             ...state.historyBySession,
             [data.sessionId]: [...recent, tempEntry],
           },
+          partialHistoryBySession: state.historyBySession[data.sessionId] ? state.partialHistoryBySession
+            : { ...state.partialHistoryBySession, [data.sessionId]: true },
           activeEntryBySession: {
             ...state.activeEntryBySession,
             [data.sessionId]: tempEntry.id,
           },
           sessions: data.source === 'user-raw'
             ? state.sessions
-            : state.sessions.map(session => (
-              session.id === data.sessionId
-                ? terminal.SessionInfo.createFrom({ ...session, state: 'running' })
-                : session
-            )),
+            : changeSessionState(state.sessions, data.sessionId, 'running'),
         };
       });
     }));
@@ -396,6 +440,11 @@ export const useTerminalStore = create<TerminalState>((set) => ({
 
     // Output filtrado (durante RunCommand do LLM com markers)
     unsubs.push(EventsOn('terminal:command_output', (data: { sessionId: string; commandId: string; output: string }) => {
+      const pending = unobservedCommands.get(data.sessionId);
+      if (pending && pending.id === data.commandId) {
+        unobservedCommands.set(data.sessionId, appendHistoryOutput(pending, data.output));
+        return;
+      }
       if (!tracksHistory(data.sessionId)) return;
       set(state => {
         const sessionHistory = state.historyBySession[data.sessionId] || [];
@@ -416,7 +465,13 @@ export const useTerminalStore = create<TerminalState>((set) => ({
 
     // Comando finalizado (apenas para RunCommand com markers — LLM)
     unsubs.push(EventsOn('terminal:command_end', (data: { sessionId: string; commandId: string; output: string; exitCode: number }) => {
-      if (!tracksHistory(data.sessionId)) return;
+      if (endedSessions.has(data.sessionId)) return;
+      const pending = unobservedCommands.get(data.sessionId);
+      unobservedCommands.delete(data.sessionId);
+      if (!tracksHistory(data.sessionId)) {
+        set(state => ({ sessions: changeSessionState(state.sessions, data.sessionId, 'idle') }));
+        return;
+      }
       if (terminalOutputListenerRefCount > 0) {
         playReceiveSound();
         const outputPreview = data.output
@@ -425,7 +480,7 @@ export const useTerminalStore = create<TerminalState>((set) => ({
         announceTerminalResult(i18next.t('terminal.announce.outputWithExit', { output: outputPreview, exitCode: data.exitCode }));
       }
       set(state => {
-        const sessionHistory = state.historyBySession[data.sessionId] || [];
+        const sessionHistory = state.historyBySession[data.sessionId] ?? (pending ? [pending] : []);
         const updatedHistory = sessionHistory.map(entry => {
           // Encontra o entry do LLM em execução (não raw)
           if (entry.exitCode === -999 && entry.source !== 'user-raw') {
@@ -444,10 +499,10 @@ export const useTerminalStore = create<TerminalState>((set) => ({
             ...state.historyBySession,
             [data.sessionId]: updatedHistory,
           },
+          partialHistoryBySession: state.historyBySession[data.sessionId] ? state.partialHistoryBySession
+            : { ...state.partialHistoryBySession, [data.sessionId]: true },
           // Marca sessão como idle
-          sessions: state.sessions.map(s =>
-            s.id === data.sessionId ? terminal.SessionInfo.createFrom({ ...s, state: 'idle' }) : s
-          ),
+          sessions: changeSessionState(state.sessions, data.sessionId, 'idle'),
           activeEntryBySession: {
             ...state.activeEntryBySession,
             [data.sessionId]: null,
@@ -457,6 +512,7 @@ export const useTerminalStore = create<TerminalState>((set) => ({
     }));
 
     terminalEventListenerCleanup = () => {
+      unobservedCommands.clear();
       unsubs.forEach(fn => fn());
     };
 
