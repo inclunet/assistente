@@ -276,19 +276,6 @@ func newSession(name string, workDir WorkingDirectory, shell string, env []strin
 	return s, nil
 }
 
-// WorkingDirectory separa o caminho usado pelo PTY de seu texto público opcional.
-type WorkingDirectory struct {
-	Path           string
-	PublicOverride string
-}
-
-func (d WorkingDirectory) Display() string {
-	if d.PublicOverride != "" {
-		return d.PublicOverride
-	}
-	return d.Path
-}
-
 // Start inicia a leitura somente depois que o Manager registrou a sessão.
 func (s *Session) Start() {
 	s.ensureLifecycleChannels()
@@ -600,6 +587,20 @@ func (s *Session) finishCommand() {
 		s.state = StateIdle
 	}
 	s.commandPending = false
+}
+
+// WorkingDirectory separa o caminho usado pelo PTY de seu texto público opcional.
+type WorkingDirectory struct {
+	Path           string
+	PublicOverride string
+}
+
+// Display retorna a representação do diretório para a interface, os eventos e os logs.
+func (d WorkingDirectory) Display() string {
+	if d.PublicOverride != "" {
+		return d.PublicOverride
+	}
+	return d.Path
 }
 
 // CommandText separa o texto enviado ao PTY da representação destinada aos

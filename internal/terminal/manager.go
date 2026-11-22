@@ -460,36 +460,19 @@ func (m *Manager) Has(sessionID string) bool {
 	return state != StateClosing && state != StateExited
 }
 
-// Info retorna o contrato público de uma sessão viva.
-func (m *Manager) Info(sessionID string) (SessionInfo, bool) {
-	session, ok := m.liveSession(sessionID)
-	if !ok {
-		return SessionInfo{}, false
-	}
-	return session.Info(), true
-}
-
 // ExecutionDirectory recupera o alvo operacional e sua restrição de exibição.
 func (m *Manager) ExecutionDirectory(sessionID string) (WorkingDirectory, bool) {
-	session, ok := m.liveSession(sessionID)
-	if !ok {
-		return WorkingDirectory{}, false
-	}
-	return session.cwd, true
-}
-
-func (m *Manager) liveSession(sessionID string) (*Session, bool) {
 	m.mu.RLock()
 	session, ok := m.sessions[sessionID]
 	m.mu.RUnlock()
 	if !ok {
-		return nil, false
+		return WorkingDirectory{}, false
 	}
 	state := session.State()
 	if state == StateClosing || state == StateExited {
-		return nil, false
+		return WorkingDirectory{}, false
 	}
-	return session, true
+	return session.cwd, true
 }
 
 // List retorna informações de todas as sessões ativas.

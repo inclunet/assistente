@@ -445,7 +445,8 @@ func publicPolicyProjection(result commandpolicy.EvaluationResult, sensitive boo
 }
 
 // protectedExecutionError publica somente categorias conhecidas. Causas
-// encadeadas do sistema operacional podem conter o caminho privado.
+// encadeadas do sistema operacional podem conter o caminho privado. Para
+// erros compostos, a primeira categoria da lista tem precedência no diagnóstico.
 func protectedExecutionError(err error) string {
 	for _, cause := range []error{terminal.ErrSessionRead, terminal.ErrSessionWrite, terminal.ErrSessionClosed, terminal.ErrSessionBusy, terminal.ErrSessionUnavailable} {
 		if errors.Is(err, cause) {

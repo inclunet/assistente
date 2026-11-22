@@ -32,9 +32,8 @@ func TestProtectedDirectoryPersistsOnlyInExecutionTarget(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = mgr.Close(session.ID()) })
 	target, live := mgr.ExecutionDirectory(session.ID())
-	info, visible := mgr.Info(session.ID())
 	list := mgr.List()
-	if !live || target.PublicOverride != "[redacted]" || target.Path != dir || !visible || len(list) != 1 || created.CWD != "[redacted]" || list[0].CWD != created.CWD || info.CWD != created.CWD {
+	if !live || target.PublicOverride != "[redacted]" || target.Path != dir || len(list) != 1 || created.CWD != "[redacted]" || list[0].CWD != created.CWD {
 		t.Fatal("a sessão não preservou o diretório operacional e sua projeção pública")
 	}
 }

@@ -38,7 +38,8 @@ func RedactResolvedInputs(original, resolved map[string]any) map[string]any {
 // da confirmação e do despacho, inclusive para os resultados parciais.
 func withRedactedShellMetadata(ctx context.Context, original, resolved, persisted map[string]any) context.Context {
 	// encoding/json aceita variantes de caixa nas chaves de uma struct. Se
-	// houver mais de uma, qualquer uma redigida deve proteger os metadados.
+	// houver mais de uma variante de command ou working_directory, qualquer
+	// variante redigida protege os metadados daquele campo.
 	matches := 0
 	var protectedKey string
 	for key, value := range persisted {
