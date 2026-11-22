@@ -6,7 +6,7 @@ import './MediaPreview.css';
 
 interface MediaPreviewProps {
   media: MediaFile[];
-  onRemove: (id: string) => void;
+  onRemove?: (id: string) => void;
 }
 
 export const MediaPreview: React.FC<MediaPreviewProps> = ({ media, onRemove }) => {
@@ -78,14 +78,14 @@ export const MediaPreview: React.FC<MediaPreviewProps> = ({ media, onRemove }) =
             )}
           </div>
 
-          <button
+          {onRemove && <button
             type="button"
             className="media-remove"
             onClick={() => onRemove(item.id)}
             aria-label={`${t('mediaPreview.remove')} ${item.altText || item.fileName}`}
           >
             <CloseOutlined aria-hidden="true" />
-          </button>
+          </button>}
         </div>
       ))}
     </div>

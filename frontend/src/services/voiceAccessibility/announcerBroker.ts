@@ -11,10 +11,9 @@ export interface VoiceAnnounceRequest extends VoiceAccessibilityRequestBase {
   message: string;
   announcePriority?: AnnouncePriority;
   /**
-   * Marca o anúncio como leitura do conteúdo do assistente. A live region é
-   * única (AEP-0058): qualquer anúncio seguinte substitui o texto e o leitor de
-   * telas abandona o que estava lendo. Anúncios secundários esperam a leitura
-   * terminar em vez de atropelá-la.
+   * Protege a leitura deste anúncio na live region compartilhada (AEP-0058).
+   * Com waitsForReading, resultados aguardam a leitura anterior antes de
+   * proteger a própria fala. Erros e ações da pessoa têm prioridade imediata.
    */
   protectsReading?: boolean;
   /**
@@ -179,10 +178,8 @@ function flushNextDeferredAnnouncement() {
   emit(message, next.priority);
   const readingMs = estimateAnnouncementReadingMs(message);
   if (next.durable || next.request.protectsReading) {
-    // Este aviso esperou justamente porque não pode se perder; deixá-lo ser
-    // substituído no meio o perderia do mesmo jeito. Um aviso de estado, ao
-    // contrário, deve ceder lugar a um estado mais recente: é o mais novo que
-    // descreve a situação atual.
+    // Uma conclusão durável ou uma solicitação explícita de proteção precisa
+    // de tempo para ser lida depois de sair da fila.
     readingProtectedUntil = Date.now() + readingMs;
   }
   if (deferredQueue.length > 0) {

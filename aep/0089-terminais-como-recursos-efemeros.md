@@ -218,6 +218,8 @@ Pendente ou parcial:
   O evento de término do comando precede o de saída da sessão, inclusive quando o próprio
   comando encerra o shell. O histórico já carregado continua recebendo eventos em segundo
   plano. Ao voltar à aba, ele inclui os comandos executados nesse intervalo.
+  O editor preserva o rascunho após rejeição do envio. Ao carregar a lista,
+  mantém o pedido de foco se a origem desaparecer e respeita a navegação da pessoa.
   A área de trabalho escuta o encerramento mesmo com a aba fechada. A abertura da aba
   carrega a lista. O anúncio usa o nome conhecido da sessão ou uma mensagem genérica.
 - **Controles do terminal.** O leitor reconhece mudanças de largura fora de sequências de controle.

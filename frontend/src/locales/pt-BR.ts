@@ -1989,7 +1989,7 @@ notSaved: 'A decisão vale somente para esta operação: não foi possível lemb
       pageTitle: 'Terminal',
       aria: { toolbar: 'Ferramentas do terminal. Use setas para navegar entre os botões' },
       buttons: { stop: 'Interromper', new: 'Novo terminal', terminate: 'Encerrar terminal' },
-      placeholders: { creating: 'Selecione ou crie um terminal', command: 'Digite um comando... (Ctrl+C para interromper)' },
+      placeholders: { unavailable: 'Não foi possível carregar as sessões de terminal.', loading: 'Carregando sessões de terminal…', ended: 'Sessão encerrada. Escolha ou crie outra na barra de ferramentas.', unbound: 'Selecione ou crie um terminal', command: 'Digite um comando... (Ctrl+C para interromper)' },
       states: { idle: 'ocioso', busy: 'executando', running: 'executando', closing: 'encerrando', closed: 'encerrado', exited: 'encerrado' },
       picker: {
         label: 'Terminal conectado',

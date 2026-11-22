@@ -22,7 +22,8 @@ vi.mock('@wailsjs/go/wailsapi/Skills', () => ({
   GetUserInvocableSkillsForProfile: (profileSlug: string) => getSkillsForProfileSpy(profileSlug),
 }));
 
-vi.mock('../../services/mediaService', () => ({
+vi.mock('../../services/mediaService', async (importOriginal) => ({
+  ...await importOriginal<typeof import('../../services/mediaService')>(),
   processMediaFiles: (files: File[]) => processMediaFilesSpy(files),
 }));
 
@@ -34,10 +35,6 @@ vi.mock('./SlashCommandMenu', () => ({
   ),
   getSlashOptionId: (listboxId: string, item: { key: string }) =>
     `${listboxId}-option-${encodeURIComponent(item.key)}`,
-}));
-
-vi.mock('./MediaPreview', () => ({
-  MediaPreview: () => <div data-testid="media-preview" />,
 }));
 
 vi.mock('./VoiceButton', () => ({
@@ -104,6 +101,33 @@ describe('ChatInput', () => {
     rerender(<ChatInput onSend={onSend} slashMenuEnabled={false} />);
     await user.type(input, ' novo{Enter}');
     expect(onSend).toHaveBeenCalledWith('rascunho novo', undefined);
+  });
+
+  it('protege anexos existentes e pendentes ao alternar para leitura', async () => {
+    const file = new File(['img'], 'foto.png', { type: 'image/png' });
+    const media = mediaResult([file], 'original');
+    const change = vi.fn();
+    const props = { onSend: vi.fn(), mediaFiles: media, onMediaFilesChange: change };
+    const { rerender } = render(<ChatInput {...props} />);
+    const request = deferred<MediaFile[]>();
+    processMediaFilesSpy.mockReturnValueOnce(request.promise);
+    const editor = screen.getByLabelText('chat.messageLabel');
+    const paste = () => fireEvent.paste(editor, { clipboardData: { items: [{ type: file.type, getAsFile: () => file }] } });
+    paste();
+    expect(screen.getByRole('button', { name: /mediaPreview.remove/ })).toBeEnabled();
+    rerender(<ChatInput {...props} editorReadOnly />);
+    expect(screen.queryByRole('button', { name: /mediaPreview.remove/ })).toBeNull();
+    expect(screen.getByLabelText('chat.selectFiles')).toBeDisabled();
+    paste();
+    fireEvent.dragEnter(editor);
+    expect(screen.getByTestId('chat-input')).not.toHaveClass('dragging');
+    fireEvent.drop(editor, { dataTransfer: { files: [file] } });
+    expect(processMediaFilesSpy).toHaveBeenCalledTimes(1);
+    rerender(<ChatInput {...props} />);
+    await act(async () => { request.resolve(mediaResult([file], 'novo')); });
+    expect(change).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: /mediaPreview.remove/ }));
+    expect(change).toHaveBeenCalledWith([]);
   });
 
   it('preserva foco e cursor quando ArrowUp não tem destino de navegação', () => {

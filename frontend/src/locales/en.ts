@@ -1988,7 +1988,7 @@ notSaved: 'The decision applies only to this operation: it could not be remember
       pageTitle: 'Terminal',
       aria: { toolbar: 'Terminal tools. Use arrows to navigate between buttons' },
       buttons: { stop: 'Interrupt', new: 'New terminal', terminate: 'Terminate terminal' },
-      placeholders: { creating: 'Select or create a terminal', command: 'Type a command... (Ctrl+C to interrupt)' },
+      placeholders: { unavailable: 'Could not load terminal sessions.', loading: 'Loading terminal sessions…', ended: 'Session ended. Select or create another session in the toolbar.', unbound: 'Select or create a terminal', command: 'Type a command... (Ctrl+C to interrupt)' },
       states: { idle: 'idle', busy: 'running', running: 'running', closing: 'closing', closed: 'closed', exited: 'exited' },
       picker: {
         label: 'Connected terminal',

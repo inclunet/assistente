@@ -43,7 +43,8 @@ Se o Assistente falhar ao enviar um comando ao shell, ele encerra a sessão
 para impedir que o próximo comando complete a linha anterior. Isso também vale
 quando você abre um terminal persistente e pede ao modelo que use essa sessão.
 A aba continua aberta e o campo de comando fica somente para leitura. Você pode
-selecionar e copiar o rascunho. Para voltar a editar e enviar comandos,
+selecionar e copiar o comando cujo envio falhou. O campo informa quando a lista
+de sessões está carregando e quando a sessão vinculada já terminou. Para voltar a editar e enviar comandos,
 use a barra de ferramentas para escolher outra sessão ou criar uma nova.
 O leitor de telas anuncia o encerramento mesmo com a aba de terminal fechada.
 Quando o nome da sessão está disponível, o anúncio o inclui. Se o foco estava
