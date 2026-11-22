@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -375,6 +376,17 @@ func TestSimOuNaoViraDuasOpcoesNumeradas(t *testing.T) {
 	resultado := esperarResultado(t, pronto)
 	if resultado.resp.Answers["aprovar"] != false {
 		t.Errorf("resposta = %v, quer o booleano falso que o diálogo espera", resultado.resp.Answers)
+	}
+}
+
+func TestDecisaoDistingueControleInvisivelDeTextoLiteral(t *testing.T) {
+	body := "arquivo\u200b.txt\n" + `arquivo\u200b.txt`
+	message := renderChannelDecision(questionnaire.RequestPayload{Body: body}, []string{"Negar"}, time.Minute)
+	if !strings.Contains(message, strconv.QuoteToGraphic(body)) || strings.ContainsRune(message, '\u200b') {
+		t.Fatalf("corpo ambíguo na pergunta: %q", message)
+	}
+	if decisionBodyText(`arquivo\u200b.txt`) != `arquivo\u200b.txt` {
+		t.Fatal("a referência literal foi alterada")
 	}
 }
 
