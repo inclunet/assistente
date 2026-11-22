@@ -11,6 +11,8 @@ export interface VoiceAnnounceRequest extends VoiceAccessibilityRequestBase {
   message: string;
   /** Resumo para entrega em segundo plano. A função calcula o texto no momento da fala. */
   inactiveMessage?: string | (() => string);
+  /** Resumo estático quando o cálculo tardio não puder identificar a origem. */
+  inactiveFallback?: string;
   announcePriority?: AnnouncePriority;
   /**
    * Protege a leitura deste anúncio na live region compartilhada (AEP-0058).
@@ -131,6 +133,7 @@ function formatInactiveAnnouncement(request: VoiceAnnounceRequest): string {
       // A origem pode desaparecer durante a espera. Preserve o anúncio e a fila.
     }
   } else if (request.inactiveMessage?.trim()) return request.inactiveMessage;
+  if (request.inactiveFallback?.trim()) return request.inactiveFallback;
   const label = getVoiceAccessibilityOriginLabel(request.origin);
   if (!label) return request.message;
 

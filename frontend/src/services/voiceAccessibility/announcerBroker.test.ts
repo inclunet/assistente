@@ -88,9 +88,9 @@ describe('announcerBroker', () => {
     });
 
     it.each([() => '', () => { throw new Error('origem removida'); }])('preserva a fila se o resumo não estiver disponível', summary => {
-      unregisterResolver = registerVoiceAccessibilityActiveResolver(onlyActiveWithoutTab);
+      unregisterResolver = registerVoiceAccessibilityActiveResolver(origin => !origin?.terminalSessionId);
       announceWithOrigin({ message: content, protectsReading: true });
-      announceWithOrigin({ origin: { tabId: 'a', title: 'Origem' }, eventType: 'completion', message: 'Fim', inactiveMessage: summary });
+      announceWithOrigin({ origin: { terminalSessionId: 'a' }, eventType: 'completion', message: 'Saída detalhada', inactiveMessage: summary, inactiveFallback: 'Origem: Fim' });
       announceWithOrigin({ message: 'Seguinte', eventType: 'completion' });
       vi.runAllTimers();
       expect(sink.mock.calls.map(([message]) => message)).toEqual([content, 'Origem: Fim', 'Seguinte']);
