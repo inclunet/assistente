@@ -148,14 +148,32 @@ describe('terminalStore', () => {
       const page = useTerminalStore.getState().setupEventListeners();
       try {
         const load = useTerminalStore.getState().loadHistory('s1');
+        expect(useTerminalStore.getState().partialHistoryBySession.s1).toBe(true);
         expect(useTerminalStore.getState().historyBySession.s1[0].output).toBe('antes');
         emit('command_end', { ...data, output: 'antes e depois', exitCode: 7 });
         snapshot.resolve([]);
         await load;
         expect(useTerminalStore.getState().historyBySession.s1).toEqual([expect.objectContaining({ id: 'c1', exitCode: 7, output: 'antes e depois' })]);
         expect(useTerminalStore.getState().sessions[0].state).toBe('idle');
+        expect(useTerminalStore.getState().partialHistoryBySession.s1).toBeUndefined();
       } finally { page(); }
     } finally { lifecycle(); }
+  });
+
+  it('mantém o cache parcial após falha para a próxima abertura recuperar o histórico', async () => {
+    const cleanup = useTerminalStore.getState().setupEventListeners({ lifecycleOnly: true });
+    try {
+      const data = { sessionId: 'b', commandId: 'c', source: 'llm' };
+      terminalEventHandlers.get('terminal:session_created')?.(terminal.SessionInfo.createFrom({ id: 'b' }));
+      terminalEventHandlers.get('terminal:command_start')?.(data);
+      mockGetTerminalHistory.mockRejectedValueOnce(new Error('indisponível'));
+      await useTerminalStore.getState().loadHistory('b');
+      expect(useTerminalStore.getState().partialHistoryBySession.b).toBe(true);
+      mockGetTerminalHistory.mockResolvedValueOnce([terminal.HistoryEntry.createFrom({ id: 'anterior' })]);
+      await useTerminalStore.getState().loadHistory('b');
+      expect(useTerminalStore.getState().historyBySession.b.map(entry => entry.id)).toEqual(['anterior', 'c']);
+      expect(useTerminalStore.getState().partialHistoryBySession.b).toBeUndefined();
+    } finally { cleanup(); }
   });
 
   it('hidrata o histórico anterior quando outra aba acompanhou só o fim da execução', async () => {
@@ -176,12 +194,12 @@ describe('terminalStore', () => {
     } finally { cleanup(); }
   });
 
-  it.each(['command_start', 'command_end'])('preserva %s recebido durante uma listagem', async event => {
+  it.each([['command_start', true], ['command_start', false], ['command_end', true], ['command_end', false]] as const)('preserva %s recebido durante uma listagem (já no catálogo: %s)', async (event, known) => {
     const cleanup = useTerminalStore.getState().setupEventListeners({ lifecycleOnly: true });
     try {
       const start = event === 'command_start';
       const old = terminal.SessionInfo.createFrom({ id: 'b', state: start ? 'idle' : 'running' });
-      useTerminalStore.setState({ sessions: [old] });
+      useTerminalStore.setState({ sessions: known ? [old] : [] });
       const pending = createDeferred<terminal.SessionInfo[]>();
       vi.mocked(ListTerminalSessions).mockReturnValueOnce(pending.promise);
       const request = useTerminalStore.getState().loadSessions();
