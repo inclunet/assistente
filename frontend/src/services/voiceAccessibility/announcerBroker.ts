@@ -1,3 +1,4 @@
+import { logger } from '../../utils/logger';
 import i18next from 'i18next';
 import type {
   VoiceAccessibilityOrigin,
@@ -10,9 +11,7 @@ export type AnnouncePriority = 'polite' | 'assertive';
 export interface VoiceAnnounceRequest extends VoiceAccessibilityRequestBase {
   message: string;
   /** Resumo para entrega em segundo plano. A função calcula o texto no momento da fala. */
-  inactiveMessage?: string | (() => string);
-  /** Resumo estático quando o cálculo tardio não puder identificar a origem. */
-  inactiveFallback?: string;
+  inactiveMessage?: string | { resolve: () => string; fallback: string };
   announcePriority?: AnnouncePriority;
   /**
    * Protege a leitura deste anúncio na live region compartilhada (AEP-0058).
@@ -125,15 +124,18 @@ export function isVoiceAccessibilityOriginCurrentlyActive(origin?: VoiceAccessib
 }
 
 function formatInactiveAnnouncement(request: VoiceAnnounceRequest): string {
-  if (typeof request.inactiveMessage === 'function') {
+  if (typeof request.inactiveMessage === 'object') {
     try {
-      const summary = request.inactiveMessage();
+      const summary = request.inactiveMessage.resolve();
       if (summary.trim()) return summary;
     } catch {
-      // A origem pode desaparecer durante a espera. Preserve o anúncio e a fila.
+      logger.warn('[announcerBroker] Falha ao calcular o resumo em segundo plano.');
     }
+    if (request.inactiveMessage.fallback.trim()) return request.inactiveMessage.fallback;
   } else if (request.inactiveMessage?.trim()) return request.inactiveMessage;
-  if (request.inactiveFallback?.trim()) return request.inactiveFallback;
+  if (request.origin?.terminalSessionId) {
+    return i18next.t('voiceAccessibility.backgroundTerminalActivity', { defaultValue: 'Atividade no terminal em segundo plano' });
+  }
   const label = getVoiceAccessibilityOriginLabel(request.origin);
   if (!label) return request.message;
 

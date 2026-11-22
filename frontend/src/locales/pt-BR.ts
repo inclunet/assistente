@@ -647,6 +647,7 @@ notSaved: 'A decisão vale somente para esta operação: não foi possível lemb
     },
 
     voiceAccessibility: {
+      backgroundTerminalActivity: 'Atividade no terminal em segundo plano',
       inactiveAnnouncement: '{{title}}: {{message}}',
     },
 

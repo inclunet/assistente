@@ -1,3 +1,4 @@
+import { logger } from '../../utils/logger';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   announceWithOrigin,
@@ -49,6 +50,12 @@ describe('announcerBroker', () => {
     expect(sink).toHaveBeenCalledWith('Chat B: terminou de responder', 'polite');
   });
 
+  it('preserva a saída de terminal sem resumo explícito em segundo plano', () => {
+    unregisterResolver = registerVoiceAccessibilityActiveResolver(() => false);
+    announceWithOrigin({ message: 'detalhe privado', eventType: 'completion', origin: { terminalSessionId: 's' } });
+    expect(sink).toHaveBeenCalledWith('Atividade no terminal em segundo plano', 'polite');
+  });
+
   it('usa assertive por padrão para erros', () => {
     expect(announceWithOrigin({
       message: 'Falha',
@@ -69,6 +76,7 @@ describe('announcerBroker', () => {
     });
 
     afterEach(() => {
+      vi.restoreAllMocks();
       vi.useRealTimers();
     });
 
@@ -78,7 +86,7 @@ describe('announcerBroker', () => {
       unregisterResolver = registerVoiceAccessibilityActiveResolver(origin => !origin?.tabId || active);
       const summary = vi.fn(() => name);
       announceWithOrigin({ message: content, protectsReading: true });
-      announceWithOrigin({ message: 'Conclusão', origin: { tabId: 'origem' }, eventType: 'completion', inactiveMessage: summary });
+      announceWithOrigin({ message: 'Conclusão', origin: { tabId: 'origem' }, eventType: 'completion', inactiveMessage: { resolve: summary, fallback: 'Reserva' } });
       expect(summary).not.toHaveBeenCalled();
       active = activeAtDelivery;
       name = 'Depois';
@@ -87,13 +95,19 @@ describe('announcerBroker', () => {
       expect(sink).toHaveBeenLastCalledWith(activeAtDelivery ? 'Conclusão' : 'Depois', 'polite');
     });
 
-    it.each([() => '', () => { throw new Error('origem removida'); }])('preserva a fila se o resumo não estiver disponível', summary => {
+    it.each([false, true])('preserva a fila e diagnostica exceção no resumo (exceção: %s)', throws => {
+      const warn = vi.spyOn(logger, 'warn').mockImplementation(() => {});
+      const summary = () => {
+        if (throws) throw new Error('conteúdo privado');
+        return '';
+      };
       unregisterResolver = registerVoiceAccessibilityActiveResolver(origin => !origin?.terminalSessionId);
       announceWithOrigin({ message: content, protectsReading: true });
-      announceWithOrigin({ origin: { terminalSessionId: 'a' }, eventType: 'completion', message: 'Saída detalhada', inactiveMessage: summary, inactiveFallback: 'Origem: Fim' });
+      announceWithOrigin({ origin: { terminalSessionId: 'a' }, eventType: 'completion', message: 'Saída detalhada', inactiveMessage: { resolve: summary, fallback: 'Origem: Fim' } });
       announceWithOrigin({ message: 'Seguinte', eventType: 'completion' });
       vi.runAllTimers();
       expect(sink.mock.calls.map(([message]) => message)).toEqual([content, 'Origem: Fim', 'Seguinte']);
+      expect(warn.mock.calls).toEqual(throws ? [['[announcerBroker] Falha ao calcular o resumo em segundo plano.']] : []);
     });
 
     it('adia aviso secundário e o fala depois da leitura terminar', () => {
