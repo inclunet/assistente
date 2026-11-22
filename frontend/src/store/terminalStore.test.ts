@@ -91,6 +91,7 @@ describe('terminalStore', () => {
     useTerminalStore.setState({
       sessions: [],
       historyBySession: {},
+      partialHistoryBySession: {},
       activeEntryBySession: {},
       isLoadingSessions: false,
       loadingHistoryBySession: {},
@@ -155,6 +156,40 @@ describe('terminalStore', () => {
         expect(useTerminalStore.getState().sessions[0].state).toBe('idle');
       } finally { page(); }
     } finally { lifecycle(); }
+  });
+
+  it('hidrata o histórico anterior quando outra aba acompanhou só o fim da execução', async () => {
+    const cleanup = useTerminalStore.getState().setupEventListeners({ lifecycleOnly: true });
+    try {
+      const data = { sessionId: 'b', commandId: 'recente' };
+      terminalEventHandlers.get('terminal:session_created')?.(terminal.SessionInfo.createFrom({ id: 'b' }));
+      terminalEventHandlers.get('terminal:command_start')?.({ ...data, command: 'date', source: 'llm' });
+      const closeOtherPage = useTerminalStore.getState().setupEventListeners();
+      try {
+        terminalEventHandlers.get('terminal:command_end')?.({ ...data, output: 'hoje', exitCode: 0 });
+        expect(useTerminalStore.getState().partialHistoryBySession.b).toBe(true);
+        mockGetTerminalHistory.mockResolvedValueOnce([terminal.HistoryEntry.createFrom({ id: 'antigo' })]);
+        await useTerminalStore.getState().loadHistory('b');
+        expect(useTerminalStore.getState().historyBySession.b.map(entry => entry.id)).toEqual(['antigo', 'recente']);
+        expect(useTerminalStore.getState().partialHistoryBySession.b).toBeUndefined();
+      } finally { closeOtherPage(); }
+    } finally { cleanup(); }
+  });
+
+  it.each(['command_start', 'command_end'])('preserva %s recebido durante uma listagem', async event => {
+    const cleanup = useTerminalStore.getState().setupEventListeners({ lifecycleOnly: true });
+    try {
+      const start = event === 'command_start';
+      const old = terminal.SessionInfo.createFrom({ id: 'b', state: start ? 'idle' : 'running' });
+      useTerminalStore.setState({ sessions: [old] });
+      const pending = createDeferred<terminal.SessionInfo[]>();
+      vi.mocked(ListTerminalSessions).mockReturnValueOnce(pending.promise);
+      const request = useTerminalStore.getState().loadSessions();
+      terminalEventHandlers.get('terminal:' + event)?.({ sessionId: 'b', commandId: 'c', source: 'llm' });
+      pending.resolve([old]);
+      await request;
+      expect(useTerminalStore.getState().sessions[0].state).toBe(start ? 'running' : 'idle');
+    } finally { cleanup(); }
   });
 
   it('conserva comandos executados enquanto um histórico já carregado está fora da tela', async () => {
@@ -379,6 +414,7 @@ describe('terminalStore', () => {
     useTerminalStore.setState({
       sessions: [],
       historyBySession: {},
+      partialHistoryBySession: {},
       activeEntryBySession: {},
       loadingHistoryBySession: {},
     });

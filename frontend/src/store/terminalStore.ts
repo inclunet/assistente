@@ -101,6 +101,7 @@ function changeSessionState(sessions: SessionInfo[], sessionId: string, state: s
 interface TerminalState {
   sessions: SessionInfo[];
   historyBySession: Record<string, HistoryEntry[]>;
+  partialHistoryBySession: Record<string, boolean>;
   /** ID do último entry que está recebendo raw output (modo interativo) */
   activeEntryBySession: Record<string, string | null>;
   isLoadingSessions: boolean;
@@ -120,12 +121,14 @@ interface TerminalState {
 export const useTerminalStore = create<TerminalState>((set) => ({
   sessions: [],
   historyBySession: {},
+  partialHistoryBySession: {},
   activeEntryBySession: {},
   isLoadingSessions: false,
   sessionListFailed: false,
   loadingHistoryBySession: {},
 
   loadSessions: async () => {
+    const initialSessions = new Map(useTerminalStore.getState().sessions.map(session => [session.id, session]));
     const request = ++terminalSessionReadGeneration;
     const owner = useAuthStore.getState();
     let currentOwner = true;
@@ -143,7 +146,14 @@ export const useTerminalStore = create<TerminalState>((set) => ({
         const refreshed = await replacement;
         return currentOwner && refreshed;
       }
-      set({ sessions: sessions || [] });
+      set(state => {
+        const current = new Map(state.sessions.map(session => [session.id, session]));
+        return { sessions: (sessions || []).map(session => {
+          const updated = current.get(session.id);
+          return updated && updated !== initialSessions.get(session.id)
+            ? terminal.SessionInfo.createFrom({ ...session, state: updated.state }) : session;
+        }) };
+      });
       return true;
     } catch (err) {
       const replacement = terminalSessionReadReplacements.get(request);
@@ -226,6 +236,8 @@ export const useTerminalStore = create<TerminalState>((set) => ({
         const sessionExists = state.sessions.some(session => session.id === sessionId);
         if (!sessionExists) return state;
 
+        const partial = { ...state.partialHistoryBySession };
+        delete partial[sessionId];
         const entries = new Map((history || []).map(entry => [entry.id, entry]));
         for (const entry of state.historyBySession[sessionId] ?? []) {
           const stored = entries.get(entry.id);
@@ -236,6 +248,7 @@ export const useTerminalStore = create<TerminalState>((set) => ({
             ...state.historyBySession,
             [sessionId]: Array.from(entries.values()).slice(-historyEntryLimit),
           },
+          partialHistoryBySession: partial,
         };
       });
     } catch (err) {
@@ -319,6 +332,8 @@ export const useTerminalStore = create<TerminalState>((set) => ({
       set(state => {
         const newHistory = { ...state.historyBySession };
         delete newHistory[sessionId];
+        const partial = { ...state.partialHistoryBySession };
+        delete partial[sessionId];
         const newActiveEntry = { ...state.activeEntryBySession };
         delete newActiveEntry[sessionId];
         const newLoadingHistory = { ...state.loadingHistoryBySession };
@@ -327,6 +342,7 @@ export const useTerminalStore = create<TerminalState>((set) => ({
           sessions: state.sessions.filter(s => s.id !== sessionId),
           isLoadingSessions: false,
           historyBySession: newHistory,
+          partialHistoryBySession: partial,
           activeEntryBySession: newActiveEntry,
           loadingHistoryBySession: newLoadingHistory,
         };
@@ -380,6 +396,8 @@ export const useTerminalStore = create<TerminalState>((set) => ({
             ...state.historyBySession,
             [data.sessionId]: [...recent, tempEntry],
           },
+          partialHistoryBySession: state.historyBySession[data.sessionId] ? state.partialHistoryBySession
+            : { ...state.partialHistoryBySession, [data.sessionId]: true },
           activeEntryBySession: {
             ...state.activeEntryBySession,
             [data.sessionId]: tempEntry.id,
@@ -481,6 +499,8 @@ export const useTerminalStore = create<TerminalState>((set) => ({
             ...state.historyBySession,
             [data.sessionId]: updatedHistory,
           },
+          partialHistoryBySession: state.historyBySession[data.sessionId] ? state.partialHistoryBySession
+            : { ...state.partialHistoryBySession, [data.sessionId]: true },
           // Marca sessão como idle
           sessions: changeSessionState(state.sessions, data.sessionId, 'idle'),
           activeEntryBySession: {
