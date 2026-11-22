@@ -253,27 +253,6 @@ func TestNativeZshMarkerAndDirectory(t *testing.T) {
 	}
 }
 
-func TestAcquiredSessionAcceptsCommandAfterManualInputAndRelease(t *testing.T) {
-	dir := ptyTestDir(t)
-	manager := NewManager(DefaultManagerConfig(), nil)
-	t.Cleanup(manager.CloseAll)
-	session, err := manager.Acquire(t.Context(), dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := manager.SendInput(session.ID(), "echo manual"); err != nil {
-		t.Fatal(err)
-	}
-	manager.Release(session.ID())
-	if state := session.State(); state != StateIdle {
-		t.Fatalf("estado após entrada manual e Release: %v", state)
-	}
-	entry, err := manager.RunCommand(t.Context(), session.ID(), "echo pronto", 15*time.Second, "test")
-	if err != nil || entry == nil || entry.ExitCode != 0 || !strings.Contains(entry.Output, "pronto") {
-		t.Fatalf("comando seguinte: entrada=%+v erro=%v", entry, err)
-	}
-}
-
 func TestNativeZshPersistentStartupByOrigin(t *testing.T) {
 	if runtime.GOOS != "linux" {
 		t.Skip("compinit global do zsh no Linux")

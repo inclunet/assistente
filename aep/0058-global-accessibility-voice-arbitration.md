@@ -95,7 +95,8 @@ trocado de aba durante a espera.
 
 No terminal, a origem é a sessão vinculada à aba ativa no momento da fala.
 A saída comum de uma sessão em segundo plano é silenciosa. A conclusão
-identifica a origem e informa o código de saída.
+identifica a origem e informa o código de saída. O resumo usa o nome vigente
+na entrega ou, se a sessão já saiu do catálogo, o nome conhecido na conclusão.
 
 Resultados consecutivos do terminal aguardam a leitura em andamento e protegem a
 própria leitura quando entregues. Assim, o encerramento da sessão pode ser anunciado

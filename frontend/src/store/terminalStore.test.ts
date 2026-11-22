@@ -297,7 +297,13 @@ describe('terminalStore', () => {
     } finally { cleanup(); vi.useRealTimers(); }
   });
 
-  it.each(['Build', ''])('reavalia a sessão na entrega e identifica a aba inativa (título: %s)', title => {
+  it.each([
+    { title: 'Build', before: '', after: '', expected: 'Build' },
+    { title: '', before: '', after: '', expected: undefined },
+    { title: 'Build', before: 'Antigo', after: 'Novo', expected: 'Novo' },
+    { title: 'Build', before: 'Antigo', after: '', expected: 'Build' },
+    { title: 'Build', before: 'Antigo', after: null, expected: 'Antigo' },
+  ])('identifica a sessão na entrega (aba "$title", nome "$before" → "$after")', ({ title, before, after, expected }) => {
     vi.useFakeTimers();
     const original = useWorkspaceStore.getState().workspace;
     const workspace: WorkspaceData = { id: 'w', name: 'W', activeTabId: 'tab-a', tabs: [
@@ -315,11 +321,13 @@ describe('terminalStore', () => {
       emit('raw_output', 'b', 'inativa');
       emit('raw_output', 'a', 'prévia da aba anterior');
       vi.advanceTimersByTime(500);
+      useTerminalStore.setState({ sessions: [terminal.SessionInfo.createFrom({ id: 'a', name: before })] });
       emit('command_end', 'a', 'detalhe da execução');
+      useTerminalStore.setState({ sessions: after === null ? [] : [terminal.SessionInfo.createFrom({ id: 'a', name: after })] });
       useWorkspaceStore.setState({ workspace: { ...workspace, tabs: [...workspace.tabs].reverse(), activeTabId: 'tab-b' } });
       vi.runAllTimers();
       expect(announce.mock.calls.map(([message]) => message)).toEqual([
-        'Leitura em curso', i18next.t('terminal.announce.backgroundResult', { name: title || i18next.t('terminal.announce.unnamedTab', { position: 2 }), exitCode: 7 }),
+        'Leitura em curso', i18next.t('terminal.announce.backgroundResult', { name: expected ?? i18next.t('terminal.announce.unnamedTab', { position: 2 }), exitCode: 7 }),
       ]);
     } finally { page(); reset(); useWorkspaceStore.setState({ workspace: original }); vi.useRealTimers(); }
   });
