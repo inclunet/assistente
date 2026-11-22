@@ -39,12 +39,13 @@ quando um `return` condicional pode ter encerrado o comando antes da etapa final
 O terminal conserva o código nativo quando a saída passa apenas por `Out-String`
 ou `Out-String -Stream`.
 
-Se o Assistente falhar ao enviar um comando ao shell, ele encerra a sessão
+Se a escrita de um comando enviado pelo modelo falhar, o Assistente encerra a sessão
 para impedir que o próximo comando complete a linha anterior. Isso também vale
 quando você abre um terminal persistente e pede ao modelo que use essa sessão.
 A aba continua aberta e o campo de comando fica somente para leitura. Você pode
-selecionar e copiar o comando cujo envio falhou. O campo informa quando a lista
-de sessões está carregando e quando a sessão vinculada já terminou. Para voltar a editar e enviar comandos,
+selecionar e copiar o rascunho. Quando você digita um comando na aba, o campo
+só é limpo depois que o backend aceita o envio. O campo informa quando a lista
+está carregando e quando a sessão vinculada já terminou. Para voltar a editar,
 use a barra de ferramentas para escolher outra sessão ou criar uma nova.
 O leitor de telas anuncia o encerramento mesmo com a aba de terminal fechada.
 Quando o nome da sessão está disponível, o anúncio o inclui. Se o foco estava

@@ -178,8 +178,8 @@ function flushNextDeferredAnnouncement() {
   emit(message, next.priority);
   const readingMs = estimateAnnouncementReadingMs(message);
   if (next.durable || next.request.protectsReading) {
-    // Uma conclusão durável ou uma solicitação explícita de proteção precisa
-    // de tempo para ser lida depois de sair da fila.
+    // Um pedido com protectsReading só entra na fila se também puder esperar
+    // (waitsForReading). Ao sair, ele e as conclusões duráveis protegem a leitura.
     readingProtectedUntil = Date.now() + readingMs;
   }
   if (deferredQueue.length > 0) {
@@ -255,8 +255,8 @@ export function announceWithOrigin(request: VoiceAnnounceRequest): boolean {
 
   const message = resolveMessage(request);
 
-  // Conteúdo novo reinicia a proteção; erro e ação da pessoa a encerram, porque
-  // já substituíram a leitura que estava sendo protegida.
+  // A fala que ocupa a live region passa a definir a proteção, inclusive quando
+  // uma ação da pessoa interrompe a leitura anterior para abrir uma decisão.
   readingProtectedUntil = request.protectsReading
     ? now + estimateAnnouncementReadingMs(message)
     : 0;
