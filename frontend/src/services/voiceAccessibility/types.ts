@@ -20,6 +20,7 @@ export interface VoiceAccessibilityOrigin {
   tabId?: string;
   surfaceId?: string;
   sessionKey?: string;
+  terminalSessionId?: string;
   conversationId?: string;
   surfaceType?: VoiceAccessibilitySurfaceType;
   profileSlug?: string | null;
@@ -49,6 +50,10 @@ export function isVoiceAccessibilityOriginActive(
   workspace: WorkspaceData | null | undefined,
 ): boolean {
   if (!origin || origin.isExternal) return true;
+  if (origin.terminalSessionId) {
+    const activeTab = workspace?.tabs.find(tab => tab.id === workspace.activeTabId);
+    return activeTab?.type === 'terminal' && activeTab.state?.sessionId === origin.terminalSessionId;
+  }
   if (!origin.tabId) {
     if (!origin.conversationId) return true;
     const activeTab = workspace?.tabs.find((tab) => tab.id === workspace.activeTabId);

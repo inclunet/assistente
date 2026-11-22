@@ -93,6 +93,10 @@ uma resposta longa não é motivo para perder o aviso. A regra de aba inativa da
 seção 2 é reavaliada na hora de falar, não na de produzir: a pessoa pode ter
 trocado de aba durante a espera.
 
+No terminal, a origem é a sessão vinculada à aba ativa no momento da fala.
+A saída comum de uma sessão em segundo plano é silenciosa. A conclusão
+identifica a origem e informa o código de saída.
+
 Resultados consecutivos do terminal aguardam a leitura em andamento e protegem a
 própria leitura quando entregues. Assim, o encerramento da sessão pode ser anunciado
 depois da saída e do código do comando. O teste do broker cobre o pedido que combina

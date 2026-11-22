@@ -2007,6 +2007,7 @@ notSaved: 'A decisão vale somente para esta operação: não foi possível lemb
       tabs: { closed: 'Terminal fechado.', of: 'de', label: 'Terminais', listLabel: 'Lista de terminais abertos', running: 'Executando', close: 'Fechar', newShortcut: 'Criar novo terminal, Ctrl+T', newTooltip: 'Novo terminal (Ctrl+T)' },
       announce: {
         output: 'Saída: {{output}}',
+        backgroundResult: '{{name}}: comando concluído com código {{exitCode}}.',
         outputWithExit: 'Saída: {{output}}. Código de saída: {{exitCode}}',
         truncatedSuffix: '… truncado',
         emptyOutput: 'vazia',

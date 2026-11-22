@@ -1,5 +1,6 @@
 import { logger } from '../utils/logger';
 import { create } from 'zustand';
+import { useWorkspaceStore } from './workspaceStore';
 import { useAuthStore } from './authStore';
 import {
   ListTerminalSessions,
@@ -12,7 +13,7 @@ import {
 import { EventsOn } from '@wailsjs/runtime/runtime';
 import { terminal } from '../../wailsjs/go/models';
 import { playSendSound, playReceiveSound } from '../services/audioFeedback';
-import { announceWithOrigin } from '../services/voiceAccessibility/announcerBroker';
+import { announceWithOrigin, isVoiceAccessibilityOriginCurrentlyActive } from '../services/voiceAccessibility/announcerBroker';
 import i18next from 'i18next';
 
 // Debounce para anúncio de output (acumula chunks e espera streaming parar)
@@ -30,8 +31,13 @@ export function resolveTerminalCommandId(sessionId: string, commandId?: string):
   return commandId || `legacy-${sessionId}-${Date.now()}-${legacyCommandSequence++}`;
 }
 
-function announceTerminalResult(message: string) {
-  announceWithOrigin({ message, eventType: 'completion', waitsForReading: true, protectsReading: true });
+function terminalOrigin(sessionId: string) {
+  return { surfaceType: 'terminal' as const, terminalSessionId: sessionId };
+}
+
+function announceTerminalResult(sessionId: string, message: string, inactiveMessage: string) {
+  announceWithOrigin({ origin: terminalOrigin(sessionId), message, inactiveMessage, eventType: 'completion',
+    waitsForReading: true, protectsReading: true });
 }
 
 function cancelOutputAnnouncement(sessionId: string) {
@@ -46,12 +52,13 @@ function flushOutputAnnouncement(sessionId: string) {
   cancelOutputAnnouncement(sessionId);
   const text = pending.output.trim();
   if (!text) return;
-  playReceiveSound();
   const preview = pending.truncated ? text + i18next.t('terminal.announce.truncatedSuffix') : text;
-  announceTerminalResult(i18next.t('terminal.announce.output', { output: preview }));
+  if (announceWithOrigin({ origin: terminalOrigin(sessionId), message: i18next.t('terminal.announce.output', { output: preview }),
+    eventType: 'progress', waitsForReading: true, protectsReading: true })) playReceiveSound();
 }
 
 function scheduleOutputAnnounce(sessionId: string, chunk: string) {
+  if (!isVoiceAccessibilityOriginCurrentlyActive(terminalOrigin(sessionId))) return;
   const pending = pendingAnnouncements.get(sessionId);
   const previous = pending?.output ?? '';
   cancelOutputAnnouncement(sessionId);
@@ -353,14 +360,13 @@ export const useTerminalStore = create<TerminalState>((set) => ({
     const announceSessionEnded = (data: { sessionId?: string; terminalId?: string }) => {
       const sessionId = data.terminalId || data.sessionId;
       const session = useTerminalStore.getState().sessions.find((item) => item.id === sessionId);
-      const firstEvent = Boolean(sessionId && !endedSessions.has(sessionId));
+      if (!sessionId || endedSessions.has(sessionId)) return;
       removeExitedSession(data);
       // Eventos repetidos não anunciam duas vezes, inclusive antes da listagem inicial.
-      if (firstEvent) {
-        announceTerminalResult(session?.name?.trim()
-          ? i18next.t('terminal.announce.exited', { name: session.name })
-          : i18next.t('terminal.announce.terminated'));
-      }
+      const message = session?.name?.trim()
+        ? i18next.t('terminal.announce.exited', { name: session.name })
+        : i18next.t('terminal.announce.terminated');
+      announceTerminalResult(sessionId, message, message);
     };
     unsubs.push(EventsOn('terminal:session_closed', announceSessionEnded));
     unsubs.push(EventsOn('terminal:exited', announceSessionEnded));
@@ -471,16 +477,21 @@ export const useTerminalStore = create<TerminalState>((set) => ({
       listingStates?.set(data.sessionId, 'idle');
       const pending = unobservedCommands.get(data.sessionId);
       unobservedCommands.delete(data.sessionId);
-      if (!tracksHistory(data.sessionId)) {
-        set(state => ({ sessions: changeSessionState(state.sessions, data.sessionId, 'idle') }));
-        return;
-      }
-      if (terminalOutputListenerRefCount > 0) {
-        playReceiveSound();
+      const workspace = useWorkspaceStore.getState().workspace;
+      const tab = workspace?.tabs.find(candidate => candidate.type === 'terminal' && candidate.state?.sessionId === data.sessionId);
+      if (terminalOutputListenerRefCount > 0 || tab) {
+        if (isVoiceAccessibilityOriginCurrentlyActive(terminalOrigin(data.sessionId))) playReceiveSound();
         const outputPreview = data.output
           ? (data.output.length > 300 ? data.output.slice(0, 300) + i18next.t('terminal.announce.truncatedSuffix') : data.output)
           : i18next.t('terminal.announce.emptyOutput');
-        announceTerminalResult(i18next.t('terminal.announce.outputWithExit', { output: outputPreview, exitCode: data.exitCode }));
+        const name = useTerminalStore.getState().sessions.find(session => session.id === data.sessionId)?.name?.trim()
+          || tab?.title?.trim() || i18next.t('terminal.pageTitle');
+        announceTerminalResult(data.sessionId, i18next.t('terminal.announce.outputWithExit', { output: outputPreview, exitCode: data.exitCode }),
+          i18next.t('terminal.announce.backgroundResult', { name, exitCode: data.exitCode }));
+      }
+      if (!tracksHistory(data.sessionId)) {
+        set(state => ({ sessions: changeSessionState(state.sessions, data.sessionId, 'idle') }));
+        return;
       }
       set(state => {
         const sessionHistory = state.historyBySession[data.sessionId] ?? (pending ? [pending] : []);
