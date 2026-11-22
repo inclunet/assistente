@@ -10,7 +10,7 @@ export type AnnouncePriority = 'polite' | 'assertive';
 export interface VoiceAnnounceRequest extends VoiceAccessibilityRequestBase {
   message: string;
   /** Resumo já identificado para a entrega em segundo plano. */
-  inactiveMessage?: string;
+  inactiveMessage?: string | (() => string);
   announcePriority?: AnnouncePriority;
   /**
    * Protege a leitura deste anúncio na live region compartilhada (AEP-0058).
@@ -123,6 +123,7 @@ export function isVoiceAccessibilityOriginCurrentlyActive(origin?: VoiceAccessib
 }
 
 function formatInactiveAnnouncement(request: VoiceAnnounceRequest): string {
+  if (typeof request.inactiveMessage === 'function') return request.inactiveMessage();
   if (request.inactiveMessage) return request.inactiveMessage;
   const label = getVoiceAccessibilityOriginLabel(request.origin);
   if (!label) return request.message;

@@ -35,7 +35,7 @@ function terminalOrigin(sessionId: string) {
   return { surfaceType: 'terminal' as const, terminalSessionId: sessionId };
 }
 
-function announceTerminalResult(sessionId: string, message: string, inactiveMessage: string) {
+function announceTerminalResult(sessionId: string, message: string, inactiveMessage: string | (() => string)) {
   announceWithOrigin({ origin: terminalOrigin(sessionId), message, inactiveMessage, eventType: 'completion',
     waitsForReading: true, protectsReading: true });
 }
@@ -485,12 +485,15 @@ export const useTerminalStore = create<TerminalState>((set) => ({
         const outputPreview = data.output
           ? (data.output.length > 300 ? data.output.slice(0, 300) + i18next.t('terminal.announce.truncatedSuffix') : data.output)
           : i18next.t('terminal.announce.emptyOutput');
-        const name = useTerminalStore.getState().sessions.find(session => session.id === data.sessionId)?.name?.trim()
-          || tab?.title?.trim() || (tab && workspace
-            ? i18next.t('terminal.announce.unnamedTab', { position: workspace.tabs.indexOf(tab) + 1 })
-            : i18next.t('terminal.pageTitle'));
-        announceTerminalResult(data.sessionId, i18next.t('terminal.announce.outputWithExit', { output: outputPreview, exitCode: data.exitCode }),
-          i18next.t('terminal.announce.backgroundResult', { name, exitCode: data.exitCode }));
+        const { sessionId, exitCode } = data;
+        const sessionName = useTerminalStore.getState().sessions.find(session => session.id === sessionId)?.name?.trim();
+        announceTerminalResult(sessionId, i18next.t('terminal.announce.outputWithExit', { output: outputPreview, exitCode }), () => {
+          const tabs = useWorkspaceStore.getState().workspace?.tabs ?? [];
+          const index = tabs.findIndex(candidate => candidate.type === 'terminal' && candidate.state?.sessionId === sessionId);
+          const name = sessionName || tabs[index]?.title?.trim() || (index >= 0
+            ? i18next.t('terminal.announce.unnamedTab', { position: index + 1 }) : i18next.t('terminal.pageTitle'));
+          return i18next.t('terminal.announce.backgroundResult', { name, exitCode });
+        });
       }
       if (!tracksHistory(data.sessionId)) {
         set(state => ({ sessions: changeSessionState(state.sessions, data.sessionId, 'idle') }));

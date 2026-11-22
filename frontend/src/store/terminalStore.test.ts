@@ -314,10 +314,10 @@ describe('terminalStore', () => {
       emit('raw_output', 'a', 'prévia da aba anterior');
       vi.advanceTimersByTime(500);
       emit('command_end', 'a', 'detalhe da execução');
-      useWorkspaceStore.setState({ workspace: { ...workspace, activeTabId: 'tab-b' } });
+      useWorkspaceStore.setState({ workspace: { ...workspace, tabs: [...workspace.tabs].reverse(), activeTabId: 'tab-b' } });
       vi.runAllTimers();
       expect(announce.mock.calls.map(([message]) => message)).toEqual([
-        'Leitura em curso', i18next.t('terminal.announce.backgroundResult', { name: title || i18next.t('terminal.announce.unnamedTab', { position: 1 }), exitCode: 7 }),
+        'Leitura em curso', i18next.t('terminal.announce.backgroundResult', { name: title || i18next.t('terminal.announce.unnamedTab', { position: 2 }), exitCode: 7 }),
       ]);
     } finally { page(); reset(); useWorkspaceStore.setState({ workspace: original }); vi.useRealTimers(); }
   });
