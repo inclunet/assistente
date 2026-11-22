@@ -87,6 +87,15 @@ describe('announcerBroker', () => {
       expect(sink).toHaveBeenLastCalledWith(activeAtDelivery ? 'Conclusão' : 'Depois', 'polite');
     });
 
+    it.each([() => '', () => { throw new Error('origem removida'); }])('preserva a fila se o resumo não estiver disponível', summary => {
+      unregisterResolver = registerVoiceAccessibilityActiveResolver(onlyActiveWithoutTab);
+      announceWithOrigin({ message: content, protectsReading: true });
+      announceWithOrigin({ origin: { tabId: 'a', title: 'Origem' }, eventType: 'completion', message: 'Fim', inactiveMessage: summary });
+      announceWithOrigin({ message: 'Seguinte', eventType: 'completion' });
+      vi.runAllTimers();
+      expect(sink.mock.calls.map(([message]) => message)).toEqual([content, 'Origem: Fim', 'Seguinte']);
+    });
+
     it('adia aviso secundário e o fala depois da leitura terminar', () => {
       announceWithOrigin({ message: content, eventType: 'completion', protectsReading: true });
       sink.mockClear();

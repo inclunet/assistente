@@ -54,7 +54,7 @@ export function WorkspaceLayout() {
   useWorkspaceChatBridge();
   useWorkspacePanelRenameHandlers();
   useWorkspacePanelLifecycleCleanup();
-  useVoiceAccessibilityWorkspaceResolver();
+  useVoiceAccessibilityWorkspaceResolver(isWorkspaceRoute && isInitialized);
 
   useEffect(() => {
     pruneWorkspacePanelFocus(new Set(workspace?.tabs.map((tab) => tab.id) ?? []));

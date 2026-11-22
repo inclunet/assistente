@@ -1,3 +1,5 @@
+import type { WorkspaceData } from '../../store/workspaceStore';
+import type { VoiceAccessibilityOrigin } from './types';
 import { renderHook } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useVoiceAccessibilityWorkspaceResolver } from './workspaceResolver';
@@ -11,9 +13,9 @@ const hoisted = vi.hoisted(() => ({
       { id: 'tab-1', type: 'chat', conversationId: 'conv-1', title: 'Chat 1', position: 0 },
       { id: 'tab-2', type: 'chat', conversationId: 'conv-2', title: 'Chat 2', position: 1 },
     ],
-  },
+  } as WorkspaceData,
   subscribe: vi.fn<(listener: unknown) => () => void>(),
-  registerResolver: vi.fn<(resolver: unknown) => () => void>(() => vi.fn()),
+  registerResolver: vi.fn<(resolver: (origin?: VoiceAccessibilityOrigin) => boolean) => () => void>(() => vi.fn()),
   cancelInactiveSTTSession: vi.fn(),
 }));
 
@@ -25,7 +27,7 @@ vi.mock('../../store/workspaceStore', () => ({
 }));
 
 vi.mock('./announcerBroker', () => ({
-  registerVoiceAccessibilityActiveResolver: (resolver: unknown) => hoisted.registerResolver(resolver),
+  registerVoiceAccessibilityActiveResolver: (resolver: (origin?: VoiceAccessibilityOrigin) => boolean) => hoisted.registerResolver(resolver),
 }));
 
 vi.mock('./sttGate', () => ({
@@ -42,7 +44,7 @@ describe('useVoiceAccessibilityWorkspaceResolver', () => {
   });
 
   it('registra resolver global baseado na aba ativa do workspace', () => {
-    renderHook(() => useVoiceAccessibilityWorkspaceResolver());
+    renderHook(() => useVoiceAccessibilityWorkspaceResolver(true));
 
     const resolver = hoisted.registerResolver.mock.calls[0][0] as (origin?: { tabId?: string; conversationId?: string }) => boolean;
 
@@ -52,8 +54,22 @@ describe('useVoiceAccessibilityWorkspaceResolver', () => {
     expect(resolver({ conversationId: 'conv-2' })).toBe(false);
   });
 
+  it('trata a sessão da aba selecionada como inativa enquanto o painel está fora da tela', () => {
+    const original = hoisted.workspace;
+    hoisted.workspace = { ...original, tabs: [{ ...original.tabs[0], type: 'terminal', state: { sessionId: 's' } }] };
+    try {
+      const { rerender } = renderHook(({ visible }) => useVoiceAccessibilityWorkspaceResolver(visible), { initialProps: { visible: true } });
+      const active = () => hoisted.registerResolver.mock.lastCall![0]({ terminalSessionId: 's' });
+      expect(active()).toBe(true);
+      rerender({ visible: false });
+      expect(active()).toBe(false);
+      rerender({ visible: true });
+      expect(active()).toBe(true);
+    } finally { hoisted.workspace = original; }
+  });
+
   it('cancela STT inativo quando a aba ativa muda', () => {
-    renderHook(() => useVoiceAccessibilityWorkspaceResolver());
+    renderHook(() => useVoiceAccessibilityWorkspaceResolver(true));
 
     const listener = hoisted.subscribe.mock.calls[0][0] as (
       state: { workspace: typeof hoisted.workspace },
