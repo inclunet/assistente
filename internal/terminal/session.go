@@ -153,14 +153,14 @@ type Session struct {
 	ptyCloseOnce    sync.Once
 	explicitClose   bool
 	writeClosing    bool
-	commandDelivery *commandDelivery // Sob mu: ordena command_end e exited na saída natural e na falha.
+	commandDelivery *commandDelivery // Sob mu: preserva o resultado antes dos eventos de encerramento.
 	discardOutput   bool             // Sob outputMu: a entrada encerrou antes do cleanup do PTY.
 }
 
 type commandDelivery struct {
-	notifyExit func() // Sob mu: saída natural após a entrega do resultado.
-	ended      bool
-	err        error
+	afterEnd []func() // Sob mu: eventos de encerramento pendentes.
+	ended    bool
+	err      error
 }
 
 var nextSessionVersion atomic.Uint64
@@ -508,25 +508,31 @@ func (s *Session) releasePTY() {
 // muda o estado para exited depois de registrar a causa final do fechamento.
 func (s *Session) markExited(err error) {
 	s.ioMu.Lock()
-	defer s.ioMu.Unlock()
 	s.mu.Lock()
 	if s.state == StateClosing || s.state == StateExited {
 		s.mu.Unlock()
+		s.ioMu.Unlock()
 		return
 	}
 	s.state = StateExited
-	var notify func()
+	s.mu.Unlock()
+	s.ioMu.Unlock()
 	if s.onExit != nil {
-		notify = func() { s.exitOnce.Do(func() { s.deliverExit(err) }) }
-		if s.commandDelivery != nil && !s.commandDelivery.ended {
-			s.commandDelivery.notifyExit = notify
-			notify = nil
-		}
+		s.afterCommandEnd(func() { s.exitOnce.Do(func() { s.deliverExit(err) }) })
+	}
+}
+
+// A sessão já está encerrada. O emissor pode concluir o teardown sem bloquear
+// a entrega do resultado do comando nem executar callbacks sob mu.
+func (s *Session) afterCommandEnd(notify func()) {
+	s.mu.Lock()
+	if d := s.commandDelivery; d != nil && !d.ended {
+		d.afterEnd = append(d.afterEnd, notify)
+		s.mu.Unlock()
+		return
 	}
 	s.mu.Unlock()
-	if notify != nil {
-		notify()
-	}
+	notify()
 }
 
 func (s *Session) deliverExit(err error) {
@@ -540,12 +546,6 @@ func (s *Session) deliverExit(err error) {
 	s.onExit(s.id, err)
 }
 
-// Depois da reserva gerenciada, RunCommand e RunEphemeral entram diretamente em
-// runCommandInDirectory, que entrega o resultado antes de liberar a saída pendente.
-func (s *Session) beginCommandWithID(commandID string) error {
-	return s.reserveCommand(commandID, &commandDelivery{})
-}
-
 func (s *Session) reserveCommand(commandID string, delivery *commandDelivery) error {
 	if s.faultOwnsCleanup() {
 		return fmt.Errorf("sessão %s indisponível após falha no PTY", s.id)
@@ -557,9 +557,6 @@ func (s *Session) reserveCommand(commandID string, delivery *commandDelivery) er
 	defer s.mu.Unlock()
 	if s.state != StateIdle {
 		return fmt.Errorf("sessão %s não está disponível (estado: %s)", s.id, s.state.String())
-	}
-	if commandID == "" {
-		commandID = uuid.NewString()
 	}
 	s.state = StateRunning
 	s.commandDelivery = delivery
@@ -589,47 +586,36 @@ func (s *Session) RunCommand(ctx context.Context, command string, timeout time.D
 }
 
 func (s *Session) runCommandInDirectory(ctx context.Context, command, directory string, timeout time.Duration, source, commandID string, onEnd func(*HistoryEntry, error)) (resultEntry *HistoryEntry, resultErr error) {
-	commandCtx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
-	s.mu.Lock()
-	delivery := s.commandDelivery
-	if delivery == nil {
-		delivery = &commandDelivery{}
-		s.commandDelivery = delivery
+	if commandID == "" {
+		commandID = uuid.NewString()
 	}
-	s.mu.Unlock()
+	delivery := &commandDelivery{}
+	if err := s.reserveCommand(commandID, delivery); err != nil {
+		return nil, err
+	}
 	defer func() {
 		if onEnd != nil {
 			onEnd(resultEntry, resultErr)
 		}
 		s.mu.Lock()
 		delivery.ended, delivery.err = true, resultErr
-		notify := delivery.notifyExit
-		delivery.notifyExit = nil
-		if s.commandDelivery == delivery && !s.writeClosing && s.readerErr == nil {
+		pending := delivery.afterEnd
+		delivery.afterEnd = nil
+		if !s.writeClosing && s.readerErr == nil {
 			s.commandDelivery = nil
 		}
 		s.mu.Unlock()
-		if notify != nil {
+		if !s.faultOwnsCleanup() {
+			s.finishCommand()
+		}
+		for _, notify := range pending {
 			notify()
 		}
 		s.notifyFaultExit()
 	}()
-	defer func() {
-		if !s.faultOwnsCleanup() {
-			s.finishCommand()
-		}
-	}()
+	commandCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
 
-	s.mu.Lock()
-	if commandID == "" {
-		commandID = s.managedCommandID
-		if commandID == "" {
-			commandID = uuid.NewString()
-		}
-	}
-	s.managedCommandID = commandID
-	s.mu.Unlock()
 	entry := &HistoryEntry{
 		ID:        commandID,
 		Command:   command,

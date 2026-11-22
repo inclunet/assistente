@@ -216,15 +216,10 @@ func (m *Manager) RunEphemeral(ctx context.Context, workDir, command string, tim
 	}()
 
 	commandID := uuid.NewString()
-	entry := &HistoryEntry{ID: commandID, Command: command, Source: source, StartedAt: time.Now()}
-	if err := session.beginCommandWithID(commandID); err != nil {
-		return nil, err
-	}
 	// O shell pode carregar um perfil que muda o diretório. Reestabelecer o
 	// diretório da execução depois da inicialização impede que isso amplie
 	// uma autorização vinculada ao diretório, sem retirar o ambiente do usuário.
-	result, err := session.runCommandInDirectory(ctx, command, session.cwd, timeout, source, commandID, nil)
-	return completeCommandEntry(entry, result, err), err
+	return session.runCommandInDirectory(ctx, command, session.cwd, timeout, source, commandID, nil)
 }
 
 // Release marca uma sessão como idle após uso pelo LLM.
@@ -239,7 +234,9 @@ func (m *Manager) Release(sessionID string) {
 
 	session.ioMu.Lock()
 	session.mu.Lock()
-	if session.state == StateBusy {
+	// A execução que reservou um comando libera a própria geração. Uma
+	// chamada legada após RunCommand pode encontrar o próximo comando ativo.
+	if session.state == StateBusy && session.managedCommandID == "" {
 		session.state = StateIdle
 	}
 	session.mu.Unlock()
@@ -262,18 +259,7 @@ func (m *Manager) RunCommand(ctx context.Context, sessionID, command string, tim
 	}
 
 	commandID := uuid.NewString()
-	entry := &HistoryEntry{
-		ID:        commandID,
-		Command:   command,
-		Source:    source,
-		StartedAt: time.Now(),
-	}
-	if err := session.beginCommandWithID(commandID); err != nil {
-		return nil, err
-	}
-
-	_, err := session.runCommandInDirectory(ctx, command, "", timeout, source, commandID, func(result *HistoryEntry, err error) {
-		entry = completeCommandEntry(entry, result, err)
+	return session.runCommandInDirectory(ctx, command, "", timeout, source, commandID, func(entry *HistoryEntry, err error) {
 		// O retorno conserva o output bruto para a tool; o evento usa a mesma cópia
 		// limitada do histórico para não transferir vários MiB à UI.
 		eventEntry := limitedHistoryEntry(entry)
@@ -286,18 +272,6 @@ func (m *Manager) RunCommand(ctx context.Context, sessionID, command string, tim
 			"error":      errToString(err),
 		})
 	})
-	return entry, err
-}
-
-func completeCommandEntry(entry, result *HistoryEntry, err error) *HistoryEntry {
-	if result != nil {
-		return result
-	}
-	if err != nil {
-		entry.ExitCode = -1
-		entry.EndedAt = time.Now()
-	}
-	return entry
 }
 
 // SendInput envia input raw para uma sessão PTY (modo interativo, sem markers).
@@ -510,12 +484,14 @@ func (m *Manager) Close(sessionID string) error {
 		return err
 	}
 
-	m.emitSessionClosed(sessionID)
+	m.emitSessionClosed(session)
 	return err
 }
 
-func (m *Manager) emitSessionClosed(sessionID string) {
-	m.emitEvent("terminal:session_closed", map[string]string{"sessionId": sessionID})
+func (m *Manager) emitSessionClosed(session *Session) {
+	session.afterCommandEnd(func() {
+		m.emitEvent("terminal:session_closed", map[string]string{"sessionId": session.id})
+	})
 }
 
 func (m *Manager) removeIfSame(sessionID string, expected *Session) bool {

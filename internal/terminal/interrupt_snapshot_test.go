@@ -91,8 +91,8 @@ func TestInterruptSnapshotRejectsNewCommandGeneration(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CaptureInterrupt: %v", err)
 	}
-	if err := session.beginCommandWithID("command-next"); err != nil {
-		t.Fatalf("beginCommandWithID: %v", err)
+	if err := session.reserveCommand("command-next", nil); err != nil {
+		t.Fatalf("reserveCommand: %v", err)
 	}
 	session.finishCommand()
 
@@ -107,8 +107,8 @@ func TestInterruptSnapshotRejectsNewCommandGeneration(t *testing.T) {
 func TestCaptureInterruptRejectsPendingWrite(t *testing.T) {
 	writer := &interruptFakePTYWriter{}
 	manager, session := newInterruptFakeManager(writer)
-	if err := session.beginCommandWithID("cmd-pending"); err != nil {
-		t.Fatalf("beginCommandWithID: %v", err)
+	if err := session.reserveCommand("cmd-pending", nil); err != nil {
+		t.Fatalf("reserveCommand: %v", err)
 	}
 
 	if _, err := manager.CaptureInterrupt(session.id); !errors.Is(err, ErrInterruptStale) {
@@ -167,10 +167,10 @@ func TestInterruptSnapshotSerializesBeginCommandBehindCommit(t *testing.T) {
 	}
 
 	beginDone := make(chan error, 1)
-	go func() { beginDone <- session.beginCommandWithID("command-next") }()
+	go func() { beginDone <- session.reserveCommand("command-next", nil) }()
 	select {
 	case err := <-beginDone:
-		t.Fatalf("beginCommandWithID atravessou o commit: %v", err)
+		t.Fatalf("reserveCommand atravessou o commit: %v", err)
 	case <-time.After(25 * time.Millisecond):
 	}
 
@@ -217,7 +217,7 @@ func TestPrepareInterruptHandoffReleasesAppGuardsAndReservesSession(t *testing.T
 	}
 
 	beginDone := make(chan error, 1)
-	go func() { beginDone <- session.beginCommandWithID("command-next") }()
+	go func() { beginDone <- session.reserveCommand("command-next", nil) }()
 	select {
 	case err := <-beginDone:
 		t.Fatalf("novo comando atravessou a reserva: %v", err)
@@ -277,7 +277,7 @@ func TestInterruptOperationCanceledContextIsStaleBeforeWrite(t *testing.T) {
 	if writes := writer.snapshot(); len(writes) != 0 {
 		t.Fatalf("write ocorreu após cancelamento prévio: %#v", writes)
 	}
-	if err := session.beginCommandWithID("command-after-cancel"); err != nil {
+	if err := session.reserveCommand("command-after-cancel", nil); err != nil {
 		t.Fatalf("sessão permaneceu reservada: %v", err)
 	}
 	session.finishCommand()

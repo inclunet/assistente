@@ -500,8 +500,12 @@ func TestProcessExitBeforeStartMarker(t *testing.T) {
 
 func TestExplicitCloseAfterStartDoesNotCompleteCommand(t *testing.T) {
 	started := make(chan struct{}, 1)
+	endEvents := make(chan string, 4)
 	var emitted strings.Builder
 	manager := NewManager(DefaultManagerConfig(), func(event string, data any) {
+		if event == "terminal:command_end" || event == "terminal:session_closed" {
+			endEvents <- event
+		}
 		payload, ok := data.(map[string]string)
 		if event != "terminal:command_output" || !ok {
 			return
@@ -538,7 +542,15 @@ func TestExplicitCloseAfterStartDoesNotCompleteCommand(t *testing.T) {
 	case <-time.After(10 * time.Second):
 		t.Fatal("comando não iniciou")
 	}
-	if err := manager.Close(session.ID()); err != nil {
+	snapshot, err := manager.CaptureClose(session.ID())
+	if err != nil {
+		t.Fatal(err)
+	}
+	op, err := manager.PrepareClose(snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := op.Execute(t.Context()); err != nil {
 		t.Fatal(err)
 	}
 	select {
@@ -548,6 +560,14 @@ func TestExplicitCloseAfterStartDoesNotCompleteCommand(t *testing.T) {
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("fechamento não concluiu a espera")
+	}
+	close(endEvents)
+	var events []string
+	for event := range endEvents {
+		events = append(events, event)
+	}
+	if !slices.Equal(events, []string{"terminal:command_end", "terminal:session_closed"}) {
+		t.Fatalf("ordem dos eventos no encerramento pela aba: %v", events)
 	}
 }
 
