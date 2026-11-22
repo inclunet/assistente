@@ -234,6 +234,12 @@ func newSession(name string, workDir WorkingDirectory, shell string, env []strin
 	ptySession, err := ptyx.Spawn(ctx, opts)
 	if err != nil {
 		cancel()
+		if workDir.Path != "" {
+			info, dirErr := os.Stat(workDir.Path)
+			if dirErr != nil || !info.IsDir() {
+				return nil, fmt.Errorf("%w: %w", ErrDirectoryUnresolved, err)
+			}
+		}
 		return nil, fmt.Errorf("falha ao criar sessão PTY (%s): %w", shell, err)
 	}
 	// ptyx fecha e zera os campos internos do ConPTY em uma goroutine quando o

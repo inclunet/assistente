@@ -479,6 +479,8 @@ func classifySessionStartError(err error) (string, tools.ErrorKind, bool) {
 		return "Início da sessão de terminal cancelado.", tools.ErrorKindCancelled, false
 	case errors.Is(err, context.DeadlineExceeded):
 		return "Prazo encerrado ao iniciar a sessão de terminal.", tools.ErrorKindTimeout, false
+	case errors.Is(err, terminal.ErrDirectoryUnresolved):
+		return "Diretório indisponível ao iniciar a sessão de terminal.", tools.ErrorKindUnavailable, false
 	case errors.Is(err, os.ErrNotExist), errors.Is(err, exec.ErrNotFound):
 		return "Executável do terminal não encontrado.", tools.ErrorKindUnavailable, false
 	case errors.Is(err, os.ErrPermission):

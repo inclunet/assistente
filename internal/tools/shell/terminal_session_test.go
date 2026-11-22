@@ -162,6 +162,16 @@ func TestTerminalSessionReportsManagerError(t *testing.T) {
 	}
 }
 
+func TestCriacaoComDiretorioPadraoAusente(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "projeto-removido")
+	manager := terminal.NewManager(terminal.DefaultManagerConfig(), nil)
+	result, err := NewTerminalSession(manager, dir).Execute(t.Context(), json.RawMessage(`{"action":"create"}`))
+	if err != nil || !result.IsError || result.Content != "Diretório indisponível ao iniciar a sessão de terminal." ||
+		result.Failure == nil || result.Failure.Retryable || strings.Contains(result.Content, dir) {
+		t.Fatalf("resultado=%#v err=%v", result, err)
+	}
+}
+
 func TestTerminalSessionCreateNaoExpoeCaminhoDoShell(t *testing.T) {
 	dir := t.TempDir()
 	cfg := terminal.DefaultManagerConfig()
