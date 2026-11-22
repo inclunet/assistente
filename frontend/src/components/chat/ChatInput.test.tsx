@@ -124,10 +124,21 @@ describe('ChatInput', () => {
     fireEvent.drop(editor, { dataTransfer: { files: [file] } });
     expect(processMediaFilesSpy).toHaveBeenCalledTimes(1);
     rerender(<ChatInput {...props} />);
-    await act(async () => { request.resolve(mediaResult([file], 'novo')); });
+    const send = screen.getByRole('button', { name: 'chat.send' });
+    expect(send).toBeEnabled();
+    const next = deferred<MediaFile[]>();
+    processMediaFilesSpy.mockReturnValueOnce(next.promise);
+    paste();
+    await act(async () => { request.resolve(mediaResult([file], 'descartado')); });
     expect(change).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole('button', { name: /mediaPreview.remove/ }));
-    expect(change).toHaveBeenCalledWith([]);
+    expect(send).toBeDisabled();
+    await act(async () => { next.resolve(mediaResult([file], 'novo')); });
+    expect(send).toBeEnabled();
+    const added = mediaResult([file], 'novo');
+    expect(change).toHaveBeenCalledWith([...media, ...added]);
+    rerender(<ChatInput {...props} mediaFiles={[...media, ...added]} />);
+    fireEvent.click(screen.getAllByRole('button', { name: /mediaPreview.remove/ })[0]);
+    expect(change).toHaveBeenLastCalledWith(added);
   });
 
   it('preserva foco e cursor quando ArrowUp não tem destino de navegação', () => {

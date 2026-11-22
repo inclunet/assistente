@@ -14,6 +14,11 @@ import { GetUserInvocableSkillsForProfile } from '@wailsjs/go/wailsapi/Skills';
 import type { apidto, skills } from '../../../wailsjs/go/models';
 import './ChatInput.css';
 
+function mediaFilesMatch(current: MediaFile[], snapshot: MediaFile[]): boolean {
+  return current.length === snapshot.length
+    && current.every((file, index) => file.id === snapshot[index].id);
+}
+
 export interface ChatInputProps {
   onSend: (message: string, mediaFiles?: MediaFile[], options?: { voice?: boolean }) => boolean | void | Promise<boolean | void>;
   /** Terminal consumes synchronously; chat clears only after audited admission. */
@@ -71,9 +76,11 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
   const [localMessage, setLocalMessage] = useState('');
   const [localMediaFiles, setLocalMediaFiles] = useState<MediaFile[]>([]);
   const [isDragging, setIsDragging] = useState(false);
-  const [isProcessing, setIsProcessing] = useState(false);
+  const [pendingAttachments, setPendingAttachments] = useState(0);
+  const isProcessing = pendingAttachments > 0;
   const attachmentGeneration = useRef(0);
   useLayoutEffect(() => {
+    setPendingAttachments(0);
     if (editorReadOnly) setIsDragging(false);
     return () => { attachmentGeneration.current++; };
   }, [editorReadOnly]);
@@ -97,6 +104,8 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
   const message = isMessageControlled ? controlledMessage : localMessage;
   const mediaFiles = isMediaFilesControlled ? controlledMediaFiles : localMediaFiles;
   const messageRef = useRef(message);
+  const textRevision = useRef(0);
+  const mediaRevision = useRef(0);
   const sendInFlightRef = useRef(false);
   const [isSendPending, setIsSendPending] = useState(false);
   // Só indicamos "rascunho salvo" quando o estado é persistido pela superfície
@@ -108,11 +117,13 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
   const showDraftSaved = hasControlledTextDraft || hasControlledMediaDraft;
   const mediaFilesRef = useRef<MediaFile[]>(mediaFiles);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
+    if (messageRef.current !== message) textRevision.current++;
     messageRef.current = message;
   }, [message]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
+    if (!mediaFilesMatch(mediaFilesRef.current, mediaFiles)) mediaRevision.current++;
     mediaFilesRef.current = mediaFiles;
   }, [mediaFiles]);
 
@@ -128,6 +139,7 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
   }, [showDraftSaved, announce, t]);
 
   const setMessage = useCallback((nextMessage: string) => {
+    if (messageRef.current !== nextMessage) textRevision.current++;
     messageRef.current = nextMessage;
     if (handleMessageChange) {
       handleMessageChange(nextMessage);
@@ -136,6 +148,7 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
     setLocalMessage(nextMessage);
   }, [handleMessageChange]);
   const setMediaFiles = useCallback((nextMediaFiles: MediaFile[]) => {
+    if (!mediaFilesMatch(mediaFilesRef.current, nextMediaFiles)) mediaRevision.current++;
     mediaFilesRef.current = nextMediaFiles;
     if (handleMediaFilesChange) {
       handleMediaFilesChange(nextMediaFiles);
@@ -173,11 +186,6 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
     }
   }, [announce, t]);
 
-  const mediaFilesMatch = (current: MediaFile[], snapshot: MediaFile[]): boolean => (
-    current.length === snapshot.length
-    && current.every((mediaFile, index) => mediaFile === snapshot[index] || mediaFile.id === snapshot[index]?.id)
-  );
-
   const submitMessage = useCallback((
     rawMessage: string,
     draftMediaFiles: MediaFile[],
@@ -191,8 +199,8 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
     sendInFlightRef.current = true;
     setIsSendPending(true);
     const sentMediaFiles = draftMediaFiles.length > 0 ? draftMediaFiles : undefined;
-    const pendingDraftMessage = rawMessage;
-    const pendingDraftMediaFiles = [...draftMediaFiles];
+    const sentTextRevision = textRevision.current;
+    const sentMediaRevision = mediaRevision.current;
 
     // O snapshot continua visível até a aceitação explícita. Assim uma
     // rejeição síncrona/assíncrona nunca perde texto ou anexos e, se a pessoa
@@ -217,10 +225,10 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
       // `true` é a admissão explícita. Com clearOnSend=false, a superfície
       // persistida mantém o rascunho até o pipeline AEP limpá-lo após o sucesso.
       if (accepted === true && clearOnSend && textareaRef.current) {
-        if (!options.preserveMessage && messageRef.current === pendingDraftMessage) {
+        if (!options.preserveMessage && textRevision.current === sentTextRevision && messageRef.current === rawMessage) {
           setMessage('');
         }
-        if (mediaFilesMatch(mediaFilesRef.current, pendingDraftMediaFiles)) {
+        if (mediaRevision.current === sentMediaRevision && mediaFilesMatch(mediaFilesRef.current, draftMediaFiles)) {
           setMediaFiles([]);
         }
       }
@@ -349,7 +357,7 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
     const generation = attachmentGeneration.current;
     if (editorReadOnly || files.length === 0 || currentMediaFiles.length >= maxFiles) return;
     
-    setIsProcessing(true);
+    setPendingAttachments(count => count + 1);
     try {
       const remainingSlots = maxFiles - currentMediaFiles.length;
       const filesToProcess = files.slice(0, remainingSlots);
@@ -362,7 +370,7 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
     } catch (error) {
       logger.error('Erro ao processar arquivos:', error);
     } finally {
-      setIsProcessing(false);
+      if (generation === attachmentGeneration.current) setPendingAttachments(count => count - 1);
     }
   };
 

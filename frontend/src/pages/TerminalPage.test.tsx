@@ -305,6 +305,23 @@ describe('TerminalPage', () => {
     } else expect(input).toHaveValue('exit');
   });
 
+  it('o aceite antigo preserva texto idêntico redigitado em outra sessão', async () => {
+    let accept!: (value: boolean) => void;
+    storeMocks.sendInput.mockReturnValueOnce(new Promise<boolean>(resolve => { accept = resolve; }));
+    const { rerender } = renderTerminalPage();
+    const input = screen.getByRole('textbox');
+    fireEvent.change(input, { target: { value: 'exit' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    storeState.sessions = [];
+    rerender(terminalPageView());
+    storeState.sessions = [{ id: 'term-2', name: 'Outro', cwd: '/', state: 'idle', shell: 'sh' }];
+    rerender(terminalPageView({ ...terminalTab, state: { sessionId: 'term-2' } }));
+    fireEvent.change(input, { target: { value: '' } });
+    fireEvent.change(input, { target: { value: 'exit' } });
+    await act(async () => { accept(true); });
+    expect(input).toHaveValue('exit');
+  });
+
   it('o foco agendado pelo envio não volta ao editor após o encerramento', async () => {
     const { rerender } = renderTerminalPage();
     const input = screen.getByRole('textbox');
