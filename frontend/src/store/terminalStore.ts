@@ -256,7 +256,10 @@ export const useTerminalStore = create<TerminalState>((set) => ({
           const stored = entries.get(entry.id);
           if (stored && entry.source === 'user-raw' && entry.output) {
             // A sessão registra o comando manual. Sua saída chega à interface pelo stream.
-            entries.set(entry.id, terminal.HistoryEntry.createFrom({ ...stored, output: entry.output }));
+            const hydrated = terminal.HistoryEntry.createFrom({ ...stored, output: entry.output });
+            const used = historyBytes.get(entry);
+            if (used !== undefined) historyBytes.set(hydrated, used);
+            entries.set(entry.id, hydrated);
           } else if (!stored || (!stored.endedAt && entry.endedAt)) {
             entries.set(entry.id, entry);
           }
