@@ -105,6 +105,7 @@ export default function TerminalPage({ sessionId: explicitSessionId }: TerminalP
   const {
     sessions,
     isLoadingSessions,
+    sessionListFailed,
     historyBySession,
     activeEntryBySession = {},
     loadingHistoryBySession,
@@ -172,21 +173,24 @@ export default function TerminalPage({ sessionId: explicitSessionId }: TerminalP
   useEffect(() => {
     if (!isActive || !focusRequest || focusRequest.sessionId !== currentSessionId) return;
     const cancel = () => setFocusRequest(null);
-    document.addEventListener('focusin', cancel);
+    const originLostFocus = () => document.activeElement === document.body && focusRequest.origin &&
+      (!focusRequest.origin.isConnected || focusRequest.origin.closest('[hidden], [inert]'));
+    const onFocusIn = () => { if (!originLostFocus()) cancel(); };
+    document.addEventListener('focusin', onFocusIn);
     const waitingForSession = currentSessionId && !sessionIsLive && isLoadingSessions;
     const frame = waitingForSession ? undefined : requestAnimationFrame(() => {
       if (!isPanelActiveRef.current || isModalOpen() || useWorkspaceChatModalStore.getState().isOpen ||
-          document.activeElement !== focusRequest.origin || focusRequest.origin?.closest('.terminal-node')) {
+          (!originLostFocus() && (document.activeElement !== focusRequest.origin || focusRequest.origin?.closest('.terminal-node')))) {
         cancel();
         return;
       }
       const target = sessionIsLive ? inputRef.current : terminalPickerTriggerRef.current ?? newTerminalButtonRef.current;
-      document.removeEventListener('focusin', cancel);
+      document.removeEventListener('focusin', onFocusIn);
       cancel();
       target?.focus();
     });
     return () => {
-      document.removeEventListener('focusin', cancel);
+      document.removeEventListener('focusin', onFocusIn);
       if (frame !== undefined) cancelAnimationFrame(frame);
     };
   }, [focusRequest, isActive, currentSessionId, sessionIsLive, isLoadingSessions]);
@@ -368,8 +372,7 @@ export default function TerminalPage({ sessionId: explicitSessionId }: TerminalP
 
   const handleSendInput = useCallback(async (input: string): Promise<boolean> => {
     if (!currentSessionId) return false;
-    await sendInput(currentSessionId, input);
-    return true;
+    return sendInput(currentSessionId, input);
   }, [currentSessionId, sendInput]);
 
   const bindSession = useCallback(async (sessionId: string) => {
@@ -551,12 +554,13 @@ export default function TerminalPage({ sessionId: explicitSessionId }: TerminalP
         <ChatInput
           ref={inputRef}
           onSend={handleSendInput}
-          disabled={!activeSession}
-          editorReadOnly={!activeSession}
+          disabled={!sessionIsLive}
+          editorReadOnly={!sessionIsLive}
           placeholder={
-            !activeSession
-              ? t('terminal.placeholders.creating')
-              : t('terminal.placeholders.command')
+            sessionIsLive ? t('terminal.placeholders.command')
+              : !currentSessionId ? t('terminal.placeholders.unbound')
+              : isLoadingSessions ? t('terminal.placeholders.loading')
+              : sessionListFailed ? t('terminal.placeholders.unavailable') : t('terminal.placeholders.ended')
           }
           voiceEnabled={false}
           slashMenuEnabled={false}

@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { terminal } from '../../wailsjs/go/models';
 import { resolveTerminalCommandId, useTerminalStore } from './terminalStore';
 import { useAuthStore } from './authStore';
-import { ListTerminalSessions } from '@wailsjs/go/wailsapi/Terminal';
+import { ListTerminalSessions, SendTerminalInput } from '@wailsjs/go/wailsapi/Terminal';
 import { registerAnnouncerSink, unregisterAnnouncerSink } from '../services/voiceAccessibility/announcerBroker';
 import en from '../locales/en';
 import i18next from 'i18next';
@@ -45,6 +45,20 @@ function createDeferred<T>() {
 
 describe('terminalStore', () => {
   afterEach(unregisterAnnouncerSink);
+  it('informa se o backend aceitou a entrada do terminal', async () => {
+    const { sendInput } = useTerminalStore.getState();
+    vi.mocked(SendTerminalInput).mockRejectedValueOnce(new Error('encerrado'));
+    expect(await sendInput('s1', 'pwd')).toBe(false);
+    expect(await sendInput('s1', 'pwd')).toBe(true);
+  });
+  it('diferencia falha na listagem de uma consulta vazia', async () => {
+    vi.mocked(ListTerminalSessions).mockRejectedValueOnce(new Error('indisponível'));
+    const { loadSessions } = useTerminalStore.getState();
+    expect(await loadSessions()).toBe(false);
+    expect(useTerminalStore.getState().sessionListFailed).toBe(true);
+    expect(await loadSessions()).toBe(true);
+    expect(useTerminalStore.getState().sessionListFailed).toBe(false);
+  });
   it('ignora listagem após troca de sessão, inclusive ABA', async () => {
     const original = useAuthStore.getState();
     const pending = createDeferred<terminal.SessionInfo[]>();

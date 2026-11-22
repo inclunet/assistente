@@ -95,13 +95,14 @@ interface TerminalState {
   /** ID do último entry que está recebendo raw output (modo interativo) */
   activeEntryBySession: Record<string, string | null>;
   isLoadingSessions: boolean;
+  sessionListFailed: boolean;
   loadingHistoryBySession: Record<string, boolean>;
 
   // Actions
   loadSessions: () => Promise<boolean>;
   createSession: (name?: string) => Promise<string | null>;
   closeSession: (id: string) => Promise<boolean>;
-  sendInput: (sessionId: string, input: string) => Promise<void>;
+  sendInput: (sessionId: string, input: string) => Promise<boolean>;
   interrupt: (sessionId: string) => Promise<void>;
   loadHistory: (sessionId: string) => Promise<void>;
   setupEventListeners: (options?: { lifecycleOnly?: boolean }) => () => void;
@@ -112,6 +113,7 @@ export const useTerminalStore = create<TerminalState>((set) => ({
   historyBySession: {},
   activeEntryBySession: {},
   isLoadingSessions: false,
+  sessionListFailed: false,
   loadingHistoryBySession: {},
 
   loadSessions: async () => {
@@ -122,7 +124,7 @@ export const useTerminalStore = create<TerminalState>((set) => ({
       if (state.isAuthenticated !== owner.isAuthenticated || state.user?.userId !== owner.user?.userId ||
           state.user?.sessionId !== owner.user?.sessionId) currentOwner = false;
     });
-    set({ isLoadingSessions: true });
+    set({ isLoadingSessions: true, sessionListFailed: false });
     try {
       const sessions = await ListTerminalSessions();
       if (!currentOwner) return false;
@@ -140,6 +142,7 @@ export const useTerminalStore = create<TerminalState>((set) => ({
         const refreshed = await replacement;
         return currentOwner && refreshed;
       }
+      if (currentOwner && request === terminalSessionReadGeneration) set({ sessionListFailed: true });
       logger.error('[Terminal] Erro ao carregar sessões:', err);
       return false;
     } finally {
@@ -173,13 +176,15 @@ export const useTerminalStore = create<TerminalState>((set) => ({
   },
 
   sendInput: async (sessionId: string, input: string) => {
-    if (!sessionId) return;
+    if (!sessionId) return false;
 
     try {
       playSendSound();
       await SendTerminalInput(sessionId, input);
+      return true;
     } catch (err) {
       logger.error('[Terminal] Erro ao enviar input:', err);
+      return false;
     }
   },
 

@@ -64,7 +64,7 @@ func (op *CloseOperation) Execute(ctx context.Context) error {
 	err := op.session.closeCapturedSession(op.token)
 	op.release(closeOperationDone, false)
 	if !errors.Is(err, ErrCloseStale) && op.manager != nil && op.manager.removeIfSame(op.sessionID, op.session) {
-		op.manager.emitSessionClosed(op.sessionID)
+		op.manager.emitSessionClosed(op.session)
 	}
 	return err
 }

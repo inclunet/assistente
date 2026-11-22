@@ -262,12 +262,13 @@ func TestFinishCommandPreservesClosingState(t *testing.T) {
 	}
 }
 
-func TestCompleteCommandEntryMarksFailureWithoutResult(t *testing.T) {
+func TestRunCommandMarksFailureBeforeWrite(t *testing.T) {
 	startedAt := time.Now()
-	entry := &HistoryEntry{ID: "cmd-failed", StartedAt: startedAt}
-
-	got := completeCommandEntry(entry, nil, context.DeadlineExceeded)
-
+	session := &Session{state: StateIdle}
+	got, err := session.RunCommand(t.Context(), "exemplo", time.Second, "test", "cmd-failed")
+	if err == nil || got == nil || got.ID != "cmd-failed" {
+		t.Fatalf("resultado da falha anterior à escrita: entrada=%+v erro=%v", got, err)
+	}
 	if got.ExitCode != -1 {
 		t.Fatalf("exitCode = %d, esperado -1", got.ExitCode)
 	}
@@ -934,16 +935,35 @@ func TestCloseReleasesReaderWhenPTYDoesNotDeliverEOF(t *testing.T) {
 func TestNaturalExitWaitsForCommandResult(t *testing.T) {
 	var events []string
 	s := &Session{state: StateIdle, shell: "bash", onExit: func(string, error) { events = append(events, "exited") }}
-	if err := s.beginCommandWithID("comando"); err != nil {
-		t.Fatal(err)
-	}
-	s.markExited(nil)
-	if len(events) != 0 {
-		t.Fatalf("saída publicada antes do resultado: %v", events)
+	s.onCommandStart = func(_, _, _, _ string) {
+		s.markExited(nil)
+		if len(events) != 0 {
+			t.Fatalf("saída publicada antes do resultado: %v", events)
+		}
 	}
 	_, _ = s.runCommandInDirectory(context.Background(), CommandText{Raw: "exit 7", Display: "exit 7"}, "", time.Second, "test", "comando",
 		func(*HistoryEntry, error) { events = append(events, "command_end") })
 	if got := strings.Join(events, ","); got != "command_end,exited" {
 		t.Fatalf("ordem de publicação: %s", got)
+	}
+}
+
+func TestReleaseKeepsCommandReservedThroughEnd(t *testing.T) {
+	s := &Session{id: "terminal", state: StateIdle}
+	m := closeTestManager(s)
+	m.emitEvent = func(event string, _ any) {
+		if event != "terminal:command_end" {
+			return
+		}
+		m.Release(s.id)
+		if got := s.State(); got != StateRunning {
+			t.Errorf("estado durante entrega do resultado: %v", got)
+		}
+	}
+	if entry, err := m.RunCommand(t.Context(), s.id, "sem writer", time.Second, "test"); err == nil || entry == nil {
+		t.Fatalf("entrada=%+v erro=%v", entry, err)
+	}
+	if got := s.State(); got != StateIdle {
+		t.Fatalf("estado após entrega: %v", got)
 	}
 }

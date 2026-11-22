@@ -1,9 +1,10 @@
 import type { ReactNode, Ref } from 'react';
-import { describe, expect, it, vi, beforeEach } from 'vitest';
+import { describe, expect, it, vi, afterEach, beforeEach } from 'vitest';
 import { act, createEvent, fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { WorkspacePanelProvider } from '../components/workspace/WorkspacePanelContext';
+import ptBR from '../locales/pt-BR';
 import type { WorkspaceTab } from '../store/workspaceStore';
 import {
   canFocusWorkspacePanelImmediately,
@@ -45,6 +46,7 @@ const storeState = vi.hoisted(() => ({
   historyBySession: { 'term-1': [] as Array<{ id: string; command: string; output: string; exitCode?: number }> },
   activeEntryBySession: { 'term-1': null as string | null },
   isLoadingSessions: false,
+  sessionListFailed: false,
   loadingHistoryBySession: {},
   loadSessions: storeMocks.loadSessions,
   createSession: storeMocks.createSession,
@@ -62,7 +64,10 @@ vi.mock('react-i18next', () => ({
         'terminal.buttons.stop': 'Parar',
         'terminal.buttons.new': 'Novo',
         'terminal.buttons.terminate': 'Encerrar terminal',
-        'terminal.placeholders.creating': 'Criando terminal...',
+        'terminal.placeholders.unbound': ptBR.translation.terminal.placeholders.unbound,
+        'terminal.placeholders.unavailable': ptBR.translation.terminal.placeholders.unavailable,
+        'terminal.placeholders.loading': ptBR.translation.terminal.placeholders.loading,
+        'terminal.placeholders.ended': ptBR.translation.terminal.placeholders.ended,
         'terminal.placeholders.command': 'Digite um comando',
         'terminal.aria.toolbar': 'Barra de ferramentas do terminal',
         'chat.messageLabel': 'chat-input',
@@ -196,12 +201,13 @@ function renderTerminalPage() {
 }
 
 describe('TerminalPage', () => {
+  afterEach(() => vi.restoreAllMocks());
   beforeEach(() => {
-    vi.restoreAllMocks();
     storeMocks.loadSessions.mockReset();
     storeMocks.createSession.mockReset();
     storeMocks.closeSession.mockReset();
-    storeMocks.sendInput.mockReset();
+    storeState.sessionListFailed = false;
+    storeMocks.sendInput.mockReset().mockResolvedValue(true);
     workspaceMocks.updateTab.mockReset();
     terminalPageMocks.registeredAdapter = null;
     terminalPageMocks.surfaceGetter = null;
@@ -293,6 +299,55 @@ describe('TerminalPage', () => {
     expect(createButton).toHaveFocus();
     act(() => { frames.forEach(callback => callback(0)); });
     expect(createButton).toHaveFocus();
+  });
+
+  it('distingue listagem pendente, sessão encerrada e aba sem vínculo', () => {
+    storeState.sessions = [];
+    storeState.isLoadingSessions = true;
+    const { rerender } = renderTerminalPage();
+    const editor = screen.getByRole('textbox');
+    const labels = ptBR.translation.terminal.placeholders;
+    expect(editor).toHaveAttribute('placeholder', labels.loading);
+    storeState.isLoadingSessions = false;
+    rerender(terminalPageView());
+    expect(editor).toHaveAttribute('placeholder', labels.ended);
+    storeState.sessionListFailed = true;
+    rerender(terminalPageView());
+    expect(editor).toHaveAttribute('placeholder', labels.unavailable);
+    rerender(terminalPageView({ ...terminalTab, state: undefined }));
+    expect(editor).toHaveAttribute('placeholder', labels.unbound);
+  });
+
+  it.each(['removida', 'oculta'])('recupera o foco quando a origem fica %s durante a listagem', async mode => {
+    const live = storeState.sessions;
+    storeState.sessions = [];
+    storeState.isLoadingSessions = true;
+    const panel = document.createElement('div');
+    const origin = document.createElement('button');
+    panel.append(origin);
+    document.body.append(panel);
+    try {
+      origin.focus();
+      const { rerender } = renderTerminalPage();
+      act(() => { expect(requestWorkspacePanelFocus('terminal-tab')).toBe(true); });
+      if (mode === 'removida') panel.remove();
+      else { panel.hidden = true; origin.blur(); }
+      expect(document.activeElement).toBe(document.body);
+      storeState.sessions = live;
+      storeState.isLoadingSessions = false;
+      rerender(terminalPageView());
+      await act(async () => { await new Promise(requestAnimationFrame); });
+      expect(screen.getByRole('textbox')).toHaveFocus();
+    } finally { panel.remove(); }
+  });
+
+  it('mantém o comando que o terminal recusou', async () => {
+    storeMocks.sendInput.mockResolvedValue(false);
+    renderTerminalPage();
+    const input = screen.getByRole('textbox');
+    fireEvent.change(input, { target: { value: 'pwd' } });
+    await act(async () => { fireEvent.keyDown(input, { key: 'Enter' }); });
+    expect(input).toHaveValue('pwd');
   });
 
   it('registra handler de foco de painel e foca o input ao ser solicitado', async () => {

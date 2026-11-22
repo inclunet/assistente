@@ -1991,7 +1991,7 @@ notSaved: 'La decisión vale solo para esta operación: no se pudo recordar. Ser
       pageTitle: 'Terminal',
       aria: { toolbar: 'Herramientas del terminal. Usa las flechas para navegar entre los botones' },
       buttons: { stop: 'Interrumpir', new: 'Nuevo terminal', terminate: 'Finalizar terminal' },
-      placeholders: { creating: 'Selecciona o crea un terminal', command: 'Escribe un comando... (Ctrl+C para interrumpir)' },
+      placeholders: { unavailable: 'No se pudieron cargar las sesiones de terminal.', loading: 'Cargando sesiones de terminal…', ended: 'Sesión finalizada. Selecciona o crea otra sesión en la barra de herramientas.', unbound: 'Selecciona o crea un terminal', command: 'Escribe un comando... (Ctrl+C para interrumpir)' },
       states: { idle: 'inactivo', busy: 'ejecutando', running: 'ejecutando', closing: 'finalizando', closed: 'cerrado', exited: 'finalizado' },
       picker: {
         label: 'Terminal conectado',

@@ -3,7 +3,9 @@ package terminal
 import (
 	"context"
 	"errors"
+	"slices"
 	"testing"
+	"time"
 )
 
 func closeTestManager(session *Session) *Manager {
@@ -105,5 +107,45 @@ func TestCloseOperationExecuteWithDetachedContextContinuesAfterCancellation(t *t
 	}
 	if session.State() != StateExited || m.Has(session.id) {
 		t.Fatalf("teardown pós-unbind incompleto: state=%s has=%v", session.State(), m.Has(session.id))
+	}
+}
+
+func TestSessionClosedFollowsCommandEnd(t *testing.T) {
+	for _, route := range []string{"capturado", "direto"} {
+		t.Run(route, func(t *testing.T) {
+			s := &Session{id: "terminal", state: StateIdle}
+			m := closeTestManager(s)
+			var events []string
+			m.emitEvent = func(event string, _ any) { events = append(events, event) }
+			s.onCommandStart = func(_, _, _, _ string) {
+				if route == "direto" {
+					if err := m.Close(s.id); err != nil {
+						t.Fatal(err)
+					}
+				} else {
+					snapshot, err := m.CaptureClose(s.id)
+					if err != nil {
+						t.Fatal(err)
+					}
+					op, err := m.PrepareClose(snapshot)
+					if err != nil {
+						t.Fatal(err)
+					}
+					if err := op.Execute(t.Context()); err != nil {
+						t.Fatal(err)
+					}
+				}
+				if len(events) != 0 || m.Has(s.id) {
+					t.Fatalf("teardown antes do resultado: eventos=%v sessão viva=%t", events, m.Has(s.id))
+				}
+			}
+			entry, err := m.RunCommand(t.Context(), s.id, "comando", time.Second, "test")
+			if !errors.Is(err, ErrSessionClosed) || entry == nil || entry.ExitCode != -1 {
+				t.Fatalf("entrada=%+v erro=%v", entry, err)
+			}
+			if !slices.Equal(events, []string{"terminal:command_end", "terminal:session_closed"}) {
+				t.Fatalf("sequência recebida: %v", events)
+			}
+		})
 	}
 }
