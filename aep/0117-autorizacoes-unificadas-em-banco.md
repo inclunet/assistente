@@ -204,7 +204,9 @@ também o template. Em outras formas,
 apenas o primeiro token literal pode identificar a operação se continuar
 inequívoco e separado após a resolução. Variantes conflitantes da chave de
 comando ocultam ambas as apresentações. O valor resolvido e o diretório ficam
-ocultos no desktop, nos anúncios acessíveis e nos canais. A chamada
+ocultos no desktop, nos anúncios acessíveis e nos canais. No Slack, o adaptador
+escapa `&`, `<` e `>` e desativa Markdown nas perguntas, como verifica
+`TestPostMessageOptions_LiteralConsent`. A chamada
 não consulta nem cria uma concessão reutilizável a partir de valores do cofre.
 Quando o valor do cofre determina somente o diretório, a pergunta mantém o
 comando visível, omite o caminho e oferece somente o escopo pontual. A execução

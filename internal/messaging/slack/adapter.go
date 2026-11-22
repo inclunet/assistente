@@ -237,7 +237,7 @@ func postMessageOptions(apiBaseURL, text, threadTS, idempotencyKey string, plain
 		params.ThreadTimestamp = threadTS
 	}
 	opts := []slack.MsgOption{
-		slack.MsgOptionText(text, false),
+		slack.MsgOptionText(text, plainText),
 		slack.MsgOptionPostMessageParameters(params),
 	}
 	if plainText {
