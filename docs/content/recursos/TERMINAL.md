@@ -48,7 +48,8 @@ só é limpo depois que o backend aceita o envio, mesmo se a sessão terminar
 antes da resposta. Se você já editou o texto, a edição é preservada. O campo informa quando a lista
 está carregando e quando a sessão vinculada já terminou. Para voltar a editar,
 use a barra de ferramentas para escolher outra sessão ou criar uma nova.
-A saída comum só é lida quando a sessão está na aba ativa. Se você trocar de
+A saída comum só é lida quando a aba da sessão está visível e ativa. Em
+Configurações, as conclusões de comandos chegam como resumo. Se você trocar de
 aba enquanto um comando estiver rodando, o anúncio de conclusão identifica a
 sessão pelo nome disponível no momento da fala e informa o código de saída.
 O leitor de telas anuncia o encerramento mesmo com a aba de terminal fechada.

@@ -303,6 +303,7 @@ describe('terminalStore', () => {
     { title: 'Build', before: 'Antigo', after: 'Novo', expected: 'Novo' },
     { title: 'Build', before: 'Antigo', after: '', expected: 'Build' },
     { title: 'Build', before: 'Antigo', after: null, expected: 'Antigo' },
+    { title: 'Build', before: '', after: null, expected: 'Build' },
   ])('identifica a sessão na entrega (aba "$title", nome "$before" → "$after")', ({ title, before, after, expected }) => {
     vi.useFakeTimers();
     const original = useWorkspaceStore.getState().workspace;
@@ -324,7 +325,7 @@ describe('terminalStore', () => {
       useTerminalStore.setState({ sessions: [terminal.SessionInfo.createFrom({ id: 'a', name: before })] });
       emit('command_end', 'a', 'detalhe da execução');
       useTerminalStore.setState({ sessions: after === null ? [] : [terminal.SessionInfo.createFrom({ id: 'a', name: after })] });
-      useWorkspaceStore.setState({ workspace: { ...workspace, tabs: [...workspace.tabs].reverse(), activeTabId: 'tab-b' } });
+      useWorkspaceStore.setState({ workspace: { ...workspace, tabs: after === null ? workspace.tabs.slice(1) : [...workspace.tabs].reverse(), activeTabId: 'tab-b' } });
       vi.runAllTimers();
       expect(announce.mock.calls.map(([message]) => message)).toEqual([
         'Leitura em curso', i18next.t('terminal.announce.backgroundResult', { name: expected ?? i18next.t('terminal.announce.unnamedTab', { position: 2 }), exitCode: 7 }),

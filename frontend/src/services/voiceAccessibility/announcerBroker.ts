@@ -123,8 +123,14 @@ export function isVoiceAccessibilityOriginCurrentlyActive(origin?: VoiceAccessib
 }
 
 function formatInactiveAnnouncement(request: VoiceAnnounceRequest): string {
-  if (typeof request.inactiveMessage === 'function') return request.inactiveMessage();
-  if (request.inactiveMessage) return request.inactiveMessage;
+  if (typeof request.inactiveMessage === 'function') {
+    try {
+      const summary = request.inactiveMessage();
+      if (summary.trim()) return summary;
+    } catch {
+      // A origem pode desaparecer durante a espera. Preserve o anúncio e a fila.
+    }
+  } else if (request.inactiveMessage?.trim()) return request.inactiveMessage;
   const label = getVoiceAccessibilityOriginLabel(request.origin);
   if (!label) return request.message;
 

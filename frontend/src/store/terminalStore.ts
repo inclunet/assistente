@@ -486,6 +486,7 @@ export const useTerminalStore = create<TerminalState>((set) => ({
           ? (data.output.length > 300 ? data.output.slice(0, 300) + i18next.t('terminal.announce.truncatedSuffix') : data.output)
           : i18next.t('terminal.announce.emptyOutput');
         const { sessionId, exitCode } = data;
+        const titleAtCompletion = tab?.title?.trim();
         const nameAtCompletion = useTerminalStore.getState().sessions.find(session => session.id === sessionId)?.name?.trim();
         announceTerminalResult(sessionId, i18next.t('terminal.announce.outputWithExit', { output: outputPreview, exitCode }), () => {
           const tabs = useWorkspaceStore.getState().workspace?.tabs ?? [];
@@ -494,7 +495,7 @@ export const useTerminalStore = create<TerminalState>((set) => ({
           // O fechamento pode retirar a sessão do catálogo antes de a fila chegar a ela.
           const sessionName = session ? session.name?.trim() : nameAtCompletion;
           const name = sessionName || tabs[index]?.title?.trim() || (index >= 0
-            ? i18next.t('terminal.announce.unnamedTab', { position: index + 1 }) : i18next.t('terminal.pageTitle'));
+            ? i18next.t('terminal.announce.unnamedTab', { position: index + 1 }) : titleAtCompletion || i18next.t('terminal.pageTitle'));
           return i18next.t('terminal.announce.backgroundResult', { name, exitCode });
         });
       }

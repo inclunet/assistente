@@ -1,13 +1,13 @@
-import { useEffect } from 'react';
+import { useLayoutEffect } from 'react';
 import { useWorkspaceStore } from '../../store/workspaceStore';
 import { isVoiceAccessibilityOriginActive } from './types';
 import { registerVoiceAccessibilityActiveResolver } from './announcerBroker';
 import { cancelInactiveSTTSession } from './sttGate';
 
-export function useVoiceAccessibilityWorkspaceResolver() {
-  useEffect(() => {
+export function useVoiceAccessibilityWorkspaceResolver(panelsVisible: boolean) {
+  useLayoutEffect(() => {
     const unregisterResolver = registerVoiceAccessibilityActiveResolver((origin) => (
-      isVoiceAccessibilityOriginActive(origin, useWorkspaceStore.getState().workspace)
+      (!origin?.terminalSessionId || panelsVisible) && isVoiceAccessibilityOriginActive(origin, useWorkspaceStore.getState().workspace)
     ));
     const unsubscribeWorkspace = useWorkspaceStore.subscribe(
       (state, previousState) => {
@@ -21,5 +21,5 @@ export function useVoiceAccessibilityWorkspaceResolver() {
       unsubscribeWorkspace();
       unregisterResolver();
     };
-  }, []);
+  }, [panelsVisible]);
 }
