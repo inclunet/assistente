@@ -128,8 +128,10 @@ function formatInactiveAnnouncement(request: VoiceAnnounceRequest): string {
     try {
       const summary = request.inactiveMessage.resolve();
       if (summary.trim()) return summary;
-    } catch {
-      logger.warn('[announcerBroker] Falha ao calcular o resumo em segundo plano.');
+    } catch (error) {
+      // A mensagem da exceção pode conter o conteúdo privado do anúncio.
+      const kind = error instanceof TypeError ? 'TypeError' : error instanceof RangeError ? 'RangeError' : 'other';
+      logger.warn('[announcerBroker] Falha ao calcular o resumo em segundo plano.', kind);
     }
     if (request.inactiveMessage.fallback.trim()) return request.inactiveMessage.fallback;
   } else if (request.inactiveMessage?.trim()) return request.inactiveMessage;

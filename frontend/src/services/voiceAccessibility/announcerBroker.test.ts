@@ -98,7 +98,7 @@ describe('announcerBroker', () => {
     it.each([false, true])('preserva a fila e diagnostica exceção no resumo (exceção: %s)', throws => {
       const warn = vi.spyOn(logger, 'warn').mockImplementation(() => {});
       const summary = () => {
-        if (throws) throw new Error('conteúdo privado');
+        if (throws) throw new TypeError('conteúdo privado');
         return '';
       };
       unregisterResolver = registerVoiceAccessibilityActiveResolver(origin => !origin?.terminalSessionId);
@@ -107,7 +107,7 @@ describe('announcerBroker', () => {
       announceWithOrigin({ message: 'Seguinte', eventType: 'completion' });
       vi.runAllTimers();
       expect(sink.mock.calls.map(([message]) => message)).toEqual([content, 'Origem: Fim', 'Seguinte']);
-      expect(warn.mock.calls).toEqual(throws ? [['[announcerBroker] Falha ao calcular o resumo em segundo plano.']] : []);
+      expect(warn.mock.calls).toEqual(throws ? [['[announcerBroker] Falha ao calcular o resumo em segundo plano.', 'TypeError']] : []);
     });
 
     it('adia aviso secundário e o fala depois da leitura terminar', () => {

@@ -7,6 +7,7 @@ import { useAuthStore } from './authStore';
 import { ListTerminalSessions, SendTerminalInput } from '@wailsjs/go/wailsapi/Terminal';
 import { announceWithOrigin, registerVoiceAccessibilityActiveResolver, registerAnnouncerSink, unregisterAnnouncerSink } from '../services/voiceAccessibility/announcerBroker';
 import en from '../locales/en';
+import ptBR from '../locales/pt-BR';
 import i18next from 'i18next';
 
 const mockGetTerminalHistory = vi.fn();
@@ -162,6 +163,21 @@ describe('terminalStore', () => {
     } finally { lifecycle(); }
   });
 
+  it('preserva a saída manual recebida durante a leitura do mesmo comando no histórico', async () => {
+    const cleanup = useTerminalStore.getState().setupEventListeners();
+    const snapshot = createDeferred<terminal.HistoryEntry[]>();
+    mockGetTerminalHistory.mockReturnValueOnce(snapshot.promise);
+    try {
+      terminalEventHandlers.get('terminal:session_created')?.(terminal.SessionInfo.createFrom({ id: 's1' }));
+      const load = useTerminalStore.getState().loadHistory('s1');
+      terminalEventHandlers.get('terminal:command_start')?.({ sessionId: 's1', commandId: 'c', command: 'pwd', source: 'user-raw' });
+      terminalEventHandlers.get('terminal:raw_output')?.({ sessionId: 's1', output: 'local' });
+      snapshot.resolve([terminal.HistoryEntry.createFrom({ id: 'c', command: 'pwd', source: 'user-raw', output: '', endedAt: '0001-01-01T00:00:00Z' })]);
+      await load;
+      expect(useTerminalStore.getState().historyBySession.s1).toEqual([expect.objectContaining({ id: 'c', output: 'local' })]);
+    } finally { cleanup(); }
+  });
+
   it('mantém o cache parcial após falha para a próxima abertura recuperar o histórico', async () => {
     const cleanup = useTerminalStore.getState().setupEventListeners({ lifecycleOnly: true });
     try {
@@ -305,7 +321,8 @@ describe('terminalStore', () => {
     { title: 'Build', before: 'Antigo', after: null, expected: 'Antigo' },
     { title: 'Build', before: '', after: null, expected: 'Build' },
     { title: '', before: '', after: null, expected: undefined },
-  ])('identifica a sessão na entrega (aba "$title", nome "$before" → "$after")', ({ title, before, after, expected }) => {
+  ])('identifica a sessão na entrega (aba "$title", nome "$before" → "$after")', async ({ title, before, after, expected }) => {
+    const language = i18next.language;
     vi.useFakeTimers();
     const original = useWorkspaceStore.getState().workspace;
     const workspace: WorkspaceData = { id: 'w', name: 'W', activeTabId: 'tab-a', tabs: [
@@ -325,13 +342,15 @@ describe('terminalStore', () => {
       vi.advanceTimersByTime(500);
       useTerminalStore.setState({ sessions: [terminal.SessionInfo.createFrom({ id: 'a', name: before })] });
       emit('command_end', 'a', 'detalhe da execução');
+      i18next.addResourceBundle('pt-BR', 'translation', { terminal: ptBR.translation.terminal }, true, true);
+      await i18next.changeLanguage('pt-BR');
       useTerminalStore.setState({ sessions: after === null ? [] : [terminal.SessionInfo.createFrom({ id: 'a', name: after })] });
       useWorkspaceStore.setState({ workspace: { ...workspace, tabs: after === null ? workspace.tabs.slice(1) : [...workspace.tabs].reverse(), activeTabId: 'tab-b' } });
       vi.runAllTimers();
       expect(announce.mock.calls.map(([message]) => message)).toEqual([
         'Leitura em curso', i18next.t('terminal.announce.backgroundResult', { name: expected ?? i18next.t('terminal.announce.unnamedTab', { position: after === null ? 1 : 2 }), exitCode: 7 }),
       ]);
-    } finally { page(); reset(); useWorkspaceStore.setState({ workspace: original }); vi.useRealTimers(); }
+    } finally { page(); reset(); useWorkspaceStore.setState({ workspace: original }); vi.useRealTimers(); await i18next.changeLanguage(language); }
   });
 
   it('entrega o resultado ao leitor antes do encerramento e indica saída cortada após espaços', () => {
