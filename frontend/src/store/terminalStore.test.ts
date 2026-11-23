@@ -203,15 +203,17 @@ describe('terminalStore', () => {
     } finally { cleanup(); }
   });
 
-  it('preserva a saída recebida antes da conclusão e da hidratação', async () => {
+  it.each([true, false])('preserva a saída antes da conclusão e da hidratação (criação antes de abrir a página: %s)', async createdFirst => {
     const cleanup = useTerminalStore.getState().setupEventListeners({ lifecycleOnly: true });
     try {
       const data = { sessionId: 'b', commandId: 'recente' };
-      terminalEventHandlers.get('terminal:session_created')?.(terminal.SessionInfo.createFrom({ id: 'b' }));
+      const create = () => terminalEventHandlers.get('terminal:session_created')?.(terminal.SessionInfo.createFrom({ id: 'b' }));
+      if (createdFirst) create();
       terminalEventHandlers.get('terminal:command_start')?.({ ...data, command: 'date', source: 'llm' });
       terminalEventHandlers.get('terminal:command_output')?.({ ...data, output: 'hoje' });
       const closeOtherPage = useTerminalStore.getState().setupEventListeners();
       try {
+        if (!createdFirst) create();
         terminalEventHandlers.get('terminal:command_end')?.({ ...data, output: '', exitCode: 0 });
         expect(useTerminalStore.getState().historyBySession.b[0].output).toBe('hoje');
         expect(announce).toHaveBeenCalledWith(i18next.t('terminal.announce.outputWithExit', { output: 'hoje', exitCode: 0 }));
@@ -560,7 +562,7 @@ describe('terminalStore', () => {
 
   it('anuncia só o início recebido ao vivo na sessão visível durante a hidratação', async () => {
     const cleanup = useTerminalStore.getState().setupEventListeners();
-    const reset = registerVoiceAccessibilityActiveResolver(origin => origin?.terminalSessionId === 'a');
+    const reset = registerVoiceAccessibilityActiveResolver(origin => !origin || origin.terminalSessionId === 'a');
     const snapshot = createDeferred<terminal.HistoryEntry[]>();
     mockGetTerminalHistory.mockReturnValueOnce(snapshot.promise);
     try {
@@ -572,9 +574,11 @@ describe('terminalStore', () => {
       start('a', 'novo', 'llm');
       snapshot.resolve(Array.from({ length: 200 }, (_, i) => terminal.HistoryEntry.createFrom({ id: String(i), command: 'antigo' })));
       await load;
+      announceWithOrigin({ message: 'Leitura em curso', protectsReading: true });
+      start('b', 'manual oculto', 'user-raw');
       start('a', 'manual', 'user-raw');
-      expect(announce.mock.calls.map(([message]) => message)).toEqual(['novo', 'manual'].map(command =>
-        `${i18next.t('terminal.history.commandPrefix')} ${command}`));
+      const prefix = i18next.t('terminal.history.commandPrefix');
+      expect(announce.mock.calls.map(([message]) => message)).toEqual([`${prefix} novo`, 'Leitura em curso', `${prefix} manual`]);
       expect(useTerminalStore.getState().historyBySession.a).toHaveLength(200);
     } finally { reset(); cleanup(); }
   });
