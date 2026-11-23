@@ -62,13 +62,18 @@ const announcementCharacterLimit = 300;
 function scheduleOutputAnnounce(sessionId: string, chunk: string) {
   if (!isVoiceAccessibilityOriginCurrentlyActive(terminalOrigin(sessionId))) return;
   const pending = pendingAnnouncements.get(sessionId);
-  const previous = pending?.output ?? '';
   cancelOutputAnnouncement(sessionId);
-  const content = previous ? chunk : chunk.trimStart();
-  // Dois elementos UTF-16 por ponto de código bastam para montar toda a prévia.
-  const output = codePointPrefix(previous + content.slice(0, 2 * announcementCharacterLimit - previous.length), announcementCharacterLimit);
-  const consumed = output.length - previous.length;
-  const truncated = pending?.truncated || (content.length > consumed && /\S/.test(content.slice(consumed)));
+  let output = pending?.output ?? '';
+  let truncated = pending?.truncated ?? false;
+  if (!truncated) {
+    const content = output ? chunk : chunk.trimStart();
+    const previousLength = output.length;
+    // Dois elementos UTF-16 por ponto de código bastam para montar toda a prévia.
+    const candidate = output + content.slice(0, 2 * announcementCharacterLimit - previousLength);
+    output = codePointPrefix(candidate, announcementCharacterLimit);
+    const consumed = output.length - previousLength;
+    truncated = content.length > consumed && /\S/.test(content.slice(consumed));
+  }
   const timer = setTimeout(() => flushOutputAnnouncement(sessionId), 500);
   pendingAnnouncements.set(sessionId, { output, truncated, timer });
 }
