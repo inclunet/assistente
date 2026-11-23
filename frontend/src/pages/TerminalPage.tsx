@@ -541,7 +541,7 @@ export default function TerminalPage({ sessionId: explicitSessionId }: TerminalP
           onSend={handleSendInput}
           disabled={!sessionIsLive}
           editorReadOnly={!sessionIsLive}
-          announcementOrigin={{ tabId: panelTab.id, terminalSessionId: currentSessionId || undefined, surfaceType: 'terminal' }}
+          maxFiles={0}
           placeholder={
             sessionIsLive ? t('terminal.placeholders.command')
               : !currentSessionId ? t('terminal.placeholders.unbound')

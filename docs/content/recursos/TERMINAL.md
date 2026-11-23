@@ -79,10 +79,9 @@ só é limpo depois que o backend aceita o envio, mesmo se a sessão terminar
 antes da resposta. Se você já editou o texto, a edição é preservada. O campo informa quando a lista
 está carregando e quando a sessão vinculada já terminou. Para voltar a editar,
 use a barra de ferramentas para escolher outra sessão ou criar uma nova.
-Essa orientação continua disponível com texto no campo. Anexos já carregados
-permanecem no rascunho. Se o editor entrar em modo de leitura enquanto um anexo
-está carregando, esse carregamento é descartado e a aba ativa anuncia o cancelamento.
-Você pode anexar o arquivo de novo quando voltar a editar.
+Essa orientação continua disponível com texto no campo. O terminal recebe comandos
+em texto, que também podem ser colados. Para conversar sobre um arquivo, anexe-o
+no chat.
 A prévia falada inclui até 300 pontos de código Unicode do comando ao iniciar
 e da saída ao concluir ou receber texto. Um emoji composto
 pode ocupar vários desses pontos. Os espaços iniciais ficam fora da contagem.

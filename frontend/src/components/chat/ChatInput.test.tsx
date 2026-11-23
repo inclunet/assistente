@@ -148,6 +148,27 @@ describe('ChatInput', () => {
     expect(change).toHaveBeenLastCalledWith(added);
   });
 
+  it('envia apenas texto com zero anexos e preserva a mídia de um rascunho controlado', async () => {
+    const file = new File(['img'], 'foto.png', { type: 'image/png' });
+    const media = mediaResult([file], 'original');
+    const props = { onSend: vi.fn(() => true), mediaFiles: media, onMediaFilesChange: vi.fn() };
+    const { rerender } = render(<ChatInput {...props} />);
+    const pending = deferred<MediaFile[]>();
+    processMediaFilesSpy.mockReturnValueOnce(pending.promise);
+    const editor = screen.getByLabelText('chat.messageLabel');
+    fireEvent.paste(editor, { clipboardData: { items: [{ type: file.type, getAsFile: () => file }] } });
+    rerender(<ChatInput {...props} maxFiles={0} />);
+    await act(async () => { pending.resolve(mediaResult([file], 'pendente')); });
+    expect(screen.queryByLabelText('chat.attachFile')).toBeNull();
+    expect(screen.getByRole('button', { name: 'chat.send' })).toBeDisabled();
+    fireEvent.change(editor, { target: { value: 'pwd' } });
+    fireEvent.keyDown(editor, { key: 'Enter' });
+    expect(props.onSend).toHaveBeenCalledWith('pwd', undefined);
+    expect(props.onMediaFilesChange).not.toHaveBeenCalled();
+    rerender(<ChatInput {...props} />);
+    expect(screen.getByRole('button', { name: /mediaPreview.remove/ })).toBeEnabled();
+  });
+
   it('preserva foco e cursor quando ArrowUp não tem destino de navegação', () => {
     const onArrowUp = vi.fn(() => false);
     render(<ChatInput onSend={() => {}} message="rascunho" onMessageChange={vi.fn()} onArrowUp={onArrowUp} />);

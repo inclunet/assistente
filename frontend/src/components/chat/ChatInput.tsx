@@ -15,6 +15,8 @@ import { GetUserInvocableSkillsForProfile } from '@wailsjs/go/wailsapi/Skills';
 import type { apidto, skills } from '../../../wailsjs/go/models';
 import './ChatInput.css';
 
+const noAttachments: MediaFile[] = [];
+
 function mediaFilesMatch(current: MediaFile[], snapshot: MediaFile[]): boolean {
   return current.length === snapshot.length
     && current.every((file, index) => file.id === snapshot[index].id);
@@ -80,20 +82,22 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
   const [localMediaFiles, setLocalMediaFiles] = useState<MediaFile[]>([]);
   const [isDragging, setIsDragging] = useState(false);
   const [pendingAttachments, setPendingAttachments] = useState(0);
+  const attachmentsEnabled = maxFiles > 0;
   const isProcessing = pendingAttachments > 0;
   const attachmentGeneration = useRef(0);
   useLayoutEffect(() => {
-    if (editorReadOnly) setIsDragging(false);
+    if (editorReadOnly || !attachmentsEnabled) setIsDragging(false);
     return () => { attachmentGeneration.current++; };
-  }, [editorReadOnly]);
+  }, [editorReadOnly, attachmentsEnabled]);
   useLayoutEffect(() => {
-    if (!editorReadOnly || !isProcessing) return;
+    if (!isProcessing || (attachmentsEnabled && !editorReadOnly)) return;
     setPendingAttachments(0);
+    if (!attachmentsEnabled) return;
     announceRequest({
       message: t('chat.pendingAttachmentsCanceled'), origin: announcementOrigin,
       eventType: 'progress', waitsForReading: true,
     });
-  }, [editorReadOnly, isProcessing, announceRequest, announcementOrigin, t]);
+  }, [editorReadOnly, isProcessing, attachmentsEnabled, announceRequest, announcementOrigin, t]);
   const internalTextareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const readOnlyHintId = useId();
@@ -113,7 +117,7 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
   const handleMessageChange = isMessageControlled ? onMessageChange : undefined;
   const handleMediaFilesChange = isMediaFilesControlled ? onMediaFilesChange : undefined;
   const message = isMessageControlled ? controlledMessage : localMessage;
-  const mediaFiles = isMediaFilesControlled ? controlledMediaFiles : localMediaFiles;
+  const mediaFiles = attachmentsEnabled ? (isMediaFilesControlled ? controlledMediaFiles : localMediaFiles) : noAttachments;
   const messageRef = useRef(message);
   const textRevision = useRef(0);
   const mediaRevision = useRef(0);
@@ -240,7 +244,7 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
         if (!options.preserveMessage && textRevision.current === sentTextRevision && messageRef.current === rawMessage) {
           setMessage('');
         }
-        if (mediaRevision.current === sentMediaRevision && mediaFilesMatch(mediaFilesRef.current, draftMediaFiles)) {
+        if (attachmentsEnabled && mediaRevision.current === sentMediaRevision && mediaFilesMatch(mediaFilesRef.current, draftMediaFiles)) {
           setMediaFiles([]);
         }
       }
@@ -259,7 +263,7 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
         if (input && !input.readOnly) input.focus();
       });
     }
-  }, [clearOnSend, closeSlashMenu, disabled, editorReadOnly, isProcessing, onSend, setMediaFiles, setMessage, textareaRef]);
+  }, [attachmentsEnabled, clearOnSend, closeSlashMenu, disabled, editorReadOnly, isProcessing, onSend, setMediaFiles, setMessage, textareaRef]);
 
   // Handler para transcrição de voz
   const handleVoiceTranscription = (text: string) => {
@@ -404,7 +408,7 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
   const handleDragEnter = (e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    if (!editorReadOnly) setIsDragging(true);
+    if (attachmentsEnabled && !editorReadOnly) setIsDragging(true);
   };
 
   const handleDragOver = (e: React.DragEvent) => {
@@ -425,14 +429,14 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
     e.stopPropagation();
     setIsDragging(false);
     
-    if (editorReadOnly) return;
+    if (!attachmentsEnabled || editorReadOnly) return;
     const files = Array.from(e.dataTransfer.files);
     handleFileSelect(files);
   };
 
   // Paste handler para imagens
   const handlePaste = async (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
-    if (editorReadOnly) return;
+    if (!attachmentsEnabled || editorReadOnly) return;
     const items = Array.from(e.clipboardData.items);
     const imageItems = items.filter(item => item.type.startsWith('image/'));
     
@@ -556,34 +560,37 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
         />
       )}
 
-      <MediaPreview media={mediaFiles} onRemove={editorReadOnly ? undefined : handleRemoveMedia} />
+      {attachmentsEnabled && <MediaPreview media={mediaFiles} onRemove={editorReadOnly ? undefined : handleRemoveMedia} />}
 
       {editorReadOnly && placeholder && (
-        <span id={readOnlyHintId}>{placeholder}</span>
+        <span id={readOnlyHintId} className="chat-input__hint">{placeholder}</span>
       )}
 
       <div className="chat-input__container">
-        <input
-          ref={fileInputRef}
-          type="file"
-          disabled={editorReadOnly}
-          multiple
-          accept="image/*,audio/*,video/*,application/pdf,.doc,.docx,.txt,.md,.csv,.xlsx"
-          onChange={handleFileInputChange}
-          style={{ display: 'none' }}
-          aria-label={t('chat.selectFiles')}
-        />
-        
-        <button
-          type="button"
-          className="chat-input__attach-button"
-          onClick={() => fileInputRef.current?.click()}
-          disabled={disabled || editorReadOnly || mediaFiles.length >= maxFiles}
-          aria-label={t('chat.attachFile')}
-          title={t('chat.attachFile')}
-        >
-          <PaperClipOutlined aria-hidden="true" />
-        </button>
+        {attachmentsEnabled && (
+          <>
+            <input
+              ref={fileInputRef}
+              type="file"
+              disabled={editorReadOnly}
+              multiple
+              accept="image/*,audio/*,video/*,application/pdf,.doc,.docx,.txt,.md,.csv,.xlsx"
+              onChange={handleFileInputChange}
+              style={{ display: 'none' }}
+              aria-label={t('chat.selectFiles')}
+            />
+            <button
+              type="button"
+              className="chat-input__attach-button"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={disabled || editorReadOnly || mediaFiles.length >= maxFiles}
+              aria-label={t('chat.attachFile')}
+              title={t('chat.attachFile')}
+            >
+              <PaperClipOutlined aria-hidden="true" />
+            </button>
+          </>
+        )}
 
         <textarea
           ref={textareaRef}

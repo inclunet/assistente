@@ -724,6 +724,33 @@ describe('TerminalPage', () => {
     expect(storeMocks.sendInput).toHaveBeenCalledWith('term-1', '/');
   });
 
+  it('aceita colagem de texto e impede que mídia gere um Enter no PTY', async () => {
+    const user = userEvent.setup();
+    renderTerminalPage();
+    const input = screen.getByRole('textbox');
+    expect(screen.queryByRole('button', { name: 'chat.attachFile' })).toBeNull();
+    expect(screen.queryByLabelText('chat.selectFiles')).toBeNull();
+    const file = new File(['img'], 'foto.png', { type: 'image/png' });
+    const getAsFile = vi.fn(() => file);
+    const dragData = { files: [file], types: ['Files'] };
+    fireEvent.dragEnter(input, { dataTransfer: dragData });
+    expect(screen.getByTestId('chat-input')).not.toHaveClass('dragging');
+    const drop = createEvent.drop(input, { dataTransfer: dragData });
+    fireEvent(input, drop);
+    expect(drop.defaultPrevented).toBe(true);
+    const paste = createEvent.paste(input, { clipboardData: { items: [{ type: file.type, getAsFile }] } });
+    fireEvent(input, paste);
+    expect(getAsFile).not.toHaveBeenCalled();
+    expect(paste.defaultPrevented).toBe(false);
+    await user.click(input);
+    await user.keyboard('{Enter}');
+    expect(storeMocks.sendInput).not.toHaveBeenCalled();
+    await user.paste('pwd');
+    expect(input).toHaveValue('pwd');
+    await user.keyboard('{Enter}');
+    expect(storeMocks.sendInput).toHaveBeenCalledExactlyOnceWith('term-1', 'pwd');
+  });
+
   it('retorna aceitação explícita para o ChatInput limpar o comando enviado', async () => {
     renderTerminalPage();
 
