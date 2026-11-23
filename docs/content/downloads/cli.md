@@ -65,6 +65,22 @@ Binários pré-compilados para todas as plataformas estão disponíveis na [pág
 
 Após baixar, dê permissão de execução (Linux/macOS: `chmod +x asst-*`) e mova para um diretório no PATH.
 
+## Usar a conversa do desktop
+
+Com a conta conectada no Assistente e o cofre desbloqueado, liste as conversas
+recentes e continue uma delas com o perfil desejado:
+
+```bash
+asst history list --limit 10
+asst chat --conversation ID --profile PERFIL "Sua mensagem"
+```
+
+Execute os dois comandos com o mesmo usuário do sistema e o mesmo banco do
+desktop. O uso simultâneo do mesmo banco pela CLI e pelo desktop é experimental.
+A CLI valida a sessão salva a cada operação. Se ela expirou ou foi
+encerrada, entre novamente no Assistente. A consulta de histórico e o chat
+não iniciam outra execução dos jobs agendados.
+
 ## Configuração inicial
 
 Na primeira execução, use o wizard de setup:

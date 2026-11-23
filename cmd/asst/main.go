@@ -60,12 +60,17 @@ var rootCmd = &cobra.Command{
 			enableVerboseLogs(os.Stderr)
 		}
 
-		rootApp = app.NewApp()
-		for current := cmd; current != nil; current = current.Parent() {
-			if current == commandsCmd {
-				rootApp = app.NewCommandCLIApp()
-				break
-			}
+		group := cmd
+		for group.Parent() != nil && group.Parent().Parent() != nil {
+			group = group.Parent()
+		}
+		switch group {
+		case chatCmd, historyCmd:
+			rootApp = app.NewConversationCLIApp()
+		case commandsCmd:
+			rootApp = app.NewCommandCLIApp()
+		default:
+			rootApp = app.NewApp()
 		}
 
 		cliEmitter = cliadapter.NewEmitterAdapter(
@@ -99,6 +104,9 @@ var rootCmd = &cobra.Command{
 			silenceDefaultLogs()
 		}
 
+		if group == chatCmd || group == historyCmd {
+			return app.RestoreConversationCLISession(rootApp, group == chatCmd)
+		}
 		return nil
 	},
 	PersistentPostRun: func(cmd *cobra.Command, args []string) {

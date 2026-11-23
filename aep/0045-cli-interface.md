@@ -263,6 +263,13 @@ focados nos arquivos `*_test.go` correspondentes. A ajuda é registrada em
   X11 e não dependem das constantes exportadas apenas pelo backend CGO.
   `TestLinuxModifierMasksMatchNativeBackend` confere a equivalência no build
   nativo. A recusa de captura global fora do Windows (AEP-0103) permanece.
+- [x] `asst history` e `asst chat` vinculam o processo ao usuário da sessão
+  local persistida com o cofre desbloqueado. A validação usa a credencial da
+  sessão vigente, preserva seu prazo e sua rotação pelo desktop e revalida
+  revogação e atividade da conta antes das operações autenticadas do REPL.
+  Chat hidrata credenciais e provedores desse usuário; o scheduler fica no
+  processo que o iniciou. O percurso entre instâncias com SQLite e chaveiro
+  de teste está em `TestConversationCLIUsesSavedSessionAcrossInstances`.
 - [x] Chat interativo e pipe são cobertos por `cmd/asst/chat_test.go`.
 - [x] Perfis são cobertos por `cmd/asst/profiles_test.go`.
 - [x] Setup headless é coberto por `cmd/asst/setup_test.go`.

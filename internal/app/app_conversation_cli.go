@@ -1,0 +1,64 @@
+package app
+
+import (
+	"errors"
+	"fmt"
+
+	"assistente/internal/auth"
+	"assistente/internal/database"
+)
+
+// NewConversationCLIApp usa o bootstrap sem serviços autônomos e revalida
+// a sessão compartilhada com o desktop a cada comando, inclusive no REPL.
+func NewConversationCLIApp() *App {
+	a := NewCommandCLIApp()
+	a.conversationCLI = true
+	return a
+}
+
+// RestoreConversationCLISession vincula o processo curto à sessão salva pelo
+// desktop. A leitura não renova o prazo nem disputa a rotação do token do desktop.
+func RestoreConversationCLISession(a *App, chat bool) error {
+	if a == nil || !a.conversationCLI {
+		return errors.New("a restauração exige o runtime de CLI")
+	}
+	status, err := a.GetAuthStatus()
+	if err != nil {
+		return err
+	}
+	if !status.VaultConfigured || !status.HasUsers {
+		return errors.New("configure a conta local com asst setup")
+	}
+	if !status.VaultUnlocked {
+		return errors.New("desbloqueie o cofre no Assistente para usar a sessão local")
+	}
+	if err := a.ensureSessionService(); err != nil {
+		return err
+	}
+
+	ctx := a.appContext()
+	unavailable := auth.ErrInvalidRefreshToken
+	for _, token := range a.loadAuthRefreshTokenCandidates() {
+		principal, role, err := a.sessionSvc.AuthenticateSavedSession(ctx, token)
+		if err != nil {
+			if !errors.Is(err, auth.ErrInvalidRefreshToken) && !errors.Is(err, auth.ErrSessionRevoked) && !errors.Is(err, auth.ErrSessionExpired) && !errors.Is(err, auth.ErrInactiveUser) {
+				return err
+			}
+			unavailable = err
+			continue
+		}
+		userCtx := database.WithUserID(ctx, principal.UserID)
+		if chat {
+			if err := a.credMgr.LoadUserCredentials(userCtx, principal.UserID); err != nil {
+				return fmt.Errorf("carregar credenciais: %w", err)
+			}
+			if err := a.providerSvc.Load(userCtx); err != nil {
+				return fmt.Errorf("carregar provedores de chat: %w", err)
+			}
+		}
+		a.setCurrentUserID(principal.UserID)
+		a.setCurrentAuthUser(&AuthUser{UserID: principal.UserID, SessionID: principal.SessionID, Role: role})
+		return nil
+	}
+	return fmt.Errorf("entre na sua conta no Assistente e tente novamente: %w", unavailable)
+}

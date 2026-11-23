@@ -393,6 +393,7 @@ type App struct {
 	// Somente o bootstrap GUI registra o bind antes do startup. A CLI cria
 	// sua fachada internamente e não recebe autoridade interativa de comandos.
 	chatDesktopIngress bool
+	conversationCLI    bool // Revalida a sessão compartilhada a cada chamada autenticada.
 	commandCLIOnly     bool // entrypoint de consulta/execução, sem serviços autônomos
 
 	// commandCatalogAPI é o bind Wails de catálogo/Command Palette (AEP-0103).
@@ -1233,31 +1234,35 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 		},
 	})
 
-	// Reconciliação de runs órfãos (AEP-0068 F4): runs deixados em queued/running
-	// por um encerramento abrupto do app são marcados como failed no startup
-	// (espelha a reconciliação de jobs). Não bloqueia o startup.
-	//
-	// cutoff capturado AQUI (após criar o manager, antes de servir requests):
-	// como a reconciliação roda em goroutine enquanto o app já pode aceitar
-	// chamadas, só reconciliamos runs criados antes deste instante — um run
-	// legítimo criado em paralelo (created_at >= cutoff) não é marcado como
-	// órfão.
-	reconcileCutoff := time.Now()
-	go func() {
-		// Teto de tempo: a reconciliação roda em goroutine de startup e não pode
-		// pendurar o processo indefinidamente se o DB travar (lock/I/O lento).
-		// WithoutCancel é mantido (não deve ser cancelada por cancelamento normal
-		// do ctx do app durante uso), mas WithTimeout adiciona o deadline —
-		// consistente com o teto de operações de jobs (internal/jobs/manager.go).
-		ctx, cancel := context.WithTimeout(context.WithoutCancel(a.ctx), subagentReconcileTimeout)
-		defer cancel()
-		n, err := a.subagentMgr.ReconcileOrphans(ctx, reconcileCutoff)
-		if err != nil {
-			logging.Errorf(ctx, "app.app", "[Subagent] erro ao reconciliar runs órfãos: %v", err)
-		} else if n > 0 {
-			logging.Infof(ctx, "app.app", "[Subagent] %d run(s) órfão(s) de sub-agente reconciliado(s) como failed", n)
-		}
-	}()
+	// O desktop pode continuar executando subagentes enquanto a CLI abre o
+	// mesmo banco. O bootstrap curto (commands, history e chat) preserva esses runs.
+	if !a.commandCLIOnly {
+		// Reconciliação de runs órfãos (AEP-0068 F4): runs deixados em queued/running
+		// por um encerramento abrupto do app são marcados como failed no startup
+		// (espelha a reconciliação de jobs). Não bloqueia o startup.
+		//
+		// cutoff capturado AQUI (após criar o manager, antes de servir requests):
+		// como a reconciliação roda em goroutine enquanto o app já pode aceitar
+		// chamadas, só reconciliamos runs criados antes deste instante — um run
+		// legítimo criado em paralelo (created_at >= cutoff) não é marcado como
+		// órfão.
+		reconcileCutoff := time.Now()
+		go func() {
+			// Teto de tempo: a reconciliação roda em goroutine de startup e não pode
+			// pendurar o processo indefinidamente se o DB travar (lock/I/O lento).
+			// WithoutCancel é mantido (não deve ser cancelada por cancelamento normal
+			// do ctx do app durante uso), mas WithTimeout adiciona o deadline —
+			// consistente com o teto de operações de jobs (internal/jobs/manager.go).
+			ctx, cancel := context.WithTimeout(context.WithoutCancel(a.ctx), subagentReconcileTimeout)
+			defer cancel()
+			n, err := a.subagentMgr.ReconcileOrphans(ctx, reconcileCutoff)
+			if err != nil {
+				logging.Errorf(ctx, "app.app", "[Subagent] erro ao reconciliar runs órfãos: %v", err)
+			} else if n > 0 {
+				logging.Infof(ctx, "app.app", "[Subagent] %d run(s) órfão(s) de sub-agente reconciliado(s) como failed", n)
+			}
+		}()
+	}
 
 	a.taskListCtrl = controllers.NewTaskListController(controllers.TaskListControllerConfig{
 		TaskSvc: a.taskSvc,

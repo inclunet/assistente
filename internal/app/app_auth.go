@@ -724,8 +724,19 @@ func (a *App) internalBootstrapCtx() context.Context {
 // pós-login.
 func (a *App) requireAuthenticatedContext() (context.Context, error) {
 	ctx := a.internalBootstrapCtx()
-	if _, err := database.RequireUserID(ctx); err != nil {
+	userID, err := database.RequireUserID(ctx)
+	if err != nil {
 		return nil, err
+	}
+	if a.conversationCLI {
+		service := a.currentSessionService()
+		sessionID, ok := userctx.SessionIDFromContext(ctx)
+		if !ok || service == nil {
+			return nil, auth.ErrUnauthenticatedLocalSession
+		}
+		if _, err := service.RevalidateLocalSessionTx(ctx, database.DB(), auth.LocalSessionPrincipal{UserID: userID, SessionID: sessionID}); err != nil {
+			return nil, err
+		}
 	}
 	return ctx, nil
 }
