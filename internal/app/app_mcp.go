@@ -44,7 +44,9 @@ func (a *App) initMCP() {
 		if a.toolRegistry != nil && !a.toolRegistry.Has(toolpkg.ToolCatalogName) {
 			a.toolRegistry.MustRegister(toolpkg.NewCatalogTool(catalog))
 		}
-		a.mcpMgr.StartLogRetention(24*time.Hour, 30*24*time.Hour)
+		if !a.commandCLIOnly {
+			a.mcpMgr.StartLogRetention(24*time.Hour, 30*24*time.Hour)
+		}
 		if err := a.mcpMgr.SyncBuiltinTools(database.WithBootstrap(a.internalBootstrapCtx())); err != nil {
 			logging.Errorf(context.Background(), "app.app-mcp", "[MCP] Erro ao sincronizar catálogo de builtin tools: %v", err)
 		}
