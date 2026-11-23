@@ -66,7 +66,9 @@ func (a *App) initCredentialManager() {
 //     bloqueado para escritas; recovery exige ação explícita do
 //     usuário (UnlockOverwriteKeychain ou setup nova senha).
 func (a *App) handleVaultIntegrityOnBoot() {
-	if a.credMgr == nil {
+	// O processo curto deve distinguir linha ausente de segredo ilegível.
+	// Preserva as evidências até que o desktop faça a manutenção do cofre.
+	if a.credMgr == nil || a.conversationCLI {
 		return
 	}
 	status := a.credMgr.IntegrityStatus()
