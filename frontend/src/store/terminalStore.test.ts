@@ -275,6 +275,24 @@ describe('terminalStore', () => {
     } finally { cleanup(); }
   });
 
+  it('conserva a conclusão com código -999 quando chega outro comando', () => {
+    const cleanup = useTerminalStore.getState().setupEventListeners();
+    const emit = (event: string, commandId: string, data: object) =>
+      terminalEventHandlers.get('terminal:' + event)?.({ sessionId: 's1', commandId, ...data });
+    try {
+      emit('command_start', 'a', { command: 'a', source: 'llm' });
+      emit('command_end', 'a', { output: 'primeiro', exitCode: -999 });
+      emit('command_start', 'b', { command: 'b', source: 'llm' });
+      emit('command_output', 'a', { output: 'evento atrasado' });
+      emit('command_output', 'b', { output: 'segundo' });
+      emit('command_end', 'b', { output: '', exitCode: 0 });
+      expect(useTerminalStore.getState().historyBySession.s1).toEqual([
+        expect.objectContaining({ id: 'a', exitCode: -999, output: 'primeiro' }),
+        expect.objectContaining({ id: 'b', exitCode: 0, output: 'segundo' }),
+      ]);
+    } finally { cleanup(); }
+  });
+
   it.each(['raw_output', 'command_output'])('limita entradas e bytes UTF-8 do histórico em segundo plano (%s)', (outputEvent) => {
     const cleanup = useTerminalStore.getState().setupEventListeners({ lifecycleOnly: true });
     try {

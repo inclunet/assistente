@@ -1,3 +1,4 @@
+import { isManagedCommandRunning } from '../lib/terminalHistory';
 import { logger } from '../utils/logger';
 import { create } from 'zustand';
 import { useWorkspaceStore } from './workspaceStore';
@@ -470,7 +471,7 @@ export const useTerminalStore = create<TerminalState>((set) => ({
       set(state => {
         const sessionHistory = state.historyBySession[data.sessionId] || [];
         const updatedHistory = sessionHistory.map(entry => {
-          if (entry.exitCode === -999 && entry.source !== 'user-raw') {
+          if (isManagedCommandRunning(entry) && entry.id === (data.commandId || state.activeEntryBySession[data.sessionId])) {
             return appendHistoryOutput(entry, data.output);
           }
           return entry;
@@ -522,7 +523,7 @@ export const useTerminalStore = create<TerminalState>((set) => ({
         const sessionHistory = state.historyBySession[data.sessionId] ?? (pending ? [pending] : []);
         const updatedHistory = sessionHistory.map(entry => {
           // Encontra o entry do LLM em execução (não raw)
-          if (entry.exitCode === -999 && entry.source !== 'user-raw') {
+          if (isManagedCommandRunning(entry) && entry.id === (data.commandId || state.activeEntryBySession[data.sessionId])) {
             return terminal.HistoryEntry.createFrom({
               ...entry,
               id: data.commandId || entry.id,
