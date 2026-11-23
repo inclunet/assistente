@@ -63,7 +63,7 @@ func (s *MemoryStore) GetDefault(_ context.Context) (*llm.ProviderConfig, error)
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	if s.defaultID == "" {
-		return nil, fmt.Errorf("nenhum provider default definido")
+		return nil, nil
 	}
 	p, ok := s.providers[s.defaultID]
 	if !ok {
