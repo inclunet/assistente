@@ -116,15 +116,10 @@ type Session struct {
 	lastUsed         time.Time
 
 	// outputBuf contém apenas os bytes pendentes de um comando estruturado.
-	outputBuf     bytes.Buffer
-	outputMu      sync.Mutex
-	rawOutput     rawTerminalOutput
-	rawDeliveries sync.WaitGroup
-	// Ativo entre a troca de dono e a publicação de command_start. O
-	// leitor continua drenando o PTY mesmo se o callback fechar a sessão.
-	rawStarting    bool
-	rawDuringStart []string
-	exitAfterStart func()
+	outputBuf bytes.Buffer
+	outputMu  sync.Mutex
+	rawOutput rawTerminalOutput
+	rawOwner  *rawDeliveryOwner
 
 	// onOutput é chamado com chunks de output filtrado durante RunCommand (LLM)
 	onOutput outputCallback
@@ -307,38 +302,32 @@ func (s *Session) recordOutput(chunk string) {
 	}
 	var raw string
 	if s.onRawOutput != nil {
-		raw = s.reserveRawDelivery(s.rawOutput.append(chunk, s.suppressRawOutput))
+		raw = s.rawOutput.append(chunk, s.suppressRawOutput)
 	}
-	s.outputMu.Unlock()
-	s.deliverReservedRaw(raw)
+	s.deliverRawAndUnlock(raw)
 }
 
-// Chamado com outputMu. A reserva impede que command_start ultrapasse um
-// callback cujo bloco já foi atribuído à entrada anterior.
-func (s *Session) reserveRawDelivery(raw string) string {
+// O leitor atribui o bloco ao dono sob outputMu e pode aguardar espaço ou
+// executar o callback sem impedir a troca de comando.
+func (s *Session) deliverRawAndUnlock(raw string) {
 	if raw == "" {
-		return ""
+		s.outputMu.Unlock()
+		return
 	}
-	if s.rawStarting {
-		s.rawDuringStart = append(s.rawDuringStart, raw)
-		return ""
+	if s.rawOwner == nil {
+		s.rawOwner = newRawDeliveryOwner(false)
 	}
-	s.rawDeliveries.Add(1)
-	return raw
+	owner := s.rawOwner
+	owner.reserve()
+	s.outputMu.Unlock()
+	owner.submit(raw, s.publishRaw)
 }
 
-func (s *Session) deliverReservedRaw(raw string) {
-	if raw != "" {
-		defer s.rawDeliveries.Done()
-		s.onRawOutput(s.id, raw)
-	}
-}
+func (s *Session) publishRaw(raw string) { s.onRawOutput(s.id, raw) }
 
 func (s *Session) finishRawOutput() {
 	s.outputMu.Lock()
-	raw := s.reserveRawDelivery(s.rawOutput.finish())
-	s.outputMu.Unlock()
-	s.deliverReservedRaw(raw)
+	s.deliverRawAndUnlock(s.rawOutput.finish())
 }
 
 func (s *Session) startCommandOutput(marker *CommandMarker, entry *HistoryEntry) {
@@ -349,36 +338,22 @@ func (s *Session) startCommandOutput(marker *CommandMarker, entry *HistoryEntry)
 		s.outputBuf.Reset()
 		s.suppressRawOutput = true
 	}
-	s.rawStarting = true
+	previousOwner := s.rawOwner
+	owner := newRawDeliveryOwner(true)
+	s.rawOwner = owner
 	previous := s.rawOutput.changeOwner()
 	s.outputMu.Unlock()
 
-	s.rawDeliveries.Wait()
+	if previousOwner != nil {
+		previousOwner.wait()
+	}
 	if previous != "" {
-		s.onRawOutput(s.id, previous)
+		s.publishRaw(previous)
 	}
 	if s.onCommandStart != nil {
 		s.onCommandStart(s.id, entry.ID, entry.Command, entry.Source)
 	}
-	for {
-		s.outputMu.Lock()
-		queued := s.rawDuringStart
-		s.rawDuringStart = nil
-		if len(queued) == 0 {
-			s.rawStarting = false
-			notifyExit := s.exitAfterStart
-			s.exitAfterStart = nil
-			s.outputMu.Unlock()
-			if notifyExit != nil {
-				notifyExit()
-			}
-			return
-		}
-		s.outputMu.Unlock()
-		for _, raw := range queued {
-			s.onRawOutput(s.id, raw)
-		}
-	}
+	owner.opened(s.publishRaw)
 }
 
 // readLoop lê continuamente do PTY e acumula no buffer.
@@ -484,7 +459,16 @@ func (s *Session) waitReaderDrain() {
 		return
 	case <-time.After(readerDrainTimeout):
 		// Defesa para implementações de PTY que não entregam EOF após o
-		// processo terminar. Só então fechamos o descritor para desbloquear Read.
+		// processo terminar. Pare as novas leituras e libere a entrega do bloco
+		// já lido e da cauda do decodificador, mesmo se onCommandStart chamou Close.
+		if s.cancelReader != nil {
+			s.cancelReader()
+			s.outputMu.Lock()
+			if s.rawOwner != nil {
+				s.rawOwner.finishReader()
+			}
+			s.outputMu.Unlock()
+		}
 		s.closePTY()
 		<-s.readerDone
 	}
@@ -536,14 +520,18 @@ func (s *Session) afterCommandEnd(notify func()) {
 }
 
 func (s *Session) deliverExit(err error) {
+	s.afterRawDelivery(func() { s.onExit(s.id, err) })
+}
+
+func (s *Session) afterRawDelivery(notify func()) {
 	s.outputMu.Lock()
-	if s.rawStarting {
-		s.exitAfterStart = func() { s.onExit(s.id, err) }
-		s.outputMu.Unlock()
+	owner := s.rawOwner
+	s.outputMu.Unlock()
+	if owner != nil {
+		owner.afterDelivery(notify)
 		return
 	}
-	s.outputMu.Unlock()
-	s.onExit(s.id, err)
+	notify()
 }
 
 func (s *Session) reserveCommand(commandID string, delivery *commandDelivery) error {

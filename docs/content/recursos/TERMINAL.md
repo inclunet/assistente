@@ -40,6 +40,7 @@ O terminal conserva o código nativo quando a saída passa apenas por `Out-Strin
 ou `Out-String -Stream`. Em `$()` e `@()`, o código de uma operação nativa no fim
 de um `if` corresponde ao ramo que o PowerShell executou.
 
+Você pode enviar uma nova entrada mesmo enquanto o terminal continua produzindo saída.
 Se um comando for cancelado enquanto o terminal entrega a saída anterior, ele fica no
 histórico com código -1 e a sessão continua disponível. Se a escrita de um comando
 enviado pelo modelo falhar, o Assistente encerra a sessão

@@ -517,7 +517,9 @@ func (m *Manager) Close(sessionID string) error {
 
 func (m *Manager) emitSessionClosed(session *Session) {
 	session.afterCommandEnd(func() {
-		m.emitEvent("terminal:session_closed", map[string]string{"sessionId": session.id})
+		session.afterRawDelivery(func() {
+			m.emitEvent("terminal:session_closed", map[string]string{"sessionId": session.id})
+		})
 	})
 }
 

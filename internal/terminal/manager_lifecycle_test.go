@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -383,6 +384,105 @@ func (p *failingWritePTY) Write(data []byte) (int, error) {
 func (p *failingWritePTY) Close() error {
 	close(p.released)
 	return p.fakePTYSession.Close()
+}
+
+func TestManualInputWritesDuringContinuousOutput(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		started, publishStart, releaseOutput := make(chan struct{}), make(chan struct{}), make(chan struct{})
+		accepted := 0
+		const chunks = 4 * rawDeliverySlots
+		var events []string
+		var written bool
+		s := &Session{id: "manual", state: StateIdle, ptyWriter: manualTestWriter(func(p []byte) (int, error) {
+			written = true
+			return len(p), nil
+		}), onCommandStart: func(_, _, _, _ string) {
+			events = append(events, "início")
+			close(started)
+			<-publishStart
+		}, onRawOutput: func(_, raw string) {
+			<-releaseOutput
+			events = append(events, raw)
+		}, onExit: func(string, error) { events = append(events, "fim") }}
+		go func() {
+			<-started
+			for i := 0; i < chunks; i++ {
+				s.recordOutput(fmt.Sprint(i))
+				accepted++
+			}
+			s.markExited(nil)
+		}()
+		result := make(chan error, 1)
+		go func() { _, err := s.SendInput("comando", "id"); result <- err }()
+		synctest.Wait()
+		if accepted != rawDeliverySlots {
+			t.Errorf("blocos aceitos antes da publicação de início: %d", accepted)
+		}
+		close(publishStart)
+		synctest.Wait()
+		select {
+		case err := <-result:
+			if err != nil || !written {
+				t.Errorf("escrita=%t erro=%v", written, err)
+			}
+		default:
+			t.Error("a entrada aguardou o produtor ficar inativo")
+		}
+		if accepted > rawDeliverySlots+1 {
+			t.Errorf("consumidor parado reteve %d blocos", accepted)
+		}
+		close(releaseOutput)
+		synctest.Wait()
+		want := []string{"início"}
+		for i := 0; i < chunks; i++ {
+			want = append(want, fmt.Sprint(i))
+		}
+		want = append(want, "fim")
+		if !slices.Equal(events, want) {
+			t.Fatalf("entrega fora de ordem: %v", events)
+		}
+	})
+}
+
+func TestCloseDuringStartDrainsBoundedHandoff(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		pty := &noEOFPTY{newDrainingPTYSession()}
+		defer pty.writer.Close()
+		ctx, cancel := context.WithCancel(t.Context())
+		defer cancel()
+		var events []string
+		m := NewManager(DefaultManagerConfig(), func(event string, _ any) { events = append(events, event) })
+		s := &Session{id: "manual", state: StateIdle, ptySession: pty, readerCtx: ctx, cancelReader: cancel}
+		m.sessions[s.id] = s
+		s.onRawOutput = func(_, raw string) { events = append(events, raw) }
+		s.onCommandStart = func(_, _, _, _ string) {
+			events = append(events, "start")
+			// Pipe.Write confirma cada leitura. A última está aguardando espaço
+			// na fila quando Close precisa drenar o leitor dentro deste callback.
+			for i := 0; i <= rawDeliverySlots; i++ {
+				if _, err := fmt.Fprintf(pty.writer, "%d", i); err != nil {
+					t.Error(err)
+					return
+				}
+			}
+			if err := m.Close(s.id); err != nil {
+				t.Error(err)
+			}
+		}
+		s.Start()
+		if _, err := s.SendInput("ignorado", "id"); err == nil {
+			t.Error("entrada aceita após o fechamento")
+		}
+		synctest.Wait()
+		want := []string{"start"}
+		for i := 0; i <= rawDeliverySlots; i++ {
+			want = append(want, fmt.Sprint(i))
+		}
+		want = append(want, "terminal:session_closed")
+		if !slices.Equal(events, want) {
+			t.Fatalf("eventos=%v esperados=%v", events, want)
+		}
+	})
 }
 
 func TestCancellationDuringCommandStartSkipsDispatch(t *testing.T) {

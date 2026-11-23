@@ -51,6 +51,7 @@ func TestCommandStartWaitsForPreviousManualDelivery(t *testing.T) {
 				defer func() { _ = writer.Close() }()
 				defer func() { _ = reader.Close() }()
 				reading := make(chan struct{})
+				exited := make(chan struct{})
 				release := make(chan struct{})
 				unblock := sync.OnceFunc(func() { close(release) })
 				defer unblock()
@@ -71,6 +72,7 @@ func TestCommandStartWaitsForPreviousManualDelivery(t *testing.T) {
 					mu.Lock()
 					events = append(events, "fim")
 					mu.Unlock()
+					close(exited)
 				}
 				s.onCommandStart = func(_, id, _, _ string) {
 					mu.Lock()
@@ -108,8 +110,11 @@ func TestCommandStartWaitsForPreviousManualDelivery(t *testing.T) {
 				defer ticker.Stop()
 				for {
 					s.outputMu.Lock()
-					starting := s.rawStarting
+					rawOwner := s.rawOwner
 					s.outputMu.Unlock()
+					rawOwner.mu.Lock()
+					starting := rawOwner.opening
+					rawOwner.mu.Unlock()
 					if starting {
 						break
 					}
@@ -124,6 +129,11 @@ func TestCommandStartWaitsForPreviousManualDelivery(t *testing.T) {
 				case <-done:
 				case <-time.After(2 * time.Second):
 					t.Fatal("command_start bloqueou a drenagem do leitor")
+				}
+				select {
+				case <-exited:
+				case <-time.After(time.Second):
+					t.Fatal("encerramento não foi entregue após a última saída")
 				}
 				mu.Lock()
 				defer mu.Unlock()

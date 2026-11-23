@@ -139,7 +139,9 @@ Entregue:
 - [x] Cleanup de sessões efêmeras após timeout respeita a ordem interrupção,
   término e espera do processo, drenagem do leitor e fechamento do PTY; testes
   concorrentes em `internal/terminal/manager_lifecycle_test.go` cobrem a
-  ausência da corrida entre leitor e ConPTY.
+  ausência da corrida entre leitor e ConPTY. Na troca de comando, a fila de
+  saída é limitada e a escrita pode prosseguir sob fluxo contínuo. O início,
+  os blocos já lidos e o encerramento chegam à interface nessa ordem.
 
 Pendente ou parcial:
 
