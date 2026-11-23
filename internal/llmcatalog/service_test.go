@@ -48,6 +48,33 @@ func TestRefreshValidatesAndPersistsThenOfflineLoadsCache(t *testing.T) {
 	}
 }
 
+func TestStartOfflineAcceptsStaleCacheWithoutFetching(t *testing.T) {
+	for _, cached := range []bool{false, true} {
+		dir := t.TempDir()
+		if cached {
+			seed := New(Config{Dir: dir, HTTP: doerFunc(func(context.Context, *http.Request) (*http.Response, error) {
+				return response(http.StatusOK, minimalCatalog, http.Header{}), nil
+			})})
+			seed.now = func() time.Time { return time.Now().Add(-2 * DefaultTTL) }
+			if got := seed.Refresh(t.Context()); got.Document.CatalogVersion != "v1" {
+				t.Fatal(got.ReasonCode)
+			}
+			seed.Close()
+		}
+		var requests atomic.Int32
+		reader := New(Config{Dir: dir, HTTP: doerFunc(func(context.Context, *http.Request) (*http.Response, error) {
+			requests.Add(1)
+			return nil, errors.New("rede inesperada")
+		})})
+		reader.StartOffline(t.Context())
+		reader.Close()
+		got := reader.Snapshot()
+		if requests.Load() != 0 || got.FromCache != cached || got.Stale != cached || (got.Document.CatalogVersion == "v1") != cached {
+			t.Fatalf("cache=%v, requisições=%d, snapshot=%+v", cached, requests.Load(), got)
+		}
+	}
+}
+
 func TestRefreshNotifiesOnlyPublishedDocuments(t *testing.T) {
 	var calls int
 	var service *Service
