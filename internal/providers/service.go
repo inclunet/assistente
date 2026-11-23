@@ -12,6 +12,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"reflect"
 	"strings"
 	"sync"
 	"time"
@@ -37,9 +38,11 @@ type CredentialManager interface {
 
 // ServiceConfig contém as dependências externas do Service.
 type ServiceConfig struct {
-	Registry *llm.ProviderRegistry
-	CredMgr  CredentialManager
-	Store    ProviderStore
+	// SkipBootRepairs hidrata o registro e resolve o padrão sem reparar o cadastro no banco.
+	SkipBootRepairs bool
+	Registry        *llm.ProviderRegistry
+	CredMgr         CredentialManager
+	Store           ProviderStore
 	// RateLimiter aplica rate limiting por usuário nas chamadas de geração ao
 	// provedor LLM (Issue #27 / AEP-0065). Opcional: nil = sem limite.
 	RateLimiter *llm.RateLimiter
@@ -63,6 +66,7 @@ type ServiceConfig struct {
 // Service encapsula a lógica de negócio de gerenciamento de provedores LLM.
 // Não depende de Wails — é testável de forma isolada.
 type Service struct {
+	skipBootRepairs  bool
 	publicationMu    sync.Mutex
 	oauth            *oauthflow.Service
 	oauthMu          sync.Mutex
@@ -91,6 +95,7 @@ func NewService(cfg ServiceConfig) *Service {
 	return &Service{
 		oauth: oauth, oauthAttempts: make(map[string]context.CancelFunc),
 		registry:         cfg.Registry,
+		skipBootRepairs:  cfg.SkipBootRepairs,
 		credMgr:          cfg.CredMgr,
 		store:            cfg.Store,
 		rateLimiter:      cfg.RateLimiter,
@@ -143,7 +148,7 @@ func (s *Service) Load(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	if len(providers) == 0 {
+	if !s.skipBootRepairs && len(providers) == 0 {
 		return fmt.Errorf("nenhum provedor encontrado")
 	}
 
@@ -177,6 +182,9 @@ func (s *Service) Load(ctx context.Context) error {
 		}
 	}
 	logging.Infof(ctx, "providers.service", "[providers] %d provedor(es) carregado(s) do store", len(providers))
+	if s.skipBootRepairs {
+		return nil
+	}
 	s.EnsureDefault(ctx)
 
 	// Persistir api_format materializado para não repetir inferência no próximo boot
@@ -856,6 +864,36 @@ func (s *Service) ListWithStatus(ctx context.Context) []ProviderStatus {
 // Profile defaults resolution
 // ============================================================================
 
+// O desktop grava o primeiro ID do registro ordenado quando falta um padrão.
+// O chat da CLI faz a mesma escolha apenas para a conta e a operação atuais.
+func (s *Service) profileDefaultProvider(ctx context.Context) (*llm.ProviderConfig, error) {
+	provider, err := s.store.GetDefault(ctx)
+	if err != nil || provider != nil || !s.skipBootRepairs {
+		return provider, err
+	}
+	available, err := s.store.Load(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var first *llm.ProviderConfig
+	for _, p := range available {
+		// O desktop pode ter escolhido o padrão entre as duas leituras.
+		if p.IsDefault {
+			return p, nil
+		}
+		// Load inclui no registro os cadastros válidos e os mantidos para
+		// autorizar HTTP ou corrigir a URL. Os demais ficam fora da seleção.
+		err := validateStoredProvider(p)
+		if err != nil && !errors.Is(err, llm.ErrInsecureHTTPAuthorizationRequired) && !errors.Is(err, llm.ErrInvalidProviderBaseURL) {
+			continue
+		}
+		if first == nil || p.ID < first.ID {
+			first = p
+		}
+	}
+	return first, nil
+}
+
 // ResolveProfileDefaults substitui sentinelas "$default" no perfil pelo
 // provedor/modelo correspondente. Retorna uma cópia modificada — não altera
 // o perfil em disco.
@@ -897,7 +935,7 @@ func (s *Service) ResolveProfileDefaults(ctx context.Context, p *profiles.Profil
 		(resolved.Chat.Model == profiles.DefaultProviderSentinel && resolved.Chat.LLMProvider == profiles.DefaultProviderSentinel)
 
 	if needsDefaultProvider {
-		dp, err := s.store.GetDefault(ctx)
+		dp, err := s.profileDefaultProvider(ctx)
 		if err != nil || dp == nil {
 			logging.Infof(ctx, "providers.service", "[providers] Nenhum provedor default encontrado para resolução: %v", err)
 			return p
@@ -1082,6 +1120,11 @@ func (s *Service) GetChatProviderWithConfigSnapshot(ctx context.Context, provide
 		return nil, nil, fmt.Errorf("registro de provedores não inicializado")
 	}
 	provider := s.registry.GetSnapshot(providerID)
+	if s.skipBootRepairs {
+		if err := s.validateChatProviderSnapshot(ctx, providerID, provider); err != nil {
+			return nil, nil, err
+		}
+	}
 	if provider == nil {
 		return nil, nil, fmt.Errorf("provedor LLM não encontrado: %s", providerID)
 	}
@@ -1098,6 +1141,47 @@ func (s *Service) GetChatProviderWithConfigSnapshot(ctx context.Context, provide
 		s.rateLimitPolicy,
 	)
 	return chatProvider, provider, nil
+}
+
+var errChatProviderSnapshotChanged = errors.New("o cadastro do provedor mudou ou está indisponível nesta sessão; reabra a CLI")
+
+// A CLI mantém o registro e as credenciais da abertura. Confira o cadastro
+// escolhido antes de montar o cliente a partir desse mesmo snapshot.
+func (s *Service) validateChatProviderSnapshot(ctx context.Context, id string, loaded *llm.ProviderConfig) error {
+	stored, err := s.store.Get(ctx, id)
+	if errors.Is(err, gorm.ErrRecordNotFound) || err == nil && stored == nil {
+		if loaded == nil {
+			return fmt.Errorf("provedor LLM não encontrado: %s", id)
+		}
+		return errChatProviderSnapshotChanged
+	}
+	if err != nil {
+		return fmt.Errorf("revalidar provedor de chat: %w", err)
+	}
+	validationErr := validateStoredProvider(stored)
+	if loaded == nil {
+		if validationErr != nil {
+			return validationErr
+		}
+		return errChatProviderSnapshotChanged
+	}
+	// A promoção a padrão muda a seleção e pode ocorrer entre dois turnos.
+	stored.IsDefault = loaded.IsDefault
+	if len(stored.ACPArgs) == 0 {
+		stored.ACPArgs = nil
+	}
+	if !reflect.DeepEqual(stored, loaded) {
+		return errChatProviderSnapshotChanged
+	}
+	return validationErr
+}
+
+// O carregamento do registro materializa o formato antes de validar o cadastro.
+func validateStoredProvider(p *llm.ProviderConfig) error {
+	if p.APIFormat == "" {
+		p.APIFormat = p.GetAPIFormat()
+	}
+	return p.Validate()
 }
 
 // ListModelsRawRequest contém os parâmetros para listagem de modelos via credenciais ad-hoc.
