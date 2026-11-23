@@ -105,15 +105,16 @@ type Session struct {
 	commandGeneration uint64
 	// commandPending cobre a janela entre beginCommand e o write inicial.
 	// Não é uma prova de PID nem do estado de um subprocesso natural.
-	commandPending   bool
-	managedCommandID string
-	shell            string
-	cwd              string
-	mu               sync.Mutex
-	ioMu             sync.Mutex
-	history          []HistoryEntry
-	createdAt        time.Time
-	lastUsed         time.Time
+	commandPending    bool
+	managedCommandID  string // Última entrada enviada; uma reserva invalida snapshots pela geração.
+	interruptIsManual bool
+	shell             string
+	cwd               string
+	mu                sync.Mutex
+	ioMu              sync.Mutex
+	history           []HistoryEntry
+	createdAt         time.Time
+	lastUsed          time.Time
 
 	// outputBuf contém apenas os bytes pendentes de um comando estruturado.
 	outputBuf    bytes.Buffer
@@ -559,7 +560,7 @@ func (s *Session) afterRawDelivery(notify func()) {
 	notify()
 }
 
-func (s *Session) reserveCommand(commandID string, delivery *commandDelivery) error {
+func (s *Session) reserveCommand(delivery *commandDelivery) error {
 	if s.faultOwnsCleanup() {
 		return fmt.Errorf("sessão %s indisponível após falha no PTY", s.id)
 	}
@@ -575,7 +576,6 @@ func (s *Session) reserveCommand(commandID string, delivery *commandDelivery) er
 	s.commandDelivery = delivery
 	s.commandGeneration++
 	s.commandPending = true
-	s.managedCommandID = commandID
 	s.lastUsed = time.Now()
 	return nil
 }
@@ -598,17 +598,23 @@ func (s *Session) RunCommand(ctx context.Context, command string, timeout time.D
 	return s.runCommandInDirectory(ctx, command, "", timeout, source, commandID, nil)
 }
 
-func (s *Session) runCommandInDirectory(ctx context.Context, command, directory string, timeout time.Duration, source, commandID string, onEnd func(*HistoryEntry, error)) (resultEntry *HistoryEntry, resultErr error) {
+func (s *Session) runCommandInDirectory(ctx context.Context, command, directory string, timeout time.Duration, source, commandID string, onEnd func(*HistoryEntry, error, string)) (resultEntry *HistoryEntry, resultErr error) {
 	if commandID == "" {
 		commandID = uuid.NewString()
 	}
 	delivery := &commandDelivery{}
-	if err := s.reserveCommand(commandID, delivery); err != nil {
+	if err := s.reserveCommand(delivery); err != nil {
 		return nil, err
 	}
 	defer func() {
 		if onEnd != nil {
-			onEnd(resultEntry, resultErr)
+			s.mu.Lock()
+			var activeManualID string
+			if s.state == StateRunning && s.commandPending && s.interruptIsManual {
+				activeManualID = s.managedCommandID
+			}
+			s.mu.Unlock()
+			onEnd(resultEntry, resultErr, activeManualID)
 		}
 		s.mu.Lock()
 		delivery.ended, delivery.err = true, resultErr
@@ -705,6 +711,8 @@ func (s *Session) runCommandInDirectory(ctx context.Context, command, directory 
 		err = io.ErrShortWrite
 	}
 	s.mu.Lock()
+	s.interruptIsManual = false
+	s.managedCommandID = commandID
 	retire := err != nil && s.state == StateRunning
 	if retire {
 		// O descritor pode estar quebrado ou o shell pode ter recebido um fragmento.
@@ -1088,7 +1096,7 @@ func (s *Session) SendInput(input, commandID string) (*HistoryEntry, error) {
 	if commandID == "" {
 		commandID = uuid.NewString()
 	}
-	if err := s.reserveCommand(commandID, nil); err != nil {
+	if err := s.reserveCommand(nil); err != nil {
 		return nil, err
 	}
 	defer s.finishCommand()
@@ -1112,8 +1120,18 @@ func (s *Session) SendInput(input, commandID string) (*HistoryEntry, error) {
 		s.ioMu.Unlock()
 		return nil, fmt.Errorf("sessão %s não possui writer PTY", s.id)
 	}
-	_, err := s.ptyWriter.Write([]byte(input + enter))
+	request := []byte(input + enter)
+	n, err := s.ptyWriter.Write(request)
+	if n != len(request) && err == nil {
+		err = io.ErrShortWrite
+	}
 	s.mu.Lock()
+	s.interruptIsManual = err == nil
+	if s.interruptIsManual {
+		s.managedCommandID = commandID
+	} else {
+		s.managedCommandID = ""
+	}
 	s.commandPending = false
 	s.mu.Unlock()
 	s.ioMu.Unlock()

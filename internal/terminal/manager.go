@@ -262,7 +262,7 @@ func (m *Manager) RunCommand(ctx context.Context, sessionID, command string, tim
 	}
 
 	commandID := uuid.NewString()
-	return session.runCommandInDirectory(ctx, command, "", timeout, source, commandID, func(entry *HistoryEntry, err error) {
+	return session.runCommandInDirectory(ctx, command, "", timeout, source, commandID, func(entry *HistoryEntry, err error, activeManualID string) {
 		// O retorno conserva o output bruto para a tool; o evento usa a mesma cópia
 		// limitada do histórico para não transferir vários MiB à UI.
 		eventEntry := limitedHistoryEntry(entry)
@@ -273,6 +273,9 @@ func (m *Manager) RunCommand(ctx context.Context, sessionID, command string, tim
 			"output":     eventEntry.Output,
 			"exitCode":   entry.ExitCode,
 			"error":      errToString(err),
+		}
+		if activeManualID != "" {
+			payload["activeManualCommandId"] = activeManualID
 		}
 		if len(entry.Output) > maxOutputSize {
 			payload["announcementPreview"] = terminalAnnouncementPreview(entry.Output)

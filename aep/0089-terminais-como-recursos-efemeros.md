@@ -239,7 +239,9 @@ Pendente ou parcial:
   aguardar as entregas raw já reservadas. Essa espera respeita o prazo, mesmo que
   o consumidor continue bloqueado. A saída conserva o identificador de origem.
   Se o contexto já terminou, conclui o histórico e o evento
-  de término com código -1 e preserva a sessão para o próximo comando.
+  de término com código -1 e preserva a sessão para o próximo comando. Se a última
+  entrada entregue ao PTY foi manual, `command_end.activeManualCommandId` a identifica
+  para uma nova captura de interrupção. A reserva já invalidou os snapshots antigos.
   Em comandos gerenciados, uma falha de escrita depois do início fica no histórico com código -1.
   Uma falha de escrita encerra a sessão, inclusive quando nenhum byte foi escrito.
   A sessão recusa novas entradas imediatamente. Depois que a escrita devolve erro, o comando

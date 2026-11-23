@@ -56,7 +56,8 @@ continua no bloco seguinte a cada 50 KiB. O histórico guarda até 200 comandos
 e 200 blocos da sessão. Ao enviar contexto ao chat, seguem até 40 de cada.
 Se o prazo vencer ou o comando for cancelado enquanto o terminal entrega a saída
 anterior, o comando fica no histórico com código -1. A sessão volta a ficar disponível
-e a saída pendente conserva a identificação original. Se a escrita de um comando
+e a saída pendente conserva a identificação original. Se você havia enviado um
+comando manual, ele continua disponível para interrupção com Ctrl+C. Se a escrita de um comando
 enviado pelo modelo falhar, o Assistente encerra a sessão
 para impedir que o próximo comando complete a linha anterior. Isso também vale
 quando você abre um terminal persistente e pede ao modelo que use essa sessão.
