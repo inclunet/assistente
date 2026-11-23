@@ -123,6 +123,17 @@ export function isVoiceAccessibilityOriginCurrentlyActive(origin?: VoiceAccessib
   return originActiveResolver(origin);
 }
 
+function summaryErrorKind(value: unknown): string {
+  try {
+    for (const type of [TypeError, RangeError, ReferenceError, SyntaxError, URIError, EvalError, Error]) {
+      if (value instanceof type) return type.name;
+    }
+  } catch {
+    // Objetos lançados podem impedir a inspeção do protótipo.
+  }
+  return typeof value;
+}
+
 function formatInactiveAnnouncement(request: VoiceAnnounceRequest): string {
   if (typeof request.inactiveMessage === 'object') {
     try {
@@ -130,12 +141,11 @@ function formatInactiveAnnouncement(request: VoiceAnnounceRequest): string {
       if (summary.trim()) return summary;
     } catch (error) {
       // A mensagem da exceção pode conter o conteúdo privado do anúncio.
-      const kind = error instanceof TypeError ? 'TypeError' : error instanceof RangeError ? 'RangeError' : 'other';
-      logger.warn('[announcerBroker] Falha ao calcular o resumo em segundo plano.', kind);
+      logger.warn('[announcerBroker] Falha ao calcular o resumo em segundo plano.', summaryErrorKind(error));
     }
     if (request.inactiveMessage.fallback.trim()) return request.inactiveMessage.fallback;
   } else if (request.inactiveMessage?.trim()) return request.inactiveMessage;
-  if (request.origin?.terminalSessionId) {
+  if (request.origin?.terminalSessionId || request.origin?.surfaceType === 'terminal') {
     return i18next.t('voiceAccessibility.backgroundTerminalActivity', { defaultValue: 'Atividade no terminal em segundo plano' });
   }
   const label = getVoiceAccessibilityOriginLabel(request.origin);

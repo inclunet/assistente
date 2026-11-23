@@ -50,9 +50,12 @@ describe('announcerBroker', () => {
     expect(sink).toHaveBeenCalledWith('Chat B: terminou de responder', 'polite');
   });
 
-  it('preserva a saída de terminal sem resumo explícito em segundo plano', () => {
+  it.each([
+    { terminalSessionId: 's' },
+    { surfaceType: 'terminal' as const, tabId: 'tab', title: 'Build' },
+  ])('troca a saída de terminal sem resumo pelo aviso genérico em segundo plano', origin => {
     unregisterResolver = registerVoiceAccessibilityActiveResolver(() => false);
-    announceWithOrigin({ message: 'detalhe privado', eventType: 'completion', origin: { terminalSessionId: 's' } });
+    announceWithOrigin({ message: 'detalhe privado', eventType: 'completion', origin });
     expect(sink).toHaveBeenCalledWith('Atividade no terminal em segundo plano', 'polite');
   });
 
@@ -95,10 +98,15 @@ describe('announcerBroker', () => {
       expect(sink).toHaveBeenLastCalledWith(activeAtDelivery ? 'Conclusão' : 'Depois', 'polite');
     });
 
-    it.each([false, true])('preserva a fila e diagnostica exceção no resumo (exceção: %s)', throws => {
+    it.each([
+      { error: undefined, kind: undefined },
+      { error: new TypeError('conteúdo privado'), kind: 'TypeError' },
+      { error: Object.assign(new SyntaxError('conteúdo privado'), { name: 'nome privado' }), kind: 'SyntaxError' },
+      { error: 'conteúdo privado', kind: 'string' },
+    ])('preserva a fila e diagnostica exceção no resumo (tipo: $kind)', ({ error, kind }) => {
       const warn = vi.spyOn(logger, 'warn').mockImplementation(() => {});
       const summary = () => {
-        if (throws) throw new TypeError('conteúdo privado');
+        if (error !== undefined) throw error;
         return '';
       };
       unregisterResolver = registerVoiceAccessibilityActiveResolver(origin => !origin?.terminalSessionId);
@@ -107,7 +115,7 @@ describe('announcerBroker', () => {
       announceWithOrigin({ message: 'Seguinte', eventType: 'completion' });
       vi.runAllTimers();
       expect(sink.mock.calls.map(([message]) => message)).toEqual([content, 'Origem: Fim', 'Seguinte']);
-      expect(warn.mock.calls).toEqual(throws ? [['[announcerBroker] Falha ao calcular o resumo em segundo plano.', 'TypeError']] : []);
+      expect(warn.mock.calls).toEqual(kind ? [['[announcerBroker] Falha ao calcular o resumo em segundo plano.', kind]] : []);
     });
 
     it('adia aviso secundário e o fala depois da leitura terminar', () => {
