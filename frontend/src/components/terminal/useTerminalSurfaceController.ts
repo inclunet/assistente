@@ -37,6 +37,12 @@ export function useTerminalSurfaceController(tab: WorkspaceTab, isActive: boolea
       };
       const unsubscribe = useTerminalStore.subscribe((next, previous) => {
         if (next.sessions !== previous.sessions) hydrate();
+        if (previous.isLoadingSessions && !next.isLoadingSessions) {
+          // Um evento de ciclo de vida pode iniciar outra consulta no mesmo despacho.
+          queueMicrotask(() => {
+            if (!useTerminalStore.getState().isLoadingSessions) unsubscribe();
+          });
+        }
       });
       void store.loadSessions().then((published) => {
         hydrate();
