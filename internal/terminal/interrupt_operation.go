@@ -22,9 +22,8 @@ const (
 //
 // A operação não é serializável nem deve escapar do runtime do backend.
 type InterruptOperation struct {
-	session   *Session
-	sessionID string
-	writer    io.Writer
+	session *Session
+	writer  io.Writer
 
 	state       atomic.Uint32
 	releaseOnce sync.Once
@@ -63,7 +62,7 @@ func (op *InterruptOperation) Execute(ctx context.Context) error {
 	default:
 	}
 
-	return writeInterruptByte(op.writer, op.sessionID)
+	return op.session.writeInterruptLocked(op.writer)
 }
 
 // Cancel abandona uma operação preparada antes de Execute e libera a reserva
@@ -75,16 +74,22 @@ func (op *InterruptOperation) Cancel() {
 	op.release(interruptOperationCanceled)
 }
 
-func writeInterruptByte(writer io.Writer, sessionID string) error {
+// O chamador mantém ioMu até a escrita e o registro da interrupção.
+func (s *Session) writeInterruptLocked(writer io.Writer) error {
 	if writer == nil {
-		return fmt.Errorf("sessão %s não possui writer PTY", sessionID)
+		return fmt.Errorf("sessão %s não possui writer PTY", s.id)
 	}
 	n, err := writer.Write([]byte{0x03})
 	if err != nil {
-		return fmt.Errorf("falha ao enviar Ctrl+C para sessão %s: %w", sessionID, err)
+		return fmt.Errorf("falha ao enviar Ctrl+C para sessão %s: %w", s.id, err)
 	}
 	if n != 1 {
-		return fmt.Errorf("falha ao enviar Ctrl+C para sessão %s: %w", sessionID, io.ErrShortWrite)
+		return fmt.Errorf("falha ao enviar Ctrl+C para sessão %s: %w", s.id, io.ErrShortWrite)
 	}
+	s.mu.Lock()
+	if s.commandDelivery != nil {
+		s.commandDelivery.interrupted = true
+	}
+	s.mu.Unlock()
 	return nil
 }

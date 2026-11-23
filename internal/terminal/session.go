@@ -157,9 +157,10 @@ type Session struct {
 }
 
 type commandDelivery struct {
-	afterEnd []func() // Sob mu: eventos de encerramento pendentes.
-	ended    bool
-	err      error
+	interrupted bool     // Sob mu: impede despacho posterior a um Ctrl+C aceito.
+	afterEnd    []func() // Sob mu: eventos de encerramento pendentes.
+	ended       bool
+	err         error
 }
 
 var nextSessionVersion atomic.Uint64
@@ -712,6 +713,11 @@ func (s *Session) writeManagedFrame(ctx context.Context, marker *CommandMarker, 
 		}
 		return cause
 	}
+	if s.commandDelivery != nil && s.commandDelivery.interrupted {
+		s.mu.Unlock()
+		s.ioMu.Unlock()
+		return context.Canceled
+	}
 	s.mu.Unlock()
 	if s.ptyWriter == nil {
 		s.ioMu.Unlock()
@@ -1143,7 +1149,7 @@ func (s *Session) Interrupt() error {
 	if s.ptyWriter == nil {
 		return fmt.Errorf("sessão %s não possui writer PTY", s.id)
 	}
-	if err := writeInterruptByte(s.ptyWriter, s.id); err != nil {
+	if err := s.writeInterruptLocked(s.ptyWriter); err != nil {
 		return err
 	}
 	logging.Infof(context.Background(), "terminal.session", "[Terminal] Ctrl+C enviado para sessão %s", s.id)

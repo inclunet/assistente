@@ -6,8 +6,10 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"regexp"
 	"sync"
 	"testing"
+	"testing/synctest"
 	"time"
 )
 
@@ -533,5 +535,54 @@ func TestInterruptSnapshotRejectsZeroWriteWithoutError(t *testing.T) {
 	err = operation.Execute(context.Background())
 	if err == nil || errors.Is(err, ErrInterruptStale) || !errors.Is(err, io.ErrShortWrite) {
 		t.Fatalf("write zero sem erro = %v, esperado io.ErrShortWrite não-stale", err)
+	}
+}
+
+func TestInterruptBeforePowerShellFallback(t *testing.T) {
+	for _, mode := range []string{"snapshot", "direto"} {
+		t.Run(mode, func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				writer := &interruptFakePTYWriter{}
+				manager, s := newInterruptFakeManager(writer)
+				s.shell = "powershell"
+				done := make(chan error, 1)
+				go func() {
+					_, err := s.runCommandInDirectory(t.Context(), "Write-Output exemplo", "", time.Minute, "test", "cmd", nil)
+					done <- err
+				}()
+				synctest.Wait()
+				writes := writer.snapshot()
+				if len(writes) != 1 {
+					t.Fatalf("escritas antes da resposta: %d", len(writes))
+				}
+				id := regexp.MustCompile(`__asstCode([a-f0-9]{8})`).FindSubmatch(writes[0])
+				if len(id) != 2 {
+					t.Fatal("sem identificador de moldura")
+				}
+				s.recordOutput(markerEnd + string(id[1]) + markerSuffix + markerStatusTerminator)
+				if mode == "snapshot" {
+					snapshot, err := manager.CaptureInterrupt(s.id)
+					if err != nil {
+						t.Fatal(err)
+					}
+					op, err := manager.PrepareInterrupt(snapshot)
+					if err != nil {
+						t.Fatal(err)
+					}
+					if err := op.Execute(t.Context()); err != nil {
+						t.Fatal(err)
+					}
+				} else if err := s.Interrupt(); err != nil {
+					t.Fatal(err)
+				}
+				if err := <-done; !errors.Is(err, context.Canceled) {
+					t.Fatalf("comando interrompido: %v", err)
+				}
+				writes = writer.snapshot()
+				if len(writes) != 2 || !bytes.Equal(writes[1], []byte{3}) {
+					t.Fatalf("esperado Ctrl+C como última de duas escritas, total=%d", len(writes))
+				}
+			})
+		})
 	}
 }
