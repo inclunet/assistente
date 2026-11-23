@@ -114,6 +114,16 @@ func New(cfg Config) *Service {
 // Start carrega o cache local e agenda uma atualização sem bloquear a abertura
 // da interface. Chamadas repetidas são seguras.
 func (s *Service) Start(ctx context.Context) {
+	s.start(ctx, true)
+}
+
+// StartOffline disponibiliza o último documento válido, inclusive vencido,
+// sem agendar consulta à rede quando o cache estiver vazio ou desatualizado.
+func (s *Service) StartOffline(ctx context.Context) {
+	s.start(ctx, false)
+}
+
+func (s *Service) start(ctx context.Context, refresh bool) {
 	s.mu.Lock()
 	if s.started || s.closed {
 		s.mu.Unlock()
@@ -127,6 +137,9 @@ func (s *Service) Start(ctx context.Context) {
 	defer s.background.Done()
 
 	s.loadCache()
+	if !refresh {
+		return
+	}
 	s.mu.RLock()
 	needsRefresh := !s.loaded || s.now().Sub(s.snapshot.FetchedAt) >= s.ttl
 	s.mu.RUnlock()

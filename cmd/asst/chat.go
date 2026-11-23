@@ -65,7 +65,7 @@ Exemplos:
 
 		// Se ainda não tem mensagem, entra no modo interativo (REPL)
 		if message == "" {
-			return runREPL(asCLI(rootApp), cliEmitter)
+			return runREPL(asCLI(rootApp), cliEmitter, os.Stdin, os.Stderr)
 		}
 
 		return sendAndWait(asCLI(rootApp), cliEmitter, message)
@@ -142,14 +142,14 @@ func ensureConversation(svc chatBackend) (*app.Conversation, error) {
 }
 
 // runREPL inicia o modo interativo de chat.
-func runREPL(svc chatBackend, emitter waitDoner) error {
-	_, _ = fmt.Fprintln(os.Stderr, "Modo interativo. Ctrl+C durante a geração cancela a resposta; Ctrl+D para sair.")
-	_, _ = fmt.Fprintln(os.Stderr, "---")
+func runREPL(svc chatBackend, emitter waitDoner, in io.Reader, diagnostic io.Writer) error {
+	_, _ = fmt.Fprintln(diagnostic, "Modo interativo. Ctrl+C durante a geração cancela a resposta; Ctrl+D para sair.")
+	_, _ = fmt.Fprintln(diagnostic, "---")
 
-	scanner := bufio.NewScanner(os.Stdin)
+	scanner := bufio.NewScanner(in)
 	scanner.Buffer(make([]byte, 0, 1024*1024), 1024*1024) // 1MB para mensagens grandes
 	for {
-		_, _ = fmt.Fprint(os.Stderr, "> ")
+		_, _ = fmt.Fprint(diagnostic, "> ")
 		if !scanner.Scan() {
 			break
 		}
@@ -158,9 +158,9 @@ func runREPL(svc chatBackend, emitter waitDoner) error {
 			continue
 		}
 		if err := sendAndWait(svc, emitter, line); err != nil {
-			_, _ = fmt.Fprintf(os.Stderr, "Erro: %v\n", err)
+			_, _ = fmt.Fprintf(diagnostic, "Erro: %v\n", err)
 		}
-		_, _ = fmt.Fprintln(os.Stderr, "---")
+		_, _ = fmt.Fprintln(diagnostic, "---")
 	}
 	return scanner.Err()
 }
