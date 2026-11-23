@@ -8,6 +8,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -157,6 +158,62 @@ func TestSessionServiceRefreshRotatesAndRejectsReuse(t *testing.T) {
 	if session.RevokedAt == nil {
 		t.Fatal("expected reused refresh token to revoke session")
 	}
+}
+
+func TestAuthenticateSavedSessionIsReadOnly(t *testing.T) {
+	db := setupAuthTestDB(t)
+	ctx := t.Context()
+	user, err := NewIdentityService(db).CreateLocalUser(ctx, CreateUserParams{Username: "fixture", Password: "test-password"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	service, err := NewSessionService(db, SessionConfig{Issuer: "test", Audience: "test", RefreshTTL: time.Hour})
+	if err != nil {
+		t.Fatal(err)
+	}
+	issued, err := service.IssueSession(ctx, user, "desktop")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var before database.Session
+	if err := db.First(&before, "id = ?", issued.SessionID).Error; err != nil {
+		t.Fatal(err)
+	}
+	read := func(token string, want error) {
+		t.Helper()
+		principal, role, err := service.AuthenticateSavedSession(ctx, token)
+		if !errors.Is(err, want) {
+			t.Fatalf("validação: %v, esperado %v", err, want)
+		}
+		if want == nil && (principal.UserID != user.ID || principal.SessionID != before.ID || role != user.Role) {
+			t.Fatalf("principal=%+v papel=%q", principal, role)
+		}
+	}
+	read("v1."+issued.SessionID+".outro-segredo", ErrInvalidRefreshToken)
+	read(issued.RefreshToken, nil)
+	var after database.Session
+	if err := db.First(&after, "id = ?", issued.SessionID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(before, after) {
+		t.Fatal("validar a credencial alterou a sessão salva")
+	}
+	if err := db.Model(user).UpdateColumn("is_active", false).Error; err != nil {
+		t.Fatal(err)
+	}
+	read(issued.RefreshToken, ErrInactiveUser)
+	if err := db.Model(user).UpdateColumn("is_active", true).Error; err != nil {
+		t.Fatal(err)
+	}
+	row := db.Model(&database.Session{}).Where("id = ?", issued.SessionID)
+	if err := row.UpdateColumn("expires_at", time.Now().Add(-time.Hour)).Error; err != nil {
+		t.Fatal(err)
+	}
+	read(issued.RefreshToken, ErrSessionExpired)
+	if err := row.Updates(map[string]any{"expires_at": before.ExpiresAt, "revoked_at": time.Now()}).Error; err != nil {
+		t.Fatal(err)
+	}
+	read(issued.RefreshToken, ErrSessionRevoked)
 }
 
 func TestJWKSetExposesEd25519PublicKey(t *testing.T) {
