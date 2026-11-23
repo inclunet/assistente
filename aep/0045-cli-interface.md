@@ -274,6 +274,8 @@ focados nos arquivos `*_test.go` correspondentes. A ajuda é registrada em
   o processo. O desbloqueio é determinado pela disponibilidade da chave do
   cofre para o processo da CLI. A hidratação de provedores preserva o cadastro
   compartilhado, inclusive entradas legadas sem formato ou padrão explícitos.
+  Nesse último caso, perfis com `$default` usam o primeiro ID do registro
+  disponível para a conta, seguindo a ordem do desktop sem persistir a escolha.
   Chat hidrata credenciais, provedores desse usuário e o último catálogo local
   válido, preservando defaults e limites sem atualização em segundo plano; o scheduler fica no
   processo que o iniciou. O percurso entre instâncias com SQLite e chaveiro

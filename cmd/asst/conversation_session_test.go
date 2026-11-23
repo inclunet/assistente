@@ -94,6 +94,11 @@ data: [DONE]
 `)
 	}))
 	defer server.Close()
+	otherServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		t.Error("chat enviado ao segundo provedor em vez do primeiro ID")
+		http.Error(w, "destino inesperado", http.StatusBadRequest)
+	}))
+	defer otherServer.Close()
 	var conversationID, profileSlug, disposableID string
 	var foreign database.Conversation
 	var previousCredential database.CredentialEntry
@@ -145,6 +150,11 @@ data: [DONE]
 			t.Fatal(err)
 		}
 		conversationID = conv.ID
+		// Cadastra em ordem inversa à seleção do desktop (primeiro ID).
+		if _, err := cli.CreateLLMProvider(apidto.CreateLLMProviderRequest{ID: "z-outro", Name: "A primeiro nome", Type: "openai", AuthMode: "none", APIFormat: "openai", BaseURL: otherServer.URL + "/v1", DefaultModel: "outro"}); err != nil {
+			t.Fatal(err)
+		}
+
 		owner, err := loginApp.GetAuthUser()
 		if err != nil {
 			t.Fatal(err)
@@ -162,7 +172,10 @@ data: [DONE]
 		if err := database.DB().Model(&database.LLMProvider{}).Where("id = ?", "fixture").Updates(map[string]any{"model_aliases": `{"fixture":"vendor/fixture"}`, "api_format": "", "is_default": false}).Error; err != nil {
 			t.Fatal(err)
 		}
-		profileSlug, err = cli.CreateProfile(profiles.Profile{Name: "Revisor teste", Chat: profiles.ChatConfig{LLMProvider: "fixture", Model: "fixture", ResponseTimeout: 30, EnabledSkills: []string{}}})
+		if err := database.DB().Model(&database.LLMProvider{}).Where("id IN ?", []string{"fixture", "z-outro"}).UpdateColumn("is_default", false).Error; err != nil {
+			t.Fatal(err)
+		}
+		profileSlug, err = cli.CreateProfile(profiles.Profile{Name: "Revisor teste", Chat: profiles.ChatConfig{LLMProvider: profiles.DefaultProviderSentinel, Model: profiles.DefaultProviderSentinel, ResponseTimeout: 30, EnabledSkills: []string{}}})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -266,6 +279,10 @@ data: [DONE]
 		var stored database.LLMProvider
 		if err := database.DB().First(&stored, "id = ?", "fixture").Error; err != nil || stored.APIFormat != "" || stored.IsDefault {
 			t.Fatalf("chat alterou o provedor compartilhado: formato=%q padrão=%v erro=%v", stored.APIFormat, stored.IsDefault, err)
+		}
+		var defaults int64
+		if err := database.DB().Model(&database.LLMProvider{}).Where("user_id = ? AND is_default = ?", session.UserID, true).Count(&defaults).Error; err != nil || defaults != 0 {
+			t.Fatalf("padrão gravado após o chat: %d, erro=%v", defaults, err)
 		}
 		var history bytes.Buffer
 		if err := runHistoryShow(asCLI(rootApp), &history, conversationID); err != nil || !strings.Contains(history.String(), "resposta de prova") {

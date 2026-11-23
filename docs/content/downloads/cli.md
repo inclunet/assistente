@@ -88,7 +88,9 @@ desktop renova a sessão, repita o comando após a renovação. Se mudar de cont
 ou se as permissões da conta mudarem durante um chat, reabra a CLI. A consulta de histórico e o chat
 não iniciam outra execução dos jobs agendados. O chat usa o último catálogo
 local válido para aplicar os parâmetros do modelo, inclusive quando o cache
-está desatualizado.
+está desatualizado. Se o perfil usa o provedor padrão e nenhum estiver marcado,
+o chat escolhe o primeiro provedor por ID, como o desktop. A escolha pela CLI
+preserva as configurações salvas.
 
 ## Configuração inicial
 

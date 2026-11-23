@@ -37,9 +37,11 @@ type CredentialManager interface {
 
 // ServiceConfig contém as dependências externas do Service.
 type ServiceConfig struct {
-	Registry *llm.ProviderRegistry
-	CredMgr  CredentialManager
-	Store    ProviderStore
+	// ReadOnlyStartup hidrata o registro e resolve o padrão sem reparar o cadastro no banco.
+	ReadOnlyStartup bool
+	Registry        *llm.ProviderRegistry
+	CredMgr         CredentialManager
+	Store           ProviderStore
 	// RateLimiter aplica rate limiting por usuário nas chamadas de geração ao
 	// provedor LLM (Issue #27 / AEP-0065). Opcional: nil = sem limite.
 	RateLimiter *llm.RateLimiter
@@ -63,6 +65,7 @@ type ServiceConfig struct {
 // Service encapsula a lógica de negócio de gerenciamento de provedores LLM.
 // Não depende de Wails — é testável de forma isolada.
 type Service struct {
+	readOnlyStartup  bool
 	publicationMu    sync.Mutex
 	oauth            *oauthflow.Service
 	oauthMu          sync.Mutex
@@ -91,6 +94,7 @@ func NewService(cfg ServiceConfig) *Service {
 	return &Service{
 		oauth: oauth, oauthAttempts: make(map[string]context.CancelFunc),
 		registry:         cfg.Registry,
+		readOnlyStartup:  cfg.ReadOnlyStartup,
 		credMgr:          cfg.CredMgr,
 		store:            cfg.Store,
 		rateLimiter:      cfg.RateLimiter,
@@ -139,21 +143,11 @@ func (s *Service) Save(ctx context.Context) error {
 
 // Load carrega provedores do store para o registry.
 func (s *Service) Load(ctx context.Context) error {
-	return s.load(ctx, true)
-}
-
-// LoadForChat hidrata o registro de um processo curto sem migrar o store
-// compartilhado, inclusive quando ainda não há provedores cadastrados.
-func (s *Service) LoadForChat(ctx context.Context) error {
-	return s.load(ctx, false)
-}
-
-func (s *Service) load(ctx context.Context, repair bool) error {
 	providers, err := s.store.Load(ctx)
 	if err != nil {
 		return err
 	}
-	if repair && len(providers) == 0 {
+	if !s.readOnlyStartup && len(providers) == 0 {
 		return fmt.Errorf("nenhum provedor encontrado")
 	}
 
@@ -187,7 +181,7 @@ func (s *Service) load(ctx context.Context, repair bool) error {
 		}
 	}
 	logging.Infof(ctx, "providers.service", "[providers] %d provedor(es) carregado(s) do store", len(providers))
-	if !repair {
+	if s.readOnlyStartup {
 		return nil
 	}
 	s.EnsureDefault(ctx)
@@ -869,6 +863,33 @@ func (s *Service) ListWithStatus(ctx context.Context) []ProviderStatus {
 // Profile defaults resolution
 // ============================================================================
 
+// O desktop grava o primeiro ID do registro ordenado quando falta um padrão.
+// O chat da CLI faz a mesma escolha apenas para a conta e a operação atuais.
+func (s *Service) profileDefaultProvider(ctx context.Context) (*llm.ProviderConfig, error) {
+	provider, err := s.store.GetDefault(ctx)
+	if err != nil || provider != nil || !s.readOnlyStartup {
+		return provider, err
+	}
+	available, err := s.store.Load(ctx)
+	if err != nil {
+		return nil, err
+	}
+	byID := make(map[string]*llm.ProviderConfig, len(available))
+	for _, p := range available {
+		// O desktop pode ter escolhido o padrão entre as duas leituras.
+		if p.IsDefault {
+			return p, nil
+		}
+		byID[p.ID] = p
+	}
+	for _, registered := range s.registry.List() {
+		if current := byID[registered.ID]; current != nil {
+			return current, nil
+		}
+	}
+	return nil, nil
+}
+
 // ResolveProfileDefaults substitui sentinelas "$default" no perfil pelo
 // provedor/modelo correspondente. Retorna uma cópia modificada — não altera
 // o perfil em disco.
@@ -910,7 +931,7 @@ func (s *Service) ResolveProfileDefaults(ctx context.Context, p *profiles.Profil
 		(resolved.Chat.Model == profiles.DefaultProviderSentinel && resolved.Chat.LLMProvider == profiles.DefaultProviderSentinel)
 
 	if needsDefaultProvider {
-		dp, err := s.store.GetDefault(ctx)
+		dp, err := s.profileDefaultProvider(ctx)
 		if err != nil || dp == nil {
 			logging.Infof(ctx, "providers.service", "[providers] Nenhum provedor default encontrado para resolução: %v", err)
 			return p
