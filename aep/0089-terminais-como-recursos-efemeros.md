@@ -160,7 +160,9 @@ Entregue:
   `recentOutput` com a origem, o cabeçalho e a saída de cada item selecionado.
   Se o XML exigir outro corte, o provedor acomoda primeiro os comandos mais
   recentes, preserva cabeçalhos e finais de saída e escreve os itens em ordem
-  cronológica. O elemento indica o corte. Contextos anteriores com apenas
+  cronológica. A reserva para o fim da saída inclui o custo do último ponto de
+  código após o escape XML. Quando o próximo item prioritário já não cabe, a
+  seleção termina e o elemento indica o corte. Contextos anteriores com apenas
   `recentOutput` conservam a projeção de início e fim do texto disponível.
   A navegação agrega a saída da sessão ao item anterior quando ele existe. Um
   prompt personalizado pertence a esse fluxo, como qualquer texto espontâneo. A transferência

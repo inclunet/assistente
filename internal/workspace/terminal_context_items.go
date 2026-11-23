@@ -3,6 +3,7 @@ package workspace
 import (
 	"sort"
 	"strings"
+	"unicode/utf8"
 )
 
 const terminalItemSeparator = "\n---\n"
@@ -50,7 +51,7 @@ func terminalContextItems(content map[string]any, limit int) []terminalContextIt
 	preview, _ := content["recentOutput"].(string)
 	truncated, _ := content["truncated"].(bool)
 	if len(preview) > 4*limit || runeLen(preview) > limit ||
-		(preview != body.String() && !(truncated && strings.HasSuffix(preview, "\n"+body.String()))) {
+		(preview != body.String() && (!truncated || !strings.HasSuffix(preview, "\n"+body.String()))) {
 		return nil
 	}
 	return items
@@ -70,11 +71,15 @@ func fitTerminalContextItems(items []terminalContextItem, remaining int) string 
 				available -= len(terminalItemSeparator)
 			}
 			excerpt := fitTerminalContextItem(item, available, count == 0)
-			if excerpt != "" {
-				parts[i] = excerpt
-				remaining = available - runeLen(escapeXMLText(excerpt))
-				count++
+			if excerpt == "" {
+				// O orçamento não cobre a identidade e o fim deste item. Não
+				// preencha seu lugar com comandos antigos ou saída da sessão.
+				remaining = 0
+				break
 			}
+			parts[i] = excerpt
+			remaining = available - runeLen(escapeXMLText(excerpt))
+			count++
 		}
 	}
 	ordered := make([]string, 0, count)
@@ -87,36 +92,44 @@ func fitTerminalContextItems(items []terminalContextItem, remaining int) string 
 }
 
 func fitTerminalContextItem(item terminalContextItem, budget int, first bool) string {
-	text := item.text()
-	if runeLen(escapeXMLText(text)) <= budget {
-		return text
-	}
 	header := item.header
 	headerSize := runeLen(escapeXMLText(header))
-	if headerSize > budget || (item.output != "" && headerSize+3 > budget) {
+	outputSize, minOutput := 0, 0
+	if item.output != "" {
+		outputSize = 1 + runeLen(escapeXMLText(item.output)) // quebra de linha e saída inteira
+		last, size := utf8.DecodeLastRuneInString(item.output)
+		minOutput = 1 + runeLen(escapeXMLText(string(last)))
+		if size < len(item.output) {
+			minOutput++ // reticências antes da cauda
+		}
+	}
+	if headerSize+outputSize <= budget {
+		return item.text()
+	}
+	if headerSize+minOutput > budget {
 		if !first || item.kind != "command" {
 			return ""
 		}
-		headerBudget := budget
-		if item.output != "" {
-			headerBudget /= 2
+		headerBudget := budget - min(outputSize, max(minOutput, budget/2))
+		header = fitXMLRunes(item.header, headerBudget-1, false)
+		if len(strings.TrimSpace(header)) <= 1 && headerBudget < budget-minOutput {
+			// Um nome iniciado por caractere escapado pode custar mais que a
+			// sua metade. Use o restante preservando o mínimo da saída.
+			header = fitXMLRunes(item.header, budget-minOutput-1, false)
 		}
-		header = fitXMLRunes(header, headerBudget-1, false)
 		if len(strings.TrimSpace(header)) <= 1 {
 			return ""
 		}
 		header += "…"
 		headerSize = runeLen(escapeXMLText(header))
 	}
-	if item.output == "" {
-		return header
+	item.header = header
+	if headerSize+outputSize <= budget {
+		return item.text()
 	}
 	suffix := fitXMLRunes(item.output, budget-headerSize-2, true)
 	if suffix == "" {
 		return ""
-	}
-	if suffix == item.output {
-		return header + "\n" + suffix
 	}
 	return header + "\n…" + suffix
 }

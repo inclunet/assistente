@@ -111,6 +111,54 @@ func TestTerminalContextKeepsMiddleCommandBetweenEscapedSessionOutputs(t *testin
 	}
 }
 
+func TestTerminalContextKeepsLatestCommandWithEscapedFinalRune(t *testing.T) {
+	const budget = 550
+	header := "$ conferir " + strings.Repeat("x", 294)
+	for _, output := range []string{"&", "<", ">", strings.Repeat("🟣", 180) + "&"} {
+		blocks, err := NewSurfaceContextProvider().Build(context.Background(), contextprovider.BuildRequest{
+			ProviderBudgets: map[string]int{"surface_context": budget},
+			Surface: &contextprovider.Surface{Type: "terminal", Context: map[string]any{
+				"surfaceType": "terminal", "surfaceId": "aba", "snapshotVersion": "v",
+				"content": map[string]any{"kind": "terminal_output", "truncated": false,
+					"recentOutput": "$ antigo" + terminalItemSeparator + header + "\n" + output,
+					"recentOutputItems": []any{
+						map[string]any{"kind": "command", "header": "$ antigo", "output": ""},
+						map[string]any{"kind": "command", "header": header, "output": output},
+					}},
+			}},
+		})
+		if err != nil || len(blocks) != 1 {
+			t.Fatalf("Build: %v, %v", blocks, err)
+		}
+		var doc struct {
+			Text string `xml:"content"`
+		}
+		block := blocks[0].Content
+		if err := xml.Unmarshal([]byte(block), &doc); err != nil {
+			t.Fatal(err)
+		}
+		if runeLen(block) > budget || !strings.Contains(doc.Text, "$ conferir ") ||
+			!strings.HasSuffix(doc.Text, output[len(output)-1:]) {
+			t.Fatalf("output %q: %s", output, block)
+		}
+	}
+}
+
+func TestTerminalContextStopsWhenLatestCommandCannotFit(t *testing.T) {
+	items := []terminalContextItem{
+		{kind: "command", header: "$ x"},
+		{kind: "command", header: "$ &&&&", output: "&"},
+		{kind: "session", header: "[S]", output: "y"},
+	}
+	if got := fitTerminalContextItems(items, 7); got != "" {
+		t.Fatalf("itens de menor prioridade após omitir o último comando: %q", got)
+	}
+	items[1].output = "xxxxx"
+	if got := fitTerminalContextItems(items, 11); got != "$ &…\n…x" {
+		t.Fatalf("identidade e fim disponíveis em 11 pontos de XML: %q", got)
+	}
+}
+
 func TestTerminalContextIgnoresItemsInconsistentWithPreview(t *testing.T) {
 	content := map[string]any{"recentOutput": "$ original", "recentOutputItems": []any{
 		map[string]any{"kind": "command", "header": "$ outro", "output": ""},
@@ -136,8 +184,8 @@ func TestTerminalContextSignalsOmissionWhenNoItemFits(t *testing.T) {
 			runeLen(open + surfaceContextTruncationNotice + surfaceContextSuffix),
 		} {
 			block := buildSurfaceContextBlock(surface, budget)
-			if runeLen(block) > budget || !(strings.Contains(block, `<content truncated="true" />`) ||
-				strings.Contains(block, surfaceContextTruncationNotice)) {
+			if runeLen(block) > budget || (!strings.Contains(block, `<content truncated="true" />`) &&
+				!strings.Contains(block, surfaceContextTruncationNotice)) {
 				t.Fatalf("structured %v budget %d: %q", structured, budget, block)
 			}
 		}
