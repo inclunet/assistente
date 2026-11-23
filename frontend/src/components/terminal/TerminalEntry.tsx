@@ -184,7 +184,7 @@ export const TerminalOutputNode = forwardRef<HTMLDivElement, TerminalOutputNodeP
       ? formatDuration(new Date(entry.endedAt).getTime() - new Date(entry.startedAt).getTime())
       : null;
 
-    const outputLabel = t('terminal.entry.output');
+    const outputLabel = entry.source === sessionOutputSource ? t('terminal.entry.sessionOutput') : t('terminal.entry.output');
     const truncatedText = t('terminal.entry.truncated');
     // Constrói aria-label com informações relevantes
     let ariaLabel = outputLabel;

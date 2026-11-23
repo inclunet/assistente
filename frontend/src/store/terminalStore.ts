@@ -132,11 +132,35 @@ function changeSessionState(sessions: SessionInfo[], sessionId: string, state: s
   return sessions.map(session => session.id === sessionId ? terminal.SessionInfo.createFrom({ ...session, state }) : session);
 }
 
+function appendSessionOutput(history: HistoryEntry[], output: string): HistoryEntry[] {
+  const entries = history.slice();
+  const last = entries[entries.length - 1];
+  let block = last?.source === sessionOutputSource ? last : undefined;
+  let used = block ? historyBytes.get(block) ?? historyEncoder.encode(block.output).length : 0;
+  while (output) {
+    const { read, written } = historyEncoder.encodeInto(output, historyBuffer.subarray(used));
+    if (read > 0) {
+      const text = output.slice(0, read);
+      const updated = terminal.HistoryEntry.createFrom(block
+        ? { ...block, output: block.output + text }
+        : { id: `session-output-${++sessionOutputSequence}`, source: sessionOutputSource, command: '', output: text });
+      historyBytes.set(updated, used + written);
+      if (block) entries[entries.length - 1] = updated;
+      else entries.push(updated);
+      output = output.slice(read);
+    }
+    // Quando o próximo ponto de código não cabe, ele inicia um bloco inteiro.
+    block = undefined;
+    used = 0;
+  }
+  return entries.length > historyEntryLimit ? entries.slice(-historyEntryLimit) : entries;
+}
+
 interface TerminalState {
   sessions: SessionInfo[];
   historyBySession: Record<string, HistoryEntry[]>;
   partialHistoryBySession: Record<string, boolean>;
-  /** ID do último entry que está recebendo raw output (modo interativo) */
+  /** Comando ativo usado para validar a operação de interrupção da sessão. */
   activeEntryBySession: Record<string, string | null>;
   isLoadingSessions: boolean;
   sessionListFailed: boolean;
@@ -346,6 +370,7 @@ export const useTerminalStore = create<TerminalState>((set) => ({
     const commandPreviews = new Map<string, { id: string; preview?: OutputPreview }>();
     // Uma sessão já exibida conserva seu histórico entre montagens da página.
     // Continue aplicando eventos ao cache mesmo quando os anúncios estão suspensos.
+    // Uma página de terminal montada também inicia o cache de outras sessões com saída.
     const tracksHistory = (sessionId: string) =>
       !endedSessions.has(sessionId) && (terminalOutputListenerRefCount > 0 ||
         useTerminalStore.getState().historyBySession[sessionId] !== undefined);
@@ -488,17 +513,17 @@ export const useTerminalStore = create<TerminalState>((set) => ({
       set(state => {
         // O primeiro bloco observado pode chegar entre a montagem da aba e loadHistory.
         const sessionHistory = state.historyBySession[data.sessionId] ?? (pending ? [pending] : []);
-        let index = data.commandId ? sessionHistory.findIndex(entry => entry.id === data.commandId && entry.source === 'user-raw') : -1;
-        const last = sessionHistory.length - 1;
-        if (index < 0 && sessionHistory[last]?.source === sessionOutputSource) index = last;
-        const entry = sessionHistory[index] ?? terminal.HistoryEntry.createFrom({
-          id: `session-output-${++sessionOutputSequence}`, source: sessionOutputSource, command: '', output: '',
-        });
-        const updated = appendHistoryOutput(entry, data.output);
-        if (entry === updated) return state;
-        const updatedHistory = index < 0 ? sessionHistory.slice(1 - historyEntryLimit) : sessionHistory.slice();
-        if (index < 0) updatedHistory.push(updated);
-        else updatedHistory[index] = updated;
+        const index = data.commandId ? sessionHistory.findIndex(entry => entry.id === data.commandId && entry.source === 'user-raw') : -1;
+        let updatedHistory: HistoryEntry[];
+        if (index < 0) {
+          updatedHistory = appendSessionOutput(sessionHistory, data.output);
+        } else {
+          const entry = sessionHistory[index];
+          const updated = appendHistoryOutput(entry, data.output);
+          if (entry === updated) return state;
+          updatedHistory = sessionHistory.slice();
+          updatedHistory[index] = updated;
+        }
 
         return {
           historyBySession: {

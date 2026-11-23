@@ -43,7 +43,7 @@ const workspaceMocks = vi.hoisted(() => ({
 
 const storeState = vi.hoisted(() => ({
   sessions: [{ id: 'term-1', name: 'Terminal 1', cwd: '/tmp', state: 'running', shell: 'sh' }],
-  historyBySession: { 'term-1': [] as Array<{ id: string; command: string; output: string; exitCode?: number }> },
+  historyBySession: { 'term-1': [] as Array<{ id: string; command: string; output: string; exitCode?: number; source?: string }> },
   isLoadingSessions: false,
   sessionListFailed: false,
   loadingHistoryBySession: {},
@@ -60,6 +60,7 @@ vi.mock('react-i18next', () => ({
     t: (key: string) =>
       ({
         'terminal.pageTitle': 'Terminal',
+        'terminal.entry.sessionOutput': ptBR.translation.terminal.entry.sessionOutput,
         'terminal.buttons.stop': 'Parar',
         'terminal.buttons.new': 'Novo',
         'terminal.buttons.terminate': 'Encerrar terminal',
@@ -726,7 +727,7 @@ describe('TerminalPage', () => {
     expect(storeMocks.sendInput).toHaveBeenCalledWith('term-1', 'pwd');
   });
 
-  it('usa o mesmo histórico no preview e no envio do chat', async () => {
+  it.each([false, true])('usa o mesmo histórico no preview e no envio do chat (saída espontânea: %s)', async sessionOutput => {
     storeState.historyBySession = {
       'term-1': Array.from({ length: 45 }, (_, index) => {
         const entryNumber = index + 1;
@@ -739,6 +740,9 @@ describe('TerminalPage', () => {
       }),
     };
 
+    if (sessionOutput) {
+      storeState.historyBySession['term-1'].push({ id: 'bloco', command: '', source: 'session-output', output: 'pronto' });
+    }
     renderTerminalPage();
 
     const adapter = terminalPageMocks.registeredAdapter as {
@@ -761,9 +765,13 @@ describe('TerminalPage', () => {
     expect(surfaceContext.surfaceId).toBe('terminal-tab');
     expect(surfaceContext.snapshotVersion).toMatch(/^terminal:terminal-tab:/);
     expect(surfaceContext.content.recentOutput).toBe(prepared.contextDisplay);
-    expect(surfaceContext.content.recentOutput).toContain('cmd-6');
+    expect(surfaceContext.content.recentOutput).toContain(sessionOutput ? 'cmd-7' : 'cmd-6');
     expect(surfaceContext.content.recentOutput).toContain('cmd-45');
     expect(surfaceContext.content.recentOutput).not.toContain('cmd-5');
     expect(surfaceContext.content.truncated).toBe(true);
+    if (sessionOutput) {
+      expect(prepared.contextDisplay).toContain('out-45\n---\n[Saída da sessão]\npronto');
+      expect(surfaceContext.metadata.lastExitCode).toBe(0);
+    }
   });
 });

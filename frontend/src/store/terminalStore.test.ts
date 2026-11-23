@@ -343,8 +343,25 @@ describe('terminalStore', () => {
       snapshot.resolve(['a', 'b'].map(id => terminal.HistoryEntry.createFrom({ id, command: id, source: 'llm', output: id })));
       await loading;
       const entries = useTerminalStore.getState().historyBySession.s1;
-      expect(entries.map(entry => entry.source)).toEqual(['llm', 'session-output', 'llm', 'session-output']);
-      expect(entries.map(entry => entry.output)).toEqual(['a', 'aviso', 'b', 'x'.repeat(50 * 1024) + '…']);
+      expect(entries.map(entry => entry.source)).toEqual(['llm', 'session-output', 'llm', 'session-output', 'session-output']);
+      expect(entries.map(entry => entry.output)).toEqual(['a', 'aviso', 'b', 'x'.repeat(50 * 1024), 'x'.repeat(10 * 1024)]);
+    } finally { cleanup(); }
+  });
+
+  it('abre um novo bloco para o emoji inteiro e conserva as 200 entradas mais recentes', () => {
+    const cleanup = useTerminalStore.getState().setupEventListeners({ lifecycleOnly: true });
+    try {
+      const commands = Array.from({ length: 199 }, (_, index) => terminal.HistoryEntry.createFrom({ id: String(index), source: 'llm' }));
+      useTerminalStore.setState({ historyBySession: { s1: commands } });
+      const raw = (output: string) => terminalEventHandlers.get('terminal:raw_output')?.({ sessionId: 's1', commandId: '', output });
+      const prefix = 'x'.repeat(50 * 1024 - 1);
+      raw(prefix);
+      raw('🌍');
+      raw('depois');
+      const entries = useTerminalStore.getState().historyBySession.s1;
+      expect(entries).toHaveLength(200);
+      expect(entries[0].id).toBe('1');
+      expect(entries.slice(-2).map(entry => entry.output)).toEqual([prefix, '🌍depois']);
     } finally { cleanup(); }
   });
 

@@ -68,12 +68,12 @@ function subscribeTerminalSession(
   });
 }
 
-function formatTerminalHistoryForChat(history: TerminalHistoryEntry[]) {
+function formatTerminalHistoryForChat(history: TerminalHistoryEntry[], sessionOutputLabel: string) {
   return history
     .map((e) => {
       const cmd = String(e.command || '').trim();
       const out = String(e.output || '').trimEnd();
-      return e.source === sessionOutputSource ? out : [`$ ${cmd}`, out].filter(Boolean).join('\n');
+      return e.source === sessionOutputSource ? `[${sessionOutputLabel}]\n${out}` : [`$ ${cmd}`, out].filter(Boolean).join('\n');
     })
     .filter(Boolean)
     .join('\n---\n');
@@ -405,13 +405,13 @@ export default function TerminalPage({ sessionId: explicitSessionId }: TerminalP
     return {
       prepare: async () => {
         const slice = currentHistory.slice(-TERMINAL_CHAT_HISTORY_LIMIT);
-        const lines = formatTerminalHistoryForChat(slice);
+        const lines = formatTerminalHistoryForChat(slice, t('terminal.entry.sessionOutput'));
         const contextDisplay = lines || t('terminal.chatModal.noHistory');
         return { ok: true, contextDisplay, meta: null };
       },
       send: async (instruction, media) => {
         const historySlice = currentHistory.slice(-TERMINAL_CHAT_HISTORY_LIMIT);
-        const contextDisplay = formatTerminalHistoryForChat(historySlice) || t('terminal.chatModal.noHistory');
+        const contextDisplay = formatTerminalHistoryForChat(historySlice, t('terminal.entry.sessionOutput')) || t('terminal.chatModal.noHistory');
         const selection = window.getSelection?.();
         const selectedOutput = selection && historyContainerRef.current?.contains(selection.anchorNode)
           ? selection.toString().trim()

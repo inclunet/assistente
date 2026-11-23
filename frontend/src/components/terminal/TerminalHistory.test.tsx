@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { TerminalHistory } from './TerminalHistory';
 import { terminal } from '../../../wailsjs/go/models';
 
@@ -34,13 +34,17 @@ describe('TerminalHistory', () => {
   });
 
   it('oferece uma única saída navegável para texto da sessão sem comando', () => {
-    render(<TerminalHistory entries={[new terminal.HistoryEntry({
-      source: 'session-output', id: 'saída', command: '', output: 'pronto',
-    })]} />);
+    render(<TerminalHistory entries={[
+      new terminal.HistoryEntry({ source: 'llm', id: 'cmd', command: 'date', output: 'hoje', exitCode: 0 }),
+      new terminal.HistoryEntry({ source: 'session-output', id: 'saída', command: '', output: 'pronto' }),
+    ]} />);
     const nodes = screen.getAllByRole('listitem');
-    expect(nodes).toHaveLength(1);
-    expect(nodes[0]).toHaveAccessibleName('terminal.entry.output: pronto');
-    expect(screen.queryByText('terminal.entry.exit')).not.toBeInTheDocument();
+    expect(nodes).toHaveLength(3);
+    nodes[1].focus();
+    fireEvent.keyDown(nodes[1], { key: 'ArrowDown' });
+    expect(nodes[2]).toHaveFocus();
+    expect(nodes[2]).toHaveAccessibleName('terminal.entry.sessionOutput: pronto');
+    expect(nodes[2]).not.toHaveTextContent('terminal.entry.exit');
   });
 
   it('renderiza estado vazio', () => {
