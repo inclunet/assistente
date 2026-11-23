@@ -53,16 +53,17 @@ interativo do shell. Na aba ativa, o leitor de telas pode falar o prompt porque 
 o envia pelo mesmo fluxo da saída espontânea. Você pode relê-lo no item imediatamente anterior. Quando a
 saída precede o primeiro comando, ela ganha um item próprio. Uma saída longa
 continua no bloco seguinte a cada 50 KiB. O histórico guarda até 200 comandos
-e 200 blocos da sessão. Ao enviar contexto ao chat, seguem até 40 de cada.
+e 200 blocos da sessão. A prévia do contexto enviado ao chat prioriza os comandos
+recentes e usa o espaço restante para a saída da sessão. O envio segue a ordem
+do histórico e contém até 900 pontos de código, com até 40 itens de cada origem.
 Se o prazo vencer ou o comando for cancelado enquanto o terminal entrega a saída
 anterior, o comando fica no histórico com código -1. A sessão volta a ficar disponível
 e a saída pendente conserva a identificação original. Se você havia enviado um
 comando manual, ele continua disponível para interrupção com Ctrl+C, mesmo depois
 de muitas tentativas sem envio. A aba pode identificar esse comando ao recarregar o histórico
-após o término da tentativa. Se a escrita de um comando
-enviado pelo modelo falhar, o Assistente encerra a sessão
-para impedir que o próximo comando complete a linha anterior. Isso também vale
-quando você abre um terminal persistente e pede ao modelo que use essa sessão.
+após o término da tentativa. Se a escrita de uma entrada manual ou de um comando
+do modelo falhar, o Assistente encerra a sessão. Isso impede que a próxima entrada
+complete por engano uma linha enviada pela metade.
 A aba continua aberta e o campo de comando fica somente para leitura. Você pode
 selecionar e copiar o rascunho. Quando você digita um comando na aba, o campo
 só é limpo depois que o backend aceita o envio, mesmo se a sessão terminar
@@ -94,9 +95,8 @@ nomes de tipos abreviados. Por exemplo, depois de `using namespace System.Text`,
 
 A saída registrada é textual. Programas que movem o cursor para redesenhar
 linhas anteriores podem aparecer de forma diferente no histórico e na tela
-interativa. Uma sequência de controle incompleta de até 4 KiB pode aparecer
-como texto ao encerrar a leitura. Acima desse limite, o terminal descarta
-a cópia literal e volta a mostrar texto quando a sequência termina ou é cancelada.
+interativa. Sequências de controle incompletas podem aparecer como texto ao
+encerrar a leitura.
 
 ## Sessões
 
@@ -111,9 +111,9 @@ Múltiplas sessões podem existir simultaneamente (até 10 por padrão), cada um
 
 Uma falha de leitura, um cancelamento ou o fechamento explícito da sessão devolve erro com a saída parcial disponível. Se o leitor já falhou quando o prazo vence, o diagnóstico conserva as duas causas. A duração acompanha o resultado quando a sessão registrou o início e o fim da execução.
 
-O timeout pode ser configurado em cada chamada da ferramenta. Quando ele é
-atingido, o Assistente envia `Ctrl+C`, aguarda e drena a saída restante e só
-então encerra uma sessão efêmera, evitando perder as últimas linhas do comando.
+A ferramenta informa o limite configurado e, quando disponível, a duração medida.
+Se o prazo vencer depois do envio, o Assistente tenta interromper o comando com
+`Ctrl+C` e recuperar a saída restante antes de encerrar uma sessão efêmera.
 
 Se um comando encerrar o próprio shell, a ferramenta devolve o código do processo e a saída disponível. O histórico da sessão fica disponível enquanto ela está aberta. Fechar a sessão manualmente durante um comando interrompe a espera e indica que ele não terminou normalmente.
 

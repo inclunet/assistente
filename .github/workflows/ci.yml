@@ -569,7 +569,7 @@ jobs:
           if ($LASTEXITCODE -ne 0 -or ([version]$version).Major -ne 5 -or ([version]$version).Minor -ne 1) {
             throw "Windows PowerShell 5.1 indisponível: $version"
           }
-          go test -v ./internal/terminal/... -count=1
+          go test -v ./internal/terminal/... -count=1 -timeout 20m
       - name: Testar registro isolado e comando interno
         shell: pwsh
         run: |

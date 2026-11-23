@@ -306,13 +306,16 @@ func (rc *RunCommand) Execute(ctx context.Context, args json.RawMessage) (tools.
 			output = entry.Output
 		}
 		isTimeout := errors.Is(err, context.DeadlineExceeded) && !terminalFailure(err)
+		if isTimeout {
+			metadata["timeout"] = true
+			metadata["timeoutLimit"] = timeout.String()
+		}
 		if isTimeout && output != "" {
 			// O timeout parcial mantém a saída recuperável mesmo sem uma duração conhecida.
-			header := "TIMEOUT"
+			header := "TIMEOUT — limite configurado: " + timeout.String()
 			if duration != "" {
 				header += " — duração registrada: " + duration
 			}
-			metadata["timeout"] = true
 			result := tools.ToolResult{Content: "[" + header + ". Output parcial capturado:]\n\n" + output, Metadata: metadata}
 			protected, ok := tools.ProtectToolResult(ctx, result, outputLimit)
 			if !ok {
@@ -326,6 +329,9 @@ func (rc *RunCommand) Execute(ctx context.Context, args json.RawMessage) (tools.
 		}
 
 		message := fmt.Sprintf("Erro ao executar comando: %v", err)
+		if isTimeout {
+			message += "\nLimite configurado: " + timeout.String()
+		}
 		if duration != "" {
 			message += "\nDuração registrada: " + duration
 		}

@@ -140,7 +140,7 @@ type Session struct {
 	readerCtx       context.Context
 	readerDone      chan struct{}
 	readerDoneOnce  sync.Once
-	readerErr       error // escrito pelo readLoop antes de fechar readerDone
+	readerErr       error // Escrito sob mu antes de fechar readerDone; leitores aguardam o canal ou tomam mu.
 	processDone     chan struct{}
 	processWaitOnce sync.Once
 	processErr      error
@@ -151,7 +151,7 @@ type Session struct {
 	exitOnce        sync.Once
 	ptyCloseOnce    sync.Once
 	explicitClose   bool
-	writeClosing    bool
+	writeErr        error            // sob mu; identifica o dono do cleanup e a causa de escrita
 	commandDelivery *commandDelivery // Sob mu: preserva o resultado antes dos eventos de encerramento.
 	discardOutput   bool             // Sob outputMu: a entrada encerrou antes do cleanup do PTY.
 }
@@ -409,7 +409,8 @@ func (s *Session) readLoop(ctx context.Context) {
 		if err != nil {
 			s.finishRawOutput()
 			if errors.Is(err, io.EOF) || runtime.GOOS == "linux" && errors.Is(err, syscall.EIO) {
-				// O último slave do PTY no Linux fecha com EIO no master.
+				// O PTY nativo do Linux reporta EIO ao fechar o último slave. Nos
+				// demais backends só EOF comprova esse fim sem consultar o processo.
 				err = nil
 			} else if s.expectedReaderClose(err) {
 				logging.Infof(ctx, "terminal.session", "[Terminal] Leitor encerrado durante cleanup da sessão %s: %v", s.id, err)
@@ -453,7 +454,7 @@ func (s *Session) signalReaderDone() {
 
 func (s *Session) expectedReaderClose(err error) bool {
 	s.mu.Lock()
-	state, writeClosing := s.state, s.writeClosing
+	state, writeClosing := s.state, s.writeErr != nil
 	s.mu.Unlock()
 	if state == StateClosing || state == StateExited {
 		return !writeClosing || errors.Is(err, os.ErrClosed) || errors.Is(err, io.ErrClosedPipe)
@@ -623,7 +624,7 @@ func (s *Session) runCommandInDirectory(ctx context.Context, command, directory 
 		delivery.ended, delivery.err = true, resultErr
 		pending := delivery.afterEnd
 		delivery.afterEnd = nil
-		if !s.writeClosing && s.readerErr == nil {
+		if s.writeErr == nil && s.readerErr == nil {
 			s.commandDelivery = nil
 		}
 		s.mu.Unlock()
@@ -709,34 +710,9 @@ func (s *Session) runCommandInDirectory(ctx context.Context, command, directory 
 		return failBeforeResult(err)
 	}
 	s.beginMarkerCapture(marker)
-	nWritten, err := s.ptyWriter.Write(request)
-	if nWritten != len(request) && err == nil {
-		err = io.ErrShortWrite
-	}
-	s.mu.Lock()
-	s.interruptIsManual = false
-	s.managedCommandID = commandID
-	retire := err != nil && s.state == StateRunning
-	if retire {
-		// O descritor pode estar quebrado ou o shell pode ter recebido um fragmento.
-		// Este caminho assume o cleanup e publica exited depois de command_end.
-		s.state = StateClosing
-		s.writeClosing = true
-	}
-	s.commandPending = false
-	s.mu.Unlock()
-	s.ioMu.Unlock()
-	if err != nil {
-		writeErr := fmt.Errorf("%w %s: %w", ErrSessionWrite, s.id, err)
+	writeErr, retire := s.writeInputAndUnlock(request, commandID, false)
+	if writeErr != nil {
 		if retire {
-			s.ensureLifecycleChannels()
-			go func() {
-				var killErr error
-				if s.ptySession != nil {
-					killErr = s.ptySession.Kill()
-				}
-				_ = s.finishClose(nil, killErr)
-			}()
 			select {
 			case <-s.closeDone:
 			case <-commandCtx.Done():
@@ -764,12 +740,12 @@ func (s *Session) runCommandInDirectory(ctx context.Context, command, directory 
 		s.mu.Unlock()
 		return failBeforeResult(errors.Join(writeErr, readErr, commandCtx.Err(), cleanupErr))
 	}
-	logging.Debugf(ctx, "terminal.session", "[Terminal] Write OK: %d bytes escritos para sessão %s", nWritten, s.id)
+	logging.Debugf(ctx, "terminal.session", "[Terminal] Write OK: %d bytes escritos para sessão %s", len(request), s.id)
 
-	entry.Output, entry.ExitCode, err = s.waitForMarker(commandCtx, marker, entry.ID)
+	entry.Output, entry.ExitCode, resultErr = s.waitForMarker(commandCtx, marker, entry.ID)
 	entry.EndedAt = time.Now()
 	s.addHistoryEntry(entry)
-	return entry, err
+	return entry, resultErr
 }
 
 // ErrSessionClosed indica que o fechamento explícito interrompeu o comando.
@@ -1128,23 +1104,8 @@ func (s *Session) SendInput(input, commandID string) (*HistoryEntry, error) {
 		s.ioMu.Unlock()
 		return nil, fmt.Errorf("sessão %s não possui writer PTY", s.id)
 	}
-	request := []byte(input + enter)
-	n, err := s.ptyWriter.Write(request)
-	if n != len(request) && err == nil {
-		err = io.ErrShortWrite
-	}
-	s.mu.Lock()
-	s.interruptIsManual = err == nil
-	if s.interruptIsManual {
-		s.managedCommandID = commandID
-	} else {
-		s.managedCommandID = ""
-	}
-	s.commandPending = false
-	s.mu.Unlock()
-	s.ioMu.Unlock()
-	if err != nil {
-		return nil, fmt.Errorf("falha ao enviar input para sessão %s: %w", s.id, err)
+	if err, _ := s.writeInputAndUnlock([]byte(input+enter), commandID, true); err != nil {
+		return nil, err
 	}
 
 	s.addHistoryEntry(entry)
@@ -1172,6 +1133,39 @@ func (s *Session) Interrupt() error {
 	}
 	logging.Infof(context.Background(), "terminal.session", "[Terminal] Ctrl+C enviado para sessão %s", s.id)
 	return nil
+}
+
+// O chamador mantém ioMu desde a validação até este ponto. Mesmo que Write
+// tenha aceitado só um prefixo, a sessão entra em closing antes de liberar o lock.
+func (s *Session) writeInputAndUnlock(request []byte, commandID string, manual bool) (error, bool) {
+	n, err := s.ptyWriter.Write(request)
+	if n != len(request) && err == nil {
+		err = io.ErrShortWrite
+	}
+	if err != nil {
+		err = fmt.Errorf("%w %s: %w", ErrSessionWrite, s.id, err)
+	}
+	s.mu.Lock()
+	retire := err != nil && s.state == StateRunning
+	if retire {
+		s.state, s.writeErr = StateClosing, err
+	}
+	s.managedCommandID = commandID
+	s.interruptIsManual = manual && err == nil
+	s.commandPending = false
+	s.mu.Unlock()
+	s.ioMu.Unlock()
+	if retire {
+		s.ensureLifecycleChannels()
+		go func() {
+			var killErr error
+			if s.ptySession != nil {
+				killErr = s.ptySession.Kill()
+			}
+			_ = s.finishClose(nil, killErr)
+		}()
+	}
+	return err, retire
 }
 
 // Close encerra a sessão PTY e libera recursos.
@@ -1231,7 +1225,7 @@ func (s *Session) closeWithIOLock(captured *closeSnapshotToken) error {
 func (s *Session) closeAfterReadFailure(err error) {
 	s.mu.Lock()
 	if s.state == StateClosing || s.state == StateExited {
-		if s.writeClosing {
+		if s.writeErr != nil {
 			s.readerErr = fmt.Errorf("%w: %w", ErrSessionRead, err)
 		}
 		s.mu.Unlock()
@@ -1285,7 +1279,7 @@ func (s *Session) finishClose(readErr, killErr error) error {
 func (s *Session) faultOwnsCleanup() bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.writeClosing || s.readerErr != nil
+	return s.writeErr != nil || s.readerErr != nil
 }
 
 // Somente um fechamento explícito produz session_closed. Uma saída natural
@@ -1301,7 +1295,7 @@ func (s *Session) closeForManager() (bool, error) {
 // vencido enquanto o backend continuava bloqueado em Kill, Wait ou Close.
 func (s *Session) notifyFaultExit() {
 	s.mu.Lock()
-	if s.state != StateExited || (!s.writeClosing && s.readerErr == nil) || s.explicitClose || s.onExit == nil {
+	if s.state != StateExited || (s.writeErr == nil && s.readerErr == nil) || s.explicitClose || s.onExit == nil {
 		s.mu.Unlock()
 		return
 	}
@@ -1314,7 +1308,7 @@ func (s *Session) notifyFaultExit() {
 		cause = d.err
 	}
 	// Se o comando venceu antes do cleanup, podem existir causas novas.
-	for _, late := range []error{s.readerErr, s.closeErr} {
+	for _, late := range []error{s.writeErr, s.readerErr, s.closeErr} {
 		if late != nil && !errors.Is(cause, late) {
 			cause = errors.Join(cause, late)
 		}

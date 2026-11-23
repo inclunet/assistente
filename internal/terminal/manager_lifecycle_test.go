@@ -621,6 +621,50 @@ func (p *pausedKillPTY) Kill() error {
 	return p.drainingPTYSession.Kill()
 }
 
+func TestManualPartialWriteKeepsSessionSlotUntilCleanup(t *testing.T) {
+	cfg := DefaultManagerConfig()
+	cfg.MaxSessions = 1
+	m := NewManager(cfg, nil)
+	synctest.Test(t, func(t *testing.T) {
+		p := &pausedKillPTY{newDrainingPTYSession(), make(chan struct{}), make(chan struct{})}
+		release := sync.OnceFunc(func() { close(p.resume) })
+		defer release()
+		writes := 0
+		var exitErr error
+		s := &Session{id: "manual", readerCtx: t.Context(), ptySession: p,
+			ptyWriter: manualTestWriter(func(data []byte) (int, error) { writes++; return len(data) - 1, nil }),
+			onExit:    func(_ string, err error) { exitErr = err },
+		}
+		m.sessions[s.id] = s
+		s.Start()
+		if _, err := m.SendInput(s.id, "primeira"); !errors.Is(err, ErrSessionWrite) || !errors.Is(err, io.ErrShortWrite) {
+			t.Fatalf("erro de escrita parcial=%v", err)
+		}
+		<-p.killing
+		closed := make(chan error, 1)
+		go func() { closed <- m.Close(s.id) }()
+		synctest.Wait()
+		if _, err := m.SendInput(s.id, "segunda"); err == nil || writes != 1 {
+			t.Errorf("entrada reutilizou PTY parcial: escritas=%d erro=%v", writes, err)
+		}
+		if _, err := m.Create("antes", "\x00"); err == nil || !strings.Contains(err.Error(), "limite de sessões") {
+			t.Errorf("vaga liberada enquanto Kill está bloqueado: %v", err)
+		}
+		release()
+		if err := <-closed; err != nil {
+			t.Fatal(err)
+		}
+		synctest.Wait()
+		if !errors.Is(exitErr, io.ErrShortWrite) || m.Stats().TotalSessions != 0 {
+			t.Fatalf("fim=%v sessões=%d", exitErr, m.Stats().TotalSessions)
+		}
+	})
+	t.Cleanup(m.CloseAll)
+	if _, err := m.Create("depois", ptyTestDir(t)); err != nil {
+		t.Fatalf("vaga indisponível após a limpeza: %v", err)
+	}
+}
+
 func TestPartialWriteRetiresSessionAndDrainsReader(t *testing.T) {
 	for _, tc := range []struct {
 		name      string

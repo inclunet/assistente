@@ -108,7 +108,7 @@ func TestCANAndSUBResumeTextAndViewport(t *testing.T) {
 
 // Só o início de comando fica na região medida. O backing array representa
 // um histórico já recebido pelo leitor, pronto para ser reutilizado.
-func BenchmarkStartCommandOutput(b *testing.B) {
+func BenchmarkBeginMarkerCapture(b *testing.B) {
 	for _, size := range []int{4 << 10, 64 << 10, 4 << 20} {
 		b.Run(strconv.Itoa(size), func(b *testing.B) {
 			raw := make([]byte, size)

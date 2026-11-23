@@ -148,7 +148,9 @@ Entregue:
   têm `commandId` vazio e pertencem à sessão. A interface insere os blocos
   sem entrada manual correspondente na posição de chegada no histórico local,
   em blocos de até 50 KiB. O histórico local conserva até 200 comandos e 200
-  blocos da sessão. O contexto do chat inclui até 40 de cada, com origens distintas.
+  blocos da sessão. A prévia e o envio ao chat compartilham um limite de 900 pontos
+  de código e até 40 itens de cada origem. Priorizam comandos recentes, usam o
+  restante para blocos da sessão e apresentam os itens selecionados em ordem cronológica.
   A navegação agrega a saída da sessão ao item anterior quando ele existe. Um
   prompt personalizado pertence a esse fluxo, como qualquer texto espontâneo. A transferência
   inclui os bytes posteriores ao rodapé na mesma leitura e os já recebidos
@@ -234,7 +236,8 @@ Pendente ou parcial:
 - **Interrupção.** Cancelamento, falha de leitura e fechamento explícito preservam a causa e a saída
   parcial. Se o leitor falhar e o prazo expirar, o resultado conserva as duas causas. A ferramenta
   informa no texto e nos metadados a duração registrada pela sessão, inclusive no timeout sem saída,
-  quando os dois horários da execução estão disponíveis.
+  quando os dois horários da execução estão disponíveis. No timeout, `timeoutLimit`
+  registra o limite configurado, inclusive quando o prazo do contexto vence antes.
   Antes da primeira escrita de um comando gerenciado, a sessão revalida o contexto após
   aguardar as entregas raw já reservadas. Essa espera respeita o prazo, mesmo que
   o consumidor continue bloqueado. A saída conserva o identificador de origem.
@@ -245,7 +248,8 @@ Pendente ou parcial:
   Enquanto o alvo permanecer manual, o histórico do backend conserva sua entrada
   dentro do limite de 200 comandos para permitir a identificação após a hidratação.
   Em comandos gerenciados, uma falha de escrita depois do início fica no histórico com código -1.
-  Uma falha de escrita encerra a sessão, inclusive quando nenhum byte foi escrito.
+  Uma falha de escrita em comando gerenciado ou entrada manual encerra a sessão,
+  inclusive quando nenhum byte foi escrito. A vaga só é liberada após a limpeza do PTY.
   A sessão recusa novas entradas imediatamente. Depois que a escrita devolve erro, o comando
   aguarda a limpeza até o seu prazo ou cancelamento. Se o processo ou leitor continuar bloqueado,
   a limpeza prossegue em segundo plano. A saída já recebida acompanha o erro, inclusive se o prazo vencer.

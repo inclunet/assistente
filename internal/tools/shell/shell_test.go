@@ -561,8 +561,10 @@ func TestTimeoutWithPartialOutput(t *testing.T) {
 	if !contains(result.Content, "TIMEOUT") {
 		t.Errorf("esperado '[TIMEOUT' no output, got %q", result.Content)
 	}
-	if result.Metadata["duration"] != "200ms" || !strings.Contains(result.Content, "200ms") || strings.Contains(result.Content, "5s") {
-		t.Fatalf("prazo configurado apresentado como tempo decorrido: %+v", result)
+	if result.Metadata["duration"] != "200ms" || result.Metadata["timeoutLimit"] != "5s" ||
+		!strings.Contains(result.Content, "limite configurado: 5s — duração registrada: 200ms") ||
+		strings.Contains(result.Content, "Ctrl+C") {
+		t.Fatalf("limite, duração ou interrupção incorretos: %+v", result)
 	}
 	if !contains(result.Content, "partial output") {
 		t.Errorf("esperado output parcial preservado, got %q", result.Content)
@@ -951,6 +953,9 @@ func TestMetadataTimeoutWithoutOutput(t *testing.T) {
 	// Validar que metadata contém exitCode=-1
 	if exitCode, ok := result.Metadata["exitCode"].(int); !ok || exitCode != -1 {
 		t.Errorf("esperado exitCode=-1 em metadata, got %v", result.Metadata["exitCode"])
+	}
+	if result.Metadata["timeoutLimit"] != "1s" || result.Metadata["timeout"] != true || !strings.Contains(result.Content, "Limite configurado: 1s") {
+		t.Errorf("prazo configurado ausente: metadados=%v texto=%q", result.Metadata, result.Content)
 	}
 	if result.Metadata["duration"] != "250ms" || !strings.Contains(result.Content, "250ms") {
 		t.Errorf("esperado 250ms nos metadados e no texto; duration=%v, content=%q", result.Metadata["duration"], result.Content)

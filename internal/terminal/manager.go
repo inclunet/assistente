@@ -50,6 +50,7 @@ type ManagerStats struct {
 // Manager gerencia sessões PTY independentes compartilháveis entre chat e UI.
 type Manager struct {
 	sessions  map[string]*Session
+	starting  int // criações que já reservaram uma vaga antes de abrir o PTY
 	mu        sync.RWMutex
 	config    ManagerConfig
 	emitEvent func(event string, data any) // callback para emitir eventos Wails
@@ -80,10 +81,12 @@ func (m *Manager) Create(name, workDir string) (*Session, error) {
 func (m *Manager) create(name, workDir string, env []string) (*Session, error) {
 	m.mu.Lock()
 
-	if len(m.sessions) >= m.config.MaxSessions {
+	used := len(m.sessions) + m.starting
+	if used >= m.config.MaxSessions {
 		m.mu.Unlock()
-		return nil, fmt.Errorf("limite de sessões atingido (%d/%d)", len(m.sessions), m.config.MaxSessions)
+		return nil, fmt.Errorf("limite de sessões atingido (%d/%d)", used, m.config.MaxSessions)
 	}
+	m.starting++
 
 	if name == "" {
 		name = fmt.Sprintf("Terminal %d", m.nextNum)
@@ -132,11 +135,12 @@ func (m *Manager) create(name, workDir string, env []string) (*Session, error) {
 	}
 
 	session, err := newSession(name, workDir, m.config.DefaultShell, env, onOutput, onRawOutput, onCommandStart, onExit)
+	m.mu.Lock()
+	m.starting--
 	if err != nil {
+		m.mu.Unlock()
 		return nil, err
 	}
-
-	m.mu.Lock()
 	m.sessions[session.id] = session
 	m.mu.Unlock()
 	session.Start()
@@ -501,21 +505,16 @@ func (m *Manager) List() []SessionInfo {
 
 // Close encerra uma sessão específica e remove do pool.
 func (m *Manager) Close(sessionID string) error {
-	m.mu.Lock()
+	m.mu.RLock()
 	session, ok := m.sessions[sessionID]
+	m.mu.RUnlock()
 	if !ok {
-		m.mu.Unlock()
 		return fmt.Errorf("sessão '%s' não encontrada", sessionID)
 	}
-	delete(m.sessions, sessionID)
-	m.mu.Unlock()
-
 	notify, err := session.closeForManager()
-	if !notify {
-		return err
+	if m.removeIfSame(sessionID, session) && notify {
+		m.emitSessionClosed(session)
 	}
-
-	m.emitSessionClosed(session)
 	return err
 }
 
@@ -544,13 +543,13 @@ func (m *Manager) CloseAll() {
 	for _, s := range m.sessions {
 		sessions = append(sessions, s)
 	}
-	m.sessions = make(map[string]*Session)
 	m.mu.Unlock()
 
 	for _, s := range sessions {
 		if err := s.Close(); err != nil {
 			logging.Errorf(context.Background(), "terminal.manager", "[Terminal] Erro ao fechar sessão %s: %v", s.id, err)
 		}
+		m.removeIfSame(s.id, s)
 	}
 
 	logging.Infof(context.Background(), "terminal.manager", "[Terminal] Todas as %d sessões encerradas", len(sessions))
