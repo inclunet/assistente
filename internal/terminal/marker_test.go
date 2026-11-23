@@ -536,6 +536,46 @@ func TestConPTYRedrawAfterCompleteFooter(t *testing.T) {
 	}
 }
 
+func TestConPTYSessionOutputAfterFooterRedraw(t *testing.T) {
+	m := newCommandMarkerForShell("powershell")
+	m.conPTY = true
+	m.viewportColumns = len(m.endTag) + len("3!")
+	right := "\x1b[1;" + strconv.Itoa(m.viewportColumns) + "H"
+	for _, tc := range []struct{ name, before, tail, want string }{
+		{"redesenho", "", "\r\n" + right + "!PS> ", "PS> "},
+		{"texto após redesenho", "", "\r\n" + right + "!!mensagem", "!mensagem"},
+		{"caractere diferente", "", "\r\n" + right + "nova", "nova"},
+		{"sem cursor", "", "\r\n!PS> ", "!PS> "},
+		{"outra coluna", "", "\r\n\x1b[1;2H!PS> ", "!PS> "},
+		{"quebra a mais", "", "\r\n\r\n" + right + "!PS> ", "\n!PS> "},
+		{"rodapé fora da margem", "x", "\r\n" + right + "!PS> ", "!PS> "},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			for split := 0; split <= len(tc.tail); split++ {
+				stream := newMarkerStream(m)
+				_, result := stream.append(m.startTag + "\r\n" + tc.before + m.endTag + "3!" + tc.tail[:split])
+				if !result.Found {
+					t.Fatal("rodapé não encontrado")
+				}
+				var raw strings.Builder
+				s := &Session{suppressRawOutput: true, onRawOutput: func(_, id, text string) {
+					if id != "" {
+						t.Errorf("dono da saída espontânea=%q", id)
+					}
+					raw.WriteString(text)
+				}}
+				s.resumeRawAfterFooter(result)
+				s.recordOutput(tc.tail[split:])
+				s.finishRawOutput()
+				s.rawOwner.wait()
+				if raw.String() != tc.want {
+					t.Fatalf("corte %d: saída=%q esperada=%q", split, raw.String(), tc.want)
+				}
+			}
+		})
+	}
+}
+
 func TestConPTYPartialStatusAtReadFailure(t *testing.T) {
 	m := newCommandMarkerForShell("powershell")
 	m.conPTY = true

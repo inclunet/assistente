@@ -152,7 +152,9 @@ Entregue:
   A navegação agrega a saída da sessão ao item anterior quando ele existe. Um
   prompt personalizado pertence a esse fluxo, como qualquer texto espontâneo. A transferência
   inclui os bytes posteriores ao rodapé na mesma leitura e os já recebidos
-  antes da liberação da captura. O encerramento sucede a entrega da saída já lida.
+  antes da liberação da captura. Um redesenho da última célula do rodapé na margem
+  direita do ConPTY é consumido sem duplicar o terminador na saída da sessão.
+  O encerramento sucede a entrega da saída já lida.
 
 Pendente ou parcial:
 

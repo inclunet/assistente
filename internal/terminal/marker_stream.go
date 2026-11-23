@@ -28,6 +28,9 @@ type parsedTerminalText struct {
 	escapeAfterCRLF  bool
 	replay           string
 	replayed         int
+	// Depois do rodapé, somente o CRLF e o cursor da margem podem repetir o terminador.
+	footerColumn   int
+	skipFooterCell bool
 }
 
 func (t *parsedTerminalText) write(s string) {
@@ -39,6 +42,24 @@ func (t *parsedTerminalText) write(s string) {
 
 func (t *parsedTerminalText) feed(chunk string) {
 	for chunk != "" {
+		if t.skipFooterCell {
+			t.skipFooterCell = false
+			if chunk[0] == markerStatusTerminator[0] {
+				chunk = chunk[1:]
+				continue
+			}
+		}
+		if t.footerColumn > 0 && t.control.kind == 0 {
+			expected := byte('\r')
+			if t.rawCR {
+				expected = '\n'
+			} else if t.crlf {
+				expected = '\x1b'
+			}
+			if chunk[0] != expected {
+				t.footerColumn = 0
+			}
+		}
 		if t.replay != "" {
 			want := t.replay[t.replayed:]
 			n := min(len(want), len(chunk))
@@ -118,11 +139,18 @@ func (t *parsedTerminalText) escapeByte(ch byte) bool {
 			t.escape = append(t.escape, ch)
 		}
 	case escapeEnd:
-		if t.conPTY && kind == '[' && ch == 'H' && t.escapeAfterCRLF && len(t.escape) >= 2 {
-			t.beginReplay()
+		if kind == '[' && ch == 'H' && t.escapeAfterCRLF && len(t.escape) >= 2 {
+			column := cursorColumn(t.escape[2:])
+			if t.footerColumn > 0 {
+				t.skipFooterCell = column == t.footerColumn
+			} else if t.conPTY && column > 0 && column == t.columns {
+				t.replay = string(lastCellAt(t.data[t.previousRow:len(t.data)-1], column))
+			}
 		}
+		t.footerColumn = 0
 		t.escape = t.escape[:0]
 	case escapeInvalid:
+		t.footerColumn = 0
 		t.flushEscape()
 		return false
 	}
@@ -147,34 +175,38 @@ func (t *parsedTerminalText) flushEscape() {
 	}
 }
 
-func (t *parsedTerminalText) beginReplay() {
-	row, col, ok := bytes.Cut(t.escape[2:], []byte(";"))
+func cursorColumn(position []byte) int {
+	row, col, ok := bytes.Cut(position, []byte(";"))
 	if !ok || len(row) == 0 || len(col) == 0 || col[0] == '0' {
-		return
+		return 0
 	}
 	for _, ch := range row {
 		if ch < '0' || ch > '9' {
-			return
+			return 0
 		}
 	}
 	column, err := strconv.Atoi(string(col))
-	if err != nil || column != t.columns || column <= 0 {
-		return
+	if err != nil {
+		return 0
 	}
+	return column
+}
+
+func lastCellAt(rest []byte, column int) []byte {
 	cells, lastWidth := 0, 0
 	var last []byte
-	rest := t.data[t.previousRow : len(t.data)-1]
 	state := -1
 	for len(rest) > 0 {
 		last, rest, lastWidth, state = uniseg.FirstGraphemeCluster(rest, state)
 		cells += lastWidth
 		if cells > column {
-			return
+			return nil
 		}
 	}
 	if cells == column && lastWidth > 0 {
-		t.replay = string(last)
+		return last
 	}
+	return nil
 }
 
 func (t *parsedTerminalText) finish() {
@@ -221,6 +253,9 @@ func (s *markerStream) append(chunk string) ([]byte, parseResult) {
 		}
 		if result.Found {
 			result.afterFooter = chunk
+			if s.text.conPTY && s.text.columns > 0 && string(lastCellAt(s.text.data[s.text.row:], s.text.columns)) == markerStatusTerminator {
+				result.footerColumn = s.text.columns
+			}
 			break
 		}
 	}

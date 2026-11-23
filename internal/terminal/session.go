@@ -803,7 +803,7 @@ func (s *Session) exitedCommandResult(stream *markerStream) (string, int, error)
 
 // A leitura já pode ter colocado outros bytes em outputBuf desde o último tick.
 // Transfere o sufixo e o lote concorrente antes de liberar a próxima leitura raw.
-func (s *Session) resumeRawAfterFooter(tail string) {
+func (s *Session) resumeRawAfterFooter(result parseResult) {
 	s.outputMu.Lock()
 	if !s.suppressRawOutput || s.discardOutput {
 		s.outputMu.Unlock()
@@ -811,12 +811,12 @@ func (s *Session) resumeRawAfterFooter(tail string) {
 	}
 	s.suppressRawOutput = false
 	s.rawCommandID = ""
-	s.rawOutput = rawTerminalOutput{footerBreak: true}
+	s.rawOutput = rawTerminalOutput{footerBreak: true, text: parsedTerminalText{footerColumn: result.footerColumn}}
 	previous := s.rawOwner
 	owner := newRawDeliveryOwner(true, s.publishRaw)
 	s.rawOwner = owner
 	if s.onRawOutput != nil {
-		text := s.rawOutput.append(tail, false)
+		text := s.rawOutput.append(result.afterFooter, false)
 		text += s.rawOutput.append(s.outputBuf.String(), false)
 		if s.rawFinished {
 			text += s.rawOutput.finish()
@@ -864,7 +864,7 @@ func (s *Session) waitForMarker(ctx context.Context, marker *CommandMarker, comm
 			}
 			result := stream.finish(s.takeCommandOutput())
 			if result.Found {
-				s.resumeRawAfterFooter(result.afterFooter)
+				s.resumeRawAfterFooter(result)
 				return result.Output, result.ExitCode, nil
 			}
 			return s.exitedCommandResult(stream)
@@ -883,7 +883,7 @@ func (s *Session) waitForMarker(ctx context.Context, marker *CommandMarker, comm
 				streamSentLen += len(delta)
 			}
 			if result.Found {
-				s.resumeRawAfterFooter(result.afterFooter)
+				s.resumeRawAfterFooter(result)
 				return result.Output, result.ExitCode, nil
 			}
 		}
@@ -964,7 +964,7 @@ func (s *Session) canceledCommandResult(ctx context.Context, stream *markerStrea
 		result = stream.finish(s.takeCommandOutput())
 	}
 	if result.Found {
-		s.resumeRawAfterFooter(result.afterFooter)
+		s.resumeRawAfterFooter(result)
 		result.Output = stream.outputBeforeFooter()
 	} else {
 		result.Output = stream.partialOutput()

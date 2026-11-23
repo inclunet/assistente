@@ -8,6 +8,7 @@ import (
 	"sync"
 	"testing"
 	"testing/iotest"
+	"testing/synctest"
 	"time"
 	"unicode/utf8"
 )
@@ -47,108 +48,95 @@ func TestCommandStartWaitsForPreviousManualDelivery(t *testing.T) {
 				testName = name + "/dados_e_EOF"
 			}
 			t.Run(testName, func(t *testing.T) {
-				reader, writer := io.Pipe()
-				defer func() { _ = writer.Close() }()
-				defer func() { _ = reader.Close() }()
-				reading := make(chan struct{})
-				exited := make(chan struct{})
-				release := make(chan struct{})
-				unblock := sync.OnceFunc(func() { close(release) })
-				defer unblock()
-				var mu sync.Mutex
-				var events []string
-				s := &Session{readerCtx: t.Context(), ptyReader: reader, ptyWriter: io.Discard}
-				s.rawCommandID = "anterior"
-				s.onRawOutput = func(_, owner, chunk string) {
-					if chunk == "antes" {
-						close(reading)
-						<-release
+				synctest.Test(t, func(t *testing.T) {
+					reader, writer := io.Pipe()
+					defer func() { _ = writer.Close() }()
+					defer func() { _ = reader.Close() }()
+					reading := make(chan struct{})
+					exited := make(chan struct{})
+					release := make(chan struct{})
+					unblock := sync.OnceFunc(func() { close(release) })
+					defer unblock()
+					var mu sync.Mutex
+					var events []string
+					s := &Session{readerCtx: t.Context(), ptyReader: reader, ptyWriter: io.Discard}
+					s.rawCommandID = "anterior"
+					s.onRawOutput = func(_, owner, chunk string) {
+						if chunk == "antes" {
+							close(reading)
+							<-release
+						}
+						mu.Lock()
+						events = append(events, owner+"/"+chunk)
+						mu.Unlock()
 					}
-					mu.Lock()
-					events = append(events, owner+"/"+chunk)
-					mu.Unlock()
-				}
-				s.onExit = func(_ string, _ error) {
-					mu.Lock()
-					events = append(events, "fim")
-					mu.Unlock()
-					close(exited)
-				}
-				s.onCommandStart = func(_, id, _, _ string) {
-					mu.Lock()
-					events = append(events, "início")
-					mu.Unlock()
-					// O leitor deve conseguir drenar inclusive enquanto este callback
-					// aguarda o encerramento. A saída pode pertencer ao novo dono.
-					if tail != "" {
-						_, _ = io.WriteString(writer, tail)
+					s.onExit = func(_ string, _ error) {
+						mu.Lock()
+						events = append(events, "fim")
+						mu.Unlock()
+						close(exited)
 					}
-					_ = writer.Close()
-					<-s.readerDone
-				}
-				s.Start()
-				if _, err := io.WriteString(writer, "antes\xe2\x1bPpendente"); err != nil {
-					t.Fatal(err)
-				}
-				select {
-				case <-reading:
-				case <-time.After(time.Second):
-					t.Fatal("leitura anterior não iniciou")
-				}
-				done := make(chan struct{})
-				go func() {
-					defer close(done)
-					if managed {
-						_, _ = s.RunCommand(t.Context(), "comando", time.Second, "teste", "novo")
-					} else {
-						_, _ = s.SendInput("comando", "novo")
+					s.onCommandStart = func(_, id, _, _ string) {
+						mu.Lock()
+						events = append(events, "início")
+						mu.Unlock()
+						// O leitor deve conseguir drenar inclusive enquanto este callback
+						// aguarda o encerramento. A saída pode pertencer ao novo dono.
+						if tail != "" {
+							_, _ = io.WriteString(writer, tail)
+						}
+						_ = writer.Close()
+						<-s.readerDone
 					}
-				}()
-				deadline := time.After(time.Second)
-				ticker := time.NewTicker(time.Millisecond)
-				defer ticker.Stop()
-				for {
-					s.outputMu.Lock()
-					rawOwner := s.rawOwner
-					s.outputMu.Unlock()
-					rawOwner.mu.Lock()
-					starting := rawOwner.opening
-					rawOwner.mu.Unlock()
-					if starting {
-						break
+					s.Start()
+					if _, err := io.WriteString(writer, "antes\xe2\x1bPpendente"); err != nil {
+						t.Fatal(err)
 					}
 					select {
-					case <-deadline:
-						t.Fatal("troca de dono não iniciou")
-					case <-ticker.C:
+					case <-reading:
+					case <-time.After(time.Second):
+						t.Fatal("leitura anterior não iniciou")
 					}
-				}
-				unblock()
-				select {
-				case <-done:
-				case <-time.After(2 * time.Second):
-					t.Fatal("command_start bloqueou a drenagem do leitor")
-				}
-				select {
-				case <-exited:
-				case <-time.After(time.Second):
-					t.Fatal("encerramento não foi entregue após a última saída")
-				}
-				mu.Lock()
-				defer mu.Unlock()
-				want := []string{"anterior/antes", "anterior/\uFFFD", "início", "fim"}
-				if managed {
-					// Sem despacho, inclusive o trecho incompleto continua manual até o EOF.
-					want = []string{"anterior/antes", "início", "anterior/\uFFFD\x1bPpendente", "fim"}
-					if tail != "" {
-						want = []string{"anterior/antes", "início", "anterior/\uFFFDdepois", "anterior/\x1b]nova", "fim"}
+					done := make(chan struct{})
+					go func() {
+						defer close(done)
+						if managed {
+							_, _ = s.RunCommand(t.Context(), "comando", time.Second, "teste", "novo")
+						} else {
+							_, _ = s.SendInput("comando", "novo")
+						}
+					}()
+					synctest.Wait()
+					if s.State() != StateRunning || len(events) != 0 {
+						t.Fatalf("antes de liberar a entrega: estado=%v eventos=%v", s.State(), events)
 					}
-				} else if tail != "" {
-					want = []string{"anterior/antes", "anterior/\uFFFD", "início", "novo/depois", "novo/\x1b]nova", "fim"}
-				}
-				if !slices.Equal(events, want) {
-					t.Fatalf("eventos=%q esperados=%q", events, want)
-				}
+					unblock()
+					select {
+					case <-done:
+					case <-time.After(2 * time.Second):
+						t.Fatal("command_start bloqueou a drenagem do leitor")
+					}
+					select {
+					case <-exited:
+					case <-time.After(time.Second):
+						t.Fatal("encerramento não foi entregue após a última saída")
+					}
+					mu.Lock()
+					defer mu.Unlock()
+					want := []string{"anterior/antes", "anterior/\uFFFD", "início", "fim"}
+					if managed {
+						// Sem despacho, inclusive o trecho incompleto continua manual até o EOF.
+						want = []string{"anterior/antes", "início", "anterior/\uFFFD\x1bPpendente", "fim"}
+						if tail != "" {
+							want = []string{"anterior/antes", "início", "anterior/\uFFFDdepois", "anterior/\x1b]nova", "fim"}
+						}
+					} else if tail != "" {
+						want = []string{"anterior/antes", "anterior/\uFFFD", "início", "novo/depois", "novo/\x1b]nova", "fim"}
+					}
+					if !slices.Equal(events, want) {
+						t.Fatalf("eventos=%q esperados=%q", events, want)
+					}
+				})
 			})
 		}
 	}
@@ -238,7 +226,7 @@ func TestSessionOutputAfterFooterAcrossReads(t *testing.T) {
 		if !result.Found || result.ExitCode != 7 || result.Output != "texto!" {
 			t.Fatalf("corte %d: resultado=%+v", cut, result)
 		}
-		s.resumeRawAfterFooter(result.afterFooter)
+		s.resumeRawAfterFooter(result)
 		s.recordOutput(tail[cut:])
 		s.finishRawOutput()
 		s.rawOwner.wait()

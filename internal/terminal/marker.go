@@ -434,7 +434,8 @@ type parseResult struct {
 	Found bool
 
 	// Bytes do mesmo lote que chegaram depois do terminador do rodapé.
-	afterFooter string
+	afterFooter  string
+	footerColumn int
 }
 
 // stripANSI remove todas as sequências ANSI escape de uma string.
