@@ -90,6 +90,7 @@ data: [DONE]
 	}))
 	defer server.Close()
 	var conversationID, profileSlug string
+	var previousCredential database.CredentialEntry
 	var activeRun database.SubAgentRun
 	var pendingJob database.Job
 	desktop := app.NewCommandCLIApp()
@@ -113,6 +114,9 @@ data: [DONE]
 			t.Fatal(err)
 		}
 		if _, err := desktop.Login(app.LoginRequest{Username: admin.Username, Password: "other-password"}); err != nil {
+			t.Fatal(err)
+		}
+		if err := database.DB().First(&previousCredential, "pattern = ? AND user_id = ''", credentials.InstanceSecretAuthRefreshToken).Error; err != nil {
 			t.Fatal(err)
 		}
 		staleMirror, err := credentials.LoadAuthRefreshTokenFromKeychain()
@@ -226,6 +230,22 @@ data: [DONE]
 		}
 		if current.RefreshTokenHash != session.RefreshTokenHash || !current.ExpiresAt.Equal(session.ExpiresAt) {
 			t.Fatal("a CLI alterou a sessão do desktop")
+		}
+		// Um login concorrente altera a linha de instância. A sessão deste
+		// REPL continua válida no banco; a conversa não deve migrar para a outra.
+		var savedCredential database.CredentialEntry
+		if err := database.DB().First(&savedCredential, "id = ?", previousCredential.ID).Error; err != nil {
+			t.Fatal(err)
+		}
+		activeTokenEnc := savedCredential.TokenEnc
+		if err := database.DB().Model(&savedCredential).UpdateColumn("token_enc", previousCredential.TokenEnc).Error; err != nil {
+			t.Fatal(err)
+		}
+		if _, err := asCLI(rootApp).GetConversation(conversationID); !errors.Is(err, auth.ErrUnauthenticatedLocalSession) {
+			t.Fatalf("troca de conta durante REPL: %v", err)
+		}
+		if err := database.DB().Model(&savedCredential).UpdateColumn("token_enc", activeTokenEnc).Error; err != nil {
+			t.Fatal(err)
 		}
 		if err := database.DB().Model(&current).Update("revoked_at", time.Now()).Error; err != nil {
 			t.Fatal(err)

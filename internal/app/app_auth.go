@@ -4,6 +4,7 @@ import (
 	"assistente/internal/logging"
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
@@ -729,14 +730,15 @@ func (a *App) requireAuthenticatedContext() (context.Context, error) {
 		return nil, err
 	}
 	if a.conversationCLI {
-		service := a.currentSessionService()
-		sessionID, ok := userctx.SessionIDFromContext(ctx)
-		if !ok || service == nil {
-			return nil, auth.ErrUnauthenticatedLocalSession
-		}
-		if _, err := service.RevalidateLocalSessionTx(ctx, database.DB(), auth.LocalSessionPrincipal{UserID: userID, SessionID: sessionID}); err != nil {
+		saved, _, err := a.savedConversationCLIPrincipal(ctx)
+		if err != nil {
 			return nil, err
 		}
+		sessionID, ok := userctx.SessionIDFromContext(ctx)
+		if !ok || saved.UserID != userID || saved.SessionID != sessionID {
+			return nil, fmt.Errorf("a sessão ativa mudou; reabra a CLI: %w", auth.ErrUnauthenticatedLocalSession)
+		}
+
 	}
 	return ctx, nil
 }

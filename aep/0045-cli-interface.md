@@ -269,7 +269,8 @@ focados nos arquivos `*_test.go` correspondentes. A ajuda é registrada em
   após falha de escrita. Erros de leitura do cofre são informados.
   A validação usa a credencial da
   sessão vigente, preserva seu prazo e sua rotação pelo desktop e revalida
-  revogação e atividade da conta antes das operações autenticadas do REPL.
+  revogação, atividade da conta e identidade da sessão persistida antes das
+  operações autenticadas do REPL. Uma troca de conta exige reabrir o processo.
   Chat hidrata credenciais, provedores desse usuário e o último catálogo local
   válido, preservando defaults e limites sem atualização em segundo plano; o scheduler fica no
   processo que o iniciou. O percurso entre instâncias com SQLite e chaveiro

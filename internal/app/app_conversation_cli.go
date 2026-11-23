@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"errors"
 	"fmt"
 
@@ -38,20 +39,8 @@ func RestoreConversationCLISession(a *App, chat bool) error {
 	}
 
 	ctx := a.appContext()
-	// O login confirma a gravação no cofre deste banco antes de tentar
-	// atualizar seu espelho no chaveiro, que pode conter outra conta válida.
-	token, found, err := a.credMgr.ReadPersistedInstanceSecret(ctx, credentials.InstanceSecretAuthRefreshToken)
+	principal, role, err := a.savedConversationCLIPrincipal(ctx)
 	if err != nil {
-		return fmt.Errorf("não foi possível ler a sessão local no cofre: %w", err)
-	}
-	if !found {
-		return fmt.Errorf("entre na sua conta no Assistente e tente novamente: %w", auth.ErrInvalidRefreshToken)
-	}
-	principal, role, err := a.sessionSvc.AuthenticateSavedSession(ctx, token)
-	if err != nil {
-		if errors.Is(err, auth.ErrInvalidRefreshToken) || errors.Is(err, auth.ErrSessionRevoked) || errors.Is(err, auth.ErrSessionExpired) || errors.Is(err, auth.ErrInactiveUser) {
-			return fmt.Errorf("entre na sua conta no Assistente e tente novamente: %w", err)
-		}
 		return err
 	}
 	userCtx := database.WithUserID(ctx, principal.UserID)
@@ -67,4 +56,28 @@ func RestoreConversationCLISession(a *App, chat bool) error {
 	a.setCurrentUserID(principal.UserID)
 	a.setCurrentAuthUser(&AuthUser{UserID: principal.UserID, SessionID: principal.SessionID, Role: role})
 	return nil
+}
+
+func (a *App) savedConversationCLIPrincipal(ctx context.Context) (auth.LocalSessionPrincipal, string, error) {
+	// O login confirma a gravação no cofre deste banco antes de tentar
+	// atualizar seu espelho no chaveiro, que pode conter outra conta válida.
+	token, found, err := a.credMgr.ReadPersistedInstanceSecret(ctx, credentials.InstanceSecretAuthRefreshToken)
+	if err != nil {
+		return auth.LocalSessionPrincipal{}, "", fmt.Errorf("não foi possível ler a sessão local no cofre: %w", err)
+	}
+	if !found {
+		return auth.LocalSessionPrincipal{}, "", fmt.Errorf("entre na sua conta no Assistente e tente novamente: %w", auth.ErrInvalidRefreshToken)
+	}
+	service := a.currentSessionService()
+	if service == nil {
+		return auth.LocalSessionPrincipal{}, "", auth.ErrUnauthenticatedLocalSession
+	}
+	principal, role, err := service.AuthenticateSavedSession(ctx, token)
+	if err != nil {
+		if errors.Is(err, auth.ErrInvalidRefreshToken) || errors.Is(err, auth.ErrSessionRevoked) || errors.Is(err, auth.ErrSessionExpired) || errors.Is(err, auth.ErrInactiveUser) {
+			return auth.LocalSessionPrincipal{}, "", fmt.Errorf("entre na sua conta no Assistente e tente novamente: %w", err)
+		}
+		return auth.LocalSessionPrincipal{}, "", err
+	}
+	return principal, role, nil
 }
