@@ -31,11 +31,13 @@ import {
 import { useWorkspaceCommandSurface } from '../components/workspace/useWorkspaceCommandSurface';
 import { usePagePresentationCommands, type PagePresentationCommandID } from '../lib/commandPagePresentation';
 import { useCommandShortcutHint } from '../lib/commandShortcutHints';
+import { sessionOutputSource } from '../lib/terminalHistory';
 import './TerminalPage.css';
 
 const TERMINAL_CHAT_HISTORY_LIMIT = 40;
 
 type TerminalHistoryEntry = {
+  source?: string;
   command?: string;
   output?: string;
 };
@@ -71,7 +73,7 @@ function formatTerminalHistoryForChat(history: TerminalHistoryEntry[]) {
     .map((e) => {
       const cmd = String(e.command || '').trim();
       const out = String(e.output || '').trimEnd();
-      return [`$ ${cmd}`, out].filter(Boolean).join('\n');
+      return e.source === sessionOutputSource ? out : [`$ ${cmd}`, out].filter(Boolean).join('\n');
     })
     .filter(Boolean)
     .join('\n---\n');
@@ -416,6 +418,7 @@ export default function TerminalPage({ sessionId: explicitSessionId }: TerminalP
           : '';
         const currentInput = inputRef.current?.value?.trim() || '';
         const lastEntry = currentHistory[currentHistory.length - 1];
+        const lastCommand = [...currentHistory].reverse().find(entry => entry.source !== sessionOutputSource);
         const surfaceContext: SurfaceContext = {
           surfaceType: 'terminal',
           surfaceId: panelTab.id,
@@ -447,7 +450,7 @@ export default function TerminalPage({ sessionId: explicitSessionId }: TerminalP
             cwd: activeSession?.cwd,
             shell: (activeSession as { shell?: string } | undefined)?.shell,
             historyEntryCount: currentHistory.length,
-            lastExitCode: lastEntry?.exitCode,
+            lastExitCode: lastCommand?.exitCode,
           },
           snapshotVersion: createSurfaceSnapshotVersion(
             'terminal',

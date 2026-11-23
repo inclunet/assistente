@@ -14,7 +14,7 @@ import {
   useState,
 } from 'react';
 import { useTranslation } from 'react-i18next';
-import { isManagedCommandRunning } from '../../lib/terminalHistory';
+import { isManagedCommandRunning, sessionOutputSource } from '../../lib/terminalHistory';
 import type { HistoryEntry } from '../../store/terminalStore';
 import { playBumpSound } from '../../services/audioFeedback';
 import { codePointPrefix, formatDuration } from '../../utils/format';
@@ -176,7 +176,7 @@ export const TerminalOutputNode = forwardRef<HTMLDivElement, TerminalOutputNodeP
     });
     const handleKeyDown = useNodeKeyboard(nav, isReading, startReading);
 
-    const isRaw = entry.source === 'user-raw';
+    const isRaw = entry.source === 'user-raw' || entry.source === sessionOutputSource;
     const isRunning = isManagedCommandRunning(entry);
     const hasExitCode = !isRaw && !isRunning;
 

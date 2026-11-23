@@ -321,7 +321,30 @@ describe('terminalStore', () => {
       expect(useTerminalStore.getState().historyBySession.s1).toEqual([
         expect.objectContaining({ id: 'manual', output: 'antes e depois' }),
         expect.objectContaining({ id: 'modelo', output: '', exitCode: -1 }),
+        expect.objectContaining({ source: 'session-output', command: '', output: 'sem entrada manual correspondente'.repeat(3) }),
       ]);
+    } finally { cleanup(); }
+  });
+
+  it('preserva blocos da sessão entre comandos gerenciados na hidratação e limita o texto do bloco', async () => {
+    const cleanup = useTerminalStore.getState().setupEventListeners();
+    const snapshot = createDeferred<terminal.HistoryEntry[]>();
+    const emit = (event: string, data: object) =>
+      terminalEventHandlers.get('terminal:' + event)?.({ sessionId: 's1', ...data });
+    try {
+      useTerminalStore.setState({ sessions: [terminal.SessionInfo.createFrom({ id: 's1' })] });
+      mockGetTerminalHistory.mockReturnValueOnce(snapshot.promise);
+      const loading = useTerminalStore.getState().loadHistory('s1');
+      for (const id of ['a', 'b']) {
+        emit('command_start', { commandId: id, source: 'llm', command: id });
+        emit('command_end', { commandId: id, exitCode: 0, output: id });
+        emit('raw_output', { commandId: '', output: id === 'a' ? 'aviso' : 'x'.repeat(60 * 1024) });
+      }
+      snapshot.resolve(['a', 'b'].map(id => terminal.HistoryEntry.createFrom({ id, command: id, source: 'llm', output: id })));
+      await loading;
+      const entries = useTerminalStore.getState().historyBySession.s1;
+      expect(entries.map(entry => entry.source)).toEqual(['llm', 'session-output', 'llm', 'session-output']);
+      expect(entries.map(entry => entry.output)).toEqual(['a', 'aviso', 'b', 'x'.repeat(50 * 1024) + '…']);
     } finally { cleanup(); }
   });
 

@@ -9,6 +9,7 @@
 import { useEffect, useRef, useCallback, forwardRef, useImperativeHandle, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { HistoryEntry } from '../../store/terminalStore';
+import { sessionOutputSource } from '../../lib/terminalHistory';
 import { TerminalCommandNode, TerminalOutputNode } from './TerminalEntry';
 import './TerminalHistory.css';
 
@@ -43,12 +44,9 @@ export const TerminalHistory = forwardRef<HTMLDivElement, TerminalHistoryProps>(
     const flatNodes = useMemo<FlatNode[]>(() => {
       const nodes: FlatNode[] = [];
       for (const entry of entries) {
-        // Sempre adiciona nó de comando
-        nodes.push({
-          nodeId: `cmd-${entry.id}`,
-          type: 'command',
-          entry,
-        });
+        if (entry.source !== sessionOutputSource) {
+          nodes.push({ nodeId: `cmd-${entry.id}`, type: 'command', entry });
+        }
         // O status de falha também é legível quando o comando não produz saída.
         if (entry.output || entry.exitCode !== 0) {
           nodes.push({

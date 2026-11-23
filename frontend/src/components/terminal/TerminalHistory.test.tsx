@@ -33,6 +33,16 @@ describe('TerminalHistory', () => {
     } finally { unregisterAnnouncerSink(); }
   });
 
+  it('oferece uma única saída navegável para texto da sessão sem comando', () => {
+    render(<TerminalHistory entries={[new terminal.HistoryEntry({
+      source: 'session-output', id: 'saída', command: '', output: 'pronto',
+    })]} />);
+    const nodes = screen.getAllByRole('listitem');
+    expect(nodes).toHaveLength(1);
+    expect(nodes[0]).toHaveAccessibleName('terminal.entry.output: pronto');
+    expect(screen.queryByText('terminal.entry.exit')).not.toBeInTheDocument();
+  });
+
   it('renderiza estado vazio', () => {
     render(
       <TerminalHistory

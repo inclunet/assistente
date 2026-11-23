@@ -145,7 +145,9 @@ Entregue:
   gerenciado, a saída anterior ao despacho pode chegar depois do evento de
   início. Cada bloco conserva o `commandId` da entrada manual de origem.
   Os blocos sem dono, inclusive os recebidos depois da execução gerenciada,
-  têm `commandId` vazio e pertencem à sessão. O encerramento sucede a entrega
+  têm `commandId` vazio e pertencem à sessão. A interface insere os blocos
+  sem entrada manual correspondente na posição de chegada no histórico local.
+  O encerramento sucede a entrega
   da saída já lida.
 
 Pendente ou parcial:
@@ -214,7 +216,8 @@ Pendente ou parcial:
   inicial e drenar a leitura. No PowerShell, um retorno antecipado preserva o status da última
   operação identificável. Um pipeline ou retorno condicional de origem ambígua devolve 1.
   Em `$()` e `@()`, o status reflete a última operação do ramo de `if` executado,
-  inclusive em `elseif` e `else` e quando a expressão é retornada por `return`.
+  inclusive em `elseif` e `else`. A expressão pode ser retornada por `return`,
+  e o próprio ramo pode retornar o pipeline nativo.
   Um ramo ignorado não fornece código de saída.
   O CI exercita o terminal no Windows PowerShell 5.1.
 - **Interrupção.** Cancelamento, falha de leitura e fechamento explícito preservam a causa e a saída

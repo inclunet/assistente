@@ -1,5 +1,5 @@
 import { codePointPrefix } from '../utils/format';
-import { hasTerminalEndTime, isManagedCommandRunning } from '../lib/terminalHistory';
+import { hasTerminalEndTime, isManagedCommandRunning, sessionOutputSource } from '../lib/terminalHistory';
 import { logger } from '../utils/logger';
 import { create } from 'zustand';
 import { useWorkspaceStore } from './workspaceStore';
@@ -103,6 +103,7 @@ export type HistoryEntry = terminal.HistoryEntry;
 // Hidratar, concluir ou encerrar a sessão remove sua entrada. O último listener limpa as restantes.
 const unobservedCommands = new Map<string, HistoryEntry>();
 const historyEntryLimit = 200;
+let sessionOutputSequence = 0;
 const historyOutputLimit = 50 * 1024;
 const historyEncoder = new TextEncoder();
 const historyBuffer = new Uint8Array(historyOutputLimit);
@@ -271,7 +272,19 @@ export const useTerminalStore = create<TerminalState>((set) => ({
         const partial = { ...state.partialHistoryBySession };
         delete partial[sessionId];
         const entries = new Map((history || []).map(entry => [entry.id, entry]));
+        // O backend guarda comandos. Reinsira cada bloco da sessão antes do
+        // próximo comando observado na interface, inclusive durante a hidratação.
+        const beforeCommand = new Map<string, HistoryEntry[]>();
+        let pendingOutput: HistoryEntry[] = [];
         for (const entry of state.historyBySession[sessionId] ?? []) {
+          if (entry.source === sessionOutputSource) {
+            pendingOutput.push(entry);
+            continue;
+          }
+          if (pendingOutput.length) {
+            beforeCommand.set(entry.id, pendingOutput);
+            pendingOutput = [];
+          }
           const stored = entries.get(entry.id);
           if (stored && !stored.output && entry.source === 'user-raw' && entry.output) {
             // A sessão registra o comando manual. Sua saída chega à interface pelo stream.
@@ -283,10 +296,11 @@ export const useTerminalStore = create<TerminalState>((set) => ({
             entries.set(entry.id, entry);
           }
         }
+        const ordered = Array.from(entries.values()).flatMap(entry => [...(beforeCommand.get(entry.id) ?? []), entry]);
         return {
           historyBySession: {
             ...state.historyBySession,
-            [sessionId]: Array.from(entries.values()).slice(-historyEntryLimit),
+            [sessionId]: ordered.concat(pendingOutput).slice(-historyEntryLimit),
           },
           partialHistoryBySession: partial,
         };
@@ -467,23 +481,33 @@ export const useTerminalStore = create<TerminalState>((set) => ({
       if (!tracksHistory(data.sessionId)) return;
       // Agenda anúncio do output (com debounce para esperar fim do streaming)
       if (terminalOutputListenerRefCount > 0) scheduleOutputAnnounce(data.sessionId, data.output);
-      if (!data.commandId) return;
+      if (!data.output) return;
 
+      const pending = unobservedCommands.get(data.sessionId);
+      if (pending) unobservedCommands.delete(data.sessionId);
       set(state => {
-        const sessionHistory = state.historyBySession[data.sessionId];
-        const index = sessionHistory?.findIndex(entry => entry.id === data.commandId && entry.source === 'user-raw') ?? -1;
-        if (index < 0) return state;
-        const entry = sessionHistory[index];
+        // O primeiro bloco observado pode chegar entre a montagem da aba e loadHistory.
+        const sessionHistory = state.historyBySession[data.sessionId] ?? (pending ? [pending] : []);
+        let index = data.commandId ? sessionHistory.findIndex(entry => entry.id === data.commandId && entry.source === 'user-raw') : -1;
+        const last = sessionHistory.length - 1;
+        if (index < 0 && sessionHistory[last]?.source === sessionOutputSource) index = last;
+        const entry = sessionHistory[index] ?? terminal.HistoryEntry.createFrom({
+          id: `session-output-${++sessionOutputSequence}`, source: sessionOutputSource, command: '', output: '',
+        });
         const updated = appendHistoryOutput(entry, data.output);
         if (entry === updated) return state;
-        const updatedHistory = sessionHistory.slice();
-        updatedHistory[index] = updated;
+        const updatedHistory = index < 0 ? sessionHistory.slice(1 - historyEntryLimit) : sessionHistory.slice();
+        if (index < 0) updatedHistory.push(updated);
+        else updatedHistory[index] = updated;
 
         return {
           historyBySession: {
             ...state.historyBySession,
             [data.sessionId]: updatedHistory,
           },
+          partialHistoryBySession: state.historyBySession[data.sessionId] ? state.partialHistoryBySession
+            : { ...state.partialHistoryBySession, [data.sessionId]: true },
+          ...(pending && { activeEntryBySession: { ...state.activeEntryBySession, [data.sessionId]: pending.id } }),
         };
       });
     }));
