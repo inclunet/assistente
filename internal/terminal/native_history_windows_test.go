@@ -39,7 +39,11 @@ func TestPowerShellNativeHistory(t *testing.T) {
 				t.Fatal(err)
 			}
 			s.Start()
-			defer s.Close()
+			t.Cleanup(func() {
+				if err := s.Close(); err != nil {
+					t.Errorf("encerramento da sessão: %v", err)
+				}
+			})
 			run := func(source, want string) {
 				t.Helper()
 				result, err := s.runCommandInDirectory(t.Context(), source, "", 20*time.Second, "test", "", nil)
