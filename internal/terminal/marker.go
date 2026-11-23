@@ -187,11 +187,19 @@ const powerShellLastOperation = `	$isConstantReturn = {
 		param($stmt);
 		if ($stmt -isnot [System.Management.Automation.Language.ReturnStatementAst]) { return $false };
 		if (!$stmt.Pipeline) { return $true };
-		if ($stmt.Pipeline -isnot [System.Management.Automation.Language.PipelineAst]) { return $false };
-		$elements = $stmt.Pipeline.PipelineElements;
-		if ($elements.Count -ne 1 -or $elements[0] -isnot [System.Management.Automation.Language.CommandExpressionAst] -or $elements[0].Redirections.Count) { return $false };
-		$expr = $elements[0].Expression;
-		return $expr -is [System.Management.Automation.Language.ConstantExpressionAst] -or (($expr -is [System.Management.Automation.Language.ArrayExpressionAst] -or $expr -is [System.Management.Automation.Language.SubExpressionAst]) -and !$expr.SubExpression.Statements.Count)
+		$nodes = [System.Collections.Stack]::new();
+		$nodes.Push($stmt.Pipeline);
+		while ($nodes.Count) {
+			$node = $nodes.Pop();
+			if ($node -is [System.Management.Automation.Language.ConstantExpressionAst]) { continue };
+			if ($node -is [System.Management.Automation.Language.PipelineAst] -and $node.PipelineElements.Count -eq 1) { $nodes.Push($node.PipelineElements[0]) }
+			elseif ($node -is [System.Management.Automation.Language.CommandExpressionAst] -and !$node.Redirections.Count) { $nodes.Push($node.Expression) }
+			elseif ($node -is [System.Management.Automation.Language.ParenExpressionAst]) { $nodes.Push($node.Pipeline) }
+			elseif ($node -is [System.Management.Automation.Language.ArrayLiteralAst]) { foreach ($item in $node.Elements) { $nodes.Push($item) } }
+			elseif (($node -is [System.Management.Automation.Language.SubExpressionAst] -or $node -is [System.Management.Automation.Language.ArrayExpressionAst]) -and !$node.SubExpression.Traps) { foreach ($item in $node.SubExpression.Statements) { $nodes.Push($item) } }
+			else { return $false }
+		};
+		return $true
 	};
 	$lastInBlock = {
 		param($items, $keepReturn);
