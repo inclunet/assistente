@@ -299,6 +299,8 @@ Pendente ou parcial:
   Unicode em `internal/terminal/testdata/announcement-previews.json`.
   No modo de leitura, o campo oferece uma descrição acessível do estado da sessão,
   inclusive com rascunho. Mantém anexos já carregados e invalida adições pendentes.
+  Se havia um carregamento pendente, o broker anuncia o cancelamento na aba ativa
+  e respeita a leitura em andamento.
   O editor preserva o rascunho após rejeição do envio. O aceite limpa o texto
   enviado se ele continua no campo, inclusive se a sessão já tiver terminado. Ao carregar a lista,
   mantém o pedido de foco se a origem desaparecer e respeita a navegação da pessoa.

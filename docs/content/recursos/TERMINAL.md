@@ -82,8 +82,7 @@ use a barra de ferramentas para escolher outra sessão ou criar uma nova.
 Essa orientação continua disponível com texto no campo. Anexos já carregados
 permanecem no rascunho. Se o editor entrar em modo de leitura enquanto um anexo
 está carregando, esse carregamento é descartado e a aba ativa anuncia o cancelamento.
-Você pode anexar o arquivo de
-novo quando voltar a editar.
+Você pode anexar o arquivo de novo quando voltar a editar.
 A prévia falada inclui até 300 pontos de código Unicode do comando ao iniciar
 e da saída ao concluir ou receber texto. Um emoji composto
 pode ocupar vários desses pontos. Os espaços iniciais ficam fora da contagem.

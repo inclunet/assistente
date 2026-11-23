@@ -283,6 +283,7 @@ notSaved: 'La decisión vale solo para esta operación: no se pudo recordar. Ser
       dropFiles: 'Suelta los archivos aquí',
       selectFiles: 'Seleccionar archivos',
       attachFile: 'Adjuntar archivo',
+      pendingAttachmentsCanceled: 'Se canceló la carga de los archivos adjuntos pendientes. Vuelva a adjuntarlos cuando pueda editar.',
       messageLabel: 'Mensaje',
       draftSaved: 'Borrador guardado',
       waitResponse: 'Espera a que termine la respuesta para enviar',

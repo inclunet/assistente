@@ -9,6 +9,7 @@ import { SlashCommandMenu, getSlashOptionId } from './SlashCommandMenu';
 import { buildSlashItems, filterSlashItems, type SlashItem } from './slashItems';
 import { MediaFile, processMediaFiles } from '../../services/mediaService';
 import { useAnnouncer } from '../../hooks/useAnnouncer';
+import type { VoiceAccessibilityOrigin } from '../../services/voiceAccessibility/types';
 import { DIMENSIONS } from '../../constants/chat';
 import { GetUserInvocableSkillsForProfile } from '@wailsjs/go/wailsapi/Skills';
 import type { apidto, skills } from '../../../wailsjs/go/models';
@@ -28,6 +29,7 @@ export interface ChatInputProps {
   disabled?: boolean;
   /** Permite selecionar o texto sem editar o rascunho. */
   editorReadOnly?: boolean;
+  announcementOrigin?: VoiceAccessibilityOrigin;
   placeholder?: string;
   maxFiles?: number;
   /** Devolve true quando o handoff para a lista de mensagens foi realizado. */
@@ -57,6 +59,7 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
     isStreaming = false,
     disabled = false,
     editorReadOnly = false,
+    announcementOrigin,
     placeholder,
     maxFiles = 5,
     onArrowUp,
@@ -72,7 +75,7 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
   ref
 ) => {
   const { t } = useTranslation();
-  const { announce } = useAnnouncer();
+  const { announce, announceRequest } = useAnnouncer();
   const [localMessage, setLocalMessage] = useState('');
   const [localMediaFiles, setLocalMediaFiles] = useState<MediaFile[]>([]);
   const [isDragging, setIsDragging] = useState(false);
@@ -80,12 +83,17 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
   const isProcessing = pendingAttachments > 0;
   const attachmentGeneration = useRef(0);
   useLayoutEffect(() => {
-    if (editorReadOnly) {
-      setPendingAttachments(0);
-      setIsDragging(false);
-    }
+    if (editorReadOnly) setIsDragging(false);
     return () => { attachmentGeneration.current++; };
   }, [editorReadOnly]);
+  useLayoutEffect(() => {
+    if (!editorReadOnly || !isProcessing) return;
+    setPendingAttachments(0);
+    announceRequest({
+      message: t('chat.pendingAttachmentsCanceled'), origin: announcementOrigin,
+      eventType: 'progress', waitsForReading: true,
+    });
+  }, [editorReadOnly, isProcessing, announceRequest, announcementOrigin, t]);
   const internalTextareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const readOnlyHintId = useId();
@@ -551,7 +559,7 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
       <MediaPreview media={mediaFiles} onRemove={editorReadOnly ? undefined : handleRemoveMedia} />
 
       {editorReadOnly && placeholder && (
-        <span id={readOnlyHintId} hidden={!message}>{placeholder}</span>
+        <span id={readOnlyHintId}>{placeholder}</span>
       )}
 
       <div className="chat-input__container">
@@ -589,7 +597,7 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
           }}
           onKeyDown={handleKeyDown}
           onPaste={handlePaste}
-          placeholder={placeholder || t('chat.placeholder')}
+          placeholder={editorReadOnly ? undefined : placeholder || t('chat.placeholder')}
           rows={1}
           aria-label={t('chat.messageLabel')}
           role={slashMenuEnabled ? 'combobox' : undefined}

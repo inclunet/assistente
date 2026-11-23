@@ -284,6 +284,7 @@ notSaved: 'The decision applies only to this operation: it could not be remember
       dropFiles: 'Drop files here',
       selectFiles: 'Select files',
       attachFile: 'Attach file',
+      pendingAttachmentsCanceled: 'Pending attachments were canceled. Attach them again when you can edit.',
       messageLabel: 'Message',
       draftSaved: 'Draft saved',
       waitResponse: 'Wait for the response to finish before sending',

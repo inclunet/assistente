@@ -350,17 +350,16 @@ describe('TerminalPage', () => {
     const { rerender } = renderTerminalPage();
     const editor = screen.getByRole('textbox');
     const labels = ptBR.translation.terminal.placeholders;
-    expect(editor).toHaveAttribute('placeholder', labels.loading);
+    expect(editor).not.toHaveAttribute('placeholder');
+    expect(screen.getByText(labels.loading)).toBeVisible();
     expect(editor).toHaveAccessibleDescription(labels.loading);
     storeState.isLoadingSessions = false;
     rerender(terminalPageView());
-    expect(editor).toHaveAttribute('placeholder', labels.ended);
+    expect(editor).toHaveAccessibleDescription(labels.ended);
     storeState.sessionListFailed = true;
     rerender(terminalPageView());
-    expect(editor).toHaveAttribute('placeholder', labels.unavailable);
     expect(editor).toHaveAccessibleDescription(labels.unavailable);
     rerender(terminalPageView({ ...terminalTab, state: undefined }));
-    expect(editor).toHaveAttribute('placeholder', labels.unbound);
     expect(editor).toHaveAccessibleDescription(labels.unbound);
   });
 

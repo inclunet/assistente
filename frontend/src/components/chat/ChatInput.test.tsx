@@ -8,6 +8,7 @@ import type { MediaFile } from '../../services/mediaService';
 const getSkillsForProfileSpy = vi.fn();
 const processMediaFilesSpy = vi.fn();
 const announceSpy = vi.fn();
+const announceRequestSpy = vi.fn();
 const voiceState = vi.hoisted(() => ({ transcribe: undefined as ((text: string) => void) | undefined }));
 
 vi.mock('react-i18next', () => ({
@@ -15,7 +16,7 @@ vi.mock('react-i18next', () => ({
 }));
 
 vi.mock('../../hooks/useAnnouncer', () => ({
-  useAnnouncer: () => ({ announce: announceSpy }),
+  useAnnouncer: () => ({ announce: announceSpy, announceRequest: announceRequestSpy }),
 }));
 
 vi.mock('@wailsjs/go/wailsapi/Skills', () => ({
@@ -107,7 +108,8 @@ describe('ChatInput', () => {
     const file = new File(['img'], 'foto.png', { type: 'image/png' });
     const media = mediaResult([file], 'original');
     const change = vi.fn();
-    const props = { onSend: vi.fn(), mediaFiles: media, onMediaFilesChange: change };
+    const origin = { surfaceType: 'terminal' as const, tabId: 'tab', terminalSessionId: 'sessão' };
+    const props = { onSend: vi.fn(), mediaFiles: media, onMediaFilesChange: change, announcementOrigin: origin };
     const { rerender } = render(<ChatInput {...props} />);
     const request = deferred<MediaFile[]>();
     processMediaFilesSpy.mockReturnValueOnce(request.promise);
@@ -116,6 +118,10 @@ describe('ChatInput', () => {
     paste();
     expect(screen.getByRole('button', { name: /mediaPreview.remove/ })).toBeEnabled();
     rerender(<ChatInput {...props} editorReadOnly />);
+    expect(announceRequestSpy).toHaveBeenCalledTimes(1);
+    expect(announceRequestSpy).toHaveBeenCalledWith({
+      message: 'chat.pendingAttachmentsCanceled', origin, eventType: 'progress', waitsForReading: true,
+    });
     expect(screen.queryByRole('button', { name: /mediaPreview.remove/ })).toBeNull();
     expect(screen.getByLabelText('chat.selectFiles')).toBeDisabled();
     paste();
@@ -131,6 +137,7 @@ describe('ChatInput', () => {
     paste();
     await act(async () => { request.resolve(mediaResult([file], 'descartado')); });
     expect(change).not.toHaveBeenCalled();
+    expect(announceRequestSpy).toHaveBeenCalledTimes(1);
     expect(send).toBeDisabled();
     await act(async () => { next.resolve(mediaResult([file], 'novo')); });
     expect(send).toBeEnabled();

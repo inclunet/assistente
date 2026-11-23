@@ -284,6 +284,7 @@ notSaved: 'A decisão vale somente para esta operação: não foi possível lemb
       dropFiles: 'Solte os arquivos aqui',
       selectFiles: 'Selecionar arquivos',
       attachFile: 'Anexar arquivo',
+      pendingAttachmentsCanceled: 'O carregamento dos anexos pendentes foi cancelado. Anexe-os novamente quando puder editar.',
       messageLabel: 'Mensagem',
       draftSaved: 'Rascunho salvo',
       waitResponse: 'Aguarde o término da resposta para enviar',
