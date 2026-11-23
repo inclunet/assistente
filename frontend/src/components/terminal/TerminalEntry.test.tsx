@@ -31,14 +31,14 @@ describe('TerminalEntry', () => {
     expect(screen.getByText('terminal.entry.command')).toBeInTheDocument();
   });
 
-  it('renderiza saida com exit code', () => {
+  it.each([1, -999])('renderiza saída com código final %s', exitCode => {
     render(
       <TerminalOutputNode
         entry={new terminal.HistoryEntry({
           id: '1',
           command: 'ls',
           output: 'ok',
-          exitCode: 1,
+          exitCode,
           startedAt: new Date().toISOString(),
           endedAt: new Date().toISOString(),
           source: 'user',
@@ -47,7 +47,7 @@ describe('TerminalEntry', () => {
     );
 
     expect(screen.getByText('ok')).toBeInTheDocument();
-    expect(screen.getByText('terminal.entry.exit 1')).toBeInTheDocument();
+    expect(screen.getByText(`terminal.entry.exit ${exitCode}`)).toBeInTheDocument();
   });
 
   it('permite leitura livre do conteúdo do comando', () => {

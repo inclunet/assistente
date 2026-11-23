@@ -51,8 +51,8 @@ export const TerminalHistory = forwardRef<HTMLDivElement, TerminalHistoryProps>(
           type: 'command',
           entry,
         });
-        // Adiciona nó de saída se tem output ou está em execução (raw/marker)
-        if (entry.output || entry.exitCode === -999) {
+        // O status de falha também é legível quando o comando não produz saída.
+        if (entry.output || entry.exitCode !== 0) {
           nodes.push({
             nodeId: `out-${entry.id}`,
             type: 'output',

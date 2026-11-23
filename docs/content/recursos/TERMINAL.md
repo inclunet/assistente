@@ -92,6 +92,9 @@ Se um comando encerrar o próprio shell, a ferramenta devolve o código do proce
 
 A saída manual que já apareceu na tela é preservada quando o histórico termina de carregar.
 
+O histórico distingue um comando em andamento de um comando que terminou, inclusive
+quando o shell devolve um código negativo.
+
 Cada entrada no histórico registra:
 
 - Comando executado

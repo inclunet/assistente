@@ -14,6 +14,7 @@ import {
   useState,
 } from 'react';
 import { useTranslation } from 'react-i18next';
+import { isManagedCommandRunning } from '../../lib/terminalHistory';
 import type { HistoryEntry } from '../../store/terminalStore';
 import { playBumpSound } from '../../services/audioFeedback';
 import { formatDuration } from '../../utils/format';
@@ -176,8 +177,8 @@ export const TerminalOutputNode = forwardRef<HTMLDivElement, TerminalOutputNodeP
     const handleKeyDown = useNodeKeyboard(nav, isReading, startReading);
 
     const isRaw = entry.source === 'user-raw';
-    const hasExitCode = !isRaw && entry.exitCode !== -999;
-    const isRunning = entry.exitCode === -999 && !isRaw;
+    const isRunning = isManagedCommandRunning(entry);
+    const hasExitCode = !isRaw && !isRunning;
 
     const duration = entry.endedAt && entry.startedAt && !isRaw
       ? formatDuration(new Date(entry.endedAt).getTime() - new Date(entry.startedAt).getTime())
@@ -203,7 +204,7 @@ export const TerminalOutputNode = forwardRef<HTMLDivElement, TerminalOutputNodeP
 
     const exitBadgeClass = entry.exitCode === 0
       ? 'terminal-node__exit-badge--success'
-      : entry.exitCode === -999
+      : !hasExitCode
         ? ''
         : 'terminal-node__exit-badge--error';
 
