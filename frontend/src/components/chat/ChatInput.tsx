@@ -80,12 +80,15 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
   const isProcessing = pendingAttachments > 0;
   const attachmentGeneration = useRef(0);
   useLayoutEffect(() => {
-    setPendingAttachments(0);
-    if (editorReadOnly) setIsDragging(false);
+    if (editorReadOnly) {
+      setPendingAttachments(0);
+      setIsDragging(false);
+    }
     return () => { attachmentGeneration.current++; };
   }, [editorReadOnly]);
   const internalTextareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const readOnlyHintId = useId();
   const slashMenuId = `${useId().replace(/[^a-zA-Z0-9_-]/g, '')}-slash-listbox`;
 
   // Slash command state
@@ -547,6 +550,10 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
 
       <MediaPreview media={mediaFiles} onRemove={editorReadOnly ? undefined : handleRemoveMedia} />
 
+      {editorReadOnly && placeholder && (
+        <span id={readOnlyHintId} hidden={!message}>{placeholder}</span>
+      )}
+
       <div className="chat-input__container">
         <input
           ref={fileInputRef}
@@ -575,6 +582,7 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
           className="chat-input__textarea"
           value={message}
           readOnly={editorReadOnly}
+          aria-describedby={editorReadOnly && placeholder ? readOnlyHintId : undefined}
           onChange={(e) => {
             setMessage(e.target.value);
             updateSlashMenu(e.target.value);

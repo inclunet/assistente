@@ -294,11 +294,14 @@ describe('TerminalPage', () => {
     rerender(terminalPageView());
     expect(input).toHaveAttribute('readonly');
     expect(input).toHaveValue('exit');
+    expect(input).toHaveAccessibleDescription(ptBR.translation.terminal.placeholders.ended);
+    expect(screen.getByText(ptBR.translation.terminal.placeholders.ended)).toBeVisible();
     await act(async () => { settle(accepted); });
     expect(input).toHaveValue(accepted ? '' : 'exit');
     storeState.sessions = [{ id: 'term-2', name: 'Outro', cwd: '/', state: 'idle', shell: 'sh' }];
     rerender(terminalPageView({ ...terminalTab, state: { sessionId: 'term-2' } }));
     expect(input).not.toHaveAttribute('readonly');
+    expect(input).not.toHaveAttribute('aria-describedby');
     if (accepted) {
       fireEvent.keyDown(input, { key: 'Enter' });
       expect(storeMocks.sendInput).toHaveBeenCalledTimes(1);
@@ -347,14 +350,17 @@ describe('TerminalPage', () => {
     const editor = screen.getByRole('textbox');
     const labels = ptBR.translation.terminal.placeholders;
     expect(editor).toHaveAttribute('placeholder', labels.loading);
+    expect(editor).toHaveAccessibleDescription(labels.loading);
     storeState.isLoadingSessions = false;
     rerender(terminalPageView());
     expect(editor).toHaveAttribute('placeholder', labels.ended);
     storeState.sessionListFailed = true;
     rerender(terminalPageView());
     expect(editor).toHaveAttribute('placeholder', labels.unavailable);
+    expect(editor).toHaveAccessibleDescription(labels.unavailable);
     rerender(terminalPageView({ ...terminalTab, state: undefined }));
     expect(editor).toHaveAttribute('placeholder', labels.unbound);
+    expect(editor).toHaveAccessibleDescription(labels.unbound);
   });
 
   it.each(['removida', 'oculta'])('recupera o foco quando a origem fica %s durante a listagem', async mode => {
