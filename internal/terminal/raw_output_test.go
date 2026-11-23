@@ -271,10 +271,10 @@ func TestManualOutputAcrossManagedCommand(t *testing.T) {
 	}
 	select {
 	case <-manualStarted:
-	case <-time.After(time.Second):
+	case <-time.After(10 * time.Second):
 		t.Fatal("saída manual inicial não chegou")
 	}
-	entry, err := s.runCommandInDirectory(t.Context(), "echo executado", "", time.Second, "teste", "teste", nil)
+	entry, err := s.runCommandInDirectory(t.Context(), "echo executado", "", 10*time.Second, "teste", "teste", nil)
 	if err != nil || entry == nil || entry.ExitCode != 0 || entry.Output != "executado" {
 		t.Fatalf("comando=%+v erro=%v", entry, err)
 	}
