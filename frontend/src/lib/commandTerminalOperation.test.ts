@@ -135,7 +135,7 @@ afterEach(() => {
 });
 
 describe('registry real da operação de terminal', () => {
-  it('recaptura o comando manual para Ctrl+C após uma tentativa gerenciada sem escrita', async () => {
+  it.each([1, 201])('recaptura o comando manual para Ctrl+C após %i tentativas gerenciadas sem escrita', async attempts => {
     vi.spyOn(audio, 'playReceiveSound').mockImplementation(() => {});
     const events = new Map<string, (data: unknown) => void>();
     vi.spyOn(runtime, 'EventsOn').mockImplementation((name, handler) => {
@@ -146,13 +146,18 @@ describe('registry real da operação de terminal', () => {
     cleanups.push(useTerminalStore.getState().setupEventListeners({ lifecycleOnly: true }));
     const original = fixture.capture()!;
     const sessionId = fixture.session.id;
-    const commandId = 'tentativa';
-    events.get('terminal:command_start')!({ sessionId, commandId, source: 'llm', command: 'date' });
-    events.get('terminal:command_end')!({ sessionId, commandId, exitCode: -1, output: '', activeManualCommandId: fixture.command.id });
+    const commandId = `tentativa-${attempts}`;
+    for (let i = 1; i <= attempts; i++) {
+      const id = `tentativa-${i}`;
+      events.get('terminal:command_start')!({ sessionId, commandId: id, source: 'llm', command: 'date' });
+      events.get('terminal:command_end')!({ sessionId, commandId: id, exitCode: -1, output: '', activeManualCommandId: fixture.command.id });
+    }
     expect(original.isCurrent()).toBe(false);
     original.dispose();
     const history = useTerminalStore.getState().historyBySession[sessionId];
-    expect(history[1]).toMatchObject({ id: commandId, exitCode: -1 });
+    expect(history).toHaveLength(Math.min(200, attempts + 1));
+    expect(history[history.length - 1]).toMatchObject({ id: commandId, exitCode: -1 });
+    if (attempts > 200) expect(history.some(entry => entry.id === fixture.command.id)).toBe(false);
     const target = fixture.capture()!;
     expect(target.currentCommand).toEqual(fixture.command);
     const { port } = fakePort();
@@ -173,6 +178,15 @@ describe('registry real da operação de terminal', () => {
     useTerminalStore.setState({ activeEntryBySession: { 'session-a': null } });
     expect(fixture.capture()).toBeUndefined();
     useTerminalStore.setState({ activeEntryBySession: { 'session-a': 'not-in-history' } });
+    expect(fixture.capture()).toBeUndefined();
+  });
+  it.each(['closing', 'exited', 'closed'])('recusa um alvo retido quando a consulta já indica %s', state => {
+    const fixture = setup();
+    useTerminalStore.setState({
+      sessions: [{ ...fixture.session, state }],
+      historyBySession: {},
+      manualEntryBySession: { [fixture.session.id]: fixture.command },
+    });
     expect(fixture.capture()).toBeUndefined();
   });
   it('captura owner, sessão, workspace, aba, binding e comando atual uma vez', () => {

@@ -104,6 +104,10 @@ export type HistoryEntry = terminal.HistoryEntry;
 const unobservedCommands = new Map<string, HistoryEntry>();
 // O evento pode chegar antes de a primeira aba buscar a entrada manual no backend.
 const manualTargetsAwaitingHistory = new Map<string, string>();
+
+function manualEntryIdentity(entry: HistoryEntry): HistoryEntry {
+  return entry.output ? terminal.HistoryEntry.createFrom({ ...entry, output: '' }) : entry;
+}
 const historyEntryLimit = 200;
 let sessionOutputSequence = 0;
 const historyOutputLimit = 50 * 1024;
@@ -184,6 +188,8 @@ interface TerminalState {
   partialHistoryBySession: Record<string, boolean>;
   /** Comando ativo usado para validar a operação de interrupção da sessão. */
   activeEntryBySession: Record<string, string | null>;
+  /** Identidade manual confirmada por command_end. O ID ativo autoriza seu uso após a expulsão do histórico. */
+  manualEntryBySession: Record<string, HistoryEntry | undefined>;
   isLoadingSessions: boolean;
   sessionListFailed: boolean;
   loadingHistoryBySession: Record<string, boolean>;
@@ -203,6 +209,7 @@ export const useTerminalStore = create<TerminalState>((set) => ({
   historyBySession: {},
   partialHistoryBySession: {},
   activeEntryBySession: {},
+  manualEntryBySession: {},
   isLoadingSessions: false,
   sessionListFailed: false,
   loadingHistoryBySession: {},
@@ -318,41 +325,45 @@ export const useTerminalStore = create<TerminalState>((set) => ({
         const partial = { ...state.partialHistoryBySession };
         delete partial[sessionId];
         const entries = new Map((history || []).map(entry => [entry.id, entry]));
-        // O backend guarda comandos. Reinsira cada bloco da sessão antes do
-        // próximo comando observado na interface, inclusive durante a hidratação.
+        // Ancore as entradas locais no próximo comando comum. O snapshot do backend
+        // pode preservar uma entrada manual ativa e omitir outro comando da janela local.
         const beforeCommand = new Map<string, HistoryEntry[]>();
-        let pendingOutput: HistoryEntry[] = [];
+        let localEntries: HistoryEntry[] = [];
         for (const entry of state.historyBySession[sessionId] ?? []) {
-          if (entry.source === sessionOutputSource) {
-            pendingOutput.push(entry);
+          const stored = entries.get(entry.id);
+          if (!stored) {
+            localEntries.push(entry);
             continue;
           }
-          if (pendingOutput.length) {
-            beforeCommand.set(entry.id, pendingOutput);
-            pendingOutput = [];
+          if (localEntries.length) {
+            beforeCommand.set(entry.id, localEntries);
+            localEntries = [];
           }
-          const stored = entries.get(entry.id);
-          if (stored && !stored.output && entry.source === 'user-raw' && entry.output) {
+          if (!stored.output && entry.source === 'user-raw' && entry.output) {
             // A sessão registra o comando manual. Sua saída chega à interface pelo stream.
             const hydrated = terminal.HistoryEntry.createFrom({ ...stored, output: entry.output });
             const used = historyBytes.get(entry);
             if (used !== undefined) historyBytes.set(hydrated, used);
             entries.set(entry.id, hydrated);
-          } else if (!stored || (!hasTerminalEndTime(stored) && hasTerminalEndTime(entry))) {
+          } else if (!hasTerminalEndTime(stored) && hasTerminalEndTime(entry)) {
             entries.set(entry.id, entry);
           }
         }
         const ordered = Array.from(entries.values()).flatMap(entry => [...(beforeCommand.get(entry.id) ?? []), entry]);
-        const mergedHistory = recentTerminalHistory(ordered.concat(pendingOutput), historyEntryLimit);
+        const mergedHistory = recentTerminalHistory(ordered.concat(localEntries), historyEntryLimit);
         const manualId = manualTargetsAwaitingHistory.get(sessionId);
-        const restored = manualId && mergedHistory.some(entry => entry.id === manualId && entry.source === 'user-raw');
+        const candidate = manualId ? entries.get(manualId) ?? mergedHistory.find(entry => entry.id === manualId) : undefined;
+        const restored = candidate?.source === 'user-raw' ? candidate : undefined;
         if (restored) manualTargetsAwaitingHistory.delete(sessionId);
         return {
           historyBySession: {
             ...state.historyBySession,
             [sessionId]: mergedHistory,
           },
-          ...(restored && { activeEntryBySession: { ...state.activeEntryBySession, [sessionId]: manualId } }),
+          ...(restored && {
+            activeEntryBySession: { ...state.activeEntryBySession, [sessionId]: restored.id },
+            manualEntryBySession: { ...state.manualEntryBySession, [sessionId]: manualEntryIdentity(restored) },
+          }),
           partialHistoryBySession: partial,
         };
       });
@@ -446,6 +457,8 @@ export const useTerminalStore = create<TerminalState>((set) => ({
         delete partial[sessionId];
         const newActiveEntry = { ...state.activeEntryBySession };
         delete newActiveEntry[sessionId];
+        const manualEntries = { ...state.manualEntryBySession };
+        delete manualEntries[sessionId];
         const newLoadingHistory = { ...state.loadingHistoryBySession };
         delete newLoadingHistory[sessionId];
         return {
@@ -454,6 +467,7 @@ export const useTerminalStore = create<TerminalState>((set) => ({
           historyBySession: newHistory,
           partialHistoryBySession: partial,
           activeEntryBySession: newActiveEntry,
+          manualEntryBySession: manualEntries,
           loadingHistoryBySession: newLoadingHistory,
         };
       });
@@ -504,8 +518,11 @@ export const useTerminalStore = create<TerminalState>((set) => ({
       if (!tracksHistory(data.sessionId)) {
         if (data.source !== 'user-raw') {
           unobservedCommands.set(data.sessionId, tempEntry);
-          set(state => ({ sessions: changeSessionState(state.sessions, data.sessionId, 'running') }));
         }
+        set(state => ({
+          ...(data.source !== 'user-raw' && { sessions: changeSessionState(state.sessions, data.sessionId, 'running') }),
+          activeEntryBySession: { ...state.activeEntryBySession, [data.sessionId]: null },
+        }));
         return;
       }
       unobservedCommands.delete(data.sessionId);
@@ -642,28 +659,27 @@ export const useTerminalStore = create<TerminalState>((set) => ({
         };
         announceTerminalResult(sessionId, i18next.t('terminal.announce.outputWithExit', { output: outputPreview, exitCode }), { resolve, fallback });
       }
-      if (!tracksHistory(data.sessionId)) {
-        set(state => ({ sessions: changeSessionState(state.sessions, data.sessionId, 'idle') }));
-        return;
-      }
       set(state => {
         const sessionHistory = state.historyBySession[data.sessionId] ?? (pending ? [pending] : []);
-        const restored = manualId && sessionHistory.some(entry => entry.id === manualId && entry.source === 'user-raw');
+        const retained = state.manualEntryBySession[data.sessionId];
+        const restored = manualId && (retained?.id === manualId ? retained :
+          sessionHistory.find(entry => entry.id === manualId && entry.source === 'user-raw'));
         if (restored) manualTargetsAwaitingHistory.delete(data.sessionId);
+        const nextTarget = {
+          sessions: changeSessionState(state.sessions, data.sessionId, 'idle'),
+          activeEntryBySession: { ...state.activeEntryBySession, [data.sessionId]: restored ? restored.id : null },
+          manualEntryBySession: { ...state.manualEntryBySession, [data.sessionId]: restored ? manualEntryIdentity(restored) : undefined },
+        };
+        if (!tracksHistory(data.sessionId)) return nextTarget;
         const updatedHistory = completeHistoryCommand(sessionHistory, data);
         return {
+          ...nextTarget,
           historyBySession: {
             ...state.historyBySession,
             [data.sessionId]: updatedHistory,
           },
           partialHistoryBySession: state.historyBySession[data.sessionId] ? state.partialHistoryBySession
             : { ...state.partialHistoryBySession, [data.sessionId]: true },
-          // Marca sessão como idle
-          sessions: changeSessionState(state.sessions, data.sessionId, 'idle'),
-          activeEntryBySession: {
-            ...state.activeEntryBySession,
-            [data.sessionId]: restored ? manualId : null,
-          },
         };
       });
     }));
@@ -671,6 +687,7 @@ export const useTerminalStore = create<TerminalState>((set) => ({
     terminalEventListenerCleanup = () => {
       unobservedCommands.clear();
       manualTargetsAwaitingHistory.clear();
+      set({ manualEntryBySession: {} });
       unsubs.forEach(fn => fn());
     };
 

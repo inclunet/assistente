@@ -101,6 +101,7 @@ describe('terminalStore', () => {
       historyBySession: {},
       partialHistoryBySession: {},
       activeEntryBySession: {},
+      manualEntryBySession: {},
       isLoadingSessions: false,
       loadingHistoryBySession: {},
     });
@@ -341,6 +342,27 @@ describe('terminalStore', () => {
       expect(state.activeEntryBySession.s1).toBe('novo');
       expect(state.sessions[0].state).toBe('running');
       expect(state.historyBySession.s1[1]).toMatchObject({ id: 'superado', exitCode: -1, output: 'parcial' });
+    } finally { cleanup(); }
+  });
+
+  it('hidrata o alvo manual confirmado além da janela visual e mantém em ordem as 200 tentativas locais', async () => {
+    const cleanup = useTerminalStore.getState().setupEventListeners({ lifecycleOnly: true });
+    const emit = (name: string, data: object) => terminalEventHandlers.get('terminal:' + name)?.({ sessionId: 's1', ...data });
+    try {
+      emit('command_end', { commandId: '200', exitCode: -1, output: '', activeManualCommandId: 'manual' });
+      const session = terminal.SessionInfo.createFrom({ id: 's1', state: 'idle' });
+      const attempts = Array.from({ length: 200 }, (_, i) =>
+        terminal.HistoryEntry.createFrom({ id: String(i + 1), source: 'llm', command: 'date', exitCode: -1 }));
+      useTerminalStore.setState({ sessions: [session], historyBySession: { s1: attempts } });
+      const manual = terminal.HistoryEntry.createFrom({ id: 'manual', source: 'user-raw', command: 'sleep 10', output: 'texto já lido' });
+      mockGetTerminalHistory.mockResolvedValueOnce([manual, ...attempts.slice(1)]);
+      await useTerminalStore.getState().loadHistory('s1');
+      const state = useTerminalStore.getState();
+      expect(state.activeEntryBySession.s1).toBe('manual');
+      expect(state.manualEntryBySession.s1).toMatchObject({ id: 'manual', command: 'sleep 10', output: '' });
+      expect(state.historyBySession.s1.map(entry => entry.id)).toEqual(attempts.map(entry => entry.id));
+      emit('session_closed', {});
+      expect(useTerminalStore.getState().manualEntryBySession).not.toHaveProperty('s1');
     } finally { cleanup(); }
   });
 
