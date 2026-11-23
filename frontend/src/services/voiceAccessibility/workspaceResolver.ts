@@ -6,15 +6,17 @@ import { cancelInactiveSTTSession } from './sttGate';
 
 export function useVoiceAccessibilityWorkspaceResolver(panelsVisible: boolean) {
   useLayoutEffect(() => {
-    return registerVoiceAccessibilityActiveResolver((origin) => (
+    const unregister = registerVoiceAccessibilityActiveResolver((origin) => (
       isVoiceAccessibilityOriginActive(origin, useWorkspaceStore.getState().workspace, panelsVisible)
     ));
+    cancelInactiveSTTSession();
+    return unregister;
   }, [panelsVisible]);
 
   useLayoutEffect(() => {
     return useWorkspaceStore.subscribe(
       (state, previousState) => {
-        if (state.workspace?.activeTabId !== previousState.workspace?.activeTabId) {
+        if (state.workspace !== previousState.workspace) {
           cancelInactiveSTTSession();
         }
       },

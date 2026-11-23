@@ -142,6 +142,9 @@ Fala automática de resposta deve ser coordenada para evitar sobreposição. Se 
 
 Captura local de microfone só pode funcionar na aba ativa.
 
+Ocultar os painéis ao entrar em Configurações reavalia a captura em curso pela
+mesma regra de origem que autoriza seu início.
+
 Quando uma aba fica inativa:
 
 - gravação local deve ser cancelada ou finalizada de forma segura;

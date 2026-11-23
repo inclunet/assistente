@@ -10,10 +10,11 @@ import { useEffect, useRef, useCallback, forwardRef, useImperativeHandle, useMem
 import { useTranslation } from 'react-i18next';
 import type { HistoryEntry } from '../../store/terminalStore';
 import { TerminalCommandNode, TerminalOutputNode } from './TerminalEntry';
-import { announce } from '../../hooks/useAnnouncer';
+import { announceWithOrigin } from '../../services/voiceAccessibility/announcerBroker';
 import './TerminalHistory.css';
 
 interface TerminalHistoryProps {
+  tabId: string;
   entries: HistoryEntry[];
   runningCommandId: string | null;
   isLoading?: boolean;
@@ -32,7 +33,7 @@ interface FlatNode {
 }
 
 export const TerminalHistory = forwardRef<HTMLDivElement, TerminalHistoryProps>(
-  function TerminalHistory({ entries, runningCommandId: _runningCommandId, isLoading, onReachEnd }, ref) {
+  function TerminalHistory({ tabId, entries, runningCommandId: _runningCommandId, isLoading, onReachEnd }, ref) {
     const { t } = useTranslation();
     const containerRef = useRef<HTMLDivElement>(null);
     const bottomRef = useRef<HTMLDivElement>(null);
@@ -83,11 +84,12 @@ export const TerminalHistory = forwardRef<HTMLDivElement, TerminalHistoryProps>(
       if (entries.length > prevEntryCount.current) {
         const lastEntry = entries[entries.length - 1];
         if (lastEntry) {
-          announce(`${t('terminal.history.commandPrefix')} ${lastEntry.command}`);
+          announceWithOrigin({ origin: { surfaceType: 'terminal', tabId }, eventType: 'progress',
+            message: `${t('terminal.history.commandPrefix')} ${lastEntry.command}` });
         }
       }
       prevEntryCount.current = entries.length;
-    }, [entries, t]);
+    }, [entries, t, tabId]);
 
     /** Registra/remove ref de nó */
     const setNodeRef = useCallback((nodeId: string, el: HTMLDivElement | null) => {

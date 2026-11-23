@@ -146,6 +146,10 @@ function formatInactiveAnnouncement(request: VoiceAnnounceRequest): string {
     if (request.inactiveMessage.fallback.trim()) return request.inactiveMessage.fallback;
   } else if (request.inactiveMessage?.trim()) return request.inactiveMessage;
   if (isTerminalOrigin(request.origin)) {
+    const title = request.origin?.title?.trim();
+    if (title) return i18next.t('voiceAccessibility.backgroundNamedTerminalActivity', {
+      title, defaultValue: 'Atividade no terminal {{title}} em segundo plano',
+    });
     return i18next.t('voiceAccessibility.backgroundTerminalActivity', { defaultValue: 'Atividade no terminal em segundo plano' });
   }
   const label = getVoiceAccessibilityOriginLabel(request.origin);

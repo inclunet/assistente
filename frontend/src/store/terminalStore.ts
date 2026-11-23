@@ -522,11 +522,11 @@ export const useTerminalStore = create<TerminalState>((set) => ({
       set(state => {
         const sessionHistory = state.historyBySession[data.sessionId] ?? (pending ? [pending] : []);
         const updatedHistory = sessionHistory.map(entry => {
-          // Encontra o entry do LLM em execução (não raw)
+          // O backend usa o mesmo commandId no início, na saída e na conclusão.
+          // Eventos legados sem ID usam a entrada ativa.
           if (isManagedCommandRunning(entry) && entry.id === (data.commandId || state.activeEntryBySession[data.sessionId])) {
             return terminal.HistoryEntry.createFrom({
               ...entry,
-              id: data.commandId || entry.id,
               output: data.output || entry.output,
               exitCode: data.exitCode,
               endedAt: new Date().toISOString(),

@@ -51,12 +51,12 @@ describe('announcerBroker', () => {
   });
 
   it.each([
-    { terminalSessionId: 's' },
-    { surfaceType: 'terminal' as const, tabId: 'tab', title: 'Build' },
-  ])('troca a saída de terminal sem resumo pelo aviso genérico em segundo plano', origin => {
+    [{ terminalSessionId: 's' }, 'Atividade no terminal em segundo plano'],
+    [{ surfaceType: 'terminal', tabId: 'tab', title: 'Build' }, 'Atividade no terminal Build em segundo plano'],
+  ] as const)('troca a saída de terminal sem resumo pelo aviso genérico em segundo plano', (origin, expected) => {
     unregisterResolver = registerVoiceAccessibilityActiveResolver(() => false);
     announceWithOrigin({ message: 'detalhe privado', eventType: 'completion', origin });
-    expect(sink).toHaveBeenCalledWith('Atividade no terminal em segundo plano', 'polite');
+    expect(sink).toHaveBeenCalledWith(expected, 'polite');
   });
 
   it('usa assertive por padrão para erros', () => {
