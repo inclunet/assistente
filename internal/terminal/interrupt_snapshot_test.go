@@ -546,6 +546,8 @@ func TestInterruptAfterPowerShellProbe(t *testing.T) {
 			synctest.Test(t, func(t *testing.T) {
 				writer := &interruptFakePTYWriter{}
 				manager, s := newInterruptFakeManager(writer)
+				var raw strings.Builder
+				s.onRawOutput = func(_, _, output string) { raw.WriteString(output) }
 				s.shell = "powershell"
 				s.powerShellKey = "test"
 				done := make(chan error, 1)
@@ -564,7 +566,7 @@ func TestInterruptAfterPowerShellProbe(t *testing.T) {
 				}
 				reply := markerStart + string(id[1]) + markerSuffix + "\n"
 				if mode != "sem rodapé" {
-					reply += markerEnd + string(id[1]) + markerSuffix + "1!"
+					reply += markerEnd + string(id[1]) + markerSuffix + "1!\ntexto manual"
 				}
 				s.recordOutput(reply)
 				if mode == "snapshot" {
@@ -584,6 +586,10 @@ func TestInterruptAfterPowerShellProbe(t *testing.T) {
 				}
 				if err := <-done; !errors.Is(err, context.Canceled) {
 					t.Fatalf("comando interrompido: %v", err)
+				}
+				synctest.Wait()
+				if mode != "sem rodapé" && !strings.Contains(raw.String(), "texto manual") {
+					t.Fatalf("saída posterior à consulta = %q", raw.String())
 				}
 				writes = writer.snapshot()
 				if len(writes) != 2 || !bytes.Equal(writes[1], []byte{3}) {

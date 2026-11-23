@@ -884,6 +884,15 @@ func (s *Session) waitForMarker(ctx context.Context, marker *CommandMarker, comm
 	for {
 		select {
 		case <-marker.probeInterrupt:
+			// Ctrl+C já chegou ao PTY. Drene o rodapé que pode estar em trânsito
+			// e devolva à sessão a saída posterior, inclusive no mesmo bloco.
+			result := s.drainAfterInterrupt(stream)
+			if !result.Found {
+				result = stream.finish(s.takeCommandOutput())
+			}
+			if result.Found {
+				s.resumeRawAfterFooter(result)
+			}
 			return "", -1, context.Canceled
 		case <-ctx.Done():
 			return s.canceledCommandResult(ctx, stream)
