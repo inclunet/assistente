@@ -42,7 +42,8 @@ de um `if` corresponde ao ramo que o PowerShell executou.
 
 Você pode enviar uma nova entrada mesmo enquanto o terminal continua produzindo saída.
 A saída que chega enquanto o Assistente prepara o envio de um comando permanece
-associada à última entrada manual, inclusive se o envio for cancelado.
+associada à última entrada manual, inclusive se o envio for cancelado. A saída
+que chega depois da execução gerenciada pode ser relida como saída da sessão.
 Se um comando for cancelado enquanto o terminal entrega a saída anterior, ele fica no
 histórico com código -1 e a sessão continua disponível. Se a escrita de um comando
 enviado pelo modelo falhar, o Assistente encerra a sessão

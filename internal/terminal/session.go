@@ -116,10 +116,11 @@ type Session struct {
 	lastUsed         time.Time
 
 	// outputBuf contém apenas os bytes pendentes de um comando estruturado.
-	outputBuf bytes.Buffer
-	outputMu  sync.Mutex
-	rawOutput rawTerminalOutput
-	rawOwner  *rawDeliveryOwner
+	outputBuf    bytes.Buffer
+	outputMu     sync.Mutex
+	rawOutput    rawTerminalOutput
+	rawOwner     *rawDeliveryOwner
+	rawCommandID string
 
 	// onOutput é chamado com chunks de output filtrado durante RunCommand (LLM)
 	onOutput outputCallback
@@ -315,16 +316,17 @@ func (s *Session) deliverRawAndUnlock(raw string) {
 		return
 	}
 	if s.rawOwner == nil {
-		s.rawOwner = s.newRawOwner(false, "")
+		s.rawOwner = newRawDeliveryOwner(false, s.publishRaw)
 	}
 	owner := s.rawOwner
 	owner.reserve()
+	chunk := rawChunk{commandID: s.rawCommandID, text: raw}
 	s.outputMu.Unlock()
-	owner.submit(raw)
+	owner.submit(chunk)
 }
 
-func (s *Session) newRawOwner(opening bool, id string) *rawDeliveryOwner {
-	return newRawDeliveryOwner(opening, id, func(raw string) { s.onRawOutput(s.id, id, raw) })
+func (s *Session) publishRaw(chunk rawChunk) {
+	s.onRawOutput(s.id, chunk.commandID, chunk.text)
 }
 
 func (s *Session) finishRawOutput() {
@@ -335,14 +337,11 @@ func (s *Session) finishRawOutput() {
 func (s *Session) startCommandOutput(entry *HistoryEntry, manual bool) {
 	s.outputMu.Lock()
 	previousOwner := s.rawOwner
-	if previousOwner == nil {
-		previousOwner = s.newRawOwner(false, "")
-	}
-	id := previousOwner.commandID
+	previousID := s.rawCommandID
 	if manual {
-		id = entry.ID
+		s.rawCommandID = entry.ID
 	}
-	owner := s.newRawOwner(true, id)
+	owner := newRawDeliveryOwner(true, s.publishRaw)
 	s.rawOwner = owner
 	var previous string
 	if manual {
@@ -350,9 +349,11 @@ func (s *Session) startCommandOutput(entry *HistoryEntry, manual bool) {
 	}
 	s.outputMu.Unlock()
 
-	previousOwner.wait()
+	if previousOwner != nil {
+		previousOwner.wait()
+	}
 	if previous != "" {
-		previousOwner.publish(previous)
+		s.publishRaw(rawChunk{commandID: previousID, text: previous})
 	}
 	// A saída até a escrita gerenciada ainda pertence à entrada anterior, já
 	// identificada no evento. O leitor pode entregá-la durante o anúncio.
@@ -638,6 +639,11 @@ func (s *Session) runCommandInDirectory(ctx context.Context, command, directory 
 
 	defer func() {
 		s.outputMu.Lock()
+		if s.suppressRawOutput {
+			// A saída posterior à moldura é da sessão. Blocos manuais que ainda
+			// aguardam entrega já carregam o seu próprio ID.
+			s.rawCommandID = ""
+		}
 		s.suppressRawOutput = false
 		s.outputBuf = bytes.Buffer{}
 		s.outputMu.Unlock()

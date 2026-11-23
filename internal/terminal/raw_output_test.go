@@ -58,7 +58,7 @@ func TestCommandStartWaitsForPreviousManualDelivery(t *testing.T) {
 				var mu sync.Mutex
 				var events []string
 				s := &Session{readerCtx: t.Context(), ptyReader: reader, ptyWriter: io.Discard}
-				s.rawOwner = s.newRawOwner(false, "anterior")
+				s.rawCommandID = "anterior"
 				s.onRawOutput = func(_, owner, chunk string) {
 					if chunk == "antes" {
 						close(reading)
@@ -206,7 +206,7 @@ func TestManagedAnnouncementKeepsManualUTF8UntilDispatch(t *testing.T) {
 		}
 		manual.WriteString(text)
 	}}
-	s.rawOwner = s.newRawOwner(false, "A")
+	s.rawCommandID = "A"
 	s.recordOutput("\xc3")
 	s.onCommandStart = func(_, _, _, _ string) {
 		s.recordOutput("\xa9\xe2")
@@ -225,14 +225,17 @@ func TestManualOutputAcrossManagedCommand(t *testing.T) {
 	defer func() { _ = writer.Close() }()
 	manualStarted := make(chan struct{}, 1)
 	var manual strings.Builder
+	var destinations []string
 	s := &Session{shell: "bash", readerCtx: t.Context(), ptyReader: reader,
-		onRawOutput: func(_, _, chunk string) {
+		onRawOutput: func(_, id, chunk string) {
+			destinations = append(destinations, id)
 			manual.WriteString(chunk)
 			if chunk == "antes\n" {
 				manualStarted <- struct{}{}
 			}
 		},
 	}
+	s.rawCommandID = "manual"
 	s.ptyWriter = manualTestWriter(func(p []byte) (int, error) {
 		_, tail, found := strings.Cut(string(p), "'"+markerStart)
 		if !found {
@@ -262,6 +265,9 @@ func TestManualOutputAcrossManagedCommand(t *testing.T) {
 		t.Fatal(err)
 	}
 	<-s.readerDone
+	if !slices.Equal(destinations, []string{"manual", ""}) {
+		t.Errorf("destinos da saída antes e depois do comando gerenciado=%v", destinations)
+	}
 	if got := manual.String(); got != "antes\n\ndepois" {
 		t.Fatalf("saída manual=%q", got)
 	}

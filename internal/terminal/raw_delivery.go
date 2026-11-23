@@ -6,22 +6,24 @@ import "sync"
 // o leitor aguarda espaço depois de oito entregas, sem bloquear os locks da sessão.
 const rawDeliverySlots = 8
 
+type rawChunk struct{ commandID, text string }
+
 type rawDeliveryOwner struct {
-	commandID string
-	publish   func(string)
-	mu        sync.Mutex
-	changed   *sync.Cond
-	opening   bool
-	draining  bool
-	pending   int
-	queue     []string
+	publish  func(rawChunk)
+	mu       sync.Mutex
+	changed  *sync.Cond
+	opening  bool
+	draining bool
+	pending  int
+	queue    []rawChunk
 	// No encerramento forçado restam no máximo a leitura em curso e a cauda do decodificador.
 	finalSlots int
-	after      func()
+	// O fechamento explícito e o término do processo são mutuamente exclusivos.
+	after func()
 }
 
-func newRawDeliveryOwner(opening bool, commandID string, emit func(string)) *rawDeliveryOwner {
-	o := &rawDeliveryOwner{opening: opening, commandID: commandID, publish: emit}
+func newRawDeliveryOwner(opening bool, emit func(rawChunk)) *rawDeliveryOwner {
+	o := &rawDeliveryOwner{opening: opening, publish: emit}
 	o.changed = sync.NewCond(&o.mu)
 	if opening {
 		o.pending = 1
@@ -77,7 +79,7 @@ func (o *rawDeliveryOwner) finishReader() {
 	o.mu.Unlock()
 }
 
-func (o *rawDeliveryOwner) submit(raw string) {
+func (o *rawDeliveryOwner) submit(raw rawChunk) {
 	o.mu.Lock()
 	for len(o.queue) >= rawDeliverySlots+o.finalSlots {
 		o.changed.Wait()
@@ -93,20 +95,20 @@ func (o *rawDeliveryOwner) submit(raw string) {
 }
 
 // take entrega o próximo bloco na ordem do leitor. Chamado sob mu.
-func (o *rawDeliveryOwner) take() string {
+func (o *rawDeliveryOwner) take() rawChunk {
 	o.draining = len(o.queue) > 0
 	if !o.draining {
-		return ""
+		return rawChunk{}
 	}
 	raw := o.queue[0]
-	o.queue[0] = ""
+	o.queue[0] = rawChunk{}
 	o.queue = o.queue[1:]
 	o.changed.Broadcast()
 	return raw
 }
 
-func (o *rawDeliveryOwner) drain(raw string) {
-	for raw != "" {
+func (o *rawDeliveryOwner) drain(raw rawChunk) {
+	for raw.text != "" {
 		o.publish(raw)
 		o.complete()
 		o.mu.Lock()
@@ -123,7 +125,7 @@ func (o *rawDeliveryOwner) opened() {
 	o.complete()
 	// A escrita não espera que o consumidor alcance um terminal que continua
 	// produzindo. A goroutine só existe se a abertura realmente reteve saída.
-	if first != "" {
+	if first.text != "" {
 		go o.drain(first)
 	}
 }

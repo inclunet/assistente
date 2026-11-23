@@ -140,11 +140,13 @@ Entregue:
   término e espera do processo, drenagem do leitor e fechamento do PTY; testes
   concorrentes em `internal/terminal/manager_lifecycle_test.go` cobrem a
   ausência da corrida entre leitor e ConPTY. Na troca de comando, a fila de
-  saída é limitada e a escrita pode prosseguir sob fluxo contínuo. O início,
-  os blocos já lidos e o encerramento chegam à interface nessa ordem. Cada
-  evento de saída bruta identifica a última entrada manual pelo `commandId`,
-  vazio se ainda não houve uma. Até o despacho da moldura, os bytes recebidos
-  continuam no fluxo manual, inclusive durante o anúncio ou cancelamento.
+  saída é limitada e a escrita pode prosseguir sob fluxo contínuo. O início
+  de uma entrada manual precede a entrega da saída dela. Durante o anúncio
+  gerenciado, a saída anterior ao despacho pode chegar depois do evento de
+  início. Cada bloco conserva o `commandId` da entrada manual de origem.
+  Os blocos sem dono, inclusive os recebidos depois da execução gerenciada,
+  têm `commandId` vazio e pertencem à sessão. O encerramento sucede a entrega
+  da saída já lida.
 
 Pendente ou parcial:
 

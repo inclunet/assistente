@@ -495,7 +495,7 @@ func TestManagedStartPreservesManualOutputBeforeCanceledWrite(t *testing.T) {
 		t.Error("escrita após cancelamento")
 		return 0, io.ErrClosedPipe
 	})}
-	s.rawOwner = s.newRawOwner(false, "manual")
+	s.rawCommandID = "manual"
 	s.onRawOutput = func(_, id, data string) {
 		if id != "manual" || data != block {
 			t.Errorf("destino=%q tamanho=%d", id, len(data))
