@@ -318,6 +318,10 @@ const prepareGroupedPowerShell = `& {
 	$stmts = $ast.EndBlock.Statements;
 ` + powerShellLastOperation + `	$visit = {
 		param($last, $container);
+		if ($last -is [System.Management.Automation.Language.ReturnStatementAst]) {
+			$container = $last;
+			$last = $last.Pipeline
+		};
 		while ($last -is [System.Management.Automation.Language.PipelineAst] -and $last.PipelineElements.Count -eq 1) {
 			$element = $last.PipelineElements[0];
 			if ($element -isnot [System.Management.Automation.Language.CommandExpressionAst] -or $element.Redirections.Count) { break };
@@ -355,7 +359,7 @@ const prepareGroupedPowerShell = `& {
 		$stages = $last.PipelineElements;
 		$prefix = '';
 		if ($container) {
-			if ($container -is [System.Management.Automation.Language.ParenExpressionAst]) { $prefix = '$(try { ' };
+			if ($container -is [System.Management.Automation.Language.ParenExpressionAst] -or $container -is [System.Management.Automation.Language.ReturnStatementAst]) { $prefix = '$(try { ' };
 			$offset = $frame.Length + $shift + $last.Extent.StartOffset + $prefix.Length;
 			$record = $capture + '.Ok = $?; ' + $capture + '.Offset = ' + $offset;
 			$suffix = if ($prefix) { ' } finally { ' + $record + ' })' } else { '; ' + $record };
