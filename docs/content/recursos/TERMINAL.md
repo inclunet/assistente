@@ -97,6 +97,9 @@ A saída manual que já apareceu na tela é preservada quando o histórico termi
 O histórico distingue um comando em andamento de um comando que terminou, inclusive
 quando o shell devolve um código negativo.
 
+Abrir o histórico permite ler os comandos anteriores. O leitor de telas anuncia
+o início de um comando quando ele chega ao terminal ativo.
+
 Cada entrada no histórico registra:
 
 - Comando executado

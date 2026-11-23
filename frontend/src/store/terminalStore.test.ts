@@ -1,6 +1,6 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { terminal } from '../../wailsjs/go/models';
-import { resolveTerminalCommandId, useTerminalStore } from './terminalStore';
+import { useTerminalStore } from './terminalStore';
 import { useWorkspaceStore, type WorkspaceData } from './workspaceStore';
 import { isVoiceAccessibilityOriginActive } from '../services/voiceAccessibility/types';
 import { useAuthStore } from './authStore';
@@ -203,17 +203,18 @@ describe('terminalStore', () => {
     } finally { cleanup(); }
   });
 
-  it.each([true, false])('hidrata o histórico quando outra aba acompanhou só o fim (início com ID: %s)', async startHasId => {
+  it('preserva a saída recebida antes da conclusão e da hidratação', async () => {
     const cleanup = useTerminalStore.getState().setupEventListeners({ lifecycleOnly: true });
     try {
       const data = { sessionId: 'b', commandId: 'recente' };
       terminalEventHandlers.get('terminal:session_created')?.(terminal.SessionInfo.createFrom({ id: 'b' }));
-      terminalEventHandlers.get('terminal:command_start')?.({ ...data, commandId: startHasId ? data.commandId : undefined, command: 'date', source: 'llm' });
+      terminalEventHandlers.get('terminal:command_start')?.({ ...data, command: 'date', source: 'llm' });
       terminalEventHandlers.get('terminal:command_output')?.({ ...data, output: 'hoje' });
       const closeOtherPage = useTerminalStore.getState().setupEventListeners();
       try {
         terminalEventHandlers.get('terminal:command_end')?.({ ...data, output: '', exitCode: 0 });
         expect(useTerminalStore.getState().historyBySession.b[0].output).toBe('hoje');
+        expect(announce).toHaveBeenCalledWith(i18next.t('terminal.announce.outputWithExit', { output: 'hoje', exitCode: 0 }));
         expect(useTerminalStore.getState().partialHistoryBySession.b).toBe(true);
         mockGetTerminalHistory.mockResolvedValueOnce([terminal.HistoryEntry.createFrom({ id: 'antigo' })]);
         await useTerminalStore.getState().loadHistory('b');
@@ -375,11 +376,10 @@ describe('terminalStore', () => {
       if (!failLookup) await i18next.changeLanguage('pt-BR');
       useTerminalStore.setState({ sessions: after === null ? [] : [terminal.SessionInfo.createFrom({ id: 'a', name: after })] });
       useWorkspaceStore.setState({ workspace: { ...workspace, tabs: after === null ? workspace.tabs.slice(1) : [...workspace.tabs].reverse(), activeTabId: 'tab-b' } });
-      if (failLookup) {
-        const sessions = useTerminalStore.getState().sessions;
-        vi.spyOn(sessions, 'find').mockImplementation(() => { throw new Error('catálogo indisponível'); });
-      }
+      const lookup = failLookup ? vi.spyOn(useTerminalStore.getState().sessions, 'find')
+        .mockImplementationOnce(() => { throw new Error('catálogo indisponível'); }) : undefined;
       vi.runAllTimers();
+      if (lookup) expect(lookup).toHaveBeenCalledTimes(1);
       expect(announce.mock.calls.map(([message]) => message)).toEqual([
         'Leitura em curso', i18next.t('terminal.announce.backgroundResult', { name: expected ?? i18next.t('terminal.announce.unnamedTab', { position: 2 }), exitCode: 7 }),
       ]);
@@ -414,10 +414,11 @@ describe('terminalStore', () => {
       const raw = terminalEventHandlers.get('terminal:raw_output');
       raw?.({ sessionId: 'a', output: 'primeira' });
       raw?.({ sessionId: 'b', output: 'anterior' });
-      terminalEventHandlers.get('terminal:command_start')?.({ sessionId: 'b', command: 'pwd', source: 'llm' });
+      terminalEventHandlers.get('terminal:command_start')?.({ sessionId: 'b', commandId: 'c1', command: 'pwd', source: 'llm' });
       raw?.({ sessionId: 'b', output: 'segunda' });
       vi.runAllTimers();
-      expect(announce).toHaveBeenCalledTimes(2);
+      expect(announce).toHaveBeenCalledTimes(3);
+      expect(announce).toHaveBeenCalledWith(`${i18next.t('terminal.history.commandPrefix')} pwd`);
       for (const output of ['primeira', 'segunda']) {
         expect(announce).toHaveBeenCalledWith(i18next.t('terminal.announce.output', { output }));
       }
@@ -431,6 +432,8 @@ describe('terminalStore', () => {
     try {
       terminalEventHandlers.get('terminal:command_start')?.({ sessionId: 's1', commandId: 'early', command: 'pwd', source: 'llm' });
       expect(useTerminalStore.getState().historyBySession.s1).toHaveLength(1);
+      expect(announce.mock.calls).toEqual([[`${i18next.t('terminal.history.commandPrefix')} pwd`]]);
+      announce.mockClear();
       terminalEventHandlers.get('terminal:session_created')?.(terminal.SessionInfo.createFrom({ id: 's1', name: 'Principal' }));
       terminalEventHandlers.get('terminal:raw_output')?.({ sessionId: 's1', output: 'pendente' });
       terminalEventHandlers.get('terminal:exited')?.({ sessionId: 's1', terminalId: 's1', error: 'falha' });
@@ -555,11 +558,24 @@ describe('terminalStore', () => {
     expect(useTerminalStore.getState().loadingHistoryBySession).not.toHaveProperty('session-1');
   });
 
-  it('gera IDs distintos para eventos legados sem commandId', () => {
-    const first = resolveTerminalCommandId('session-1');
-    const second = resolveTerminalCommandId('session-1');
-
-    expect(first).not.toBe(second);
-    expect(resolveTerminalCommandId('session-1', 'cmd-authoritative')).toBe('cmd-authoritative');
+  it('anuncia só o início recebido ao vivo na sessão visível durante a hidratação', async () => {
+    const cleanup = useTerminalStore.getState().setupEventListeners();
+    const reset = registerVoiceAccessibilityActiveResolver(origin => origin?.terminalSessionId === 'a');
+    const snapshot = createDeferred<terminal.HistoryEntry[]>();
+    mockGetTerminalHistory.mockReturnValueOnce(snapshot.promise);
+    try {
+      terminalEventHandlers.get('terminal:session_created')?.(terminal.SessionInfo.createFrom({ id: 'a' }));
+      const load = useTerminalStore.getState().loadHistory('a');
+      const start = (sessionId: string, id: string, source: string) =>
+        terminalEventHandlers.get('terminal:command_start')?.({ sessionId, commandId: id, command: id, source });
+      start('b', 'oculto', 'llm');
+      start('a', 'novo', 'llm');
+      snapshot.resolve(Array.from({ length: 200 }, (_, i) => terminal.HistoryEntry.createFrom({ id: String(i), command: 'antigo' })));
+      await load;
+      start('a', 'manual', 'user-raw');
+      expect(announce.mock.calls.map(([message]) => message)).toEqual(['novo', 'manual'].map(command =>
+        `${i18next.t('terminal.history.commandPrefix')} ${command}`));
+      expect(useTerminalStore.getState().historyBySession.a).toHaveLength(200);
+    } finally { reset(); cleanup(); }
   });
 });

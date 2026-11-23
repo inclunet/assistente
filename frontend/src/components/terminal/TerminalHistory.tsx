@@ -10,11 +10,9 @@ import { useEffect, useRef, useCallback, forwardRef, useImperativeHandle, useMem
 import { useTranslation } from 'react-i18next';
 import type { HistoryEntry } from '../../store/terminalStore';
 import { TerminalCommandNode, TerminalOutputNode } from './TerminalEntry';
-import { announceWithOrigin } from '../../services/voiceAccessibility/announcerBroker';
 import './TerminalHistory.css';
 
 interface TerminalHistoryProps {
-  tabId: string;
   entries: HistoryEntry[];
   runningCommandId: string | null;
   isLoading?: boolean;
@@ -33,7 +31,7 @@ interface FlatNode {
 }
 
 export const TerminalHistory = forwardRef<HTMLDivElement, TerminalHistoryProps>(
-  function TerminalHistory({ tabId, entries, runningCommandId: _runningCommandId, isLoading, onReachEnd }, ref) {
+  function TerminalHistory({ entries, runningCommandId: _runningCommandId, isLoading, onReachEnd }, ref) {
     const { t } = useTranslation();
     const containerRef = useRef<HTMLDivElement>(null);
     const bottomRef = useRef<HTMLDivElement>(null);
@@ -77,22 +75,6 @@ export const TerminalHistory = forwardRef<HTMLDivElement, TerminalHistoryProps>(
         }
       }
     }, [scrollKey]);
-
-    // Anuncia novo comando quando aparece
-    const previousEntries = useRef(entries);
-    useEffect(() => {
-      const previous = previousEntries.current;
-      previousEntries.current = entries;
-      const last = entries[entries.length - 1];
-      const previousLast = previous[previous.length - 1];
-      if (!last || last.id === previousLast?.id) return;
-      const grew = entries.length > previous.length;
-      const rolled = entries.length === previous.length && entries.some(entry => entry.id === previousLast?.id);
-      if (grew || rolled) {
-        announceWithOrigin({ origin: { surfaceType: 'terminal', tabId }, eventType: 'progress',
-          message: `${t('terminal.history.commandPrefix')} ${last.command}` });
-      }
-    }, [entries, t, tabId]);
 
     /** Registra/remove ref de nó */
     const setNodeRef = useCallback((nodeId: string, el: HTMLDivElement | null) => {

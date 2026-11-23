@@ -26,12 +26,6 @@ let terminalSessionReadGeneration = 0;
 let listingStates: Map<string, string> | undefined;
 const terminalSessionReadReplacements = new Map<number, Promise<boolean>>();
 let terminalEventListenerCleanup: (() => void) | null = null;
-let legacyCommandSequence = 0;
-
-export function resolveTerminalCommandId(sessionId: string, commandId?: string): string {
-  return commandId || `legacy-${sessionId}-${Date.now()}-${legacyCommandSequence++}`;
-}
-
 function terminalOrigin(sessionId: string) {
   return { surfaceType: 'terminal' as const, terminalSessionId: sessionId };
 }
@@ -310,16 +304,6 @@ export const useTerminalStore = create<TerminalState>((set) => ({
     // Uma sessão pode produzir comandos antes do evento de criação chegar.
     // Só ignoramos eventos depois de seu encerramento explícito ou espontâneo.
     const endedSessions = new Set<string>();
-    // Produtores antigos só informavam o ID real na saída ou na conclusão.
-    const legacyStarts = new Map<string, { localId: string; backendId?: string }>();
-    const entryForEvent = (sessionId: string, backendId: string) => {
-      const legacy = legacyStarts.get(sessionId);
-      if (legacy && (!backendId || !legacy.backendId || legacy.backendId === backendId)) {
-        if (backendId) legacy.backendId = backendId;
-        return legacy.localId;
-      }
-      return backendId || unobservedCommands.get(sessionId)?.id || useTerminalStore.getState().activeEntryBySession[sessionId];
-    };
     // Uma sessão já exibida conserva seu histórico entre montagens da página.
     // Continue aplicando eventos ao cache mesmo quando os anúncios estão suspensos.
     const tracksHistory = (sessionId: string) =>
@@ -358,7 +342,6 @@ export const useTerminalStore = create<TerminalState>((set) => ({
       terminalSessionReadGeneration += 1;
       // IDs são únicos; limite a memória usada para descartar eventos tardios.
       unobservedCommands.delete(sessionId);
-      legacyStarts.delete(sessionId);
       endedSessions.add(sessionId);
       if (endedSessions.size > 1024) endedSessions.delete(endedSessions.values().next().value!);
       flushOutputAnnouncement(sessionId);
@@ -397,14 +380,23 @@ export const useTerminalStore = create<TerminalState>((set) => ({
     unsubs.push(EventsOn('terminal:exited', announceSessionEnded));
 
     // Comando iniciado (raw mode — cria entry para receber output)
-    unsubs.push(EventsOn('terminal:command_start', (data: { sessionId: string; commandId?: string; command: string; source: string }) => {
+    unsubs.push(EventsOn('terminal:command_start', (data: { sessionId: string; commandId: string; command: string; source: string }) => {
       if (endedSessions.has(data.sessionId)) return;
       if (data.source !== 'user-raw') listingStates?.set(data.sessionId, 'running');
       // Limpa pending output do comando anterior
       cancelOutputAnnouncement(data.sessionId);
 
+      if (terminalOutputListenerRefCount > 0) {
+        announceWithOrigin({
+          origin: terminalOrigin(data.sessionId),
+          eventType: data.source === 'user-raw' ? 'user-action' : 'progress',
+          message: `${i18next.t('terminal.history.commandPrefix')} ${data.command}`,
+        });
+      }
+
       const tempEntry: HistoryEntry = terminal.HistoryEntry.createFrom({
-        id: resolveTerminalCommandId(data.sessionId, data.commandId),
+        // A sessão Go gera o UUID antes de emitir o início e o mantém até a conclusão.
+        id: data.commandId,
         command: data.command,
         output: '',
         exitCode: -999, // sentinel para "em execução / raw"
@@ -413,8 +405,6 @@ export const useTerminalStore = create<TerminalState>((set) => ({
         source: data.source,
       });
 
-      if (!data.commandId && data.source !== 'user-raw') legacyStarts.set(data.sessionId, { localId: tempEntry.id });
-      else legacyStarts.delete(data.sessionId);
       if (!tracksHistory(data.sessionId)) {
         if (data.source !== 'user-raw') {
           unobservedCommands.set(data.sessionId, tempEntry);
@@ -476,8 +466,7 @@ export const useTerminalStore = create<TerminalState>((set) => ({
     // Output filtrado (durante RunCommand do LLM com markers)
     unsubs.push(EventsOn('terminal:command_output', (data: { sessionId: string; commandId: string; output: string }) => {
       const pending = unobservedCommands.get(data.sessionId);
-      const entryId = entryForEvent(data.sessionId, data.commandId);
-      if (pending && pending.id === entryId) {
+      if (pending && pending.id === data.commandId) {
         unobservedCommands.set(data.sessionId, appendHistoryOutput(pending, data.output));
         return;
       }
@@ -485,7 +474,7 @@ export const useTerminalStore = create<TerminalState>((set) => ({
       set(state => {
         const sessionHistory = state.historyBySession[data.sessionId] || [];
         const updatedHistory = sessionHistory.map(entry => {
-          if (isManagedCommandRunning(entry) && entry.id === entryId) {
+          if (isManagedCommandRunning(entry) && entry.id === data.commandId) {
             return appendHistoryOutput(entry, data.output);
           }
           return entry;
@@ -502,10 +491,6 @@ export const useTerminalStore = create<TerminalState>((set) => ({
     // Comando finalizado (apenas para RunCommand com markers — LLM)
     unsubs.push(EventsOn('terminal:command_end', (data: { sessionId: string; commandId: string; output: string; exitCode: number }) => {
       if (endedSessions.has(data.sessionId)) return;
-      const entryId = entryForEvent(data.sessionId, data.commandId);
-      const legacy = legacyStarts.get(data.sessionId);
-      if (legacy && entryId !== legacy.localId) return;
-      legacyStarts.delete(data.sessionId);
       listingStates?.set(data.sessionId, 'idle');
       const pending = unobservedCommands.get(data.sessionId);
       unobservedCommands.delete(data.sessionId);
@@ -513,8 +498,10 @@ export const useTerminalStore = create<TerminalState>((set) => ({
       const tab = workspace?.tabs.find(candidate => candidate.type === 'terminal' && candidate.state?.sessionId === data.sessionId);
       if (terminalOutputListenerRefCount > 0 || tab) {
         if (isVoiceAccessibilityOriginCurrentlyActive(terminalOrigin(data.sessionId))) playReceiveSound();
-        const outputPreview = data.output
-          ? (data.output.length > 300 ? data.output.slice(0, 300) + i18next.t('terminal.announce.truncatedSuffix') : data.output)
+        const output = data.output || (pending?.id === data.commandId && pending.output) || useTerminalStore.getState().historyBySession[data.sessionId]
+          ?.find(entry => entry.id === data.commandId)?.output;
+        const outputPreview = output
+          ? (output.length > 300 ? output.slice(0, 300) + i18next.t('terminal.announce.truncatedSuffix') : output)
           : i18next.t('terminal.announce.emptyOutput');
         const { sessionId, exitCode } = data;
         const titleAtCompletion = tab?.title?.trim();
@@ -540,10 +527,9 @@ export const useTerminalStore = create<TerminalState>((set) => ({
       set(state => {
         const sessionHistory = state.historyBySession[data.sessionId] ?? (pending ? [pending] : []);
         const updatedHistory = sessionHistory.map(entry => {
-          if (isManagedCommandRunning(entry) && entry.id === entryId) {
+          if (isManagedCommandRunning(entry) && entry.id === data.commandId) {
             return terminal.HistoryEntry.createFrom({
               ...entry,
-              ...(legacy?.backendId && { id: legacy.backendId }),
               output: data.output || entry.output,
               exitCode: data.exitCode,
               endedAt: new Date().toISOString(),
