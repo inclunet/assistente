@@ -16,18 +16,19 @@ const maxControlLiteral = 4096
 // parsedTerminalText acumula os bytes normalizados. Somente a confirmação de
 // um redesenho do ConPTY pode retirar a quebra de linha mais recente.
 type parsedTerminalText struct {
-	conPTY           bool
-	marker           *CommandMarker
-	columns          int
-	data             []byte
-	lastText         int
-	row, previousRow int
-	cr, rawCR, crlf  bool
-	control          terminalControl
-	escape           []byte
-	escapeAfterCRLF  bool
-	replay           string
-	replayed         int
+	conPTY                  bool
+	marker                  *CommandMarker
+	columns                 int
+	data                    []byte
+	lastText                int
+	row, previousRow        int
+	cr, rawCR, crlf         bool
+	control                 terminalControl
+	escape                  []byte
+	escapeAfterCRLF         bool
+	escapeFromPreviousOwner bool
+	replay                  string
+	replayed                int
 	// Depois do rodapé, somente o CRLF e o cursor da margem podem repetir o terminador.
 	footerColumn   int
 	skipFooterCell bool
@@ -111,6 +112,7 @@ func (t *parsedTerminalText) feed(chunk string) {
 		case '\x1b':
 			t.rawCR = false
 			t.control.start()
+			t.escapeFromPreviousOwner = false
 			t.escape = append(t.escape, '\x1b')
 			t.escapeAfterCRLF, t.crlf = t.crlf, false
 			chunk = chunk[1:]
@@ -158,6 +160,10 @@ func (t *parsedTerminalText) escapeByte(ch byte) bool {
 }
 
 func (t *parsedTerminalText) flushEscape() {
+	if t.escapeFromPreviousOwner {
+		t.escape = t.escape[:0]
+		return
+	}
 	if len(t.escape) != 0 {
 		if t.cr {
 			t.write("\r")

@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"io"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -573,6 +574,45 @@ func TestConPTYSessionOutputAfterFooterRedraw(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestConPTYFooterRedrawAcrossManualInput(t *testing.T) {
+	m := newCommandMarkerForShell("powershell")
+	m.conPTY = true
+	m.viewportColumns = len(m.endTag) + len("3!")
+	cursor := "\r\n\x1b[1;" + strconv.Itoa(m.viewportColumns) + "H"
+	for cut := 0; cut <= len(cursor+"!"); cut++ {
+		stream := newMarkerStream(m)
+		_, result := stream.append(m.startTag + "\r\n" + m.endTag + "3!" + (cursor + "!")[:cut])
+		s := &Session{suppressRawOutput: true, ptyWriter: io.Discard}
+		var output strings.Builder
+		s.onRawOutput = func(_, id, text string) {
+			if id != "manual" {
+				t.Errorf("corte %d: texto %q com dono %q", cut, text, id)
+			}
+			output.WriteString(text)
+		}
+		s.resumeRawAfterFooter(result)
+		if _, err := s.SendInput("comando", "manual"); err != nil {
+			t.Fatal(err)
+		}
+		s.recordOutput((cursor + "!")[cut:] + "!PS> ")
+		s.finishRawOutput()
+		s.rawOwner.wait()
+		if output.String() != "!PS> " {
+			t.Errorf("corte %d: saída=%q", cut, output.String())
+		}
+	}
+	// Uma posição incompleta herdada serve à detecção, mas nem o EOF nem
+	// um controle inválido podem entregá-la como texto à próxima entrada.
+	for _, suffix := range []string{"", "\x18ok"} {
+		r := rawTerminalOutput{text: parsedTerminalText{footerColumn: 80}, footerBreak: true}
+		before := r.append("\r\n\x1b[1;", false) + r.changeOwner()
+		after := r.append(suffix, false) + r.finish()
+		if before != "" || after != strings.TrimPrefix(suffix, "\x18") {
+			t.Fatalf("sufixo=%q antes=%q depois=%q", suffix, before, after)
+		}
 	}
 }
 

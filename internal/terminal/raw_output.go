@@ -29,6 +29,7 @@ func (r *rawTerminalOutput) append(chunk string, suppressed bool) string {
 		// leitura visível, mesmo quando o bloco não produz texto na UI.
 		if chunk != "" {
 			r.reportedCR, r.text.cr = false, false
+			r.text.footerColumn, r.text.skipFooterCell = 0, false
 		}
 		r.text.control.trackViewport(chunk, &r.text.columns)
 		return tail
@@ -44,7 +45,18 @@ func (r *rawTerminalOutput) changeOwner() string {
 	previous := r.take(true)
 	// O início de uma entrada não insere bytes no fluxo do PTY. Conserve
 	// o CR anunciado para que o parser reconheça seu possível LF.
-	r.text = parsedTerminalText{control: r.text.control, cr: r.reportedCR}
+	physical := parsedTerminalText{
+		control: r.text.control, columns: r.text.columns, cr: r.reportedCR,
+		rawCR: r.text.rawCR, crlf: r.text.crlf, escapeAfterCRLF: r.text.escapeAfterCRLF,
+		footerColumn: r.text.footerColumn, skipFooterCell: r.text.skipFooterCell,
+	}
+	// A posição do cursor pode atravessar a troca. O prefixo ainda serve para
+	// confirmar a margem, mas não pertence à nova entrada se o escape falhar.
+	if physical.footerColumn > 0 && physical.control.kind != 0 {
+		physical.escape = r.text.escape
+		physical.escapeFromPreviousOwner = true
+	}
+	r.text = physical
 	return previous
 }
 
