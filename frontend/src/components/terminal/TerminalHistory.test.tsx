@@ -3,14 +3,10 @@ import { render, screen } from '@testing-library/react';
 import { TerminalHistory } from './TerminalHistory';
 import { terminal } from '../../../wailsjs/go/models';
 
-const announceSpy = vi.fn();
+import { registerAnnouncerSink, registerVoiceAccessibilityActiveResolver, unregisterAnnouncerSink } from '../../services/voiceAccessibility/announcerBroker';
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key }),
-}));
-
-vi.mock('../../hooks/useAnnouncer', () => ({
-  announce: (...args: unknown[]) => announceSpy(...args),
 }));
 
 describe('TerminalHistory', () => {
@@ -21,9 +17,26 @@ describe('TerminalHistory', () => {
     });
   });
 
+  it('anuncia o novo comando apenas na aba visível e mantém o código final sem saída no histórico', () => {
+    const sink = vi.fn();
+    registerAnnouncerSink(sink);
+    const unregister = registerVoiceAccessibilityActiveResolver(origin => origin?.tabId === 'visível');
+    const panes = (show: boolean) => <>{['oculta', 'visível'].map(tabId =>
+      <TerminalHistory key={tabId} tabId={tabId} runningCommandId={null}
+        entries={show ? [new terminal.HistoryEntry({ id: tabId, command: tabId, output: '', exitCode: -999,
+          endedAt: '2026-01-01T00:00:01Z', source: 'llm' })] : []} />)}</>;
+    try {
+      const { rerender } = render(panes(false));
+      rerender(panes(true));
+      expect(sink.mock.calls).toEqual([['terminal.history.commandPrefix visível', 'polite']]);
+      expect(screen.getAllByText('terminal.entry.exit -999')).toHaveLength(2);
+    } finally { unregister(); unregisterAnnouncerSink(); }
+  });
+
   it('renderiza estado vazio', () => {
     render(
       <TerminalHistory
+        tabId="tab"
         entries={[]}
         runningCommandId={null}
       />
@@ -35,6 +48,7 @@ describe('TerminalHistory', () => {
   it('renderiza lista de nos', () => {
     render(
       <TerminalHistory
+        tabId="tab"
         entries={[
           new terminal.HistoryEntry({
             id: '1',
