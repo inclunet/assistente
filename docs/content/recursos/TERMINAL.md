@@ -125,6 +125,8 @@ linhas anteriores podem aparecer de forma diferente no histórico e na tela
 interativa. Sequências de controle incompletas podem aparecer como texto ao
 encerrar a leitura.
 
+Ao usar a ferramenta com `working_directory`, informe o caminho relativo de uma pasta existente no projeto. Tanto no modo efêmero quanto no persistente, a ferramenta informa se a pasta indicada não existe ou se o caminho aponta para um arquivo. Ao omitir o argumento, a nova execução usa a raiz do projeto. Se essa raiz estiver indisponível, a ferramenta informa o problema antes de pedir confirmação. Uma sessão já aberta e selecionada com `terminal_id` usa seu próprio diretório.
+
 ## Sessões
 
 Múltiplas sessões podem existir simultaneamente (até 10 por padrão), cada uma em sua própria aba.

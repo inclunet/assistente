@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -375,6 +376,30 @@ func TestSimOuNaoViraDuasOpcoesNumeradas(t *testing.T) {
 	resultado := esperarResultado(t, pronto)
 	if resultado.resp.Answers["aprovar"] != false {
 		t.Errorf("resposta = %v, quer o booleano falso que o diálogo espera", resultado.resp.Answers)
+	}
+}
+
+func TestDecisaoDistingueControleInvisivelDeTextoLiteral(t *testing.T) {
+	body := "arquivo\u200b.txt\n" + `arquivo\u200b.txt`
+	message := renderChannelDecision(questionnaire.RequestPayload{Body: body}, []string{"Negar"}, time.Minute)
+	if !strings.Contains(message, strconv.QuoteToGraphic(body)) || strings.ContainsRune(message, '\u200b') {
+		t.Fatalf("corpo ambíguo na pergunta: %q", message)
+	}
+	if decisionBodyText(`arquivo\u200b.txt`) != `arquivo\u200b.txt` {
+		t.Fatal("a referência literal foi alterada")
+	}
+}
+
+func TestDiretorioDaDecisaoDistingueCaracteresInvisiveis(t *testing.T) {
+	render := func(dir string) string {
+		return renderChannelDecision(questionnaire.RequestPayload{
+			Hint: questionnaire.Plain("Diretório: " + dir), Body: "pwd",
+		}, []string{"Negar"}, time.Minute)
+	}
+	dir := "projeto\u200b"
+	got := render(dir)
+	if got == render("projeto") || got == render(`projeto\u200b`) || strings.ContainsRune(got, '\u200b') || !strings.Contains(got, strconv.QuoteToGraphic("Diretório: "+dir)) {
+		t.Fatalf("diretório ambíguo na pergunta: %q", got)
 	}
 }
 

@@ -1147,6 +1147,7 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 
 	// Inicializa o ChatInteractor (após skillMgr e promptBuilder estarem prontos)
 	a.chatInteractor = chat.NewInteractor(chat.InteractorConfig{
+		SkillCommands:    a.runSkillCommand,
 		Emitter:          a.emitter,
 		Repo:             a.msgRepo,
 		ConvRepo:         a.convSvc,

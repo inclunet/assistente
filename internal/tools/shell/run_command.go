@@ -1,24 +1,39 @@
 package shell
 
 import (
-	"assistente/internal/logging"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
+	"os/exec"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"assistente/internal/allowlist"
 	"assistente/internal/commandpolicy"
+	"assistente/internal/logging"
+	"assistente/internal/shelltrust"
 	"assistente/internal/terminal"
 	"assistente/internal/tools"
 	"assistente/internal/tools/invocationctx"
 )
 
 const (
+	// FailurePolicyVetoed identifica um veto da política vigente.
+	FailurePolicyVetoed = "shell_policy_vetoed"
+	// FailureCommandRefused identifica a recusa expressa da pessoa.
+	FailureCommandRefused = "shell_command_refused"
+	// FailureConfirmationUnavailable indica que não houve uma decisão válida.
+	FailureConfirmationUnavailable = "shell_confirmation_unavailable"
+	// FailurePrerequisiteUnavailable identifica falha ao verificar um pré-requisito.
+	FailurePrerequisiteUnavailable = "shell_prerequisite_unavailable"
+	// FailureSessionStart identifica uma falha de abertura da sessão do terminal.
+	FailureSessionStart = "shell_session_start_failed"
+
 	// defaultTimeout é o timeout padrão para execução de comandos (15s)
 	defaultTimeout = 15 * time.Second
 
@@ -40,9 +55,9 @@ type GetAllowlistFunc func(context.Context) (*allowlist.Allowlist, error)
 // SessionManager é a interface para gerenciar sessões PTY.
 // Permite mockar o Manager para testes.
 type SessionManager interface {
-	Acquire(ctx context.Context, workDir string) (*terminal.Session, error)
-	RunCommand(ctx context.Context, sessionID string, command string, timeout time.Duration, requesterID string) (*terminal.HistoryEntry, error)
-	RunEphemeral(ctx context.Context, workDir, command string, timeout time.Duration, source string) (*terminal.HistoryEntry, error)
+	Acquire(ctx context.Context, workDir terminal.WorkingDirectory) (*terminal.Session, error)
+	RunCommandWithDisplay(ctx context.Context, sessionID string, command terminal.CommandText, timeout time.Duration, requesterID string) (*terminal.HistoryEntry, error)
+	RunEphemeral(ctx context.Context, workDir terminal.WorkingDirectory, command terminal.CommandText, timeout time.Duration, source string) (*terminal.HistoryEntry, error)
 	Release(sessionID string)
 	Close(sessionID string) error
 }
@@ -51,7 +66,7 @@ type SessionManager interface {
 // escolha explicitamente uma sessão já conhecida sem ampliar o contrato dos
 // mocks legados de SessionManager.
 type sessionLookup interface {
-	Info(sessionID string) (terminal.SessionInfo, bool)
+	ExecutionDirectory(sessionID string) (terminal.WorkingDirectory, bool)
 }
 
 // RunCommand é a ferramenta que executa comandos shell via PTY.
@@ -156,7 +171,7 @@ func (rc *RunCommand) Execute(ctx context.Context, args json.RawMessage) (tools.
 
 	// Resolve a sessão e o diretório exibido na confirmação antes de qualquer
 	// efeito colateral. Um terminal existente é autoritativo sobre seu CWD.
-	workDir := rc.workDir
+	var workDir string
 	if a.TerminalID != "" {
 		if strings.TrimSpace(a.WorkingDirectory) != "" {
 			return tools.ToolResult{
@@ -168,16 +183,22 @@ func (rc *RunCommand) Execute(ctx context.Context, args json.RawMessage) (tools.
 		if !ok {
 			return tools.ToolResult{Content: "O gerenciador não suporta seleção explícita de terminal", IsError: true}, nil
 		}
-		info, live := lookup.Info(a.TerminalID)
+		directory, live := lookup.ExecutionDirectory(a.TerminalID)
 		if !live {
 			return tools.ToolResult{
 				Content: fmt.Sprintf("Terminal %q não existe ou já foi encerrado", a.TerminalID),
 				IsError: true,
 			}, nil
 		}
-		workDir = info.CWD
-	} else if a.WorkingDirectory != "" {
+		workDir = directory.Path
+		if directory.PublicOverride != "" {
+			ctx = invocationctx.WithShellDirectoryMetadata(ctx, directory.PublicOverride)
+		}
+	} else {
 		resolvedWorkDir, resolveErr := resolveProjectWorkDir(rc.workDir, a.WorkingDirectory)
+		if errors.Is(resolveErr, errProjectDirectoryUnresolved) {
+			return shellPrerequisiteFailure(ctx, "directory_unresolved", "Não foi possível resolver o diretório para autorização."), nil
+		}
 		if resolveErr != nil {
 			return tools.ToolResult{
 				Content: "working_directory inválido: " + resolveErr.Error(),
@@ -197,96 +218,91 @@ func (rc *RunCommand) Execute(ctx context.Context, args json.RawMessage) (tools.
 	}
 
 	// Avalia o comando contra a politica (allowlist + parser conservador)
-	policyResult := rc.evaluateCommand(ctx, a.Command)
+	policyResult, policyErr := rc.evaluateCommand(ctx, a.Command)
+	if policyErr != nil {
+		return shellPrerequisiteFailure(ctx, "policy_unavailable", "Política de autorização shell indisponível."), nil
+	}
 	decision := policyResult.Decision
+	if decision == allowlist.DecisionApprove {
+		tools.PublishAuthorizationApproval(ctx)
+	}
 	// Nunca logamos a string crua de a.Command: ela pode conter tokens em
 	// flags (-W, --token=) ou env inline. Em vez disso, derivamos um resumo
 	// seguro do parse (programas + contagem de args). Reasons so vao para o
 	// log quando a decisao for diferente de approve, e mesmo assim usam
 	// summarizePolicyReasons (sem repetir args do comando).
-	commandSummary := redactCommandForLog(a.Command, policyResult)
-	logPolicyDecision(ctx, logging.Logger(ctx, "tools.shell.run-command"), commandSummary, policyResult)
-	originalWorkDir := workDir
-	if decision == allowlist.DecisionConfirm && !a.Persistent && a.TerminalID == "" {
-		resolved, err := canonicalizeProjectPath(workDir)
-		if err != nil {
-			return tools.ToolResult{Content: "Não foi possível resolver o diretório para autorização.", IsError: true}, nil
-		}
-		workDir = resolved
+	commandSummary, sensitive := invocationctx.LookupShellCommandMetadata(ctx)
+	publicPolicy := publicPolicyProjection(policyResult, sensitive)
+	if !sensitive {
+		commandSummary = redactCommandForLog(a.Command, policyResult)
 	}
-
-	switch decision {
-	case allowlist.DecisionDeny:
-		// Nao retornamos a.Command cru: este Content e enviado ao LLM e poderia
-		// vazar tokens/senhas em flags ou env inline. Usamos o mesmo resumo
-		// redigido aplicado nos logs (programas + contagem de args). Reasons
-		// (vs DetailedReasons) e o slice "safe" do EvaluationResult — citamos
-		// apenas programa, tipo de regra e indice (rule[N]/always_deny[N]) e
-		// nunca interpolamos pattern bruto, subcommands/args/description que o
-		// usuario possa ter colocado na allowlist com dados sensiveis.
-		return tools.ToolResult{
-			Content: fmt.Sprintf("Comando bloqueado pela política de comandos: %s\nMotivos: %s", commandSummary, strings.Join(policyResult.Reasons, "; ")),
+	if decision == allowlist.DecisionDeny {
+		denied := tools.ToolResult{
+			Failure: &tools.ToolFailure{Code: FailurePolicyVetoed, Kind: tools.ErrorKindAuthorization, Retryable: false},
+			Content: fmt.Sprintf("Comando bloqueado pela política de comandos: %s\nMotivos: %s", commandSummary, publicPolicy.reasonText("; ")),
 			IsError: true,
-		}, nil
+		}
+		tools.PublishAuthorizationRefusal(ctx, FailurePolicyVetoed, denied)
+		logPolicyDecision(ctx, nil, commandSummary, publicPolicy)
+		return denied, nil
+	}
+	logPolicyDecision(ctx, nil, commandSummary, publicPolicy)
 
-	case allowlist.DecisionConfirm:
+	if decision == allowlist.DecisionConfirm {
 		if rc.confirmFn == nil {
-			return tools.ToolResult{Content: "Comando requer autorização, mas não há interlocutor disponível.", IsError: true}, nil
+			return unavailableShellAuthorization("Comando requer autorização, mas não há interlocutor disponível."), nil
 		}
-		// confirmFn recebe o comando bruto: o usuario precisa ver tudo na
-		// UI local para decidir, e esse caminho nao vai para o LLM.
+		// O autorizador reavalia o comando real e prepara a representação
+		// que o interlocutor pode receber na superfície da chamada.
 		ctx = invocationctx.WithPersistentShell(ctx, a.Persistent || a.TerminalID != "")
-		approved, err := rc.confirmFn(ctx, a.Command, workDir)
-		if err != nil {
-			return tools.ToolResult{
-				Content: fmt.Sprintf("Erro ao solicitar confirmação: %v", err),
-				IsError: true,
-			}, nil
-		}
-		if !approved {
-			// Mesmo motivo do deny acima: a string vai para o LLM, nao
-			// repetimos o comando bruto aqui.
-			return tools.ToolResult{
-				Content: fmt.Sprintf("Comando negado pelo usuário: %s", commandSummary),
-				IsError: true,
-			}, nil
+		if failure := confirmShellCommand(ctx, rc.confirmFn, a.Command, workDir, commandSummary); failure != nil {
+			return *failure, nil
 		}
 	}
 
-	if decision == allowlist.DecisionConfirm && !a.Persistent && a.TerminalID == "" {
-		current, err := canonicalizeProjectPath(originalWorkDir)
-		target, targetErr := canonicalizeProjectPath(workDir)
-		if err != nil || targetErr != nil || current != workDir || target != workDir {
-			return tools.ToolResult{Content: "O diretório mudou durante a autorização; solicite novamente.", IsError: true}, nil
+	if decision == allowlist.DecisionConfirm && a.TerminalID == "" {
+		current, err := resolveProjectWorkDir(rc.workDir, a.WorkingDirectory)
+		if err != nil || current != workDir {
+			return shellPrerequisiteFailure(ctx, "directory_changed", "O diretório mudou durante a autorização."), nil
 		}
 	}
+	// O executor pode ter devolvido o timeout enquanto a política ou o log
+	// concluíam. O marcador de retry já está publicado antes desta checagem.
+	if err := ctx.Err(); err != nil {
+		return tools.ToolResult{}, err
+	}
+	command := terminal.CommandText{Raw: a.Command, Display: invocationctx.ShellCommandMetadata(ctx, a.Command)}
+	directory := terminal.WorkingDirectory{Path: workDir, PublicOverride: invocationctx.ShellDirectoryMetadata(ctx)}
 	var sessionID string
 	var entry *terminal.HistoryEntry
 	var err error
 	if a.TerminalID != "" {
 		sessionID = a.TerminalID
-		entry, err = rc.sessionMgr.RunCommand(ctx, sessionID, a.Command, timeout, "llm")
+		entry, err = rc.sessionMgr.RunCommandWithDisplay(ctx, sessionID, command, timeout, "llm")
 	} else if a.Persistent {
 		// AEP-0089: Acquire cria uma sessão nova e nunca captura uma idle.
-		session, acquireErr := rc.sessionMgr.Acquire(ctx, workDir)
+		session, acquireErr := rc.sessionMgr.Acquire(ctx, directory)
 		err = acquireErr
 		if err != nil {
-			return tools.ToolResult{
-				Content: fmt.Sprintf("Erro ao criar sessão de terminal: %v", err),
-				IsError: true,
-			}, nil
+			return sessionStartFailure(decision, err), nil
 		}
 		sessionID = session.ID()
-		entry, err = rc.sessionMgr.RunCommand(ctx, sessionID, a.Command, timeout, "llm")
+		entry, err = rc.sessionMgr.RunCommandWithDisplay(ctx, sessionID, command, timeout, "llm")
 		// Sessão persistente permanece viva (idle) para uso interativo.
 		rc.sessionMgr.Release(sessionID)
 	} else {
 		// Execução efêmera por padrão: não cria aba persistente nem ocupa o limite.
-		entry, err = rc.sessionMgr.RunEphemeral(ctx, workDir, a.Command, timeout, "llm")
+		entry, err = rc.sessionMgr.RunEphemeral(ctx, directory, command, timeout, "llm")
+		if errors.Is(err, terminal.ErrDirectoryUnresolved) {
+			return shellPrerequisiteFailure(ctx, "directory_unresolved", "Não foi possível resolver o diretório para autorização."), nil
+		}
+		if errors.Is(err, terminal.ErrSessionStart) {
+			return sessionStartFailure(decision, err), nil
+		}
 		// sessionID permanece vazio — sem deep link para terminal inexistente.
 	}
 
-	metadata := map[string]any{"command": a.Command, "workDir": workDir, "exitCode": -1}
+	metadata := map[string]any{"command": command.Display, "workDir": directory.Display(), "exitCode": -1}
 	if sessionID != "" {
 		metadata["sessionId"] = sessionID
 		metadata["terminalId"] = sessionID
@@ -329,6 +345,9 @@ func (rc *RunCommand) Execute(ctx context.Context, args json.RawMessage) (tools.
 		}
 
 		message := fmt.Sprintf("Erro ao executar comando: %v", err)
+		if directory.PublicOverride != "" {
+			message = protectedExecutionError(err)
+		}
 		if isTimeout {
 			message += "\nLimite configurado: " + timeout.String()
 		}
@@ -377,6 +396,75 @@ func (rc *RunCommand) Execute(ctx context.Context, args json.RawMessage) (tools.
 	return protected, nil
 }
 
+const protectedPolicyReason = "detalhes protegidos"
+
+type publicPolicyResult struct {
+	commandpolicy.EvaluationResult
+	protected bool
+}
+
+func publicPolicyProjection(result commandpolicy.EvaluationResult, sensitive bool) publicPolicyResult {
+	public := publicPolicyResult{EvaluationResult: result, protected: sensitive}
+	if sensitive {
+		public.Reasons = make([]string, len(result.Reasons))
+		for i := range public.Reasons {
+			public.Reasons[i] = protectedPolicyReason
+		}
+	}
+	return public
+}
+
+// protectedExecutionError publica somente categorias conhecidas. Causas
+// encadeadas do sistema operacional podem conter o caminho privado. Para
+// erros compostos, a primeira categoria da lista tem precedência no diagnóstico.
+func protectedExecutionError(err error) string {
+	for _, cause := range []error{terminal.ErrSessionRead, terminal.ErrSessionWrite, terminal.ErrSessionClosed, terminal.ErrSessionBusy, terminal.ErrSessionUnavailable} {
+		if errors.Is(err, cause) {
+			return "Erro ao executar comando: " + cause.Error()
+		}
+	}
+	switch {
+	case errors.Is(err, context.DeadlineExceeded):
+		return "Prazo encerrado durante a execução do comando."
+	case errors.Is(err, context.Canceled):
+		return "Execução do comando cancelada."
+	default:
+		return "Erro ao executar comando no diretório protegido."
+	}
+}
+
+func sessionStartFailure(decision allowlist.Decision, err error) tools.ToolResult {
+	message, kind, transient := classifySessionStartError(err)
+	return tools.ToolResult{
+		Content: message, IsError: true,
+		Failure: &tools.ToolFailure{
+			Code: FailureSessionStart, Kind: kind, NotDispatched: true,
+			Retryable: decision == allowlist.DecisionApprove && transient,
+		},
+	}
+}
+
+func classifySessionStartError(err error) (string, tools.ErrorKind, bool) {
+	switch {
+	case errors.Is(err, context.Canceled):
+		return "Início da sessão de terminal cancelado.", tools.ErrorKindCancelled, false
+	case errors.Is(err, context.DeadlineExceeded):
+		return "Prazo encerrado ao iniciar a sessão de terminal.", tools.ErrorKindTimeout, false
+	case errors.Is(err, terminal.ErrDirectoryUnresolved):
+		return "Diretório indisponível ao iniciar a sessão de terminal.", tools.ErrorKindUnavailable, false
+	case errors.Is(err, os.ErrNotExist), errors.Is(err, exec.ErrNotFound):
+		return "Executável do terminal não encontrado.", tools.ErrorKindUnavailable, false
+	case errors.Is(err, os.ErrPermission):
+		return "Permissão negada ao iniciar a sessão de terminal.", tools.ErrorKindUnavailable, false
+	case errors.Is(err, terminal.ErrSessionsDisabled):
+		return "Sessões de terminal desabilitadas pela configuração.", tools.ErrorKindUnavailable, false
+	case errors.Is(err, terminal.ErrSessionCapacity), errors.Is(err, syscall.EAGAIN), errors.Is(err, syscall.EBUSY):
+		return "Recurso do terminal temporariamente indisponível.", tools.ErrorKindUnavailable, true
+	default:
+		return "Não foi possível iniciar a sessão de terminal.", tools.ErrorKindUnavailable, false
+	}
+}
+
 func terminalFailure(err error) bool {
 	return errors.Is(err, terminal.ErrSessionWrite) || errors.Is(err, terminal.ErrSessionRead) || errors.Is(err, terminal.ErrSessionClosed)
 }
@@ -414,7 +502,7 @@ func logPolicyDecision(
 	ctx context.Context,
 	logger *slog.Logger,
 	commandSummary string,
-	result commandpolicy.EvaluationResult,
+	result publicPolicyResult,
 ) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -440,22 +528,112 @@ func logPolicyDecision(
 	logger.Log(ctx, slog.LevelInfo, message, attrs...)
 }
 
+func confirmShellCommand(ctx context.Context, confirm ConfirmFunc, command, workDir, commandSummary string) *tools.ToolResult {
+	denied := tools.ToolResult{
+		Failure: &tools.ToolFailure{Code: FailureCommandRefused, Kind: tools.ErrorKindAuthorization},
+		Content: fmt.Sprintf("Comando negado pelo usuário: %s", commandSummary),
+		IsError: true,
+	}
+	resolve, receipt := tools.PendingConfirmation(ctx, FailureConfirmationUnavailable, FailureCommandRefused, denied.Content)
+	if ctx.Err() != nil {
+		result := unavailableShellAuthorization("Confirmação encerrada sem autorização válida.")
+		return &result
+	}
+	var failure *tools.ToolResult
+	approvedInTime := false
+	// O autorizador real publica antes do seu log. Os demais ConfirmFunc
+	// entregam o mesmo resultado ao retornar, sem emitir uma segunda decisão.
+	observe := func(outcome shelltrust.DecisionOutcome, err error) {
+		if failure != nil {
+			return
+		}
+		switch {
+		case err == nil && outcome == shelltrust.Approved:
+			if ctx.Err() == nil {
+				approvedInTime = true
+				resolve(nil)
+			}
+		case err == nil:
+			if outcome == shelltrust.DeniedByPolicy {
+				denied.Failure.Code = FailurePolicyVetoed
+				denied.Content = fmt.Sprintf("Comando bloqueado pela política de comandos: %s\nMotivos: a política vigente vetou o comando na reavaliação.", commandSummary)
+				// resolve aceita apenas o código de recusa da pessoa. Publique o
+				// veto com seu próprio código antes que o prazo encerre a espera.
+				tools.PublishAuthorizationRefusal(ctx, FailurePolicyVetoed, denied)
+			} else {
+				resolve(&denied)
+			}
+			failure = &denied
+		case errors.Is(err, shelltrust.ErrPrerequisiteUnavailable) && ctx.Err() == nil:
+			unavailable := shellPrerequisiteFailure(ctx, shelltrust.PrerequisiteReason(err), "Não foi possível validar os pré-requisitos da autorização shell.")
+			failure = &unavailable
+		}
+	}
+	approved, err := confirm(shelltrust.WithDecisionObserver(ctx, observe, receipt), command, workDir)
+	outcome := shelltrust.DeniedByUser
+	if approved {
+		outcome = shelltrust.Approved
+	}
+	observe(outcome, err)
+	if failure != nil {
+		return failure
+	}
+	if ctx.Err() != nil {
+		if approvedInTime {
+			// A confirmação terminou; o prazo agora é da operação. Sem Failure,
+			// o executor classifica o contexto mesmo se o worker chegar primeiro.
+			return &tools.ToolResult{IsError: true, Content: "Execução interrompida após autorização."}
+		}
+		// O log preserva a causa operacional; o resultado informa que o prazo
+		// encerrou a confirmação antes de uma autorização válida.
+		if errors.Is(err, shelltrust.ErrPrerequisiteUnavailable) {
+			warnShellPrerequisite(ctx, shelltrust.PrerequisiteReason(err))
+		}
+		result := unavailableShellAuthorization("Confirmação encerrada sem autorização válida.")
+		return &result
+	}
+	if err != nil {
+		result := unavailableShellAuthorization(fmt.Sprintf("Erro ao solicitar confirmação: %v", err))
+		return &result
+	}
+	return nil
+}
+
+func shellPrerequisiteFailure(ctx context.Context, reason, message string) tools.ToolResult {
+	failure := tools.ToolResult{IsError: true, Content: message,
+		Failure: &tools.ToolFailure{Code: FailurePrerequisiteUnavailable, Kind: tools.ErrorKindUnavailable, Retryable: false},
+	}
+	tools.PublishAuthorizationPrerequisiteFailure(ctx, failure)
+	warnShellPrerequisite(ctx, reason)
+	return failure
+}
+
+func warnShellPrerequisite(ctx context.Context, reason string) {
+	logging.Logger(ctx, "tools.shell.run-command").WarnContext(ctx, "Pré-requisito da autorização shell indisponível", "reason", reason)
+}
+
+func unavailableShellAuthorization(message string) tools.ToolResult {
+	return tools.ToolResult{IsError: true, Content: message,
+		Failure: &tools.ToolFailure{Code: FailureConfirmationUnavailable, Kind: tools.ErrorKindAuthorization, Retryable: false},
+	}
+}
+
 // evaluateCommand avalia o comando passando pelo pipeline do commandpolicy:
 // parsing conservador da linha (separa atomos, detecta features de shell
 // como redirecionamentos, pipes e substituicao de comando) e agregacao de
 // decisoes (deny/confirm/approve) consultando a allowlist ativa do perfil.
 // Quando nao ha allowlist configurada, o resultado e sempre confirm.
-func (rc *RunCommand) evaluateCommand(ctx context.Context, command string) commandpolicy.EvaluationResult {
+func (rc *RunCommand) evaluateCommand(ctx context.Context, command string) (commandpolicy.EvaluationResult, error) {
 	if rc.getAllowlistFn == nil {
-		return commandpolicy.Evaluate(command, nil)
+		return commandpolicy.Evaluate(command, nil), nil
 	}
 
 	al, err := rc.getAllowlistFn(ctx)
 	if err != nil {
-		logging.Errorf(ctx, "tools.shell.run-command", "Política de autorização shell indisponível")
-		return commandpolicy.EvaluationResult{Decision: allowlist.DecisionDeny, Parse: commandpolicy.Parse(command), Reasons: []string{"política de autorização indisponível"}}
+
+		return commandpolicy.EvaluationResult{Decision: allowlist.DecisionDeny, Parse: commandpolicy.Parse(command), Reasons: []string{"política de autorização indisponível"}}, err
 	}
-	return commandpolicy.Evaluate(command, al)
+	return commandpolicy.Evaluate(command, al), nil
 }
 
 // redactCommandForLog devolve uma representacao segura do command line
@@ -500,12 +678,19 @@ func redactProgramSegment(program string) string {
 	return program[:eq] + "=<redacted>"
 }
 
+func (p publicPolicyResult) reasonText(separator string) string {
+	if p.protected {
+		return protectedPolicyReason
+	}
+	return strings.Join(p.Reasons, separator)
+}
+
 // summarizePolicyReasons gera um resumo curto para log LOCAL. Como esses
 // logs podem ser anexados a bug reports ou copiados manualmente, usamos
 // EXCLUSIVAMENTE Reasons (safe, sem patterns/description) — DetailedReasons
 // fica reservado para uso ao vivo na UI do desktop, onde o usuario ja tem
 // visibilidade do conteudo da allowlist e nao ha risco de envio externo.
-func summarizePolicyReasons(result commandpolicy.EvaluationResult) string {
+func summarizePolicyReasons(result publicPolicyResult) string {
 	parts := make([]string, 0, 5)
 	parts = append(parts, fmt.Sprintf("atomos=%d", len(result.Parse.Commands)))
 	parts = append(parts, fmt.Sprintf("motivos=%d", len(result.Reasons)))
@@ -520,7 +705,7 @@ func summarizePolicyReasons(result commandpolicy.EvaluationResult) string {
 		parts = append(parts, "parse_errors="+strconv.Itoa(len(result.Parse.Errors)))
 	}
 	if len(result.Reasons) > 0 {
-		parts = append(parts, "reasons=["+strings.Join(result.Reasons, " | ")+"]")
+		parts = append(parts, "reasons=["+result.reasonText(" | ")+"]")
 	}
 	return strings.Join(parts, " ")
 }

@@ -3,6 +3,7 @@ package terminal
 import (
 	"assistente/internal/logging"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -14,6 +15,18 @@ import (
 
 	"github.com/google/uuid"
 )
+
+// ErrDirectoryUnresolved indica falha ao resolver o diretório antes de iniciar o shell.
+var ErrDirectoryUnresolved = errors.New("não foi possível resolver o diretório do terminal")
+
+// ErrSessionCapacity indica lotação transitória de um limite positivo.
+var ErrSessionCapacity = errors.New("limite de sessões temporariamente atingido")
+
+// ErrSessionsDisabled indica que a configuração impede abrir qualquer sessão.
+var ErrSessionsDisabled = errors.New("sessões de terminal desabilitadas pela configuração")
+
+// ErrSessionStart indica que a criação da sessão falhou antes de enviar o comando.
+var ErrSessionStart = errors.New("não foi possível iniciar a sessão de terminal")
 
 const (
 	// DefaultMaxSessions é o número máximo de sessões simultâneas.
@@ -75,16 +88,20 @@ func NewManager(config ManagerConfig, emitEvent func(event string, data any)) *M
 // Create cria uma nova sessão PTY com nome e diretório de trabalho.
 // Usada pelo usuário via UI para criar terminais manualmente.
 func (m *Manager) Create(name, workDir string) (*Session, error) {
-	return m.create(name, workDir, nil)
+	return m.create(name, WorkingDirectory{Path: workDir}, nil)
 }
 
-func (m *Manager) create(name, workDir string, env []string) (*Session, error) {
+func (m *Manager) create(name string, workDir WorkingDirectory, env []string) (*Session, error) {
 	m.mu.Lock()
 
-	used := len(m.sessions) + m.starting
-	if used >= m.config.MaxSessions {
+	count := len(m.sessions) + m.starting
+	if count >= m.config.MaxSessions {
+		limit := m.config.MaxSessions
 		m.mu.Unlock()
-		return nil, fmt.Errorf("limite de sessões atingido (%d/%d)", used, m.config.MaxSessions)
+		if limit > 0 {
+			return nil, fmt.Errorf("%w (%d/%d)", ErrSessionCapacity, count, limit)
+		}
+		return nil, fmt.Errorf("%w (%d/%d)", ErrSessionsDisabled, count, limit)
 	}
 	m.starting++
 
@@ -153,15 +170,15 @@ func (m *Manager) create(name, workDir string, env []string) (*Session, error) {
 
 // CreateInfo cria uma sessão e retorna somente seu contrato público.
 func (m *Manager) CreateInfo(name, workDir string) (SessionInfo, error) {
-	return m.createInfo(name, workDir, nil)
+	return m.createInfo(name, WorkingDirectory{Path: workDir}, nil)
 }
 
 // CreateToolSession cria o terminal persistente solicitado pela ferramenta.
-func (m *Manager) CreateToolSession(name, workDir string) (SessionInfo, error) {
+func (m *Manager) CreateToolSession(name string, workDir WorkingDirectory) (SessionInfo, error) {
 	return m.createInfo(name, workDir, m.toolShellEnv())
 }
 
-func (m *Manager) createInfo(name, workDir string, env []string) (SessionInfo, error) {
+func (m *Manager) createInfo(name string, workDir WorkingDirectory, env []string) (SessionInfo, error) {
 	session, err := m.create(name, workDir, env)
 	if err != nil {
 		return SessionInfo{}, err
@@ -174,9 +191,9 @@ func (m *Manager) createInfo(name, workDir string, env []string) (SessionInfo, e
 // Mantido temporariamente para compatibilidade com consumidores antigos. A
 // AEP-0089 proíbe adquirir implicitamente uma sessão idle global, pois isso
 // permitiria ao chat capturar um terminal manual sem informar o usuário.
-func (m *Manager) Acquire(ctx context.Context, workDir string) (*Session, error) {
-	logging.Infof(ctx, "terminal.manager", "[Terminal] Criando sessão explícita para comando cwd=%s", workDir)
-	return m.create("", workDir, m.toolShellEnv())
+func (m *Manager) Acquire(ctx context.Context, directory WorkingDirectory) (*Session, error) {
+	logging.Infof(ctx, "terminal.manager", "[Terminal] Criando sessão explícita para comando cwd=%s", directory.Display())
+	return m.create("", directory, m.toolShellEnv())
 }
 
 func (m *Manager) toolShellEnv() []string {
@@ -191,14 +208,14 @@ func (m *Manager) toolShellEnv() []string {
 // RunEphemeral executa um comando sem criar seção persistente visível.
 // Não adiciona a sessão ao pool nem emite session_created/closed — evita
 // flicker no Terminal e não ocupa o limite de sessões.
-func (m *Manager) RunEphemeral(ctx context.Context, workDir, command string, timeout time.Duration, source string) (*HistoryEntry, error) {
-	absolute, err := filepath.Abs(workDir)
+func (m *Manager) RunEphemeral(ctx context.Context, workDir WorkingDirectory, command CommandText, timeout time.Duration, source string) (*HistoryEntry, error) {
+	absolute, err := filepath.Abs(workDir.Path)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%w: %w", ErrDirectoryUnresolved, err)
 	}
-	workDir, err = ResolveDirectoryPath(absolute)
+	workDir.Path, err = ResolveDirectoryPath(absolute)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%w: %w", ErrDirectoryUnresolved, err)
 	}
 	if timeout == 0 {
 		timeout = m.config.DefaultTimeout
@@ -210,7 +227,7 @@ func (m *Manager) RunEphemeral(ctx context.Context, workDir, command string, tim
 		func(string, error) {},
 	)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%w: %w", ErrSessionStart, err)
 	}
 	session.Start()
 	defer func() {
@@ -226,7 +243,7 @@ func (m *Manager) RunEphemeral(ctx context.Context, workDir, command string, tim
 	// O shell pode carregar um perfil que muda o diretório. Reestabelecer o
 	// diretório da execução depois da inicialização impede que isso amplie
 	// uma autorização vinculada ao diretório, sem retirar o ambiente do usuário.
-	return session.runCommandInDirectory(ctx, command, session.cwd, timeout, source, commandID, nil)
+	return session.runCommandInDirectory(ctx, command, session.cwd.Path, timeout, source, commandID, nil)
 }
 
 // Release marca uma sessão como idle após uso pelo LLM.
@@ -253,12 +270,17 @@ func (m *Manager) Release(sessionID string) {
 // RunCommand executa um comando em uma sessão específica.
 // Emite eventos Wails de início e fim para o frontend.
 func (m *Manager) RunCommand(ctx context.Context, sessionID, command string, timeout time.Duration, source string) (*HistoryEntry, error) {
+	return m.RunCommandWithDisplay(ctx, sessionID, CommandText{Raw: command, Display: command}, timeout, source)
+}
+
+// RunCommandWithDisplay executa o comando e publica sua representação de exibição.
+func (m *Manager) RunCommandWithDisplay(ctx context.Context, sessionID string, command CommandText, timeout time.Duration, source string) (*HistoryEntry, error) {
 	m.mu.RLock()
 	session, ok := m.sessions[sessionID]
 	m.mu.RUnlock()
 
 	if !ok {
-		return nil, fmt.Errorf("sessão '%s' não encontrada", sessionID)
+		return nil, fmt.Errorf("%w: sessão '%s' não encontrada", ErrSessionUnavailable, sessionID)
 	}
 
 	if timeout == 0 {
@@ -470,6 +492,21 @@ func (m *Manager) Has(sessionID string) bool {
 	}
 	state := session.State()
 	return state != StateClosing && state != StateExited
+}
+
+// ExecutionDirectory recupera o alvo operacional e sua restrição de exibição.
+func (m *Manager) ExecutionDirectory(sessionID string) (WorkingDirectory, bool) {
+	m.mu.RLock()
+	session, ok := m.sessions[sessionID]
+	m.mu.RUnlock()
+	if !ok {
+		return WorkingDirectory{}, false
+	}
+	state := session.State()
+	if state == StateClosing || state == StateExited {
+		return WorkingDirectory{}, false
+	}
+	return session.cwd, true
 }
 
 // Info retorna o contrato público de uma sessão viva.

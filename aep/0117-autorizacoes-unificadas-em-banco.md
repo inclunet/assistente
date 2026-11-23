@@ -181,6 +181,10 @@ somente na superfície desktop. Canais não herdam permissões concedidas no des
 sem interlocutor, o fluxo ACP continua negando sem esperar. Essas restrições são
 capabilities do adaptador/superfície, não stores ou diálogos separados.
 
+Quando a política exige confirmação shell e não há `Prompt` configurado, todos
+os chamadores recebem confirmação indisponível; a ausência de interlocutor não
+é tratada como uma negativa explícita do usuário.
+
 ### D6. Consentimento e gestão
 
 Um gerador comum de pedidos usa o roteador e o `DecisionDialog`: quem pede,
@@ -188,6 +192,29 @@ recurso/operação, motivo, alcance e botões por escopo disponível, além de n
 IDs estáveis resolvidos no backend; rótulos traduzidos em pt-BR/en/es. Preservar
 leitura integral do comando/caminho, repetição da pergunta, foco após perguntas
 consecutivas e ausência de anúncios duplicados (AEP-0091).
+
+Para um comando de job marcado como protegido, a política avalia a operação
+resolvida. Quando exige consentimento, a pergunta informa que há um valor
+protegido e oferece apenas aprovação ou recusa desta execução. O questionário
+pode receber o template original, sem avaliá-lo para exibição, quando uma única
+chave de comando o vincula à operação e sua fonte contém somente referências
+simples ao cofre depois de um nome literal de programa. Quando o programa vem
+do cofre, a pergunta usa a descrição genérica de comando protegido e oculta
+também o template. Em outras formas,
+apenas o primeiro token literal pode identificar a operação se continuar
+inequívoco e separado após a resolução. Variantes conflitantes da chave de
+comando ocultam ambas as apresentações. O valor resolvido e o diretório ficam
+ocultos no desktop, nos anúncios acessíveis e nos canais. No Slack, o adaptador
+escapa `&`, `<` e `>` e desativa Markdown nas perguntas, como verifica
+`TestPostMessageOptions_LiteralConsent`. A chamada
+não consulta nem cria uma concessão reutilizável a partir de valores do cofre.
+Quando o valor do cofre determina somente o diretório, a pergunta mantém o
+comando visível, omite o caminho e oferece somente o escopo pontual. A execução
+usa o destino resolvido. Metadados de invocação e de sessões de terminal
+preservam a redação, inclusive ao selecionar novamente a sessão.
+O veto na avaliação inicial e o veto entre a aprovação e o despacho são
+atribuídos à política no resultado e no registro da invocação. A recusa
+explícita da pessoa continua definitiva assim que é aceita.
 
 Falha ao salvar uma autorização não pode aparecer como concessão persistente.
 Uma aprovação já concedida para a operação atual pode prosseguir como `once`,
@@ -326,6 +353,8 @@ são explicitamente enumerados. Nenhum PR é mergeado pelo agente.
 - Revisão de origem filesystem: resolução relativa, sandbox, walks e padrões de skills recebem o contexto capturado. O teste TestReadFileMantemWorkspaceDaOrigemDepoisDeTrocarATela executa leitura real após A→B e verifica que canal sem workspace não herda UI/cwd.
 
 ### Evidências da segunda implementação
+
+Uma resposta pontual negativa encerra a tentativa nos quatro domínios, inclusive quando o contexto termina ou a política fica indisponível logo depois. Um escopo ausente nessa resposta equivale a `once`. Aprovações e decisões persistentes passam pela revalidação. Erros ao obter a resposta chegam ao chamador antes de interpretar efeito ou escopo. Os testes `TestRecusaUnicaSobreviveIndisponibilidadeDaPolitica` e `TestACPRecusaUnicaSobreviveIndisponibilidadeDaPolitica` exercitam o contrato de `authorization.Resolve` com os identificadores dos quatro domínios. A cobertura dos adaptadores depende dos testes de integração de cada domínio.
 
 - O gerenciador de políticas licencia somente `allowlists.create.open` no modal
   proprietário. `Ctrl+N` usa catálogo/binding/resolvedor do AEP-0103, sem listener

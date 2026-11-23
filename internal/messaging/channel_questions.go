@@ -410,11 +410,11 @@ func renderChannelDecision(payload questionnaire.RequestPayload, labels []string
 		head.WriteString(description)
 		head.WriteString("\n\n")
 	}
-	if hint := sanitizeChannelText(payload.Hint.String()); hint != "" {
+	if hint := decisionBodyText(payload.Hint.String()); hint != "" {
 		head.WriteString(hint)
 		head.WriteString("\n\n")
 	}
-	content := sanitizeChannelText(payload.Body)
+	content := decisionBodyText(payload.Body)
 	fixed := utf8.RuneCountInString(head.String())
 	var options strings.Builder
 	for i, label := range labels {
@@ -594,6 +594,17 @@ func channelDeadlineText(timeout time.Duration) string {
 		return fmt.Sprintf("%d minutos", minutes)
 	}
 	return timeout.String()
+}
+
+// Em decisões, remover uma marca invisível poderia fazer argumentos distintos
+// aparecerem iguais. A representação entre aspas torna o conteúdo recuperável.
+func decisionBodyText(body string) string {
+	for _, r := range body {
+		if r != '\n' && r != '\t' && (unicode.IsControl(r) || unicode.Is(unicode.Cf, r)) {
+			return "Texto com caracteres de controle ou formatação, entre aspas:\n" + strconv.QuoteToGraphic(body)
+		}
+	}
+	return body
 }
 
 // sanitizeChannelText tira do texto o que não se lê numa mensagem: caracteres

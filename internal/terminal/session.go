@@ -111,7 +111,7 @@ type Session struct {
 	lastDispatchedID  string // Última entrada enviada; uma reserva invalida snapshots pela geração.
 	interruptIsManual bool
 	shell             string
-	cwd               string
+	cwd               WorkingDirectory
 	mu                sync.Mutex
 	ioMu              sync.Mutex
 	history           []HistoryEntry
@@ -217,7 +217,7 @@ func shellType(shell string) string {
 }
 
 // newSession cria e inicializa uma nova sessão PTY.
-func newSession(name, workDir, shell string, env []string, onOutput outputCallback, onRawOutput rawOutputCallback, onCommandStart commandStartCallback, onExit func(string, error)) (*Session, error) {
+func newSession(name string, workDir WorkingDirectory, shell string, env []string, onOutput outputCallback, onRawOutput rawOutputCallback, onCommandStart commandStartCallback, onExit func(string, error)) (*Session, error) {
 	if shell == "" {
 		shell = defaultShell()
 	}
@@ -226,7 +226,7 @@ func newSession(name, workDir, shell string, env []string, onOutput outputCallba
 		Prog: shell,
 
 		Env:  env,
-		Dir:  workDir,
+		Dir:  workDir.Path,
 		Cols: defaultCols,
 		Rows: defaultRows,
 	}
@@ -236,14 +236,20 @@ func newSession(name, workDir, shell string, env []string, onOutput outputCallba
 		key = uuid.NewString()
 		opts.Args = []string{"-NoExit", "-Command", powerShellSessionLibrary(key)}
 	}
-	return spawnSession(name, opts, key, onOutput, onRawOutput, onCommandStart, onExit)
+	return spawnSession(name, opts, workDir.PublicOverride, key, onOutput, onRawOutput, onCommandStart, onExit)
 }
 
-func spawnSession(name string, opts ptyx.SpawnOpts, key string, onOutput outputCallback, onRawOutput rawOutputCallback, onCommandStart commandStartCallback, onExit func(string, error)) (*Session, error) {
+func spawnSession(name string, opts ptyx.SpawnOpts, publicDir, key string, onOutput outputCallback, onRawOutput rawOutputCallback, onCommandStart commandStartCallback, onExit func(string, error)) (*Session, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 	ptySession, err := ptyx.Spawn(ctx, opts)
 	if err != nil {
 		cancel()
+		if opts.Dir != "" {
+			info, dirErr := os.Stat(opts.Dir)
+			if dirErr != nil || !info.IsDir() {
+				return nil, fmt.Errorf("%w: %w", ErrDirectoryUnresolved, err)
+			}
+		}
 		return nil, fmt.Errorf("falha ao criar sessão PTY (%s): %w", opts.Prog, err)
 	}
 	// ptyx fecha e zera os campos internos do ConPTY em uma goroutine quando o
@@ -263,7 +269,7 @@ func spawnSession(name string, opts ptyx.SpawnOpts, key string, onOutput outputC
 		viewportColumns: opts.Cols,
 		state:           StateIdle,
 		shell:           opts.Prog,
-		cwd:             opts.Dir,
+		cwd:             WorkingDirectory{Path: opts.Dir, PublicOverride: publicDir},
 		history:         make([]HistoryEntry, 0, 32),
 		createdAt:       time.Now(),
 		lastUsed:        time.Now(),
@@ -277,7 +283,7 @@ func spawnSession(name string, opts ptyx.SpawnOpts, key string, onOutput outputC
 		onExit:          onExit,
 	}
 
-	logging.Infof(ctx, "terminal.session", "[Terminal] Sessão criada: id=%s name=%s shell=%s cwd=%s", s.id, s.name, s.shell, s.cwd)
+	logging.Infof(ctx, "terminal.session", "[Terminal] Sessão criada: id=%s name=%s shell=%s cwd=%s", s.id, s.name, s.shell, s.cwd.Display())
 	return s, nil
 }
 
@@ -576,7 +582,7 @@ func (s *Session) afterRawDelivery(notify func()) {
 
 func (s *Session) reserveCommand(delivery *commandDelivery) error {
 	if s.faultOwnsCleanup() {
-		return fmt.Errorf("sessão %s indisponível após falha no PTY", s.id)
+		return fmt.Errorf("%w após falha no PTY (%s)", ErrSessionUnavailable, s.id)
 	}
 	s.ioMu.Lock()
 	defer s.ioMu.Unlock()
@@ -584,7 +590,11 @@ func (s *Session) reserveCommand(delivery *commandDelivery) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.state != StateIdle {
-		return fmt.Errorf("sessão %s não está disponível (estado: %s)", s.id, s.state.String())
+		cause := ErrSessionUnavailable
+		if s.state == StateRunning {
+			cause = ErrSessionBusy
+		}
+		return fmt.Errorf("%w: sessão %s não está disponível (estado: %s)", cause, s.id, s.state.String())
 	}
 	s.state = StateRunning
 	s.commandDelivery = delivery
@@ -608,7 +618,38 @@ func (s *Session) finishCommand() {
 	s.commandPending = false
 }
 
-func (s *Session) runCommandInDirectory(ctx context.Context, command, directory string, timeout time.Duration, source, commandID string, onEnd func(*HistoryEntry, error, string)) (resultEntry *HistoryEntry, resultErr error) {
+// WorkingDirectory separa o caminho usado pelo PTY de seu texto público opcional.
+type WorkingDirectory struct {
+	Path           string
+	PublicOverride string
+}
+
+// Display retorna a representação do diretório para a interface, os eventos e os logs.
+func (d WorkingDirectory) Display() string {
+	if d.PublicOverride != "" {
+		return d.PublicOverride
+	}
+	return d.Path
+}
+
+// CommandText separa o texto enviado ao PTY da representação destinada aos
+// eventos e ao histórico. A autorização ocorre antes do despacho ao terminal.
+type CommandText struct {
+	Raw     string
+	Display string
+}
+
+func newCommandHistoryEntry(id, display, source string) *HistoryEntry {
+	return &HistoryEntry{ID: id, Command: display, Source: source, StartedAt: time.Now()}
+}
+
+// RunCommand executa um comando na sessão PTY e retorna o output.
+// O comando é envolvido com markers para detectar início/fim e exit code.
+func (s *Session) RunCommand(ctx context.Context, command string, timeout time.Duration, source, commandID string) (*HistoryEntry, error) {
+	return s.runCommandInDirectory(ctx, CommandText{Raw: command, Display: command}, "", timeout, source, commandID, nil)
+}
+
+func (s *Session) runCommandInDirectory(ctx context.Context, command CommandText, directory string, timeout time.Duration, source, commandID string, onEnd func(*HistoryEntry, error, string)) (resultEntry *HistoryEntry, resultErr error) {
 	if commandID == "" {
 		commandID = uuid.NewString()
 	}
@@ -645,12 +686,7 @@ func (s *Session) runCommandInDirectory(ctx context.Context, command, directory 
 	commandCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	entry := &HistoryEntry{
-		ID:        commandID,
-		Command:   command,
-		StartedAt: time.Now(),
-		Source:    source,
-	}
+	entry := newCommandHistoryEntry(commandID, command.Display, source)
 	// Cria marker único para esta execução
 	marker := newCommandMarkerForShell(shellType(s.shell))
 
@@ -690,10 +726,10 @@ func (s *Session) runCommandInDirectory(ctx context.Context, command, directory 
 				key = s.powerShellKey
 			}
 			marker = newCommandMarkerForShell("powershell")
-			resultErr = runFrame(marker.wrapPowerShell(command, directory, key))
+			resultErr = runFrame(marker.wrapPowerShell(command.Raw, directory, key))
 		}
 	} else {
-		resultErr = runFrame(marker.wrapCommandInDirectory(command, directory, shellType(s.shell)))
+		resultErr = runFrame(marker.wrapCommandInDirectory(command.Raw, directory, shellType(s.shell)))
 	}
 	entry.EndedAt = time.Now()
 	s.addHistoryEntry(entry)
@@ -790,6 +826,12 @@ func (s *Session) writeManagedFrame(ctx context.Context, marker *CommandMarker, 
 
 // ErrSessionClosed indica que o fechamento explícito interrompeu o comando.
 var ErrSessionClosed = errors.New("sessão encerrada explicitamente")
+
+// ErrSessionBusy indica uma sessão com outro comando em andamento.
+var ErrSessionBusy = errors.New("sessão ocupada")
+
+// ErrSessionUnavailable indica uma sessão ausente ou incapaz de receber comandos.
+var ErrSessionUnavailable = errors.New("sessão indisponível")
 
 // ErrSessionWrite indica falha de escrita de um comando no PTY.
 var ErrSessionWrite = errors.New("falha ao enviar comando para sessão")
@@ -1101,7 +1143,7 @@ func (s *Session) Info() SessionInfo {
 	return SessionInfo{
 		ID:        s.id,
 		Name:      s.name,
-		CWD:       s.cwd,
+		CWD:       s.cwd.Display(),
 		State:     s.state.String(),
 		Shell:     s.shell,
 		CreatedAt: s.createdAt.Format(time.RFC3339),

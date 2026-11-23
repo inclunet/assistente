@@ -92,7 +92,8 @@ func TestEphemeralRejectsDirectorySwapDuringShellStartup(t *testing.T) {
 	t.Setenv("HOME", home)
 	config := DefaultManagerConfig()
 	config.DefaultShell = bash
-	entry, err := NewManager(config, nil).RunEphemeral(context.Background(), a, "echo EXECUTED", 5*time.Second, "test")
+	const rawCommand = "echo EXECUTED"
+	entry, err := NewManager(config, nil).RunEphemeral(context.Background(), WorkingDirectory{Path: a}, CommandText{Raw: rawCommand, Display: rawCommand}, 5*time.Second, "test")
 	if err != nil {
 		t.Fatalf("execução: %+v %v", entry, err)
 	}
@@ -121,7 +122,8 @@ func TestEphemeralRestoresDirectoryAfterShellStartup(t *testing.T) {
 	config := DefaultManagerConfig()
 	config.DefaultShell = bash
 	m := NewManager(config, nil)
-	entry, err := m.RunEphemeral(context.Background(), authorized, "pwd -P", 5*time.Second, "test")
+	const rawCommand = "pwd -P"
+	entry, err := m.RunEphemeral(context.Background(), WorkingDirectory{Path: authorized}, CommandText{Raw: rawCommand, Display: rawCommand}, 5*time.Second, "test")
 	if err != nil || entry.ExitCode != 0 {
 		t.Fatalf("execução: %+v %v", entry, err)
 	}
@@ -173,7 +175,7 @@ func TestEphemeralPreservesMultilineAliasesAndLiteralArguments(t *testing.T) {
 	config.DefaultShell = bash
 	m := NewManager(config, nil)
 	command := "alias permission_alias='echo alias-ok'\npermission_alias\nprintf '%s\\n' 'literal $(echo unexpected)'\nfalse"
-	entry, err := m.RunEphemeral(context.Background(), t.TempDir(), command, 5*time.Second, "test")
+	entry, err := m.RunEphemeral(context.Background(), WorkingDirectory{Path: t.TempDir()}, CommandText{Raw: command, Display: command}, 5*time.Second, "test")
 	if err != nil || entry.ExitCode != 1 {
 		t.Fatalf("status perdido: %+v %v", entry, err)
 	}
@@ -192,7 +194,8 @@ func TestEphemeralSupportsPOSIXShell(t *testing.T) {
 	}
 	config := DefaultManagerConfig()
 	config.DefaultShell = sh
-	entry, err := NewManager(config, nil).RunEphemeral(context.Background(), t.TempDir(), "printf '%s\\n' 'posix literal $(echo unexpected)'", 5*time.Second, "test")
+	const rawCommand = "printf '%s\\n' 'posix literal $(echo unexpected)'"
+	entry, err := NewManager(config, nil).RunEphemeral(context.Background(), WorkingDirectory{Path: t.TempDir()}, CommandText{Raw: rawCommand, Display: rawCommand}, 5*time.Second, "test")
 	if err != nil || entry.ExitCode != 0 || !strings.Contains(entry.Output, "posix literal $(echo unexpected)") {
 		t.Fatalf("execução POSIX: %+v %v", entry, err)
 	}
@@ -249,7 +252,8 @@ func TestNativeZshMarkerAndDirectory(t *testing.T) {
 	}
 	cfg := DefaultManagerConfig()
 	cfg.DefaultShell = zsh
-	entry, err := NewManager(cfg, nil).RunEphemeral(t.Context(), quotedDir, "print -r -- executado >> execucoes; pwd -P; ([[ $asst_started == yes && ! -o POSIX_BUILTINS ]] && exit 7)", 10*time.Second, "test")
+	const rawCommand = "print -r -- executado >> execucoes; pwd -P; ([[ $asst_started == yes && ! -o POSIX_BUILTINS ]] && exit 7)"
+	entry, err := NewManager(cfg, nil).RunEphemeral(t.Context(), WorkingDirectory{Path: quotedDir}, CommandText{Raw: rawCommand, Display: rawCommand}, 10*time.Second, "test")
 	if err != nil || entry == nil || entry.ExitCode != 7 || strings.TrimSpace(entry.Output) != quotedDir {
 		t.Fatalf("zsh no PTY: entry=%+v erro=%v", entry, err)
 	}
@@ -291,13 +295,13 @@ func TestNativeZshPersistentStartupByOrigin(t *testing.T) {
 			var id string
 			switch origin {
 			case "run_command":
-				session, err := manager.Acquire(t.Context(), dir)
+				session, err := manager.Acquire(t.Context(), WorkingDirectory{Path: dir})
 				if err != nil {
 					t.Fatal(err)
 				}
 				id = session.ID()
 			case "terminal_session":
-				info, err := manager.CreateToolSession("modelo", dir)
+				info, err := manager.CreateToolSession("modelo", WorkingDirectory{Path: dir})
 				if err != nil {
 					t.Fatal(err)
 				}

@@ -1,8 +1,13 @@
 package skills
 
 import (
+	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+
+	"assistente/internal/configdir"
 )
 
 // ─── ParseSlashCommand ────────────────────────────────────────────────────────
@@ -85,16 +90,17 @@ func TestParseSlashCommand_WithWhitespace(t *testing.T) {
 // ─── Invoke ───────────────────────────────────────────────────────────────────
 
 type stubInvokerManager struct {
-	skill *Skill
-	err   error
-	files []string
+	skill    *Skill
+	err      error
+	files    []string
+	filesErr error
 }
 
 func (m *stubInvokerManager) Get(slug string) (*Skill, error) {
 	return m.skill, m.err
 }
 func (m *stubInvokerManager) GetSkillFiles(slug string) ([]string, error) {
-	return m.files, nil
+	return m.files, m.filesErr
 }
 
 func invocableSkill(content string) *Skill {
@@ -113,14 +119,14 @@ func invocablePolicy(s *Skill) SelectionPolicy {
 }
 
 func TestInvoke_NotSlashCommand(t *testing.T) {
-	_, found, err := Invoke("olá mundo", &stubInvokerManager{}, nil, "1", SelectionPolicy{})
+	_, found, err := InvokeContext(context.Background(), "olá mundo", &stubInvokerManager{}, "1", SelectionPolicy{})
 	if err != nil || found {
 		t.Errorf("non-slash content: found=%v err=%v", found, err)
 	}
 }
 
 func TestInvoke_NilManager(t *testing.T) {
-	_, found, err := Invoke("/test-skill", nil, nil, "1", SelectionPolicy{})
+	_, found, err := InvokeContext(context.Background(), "/test-skill", nil, "1", SelectionPolicy{})
 	if err != nil || found {
 		t.Errorf("nil manager: found=%v err=%v", found, err)
 	}
@@ -128,7 +134,7 @@ func TestInvoke_NilManager(t *testing.T) {
 
 func TestInvoke_SkillNotFound(t *testing.T) {
 	mgr := &stubInvokerManager{err: &skillNotFoundError{}}
-	_, found, err := Invoke("/missing", mgr, nil, "1", SelectionPolicy{})
+	_, found, err := InvokeContext(context.Background(), "/missing", mgr, "1", SelectionPolicy{})
 	if err != nil || found {
 		t.Errorf("missing skill: found=%v err=%v", found, err)
 	}
@@ -137,7 +143,7 @@ func TestInvoke_SkillNotFound(t *testing.T) {
 func TestInvoke_ReturnsContent(t *testing.T) {
 	s := invocableSkill("conteúdo do skill")
 	mgr := &stubInvokerManager{skill: s}
-	result, found, err := Invoke("/test-skill", mgr, nil, "42", invocablePolicy(s))
+	result, found, err := InvokeContext(context.Background(), "/test-skill", mgr, "42", invocablePolicy(s))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -164,7 +170,7 @@ func TestInvoke_WithFilesystem(t *testing.T) {
 		Deny:  []string{"/etc"},
 	}
 	mgr := &stubInvokerManager{skill: s}
-	result, found, err := Invoke("/test-skill", mgr, nil, "1", invocablePolicy(s))
+	result, found, err := InvokeContext(context.Background(), "/test-skill", mgr, "1", invocablePolicy(s))
 	if err != nil || !found {
 		t.Fatalf("found=%v err=%v", found, err)
 	}
@@ -181,7 +187,7 @@ func TestInvoke_WithSupplementaryFiles(t *testing.T) {
 		skill: invocableSkill("c"),
 		files: []string{"/path/to/extra.md"},
 	}
-	result, _, _ := Invoke("/test-skill", mgr, nil, "1", invocablePolicy(mgr.skill))
+	result, _, _ := InvokeContext(context.Background(), "/test-skill", mgr, "1", invocablePolicy(mgr.skill))
 	if result == nil {
 		t.Fatal("result must not be nil")
 	}
@@ -201,7 +207,7 @@ func TestInvoke_WithSupplementaryFiles(t *testing.T) {
 
 func TestInvoke_WithPolicyRejectsDisabledSkill(t *testing.T) {
 	mgr := &stubInvokerManager{skill: invocableSkill("conteúdo")}
-	_, found, err := Invoke("/test-skill", mgr, nil, "1", SelectionPolicy{})
+	_, found, err := InvokeContext(context.Background(), "/test-skill", mgr, "1", SelectionPolicy{})
 	if !found {
 		t.Fatal("slash command should be found")
 	}
@@ -214,7 +220,7 @@ func TestInvoke_WithPolicyAllowsOnDemandSkill(t *testing.T) {
 	s := invocableSkill("conteúdo")
 	s.Slug = "test-skill"
 	mgr := &stubInvokerManager{skill: s}
-	result, found, err := Invoke("/test-skill", mgr, nil, "1", SelectionPolicy{OnDemand: []Skill{*s}})
+	result, found, err := InvokeContext(context.Background(), "/test-skill", mgr, "1", SelectionPolicy{OnDemand: []Skill{*s}})
 	if err != nil || !found {
 		t.Fatalf("found=%v err=%v", found, err)
 	}
@@ -227,7 +233,7 @@ func TestInvoke_AllowsTemplateExamplesAsPlainContent(t *testing.T) {
 	s := invocableSkill("{{ .ToolCallingEnabled }}")
 	s.Slug = "test-skill"
 	mgr := &stubInvokerManager{skill: s}
-	result, found, err := Invoke("/test-skill", mgr, nil, "1", SelectionPolicy{OnDemand: []Skill{*s}})
+	result, found, err := InvokeContext(context.Background(), "/test-skill", mgr, "1", SelectionPolicy{OnDemand: []Skill{*s}})
 	if err != nil || !found {
 		t.Fatalf("found=%v err=%v", found, err)
 	}
@@ -240,3 +246,57 @@ func TestInvoke_AllowsTemplateExamplesAsPlainContent(t *testing.T) {
 type skillNotFoundError struct{}
 
 func (e *skillNotFoundError) Error() string { return "skill not found" }
+
+// O mesmo slug passa a resolver em outra origem logo após a leitura do manifesto.
+type changingInvocationSource struct {
+	*Manager
+	next *configdir.Resolver
+}
+
+func (m changingInvocationSource) Get(slug string) (*Skill, error) {
+	skill, err := m.Manager.Get(slug)
+	m.resolver = m.next
+	return skill, err
+}
+
+func TestSlashFilesAndBudgetFollowSelectedManifest(t *testing.T) {
+	const slug = "report"
+	root := t.TempDir()
+	original, overlay := filepath.Join(root, "home"), filepath.Join(root, "workdir")
+	for _, dir := range []string{original, overlay} {
+		path := filepath.Join(dir, slug)
+		if err := os.MkdirAll(path, 0700); err != nil {
+			t.Fatal(err)
+		}
+		manifest := "---\nname: report\ntools:\n  bashCommands:\n    allowed: [echo]\n---\n!echo ok"
+		if err := os.WriteFile(filepath.Join(path, skillFile), []byte(manifest), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	originalFile := filepath.Join(original, slug, "somente-na-origem.md")
+	if err := os.WriteFile(originalFile, []byte("apoio"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	for _, budget := range []int{64, 4096} {
+		m := changingInvocationSource{&Manager{resolver: configdir.NewResolverWithBase(original)}, configdir.NewResolverWithBase(overlay)}
+		calls := 0
+		ctx := WithSlashCommandTurn(t.Context(), func(_ context.Context, s *Skill, _ string) (string, error) {
+			calls++
+			if s.Path != filepath.Join(original, slug, skillFile) {
+				t.Fatalf("executor recebeu %q", s.Path)
+			}
+			return "ok", nil
+		}, budget)
+		result, found, err := InvokeContext(ctx, "/report", m, "turn", SelectionPolicy{OnDemand: []Skill{{Slug: slug}}})
+		if !found {
+			t.Fatal("a barra não reconheceu o comando")
+		}
+		if budget == 64 {
+			if err == nil || !strings.Contains(err.Error(), "orçamento insuficiente") || result != nil || calls != 0 {
+				t.Fatalf("orçamento insuficiente: chamadas=%d resultado=%+v erro=%v", calls, result, err)
+			}
+		} else if err != nil || result == nil || !strings.Contains(result.Content, originalFile) || calls != 1 {
+			t.Fatalf("orçamento disponível: chamadas=%d resultado=%+v erro=%v", calls, result, err)
+		}
+	}
+}

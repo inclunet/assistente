@@ -115,7 +115,7 @@ func TestConPTYResizeAcrossSessionCommands(t *testing.T) {
 		return len(wrapper), nil
 	})
 	for _, want := range []string{"abc\ncde", "abc\ncde", "abc\ncde", "abcde"} {
-		entry, err := s.runCommandInDirectory(t.Context(), "echo", "", time.Second, "test", "test", nil)
+		entry, err := s.runCommandInDirectory(t.Context(), CommandText{Raw: "echo", Display: "echo"}, "", time.Second, "test", "test", nil)
 		if err != nil || entry == nil || entry.Output != want {
 			t.Fatalf("comando %d: entrada=%+v erro=%v", command, entry, err)
 		}

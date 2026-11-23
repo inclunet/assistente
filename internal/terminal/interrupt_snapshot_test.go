@@ -552,7 +552,7 @@ func TestInterruptAfterPowerShellProbe(t *testing.T) {
 				s.powerShellKey = "test"
 				done := make(chan error, 1)
 				go func() {
-					_, err := s.runCommandInDirectory(t.Context(), "Write-Output exemplo", "", time.Minute, "test", "cmd", nil)
+					_, err := s.runCommandInDirectory(t.Context(), CommandText{Raw: "Write-Output exemplo", Display: "Write-Output exemplo"}, "", time.Minute, "test", "cmd", nil)
 					done <- err
 				}()
 				synctest.Wait()
@@ -624,7 +624,7 @@ func TestPowerShellDispatchesBodyOnce(t *testing.T) {
 				s.recordOutput(markerEnd + tag + "!\n" + markerStart + tag + "\n" + output + markerEnd + tag + code + "!" + markerEnd + tag + "!")
 				return len(p), nil
 			})
-			e, err := s.runCommandInDirectory(t.Context(), body, "", 5*time.Second, "test", "cmd", nil)
+			e, err := s.runCommandInDirectory(t.Context(), CommandText{Raw: body, Display: body}, "", 5*time.Second, "test", "cmd", nil)
 			if err != nil || e.ExitCode != 0 || e.Output != "ok" || len(writes) != 2 || strings.Contains(writes[0], encoded) || strings.Count(writes[1], encoded) != 1 {
 				t.Fatalf("despacho: resultado=%+v erro=%v escritas=%d", e, err, len(writes))
 			}

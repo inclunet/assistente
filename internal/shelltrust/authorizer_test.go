@@ -2,6 +2,7 @@ package shelltrust
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"assistente/internal/allowlist"
@@ -134,5 +135,51 @@ func TestUnknownCommandCannotAcquireReusableGrant(t *testing.T) {
 	}}
 	if ok, err := a.Authorize(authorizationfixture.Context(), "echo secret", dir); err == nil || ok {
 		t.Fatalf("resposta adulterada autorizada: %v %v", ok, err)
+	}
+}
+
+func TestProtectedShellCommandRequiresFreshConsentAndRechecksRealPolicy(t *testing.T) {
+	dir := t.TempDir()
+	manager := NewManager(authorizationfixture.Options(t, dir, dir))
+	ctx := invocationctx.WithShellCommandMetadata(authorizationfixture.Context(), "[redacted]")
+	selector, ok := Represent("git status", dir)
+	if !ok {
+		t.Fatal("seletor de controle inválido")
+	}
+	if err := manager.Add(ctx, Entry{Selector: selector, Scope: authorization.ScopeGlobal}); err != nil {
+		t.Fatal(err)
+	}
+	policy := &allowlist.Allowlist{DefaultAction: "confirm"}
+	scope := authorization.ScopeGlobal
+	prompts := 0
+	auth := Authorizer{Manager: manager, PersistentAllowed: func(context.Context) bool { return true },
+		Policy: func(context.Context) (*allowlist.Allowlist, error) { return policy, nil },
+		Prompt: func(_ context.Context, req PromptRequest) (PromptDecision, error) {
+			prompts++
+			if !req.ProtectedCommand || len(req.AvailableScopes) != 1 || req.AvailableScopes[0] != authorization.ScopeOnce {
+				t.Fatal("escopos persistentes oferecidos ao comando protegido")
+			}
+			if scope == authorization.ScopeOnce {
+				policy.AlwaysDeny = []string{"git status"}
+			}
+			return PromptDecision{Approve: true, Scope: scope}, nil
+		},
+	}
+	if approved, err := auth.Authorize(ctx, "git status", dir); approved || err == nil || prompts != 1 {
+		t.Fatal("a chamada herdou a concessão existente ou aceitou uma escolha persistente")
+	}
+	scope = authorization.ScopeOnce
+	if approved, err := auth.Authorize(ctx, "git status", dir); approved || err != nil || prompts != 2 {
+		t.Fatal("a nova política sobre o comando real deveria prevalecer após a aprovação")
+	}
+}
+
+func TestAuthorizeSemPromptRetornaConfirmacaoIndisponivel(t *testing.T) {
+	a := Authorizer{Policy: func(context.Context) (*allowlist.Allowlist, error) {
+		return &allowlist.Allowlist{DefaultAction: "confirm"}, nil
+	}}
+	approved, err := a.Authorize(authorizationfixture.Context(), "echo ok", t.TempDir())
+	if approved || !errors.Is(err, ErrConfirmationUnavailable) {
+		t.Fatalf("approved=%v err=%v", approved, err)
 	}
 }

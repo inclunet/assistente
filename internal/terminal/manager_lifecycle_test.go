@@ -267,7 +267,7 @@ func TestFinishCommandPreservesClosingState(t *testing.T) {
 func TestRunCommandMarksFailureBeforeWrite(t *testing.T) {
 	startedAt := time.Now()
 	session := &Session{state: StateIdle}
-	got, err := session.runCommandInDirectory(t.Context(), "exemplo", "", time.Second, "test", "cmd-failed", nil)
+	got, err := session.runCommandInDirectory(t.Context(), CommandText{Raw: "exemplo", Display: "exemplo"}, "", time.Second, "test", "cmd-failed", nil)
 	if err == nil || got == nil || got.ID != "cmd-failed" {
 		t.Fatalf("resultado da falha anterior à escrita: entrada=%+v erro=%v", got, err)
 	}
@@ -560,7 +560,7 @@ func TestManagedStartPreservesManualOutputBeforeCanceledWrite(t *testing.T) {
 		}
 		cancel()
 	}
-	entry, err := s.runCommandInDirectory(ctx, "sem envio", "", time.Minute, "teste", "gerenciado", nil)
+	entry, err := s.runCommandInDirectory(ctx, CommandText{Raw: "sem envio", Display: "sem envio"}, "", time.Minute, "teste", "gerenciado", nil)
 	if !errors.Is(err, context.Canceled) || entry == nil || entry.Output != "" || delivered != blocks {
 		t.Fatalf("entrada=%+v erro=%v blocos entregues=%d", entry, err, delivered)
 	}
@@ -1247,7 +1247,7 @@ func TestAcquiredSessionAcceptsCommandAfterManualInputAndRelease(t *testing.T) {
 	dir := ptyTestDir(t)
 	manager := NewManager(DefaultManagerConfig(), nil)
 	t.Cleanup(manager.CloseAll)
-	session, err := manager.Acquire(t.Context(), dir)
+	session, err := manager.Acquire(t.Context(), WorkingDirectory{Path: dir})
 	if err != nil {
 		t.Fatal(err)
 	}

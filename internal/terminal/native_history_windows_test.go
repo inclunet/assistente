@@ -36,7 +36,7 @@ func TestPowerShellNativeHistory(t *testing.T) {
 			} else {
 				args[len(args)-1] = "Remove-Module PSReadLine -ErrorAction SilentlyContinue; " + args[len(args)-1]
 			}
-			s, err := spawnSession("histórico", ptyx.SpawnOpts{Prog: "powershell.exe", Args: args, Env: os.Environ(), Dir: root, Cols: defaultCols, Rows: defaultRows}, key, nil, nil, nil, nil)
+			s, err := spawnSession("histórico", ptyx.SpawnOpts{Prog: "powershell.exe", Args: args, Env: os.Environ(), Dir: root, Cols: defaultCols, Rows: defaultRows}, "", key, nil, nil, nil, nil)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -48,7 +48,7 @@ func TestPowerShellNativeHistory(t *testing.T) {
 			})
 			run := func(source, want string) {
 				t.Helper()
-				result, err := s.runCommandInDirectory(t.Context(), source, "", 20*time.Second, "test", "", nil)
+				result, err := s.runCommandInDirectory(t.Context(), CommandText{Raw: source, Display: source}, "", 20*time.Second, "test", "", nil)
 				if err != nil || result == nil || result.ExitCode != 0 || result.Output != want {
 					t.Fatalf("execução: %+v, erro %v", result, err)
 				}
@@ -62,7 +62,7 @@ func TestPowerShellNativeHistory(t *testing.T) {
 					t.Fatal(err)
 				}
 				run("(Write-Output 'filho'); Write-Output ([bool](Get-Variable AssistenteTerminalLibrary -ErrorAction Ignore))", "filho\nFalse")
-				result, err := s.runCommandInDirectory(t.Context(), "cmd /c exit 7", "", 20*time.Second, "test", "", nil)
+				result, err := s.runCommandInDirectory(t.Context(), CommandText{Raw: "cmd /c exit 7", Display: "cmd /c exit 7"}, "", 20*time.Second, "test", "", nil)
 				if err != nil || result == nil || result.ExitCode != 7 {
 					t.Fatalf("status do processo filho: %+v, %v", result, err)
 				}
@@ -134,7 +134,7 @@ func TestPowerShellProfileLibraryCollision(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			root := ptyTestDir(t)
 			args := []string{"-NoProfile", "-NoExit", "-Command", isolatedPowerShellEditor(root) + "; " + tc.setup + "; " + powerShellSessionLibrary(key)}
-			s, err := spawnSession("perfil", ptyx.SpawnOpts{Prog: "powershell.exe", Args: args, Dir: root, Cols: defaultCols, Rows: defaultRows}, key, nil, nil, nil, nil)
+			s, err := spawnSession("perfil", ptyx.SpawnOpts{Prog: "powershell.exe", Args: args, Dir: root, Cols: defaultCols, Rows: defaultRows}, "", key, nil, nil, nil, nil)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -144,7 +144,7 @@ func TestPowerShellProfileLibraryCollision(t *testing.T) {
 					t.Error(err)
 				}
 			})
-			e, err := s.runCommandInDirectory(t.Context(), "Write-Output "+tc.verify+"; (cmd /c exit 7)", "", 15*time.Second, "test", "", nil)
+			e, err := s.runCommandInDirectory(t.Context(), CommandText{Raw: "Write-Output " + tc.verify + "; (cmd /c exit 7)", Display: "Write-Output " + tc.verify + "; (cmd /c exit 7)"}, "", 15*time.Second, "test", "", nil)
 			want := "perfil"
 			if tc.name == "outra instalação" {
 				want = "outra"
@@ -181,7 +181,7 @@ func BenchmarkPowerShellSessionStartup(b *testing.B) {
 					key = "a4aa6b3f-4ca3-42d9-b93d-8679793c8389"
 					startup += "; " + powerShellSessionLibrary(key)
 				}
-				s, err := spawnSession(name, ptyx.SpawnOpts{Prog: "powershell.exe", Args: []string{"-NoProfile", "-NoExit", "-Command", startup}, Dir: root, Cols: defaultCols, Rows: defaultRows}, key, nil, nil, nil, nil)
+				s, err := spawnSession(name, ptyx.SpawnOpts{Prog: "powershell.exe", Args: []string{"-NoProfile", "-NoExit", "-Command", startup}, Dir: root, Cols: defaultCols, Rows: defaultRows}, "", key, nil, nil, nil, nil)
 				if err != nil {
 					b.Fatal(err)
 				}
@@ -202,7 +202,7 @@ func BenchmarkPowerShellSessionStartup(b *testing.B) {
 						time.Sleep(5 * time.Millisecond)
 					}
 					prompts += time.Since(tick)
-					e, err := s.runCommandInDirectory(b.Context(), "Write-Output pronto", "", 20*time.Second, "bench", "", nil)
+					e, err := s.runCommandInDirectory(b.Context(), CommandText{Raw: "Write-Output pronto", Display: "Write-Output pronto"}, "", 20*time.Second, "bench", "", nil)
 					if err != nil || e == nil || e.Output != "pronto" || e.ExitCode != 0 {
 						b.Fatalf("resultado=%+v erro=%v", e, err)
 					}
