@@ -3,12 +3,14 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -52,6 +54,14 @@ func TestConversationCLIUsesSavedSessionAcrossInstances(t *testing.T) {
 	keyring.MockInit()
 	configdir.ResetForTests()
 	t.Cleanup(func() { _ = database.Close() })
+	cacheDir := filepath.Join(configdir.GetHomeDir(), "llm-catalog")
+	if err := os.MkdirAll(cacheDir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	const cache = `{"fetched_at":"2020-01-01T00:00:00Z","document":{"schema_version":1,"catalog_version":"fixture","updated_at":"2020-01-01T00:00:00Z","servers":[],"models":[{"id":"vendor/fixture","vendor":"Vendor","name":"Fixture","status":"active","capabilities":{},"parameters":{"temperature":{"support":"supported","default":0.42}}}],"exposures":[]}}`
+	if err := os.WriteFile(filepath.Join(cacheDir, "catalog.json"), []byte(cache), 0600); err != nil {
+		t.Fatal(err)
+	}
 	var completions atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/v1/chat/completions" {
@@ -60,6 +70,14 @@ func TestConversationCLIUsesSavedSessionAcrossInstances(t *testing.T) {
 		}
 		if r.Header.Get("Authorization") != "Bearer fixture-key" {
 			http.Error(w, "credencial ausente", http.StatusUnauthorized)
+			return
+		}
+		var payload struct {
+			Temperature *float64 `json:"temperature"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil || payload.Temperature == nil || *payload.Temperature != 0.42 {
+			t.Errorf("default do catálogo no envio: %v, %v", payload.Temperature, err)
+			http.Error(w, "temperatura inesperada", http.StatusBadRequest)
 			return
 		}
 		completions.Add(1)
@@ -116,6 +134,11 @@ data: [DONE]
 		}
 		conversationID = conv.ID
 		if _, err := cli.CreateLLMProvider(apidto.CreateLLMProviderRequest{ID: "fixture", Name: "Fixture", Type: "openai", AuthMode: "required", APIKey: "fixture-key", APIFormat: "openai", BaseURL: server.URL + "/v1", DefaultModel: "fixture"}); err != nil {
+			t.Fatal(err)
+		}
+		// Cadastro preexistente do desktop. O teste começa com o vínculo privado
+		// já salvo; o comportamento sob prova é sua resolução no envio pela CLI.
+		if err := database.DB().Model(&database.LLMProvider{}).Where("id = ?", "fixture").UpdateColumn("model_aliases", `{"fixture":"vendor/fixture"}`).Error; err != nil {
 			t.Fatal(err)
 		}
 		profileSlug, err = cli.CreateProfile(profiles.Profile{Name: "Revisor teste", Chat: profiles.ChatConfig{LLMProvider: "fixture", Model: "fixture", ResponseTimeout: 30, EnabledSkills: []string{}}})

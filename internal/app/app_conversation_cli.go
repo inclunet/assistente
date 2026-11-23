@@ -56,6 +56,7 @@ func RestoreConversationCLISession(a *App, chat bool) error {
 	}
 	userCtx := database.WithUserID(ctx, principal.UserID)
 	if chat {
+		a.llmCatalog.StartOffline(ctx)
 		if err := a.credMgr.LoadUserCredentials(userCtx, principal.UserID); err != nil {
 			return fmt.Errorf("carregar credenciais: %w", err)
 		}

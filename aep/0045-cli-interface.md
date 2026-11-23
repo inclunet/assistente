@@ -270,7 +270,8 @@ focados nos arquivos `*_test.go` correspondentes. A ajuda é registrada em
   A validação usa a credencial da
   sessão vigente, preserva seu prazo e sua rotação pelo desktop e revalida
   revogação e atividade da conta antes das operações autenticadas do REPL.
-  Chat hidrata credenciais e provedores desse usuário; o scheduler fica no
+  Chat hidrata credenciais, provedores desse usuário e o último catálogo local
+  válido, preservando defaults e limites sem atualização em segundo plano; o scheduler fica no
   processo que o iniciou. O percurso entre instâncias com SQLite e chaveiro
   de teste está em `TestConversationCLIUsesSavedSessionAcrossInstances`.
 - [x] Chat interativo e pipe são cobertos por `cmd/asst/chat_test.go`.

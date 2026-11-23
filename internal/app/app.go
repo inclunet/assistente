@@ -991,7 +991,7 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 	// aqui; ele precisa existir antes do provider service porque é dele que um
 	// provedor de agente empresta a sessão da conversa (AEP-0084 D3).
 	a.initACP()
-	if !a.commandCLIOnly {
+	if !a.commandCLIOnly || a.conversationCLI {
 		a.initLLMCatalog()
 	}
 
