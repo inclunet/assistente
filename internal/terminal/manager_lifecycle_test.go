@@ -3,6 +3,7 @@ package terminal
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -969,16 +970,44 @@ func TestAcquiredSessionAcceptsCommandAfterManualInputAndRelease(t *testing.T) {
 	}
 }
 
+func TestAnnouncementPreviewContract(t *testing.T) {
+	data, err := os.ReadFile("testdata/announcement-previews.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var cases []struct {
+		Name, Text, Want string
+		PrefixLength     int
+		Truncated        bool
+	}
+	if err := json.Unmarshal(data, &cases); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range cases {
+		t.Run(tc.Name, func(t *testing.T) {
+			prefix := strings.Repeat("a", tc.PrefixLength)
+			got := terminalAnnouncementPreview(prefix + tc.Text)
+			want := announcementPreview{Output: prefix + tc.Want, Truncated: tc.Truncated}
+			if got != want {
+				t.Fatalf("prévia = %+v, esperada %+v", got, want)
+			}
+		})
+	}
+}
+
 func TestCommandEndPreviewsOriginalOutputBeyondHistoryLimit(t *testing.T) {
 	emoji := strings.Repeat("🌍", 300)
 	padding := strings.Repeat(" ", 60*1024)
 	for _, tc := range []struct {
 		name, output string
-		want         announcementPreview
+		want         *announcementPreview
 	}{
-		{"espaços iniciais", padding + "ok", announcementPreview{Output: "ok"}},
-		{"espaços finais", emoji + padding, announcementPreview{Output: emoji}},
-		{"texto após espaços", emoji + padding + "x", announcementPreview{Output: emoji, Truncated: true}},
+		{"saída curta", "ok", nil},
+		{"limite exato", strings.Repeat("a", 50*1024), nil},
+		{"primeiro byte excedente", strings.Repeat("a", 50*1024+1), &announcementPreview{Output: strings.Repeat("a", 300), Truncated: true}},
+		{"espaços iniciais", padding + "ok", &announcementPreview{Output: "ok"}},
+		{"espaços finais", emoji + padding, &announcementPreview{Output: emoji}},
+		{"texto após espaços", emoji + padding + "x", &announcementPreview{Output: emoji, Truncated: true}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			s := &Session{id: "preview", shell: "bash", readerCtx: t.Context()}
@@ -1003,8 +1032,16 @@ func TestCommandEndPreviewsOriginalOutputBeyondHistoryLimit(t *testing.T) {
 			if err != nil || entry == nil || entry.Output != tc.output {
 				t.Fatalf("saída original incorreta: %v", err)
 			}
-			if payload["output"] != limitedHistoryEntry(entry).Output || payload["announcementPreview"] != tc.want {
-				t.Fatalf("evento não preservou histórico e prévia: prévia=%+v", payload["announcementPreview"])
+			if payload["output"] != limitedHistoryEntry(entry).Output {
+				t.Fatal("evento perdeu a saída de histórico")
+			}
+			got, included := payload["announcementPreview"]
+			if tc.want == nil {
+				if included {
+					t.Errorf("evento sem corte incluiu prévia: %+v", got)
+				}
+			} else if got != *tc.want {
+				t.Errorf("prévia = %+v, esperada %+v", got, *tc.want)
 			}
 		})
 	}

@@ -232,6 +232,8 @@ Pendente ou parcial:
   Quando a saída excede o limite do histórico, `terminal:command_end` inclui
   `announcementPreview` com a prévia do texto original e a indicação de corte.
   Sem saída final, o frontend usa a prévia acumulada antes de limitar o histórico.
+  O produtor Go e o consumidor TypeScript validam a mesma tabela de limites e espaços
+  Unicode em `internal/terminal/testdata/announcement-previews.json`.
   O editor preserva o rascunho após rejeição do envio. O aceite limpa o texto
   enviado se ele continua no campo, inclusive se a sessão já tiver terminado. Ao carregar a lista,
   mantém o pedido de foco se a origem desaparecer e respeita a navegação da pessoa.

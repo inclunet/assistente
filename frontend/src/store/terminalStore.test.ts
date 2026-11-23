@@ -9,6 +9,7 @@ import { announceWithOrigin, registerVoiceAccessibilityActiveResolver, registerA
 import en from '../locales/en';
 import ptBR from '../locales/pt-BR';
 import i18next from 'i18next';
+import previewCases from '../../../internal/terminal/testdata/announcement-previews.json';
 
 const mockGetTerminalHistory = vi.fn();
 const terminalEventHandlers = vi.hoisted(() => new Map<string, (data: unknown) => void>());
@@ -428,6 +429,19 @@ describe('terminalStore', () => {
       const key = path === 'stream manual' ? 'terminal.announce.output' : 'terminal.announce.outputWithExit';
       expect(announce).toHaveBeenLastCalledWith(i18next.t(key, { output: 'ok', exitCode: 0 }));
     } finally { cleanup(); vi.useRealTimers(); }
+  });
+
+  it.each(previewCases)('aplica o contrato da prévia ao rodapé: $name', test => {
+    const cleanup = useTerminalStore.getState().setupEventListeners();
+    const event = { sessionId: 'a', commandId: 'cmd' };
+    const prefix = 'a'.repeat(test.prefixLength);
+    try {
+      terminalEventHandlers.get('terminal:command_start')?.({ ...event, command: 'pwd', source: 'llm' });
+      terminalEventHandlers.get('terminal:command_output')?.({ ...event, output: 'outro texto no stream' });
+      terminalEventHandlers.get('terminal:command_end')?.({ ...event, output: prefix + test.text, exitCode: 0 });
+      const output = prefix + test.want + (test.truncated ? i18next.t('terminal.announce.truncatedSuffix') : '');
+      expect(announce).toHaveBeenLastCalledWith(i18next.t('terminal.announce.outputWithExit', { output, exitCode: 0 }));
+    } finally { cleanup(); }
   });
 
   it.each(['resultado limitado', 'rodapé vazio'])('fala o conteúdo que ficou fora do histórico (%s)', path => {
