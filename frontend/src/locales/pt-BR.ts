@@ -2024,6 +2024,7 @@ notSaved: 'A decisão vale somente para esta operação: não foi possível lemb
       chatModal: {
         noHistory: '(sem histórico no terminal)',
         truncatedHistory: '… histórico truncado',
+        blankInput: 'Entrada em branco',
       },
     },
 

@@ -6,7 +6,9 @@ import limits from './terminalContextLimits.json';
 describe('contexto recente do terminal', () => {
   const entry = (source: string, command: string, output: string) =>
     terminal.HistoryEntry.createFrom({ source, command, output });
-  const project = (entries: terminal.HistoryEntry[]) => terminalChatHistory(entries, 'Sessão', '… truncado');
+  const project = (entries: terminal.HistoryEntry[]) => terminalChatHistory(entries, {
+    sessionOutput: 'Sessão', blankInput: 'Entrada em branco', truncated: '… truncado',
+  });
 
   it('ignora comandos em branco antes de aplicar o limite por origem', () => {
     const empty = entry('user-raw', ' \t\n ', '');
@@ -14,6 +16,18 @@ describe('contexto recente do terminal', () => {
     const meaningful = entry('llm', 'pwd', '/casa');
     expect(project([meaningful, ...Array(limits.itemsPerKind + 1).fill(empty)]))
       .toEqual(project([meaningful]));
+  });
+
+  it('mantém a resposta a uma entrada em branco como saída do comando', () => {
+    const result = project([
+      entry('user-raw', ' \t', ''),
+      entry('user-raw', '\n', 'Opção padrão aceita\n'),
+    ]);
+    expect(result).toEqual({
+      text: '[Entrada em branco]\nOpção padrão aceita',
+      items: [{ kind: 'command', header: '[Entrada em branco]', output: 'Opção padrão aceita' }],
+      truncated: false,
+    });
   });
 
   it('preserva o comando recente quando um bloco anterior ocupa todo o orçamento', () => {

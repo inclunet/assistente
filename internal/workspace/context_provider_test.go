@@ -67,14 +67,18 @@ func TestTerminalContextPreservesRecentCommandAfterXMLEscaping(t *testing.T) {
 }
 
 func TestTerminalContextKeepsMiddleCommandBetweenEscapedSessionOutputs(t *testing.T) {
-	const command = "$ conferir\nERRO: modulo ausente"
 	const label = "[Saída da sessão]"
 	before := strings.Repeat("&", 395)
-	for _, extra := range []string{"", "\n---\n$ literal"} {
+	for _, tc := range []struct{ header, output, extra string }{
+		{"$ conferir", "ERRO: modulo ausente", ""},
+		{"$ conferir", "ERRO: modulo ausente", "\n---\n$ literal"},
+		{"[Entrada em branco]", "Opção padrão aceita", ""},
+	} {
+		command, extra := tc.header+"\n"+tc.output, tc.extra
 		after := before + extra
 		items := []any{
 			map[string]any{"kind": "session", "header": label, "output": before},
-			map[string]any{"kind": "command", "header": "$ conferir", "output": "ERRO: modulo ausente"},
+			map[string]any{"kind": "command", "header": tc.header, "output": tc.output},
 			map[string]any{"kind": "session", "header": label, "output": after},
 		}
 		for _, budget := range []int{550, defaultSurfacePromptBudget, 8000} {

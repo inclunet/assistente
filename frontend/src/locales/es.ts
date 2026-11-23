@@ -2026,6 +2026,7 @@ notSaved: 'La decisión vale solo para esta operación: no se pudo recordar. Ser
       chatModal: {
         noHistory: '(sin historial en el terminal)',
         truncatedHistory: '… historial truncado',
+        blankInput: 'Entrada en blanco',
       },
     },
 

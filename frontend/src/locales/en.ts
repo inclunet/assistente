@@ -2023,6 +2023,7 @@ notSaved: 'The decision applies only to this operation: it could not be remember
       chatModal: {
         noHistory: '(no terminal history)',
         truncatedHistory: '… history truncated',
+        blankInput: 'Blank input',
       },
     },
 

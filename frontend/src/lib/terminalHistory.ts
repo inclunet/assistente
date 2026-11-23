@@ -22,8 +22,12 @@ export function recentTerminalHistory(entries: terminal.HistoryEntry[], limitPer
 }
 
 /** O provedor lê recentOutput com um limite de pontos de código antes do orçamento do perfil. */
-export function terminalChatHistory(history: terminal.HistoryEntry[], sessionOutputLabel: string, truncatedLabel: string) {
-  const readable = history.filter(entry => entry.source === sessionOutputSource || entry.command?.trim());
+export function terminalChatHistory(history: terminal.HistoryEntry[], labels: {
+  sessionOutput: string;
+  blankInput: string;
+  truncated: string;
+}) {
+  const readable = history.filter(entry => entry.source === sessionOutputSource || entry.command?.trim() || entry.output?.trim());
   const recent = recentTerminalHistory(readable, limits.itemsPerKind);
   const separator = '\n---\n';
   // Seleciona primeiro os comandos mais recentes, depois preenche com blocos da sessão.
@@ -40,7 +44,8 @@ export function terminalChatHistory(history: terminal.HistoryEntry[], sessionOut
     for (const { entry, index } of priority) {
       const session = entry.source === sessionOutputSource;
       const command = (entry.command ?? '').trim();
-      let header = session ? `[${sessionOutputLabel}]` : `$ ${command}`;
+      let header = command ? `$ ${command}` : `[${labels.blankInput}]`;
+      if (session) header = `[${labels.sessionOutput}]`;
       const raw = entry.output ?? '';
       const output = session ? raw : raw.trimEnd();
       const available = budget - (kept ? separator.length : 0);
@@ -92,7 +97,7 @@ export function terminalChatHistory(history: terminal.HistoryEntry[], sessionOut
 
   const full = project(limits.textFieldCodePoints);
   if (!full.truncated) return full;
-  const notice = truncatedLabel + '\n';
+  const notice = labels.truncated + '\n';
   const excerpt = project(limits.textFieldCodePoints - Array.from(notice).length);
   return { ...excerpt, text: notice + excerpt.text, truncated: true };
 }

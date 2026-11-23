@@ -61,6 +61,7 @@ vi.mock('react-i18next', () => ({
       ({
         'terminal.pageTitle': 'Terminal',
         'terminal.chatModal.truncatedHistory': ptBR.translation.terminal.chatModal.truncatedHistory,
+        'terminal.chatModal.blankInput': ptBR.translation.terminal.chatModal.blankInput,
         'terminal.entry.sessionOutput': ptBR.translation.terminal.entry.sessionOutput,
         'terminal.buttons.stop': 'Parar',
         'terminal.buttons.new': 'Novo',
@@ -734,7 +735,7 @@ describe('TerminalPage', () => {
     expect(storeMocks.sendInput).toHaveBeenCalledWith('term-1', 'pwd');
   });
 
-  it.each(['comandos', 'sessão', 'diagnóstico', 'blocos intercalados'])('usa o mesmo histórico na prévia e no envio do chat (%s)', async scenario => {
+  it.each(['comandos', 'sessão', 'diagnóstico', 'blocos intercalados', 'entrada em branco'])('usa o mesmo histórico na prévia e no envio do chat (%s)', async scenario => {
     storeState.historyBySession = {
       'term-1': Array.from({ length: 45 }, (_, index) => {
         const entryNumber = index + 1;
@@ -747,6 +748,13 @@ describe('TerminalPage', () => {
       }),
     };
 
+    if (scenario === 'entrada em branco') {
+      storeState.historyBySession['term-1'] = [
+        { id: 'vazia', command: ' ', source: 'user-raw', output: '' },
+        { id: 'enter', command: '\n', source: 'user-raw', output: 'Opção padrão aceita\n' },
+        { id: 'bloco', command: '', source: 'session-output', output: 'prompt> ' },
+      ];
+    }
     if (scenario === 'blocos intercalados') {
       storeState.historyBySession['term-1'] = [
         { id: 'antes', command: '', source: 'session-output', output: '&'.repeat(395) },
@@ -786,6 +794,15 @@ describe('TerminalPage', () => {
     expect(surfaceContext.surfaceId).toBe('terminal-tab');
     expect(surfaceContext.snapshotVersion).toMatch(/^terminal:terminal-tab:/);
     expect(surfaceContext.content.recentOutput).toBe(prepared.contextDisplay);
+    if (scenario === 'entrada em branco') {
+      expect(surfaceContext.content.truncated).toBe(false);
+      expect(prepared.contextDisplay).toBe('[Entrada em branco]\nOpção padrão aceita\n---\n[Saída da sessão]\nprompt> ');
+      expect(surfaceContext.content.recentOutputItems).toEqual([
+        { kind: 'command', header: '[Entrada em branco]', output: 'Opção padrão aceita' },
+        { kind: 'session', header: '[Saída da sessão]', output: 'prompt> ' },
+      ]);
+      return;
+    }
     if (scenario === 'blocos intercalados') {
       expect(surfaceContext.content.truncated).toBe(false);
       expect(surfaceContext.content.recentOutputItems).toEqual([

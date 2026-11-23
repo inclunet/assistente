@@ -56,6 +56,9 @@ continua no bloco seguinte a cada 50 KiB. O histórico guarda até 200 comandos
 e 200 blocos da sessão. A prévia do contexto enviado ao chat prioriza os comandos
 recentes e usa o espaço restante para a saída da sessão. O envio segue a ordem
 do histórico e contém até 900 pontos de código, com até 40 itens de cada origem.
+Quando um programa responde a uma entrada em branco, por exemplo ao aceitar
+uma opção padrão, o contexto do chat identifica a resposta como “Entrada em
+branco”. Uma entrada em branco sem resposta é omitida.
 Quando uma saída é longa, a prévia mostra o comando e o fim da saída disponível,
 onde costuma aparecer o diagnóstico. As reticências indicam o trecho omitido. Se o
 histórico já atingiu o limite de 50 KiB do comando, esse fim corresponde à parte

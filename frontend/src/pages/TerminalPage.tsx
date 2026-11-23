@@ -384,9 +384,11 @@ export default function TerminalPage({ sessionId: explicitSessionId }: TerminalP
     if (!panelTab || panelTab.type !== 'terminal') return null;
 
     const projectHistory = () => {
-      const { text, items, truncated } = terminalChatHistory(
-        currentHistory, t('terminal.entry.sessionOutput'), t('terminal.chatModal.truncatedHistory'),
-      );
+      const { text, items, truncated } = terminalChatHistory(currentHistory, {
+        sessionOutput: t('terminal.entry.sessionOutput'),
+        blankInput: t('terminal.chatModal.blankInput'),
+        truncated: t('terminal.chatModal.truncatedHistory'),
+      });
       return { contextDisplay: text || t('terminal.chatModal.noHistory'), items, truncated };
     };
     return {

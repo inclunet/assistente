@@ -151,6 +151,9 @@ Entregue:
   blocos da sessão. A prévia e o envio ao chat compartilham um limite de 900 pontos
   de código e até 40 itens de cada origem. Priorizam comandos recentes, usam o
   restante para blocos da sessão e apresentam os itens selecionados em ordem cronológica.
+  Uma entrada sem texto com resposta legível conserva a origem de comando e recebe
+  o cabeçalho localizado “Entrada em branco”. Uma entrada sem texto nem resposta
+  é ignorada antes de contar os itens destinados ao contexto.
   Ao abreviar uma entrada, preservam o cabeçalho e o fim do texto disponível,
   incluindo a marca de corte que o histórico acrescenta ao exceder 50 KiB.
   Um comando que sozinho excede o orçamento é identificado pelo início do nome e
