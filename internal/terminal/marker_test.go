@@ -435,6 +435,9 @@ func TestPowerShellConPTYRedrawPreservesOutput(t *testing.T) {
 	marker.viewportColumns = 3
 	for _, tc := range []struct{ raw, want string }{
 		{"abc\r\n\x1b[39;3Hcdef\r\n\x1b[39;3Hfgh", "abcdefgh"},
+		{"abcdef\r\n\x1b[39;3Hfg", "abcdefg"},
+		{"abcdefg\r\n\x1b[39;3Hgh", "abcdefg\ngh"},
+		{"abc界a\r\n\x1b[39;3Hab", "abc界ab"},
 		{"界a\r\n\x1b[39;3Hab", "界ab"},
 		{"abc\r\n\x1b[39;2Hcdef", "abc\ncdef"},
 		{"abc\r\n\x1b[39;3Hzdef", "abc\nzdef"},

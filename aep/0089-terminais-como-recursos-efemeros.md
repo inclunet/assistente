@@ -175,7 +175,8 @@ Entregue:
   inclui os bytes posteriores ao rodapé na mesma leitura e os já recebidos
   antes da liberação da captura. Um redesenho da última célula do rodapé na margem
   direita do ConPTY é consumido sem duplicar o terminador na saída da sessão.
-  O encerramento sucede a entrega da saída já lida.
+  A margem é a da linha visual, inclusive quando o ConPTY enviou várias larguras
+  de texto sem quebra explícita. O encerramento sucede a entrega da saída já lida.
 
 Pendente ou parcial:
 
