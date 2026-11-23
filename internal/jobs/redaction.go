@@ -36,19 +36,19 @@ func RedactResolvedInputs(original, resolved map[string]any) map[string]any {
 
 // O shell ecoa comando e diretório nos metadados. Propague as redações antes
 // da confirmação e do despacho, inclusive para os resultados parciais.
-func withRedactedShellMetadata(ctx context.Context, original, resolved, persisted map[string]any) context.Context {
+func withRedactedShellMetadata(ctx context.Context, original, resolved map[string]any) context.Context {
 	// encoding/json aceita variantes de caixa nas chaves de uma struct. Se
 	// houver mais de uma variante de command ou working_directory, qualquer
 	// variante redigida protege os metadados daquele campo.
 	matches := 0
 	var protectedKey string
-	for key, value := range persisted {
-		if strings.EqualFold(key, "working_directory") && value == redactedValue {
+	for key := range resolved {
+		if strings.EqualFold(key, "working_directory") && redactInput(key, original[key]) {
 			ctx = invocationctx.WithShellDirectoryMetadata(ctx, redactedValue)
 		}
 		if strings.EqualFold(key, "command") {
 			matches++
-			if value == redactedValue {
+			if redactInput(key, original[key]) {
 				protectedKey = key
 			}
 		}
@@ -90,8 +90,12 @@ func ContainsRedactedValue(value any) bool {
 	return false
 }
 
+func redactInput(key string, original any) bool {
+	return isSensitiveInputKey(key) || containsSecretTemplate(original)
+}
+
 func redactValue(key string, original, resolved any) any {
-	if isSensitiveInputKey(key) || containsSecretTemplate(original) {
+	if redactInput(key, original) {
 		return redactedValue
 	}
 	switch value := resolved.(type) {

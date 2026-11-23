@@ -4931,6 +4931,7 @@ notSaved: 'The decision applies only to this operation: it could not be remember
           templateLabel: 'Original command template',
           protectedPrefixPrompt: 'This job command begins with {{prefix}} and uses a protected value. The remaining details are hidden. Allow it to run once in the shell?',
           workDir: 'Directory: {{workDir}}',
+          protectedPersistentHint: 'Persistent terminal. The current directory may have changed.',
           persistentWorkDir: 'Persistent terminal. Initial directory: {{workDir}}; the current directory may have changed. Authorization applies only to this execution.',
           bodyLabel: 'Requested command',
           submit: 'Allow',

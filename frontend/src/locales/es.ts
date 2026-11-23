@@ -4935,6 +4935,7 @@ notSaved: 'La decisión vale solo para esta operación: no se pudo recordar. Ser
           templateLabel: 'Plantilla original del comando',
           protectedPrefixPrompt: 'El comando de tarea comienza con {{prefix}} y usa un valor protegido. Los demás detalles están ocultos. ¿Permitir una sola ejecución en el shell?',
           workDir: 'Directorio: {{workDir}}',
+          protectedPersistentHint: 'Terminal persistente. El directorio actual puede haber cambiado.',
           persistentWorkDir: 'Terminal persistente. Directorio inicial: {{workDir}}; el directorio actual puede haber cambiado. La autorización solo se aplica a esta ejecución.',
           bodyLabel: 'Comando solicitado',
           submit: 'Permitir',

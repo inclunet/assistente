@@ -142,3 +142,14 @@ func TestManualCatalogShellConsentHasNoConversation(t *testing.T) {
 		t.Fatal("o teste manual deveria terminar sem despacho, sem interlocutor")
 	}
 }
+
+func TestProtectedShellHintDistinguishesPersistentSession(t *testing.T) {
+	for _, persistent := range []bool{false, true} {
+		payload, _ := shellConfirmationPayload(shelltrust.PromptRequest{
+			ProtectedCommand: true, PersistentTerminal: persistent, Directory: "private-directory",
+		})
+		if hint := payload.Hint.String(); strings.Contains(hint, "private-directory") || strings.Contains(hint, "diretório atual pode ter mudado") != persistent {
+			t.Fatalf("persistente=%t, aviso=%q", persistent, hint)
+		}
+	}
+}

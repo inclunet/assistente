@@ -114,6 +114,8 @@ Links da pergunta aparecem como texto, com as prévias de sites e mídia desativ
 Se o corpo da pergunta contiver caracteres de controle ou de formatação invisíveis,
 o canal o mostra entre aspas e representa esses caracteres por sequências de escape.
 
+Em um terminal persistente, a pergunta informa que o diretório atual pode ter mudado. Um diretório público chamado `[redacted]` segue a política normal da chamada. A proteção depende da origem do valor no cofre.
+
 Para comandos protegidos, a decisão vale apenas para aquela execução. A pergunta pode mostrar
 o template original, por exemplo `example {{ secret "token" }}`, se ele contiver
 o nome literal do programa seguido apenas de referências simples ao cofre.

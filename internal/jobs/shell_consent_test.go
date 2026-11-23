@@ -12,6 +12,7 @@ import (
 	"assistente/internal/shelltrust"
 	"assistente/internal/terminal"
 	"assistente/internal/toolinvocations"
+	"assistente/internal/tools/invocationctx"
 	"assistente/internal/tools/shell"
 )
 
@@ -150,5 +151,18 @@ func TestShellJobRecordsWhoRefusedTheCommand(t *testing.T) {
 				t.Fatal("a invocação registrada perdeu a origem da recusa ou expôs o valor protegido")
 			}
 		})
+	}
+}
+
+func TestProtecaoDoShellDependeDaOrigemDaMascara(t *testing.T) {
+	for _, original := range []string{redactedValue, `{{ secret "valor" }}`} {
+		input := map[string]any{"working_directory": original, "command": original}
+		resolved := map[string]any{"working_directory": redactedValue, "command": redactedValue}
+		ctx := withRedactedShellMetadata(t.Context(), input, resolved)
+		_, protected := invocationctx.LookupShellCommandMetadata(ctx)
+		want := original != redactedValue
+		if protected != want || (invocationctx.ShellDirectoryMetadata(ctx) != "") != want {
+			t.Fatalf("origem %q: comando protegido=%t diretório=%q", original, protected, invocationctx.ShellDirectoryMetadata(ctx))
+		}
 	}
 }

@@ -4933,6 +4933,7 @@ notSaved: 'A decisão vale somente para esta operação: não foi possível lemb
           templateLabel: 'Template original do comando',
           protectedPrefixPrompt: 'O comando de job começa com {{prefix}} e usa um valor protegido. Os demais detalhes ficam ocultos. Permitir uma única execução no shell?',
           workDir: 'Diretório: {{workDir}}',
+          protectedPersistentHint: 'Terminal persistente. O diretório atual pode ter mudado.',
           persistentWorkDir: 'Terminal persistente. Diretório inicial: {{workDir}}; o diretório atual pode ter mudado. A autorização vale só para esta execução.',
           bodyLabel: 'Comando solicitado',
           submit: 'Permitir',

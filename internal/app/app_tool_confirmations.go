@@ -55,8 +55,12 @@ func shellConfirmationPayload(req shelltrust.PromptRequest) (questionnaire.Reque
 				fmt.Sprintf("O comando de job começa com %s. O template mostra a referência ao cofre. Permitir uma única execução no shell?", req.LiteralPrefix))
 			bodyLabel = questionnaire.Keyed("app.questionnaire.shell.templateLabel", "Template original do comando")
 		}
+		var hint questionnaire.Text
+		if req.PersistentTerminal {
+			hint = questionnaire.Keyed("app.questionnaire.shell.protectedPersistentHint", "Terminal persistente. O diretório atual pode ter mudado.")
+		}
 		return questionnaire.RequestPayload{
-			Body: body, BodyLabel: bodyLabel,
+			Hint: hint, Body: body, BodyLabel: bodyLabel,
 			Kind: questionnaire.KindDecision, Title: questionnaire.Keyed("app.questionnaire.shell.title", "Confirmar execução de comando"),
 			Description: description, AllowCancel: true, Actions: actions.Actions(),
 		}, actions
