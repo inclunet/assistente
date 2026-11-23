@@ -4096,6 +4096,11 @@ Quarto recorte da fase 2: lifecycle integrado ao único pipeline de envio.
   chat:done mesmo se TTS/notificação falhar após um commit confirmado.
 - [x] Recuperar tentativas sem lease vivo antes dos workers e reconciliar
   legados sem tentativas; retry/continue também reconciliam esse subconjunto.
+  Em SQLite WAL a reconciliação do boot reserva a escrita antes da leitura do
+  legado. Assim uma abertura concorrente da CLI e do desktop preserva a posse
+  do worker e evita promover uma fotografia de leitura já obsoleta.
+  `TestChatTurnStartupReconciliationWithConcurrentWriter` intercala uma escrita
+  de outra conexão durante essa leitura e verifica a recuperação do legado.
 - [x] Importar mensagens e metadados juntos, com origem imported e estado
   historical_unknown, sem restaurar execuções ou inferir sucesso pelo texto.
 

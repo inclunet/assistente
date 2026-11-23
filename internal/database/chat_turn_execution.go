@@ -264,5 +264,7 @@ func initializeChatTurnsBeforeWorkers(db *gorm.DB) error {
 			return closeErr
 		}
 	}
-	return db.Transaction(func(tx *gorm.DB) error { return reconcileLegacyChatTurns(tx, "", "") })
+	// A reconciliação lê o legado antes de gravar. Em WAL, uma transação
+	// deferred não pode promover um snapshot antigo se outro processo escreveu.
+	return WithSQLiteImmediateTransaction(context.Background(), db, "chat.turns.startup_reconciliation", func(tx *gorm.DB) error { return reconcileLegacyChatTurns(tx, "", "") })
 }
