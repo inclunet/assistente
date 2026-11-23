@@ -728,7 +728,7 @@ describe('TerminalPage', () => {
     expect(storeMocks.sendInput).toHaveBeenCalledWith('term-1', 'pwd');
   });
 
-  it.each([false, true])('usa o mesmo histórico no preview e no envio do chat (saída espontânea: %s)', async sessionOutput => {
+  it.each(['comandos', 'sessão', 'diagnóstico'])('usa o mesmo histórico na prévia e no envio do chat (%s)', async scenario => {
     storeState.historyBySession = {
       'term-1': Array.from({ length: 45 }, (_, index) => {
         const entryNumber = index + 1;
@@ -741,7 +741,12 @@ describe('TerminalPage', () => {
       }),
     };
 
-    if (sessionOutput) {
+    if (scenario === 'diagnóstico') {
+      storeState.historyBySession['term-1'] = [{
+        id: 'erro', command: 'npm test', output: '✅ aprovado\n'.repeat(300) + 'ERRO: módulo ausente', exitCode: 1,
+      }];
+    }
+    if (scenario === 'sessão') {
       storeState.historyBySession['term-1'] = storeState.historyBySession['term-1'].flatMap((entry, i) => [
         entry, { id: `bloco-${i + 1}`, command: '', source: 'session-output', output: `prompt-${i + 1}> ` },
       ]);
@@ -768,11 +773,16 @@ describe('TerminalPage', () => {
     expect(surfaceContext.surfaceId).toBe('terminal-tab');
     expect(surfaceContext.snapshotVersion).toMatch(/^terminal:terminal-tab:/);
     expect(surfaceContext.content.recentOutput).toBe(prepared.contextDisplay);
+    expect(surfaceContext.content.truncated).toBe(true);
+    if (scenario === 'diagnóstico') {
+      expect(prepared.contextDisplay).toMatch(/^… truncado\n\$ npm test\n…/);
+      expect(prepared.contextDisplay).toMatch(/\nERRO: módulo ausente$/);
+      return;
+    }
     expect(surfaceContext.content.recentOutput).toContain('cmd-6');
     expect(surfaceContext.content.recentOutput).toContain('cmd-45');
     expect(surfaceContext.content.recentOutput).not.toContain('cmd-5');
-    expect(surfaceContext.content.truncated).toBe(true);
-    if (sessionOutput) {
+    if (scenario === 'sessão') {
       expect(prepared.contextDisplay).toContain('out-45\n---\n[Saída da sessão]\nprompt-45> ');
       expect(prepared.contextDisplay).not.toContain('prompt-6> ');
       expect(prepared.contextDisplay).toMatch(/^… truncado/);

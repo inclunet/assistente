@@ -37,19 +37,50 @@ export function terminalChatHistory(history: terminal.HistoryEntry[], sessionOut
     let kept = 0;
     for (const { entry, index } of priority) {
       const session = entry.source === sessionOutputSource;
-      const header = session ? `[${sessionOutputLabel}]` : `$ ${(entry.command ?? '').trim()}`;
+      const command = (entry.command ?? '').trim();
+      let header = session ? `[${sessionOutputLabel}]` : `$ ${command}`;
       const raw = entry.output ?? '';
       const output = session ? raw : raw.trimEnd();
       const available = budget - (kept ? separator.length : 0);
-      if (available <= 0 || (session && available <= Array.from(header).length + 1)) {
+      if (available <= 0) {
         truncated = true;
         break;
       }
-      const line = output ? header + '\n' + output : header;
-      let excerpt = codePointPrefix(line, available);
-      if (excerpt.length < line.length) {
+      const headerLength = Array.from(codePointPrefix(header, available + 1)).length;
+      if (!session && !command) {
         truncated = true;
-        excerpt = codePointPrefix(excerpt, available - 1) + '…';
+        continue;
+      }
+      if (headerLength + (output ? 2 : 0) > available) {
+        truncated = true;
+        // Identifica até um comando mais longo que o orçamento inteiro.
+        // Quando só sobra uma fração após outro item, pule o cabeçalho incompleto.
+        if (session || kept) continue;
+        const headerBudget = output ? Math.floor(available / 2) : available;
+        header = codePointPrefix(header, headerBudget - 1) + '…';
+      }
+      let excerpt = header;
+      if (output) {
+        const room = available - Array.from(header).length - 1;
+        const fits = codePointPrefix(output, room).length === output.length;
+        if (!fits && room < 2) {
+          truncated = true;
+          continue;
+        }
+        // Duas unidades UTF-16 por ponto bastam para ler apenas a cauda necessária.
+        const tailSize = room - 1;
+        const tail = fits ? output : '…' + Array.from(output.slice(-2 * tailSize)).slice(-tailSize).join('');
+        // Um item anterior só entra se couber sua última linha, que pode ser
+        // o diagnóstico ou a indicação de corte acrescentada pelo histórico.
+        if (kept && !fits) {
+          const lastBreak = output.lastIndexOf('\n');
+          if (lastBreak >= 0 && output.length - lastBreak - 1 > tail.length - 1) {
+            truncated = true;
+            continue;
+          }
+        }
+        excerpt += '\n' + tail;
+        if (!fits) truncated = true;
       }
       parts[index] = excerpt;
       kept++;
