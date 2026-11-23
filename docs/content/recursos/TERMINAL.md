@@ -17,7 +17,7 @@ O terminal cria sessões PTY (pseudo-terminal) reais usando o shell do sistema:
 Cada sessão mantém:
 
 - Diretório de trabalho atual
-- Histórico de comandos (até 200 entradas por sessão)
+- Histórico de comandos (até 200 comandos por sessão no backend)
 - Estado: Idle, Busy ou Closed
 - Saída formatada
 
@@ -102,7 +102,8 @@ Múltiplas sessões podem existir simultaneamente (até 10 por padrão), cada um
 |---|---|
 | Máximo de sessões | 10 |
 | Timeout padrão | 15 segundos |
-| Histórico por sessão | 200 entradas |
+| Histórico de comandos no backend | 200 comandos por sessão |
+| Histórico da aba | 200 comandos e até 200 blocos adicionais de saída da sessão |
 
 Uma falha de leitura, um cancelamento ou o fechamento explícito da sessão devolve erro com a saída parcial disponível. Se o leitor já falhou quando o prazo vence, o diagnóstico conserva as duas causas. A duração acompanha o resultado quando a sessão registrou o início e o fim da execução.
 

@@ -629,6 +629,10 @@ func TestPowerShellReturnInPersistentSession(t *testing.T) {
 		{"mode.com con cols=80; Write-Output ('x' * 161)", strings.Repeat("x", 161), 0},
 		{"$Host.UI.RawUI.WindowSize.Width", "80", 0},
 		{"Write-Output ('y' * 161)", strings.Repeat("y", 161), 0},
+		{"Set-StrictMode -Version Latest", "", 0},
+		{"@(if ($true) { return Write-Output exemplo })", "", 0},
+		{"$(if ($true) { return Write-Output exemplo })", "exemplo", 0},
+		{"$(if ($true) { return cmd /c exit 7 })", "", 7},
 	} {
 		streamed.Reset()
 		entry, err := manager.RunCommand(t.Context(), session.ID(), tc.command, 10*time.Second, "test")
