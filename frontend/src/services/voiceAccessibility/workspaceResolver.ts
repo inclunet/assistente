@@ -10,7 +10,8 @@ export function useVoiceAccessibilityWorkspaceResolver(panelsVisible: boolean) {
       origin => isVoiceAccessibilityOriginActive(origin, useWorkspaceStore.getState().workspace, panelsVisible),
       origin => origin.tabId
         ? useWorkspaceStore.getState().workspace?.tabs.find(tab => tab.id === origin.tabId &&
-          (!origin.surfaceType || tab.type === origin.surfaceType))?.title
+          (!origin.surfaceType || tab.type === origin.surfaceType) &&
+          (!origin.terminalSessionId || (tab.type === 'terminal' && tab.state?.sessionId === origin.terminalSessionId)))?.title
         : origin.title,
     );
     cancelInactiveSTTSession();

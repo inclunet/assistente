@@ -81,6 +81,16 @@ describe('useVoiceAccessibilityWorkspaceResolver', () => {
     } finally { unregisterAnnouncerSink(); vi.useRealTimers(); hoisted.workspace = original; }
   });
 
+  it('omite o título de uma aba vinculada a outra sessão ao identificar atividade do terminal', () => {
+    const sink = vi.fn();
+    registerAnnouncerSink(sink);
+    try {
+      renderHook(() => useVoiceAccessibilityWorkspaceResolver(true));
+      announceWithOrigin({ message: 'detalhe', eventType: 'completion', origin: { terminalSessionId: 's', tabId: 'tab-2' } });
+      expect(sink).toHaveBeenCalledWith('Atividade no terminal em segundo plano', 'polite');
+    } finally { unregisterAnnouncerSink(); }
+  });
+
   it('cancela a captura quando a aba ativa passa a exibir outra sessão', () => {
     const original = hoisted.workspace;
     try {
