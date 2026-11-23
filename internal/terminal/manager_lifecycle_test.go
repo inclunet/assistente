@@ -672,6 +672,9 @@ func TestManualPartialWriteKeepsSessionSlotUntilCleanup(t *testing.T) {
 		closed := make(chan error, 1)
 		go func() { closed <- m.Close(s.id) }()
 		synctest.Wait()
+		if _, found := m.Info(s.id); found || m.Has(s.id) || len(m.List()) != 0 || m.Stats().TotalSessions != 1 {
+			t.Errorf("sessão em encerramento: encontrada=%t lista=%v estatísticas=%+v", found, m.List(), m.Stats())
+		}
 		if _, err := m.SendInput(s.id, "segunda"); err == nil || writes != 1 {
 			t.Errorf("entrada reutilizou PTY parcial: escritas=%d erro=%v", writes, err)
 		}

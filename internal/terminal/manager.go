@@ -395,10 +395,10 @@ func (m *Manager) PrepareInterrupt(snapshot InterruptSnapshot) (*InterruptOperat
 		session.sessionVersion == snapshot.token.sessionVersion &&
 		session.commandGeneration == snapshot.token.commandGeneration &&
 		session.commandPending == snapshot.token.commandPending &&
-		session.managedCommandID == snapshot.token.commandID &&
+		session.lastDispatchedID == snapshot.token.commandID &&
 		session.state == snapshot.token.state &&
 		(session.state == StateIdle || session.state == StateRunning) &&
-		!session.commandPending && session.managedCommandID != ""
+		!session.commandPending && session.lastDispatchedID != ""
 	if !valid || !snapshot.token.consumed.CompareAndSwap(0, 1) {
 		session.mu.Unlock()
 		session.ioMu.Unlock()
@@ -481,11 +481,11 @@ func (m *Manager) Info(sessionID string) (SessionInfo, bool) {
 	if !ok {
 		return SessionInfo{}, false
 	}
-	state := session.State()
-	if state == StateClosing || state == StateExited {
+	info := session.Info()
+	if info.State == StateClosing.String() || info.State == StateExited.String() {
 		return SessionInfo{}, false
 	}
-	return session.Info(), true
+	return info, true
 }
 
 // List retorna informações de todas as sessões ativas.
@@ -495,9 +495,9 @@ func (m *Manager) List() []SessionInfo {
 
 	result := make([]SessionInfo, 0, len(m.sessions))
 	for _, s := range m.sessions {
-		state := s.State()
-		if state != StateClosing && state != StateExited {
-			result = append(result, s.Info())
+		info := s.Info()
+		if info.State != StateClosing.String() && info.State != StateExited.String() {
+			result = append(result, info)
 		}
 	}
 	return result

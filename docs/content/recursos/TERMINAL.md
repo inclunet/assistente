@@ -56,12 +56,14 @@ continua no bloco seguinte a cada 50 KiB. O histórico guarda até 200 comandos
 e 200 blocos da sessão. A prévia do contexto enviado ao chat prioriza os comandos
 recentes e usa o espaço restante para a saída da sessão. O envio segue a ordem
 do histórico e contém até 900 pontos de código, com até 40 itens de cada origem.
+Quando uma saída é longa, a prévia mostra o comando e o fim da saída disponível,
+onde costuma aparecer o diagnóstico. As reticências indicam o trecho omitido. Se o
+histórico já atingiu o limite de 50 KiB do comando, esse fim corresponde à parte
+guardada e inclui a marca de corte do histórico.
 Se o prazo vencer ou o comando for cancelado enquanto o terminal entrega a saída
 anterior, o comando fica no histórico com código -1. A sessão volta a ficar disponível
 e a saída pendente conserva a identificação original. Se você havia enviado um
-comando manual, ele continua disponível para interrupção com Ctrl+C, mesmo depois
-de muitas tentativas sem envio. A aba pode identificar esse comando ao recarregar o histórico
-após o término da tentativa. Se a escrita de uma entrada manual ou de um comando
+comando manual, você ainda pode interrompê-lo com Ctrl+C. Se a escrita de uma entrada manual ou de um comando
 do modelo falhar, o Assistente encerra a sessão. Isso impede que a próxima entrada
 complete por engano uma linha enviada pela metade.
 A aba continua aberta e o campo de comando fica somente para leitura. Você pode
@@ -111,6 +113,8 @@ encerrar a leitura.
 ## Sessões
 
 Múltiplas sessões podem existir simultaneamente (até 10 por padrão), cada uma em sua própria aba.
+Uma sessão em encerramento sai da lista de sessões disponíveis. Ela libera a vaga
+para abrir outro terminal assim que a limpeza termina.
 
 | Propriedade | Valor Padrão |
 |---|---|

@@ -107,7 +107,7 @@ type Session struct {
 	// commandPending cobre a janela entre beginCommand e o write inicial.
 	// Não é uma prova de PID nem do estado de um subprocesso natural.
 	commandPending    bool
-	managedCommandID  string // Última entrada enviada; uma reserva invalida snapshots pela geração.
+	lastDispatchedID  string // Última entrada enviada; uma reserva invalida snapshots pela geração.
 	interruptIsManual bool
 	shell             string
 	cwd               string
@@ -615,7 +615,7 @@ func (s *Session) runCommandInDirectory(ctx context.Context, command, directory 
 			s.mu.Lock()
 			var activeManualID string
 			if s.state == StateRunning && s.commandPending && s.interruptIsManual {
-				activeManualID = s.managedCommandID
+				activeManualID = s.lastDispatchedID
 			}
 			s.mu.Unlock()
 			onEnd(resultEntry, resultErr, activeManualID)
@@ -710,7 +710,7 @@ func (s *Session) runCommandInDirectory(ctx context.Context, command, directory 
 		return failBeforeResult(err)
 	}
 	s.beginMarkerCapture(marker)
-	writeErr, retire := s.writeInputAndUnlock(request, commandID, false)
+	retire, writeErr := s.writeInputAndUnlock(request, commandID, false)
 	if writeErr != nil {
 		if retire {
 			select {
@@ -1006,7 +1006,7 @@ func (s *Session) addHistoryEntry(entry *HistoryEntry) {
 	// Uma interface que acabou de abrir deve poder identificar a entrada
 	// manual ainda interrompível, mesmo após muitas tentativas sem despacho.
 	if len(s.history) > maxHistoryEntries {
-		if s.interruptIsManual && s.history[0].ID == s.managedCommandID {
+		if s.interruptIsManual && s.history[0].ID == s.lastDispatchedID {
 			s.history[1] = s.history[0]
 		}
 		s.history[0] = HistoryEntry{}
@@ -1104,7 +1104,7 @@ func (s *Session) SendInput(input, commandID string) (*HistoryEntry, error) {
 		s.ioMu.Unlock()
 		return nil, fmt.Errorf("sessão %s não possui writer PTY", s.id)
 	}
-	if err, _ := s.writeInputAndUnlock([]byte(input+enter), commandID, true); err != nil {
+	if _, err := s.writeInputAndUnlock([]byte(input+enter), commandID, true); err != nil {
 		return nil, err
 	}
 
@@ -1137,7 +1137,7 @@ func (s *Session) Interrupt() error {
 
 // O chamador mantém ioMu desde a validação até este ponto. Mesmo que Write
 // tenha aceitado só um prefixo, a sessão entra em closing antes de liberar o lock.
-func (s *Session) writeInputAndUnlock(request []byte, commandID string, manual bool) (error, bool) {
+func (s *Session) writeInputAndUnlock(request []byte, commandID string, manual bool) (bool, error) {
 	n, err := s.ptyWriter.Write(request)
 	if n != len(request) && err == nil {
 		err = io.ErrShortWrite
@@ -1150,7 +1150,11 @@ func (s *Session) writeInputAndUnlock(request []byte, commandID string, manual b
 	if retire {
 		s.state, s.writeErr = StateClosing, err
 	}
-	s.managedCommandID = commandID
+	if err == nil {
+		s.lastDispatchedID = commandID
+	} else {
+		s.lastDispatchedID = ""
+	}
 	s.interruptIsManual = manual && err == nil
 	s.commandPending = false
 	s.mu.Unlock()
@@ -1165,7 +1169,7 @@ func (s *Session) writeInputAndUnlock(request []byte, commandID string, manual b
 			_ = s.finishClose(nil, killErr)
 		}()
 	}
-	return err, retire
+	return retire, err
 }
 
 // Close encerra a sessão PTY e libera recursos.

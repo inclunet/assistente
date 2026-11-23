@@ -44,7 +44,7 @@ func (w *interruptFakePTYWriter) snapshot() [][]byte {
 
 func newInterruptFakeManager(writer io.Writer) (*Manager, *Session) {
 	manager := NewManager(DefaultManagerConfig(), nil)
-	session := &Session{id: "interrupt-fake", state: StateIdle, managedCommandID: "command-original", ptyWriter: writer}
+	session := &Session{id: "interrupt-fake", state: StateIdle, lastDispatchedID: "command-original", ptyWriter: writer}
 	manager.sessions[session.id] = session
 	return manager, session
 }
@@ -246,19 +246,19 @@ func TestCaptureInterruptRejectsPendingWrite(t *testing.T) {
 	session.finishCommand()
 }
 
-func TestCaptureInterruptRejectsSessionWithoutManagedCommandID(t *testing.T) {
+func TestCaptureInterruptRejectsSessionWithoutLastDispatchedID(t *testing.T) {
 	writer := &interruptFakePTYWriter{}
 	manager, session := newInterruptFakeManager(writer)
 	session.mu.Lock()
-	session.managedCommandID = ""
+	session.lastDispatchedID = ""
 	session.mu.Unlock()
 
 	if _, err := manager.CaptureInterrupt(session.id); !errors.Is(err, ErrInterruptStale) {
-		t.Fatalf("captura sem managedCommandID = %v, esperado ErrInterruptStale", err)
+		t.Fatalf("captura sem lastDispatchedID = %v, esperado ErrInterruptStale", err)
 	}
 }
 
-func TestSendInputPreservesManagedCommandIDWhenIdle(t *testing.T) {
+func TestSendInputPreservesLastDispatchedIDWhenIdle(t *testing.T) {
 	writer := &interruptFakePTYWriter{}
 	manager, session := newInterruptFakeManager(writer)
 	entry, err := session.SendInput("raw input", "")

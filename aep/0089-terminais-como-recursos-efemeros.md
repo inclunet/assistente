@@ -151,6 +151,10 @@ Entregue:
   blocos da sessão. A prévia e o envio ao chat compartilham um limite de 900 pontos
   de código e até 40 itens de cada origem. Priorizam comandos recentes, usam o
   restante para blocos da sessão e apresentam os itens selecionados em ordem cronológica.
+  Ao abreviar uma entrada, preservam o cabeçalho e o fim do texto disponível,
+  incluindo a marca de corte que o histórico acrescenta ao exceder 50 KiB.
+  Um comando que sozinho excede o orçamento é identificado pelo início do nome e
+  da linha de comando. A prévia indica o corte e reserva espaço para o fim da saída.
   A navegação agrega a saída da sessão ao item anterior quando ele existe. Um
   prompt personalizado pertence a esse fluxo, como qualquer texto espontâneo. A transferência
   inclui os bytes posteriores ao rodapé na mesma leitura e os já recebidos
@@ -290,7 +294,7 @@ Pendente ou parcial:
   Em um ConPTY com PSReadLine 2.4.5 ativo, a recuperação da linha anterior
   pelo editor do shell devolveu a moldura inteira do comando gerenciado.
   No ensaio com `Write-Output 'gerenciado-revisao-1120'`, a moldura media
-  142 bytes na base `366e2f1a3` e 6.330 bytes em `093979e82`.
+  142 bytes na base `366e2f1a3` e 6.330 bytes na medição desta alteração.
   Com `SaveIncrementally`, o arquivo isolado continha
   a moldura e as entradas manuais. Com `SaveNothing`, a moldura permaneceu
   disponível em memória. A ativação do módulo depende da configuração do host.
