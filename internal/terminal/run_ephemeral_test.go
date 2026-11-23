@@ -275,7 +275,7 @@ func TestPowerShellNamespaceAndNativeReturn(t *testing.T) {
 			cmd := marker.wrapCommandInDirectory("using namespace System.Text; (Get-Location).ProviderPath", dir, "powershell")
 			out, err := exec.CommandContext(t.Context(), "powershell.exe", "-NoProfile", "-NonInteractive", "-Command", cmd).CombinedOutput()
 			result := parseMarkerOutput(marker, string(out))
-			if err != nil || !result.Found || result.ExitCode != 0 || strings.TrimSpace(result.Output) != dir {
+			if err != nil || !result.Found || result.ExitCode != 0 || !sameTestDirectory(strings.TrimSpace(result.Output), dir) {
 				t.Fatalf("diretório após using: saída=%q status=%d erro=%v", result.Output, result.ExitCode, err)
 			}
 		}
@@ -665,6 +665,35 @@ func TestPowerShellReturnInPersistentSession(t *testing.T) {
 		{"cmd.exe /c --% echo sample", "sample", 0},
 		{"cmd /c exit 7; return", "", 7},
 		{"Write-Output $LASTEXITCODE", "7", 0},
+		{"$(if ($true) { cmd.exe /c exit 7 })", "", 7},
+		{"return $(if ($true) { cmd.exe /c exit 7 })", "", 7},
+		{"return @(if ($true) { cmd.exe /c exit 8 })", "", 8},
+		{"$(if ($true) { return (cmd /c exit 7) })", "", 7},
+		{"if ($true) { return (cmd /c exit 7) }", "", 7},
+		{"if ($true) { return cmd /c exit 7 }", "", 7},
+		{"$(if ($true) { cmd /c exit 7; return })", "", 7},
+		{"$(return (cmd /c exit 7))", "", 7},
+		{"$(if ($true) { cmd /c exit 7; return $? })", "False", 1},
+		{"$(if ($true) { cmd /c exit 7; return (42) })", "42", 7},
+		{"$(if ($true) { cmd /c exit 7; return @(1, ('dois')) })", "1\ndois", 7},
+		{"$(if ($true) { cmd /c exit 7; return $(42) })", "42", 7},
+		{"$(if ($true) { cmd /c exit 7; return (@($?)) })", "False", 1},
+		{"cmd /c exit 6; @(if ($true) { return 'x' })", "", 0},
+		{"cmd /c exit 6; $(if ($true) { 'x' })", "x", 0},
+		{`$(if ($true) { cmd /c exit 7; return "ok=$?" })`, "ok=False", 1},
+		{"$(if ($true) { Write-Output pronto; return $? })", "pronto\nTrue", 0},
+		{"@(if ($true) { cmd /c exit 8; return 'oi' })", "", 8}, // @() descarta a saída acumulada ao sair por return.
+		{"cmd /c exit 6; $(if ($true) { Get-Item missing-leaf -ErrorAction Ignore; return 'oi' })", "oi", 1},
+		{"cmd /c exit 6; $(if ($false) { cmd /c exit 7; return 'oi' } else { Write-Output ok })", "ok", 0},
+		{"@(if ($true) { return cmd /c exit 8 })", "", 8},
+		{"cmd /c exit 6; $(if ($false) { return (cmd /c exit 7) } else { Write-Output ok })", "ok", 0},
+		{"cmd.exe /c exit 6; return @(if ($false) { cmd.exe /c exit 7 })", "", 0},
+		{"cmd.exe /c exit 6; return $(if ($true) {})", "", 0},
+		{"cmd.exe /c exit 6; return $(if ($true) { Write-Output pronto })", "pronto", 0},
+		{"@(if ($true) { cmd.exe /c 'echo resultado & exit 8' })", "resultado", 8},
+		{"$(if ($false) { cmd.exe /c exit 7 })", "", 0},
+		{"$(if ($false) { cmd.exe /c exit 7 } elseif ($true) { Write-Output pronto } else { cmd.exe /c exit 8 })", "pronto", 0},
+		{"@(if ($false) { cmd.exe /c exit 7 } else { if ($true) { (& (Get-Command cmd.exe) /c exit 9) } })", "", 9},
 		{"Get-Item missing-leaf -ErrorAction Ignore", "", 1},
 		{"cmd /c exit 7", "", 7},
 		{"Write-Output pronto", "pronto", 0},
@@ -673,6 +702,10 @@ func TestPowerShellReturnInPersistentSession(t *testing.T) {
 		{"mode.com con cols=80; Write-Output ('x' * 161)", strings.Repeat("x", 161), 0},
 		{"$Host.UI.RawUI.WindowSize.Width", "80", 0},
 		{"Write-Output ('y' * 161)", strings.Repeat("y", 161), 0},
+		{"Set-StrictMode -Version Latest", "", 0},
+		{"@(if ($true) { return Write-Output exemplo })", "", 0},
+		{"$(if ($true) { return Write-Output exemplo })", "exemplo", 0},
+		{"$(if ($true) { return cmd /c exit 7 })", "", 7},
 	} {
 		streamed.Reset()
 		entry, err := manager.RunCommand(t.Context(), session.ID(), tc.command, 10*time.Second, "test")

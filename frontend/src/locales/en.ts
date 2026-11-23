@@ -284,6 +284,7 @@ notSaved: 'The decision applies only to this operation: it could not be remember
       dropFiles: 'Drop files here',
       selectFiles: 'Select files',
       attachFile: 'Attach file',
+      pendingAttachmentsCanceled: 'Pending attachments were canceled. Attach them again when you can edit.',
       messageLabel: 'Message',
       draftSaved: 'Draft saved',
       waitResponse: 'Wait for the response to finish before sending',
@@ -2003,7 +2004,7 @@ notSaved: 'The decision applies only to this operation: it could not be remember
         title: 'Terminate terminal',
         message: 'Terminate "{{name}}" and every running process? Other connected tabs and chats will lose access.',
       },
-      entry: { llmCommand: 'LLM Command', command: 'Command', commandLLM: 'Command (LLM)', llm: 'LLM', output: 'Output', running: 'running', empty: 'empty', exitCode: 'Exit code:', duration: 'Duration:', exit: 'exit:', executing: 'Executing...', truncated: 'truncated', reading: 'Reading mode', readingDialog: 'Reading terminal entry. Press Escape to exit.', readingOpen: 'Terminal reading mode enabled. Press Escape to exit.', readingClose: 'Terminal reading mode disabled.' },
+      entry: { llmCommand: 'LLM Command', command: 'Command', commandLLM: 'Command (LLM)', llm: 'LLM', sessionOutput: 'Session output', output: 'Output', running: 'running', empty: 'empty', exitCode: 'Exit code:', duration: 'Duration:', exit: 'exit:', executing: 'Executing...', truncated: 'truncated', reading: 'Reading mode', readingDialog: 'Reading terminal entry. Press Escape to exit.', readingOpen: 'Terminal reading mode enabled. Press Escape to exit.', readingClose: 'Terminal reading mode disabled.' },
       history: { label: 'Terminal history', loading: 'Loading...', emptyTitle: 'No commands executed.', emptyHint: 'Type a command below to get started.', commandPrefix: 'Command:' },
       tabs: { closed: 'Terminal closed.', of: 'of', label: 'Terminals', listLabel: 'List of open terminals', running: 'Running', close: 'Close', newShortcut: 'Create new terminal, Ctrl+T', newTooltip: 'New terminal (Ctrl+T)' },
       announce: {
@@ -2022,6 +2023,8 @@ notSaved: 'The decision applies only to this operation: it could not be remember
       },
       chatModal: {
         noHistory: '(no terminal history)',
+        truncatedHistory: '… history truncated',
+        blankInput: 'Blank input',
       },
     },
 

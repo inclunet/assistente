@@ -33,6 +33,7 @@ type CommandMarker struct {
 	id              string
 	startTag        string
 	endTag          string
+	probeInterrupt  <-chan struct{}
 	inlineEnd       bool
 	conPTY          bool
 	viewportColumns int
@@ -53,7 +54,7 @@ func newCommandMarkerForShell(shell string) *CommandMarker {
 func (m *CommandMarker) wrapCommandInDirectory(command, directory, shellType string) string {
 	switch shellType {
 	case "powershell", "powershell.exe", "pwsh", "pwsh.exe":
-		return m.wrapPowerShell(command, directory)
+		return m.wrapPowerShell(command, directory, "")
 	default:
 		return m.wrapPOSIX(command, directory, shellType)
 	}
@@ -109,7 +110,7 @@ var powerShellInvocation = regexp.MustCompile(`(?i)(?:(?:^|[;({|]|` + powerShell
 // Uma interpolação como "${base}.$ext" também pode selecionar essa rota.
 // A AST distingue o dado interpolado de uma invocação após o fim do bloco.
 var powerShellAfterBlock = regexp.MustCompile(`}` + powerShellGap + `*\.(?:` + powerShellGap + `|[$({"'])`)
-var standalonePowerShellGroup = regexp.MustCompile(`(?:^|[;\r\n{]|#>)` + powerShellGap + `*[$@]?\(`)
+var standalonePowerShellGroup = regexp.MustCompile(`(?i)(?:^|[;\r\n{]|#>)` + powerShellGap + `*(?:return` + powerShellGap + `*)?[$@]?\(`)
 var powerShellGroupEnd = regexp.MustCompile(`\)(?:;|` + powerShellGap + `)*\z`)
 var powerShellNamespace = regexp.MustCompile(`(?i)(?:^|[;\r\n]|#>)` + powerShellGap + `*using` + powerShellGap + `+namespace\b`)
 
@@ -138,8 +139,34 @@ func selectPowerShellPreparation(command string) powerShellPreparation {
 	}
 }
 
+// A biblioteca fica no processo do shell. A entrada interativa contém apenas
+// a moldura específica da invocação, inclusive quando PSReadLine está ausente.
+const libraryVariable = "AssistenteTerminalLibrary"
+const libraryTuple = "[Tuple[string,scriptblock,scriptblock,scriptblock]]"
+
+// Uma única constante associa os três blocos ao identificador desta sessão.
+// Um perfil que já é dono do nome conserva seu valor.
+func powerShellSessionLibrary(key string) string {
+	return "if (!$ExecutionContext.SessionState.PSVariable.Get('global:" + libraryVariable + "')) { " +
+		`Microsoft.PowerShell.Utility\New-Variable -Scope Global -Option Constant -ErrorAction Ignore -Name ` + libraryVariable +
+		" -Value (" + libraryTuple + "::new('" + key + "'," + singlePowerShellLine(failedPowerShellStatus) + "," +
+		singlePowerShellLine(prepareGroupedPowerShell) + "," + singlePowerShellLine(powerShellBareTargetExpression) + ")) }"
+}
+
+func powerShellLibraryPresent(key string) string {
+	value := "$ExecutionContext.SessionState.PSVariable.GetValue('global:" + libraryVariable + "')"
+	return value + " -is " + libraryTuple + " -and $global:" + libraryVariable + ".Item1 -ceq '" + key + "'"
+}
+
+// A consulta não carrega o corpo autorizado. Use enquadramento distinto para
+// a execução, que recebe o corpo uma única vez em ambos os modos.
+func (m *CommandMarker) powerShellProbe(key string) string {
+	return fmt.Sprintf("Write-Host ([string][char]24 + [Environment]::NewLine + '%s' + '%s'); Write-Host ([string][char]24 + '%s' + '%s' + [int](!(%s)) + '!')",
+		markerStart, m.id+markerSuffix, markerEnd, m.id+markerSuffix, powerShellLibraryPresent(key))
+}
+
 // wrapPowerShell gera comando wrapped para PowerShell.
-func (m *CommandMarker) wrapPowerShell(command, directory string) string {
+func (m *CommandMarker) wrapPowerShell(command, directory, key string) string {
 	// O ConPTY pode colar a saída ao eco ou redesenhar o comando anterior.
 	// Só o shell concatena os fragmentos: o eco nunca contém as tags deste comando.
 	start := fmt.Sprintf("Write-Host ([string][char]24 + [Environment]::NewLine + '%s' + '%s')", markerStart, m.id+markerSuffix)
@@ -153,9 +180,15 @@ func (m *CommandMarker) wrapPowerShell(command, directory string) string {
 		state = "$__asstState" + m.id
 		setup = state + " = @{}; "
 		cleanup += "," + state[1:]
-		success += " -and " + state + "['Ok'] -ne $false"
+		success = "($? -or " + state + "['Ok'] -eq $true) -and " + state + "['Ok'] -ne $false"
 	}
-	status := fmt.Sprintf("%s = if (%s) { 0 } else { %s $MyInvocation.MyCommand.ScriptBlock.Ast %s }", code, success, singlePowerShellLine(failedPowerShellStatus), state)
+	statusHelper, prepareHelper, targetHelper := "& $global:"+libraryVariable+".Item2", "& $global:"+libraryVariable+".Item3", "$global:"+libraryVariable+".Item4"
+	if key == "" {
+		statusHelper = "& " + singlePowerShellLine(failedPowerShellStatus)
+		prepareHelper = "& " + singlePowerShellLine(prepareGroupedPowerShell)
+		targetHelper = singlePowerShellLine(powerShellBareTargetExpression)
+	}
+	status := fmt.Sprintf("%s = if (%s) { 0 } else { %s $MyInvocation.MyCommand.ScriptBlock.Ast %s }", code, success, statusHelper, state)
 	guard := powerShellDirectoryGuard(directory)
 	body, parseGuard := guard+command, ""
 	if preparation.namespace {
@@ -174,45 +207,75 @@ func (m *CommandMarker) wrapPowerShell(command, directory string) string {
 	if preparation.needed() {
 		normalize := "$null"
 		if preparation.computed {
-			normalize = singlePowerShellLine(powerShellBareTargetExpression)
+			normalize = targetHelper
 		}
-		script = fmt.Sprintf("%s (%s) {%s} '%s' '%s' %s", singlePowerShellLine(prepareGroupedPowerShell), source, status, state, parseGuard, normalize)
+		script = fmt.Sprintf("%s (%s) {%s} '%s' '%s' %s", prepareHelper, source, status, state, parseGuard, normalize)
+	}
+	if key != "" {
+		parseGuard = "if (!(" + powerShellLibraryPresent(key) + ")) { throw 'PowerShell session changed' }; " + parseGuard
 	}
 	return fmt.Sprintf("%s; %stry { %s. (%s) } catch { Microsoft.PowerShell.Utility\\Write-Error -ErrorRecord $_ -ErrorAction Continue; %s=1 }; Write-Host (%s + %s + '%s'); Microsoft.PowerShell.Utility\\Remove-Variable -Name %s -ErrorAction Ignore", start, setup, parseGuard, script, code, end, code, markerStatusTerminator, cleanup)
 }
 
 // A preparação e a leitura da falha precisam identificar a mesma operação.
 // Um retorno de valor literal conserva o status da operação precedente.
-const powerShellLastOperation = `	$last = $null;
-	foreach ($stmt in $stmts) {
-		if ($stmt -is [System.Management.Automation.Language.ReturnStatementAst]) {
-			if ($stmt.Pipeline) {
-				$value = $stmt.Pipeline;
-				while ($value -is [System.Management.Automation.Language.PipelineAst] -and $value.PipelineElements.Count -eq 1 -and $value.PipelineElements[0] -is [System.Management.Automation.Language.CommandExpressionAst]) {
-					$expr = $value.PipelineElements[0].Expression;
-					if ($expr -is [System.Management.Automation.Language.ParenExpressionAst]) {
-						$value = $expr.Pipeline
-					} elseif ($expr -is [System.Management.Automation.Language.SubExpressionAst] -or $expr -is [System.Management.Automation.Language.ArrayExpressionAst]) {
-						if (!$expr.SubExpression.Statements.Count) { break };
-						$value = $expr.SubExpression.Statements[-1]
-					} else { break }
-				};
-				if ($value -is [System.Management.Automation.Language.PipelineAst] -and $value.PipelineElements.Count -and $value.PipelineElements[-1] -is [System.Management.Automation.Language.CommandAst]) { $last = $value }
-			};
-			break
+const powerShellLastOperation = `	$isConstantReturn = {
+		param($stmt);
+		if ($stmt -isnot [System.Management.Automation.Language.ReturnStatementAst]) { return $false };
+		if (!$stmt.Pipeline) { return $true };
+		$nodes = [System.Collections.Stack]::new();
+		$nodes.Push($stmt.Pipeline);
+		while ($nodes.Count) {
+			$node = $nodes.Pop();
+			if ($node -is [System.Management.Automation.Language.ConstantExpressionAst]) { continue };
+			if ($node -is [System.Management.Automation.Language.PipelineAst] -and $node.PipelineElements.Count -eq 1) { $nodes.Push($node.PipelineElements[0]) }
+			elseif ($node -is [System.Management.Automation.Language.CommandExpressionAst] -and !$node.Redirections.Count) { $nodes.Push($node.Expression) }
+			elseif ($node -is [System.Management.Automation.Language.ParenExpressionAst]) { $nodes.Push($node.Pipeline) }
+			elseif ($node -is [System.Management.Automation.Language.ArrayLiteralAst]) { foreach ($item in $node.Elements) { $nodes.Push($item) } }
+			elseif (($node -is [System.Management.Automation.Language.SubExpressionAst] -or $node -is [System.Management.Automation.Language.ArrayExpressionAst]) -and !$node.SubExpression.Traps) { foreach ($item in $node.SubExpression.Statements) { $nodes.Push($item) } }
+			else { return $false }
 		};
-		$last = $stmt
+		return $true
 	};
+	$lastInBlock = {
+		param($items, $keepReturn);
+		$last = $null;
+		foreach ($stmt in $items) {
+			if ($stmt -is [System.Management.Automation.Language.ReturnStatementAst]) {
+				if ($stmt.Pipeline) {
+					$value = $stmt.Pipeline;
+					while ($value -is [System.Management.Automation.Language.PipelineAst] -and $value.PipelineElements.Count -eq 1 -and $value.PipelineElements[0] -is [System.Management.Automation.Language.CommandExpressionAst]) {
+						$expr = $value.PipelineElements[0].Expression;
+						if ($expr -is [System.Management.Automation.Language.ParenExpressionAst]) {
+							$value = $expr.Pipeline
+						} elseif ($expr -is [System.Management.Automation.Language.SubExpressionAst] -or $expr -is [System.Management.Automation.Language.ArrayExpressionAst]) {
+							if (!$expr.SubExpression.Statements.Count) { break };
+							$value = $expr.SubExpression.Statements[-1]
+						} else { break }
+					};
+					if ($value -is [System.Management.Automation.Language.IfStatementAst]) {
+						if ($keepReturn) { $last = $stmt } else { $last = $stmt.Pipeline }
+					} elseif ($value -is [System.Management.Automation.Language.PipelineAst] -and $value.PipelineElements.Count -and $value.PipelineElements[-1] -is [System.Management.Automation.Language.CommandAst]) {
+						if ($keepReturn) { $last = $stmt } else { $last = $value }
+					} elseif (!(& $isConstantReturn $stmt)) { $last = $null }
+				};
+				break
+			};
+			$last = $stmt
+		};
+		return $last
+	};
+	$last = & $lastInBlock $stmts $false;
 	while ($last -is [System.Management.Automation.Language.IfStatementAst] -and $last.Clauses.Count -eq 1 -and !$last.ElseClause) {
 		if (!$last.Clauses[0].Item2.Statements.Count) { break };
-		$last = $last.Clauses[0].Item2.Statements[-1]
+		$last = & $lastInBlock $last.Clauses[0].Item2.Statements $false
 	};
 `
 
 // LASTEXITCODE pertence à sessão e sobrevive a cmdlets. Consulte a operação
 // antes de atribuir sua falha a um executável. Na saída stderr com status zero,
 // confira a posição real do erro e aceite só os formatadores conhecidos.
-const failedPowerShellStatus = `& {
+const failedPowerShellStatus = `{
 	param($ast, $targets);
 	$scope = $ast.EndBlock.Statements[0].Body;
 	$stmts = $scope.Statements;
@@ -299,7 +362,7 @@ const powerShellBareTargetExpression = `{
 // Capture $? antes que o agrupamento o restaure. Preserve os delimitadores:
 // @() pode descartar toda a saída acumulada em uma falha terminante.
 // () só admite um pipeline; a subexpressão interna comporta seu try/finally.
-const prepareGroupedPowerShell = `& {
+const prepareGroupedPowerShell = `{
 	param($source, $status, $capture, $guard, $normalize);
 	$tokens = $null;
 	$errors = $null;
@@ -315,28 +378,56 @@ const prepareGroupedPowerShell = `& {
 		if ($insertAt) { $frame = [Environment]::NewLine + $frame }
 	};
 	$stmts = $ast.EndBlock.Statements;
-` + powerShellLastOperation + `	$container = $null;
-	while ($last -is [System.Management.Automation.Language.PipelineAst] -and $last.PipelineElements.Count -eq 1) {
-		$element = $last.PipelineElements[0];
-		if ($element -isnot [System.Management.Automation.Language.CommandExpressionAst] -or $element.Redirections.Count) { break };
-		$group = $element.Expression;
-		if ($group -is [System.Management.Automation.Language.ParenExpressionAst]) {
-			$last = $group.Pipeline
-		} elseif ($group -is [System.Management.Automation.Language.SubExpressionAst] -or $group -is [System.Management.Automation.Language.ArrayExpressionAst]) {
-			if (!$group.SubExpression.Statements.Count) { break };
-			$last = $group.SubExpression.Statements[-1]
-		} else { break };
-		$container = $group
+` + powerShellLastOperation + `	$visit = {
+		param($last, $container);
+		while ($true) {
+			if ($last -is [System.Management.Automation.Language.ReturnStatementAst]) {
+				$container = $last;
+				$last = $last.Pipeline
+			};
+			if ($last -isnot [System.Management.Automation.Language.PipelineAst] -or $last.PipelineElements.Count -ne 1) { break };
+			$element = $last.PipelineElements[0];
+			if ($element -isnot [System.Management.Automation.Language.CommandExpressionAst] -or $element.Redirections.Count) { break };
+			$group = $element.Expression;
+			if ($group -is [System.Management.Automation.Language.ParenExpressionAst]) {
+				$last = $group.Pipeline
+			} elseif ($group -is [System.Management.Automation.Language.SubExpressionAst] -or $group -is [System.Management.Automation.Language.ArrayExpressionAst]) {
+				if (!$group.SubExpression.Statements.Count) { break };
+				$last = & $lastInBlock $group.SubExpression.Statements $true
+			} else { break };
+			$container = $group
+		};
+		if ($container -and $last -is [System.Management.Automation.Language.IfStatementAst]) {
+			$blocks = @($last.Clauses.Item2) + @($last.ElseClause);
+			foreach ($block in $blocks) {
+				if (!$block) { continue };
+				if (!$block.Statements.Count -or (& $isConstantReturn $block.Statements[0])) {
+					[pscustomobject]@{ At = $block.Extent.StartOffset + 1; Text = [Environment]::NewLine + $capture + '.Ok = $true' + [Environment]::NewLine }
+				} else { & $visit (& $lastInBlock $block.Statements $true) $last }
+			};
+			if (!$last.ElseClause) {
+				[pscustomobject]@{ At = $last.Extent.EndOffset; Text = ' else { ' + $capture + '.Ok = $true }' }
+			};
+			return
+		};
+		if ($last -is [System.Management.Automation.Language.PipelineAst] -and $last.PipelineElements.Count -and $last.PipelineElements[-1] -is [System.Management.Automation.Language.CommandAst]) {
+			[pscustomobject]@{ Last = $last; Container = $container }
+		}
 	};
-	if ($last -is [System.Management.Automation.Language.PipelineAst] -and $last.PipelineElements.Count -and $last.PipelineElements[-1] -is [System.Management.Automation.Language.CommandAst]) {
+	$originalLength = $source.Length;
+	foreach ($operation in (& $visit $last $null)) {
+		$shift = $source.Length - $originalLength;
+		if ($operation.PSObject.Properties['Text']) { $source = $source.Insert($shift + $operation.At, $operation.Text); continue };
+		$last = $operation.Last;
+		$container = $operation.Container;
 		$stages = $last.PipelineElements;
 		$prefix = '';
 		if ($container) {
-			if ($container -is [System.Management.Automation.Language.ParenExpressionAst]) { $prefix = '$(try { ' };
-			$offset = $frame.Length + $last.Extent.StartOffset + $prefix.Length;
+			if ($container -is [System.Management.Automation.Language.ParenExpressionAst] -or $container -is [System.Management.Automation.Language.ReturnStatementAst]) { $prefix = '$(try { ' };
+			$offset = $frame.Length + $shift + $last.Extent.StartOffset + $prefix.Length;
 			$record = $capture + '.Ok = $?; ' + $capture + '.Offset = ' + $offset;
 			$suffix = if ($prefix) { ' } finally { ' + $record + ' })' } else { '; ' + $record };
-			$source = $source.Insert($last.Extent.EndOffset, [Environment]::NewLine + $suffix + [Environment]::NewLine)
+			$source = $source.Insert($shift + $last.Extent.EndOffset, [Environment]::NewLine + $suffix + [Environment]::NewLine)
 		};
 		for ($n = $stages.Count - 1; $n -ge 0; $n--) {
 			$stage = $stages[$n];
@@ -350,9 +441,10 @@ const prepareGroupedPowerShell = `& {
 				if (!$text) { continue }
 			};
 			$replacement = '(' + $capture + '[' + $n + '] = ' + $text + ')';
-			$source = $source.Remove($target.StartOffset, $target.EndOffset - $target.StartOffset).Insert($target.StartOffset, $replacement)
+			$at = $shift + $target.StartOffset;
+			$source = $source.Remove($at, $target.EndOffset - $target.StartOffset).Insert($at, $replacement)
 		};
-		if ($prefix) { $source = $source.Insert($last.Extent.StartOffset, $prefix) }
+		if ($prefix) { $source = $source.Insert($shift + $last.Extent.StartOffset, $prefix) }
 	};
 	return [scriptblock]::Create($source.Insert($insertAt, $frame) + ' } finally { ' + $status.ToString() + ' }')
 }`
@@ -376,6 +468,10 @@ type parseResult struct {
 
 	// Found indica se os markers foram encontrados no output
 	Found bool
+
+	// Bytes do mesmo lote que chegaram depois do terminador do rodapé.
+	afterFooter  string
+	footerColumn int
 }
 
 // stripANSI remove todas as sequências ANSI escape de uma string.

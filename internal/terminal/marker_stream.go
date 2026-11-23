@@ -16,18 +16,22 @@ const maxControlLiteral = 4096
 // parsedTerminalText acumula os bytes normalizados. Somente a confirmação de
 // um redesenho do ConPTY pode retirar a quebra de linha mais recente.
 type parsedTerminalText struct {
-	conPTY           bool
-	marker           *CommandMarker
-	columns          int
-	data             []byte
-	lastText         int
-	row, previousRow int
-	cr, rawCR, crlf  bool
-	control          terminalControl
-	escape           []byte
-	escapeAfterCRLF  bool
-	replay           string
-	replayed         int
+	conPTY                  bool
+	marker                  *CommandMarker
+	columns                 int
+	data                    []byte
+	lastText                int
+	row, previousRow        int
+	cr, rawCR, crlf         bool
+	control                 terminalControl
+	escape                  []byte
+	escapeAfterCRLF         bool
+	escapeFromPreviousOwner bool
+	replay                  string
+	replayed                int
+	// Depois do rodapé, somente o CRLF e o cursor da margem podem repetir o terminador.
+	footerColumn   int
+	skipFooterCell bool
 }
 
 func (t *parsedTerminalText) write(s string) {
@@ -39,6 +43,24 @@ func (t *parsedTerminalText) write(s string) {
 
 func (t *parsedTerminalText) feed(chunk string) {
 	for chunk != "" {
+		if t.skipFooterCell {
+			t.skipFooterCell = false
+			if chunk[0] == markerStatusTerminator[0] {
+				chunk = chunk[1:]
+				continue
+			}
+		}
+		if t.footerColumn > 0 && t.control.kind == 0 {
+			expected := byte('\r')
+			if t.rawCR {
+				expected = '\n'
+			} else if t.crlf {
+				expected = '\x1b'
+			}
+			if chunk[0] != expected {
+				t.footerColumn = 0
+			}
+		}
 		if t.replay != "" {
 			want := t.replay[t.replayed:]
 			n := min(len(want), len(chunk))
@@ -90,6 +112,7 @@ func (t *parsedTerminalText) feed(chunk string) {
 		case '\x1b':
 			t.rawCR = false
 			t.control.start()
+			t.escapeFromPreviousOwner = false
 			t.escape = append(t.escape, '\x1b')
 			t.escapeAfterCRLF, t.crlf = t.crlf, false
 			chunk = chunk[1:]
@@ -118,11 +141,18 @@ func (t *parsedTerminalText) escapeByte(ch byte) bool {
 			t.escape = append(t.escape, ch)
 		}
 	case escapeEnd:
-		if t.conPTY && kind == '[' && ch == 'H' && t.escapeAfterCRLF && len(t.escape) >= 2 {
-			t.beginReplay()
+		if kind == '[' && ch == 'H' && t.escapeAfterCRLF && len(t.escape) >= 2 {
+			column := cursorColumn(t.escape[2:])
+			if t.footerColumn > 0 {
+				t.skipFooterCell = column == t.footerColumn
+			} else if t.conPTY && column > 0 && column == t.columns {
+				t.replay = string(lastCellAt(t.data[t.previousRow:len(t.data)-1], column))
+			}
 		}
+		t.footerColumn = 0
 		t.escape = t.escape[:0]
 	case escapeInvalid:
+		t.footerColumn = 0
 		t.flushEscape()
 		return false
 	}
@@ -130,6 +160,10 @@ func (t *parsedTerminalText) escapeByte(ch byte) bool {
 }
 
 func (t *parsedTerminalText) flushEscape() {
+	if t.escapeFromPreviousOwner {
+		t.escape = t.escape[:0]
+		return
+	}
 	if len(t.escape) != 0 {
 		if t.cr {
 			t.write("\r")
@@ -147,34 +181,47 @@ func (t *parsedTerminalText) flushEscape() {
 	}
 }
 
-func (t *parsedTerminalText) beginReplay() {
-	row, col, ok := bytes.Cut(t.escape[2:], []byte(";"))
+func cursorColumn(position []byte) int {
+	row, col, ok := bytes.Cut(position, []byte(";"))
 	if !ok || len(row) == 0 || len(col) == 0 || col[0] == '0' {
-		return
+		return 0
 	}
 	for _, ch := range row {
 		if ch < '0' || ch > '9' {
-			return
+			return 0
 		}
 	}
 	column, err := strconv.Atoi(string(col))
-	if err != nil || column != t.columns || column <= 0 {
-		return
+	if err != nil {
+		return 0
 	}
+	return column
+}
+
+func lastCellAt(rest []byte, column int) []byte {
 	cells, lastWidth := 0, 0
 	var last []byte
-	rest := t.data[t.previousRow : len(t.data)-1]
 	state := -1
 	for len(rest) > 0 {
-		last, rest, lastWidth, state = uniseg.FirstGraphemeCluster(rest, state)
-		cells += lastWidth
-		if cells > column {
-			return
+		// O ConPTY pode entregar várias linhas visuais sem CRLF. Conte
+		// as células na linha corrente ao conferir a margem redesenhada.
+		if cells == column {
+			cells = 0
 		}
+		last, rest, lastWidth, state = uniseg.FirstGraphemeCluster(rest, state)
+		if lastWidth > column {
+			return nil
+		}
+		if cells+lastWidth > column {
+			// Um grafema largo que não cabe começa na próxima linha.
+			cells = 0
+		}
+		cells += lastWidth
 	}
 	if cells == column && lastWidth > 0 {
-		t.replay = string(last)
+		return last
 	}
+	return nil
 }
 
 func (t *parsedTerminalText) finish() {
@@ -204,15 +251,50 @@ func newMarkerStream(marker *CommandMarker) *markerStream {
 }
 
 func (s *markerStream) append(chunk string) ([]byte, parseResult) {
+	// Pare no byte físico que confirma o rodapé. O restante ainda tem os
+	// controles e bytes UTF-8 originais e pertence ao fluxo manual da sessão.
+	first := -1
+	var result parseResult
+	for chunk != "" {
+		part := chunk
+		if at := strings.IndexByte(chunk, markerStatusTerminator[0]); at >= 0 {
+			part = chunk[:at+1]
+		}
+		chunk = chunk[len(part):]
+		var delta []byte
+		delta, result = s.appendPart(part, chunk != "")
+		if first < 0 && len(delta) > 0 {
+			first = s.sent - len(delta)
+		}
+		if result.Found {
+			result.afterFooter = chunk
+			if s.text.conPTY && s.text.columns > 0 && string(lastCellAt(s.text.data[s.text.row:], s.text.columns)) == markerStatusTerminator {
+				result.footerColumn = s.text.columns
+			}
+			break
+		}
+	}
+	if first >= 0 {
+		return s.text.data[first:s.sent], result
+	}
+	return nil, result
+}
+
+func (s *markerStream) appendPart(chunk string, more bool) ([]byte, parseResult) {
 	before := len(s.text.data)
 	var last byte
 	if before > 0 {
 		last = s.text.data[before-1]
 	}
 	s.text.feed(chunk)
+	// Exclamações ordinárias no corpo não requerem buscas de status. O último
+	// trecho publica o delta inteiro mesmo quando nenhum terminador foi encontrado.
+	if more && s.candidate == 0 && !bytes.Contains(s.text.data[max(0, before-len(s.marker.endTag)):], []byte(s.marker.endTag)) {
+		return nil, parseResult{}
+	}
 	// Um controle pendente pode consumir vários blocos sem alterar o texto.
 	// O único recuo possível substitui ou remove a última quebra de linha.
-	if before == len(s.text.data) && (before == 0 || last == s.text.data[before-1]) {
+	if s.scanned == before && before == len(s.text.data) && (before == 0 || last == s.text.data[before-1]) {
 		return nil, parseResult{}
 	}
 	return s.progress()

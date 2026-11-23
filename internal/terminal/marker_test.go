@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"io"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -91,8 +92,8 @@ func TestCommandMarker_WrapPowerShell(t *testing.T) {
 	if !strings.Contains(wrapped, base64.StdEncoding.EncodeToString([]byte("Get-Process"))) {
 		t.Errorf("wrapped command should contain original command, got: %s", wrapped)
 	}
-	if !strings.Contains(wrapped, "$LASTEXITCODE") {
-		t.Errorf("wrapped command should capture exit code with $LASTEXITCODE, got: %s", wrapped)
+	if !strings.Contains(powerShellSessionLibrary("test"), "$LASTEXITCODE") {
+		t.Error("falta captura do status nativo na biblioteca da sessão")
 	}
 }
 
@@ -434,6 +435,10 @@ func TestPowerShellConPTYRedrawPreservesOutput(t *testing.T) {
 	marker.viewportColumns = 3
 	for _, tc := range []struct{ raw, want string }{
 		{"abc\r\n\x1b[39;3Hcdef\r\n\x1b[39;3Hfgh", "abcdefgh"},
+		{"abcdef\r\n\x1b[39;3Hfg", "abcdefg"},
+		{"abcdefg\r\n\x1b[39;3Hgh", "abcdefg\ngh"},
+		{"ab界x\r\n\x1b[39;3Hxy", "ab界xy"},
+		{"abc界a\r\n\x1b[39;3Hab", "abc界ab"},
 		{"界a\r\n\x1b[39;3Hab", "界ab"},
 		{"abc\r\n\x1b[39;2Hcdef", "abc\ncdef"},
 		{"abc\r\n\x1b[39;3Hzdef", "abc\nzdef"},
@@ -532,6 +537,85 @@ func TestConPTYRedrawAfterCompleteFooter(t *testing.T) {
 		}
 		if !result.Found || result.ExitCode != 3 || result.Output != "corpo" || output != "corpo" {
 			t.Fatalf("corte %d: resultado=%+v saída=%q", split, result, output)
+		}
+	}
+}
+
+func TestConPTYSessionOutputAfterFooterRedraw(t *testing.T) {
+	m := newCommandMarkerForShell("powershell")
+	m.conPTY = true
+	m.viewportColumns = len(m.endTag) + len("3!")
+	right := "\x1b[1;" + strconv.Itoa(m.viewportColumns) + "H"
+	for _, tc := range []struct{ name, before, tail, want string }{
+		{"redesenho", "", "\r\n" + right + "!PS> ", "PS> "},
+		{"texto após redesenho", "", "\r\n" + right + "!!mensagem", "!mensagem"},
+		{"caractere diferente", "", "\r\n" + right + "nova", "nova"},
+		{"sem cursor", "", "\r\n!PS> ", "!PS> "},
+		{"outra coluna", "", "\r\n\x1b[1;2H!PS> ", "!PS> "},
+		{"quebra a mais", "", "\r\n\r\n" + right + "!PS> ", "\n!PS> "},
+		{"rodapé fora da margem", "x", "\r\n" + right + "!PS> ", "!PS> "},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			for split := 0; split <= len(tc.tail); split++ {
+				stream := newMarkerStream(m)
+				_, result := stream.append(m.startTag + "\r\n" + tc.before + m.endTag + "3!" + tc.tail[:split])
+				if !result.Found {
+					t.Fatal("rodapé não encontrado")
+				}
+				var raw strings.Builder
+				s := &Session{suppressRawOutput: true, onRawOutput: func(_, id, text string) {
+					if id != "" {
+						t.Errorf("dono da saída espontânea=%q", id)
+					}
+					raw.WriteString(text)
+				}}
+				s.resumeRawAfterFooter(result)
+				s.recordOutput(tc.tail[split:])
+				s.finishRawOutput()
+				s.rawOwner.wait()
+				if raw.String() != tc.want {
+					t.Fatalf("corte %d: saída=%q esperada=%q", split, raw.String(), tc.want)
+				}
+			}
+		})
+	}
+}
+
+func TestConPTYFooterRedrawAcrossManualInput(t *testing.T) {
+	m := newCommandMarkerForShell("powershell")
+	m.conPTY = true
+	m.viewportColumns = len(m.endTag) + len("3!")
+	cursor := "\r\n\x1b[1;" + strconv.Itoa(m.viewportColumns) + "H"
+	for cut := 0; cut <= len(cursor+"!"); cut++ {
+		stream := newMarkerStream(m)
+		_, result := stream.append(m.startTag + "\r\n" + m.endTag + "3!" + (cursor + "!")[:cut])
+		s := &Session{suppressRawOutput: true, ptyWriter: io.Discard}
+		var output strings.Builder
+		s.onRawOutput = func(_, id, text string) {
+			if id != "manual" {
+				t.Errorf("corte %d: texto %q com dono %q", cut, text, id)
+			}
+			output.WriteString(text)
+		}
+		s.resumeRawAfterFooter(result)
+		if _, err := s.SendInput("comando", "manual"); err != nil {
+			t.Fatal(err)
+		}
+		s.recordOutput((cursor + "!")[cut:] + "!PS> ")
+		s.finishRawOutput()
+		s.rawOwner.wait()
+		if output.String() != "!PS> " {
+			t.Errorf("corte %d: saída=%q", cut, output.String())
+		}
+	}
+	// Uma posição incompleta herdada serve à detecção, mas nem o EOF nem
+	// um controle inválido podem entregá-la como texto à próxima entrada.
+	for _, suffix := range []string{"", "\x18ok"} {
+		r := rawTerminalOutput{text: parsedTerminalText{footerColumn: 80}, footerBreak: true}
+		before := r.append("\r\n\x1b[1;", false) + r.changeOwner()
+		after := r.append(suffix, false) + r.finish()
+		if before != "" || after != strings.TrimPrefix(suffix, "\x18") {
+			t.Fatalf("sufixo=%q antes=%q depois=%q", suffix, before, after)
 		}
 	}
 }
@@ -805,6 +889,21 @@ func BenchmarkMarkerStreamScale(b *testing.B) {
 					}
 				}
 			})
+		}
+	}
+}
+
+func TestPowerShellProbeIgnoresUnframedReply(t *testing.T) {
+	m := newCommandMarkerForShell("powershell")
+	for _, code := range []int{0, 1} {
+		wire := m.endTag + "!\n" + m.startTag + "\n" + m.endTag + strconv.Itoa(code) + "!"
+		for split := 0; split < len(wire); split++ {
+			stream := newMarkerStream(m)
+			stream.append(wire[:split])
+			_, got := stream.append(wire[split:])
+			if !got.Found || got.ExitCode != code || got.Output != "" {
+				t.Fatalf("corte %d: %+v", split, got)
+			}
 		}
 	}
 }

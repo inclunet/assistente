@@ -101,6 +101,7 @@ describe('terminalStore', () => {
       historyBySession: {},
       partialHistoryBySession: {},
       activeEntryBySession: {},
+      manualEntryBySession: {},
       isLoadingSessions: false,
       loadingHistoryBySession: {},
     });
@@ -119,6 +120,27 @@ describe('terminalStore', () => {
       expect(useTerminalStore.getState().sessions.map((session) => session.id)).toEqual(['alive']);
       expect(useTerminalStore.getState().isLoadingSessions).toBe(false);
     } finally { cleanup(); }
+  });
+
+  it.each(['session_created', 'session_closed'])('mantém a carga contínua durante %s e a consulta substituta', async event => {
+    const original = createDeferred<terminal.SessionInfo[]>();
+    const replacement = createDeferred<terminal.SessionInfo[]>();
+    vi.mocked(ListTerminalSessions).mockReturnValueOnce(original.promise).mockReturnValueOnce(replacement.promise);
+    const cleanup = useTerminalStore.getState().setupEventListeners();
+    const transitions: boolean[] = [];
+    const unsubscribe = useTerminalStore.subscribe((next, previous) => {
+      if (next.isLoadingSessions !== previous.isLoadingSessions) transitions.push(next.isLoadingSessions);
+    });
+    try {
+      const request = useTerminalStore.getState().loadSessions();
+      terminalEventHandlers.get('terminal:' + event)?.({ id: 'active', sessionId: 'active' });
+      original.resolve([]);
+      await Promise.resolve();
+      expect(transitions).toEqual([true]);
+      replacement.resolve([]);
+      expect(await request).toBe(true);
+      expect(transitions).toEqual([true, false]);
+    } finally { unsubscribe(); cleanup(); }
   });
 
   it('não considera válida a relistagem substituta após troca de usuário', async () => {
@@ -140,7 +162,12 @@ describe('terminalStore', () => {
     } finally { cleanup(); useAuthStore.setState(owner); }
   });
 
-  it.each([true, false])('abre a aba durante o comando e preserva o resultado (criação antes do início: %s)', async createdFirst => {
+  it.each([
+    { createdFirst: true, hasRunningSnapshot: false },
+    { createdFirst: false, hasRunningSnapshot: false },
+    { createdFirst: true, hasRunningSnapshot: true },
+    { createdFirst: false, hasRunningSnapshot: true },
+  ])('preserva o resultado durante a hidratação (criação anterior: $createdFirst, snapshot em execução: $hasRunningSnapshot)', async ({ createdFirst, hasRunningSnapshot }) => {
     const lifecycle = useTerminalStore.getState().setupEventListeners({ lifecycleOnly: true });
     const emit = (event: string, payload: object) => terminalEventHandlers.get('terminal:' + event)?.(payload);
     const data = { sessionId: 's1', commandId: 'c1' };
@@ -159,7 +186,9 @@ describe('terminalStore', () => {
         expect(useTerminalStore.getState().partialHistoryBySession.s1).toBe(true);
         expect(useTerminalStore.getState().historyBySession.s1[0].output).toBe('antes');
         emit('command_end', { ...data, output: 'antes e depois', exitCode: 7 });
-        snapshot.resolve([]);
+        snapshot.resolve(hasRunningSnapshot ? [terminal.HistoryEntry.createFrom({
+          id: 'c1', command: 'date', source: 'llm', exitCode: -999, endedAt: '0001-01-01T00:00:00Z',
+        })] : []);
         await load;
         expect(useTerminalStore.getState().historyBySession.s1).toEqual([expect.objectContaining({ id: 'c1', exitCode: 7, output: 'antes e depois' })]);
         expect(useTerminalStore.getState().sessions[0].state).toBe('idle');
@@ -180,10 +209,10 @@ describe('terminalStore', () => {
       terminalEventHandlers.get('terminal:session_created')?.(terminal.SessionInfo.createFrom({ id: 's1' }));
       const load = useTerminalStore.getState().loadHistory('s1');
       terminalEventHandlers.get('terminal:command_start')?.({ sessionId: 's1', commandId: 'c', command: 'pwd', source: 'user-raw' });
-      terminalEventHandlers.get('terminal:raw_output')?.({ sessionId: 's1', output: chunk });
+      terminalEventHandlers.get('terminal:raw_output')?.({ sessionId: 's1', commandId: 'c', output: chunk });
       snapshot.resolve([terminal.HistoryEntry.createFrom({ id: 'c', command: 'pwd', source: 'user-raw', output: stored, endedAt: '0001-01-01T00:00:00Z' })]);
       await load;
-      terminalEventHandlers.get('terminal:raw_output')?.({ sessionId: 's1', output: '!' });
+      terminalEventHandlers.get('terminal:raw_output')?.({ sessionId: 's1', commandId: 'c', output: '!' });
       expect(useTerminalStore.getState().historyBySession.s1).toEqual([expect.objectContaining({ id: 'c', output: final })]);
     } finally { cleanup(); }
   });
@@ -299,6 +328,145 @@ describe('terminalStore', () => {
     } finally { cleanup(); }
   });
 
+  it.each(['manual', 'outro tipo', 'substituído', 'sem autoridade'])('só restaura o alvo manual confirmado na hidratação: %s', async scenario => {
+    const cleanup = useTerminalStore.getState().setupEventListeners({ lifecycleOnly: true });
+    const emit = (name: string, data: object) => terminalEventHandlers.get('terminal:' + name)?.({ sessionId: 's1', ...data });
+    try {
+      emit('command_start', { commandId: 'modelo', source: 'llm', command: 'date' });
+      emit('command_end', { commandId: 'modelo', output: '', exitCode: -1,
+        ...(scenario !== 'sem autoridade' && { activeManualCommandId: 'manual' }) });
+      expect(useTerminalStore.getState().activeEntryBySession.s1).toBeFalsy();
+      const session = terminal.SessionInfo.createFrom({ id: 's1', state: 'idle' });
+      vi.mocked(ListTerminalSessions).mockResolvedValueOnce([session]);
+      await useTerminalStore.getState().loadSessions();
+      const snapshot = createDeferred<terminal.HistoryEntry[]>();
+      mockGetTerminalHistory.mockReturnValueOnce(snapshot.promise);
+      const loading = useTerminalStore.getState().loadHistory('s1');
+      if (scenario === 'substituído') emit('command_start', { commandId: 'novo', command: 'pwd', source: 'user-raw' });
+      snapshot.resolve([terminal.HistoryEntry.createFrom({ id: 'manual', source: scenario === 'outro tipo' ? 'llm' : 'user-raw' })]);
+      await loading;
+      if (scenario === 'manual') expect(useTerminalStore.getState().activeEntryBySession.s1).toBe('manual');
+      else expect(useTerminalStore.getState().activeEntryBySession.s1).not.toBe('manual');
+    } finally { cleanup(); }
+  });
+
+  it('um término atrasado completa o próprio histórico e preserva o alvo e o estado mais recentes', () => {
+    const cleanup = useTerminalStore.getState().setupEventListeners();
+    try {
+      const emit = (name: string, data: object) => terminalEventHandlers.get('terminal:' + name)?.({ sessionId: 's1', ...data });
+      emit('session_created', { id: 's1', state: 'idle' });
+      for (const [commandId, source] of [['manual', 'user-raw'], ['superado', 'llm'], ['novo', 'llm']]) {
+        emit('command_start', { commandId, source, command: commandId });
+      }
+      emit('command_end', { commandId: 'superado', exitCode: -1, output: 'parcial', activeManualCommandId: 'manual' });
+      const state = useTerminalStore.getState();
+      expect(state.activeEntryBySession.s1).toBe('novo');
+      expect(state.sessions[0].state).toBe('running');
+      expect(state.historyBySession.s1[1]).toMatchObject({ id: 'superado', exitCode: -1, output: 'parcial' });
+    } finally { cleanup(); }
+  });
+
+  it('hidrata o alvo manual confirmado além da janela visual e mantém em ordem as 200 tentativas locais', async () => {
+    const cleanup = useTerminalStore.getState().setupEventListeners({ lifecycleOnly: true });
+    const emit = (name: string, data: object) => terminalEventHandlers.get('terminal:' + name)?.({ sessionId: 's1', ...data });
+    try {
+      emit('command_end', { commandId: '200', exitCode: -1, output: '', activeManualCommandId: 'manual' });
+      const session = terminal.SessionInfo.createFrom({ id: 's1', state: 'idle' });
+      const attempts = Array.from({ length: 200 }, (_, i) =>
+        terminal.HistoryEntry.createFrom({ id: String(i + 1), source: 'llm', command: 'date', exitCode: -1 }));
+      useTerminalStore.setState({ sessions: [session], historyBySession: { s1: attempts } });
+      const manual = terminal.HistoryEntry.createFrom({ id: 'manual', source: 'user-raw', command: 'sleep 10', output: 'texto já lido' });
+      mockGetTerminalHistory.mockResolvedValueOnce([manual, ...attempts.slice(1)]);
+      await useTerminalStore.getState().loadHistory('s1');
+      const state = useTerminalStore.getState();
+      expect(state.activeEntryBySession.s1).toBe('manual');
+      expect(state.manualEntryBySession.s1).toMatchObject({ id: 'manual', command: 'sleep 10', output: '' });
+      expect(state.historyBySession.s1.map(entry => entry.id)).toEqual(attempts.map(entry => entry.id));
+      emit('session_closed', {});
+      expect(useTerminalStore.getState().manualEntryBySession).not.toHaveProperty('s1');
+    } finally { cleanup(); }
+  });
+
+  it('atribui a saída manual ao comando de origem durante e após um comando gerenciado cancelado', () => {
+    const cleanup = useTerminalStore.getState().setupEventListeners({ lifecycleOnly: true });
+    useTerminalStore.setState({ historyBySession: { s1: [] } });
+    const emit = (event: string, commandId: string, data: object) =>
+      terminalEventHandlers.get('terminal:' + event)?.({ sessionId: 's1', commandId, ...data });
+    try {
+      emit('command_start', 'manual', { command: 'logs', source: 'user-raw' });
+      emit('command_start', 'modelo', { command: 'date', source: 'llm' });
+      emit('raw_output', 'manual', { output: 'antes' });
+      emit('command_end', 'modelo', { output: '', exitCode: -1 });
+      emit('raw_output', 'manual', { output: ' e depois' });
+      for (const id of ['', 'desconhecido', 'modelo']) emit('raw_output', id, { output: 'sem entrada manual correspondente' });
+      expect(useTerminalStore.getState().historyBySession.s1).toEqual([
+        expect.objectContaining({ id: 'manual', output: 'antes e depois' }),
+        expect.objectContaining({ id: 'modelo', output: '', exitCode: -1 }),
+        expect.objectContaining({ source: 'session-output', command: '', output: 'sem entrada manual correspondente'.repeat(3) }),
+      ]);
+    } finally { cleanup(); }
+  });
+
+  it('preserva blocos da sessão entre comandos gerenciados na hidratação e limita o texto do bloco', async () => {
+    const cleanup = useTerminalStore.getState().setupEventListeners();
+    const snapshot = createDeferred<terminal.HistoryEntry[]>();
+    const emit = (event: string, data: object) =>
+      terminalEventHandlers.get('terminal:' + event)?.({ sessionId: 's1', ...data });
+    try {
+      useTerminalStore.setState({ sessions: [terminal.SessionInfo.createFrom({ id: 's1' })] });
+      mockGetTerminalHistory.mockReturnValueOnce(snapshot.promise);
+      const loading = useTerminalStore.getState().loadHistory('s1');
+      for (const id of ['a', 'b']) {
+        emit('command_start', { commandId: id, source: 'llm', command: id });
+        emit('command_end', { commandId: id, exitCode: 0, output: id });
+        emit('raw_output', { commandId: '', output: id === 'a' ? 'aviso' : 'x'.repeat(60 * 1024) });
+      }
+      snapshot.resolve(['a', 'b'].map(id => terminal.HistoryEntry.createFrom({ id, command: id, source: 'llm', output: id })));
+      await loading;
+      const entries = useTerminalStore.getState().historyBySession.s1;
+      expect(entries.map(entry => entry.source)).toEqual(['llm', 'session-output', 'llm', 'session-output', 'session-output']);
+      expect(entries.map(entry => entry.output)).toEqual(['a', 'aviso', 'b', 'x'.repeat(50 * 1024), 'x'.repeat(10 * 1024)]);
+    } finally { cleanup(); }
+  });
+
+  it('abre um novo bloco para o emoji inteiro sem remover um comando retido', () => {
+    const cleanup = useTerminalStore.getState().setupEventListeners({ lifecycleOnly: true });
+    try {
+      const commands = Array.from({ length: 199 }, (_, index) => terminal.HistoryEntry.createFrom({ id: String(index), source: 'llm' }));
+      useTerminalStore.setState({ historyBySession: { s1: commands } });
+      const raw = (output: string) => terminalEventHandlers.get('terminal:raw_output')?.({ sessionId: 's1', commandId: '', output });
+      const prefix = 'x'.repeat(50 * 1024 - 1);
+      raw(prefix);
+      raw('🌍');
+      raw('depois');
+      const entries = useTerminalStore.getState().historyBySession.s1;
+      expect(entries).toHaveLength(201);
+      expect(entries[0].id).toBe('0');
+      expect(entries.slice(-2).map(entry => entry.output)).toEqual([prefix, '🌍depois']);
+    } finally { cleanup(); }
+  });
+
+  it('retém os 200 comandos e os 200 blocos mais recentes na ordem do fluxo, inclusive após hidratar', async () => {
+    const cleanup = useTerminalStore.getState().setupEventListeners({ lifecycleOnly: true });
+    try {
+      useTerminalStore.setState({ sessions: [terminal.SessionInfo.createFrom({ id: 's1' })], historyBySession: { s1: [] } });
+      const emit = (event: string, data: object) => terminalEventHandlers.get('terminal:' + event)?.({ sessionId: 's1', ...data });
+      const expected = [];
+      for (let i = 0; i <= 200; i++) {
+        const commandId = String(i);
+        emit('command_start', { commandId, command: commandId, source: 'llm' });
+        emit('command_end', { commandId, output: 'ok', exitCode: 0 });
+        emit('raw_output', { commandId: '', output: `PTY ${i} > ` });
+        if (i > 0) expected.push(commandId, `PTY ${i} > `);
+      }
+      const actual = () => useTerminalStore.getState().historyBySession.s1.map(entry => entry.command || entry.output);
+      expect(actual()).toEqual(expected);
+      mockGetTerminalHistory.mockResolvedValueOnce(useTerminalStore.getState().historyBySession.s1.filter(entry => entry.source === 'llm'));
+      await useTerminalStore.getState().loadHistory('s1');
+      expect(actual()).toEqual(expected);
+    } finally { cleanup(); }
+  });
+
   it.each(['raw_output', 'command_output'])('limita entradas e bytes UTF-8 do histórico em segundo plano (%s)', (outputEvent) => {
     const cleanup = useTerminalStore.getState().setupEventListeners({ lifecycleOnly: true });
     try {
@@ -387,6 +555,21 @@ describe('terminalStore', () => {
         'Leitura em curso', i18next.t('terminal.announce.backgroundResult', { name: expected ?? i18next.t('terminal.announce.unnamedTab', { position: 2 }), exitCode: 7 }),
       ]);
     } finally { vi.restoreAllMocks(); page(); reset(); useWorkspaceStore.setState({ workspace: original }); vi.useRealTimers(); await i18next.changeLanguage(language); }
+  });
+
+  it.each(['llm', 'user-raw'])('limita o anúncio inicial sem cortar o comando no histórico (%s)', source => {
+    const cleanup = useTerminalStore.getState().setupEventListeners();
+    const prefix = 'x'.repeat(299) + '🌍';
+    try {
+      for (const extra of ['\n', '\núltima linha']) {
+        const command = '  ' + prefix + extra;
+        terminalEventHandlers.get('terminal:command_start')?.({ sessionId: 's1', commandId: extra, command, source });
+        const notice = extra.trim() ? i18next.t('terminal.announce.truncatedSuffix') : '';
+        expect(announce).toHaveBeenLastCalledWith(i18next.t('terminal.history.commandPrefix') + ' ' + prefix + notice);
+        const history = useTerminalStore.getState().historyBySession.s1;
+        expect(history[history.length - 1].command).toBe(command);
+      }
+    } finally { cleanup(); }
   });
 
   it.each(['evento final', 'saída acumulada', 'stream manual'].flatMap(path =>

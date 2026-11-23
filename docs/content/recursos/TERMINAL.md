@@ -17,13 +17,14 @@ O terminal cria sessões PTY (pseudo-terminal) reais usando o shell do sistema:
 Cada sessão mantém:
 
 - Diretório de trabalho atual
-- Histórico de comandos (até 200 entradas por sessão)
+- Histórico de comandos (até 200 comandos por sessão no backend)
 - Estado: Idle, Busy ou Closed
 - Saída formatada
 
 No Bash, no zsh e nos shells POSIX, o status é o da última operação do comando.
 No Linux, sessões zsh efêmeras e sessões persistentes criadas pelo modelo
-carregam o perfil do usuário e dispensam o completador global do Ubuntu.
+carregam o perfil do usuário e dispensam o completador global do Ubuntu. Os
+processos iniciados nessas sessões herdam a variável `skip_global_compinit=1`.
 Assim, a pergunta de configuração do completador não consome parte do comando.
 Sessões abertas manualmente carregam o completador conforme a configuração do sistema.
 Se o zsh fizer uma pergunta na abertura de uma dessas sessões, responda na aba
@@ -37,18 +38,52 @@ falhou dentro de uma expressão composta, o status é 1. Isso pode ocorrer em um
 um programa termina com erro e envia a saída a um cmdlet como `Get-Item`, ou
 quando um `return` condicional pode ter encerrado o comando antes da etapa final.
 O terminal conserva o código nativo quando a saída passa apenas por `Out-String`
-ou `Out-String -Stream`.
+ou `Out-String -Stream`. Em `$()` e `@()`, o código de uma operação nativa no fim
+de um `if` corresponde ao ramo que o PowerShell executou, inclusive se o ramo
+retornar esse programa com `return`. Se o ramo retorna apenas texto ou termina
+com `return` vazio, a operação anterior do ramo determina o status.
 
-Se a escrita de um comando enviado pelo modelo falhar, o Assistente encerra a sessão
-para impedir que o próximo comando complete a linha anterior. Isso também vale
-quando você abre um terminal persistente e pede ao modelo que use essa sessão.
+Você pode enviar uma nova entrada mesmo enquanto o terminal continua produzindo saída.
+Quando o modelo envia um comando, a saída anterior ao despacho permanece
+associada à última entrada manual, inclusive se o envio for cancelado. Ao digitar
+um comando na aba, o início da nova entrada já passa a identificar sua saída. A saída
+que chega depois da execução gerenciada pode ser relida como saída da sessão.
+Isso também vale quando o comando manual de origem já saiu do histórico.
+No histórico, **Saída da sessão** identifica esse texto, inclusive o prompt
+interativo do shell. Na aba ativa, o leitor de telas pode falar o prompt porque o shell
+o envia pelo mesmo fluxo da saída espontânea. Você pode relê-lo no item imediatamente anterior. Quando a
+saída precede o primeiro comando, ela ganha um item próprio. Uma saída longa
+continua no bloco seguinte a cada 50 KiB. O histórico guarda até 200 comandos
+e 200 blocos da sessão. A prévia do contexto enviado ao chat prioriza os comandos
+recentes e usa o espaço restante para a saída da sessão. O envio segue a ordem
+do histórico e contém até 900 pontos de código, com até 40 itens de cada origem.
+O campo da aba envia comandos com texto. Se uma integração enviar um Enter
+pela API do terminal e o programa responder, o contexto do chat identifica a
+resposta como “Entrada em branco”. Uma entrada em branco sem resposta é omitida.
+Quando uma saída é longa, a prévia mostra o comando e o fim da saída disponível,
+onde costuma aparecer o diagnóstico. As reticências indicam o trecho omitido. Se o
+histórico já atingiu o limite de 50 KiB do comando, esse fim corresponde à parte
+guardada e inclui a marca de corte do histórico.
+O orçamento de contexto do perfil pode abreviar novamente o texto entregue ao
+modelo. Nesse corte, o Assistente também prioriza os comandos recentes e suas
+linhas finais, inclusive quando há saída da sessão antes e depois do comando.
+Se o prazo vencer ou o comando for cancelado enquanto o terminal entrega a saída
+anterior, o comando fica no histórico com código -1. A sessão volta a ficar disponível
+e a saída pendente conserva a identificação original. Se você havia enviado um
+comando manual, você ainda pode interrompê-lo com Ctrl+C. Se a escrita de uma entrada manual ou de um comando
+do modelo falhar, o Assistente encerra a sessão. Isso impede que a próxima entrada
+complete por engano uma linha enviada pela metade.
 A aba continua aberta e o campo de comando fica somente para leitura. Você pode
 selecionar e copiar o rascunho. Quando você digita um comando na aba, o campo
 só é limpo depois que o backend aceita o envio, mesmo se a sessão terminar
 antes da resposta. Se você já editou o texto, a edição é preservada. O campo informa quando a lista
 está carregando e quando a sessão vinculada já terminou. Para voltar a editar,
 use a barra de ferramentas para escolher outra sessão ou criar uma nova.
-A prévia falada inclui até 300 pontos de código Unicode da saída. Um emoji composto
+Essa orientação continua disponível com texto no campo. O terminal recebe comandos
+em texto, que também podem ser colados. Para conversar sobre um arquivo, anexe-o
+no chat.
+A prévia falada inclui até 300 pontos de código Unicode do comando ao iniciar
+e da saída ao concluir ou receber texto. Um emoji composto
 pode ocupar vários desses pontos. Os espaços iniciais ficam fora da contagem.
 O leitor só anuncia o corte se o trecho omitido
 contiver algo além de espaços em branco ou quebras de linha. Essa prévia usa
@@ -71,29 +106,46 @@ No PowerShell, você pode iniciar o comando com `using namespace` para usar
 nomes de tipos abreviados. Por exemplo, depois de `using namespace System.Text`,
 `[StringBuilder]::new('texto').ToString()` devolve `texto`.
 
+Para reler um comando na aba Terminal, pressione **Seta para cima** no início
+do campo de comando. O foco vai para o último item do histórico do Assistente.
+O PowerShell também pode manter um histórico próprio por meio do PSReadLine.
+Com o módulo ativo, podem aparecer duas linhas técnicas por comando gerenciado.
+A primeira consulta a preparação disponível na sessão e a segunda executa o
+comando. Quando você abre um PowerShell dentro da aba, ou o perfil já ocupa o
+nome reservado para essa preparação, o Assistente envia a versão completa na
+segunda linha. O comando aparece uma vez no histórico da aba.
+Em outro console que compartilhe o arquivo do PSReadLine, a linha compacta
+depende da sessão de origem e pode falhar ao ser reexecutada. Para reutilizar o
+texto original, consulte o histórico da aba Terminal do Assistente.
+A preferência `HistorySaveStyle` controla a gravação em disco. Com
+`SaveNothing`, a navegação nativa ainda recupera as linhas em memória.
+
 A saída registrada é textual. Programas que movem o cursor para redesenhar
 linhas anteriores podem aparecer de forma diferente no histórico e na tela
-interativa. Uma sequência de controle incompleta de até 4 KiB pode aparecer
-como texto ao encerrar a leitura. Acima desse limite, o terminal descarta
-a cópia literal e volta a mostrar texto quando a sequência termina ou é cancelada.
+interativa. Sequências de controle incompletas podem aparecer como texto ao
+encerrar a leitura.
 
 Ao usar a ferramenta com `working_directory`, informe o caminho relativo de uma pasta existente no projeto. Tanto no modo efêmero quanto no persistente, a ferramenta informa se a pasta indicada não existe ou se o caminho aponta para um arquivo. Ao omitir o argumento, a nova execução usa a raiz do projeto. Se essa raiz estiver indisponível, a ferramenta informa o problema antes de pedir confirmação. Uma sessão já aberta e selecionada com `terminal_id` usa seu próprio diretório.
 
 ## Sessões
 
 Múltiplas sessões podem existir simultaneamente (até 10 por padrão), cada uma em sua própria aba.
+Uma sessão em encerramento sai da lista de sessões disponíveis. Ela libera a vaga
+para abrir outro terminal assim que a limpeza termina.
 
 | Propriedade | Valor Padrão |
 |---|---|
 | Máximo de sessões | 10 |
 | Timeout padrão | 15 segundos |
-| Histórico por sessão | 200 entradas |
+| Histórico de comandos no backend | 200 comandos por sessão |
+| Histórico da aba | 200 comandos e até 200 blocos adicionais de saída da sessão |
 
-Uma falha de leitura, um cancelamento ou o fechamento explícito da sessão devolve erro com a saída parcial disponível. Se o leitor já falhou quando o prazo vence, o diagnóstico conserva as duas causas.
+Uma falha de leitura, um cancelamento ou o fechamento explícito da sessão devolve erro com a saída parcial disponível. Se o leitor já falhou quando o prazo vence, o diagnóstico conserva as duas causas. A duração acompanha o resultado quando a sessão registrou o início e o fim da execução.
 
-O timeout pode ser configurado em cada chamada da ferramenta. Quando ele é
-atingido, o Assistente envia `Ctrl+C`, aguarda e drena a saída restante e só
-então encerra uma sessão efêmera, evitando perder as últimas linhas do comando.
+Quando o prazo vence, a ferramenta informa o limite configurado e, quando disponível, a duração medida.
+Se houver saída parcial, o timeout devolve essa saída como resultado. Um cancelamento explícito devolve erro e inclui a saída que já chegou.
+Se o prazo vencer depois do envio, o Assistente tenta interromper o comando com
+`Ctrl+C` e recuperar a saída restante antes de encerrar uma sessão efêmera.
 
 Se um comando encerrar o próprio shell, a ferramenta devolve o código do processo e a saída disponível. O histórico da sessão fica disponível enquanto ela está aberta. Fechar a sessão manualmente durante um comando interrompe a espera e indica que ele não terminou normalmente.
 

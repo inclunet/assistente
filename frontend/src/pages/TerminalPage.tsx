@@ -31,14 +31,8 @@ import {
 import { useWorkspaceCommandSurface } from '../components/workspace/useWorkspaceCommandSurface';
 import { usePagePresentationCommands, type PagePresentationCommandID } from '../lib/commandPagePresentation';
 import { useCommandShortcutHint } from '../lib/commandShortcutHints';
+import { terminalChatHistory, sessionOutputSource } from '../lib/terminalHistory';
 import './TerminalPage.css';
-
-const TERMINAL_CHAT_HISTORY_LIMIT = 40;
-
-type TerminalHistoryEntry = {
-  command?: string;
-  output?: string;
-};
 
 function subscribeTerminalSession(
   sessionId: string | null | undefined,
@@ -64,17 +58,6 @@ function subscribeTerminalSession(
     previousFacts = currentFacts;
     invalidate();
   });
-}
-
-function formatTerminalHistoryForChat(history: TerminalHistoryEntry[]) {
-  return history
-    .map((e) => {
-      const cmd = String(e.command || '').trim();
-      const out = String(e.output || '').trimEnd();
-      return [`$ ${cmd}`, out].filter(Boolean).join('\n');
-    })
-    .filter(Boolean)
-    .join('\n---\n');
 }
 
 interface TerminalPageProps {
@@ -400,22 +383,28 @@ export default function TerminalPage({ sessionId: explicitSessionId }: TerminalP
   const terminalChatModalAdapter = useMemo((): WorkspaceChatModalAdapter | null => {
     if (!panelTab || panelTab.type !== 'terminal') return null;
 
+    const projectHistory = () => {
+      const { text, items, truncated } = terminalChatHistory(currentHistory, {
+        sessionOutput: t('terminal.entry.sessionOutput'),
+        blankInput: t('terminal.chatModal.blankInput'),
+        truncated: t('terminal.chatModal.truncatedHistory'),
+      });
+      return { contextDisplay: text || t('terminal.chatModal.noHistory'), items, truncated };
+    };
     return {
       prepare: async () => {
-        const slice = currentHistory.slice(-TERMINAL_CHAT_HISTORY_LIMIT);
-        const lines = formatTerminalHistoryForChat(slice);
-        const contextDisplay = lines || t('terminal.chatModal.noHistory');
+        const { contextDisplay } = projectHistory();
         return { ok: true, contextDisplay, meta: null };
       },
       send: async (instruction, media) => {
-        const historySlice = currentHistory.slice(-TERMINAL_CHAT_HISTORY_LIMIT);
-        const contextDisplay = formatTerminalHistoryForChat(historySlice) || t('terminal.chatModal.noHistory');
+        const { contextDisplay, items, truncated } = projectHistory();
         const selection = window.getSelection?.();
         const selectedOutput = selection && historyContainerRef.current?.contains(selection.anchorNode)
           ? selection.toString().trim()
           : '';
         const currentInput = inputRef.current?.value?.trim() || '';
         const lastEntry = currentHistory[currentHistory.length - 1];
+        const lastCommand = [...currentHistory].reverse().find(entry => entry.source !== sessionOutputSource);
         const surfaceContext: SurfaceContext = {
           surfaceType: 'terminal',
           surfaceId: panelTab.id,
@@ -439,15 +428,16 @@ export default function TerminalPage({ sessionId: explicitSessionId }: TerminalP
           content: {
             kind: 'terminal_output',
             recentOutput: contextDisplay,
+            recentOutputItems: items,
             currentInput,
-            truncated: currentHistory.length > historySlice.length,
+            truncated,
           },
           metadata: {
             sessionId: currentSessionId,
             cwd: activeSession?.cwd,
             shell: (activeSession as { shell?: string } | undefined)?.shell,
             historyEntryCount: currentHistory.length,
-            lastExitCode: lastEntry?.exitCode,
+            lastExitCode: lastCommand?.exitCode,
           },
           snapshotVersion: createSurfaceSnapshotVersion(
             'terminal',
@@ -551,6 +541,7 @@ export default function TerminalPage({ sessionId: explicitSessionId }: TerminalP
           onSend={handleSendInput}
           disabled={!sessionIsLive}
           editorReadOnly={!sessionIsLive}
+          maxFiles={0}
           placeholder={
             sessionIsLive ? t('terminal.placeholders.command')
               : !currentSessionId ? t('terminal.placeholders.unbound')

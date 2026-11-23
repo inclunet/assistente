@@ -62,7 +62,7 @@ func TestConPTYClosedReaderUsesSignaledProcessStatus(t *testing.T) {
 			readErr := &os.PathError{Op: "read", Path: "conpty-stdout", Err: os.ErrClosed}
 			reader := io.MultiReader(strings.NewReader(marker.startTag+"\r\nparcial"), iotest.ErrReader(readErr))
 			session := &Session{ptySession: pty, readerCtx: t.Context(), ptyReader: reader}
-			session.startCommandOutput(marker, &HistoryEntry{})
+			session.beginMarkerCapture(marker)
 			session.Start()
 			<-session.readerDone
 			output, code, err := session.waitForMarker(t.Context(), marker, "test")
@@ -115,7 +115,7 @@ func TestConPTYResizeAcrossSessionCommands(t *testing.T) {
 		return len(wrapper), nil
 	})
 	for _, want := range []string{"abc\ncde", "abc\ncde", "abc\ncde", "abcde"} {
-		entry, err := s.RunCommand(t.Context(), "echo", time.Second, "test", "test")
+		entry, err := s.runCommandInDirectory(t.Context(), CommandText{Raw: "echo", Display: "echo"}, "", time.Second, "test", "test", nil)
 		if err != nil || entry == nil || entry.Output != want {
 			t.Fatalf("comando %d: entrada=%+v erro=%v", command, entry, err)
 		}

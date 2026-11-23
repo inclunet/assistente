@@ -3,6 +3,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { WorkspaceTab } from '../../store/workspaceStore';
 
 const terminalMocks = vi.hoisted(() => ({
+  isLoadingSessions: false,
+  sessionListFailed: false,
   sessions: [] as Array<{ id: string }>,
   historyBySession: {} as Record<string, unknown[]>,
   partialHistoryBySession: {} as Record<string, boolean>,
@@ -23,7 +25,16 @@ const workspaceMocks = vi.hoisted(() => ({
 vi.mock('../../store/terminalStore', () => ({
   useTerminalStore: {
     getState: () => terminalMocks,
-    subscribe: (listener: () => void) => { terminalMocks.listeners.add(listener); return () => terminalMocks.listeners.delete(listener); },
+    subscribe: (listener: (next: typeof terminalMocks, previous: typeof terminalMocks) => void) => {
+      let previous = { ...terminalMocks };
+      const notify = () => {
+        const next = { ...terminalMocks };
+        listener(next, previous);
+        previous = next;
+      };
+      terminalMocks.listeners.add(notify);
+      return () => terminalMocks.listeners.delete(notify);
+    },
   },
 }));
 
@@ -62,6 +73,8 @@ describe('useTerminalSurfaceController', () => {
     terminalMocks.loadSessions.mockResolvedValue(undefined);
     terminalMocks.loadHistory.mockReset();
     terminalMocks.listeners.clear();
+    terminalMocks.sessionListFailed = false;
+    terminalMocks.isLoadingSessions = false;
     workspaceMocks.updateTab.mockReset();
     workspaceMocks.isInitialized = true;
     workspaceMocks.tabs = [terminalTab];
@@ -99,14 +112,55 @@ describe('useTerminalSurfaceController', () => {
     }, true));
     await waitFor(() => expect(terminalMocks.loadSessions).toHaveBeenCalledTimes(1));
     expect(terminalMocks.loadHistory).not.toHaveBeenCalled();
+    terminalMocks.isLoadingSessions = true;
+    terminalMocks.listeners.forEach(notify => notify());
     terminalMocks.sessions = [{ id: 'session-a' }, { id: 'session-b' }];
     terminalMocks.listeners.forEach((listener) => listener());
     expect(terminalMocks.loadHistory).toHaveBeenCalledTimes(1);
     expect(terminalMocks.loadHistory).toHaveBeenCalledWith('session-b');
+    expect(terminalMocks.listeners.size).toBe(0);
     terminalMocks.historyBySession['session-b'] = [{ command: 'anterior' }];
     terminalMocks.listeners.forEach((listener) => listener());
     expect(terminalMocks.loadHistory).toHaveBeenCalledTimes(1);
     unmount();
+  });
+
+  it.each([true, false])('distingue ausência confirmada de falha com nova tentativa (publicada: %s)', async published => {
+    terminalMocks.sessions = [{ id: 'outra' }];
+    terminalMocks.loadSessions.mockImplementationOnce(async () => {
+      terminalMocks.sessionListFailed = !published;
+      return published;
+    });
+    renderHook(() => useTerminalSurfaceController({
+      ...terminalTab, state: { sessionId: 'encerrada' },
+    }, true));
+    await waitFor(() => expect(terminalMocks.loadSessions).toHaveBeenCalledTimes(1));
+    await Promise.resolve();
+    expect(terminalMocks.listeners.size).toBe(published ? 0 : 1);
+    expect(terminalMocks.loadHistory).not.toHaveBeenCalled();
+    if (!published) {
+      terminalMocks.sessionListFailed = false;
+      terminalMocks.sessions = [{ id: 'outra' }, { id: 'encerrada' }];
+      terminalMocks.listeners.forEach(notify => notify());
+      expect(terminalMocks.loadHistory).toHaveBeenCalledWith('encerrada');
+      expect(terminalMocks.listeners.size).toBe(0);
+    }
+  });
+
+  it('encerra a observação quando a consulta de outra superfície termina sem a sessão', async () => {
+    terminalMocks.loadSessions.mockResolvedValueOnce(false);
+    renderHook(() => useTerminalSurfaceController({
+      ...terminalTab, state: { sessionId: 'encerrada' },
+    }, true));
+    terminalMocks.isLoadingSessions = true;
+    terminalMocks.listeners.forEach(notify => notify());
+    await Promise.resolve();
+    expect(terminalMocks.listeners.size).toBe(1);
+    terminalMocks.isLoadingSessions = false;
+    terminalMocks.listeners.forEach(notify => notify());
+    await Promise.resolve();
+    expect(terminalMocks.listeners.size).toBe(0);
+    expect(terminalMocks.loadHistory).not.toHaveBeenCalled();
   });
 
   it('carrega histórico de sessão existente por sessionId explícito', async () => {

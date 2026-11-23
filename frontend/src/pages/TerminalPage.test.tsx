@@ -43,7 +43,7 @@ const workspaceMocks = vi.hoisted(() => ({
 
 const storeState = vi.hoisted(() => ({
   sessions: [{ id: 'term-1', name: 'Terminal 1', cwd: '/tmp', state: 'running', shell: 'sh' }],
-  historyBySession: { 'term-1': [] as Array<{ id: string; command: string; output: string; exitCode?: number }> },
+  historyBySession: { 'term-1': [] as Array<{ id: string; command: string; output: string; exitCode?: number; source?: string }> },
   isLoadingSessions: false,
   sessionListFailed: false,
   loadingHistoryBySession: {},
@@ -60,6 +60,9 @@ vi.mock('react-i18next', () => ({
     t: (key: string) =>
       ({
         'terminal.pageTitle': 'Terminal',
+        'terminal.chatModal.truncatedHistory': ptBR.translation.terminal.chatModal.truncatedHistory,
+        'terminal.chatModal.blankInput': ptBR.translation.terminal.chatModal.blankInput,
+        'terminal.entry.sessionOutput': ptBR.translation.terminal.entry.sessionOutput,
         'terminal.buttons.stop': 'Parar',
         'terminal.buttons.new': 'Novo',
         'terminal.buttons.terminate': 'Encerrar terminal',
@@ -292,11 +295,14 @@ describe('TerminalPage', () => {
     rerender(terminalPageView());
     expect(input).toHaveAttribute('readonly');
     expect(input).toHaveValue('exit');
+    expect(input).toHaveAccessibleDescription(ptBR.translation.terminal.placeholders.ended);
+    expect(screen.getByText(ptBR.translation.terminal.placeholders.ended)).toBeVisible();
     await act(async () => { settle(accepted); });
     expect(input).toHaveValue(accepted ? '' : 'exit');
     storeState.sessions = [{ id: 'term-2', name: 'Outro', cwd: '/', state: 'idle', shell: 'sh' }];
     rerender(terminalPageView({ ...terminalTab, state: { sessionId: 'term-2' } }));
     expect(input).not.toHaveAttribute('readonly');
+    expect(input).not.toHaveAttribute('aria-describedby');
     if (accepted) {
       fireEvent.keyDown(input, { key: 'Enter' });
       expect(storeMocks.sendInput).toHaveBeenCalledTimes(1);
@@ -344,15 +350,17 @@ describe('TerminalPage', () => {
     const { rerender } = renderTerminalPage();
     const editor = screen.getByRole('textbox');
     const labels = ptBR.translation.terminal.placeholders;
-    expect(editor).toHaveAttribute('placeholder', labels.loading);
+    expect(editor).not.toHaveAttribute('placeholder');
+    expect(screen.getByText(labels.loading)).toBeVisible();
+    expect(editor).toHaveAccessibleDescription(labels.loading);
     storeState.isLoadingSessions = false;
     rerender(terminalPageView());
-    expect(editor).toHaveAttribute('placeholder', labels.ended);
+    expect(editor).toHaveAccessibleDescription(labels.ended);
     storeState.sessionListFailed = true;
     rerender(terminalPageView());
-    expect(editor).toHaveAttribute('placeholder', labels.unavailable);
+    expect(editor).toHaveAccessibleDescription(labels.unavailable);
     rerender(terminalPageView({ ...terminalTab, state: undefined }));
-    expect(editor).toHaveAttribute('placeholder', labels.unbound);
+    expect(editor).toHaveAccessibleDescription(labels.unbound);
   });
 
   it.each(['removida', 'oculta'])('recupera o foco quando a origem fica %s durante a listagem', async mode => {
@@ -716,6 +724,33 @@ describe('TerminalPage', () => {
     expect(storeMocks.sendInput).toHaveBeenCalledWith('term-1', '/');
   });
 
+  it('aceita colagem de texto e impede que mídia gere um Enter no PTY', async () => {
+    const user = userEvent.setup();
+    renderTerminalPage();
+    const input = screen.getByRole('textbox');
+    expect(screen.queryByRole('button', { name: 'chat.attachFile' })).toBeNull();
+    expect(screen.queryByLabelText('chat.selectFiles')).toBeNull();
+    const file = new File(['img'], 'foto.png', { type: 'image/png' });
+    const getAsFile = vi.fn(() => file);
+    const dragData = { files: [file], types: ['Files'] };
+    fireEvent.dragEnter(input, { dataTransfer: dragData });
+    expect(screen.getByTestId('chat-input')).not.toHaveClass('dragging');
+    const drop = createEvent.drop(input, { dataTransfer: dragData });
+    fireEvent(input, drop);
+    expect(drop.defaultPrevented).toBe(true);
+    const paste = createEvent.paste(input, { clipboardData: { items: [{ type: file.type, getAsFile }] } });
+    fireEvent(input, paste);
+    expect(getAsFile).not.toHaveBeenCalled();
+    expect(paste.defaultPrevented).toBe(false);
+    await user.click(input);
+    await user.keyboard('{Enter}');
+    expect(storeMocks.sendInput).not.toHaveBeenCalled();
+    await user.paste('pwd');
+    expect(input).toHaveValue('pwd');
+    await user.keyboard('{Enter}');
+    expect(storeMocks.sendInput).toHaveBeenCalledExactlyOnceWith('term-1', 'pwd');
+  });
+
   it('retorna aceitação explícita para o ChatInput limpar o comando enviado', async () => {
     renderTerminalPage();
 
@@ -726,7 +761,7 @@ describe('TerminalPage', () => {
     expect(storeMocks.sendInput).toHaveBeenCalledWith('term-1', 'pwd');
   });
 
-  it('usa o mesmo histórico no preview e no envio do chat', async () => {
+  it.each(['comandos', 'sessão', 'diagnóstico', 'blocos intercalados', 'entrada em branco'])('usa o mesmo histórico na prévia e no envio do chat (%s)', async scenario => {
     storeState.historyBySession = {
       'term-1': Array.from({ length: 45 }, (_, index) => {
         const entryNumber = index + 1;
@@ -739,6 +774,30 @@ describe('TerminalPage', () => {
       }),
     };
 
+    if (scenario === 'entrada em branco') {
+      storeState.historyBySession['term-1'] = [
+        { id: 'vazia', command: ' ', source: 'user-raw', output: '' },
+        { id: 'enter', command: '\n', source: 'user-raw', output: 'Opção padrão aceita\n' },
+        { id: 'bloco', command: '', source: 'session-output', output: 'prompt> ' },
+      ];
+    }
+    if (scenario === 'blocos intercalados') {
+      storeState.historyBySession['term-1'] = [
+        { id: 'antes', command: '', source: 'session-output', output: '&'.repeat(395) },
+        { id: 'teste', command: 'conferir', output: 'ERRO: modulo ausente', exitCode: 1 },
+        { id: 'depois', command: '', source: 'session-output', output: '&'.repeat(395) + '\n---\n$ literal' },
+      ];
+    }
+    if (scenario === 'diagnóstico') {
+      storeState.historyBySession['term-1'] = [{
+        id: 'erro', command: 'npm test', output: '✅ aprovado\n'.repeat(300) + 'ERRO: módulo ausente', exitCode: 1,
+      }];
+    }
+    if (scenario === 'sessão') {
+      storeState.historyBySession['term-1'] = storeState.historyBySession['term-1'].flatMap((entry, i) => [
+        entry, { id: `bloco-${i + 1}`, command: '', source: 'session-output', output: `prompt-${i + 1}> ` },
+      ]);
+    }
     renderTerminalPage();
 
     const adapter = terminalPageMocks.registeredAdapter as {
@@ -761,9 +820,40 @@ describe('TerminalPage', () => {
     expect(surfaceContext.surfaceId).toBe('terminal-tab');
     expect(surfaceContext.snapshotVersion).toMatch(/^terminal:terminal-tab:/);
     expect(surfaceContext.content.recentOutput).toBe(prepared.contextDisplay);
+    if (scenario === 'entrada em branco') {
+      expect(surfaceContext.content.truncated).toBe(false);
+      expect(prepared.contextDisplay).toBe('[Entrada em branco]\nOpção padrão aceita\n---\n[Saída da sessão]\nprompt> ');
+      expect(surfaceContext.content.recentOutputItems).toEqual([
+        { kind: 'command', header: '[Entrada em branco]', output: 'Opção padrão aceita' },
+        { kind: 'session', header: '[Saída da sessão]', output: 'prompt> ' },
+      ]);
+      return;
+    }
+    if (scenario === 'blocos intercalados') {
+      expect(surfaceContext.content.truncated).toBe(false);
+      expect(surfaceContext.content.recentOutputItems).toEqual([
+        { kind: 'session', header: '[Saída da sessão]', output: '&'.repeat(395) },
+        { kind: 'command', header: '$ conferir', output: 'ERRO: modulo ausente' },
+        { kind: 'session', header: '[Saída da sessão]', output: '&'.repeat(395) + '\n---\n$ literal' },
+      ]);
+      return;
+    }
+    expect(surfaceContext.content.truncated).toBe(true);
+    if (scenario === 'diagnóstico') {
+      expect(prepared.contextDisplay).toMatch(/^… histórico truncado\n\$ npm test\n…/);
+      expect(prepared.contextDisplay).toMatch(/\nERRO: módulo ausente$/);
+      return;
+    }
     expect(surfaceContext.content.recentOutput).toContain('cmd-6');
     expect(surfaceContext.content.recentOutput).toContain('cmd-45');
     expect(surfaceContext.content.recentOutput).not.toContain('cmd-5');
-    expect(surfaceContext.content.truncated).toBe(true);
+    if (scenario === 'sessão') {
+      expect(prepared.contextDisplay).toContain('out-45\n---\n[Saída da sessão]\nprompt-45> ');
+      expect(prepared.contextDisplay).not.toContain('prompt-6> ');
+      expect(prepared.contextDisplay).toMatch(/^… histórico truncado/);
+      expect(Array.from(prepared.contextDisplay).length).toBeLessThanOrEqual(900);
+      expect(prepared.contextDisplay).not.toContain('prompt-5> ');
+      expect(surfaceContext.metadata.lastExitCode).toBe(0);
+    }
   });
 });

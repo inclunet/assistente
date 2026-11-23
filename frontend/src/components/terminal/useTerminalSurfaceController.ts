@@ -32,10 +32,19 @@ export function useTerminalSurfaceController(tab: WorkspaceTab, isActive: boolea
         const reloaded = useTerminalStore.getState();
         if (!reloaded.sessions.some((session) => session.id === sessionId)) return;
         observing = false;
+        unsubscribe();
         if (!reloaded.historyBySession[sessionId] || reloaded.partialHistoryBySession?.[sessionId]) void reloaded.loadHistory(sessionId);
       };
-      const unsubscribe = useTerminalStore.subscribe(hydrate);
-      void store.loadSessions().then(hydrate).catch((error: unknown) => {
+      const unsubscribe = useTerminalStore.subscribe((next, previous) => {
+        if (next.sessions !== previous.sessions) hydrate();
+        if (previous.isLoadingSessions && !next.isLoadingSessions && !next.sessionListFailed) {
+          unsubscribe();
+        }
+      });
+      void store.loadSessions().then((published) => {
+        hydrate();
+        if (published) unsubscribe();
+      }).catch((error: unknown) => {
         if (isWorkspaceTabActive(tab.id)) {
           logger.error('[TerminalSurfaceController] Erro ao carregar sessões:', error);
         }

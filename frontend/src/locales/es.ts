@@ -283,6 +283,7 @@ notSaved: 'La decisión vale solo para esta operación: no se pudo recordar. Ser
       dropFiles: 'Suelta los archivos aquí',
       selectFiles: 'Seleccionar archivos',
       attachFile: 'Adjuntar archivo',
+      pendingAttachmentsCanceled: 'Se canceló la carga de los archivos adjuntos pendientes. Vuelve a adjuntarlos cuando puedas editar.',
       messageLabel: 'Mensaje',
       draftSaved: 'Borrador guardado',
       waitResponse: 'Espera a que termine la respuesta para enviar',
@@ -2006,7 +2007,7 @@ notSaved: 'La decisión vale solo para esta operación: no se pudo recordar. Ser
         title: 'Finalizar terminal',
         message: '¿Finalizar "{{name}}" y todos los procesos en ejecución? Otras pestañas y chats conectados perderán acceso.',
       },
-      entry: { llmCommand: 'Comando LLM', command: 'Comando', commandLLM: 'Comando (LLM)', llm: 'LLM', output: 'Salida', running: 'ejecutando', empty: 'vacía', exitCode: 'Código de salida:', duration: 'Duración:', exit: 'exit:', executing: 'Ejecutando...', truncated: 'truncado', reading: 'Modo de lectura', readingDialog: 'Lectura de entrada del terminal. Presiona Escape para salir.', readingOpen: 'Modo de lectura del terminal activado. Presiona Escape para salir.', readingClose: 'Modo de lectura del terminal desactivado.' },
+      entry: { llmCommand: 'Comando LLM', command: 'Comando', commandLLM: 'Comando (LLM)', llm: 'LLM', sessionOutput: 'Salida de la sesión', output: 'Salida', running: 'ejecutando', empty: 'vacía', exitCode: 'Código de salida:', duration: 'Duración:', exit: 'exit:', executing: 'Ejecutando...', truncated: 'truncado', reading: 'Modo de lectura', readingDialog: 'Lectura de entrada del terminal. Presiona Escape para salir.', readingOpen: 'Modo de lectura del terminal activado. Presiona Escape para salir.', readingClose: 'Modo de lectura del terminal desactivado.' },
       history: { label: 'Historial del terminal', loading: 'Cargando...', emptyTitle: 'Ningún comando ejecutado.', emptyHint: 'Escribe un comando abajo para comenzar.', commandPrefix: 'Comando:' },
       tabs: { closed: 'Terminal cerrado.', of: 'de', label: 'Terminales', listLabel: 'Lista de terminales abiertos', running: 'Ejecutando', close: 'Cerrar', newShortcut: 'Crear nuevo terminal, Ctrl+T', newTooltip: 'Nuevo terminal (Ctrl+T)' },
       announce: {
@@ -2025,6 +2026,8 @@ notSaved: 'La decisión vale solo para esta operación: no se pudo recordar. Ser
       },
       chatModal: {
         noHistory: '(sin historial en el terminal)',
+        truncatedHistory: '… historial truncado',
+        blankInput: 'Entrada en blanco',
       },
     },
 

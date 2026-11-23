@@ -108,7 +108,7 @@ func TestCANAndSUBResumeTextAndViewport(t *testing.T) {
 
 // Só o início de comando fica na região medida. O backing array representa
 // um histórico já recebido pelo leitor, pronto para ser reutilizado.
-func BenchmarkStartCommandOutput(b *testing.B) {
+func BenchmarkBeginMarkerCapture(b *testing.B) {
 	for _, size := range []int{4 << 10, 64 << 10, 4 << 20} {
 		b.Run(strconv.Itoa(size), func(b *testing.B) {
 			raw := make([]byte, size)
@@ -117,7 +117,7 @@ func BenchmarkStartCommandOutput(b *testing.B) {
 			b.ReportAllocs()
 			for b.Loop() {
 				s.outputBuf = *bytes.NewBuffer(raw)
-				s.startCommandOutput(m, &HistoryEntry{})
+				s.beginMarkerCapture(m)
 			}
 		})
 	}
@@ -160,12 +160,12 @@ func TestLargeControlsKeepBoundedStateInManualAndManagedOutput(t *testing.T) {
 		for _, mode := range []string{"manual", "gerenciado"} {
 			t.Run(tc.name+"/"+mode, func(t *testing.T) {
 				var emitted strings.Builder
-				session := &Session{onRawOutput: func(_, chunk string) { emitted.WriteString(chunk) }}
+				session := &Session{onRawOutput: func(_, _, chunk string) { emitted.WriteString(chunk) }}
 				m := newCommandMarkerForShell("powershell")
 				parser := newMarkerStream(m)
 				managed := mode == "gerenciado"
 				if managed {
-					session.startCommandOutput(m, &HistoryEntry{})
+					session.beginMarkerCapture(m)
 				}
 				deliver := func(chunk string) {
 					session.recordOutput(chunk)

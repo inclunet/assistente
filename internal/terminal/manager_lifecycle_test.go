@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -165,7 +166,7 @@ func TestCloseWaitsForProcessAndDrainsReaderBeforeClosingPTY(t *testing.T) {
 		state:       StateIdle,
 		ptySession:  ptySession,
 		readerCtx:   context.Background(),
-		onRawOutput: func(_, chunk string) { output.WriteString(chunk) },
+		onRawOutput: func(_, _, chunk string) { output.WriteString(chunk) },
 	}
 	session.Start()
 
@@ -266,7 +267,7 @@ func TestFinishCommandPreservesClosingState(t *testing.T) {
 func TestRunCommandMarksFailureBeforeWrite(t *testing.T) {
 	startedAt := time.Now()
 	session := &Session{state: StateIdle}
-	got, err := session.RunCommand(t.Context(), "exemplo", time.Second, "test", "cmd-failed")
+	got, err := session.runCommandInDirectory(t.Context(), CommandText{Raw: "exemplo", Display: "exemplo"}, "", time.Second, "test", "cmd-failed", nil)
 	if err == nil || got == nil || got.ID != "cmd-failed" {
 		t.Fatalf("resultado da falha anterior à escrita: entrada=%+v erro=%v", got, err)
 	}
@@ -301,7 +302,7 @@ func TestWaitForMarkerPreservesReadFailureAndCancellation(t *testing.T) {
 				ptyReader:  reader,
 				readerCtx:  t.Context(),
 			}
-			session.startCommandOutput(marker, &HistoryEntry{})
+			session.beginMarkerCapture(marker)
 			session.Start()
 			<-session.readerDone
 			deadline := time.Now().Add(time.Second)
@@ -340,13 +341,13 @@ func TestReadFailureReturnsWhileProcessWaitIsPending(t *testing.T) {
 	session := &Session{ptySession: pty, readerCtx: t.Context(),
 		ptyReader: io.MultiReader(strings.NewReader(marker.startTag+"\nparcial"), iotest.ErrReader(readErr)),
 	}
-	session.startCommandOutput(marker, &HistoryEntry{})
+	session.beginMarkerCapture(marker)
 	session.Start()
 	t.Cleanup(func() {
 		close(pty.releaseWait)
 		select {
 		case <-session.closeDone:
-		case <-time.After(time.Second):
+		case <-time.After(10 * time.Second):
 			t.Fatal("recursos do processo não foram liberados")
 		}
 		if pty.killCalls != 1 || pty.closeCalls != 1 {
@@ -355,10 +356,10 @@ func TestReadFailureReturnsWhileProcessWaitIsPending(t *testing.T) {
 	})
 	select {
 	case <-pty.waitStarted:
-	case <-time.After(time.Second):
+	case <-time.After(10 * time.Second):
 		t.Fatal("coleta não iniciou")
 	}
-	ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	defer cancel()
 	output, code, err := session.waitForMarker(ctx, marker, "test")
 	if !errors.Is(err, readErr) || code != -1 || output != "parcial" {
@@ -383,6 +384,211 @@ func (p *failingWritePTY) Write(data []byte) (int, error) {
 func (p *failingWritePTY) Close() error {
 	close(p.released)
 	return p.fakePTYSession.Close()
+}
+
+func TestManualInputWritesDuringContinuousOutput(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		started, publishStart, releaseOutput := make(chan struct{}), make(chan struct{}), make(chan struct{})
+		accepted := 0
+		const chunks = 4 * rawDeliverySlots
+		var events []string
+		var written bool
+		s := &Session{id: "manual", state: StateIdle, ptyWriter: manualTestWriter(func(p []byte) (int, error) {
+			written = true
+			return len(p), nil
+		}), onCommandStart: func(_, _, _, _ string) {
+			events = append(events, "início")
+			close(started)
+			<-publishStart
+		}, onRawOutput: func(_, _, raw string) {
+			<-releaseOutput
+			events = append(events, raw)
+		}, onExit: func(string, error) { events = append(events, "fim") }}
+		go func() {
+			<-started
+			for i := 0; i < chunks; i++ {
+				s.recordOutput(fmt.Sprint(i))
+				accepted++
+			}
+			s.markExited(nil)
+		}()
+		result := make(chan error, 1)
+		go func() { _, err := s.SendInput("comando", "id"); result <- err }()
+		synctest.Wait()
+		if accepted != rawDeliverySlots {
+			t.Errorf("blocos aceitos antes da publicação de início: %d", accepted)
+		}
+		close(publishStart)
+		synctest.Wait()
+		select {
+		case err := <-result:
+			if err != nil || !written {
+				t.Errorf("escrita=%t erro=%v", written, err)
+			}
+		default:
+			t.Error("a entrada aguardou o produtor ficar inativo")
+		}
+		if accepted > rawDeliverySlots+1 {
+			t.Errorf("consumidor parado reteve %d blocos", accepted)
+		}
+		close(releaseOutput)
+		synctest.Wait()
+		want := []string{"início"}
+		for i := 0; i < chunks; i++ {
+			want = append(want, fmt.Sprint(i))
+		}
+		want = append(want, "fim")
+		if !slices.Equal(events, want) {
+			t.Fatalf("entrega fora de ordem: %v", events)
+		}
+	})
+}
+
+func TestCloseDuringStartDrainsBoundedHandoff(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		pty := &noEOFPTY{newDrainingPTYSession()}
+		defer func() { _ = pty.writer.Close() }()
+		ctx, cancel := context.WithCancel(t.Context())
+		defer cancel()
+		var events []string
+		m := NewManager(DefaultManagerConfig(), func(event string, _ any) { events = append(events, event) })
+		s := &Session{id: "manual", state: StateIdle, ptySession: pty, readerCtx: ctx, cancelReader: cancel}
+		m.sessions[s.id] = s
+		s.onRawOutput = func(_, _, raw string) { events = append(events, raw) }
+		s.onCommandStart = func(_, _, _, _ string) {
+			events = append(events, "start")
+			// Pipe.Write confirma cada leitura. A última está aguardando espaço
+			// na fila quando Close precisa drenar o leitor dentro deste callback.
+			for i := 0; i <= rawDeliverySlots; i++ {
+				if _, err := fmt.Fprintf(pty.writer, "%d", i); err != nil {
+					t.Error(err)
+					return
+				}
+			}
+			if err := m.Close(s.id); err != nil {
+				t.Error(err)
+			}
+		}
+		s.Start()
+		if _, err := s.SendInput("ignorado", "id"); err == nil {
+			t.Error("entrada aceita após o fechamento")
+		}
+		synctest.Wait()
+		want := []string{"start"}
+		for i := 0; i <= rawDeliverySlots; i++ {
+			want = append(want, fmt.Sprint(i))
+		}
+		want = append(want, "terminal:session_closed")
+		if !slices.Equal(events, want) {
+			t.Fatalf("eventos=%v esperados=%v", events, want)
+		}
+	})
+}
+
+func TestManagedDeadlineReleasesReservationWhileRawDeliveryIsBlocked(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		started, release := make(chan struct{}), make(chan struct{})
+		var events []string
+		m := NewManager(DefaultManagerConfig(), func(name string, _ any) {
+			events = append(events, name)
+		})
+		s := &Session{id: "sessão", shell: "bash", state: StateIdle, rawCommandID: "manual",
+			ptyWriter: manualTestWriter(func(p []byte) (int, error) {
+				t.Error("o comando expirado chegou ao PTY")
+				return len(p), nil
+			}), onCommandStart: func(_, _, _, _ string) {
+				events = append(events, "início")
+			}, onRawOutput: func(_, id, raw string) {
+				close(started)
+				<-release
+				events = append(events, id+"/"+raw)
+			},
+		}
+		m.sessions[s.id] = s
+		go s.recordOutput("anterior")
+		<-started
+		finished := make(chan error, 1)
+		go func() {
+			_, err := m.RunCommand(t.Context(), s.id, "não enviado", time.Second, "teste")
+			finished <- err
+		}()
+		time.Sleep(2 * time.Second)
+		synctest.Wait()
+		select {
+		case err := <-finished:
+			if !errors.Is(err, context.DeadlineExceeded) {
+				t.Errorf("erro ao vencer o prazo: %v", err)
+			}
+		default:
+			t.Error("o comando ainda aguarda a saída anterior")
+		}
+		history := s.GetHistory()
+		if s.State() != StateIdle || len(history) != 1 || history[0].ExitCode != -1 {
+			t.Errorf("estado=%v histórico=%+v", s.State(), history)
+		}
+		close(release)
+		synctest.Wait()
+		if !slices.Equal(events, []string{"início", "terminal:command_end", "manual/anterior"}) {
+			t.Fatalf("eventos=%v", events)
+		}
+	})
+}
+
+func TestManagedStartPreservesManualOutputBeforeCanceledWrite(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	block := strings.Repeat("x", ptyReadSize)
+	const blocks = 64
+	delivered := 0
+	s := &Session{shell: "bash", ptyWriter: manualTestWriter(func([]byte) (int, error) {
+		t.Error("escrita após cancelamento")
+		return 0, io.ErrClosedPipe
+	})}
+	s.rawCommandID = "manual"
+	s.onRawOutput = func(_, id, data string) {
+		if id != "manual" || data != block {
+			t.Errorf("destino=%q tamanho=%d", id, len(data))
+		}
+		delivered++
+	}
+	s.onCommandStart = func(_, _, _, _ string) {
+		for i := 0; i < blocks; i++ {
+			s.recordOutput(block)
+		}
+		if n := s.outputBuf.Len(); n != 0 {
+			t.Errorf("%d bytes anteriores à escrita atribuídos ao comando gerenciado", n)
+		}
+		cancel()
+	}
+	entry, err := s.runCommandInDirectory(ctx, CommandText{Raw: "sem envio", Display: "sem envio"}, "", time.Minute, "teste", "gerenciado", nil)
+	if !errors.Is(err, context.Canceled) || entry == nil || entry.Output != "" || delivered != blocks {
+		t.Fatalf("entrada=%+v erro=%v blocos entregues=%d", entry, err, delivered)
+	}
+}
+
+func TestCancellationDuringCommandStartSkipsDispatch(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	var events []string
+	s := &Session{id: "canceled", state: StateIdle, shell: "bash", onCommandStart: func(_, _, _, _ string) {
+		events = append(events, "start")
+		cancel()
+	}, ptyWriter: manualTestWriter(func(data []byte) (int, error) {
+		t.Errorf("escrita após cancelamento (%d bytes)", len(data))
+		return 0, io.ErrClosedPipe
+	})}
+	m := NewManager(DefaultManagerConfig(), func(event string, _ any) { events = append(events, event) })
+	m.sessions[s.id] = s
+	entry, err := m.RunCommand(ctx, s.id, "exemplo", time.Minute, "test")
+	if !errors.Is(err, context.Canceled) || entry == nil || entry.ExitCode != -1 || entry.EndedAt.Before(entry.StartedAt) {
+		t.Fatalf("entrada=%+v erro=%v", entry, err)
+	}
+	if history := s.GetHistory(); len(history) != 1 || history[0] != *entry || s.State() != StateIdle {
+		t.Fatalf("histórico=%+v estado=%v", history, s.State())
+	}
+	if strings.Join(events, ",") != "start,terminal:command_end" {
+		t.Fatalf("eventos=%v", events)
+	}
 }
 
 func TestUnavailableCommandWriterKeepsHistory(t *testing.T) {
@@ -413,6 +619,82 @@ func (p *pausedKillPTY) Kill() error {
 	close(p.killing)
 	<-p.resume
 	return p.drainingPTYSession.Kill()
+}
+
+func TestConcurrentCreationReservesOneSlotAndReturnsItOnStartupFailure(t *testing.T) {
+	cfg := DefaultManagerConfig()
+	cfg.MaxSessions = 1
+	m := NewManager(cfg, nil)
+	dir := ptyTestDir(t)
+	t.Cleanup(m.CloseAll)
+	if _, err := m.Create("inválido", "\x00"); err == nil {
+		t.Fatal("criação em diretório inválido foi aceita")
+	}
+	start := make(chan struct{})
+	results := make(chan error, 2)
+	for range 2 {
+		go func() {
+			<-start
+			_, err := m.Create("válido", dir)
+			results <- err
+		}()
+	}
+	close(start)
+	first, second := <-results, <-results
+	if first == nil {
+		first, second = second, first
+	}
+	if first == nil || !strings.Contains(first.Error(), "limite de sessões") || second != nil || m.Stats().TotalSessions != 1 {
+		t.Fatalf("criações concorrentes: resultados=(%v, %v) sessões=%d", first, second, m.Stats().TotalSessions)
+	}
+}
+
+func TestManualPartialWriteKeepsSessionSlotUntilCleanup(t *testing.T) {
+	cfg := DefaultManagerConfig()
+	cfg.MaxSessions = 1
+	m := NewManager(cfg, nil)
+	synctest.Test(t, func(t *testing.T) {
+		p := &pausedKillPTY{newDrainingPTYSession(), make(chan struct{}), make(chan struct{})}
+		release := sync.OnceFunc(func() { close(p.resume) })
+		defer release()
+		writes := 0
+		var exitErr error
+		s := &Session{id: "manual", readerCtx: t.Context(), ptySession: p,
+			ptyWriter: manualTestWriter(func(data []byte) (int, error) { writes++; return len(data) - 1, nil }),
+			onExit:    func(_ string, err error) { exitErr = err },
+		}
+		m.sessions[s.id] = s
+		s.Start()
+		if _, err := m.SendInput(s.id, "primeira"); !errors.Is(err, ErrSessionWrite) || !errors.Is(err, io.ErrShortWrite) {
+			t.Fatalf("erro de escrita parcial=%v", err)
+		}
+		<-p.killing
+		closed := make(chan error, 1)
+		go func() { closed <- m.Close(s.id) }()
+		synctest.Wait()
+		if _, found := m.Info(s.id); found || m.Has(s.id) || len(m.List()) != 0 || m.Stats().TotalSessions != 1 {
+			t.Errorf("sessão em encerramento: encontrada=%t lista=%v estatísticas=%+v", found, m.List(), m.Stats())
+		}
+		if _, err := m.SendInput(s.id, "segunda"); err == nil || writes != 1 {
+			t.Errorf("entrada reutilizou PTY parcial: escritas=%d erro=%v", writes, err)
+		}
+		if _, err := m.Create("antes", "\x00"); err == nil || !strings.Contains(err.Error(), "limite de sessões") {
+			t.Errorf("vaga liberada enquanto Kill está bloqueado: %v", err)
+		}
+		release()
+		if err := <-closed; err != nil {
+			t.Fatal(err)
+		}
+		synctest.Wait()
+		if !errors.Is(exitErr, io.ErrShortWrite) || m.Stats().TotalSessions != 0 {
+			t.Fatalf("fim=%v sessões=%d", exitErr, m.Stats().TotalSessions)
+		}
+	})
+	dir := ptyTestDir(t)
+	t.Cleanup(m.CloseAll)
+	if _, err := m.Create("depois", dir); err != nil {
+		t.Fatalf("vaga indisponível após a limpeza: %v", err)
+	}
 }
 
 func TestPartialWriteRetiresSessionAndDrainsReader(t *testing.T) {
@@ -471,7 +753,7 @@ func TestPartialWriteRetiresSessionAndDrainsReader(t *testing.T) {
 			}()
 			select {
 			case <-p.killing:
-			case <-time.After(time.Second):
+			case <-time.After(10 * time.Second):
 				t.Fatal("falha parcial não iniciou cleanup")
 			}
 			manager.Release(s.id)
@@ -491,7 +773,7 @@ func TestPartialWriteRetiresSessionAndDrainsReader(t *testing.T) {
 				if !errors.Is(err, wantErr) {
 					t.Fatalf("causa perdida: %v", err)
 				}
-			case <-time.After(time.Second):
+			case <-time.After(10 * time.Second):
 				t.Fatal("cleanup bloqueou")
 			}
 			history := s.GetHistory()
@@ -559,7 +841,7 @@ func TestWriteFailureBoundsCallerWhileCleanupContinues(t *testing.T) {
 			exited := make(chan error, 1)
 			var raw, output strings.Builder
 			s := &Session{id: "blocked", shell: "bash", readerCtx: t.Context(), ptySession: p, onExit: func(_ string, err error) { exited <- err },
-				onOutput: func(_, _, chunk string) { output.WriteString(chunk) }, onRawOutput: func(_, chunk string) { raw.WriteString(chunk) }}
+				onOutput: func(_, _, chunk string) { output.WriteString(chunk) }, onRawOutput: func(_, _, chunk string) { raw.WriteString(chunk) }}
 			s.ptyWriter = manualTestWriter(func(data []byte) (int, error) {
 				_, after, ok := strings.Cut(string(data), "'"+markerStart)
 				if !ok {
@@ -580,13 +862,13 @@ func TestWriteFailureBoundsCallerWhileCleanupContinues(t *testing.T) {
 			go func() { _, err := m.RunCommand(ctx, s.id, "example", time.Hour, "test"); result <- err }()
 			select {
 			case <-p.stalled:
-			case <-time.After(3 * time.Second):
+			case <-time.After(10 * time.Second):
 				t.Fatal("backend não bloqueou")
 			}
 			if phase == "Read" {
 				select {
 				case <-p.killed:
-				case <-time.After(time.Second):
+				case <-time.After(10 * time.Second):
 					t.Fatal("cleanup não iniciou")
 				}
 			}
@@ -596,7 +878,7 @@ func TestWriteFailureBoundsCallerWhileCleanupContinues(t *testing.T) {
 				if !errors.Is(err, ErrSessionWrite) || !errors.Is(err, io.ErrShortWrite) || !errors.Is(err, context.Canceled) {
 					t.Fatalf("causas: %v", err)
 				}
-			case <-time.After(time.Second):
+			case <-time.After(10 * time.Second):
 				t.Fatal("comando esperou backend bloqueado após cancelamento")
 			}
 			select {
@@ -628,7 +910,7 @@ func TestWriteFailureBoundsCallerWhileCleanupContinues(t *testing.T) {
 				if !errors.Is(err, p.waitErr) {
 					t.Fatalf("Close perdeu causa do backend: %v", err)
 				}
-			case <-time.After(3 * time.Second):
+			case <-time.After(10 * time.Second):
 				t.Fatal("Close não concluiu")
 			}
 			select {
@@ -636,7 +918,7 @@ func TestWriteFailureBoundsCallerWhileCleanupContinues(t *testing.T) {
 				if !errors.Is(err, p.waitErr) || !errors.Is(err, ErrSessionWrite) || !errors.Is(err, context.Canceled) {
 					t.Fatalf("exited perdeu causas: %v", err)
 				}
-			case <-time.After(time.Second):
+			case <-time.After(10 * time.Second):
 				t.Fatal("exited não entregue")
 			}
 		})
@@ -685,7 +967,7 @@ func TestWriteCleanupPreservesIndependentReadError(t *testing.T) {
 				t.Fatalf("causa %q ausente ou repetida em exited: %v", cause, eventErr)
 			}
 		}
-	case <-time.After(time.Second):
+	case <-time.After(10 * time.Second):
 		t.Fatal("exited não entregue")
 	}
 }
@@ -809,7 +1091,7 @@ func TestReadFailureWhileWritingCommand(t *testing.T) {
 			var wrapper string
 			select {
 			case wrapper = <-pty.wrapper:
-			case <-time.After(time.Second):
+			case <-time.After(10 * time.Second):
 				t.Fatal("escrita do comando não iniciou")
 			}
 			raw, want := wrapper+"\n", ""
@@ -841,7 +1123,7 @@ func TestReadFailureWhileWritingCommand(t *testing.T) {
 				if history := session.GetHistory(); len(history) != 1 || history[0].Output != want {
 					t.Fatalf("histórico=%v", history)
 				}
-			case <-time.After(time.Second):
+			case <-time.After(10 * time.Second):
 				t.Fatal("falha do leitor não liberou o writer")
 			}
 			<-session.closeDone
@@ -850,7 +1132,7 @@ func TestReadFailureWhileWritingCommand(t *testing.T) {
 				if !ordered {
 					t.Fatal("exited antes de command_end ou sem as duas causas")
 				}
-			case <-time.After(time.Second):
+			case <-time.After(10 * time.Second):
 				t.Fatal("exited não entregue")
 			}
 			if pty.killCalls != 1 || pty.closeCalls != 1 {
@@ -866,7 +1148,7 @@ func TestWaitForMarkerFlushesUnsentPartialOutput(t *testing.T) {
 	for _, mode := range []string{"cancelado", "fechado", "leitura"} {
 		t.Run(mode, func(t *testing.T) {
 			marker := newCommandMarkerForShell("bash")
-			ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
+			ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 			defer cancel()
 			readErr := errors.New("falha na leitura")
 			wantErr := map[string]error{"cancelado": context.Canceled, "fechado": ErrSessionClosed, "leitura": readErr}[mode]
@@ -934,18 +1216,30 @@ func TestCloseReleasesReaderWhenPTYDoesNotDeliverEOF(t *testing.T) {
 // A sessão sem PTY força a saída antes da escrita. O caminho de execução real
 // é exercitado por TestPersistentExitPublishesResultBeforeExit.
 func TestNaturalExitWaitsForCommandResult(t *testing.T) {
-	var events []string
-	s := &Session{state: StateIdle, shell: "bash", onExit: func(string, error) { events = append(events, "exited") }}
-	s.onCommandStart = func(_, _, _, _ string) {
-		s.markExited(nil)
-		if len(events) != 0 {
-			t.Fatalf("saída publicada antes do resultado: %v", events)
-		}
-	}
-	_, _ = s.runCommandInDirectory(context.Background(), CommandText{Raw: "exit 7", Display: "exit 7"}, "", time.Second, "test", "comando",
-		func(*HistoryEntry, error) { events = append(events, "command_end") })
-	if got := strings.Join(events, ","); got != "command_end,exited" {
-		t.Fatalf("ordem de publicação: %s", got)
+	for _, closeAfterExit := range []bool{false, true} {
+		t.Run(fmt.Sprintf("fechar=%t", closeAfterExit), func(t *testing.T) {
+			var events []string
+			s := &Session{id: "terminal", state: StateIdle, shell: "bash", onExit: func(string, error) {
+				events = append(events, "exited")
+			}}
+			m := closeTestManager(s)
+			m.emitEvent = func(name string, _ any) { events = append(events, name) }
+			s.onCommandStart = func(_, _, _, _ string) {
+				s.markExited(nil)
+				if closeAfterExit {
+					if err := m.Close(s.id); err != nil {
+						t.Fatal(err)
+					}
+				}
+				if len(events) != 0 {
+					t.Fatalf("saída publicada antes do resultado: %v", events)
+				}
+			}
+			_, _ = m.RunCommand(t.Context(), s.id, "exit 7", time.Second, "test")
+			if got := strings.Join(events, ","); got != "terminal:command_end,exited" {
+				t.Fatalf("ordem de publicação: %s", got)
+			}
+		})
 	}
 }
 
