@@ -54,12 +54,15 @@ describe('useVoiceAccessibilityWorkspaceResolver', () => {
     expect(resolver({ conversationId: 'conv-2' })).toBe(false);
   });
 
-  it('trata a sessão da aba selecionada como inativa enquanto o painel está fora da tela', () => {
+  it.each([
+    { terminalSessionId: 's' },
+    { surfaceType: 'terminal' as const, tabId: 'tab-1' },
+  ])('trata o terminal selecionado como inativo enquanto o painel está fora da tela', origin => {
     const original = hoisted.workspace;
     hoisted.workspace = { ...original, tabs: [{ ...original.tabs[0], type: 'terminal', state: { sessionId: 's' } }] };
     try {
       const { rerender } = renderHook(({ visible }) => useVoiceAccessibilityWorkspaceResolver(visible), { initialProps: { visible: true } });
-      const active = () => hoisted.registerResolver.mock.lastCall![0]({ terminalSessionId: 's' });
+      const active = () => hoisted.registerResolver.mock.lastCall![0](origin);
       expect(active()).toBe(true);
       rerender({ visible: false });
       expect(active()).toBe(false);

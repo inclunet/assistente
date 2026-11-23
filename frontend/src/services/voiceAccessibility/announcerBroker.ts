@@ -4,7 +4,7 @@ import type {
   VoiceAccessibilityOrigin,
   VoiceAccessibilityRequestBase,
 } from './types';
-import { getVoiceAccessibilityOriginLabel } from './types';
+import { getVoiceAccessibilityOriginLabel, isTerminalOrigin } from './types';
 
 export type AnnouncePriority = 'polite' | 'assertive';
 
@@ -145,7 +145,7 @@ function formatInactiveAnnouncement(request: VoiceAnnounceRequest): string {
     }
     if (request.inactiveMessage.fallback.trim()) return request.inactiveMessage.fallback;
   } else if (request.inactiveMessage?.trim()) return request.inactiveMessage;
-  if (request.origin?.terminalSessionId || request.origin?.surfaceType === 'terminal') {
+  if (isTerminalOrigin(request.origin)) {
     return i18next.t('voiceAccessibility.backgroundTerminalActivity', { defaultValue: 'Atividade no terminal em segundo plano' });
   }
   const label = getVoiceAccessibilityOriginLabel(request.origin);
