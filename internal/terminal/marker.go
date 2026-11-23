@@ -189,7 +189,9 @@ const powerShellLastOperation = `	$isConstantReturn = {
 		if (!$stmt.Pipeline) { return $true };
 		if ($stmt.Pipeline -isnot [System.Management.Automation.Language.PipelineAst]) { return $false };
 		$elements = $stmt.Pipeline.PipelineElements;
-		return $elements.Count -eq 1 -and $elements[0] -is [System.Management.Automation.Language.CommandExpressionAst] -and !$elements[0].Redirections.Count -and $elements[0].Expression -is [System.Management.Automation.Language.ConstantExpressionAst]
+		if ($elements.Count -ne 1 -or $elements[0] -isnot [System.Management.Automation.Language.CommandExpressionAst] -or $elements[0].Redirections.Count) { return $false };
+		$expr = $elements[0].Expression;
+		return $expr -is [System.Management.Automation.Language.ConstantExpressionAst] -or (($expr -is [System.Management.Automation.Language.ArrayExpressionAst] -or $expr -is [System.Management.Automation.Language.SubExpressionAst]) -and !$expr.SubExpression.Statements.Count)
 	};
 	$lastInBlock = {
 		param($items, $keepReturn);
