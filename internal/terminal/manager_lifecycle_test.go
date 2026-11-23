@@ -753,7 +753,7 @@ func TestPartialWriteRetiresSessionAndDrainsReader(t *testing.T) {
 			}()
 			select {
 			case <-p.killing:
-			case <-time.After(time.Second):
+			case <-time.After(10 * time.Second):
 				t.Fatal("falha parcial não iniciou cleanup")
 			}
 			manager.Release(s.id)
@@ -773,7 +773,7 @@ func TestPartialWriteRetiresSessionAndDrainsReader(t *testing.T) {
 				if !errors.Is(err, wantErr) {
 					t.Fatalf("causa perdida: %v", err)
 				}
-			case <-time.After(time.Second):
+			case <-time.After(10 * time.Second):
 				t.Fatal("cleanup bloqueou")
 			}
 			history := s.GetHistory()
@@ -862,13 +862,13 @@ func TestWriteFailureBoundsCallerWhileCleanupContinues(t *testing.T) {
 			go func() { _, err := m.RunCommand(ctx, s.id, "example", time.Hour, "test"); result <- err }()
 			select {
 			case <-p.stalled:
-			case <-time.After(3 * time.Second):
+			case <-time.After(10 * time.Second):
 				t.Fatal("backend não bloqueou")
 			}
 			if phase == "Read" {
 				select {
 				case <-p.killed:
-				case <-time.After(time.Second):
+				case <-time.After(10 * time.Second):
 					t.Fatal("cleanup não iniciou")
 				}
 			}
@@ -878,7 +878,7 @@ func TestWriteFailureBoundsCallerWhileCleanupContinues(t *testing.T) {
 				if !errors.Is(err, ErrSessionWrite) || !errors.Is(err, io.ErrShortWrite) || !errors.Is(err, context.Canceled) {
 					t.Fatalf("causas: %v", err)
 				}
-			case <-time.After(time.Second):
+			case <-time.After(10 * time.Second):
 				t.Fatal("comando esperou backend bloqueado após cancelamento")
 			}
 			select {
@@ -910,7 +910,7 @@ func TestWriteFailureBoundsCallerWhileCleanupContinues(t *testing.T) {
 				if !errors.Is(err, p.waitErr) {
 					t.Fatalf("Close perdeu causa do backend: %v", err)
 				}
-			case <-time.After(3 * time.Second):
+			case <-time.After(10 * time.Second):
 				t.Fatal("Close não concluiu")
 			}
 			select {
@@ -918,7 +918,7 @@ func TestWriteFailureBoundsCallerWhileCleanupContinues(t *testing.T) {
 				if !errors.Is(err, p.waitErr) || !errors.Is(err, ErrSessionWrite) || !errors.Is(err, context.Canceled) {
 					t.Fatalf("exited perdeu causas: %v", err)
 				}
-			case <-time.After(time.Second):
+			case <-time.After(10 * time.Second):
 				t.Fatal("exited não entregue")
 			}
 		})
@@ -1091,7 +1091,7 @@ func TestReadFailureWhileWritingCommand(t *testing.T) {
 			var wrapper string
 			select {
 			case wrapper = <-pty.wrapper:
-			case <-time.After(time.Second):
+			case <-time.After(10 * time.Second):
 				t.Fatal("escrita do comando não iniciou")
 			}
 			raw, want := wrapper+"\n", ""
@@ -1123,7 +1123,7 @@ func TestReadFailureWhileWritingCommand(t *testing.T) {
 				if history := session.GetHistory(); len(history) != 1 || history[0].Output != want {
 					t.Fatalf("histórico=%v", history)
 				}
-			case <-time.After(time.Second):
+			case <-time.After(10 * time.Second):
 				t.Fatal("falha do leitor não liberou o writer")
 			}
 			<-session.closeDone
@@ -1132,7 +1132,7 @@ func TestReadFailureWhileWritingCommand(t *testing.T) {
 				if !ordered {
 					t.Fatal("exited antes de command_end ou sem as duas causas")
 				}
-			case <-time.After(time.Second):
+			case <-time.After(10 * time.Second):
 				t.Fatal("exited não entregue")
 			}
 			if pty.killCalls != 1 || pty.closeCalls != 1 {

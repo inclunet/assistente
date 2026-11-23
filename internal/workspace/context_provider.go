@@ -352,7 +352,8 @@ func writeStructuredContent(sb *strings.Builder, surface *normalizedSurfaceConte
 	if currentInput := stringFromMap(surface.Content, "currentInput"); currentInput != "" {
 		attrs = append(attrs, xmlAttr("current_input", truncateText(currentInput, 240)))
 	}
-	baseAttrs := attrs
+	// Cada projeção que inclui truncated conserva os próprios atributos.
+	baseAttrs := attrs[:len(attrs):len(attrs)]
 	if value := boolStringFromMap(surface.Content, "truncated"); value != "" {
 		attrs = append(baseAttrs, xmlAttr("truncated", value))
 	}
