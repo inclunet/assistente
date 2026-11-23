@@ -87,8 +87,12 @@ func (s *Session) writeInterruptLocked(writer io.Writer) error {
 		return fmt.Errorf("falha ao enviar Ctrl+C para sessão %s: %w", s.id, io.ErrShortWrite)
 	}
 	s.mu.Lock()
-	if s.commandDelivery != nil {
-		s.commandDelivery.interrupted = true
+	if d := s.commandDelivery; d != nil && d.interruptAccepted != nil {
+		select {
+		case <-d.interruptAccepted:
+		default:
+			close(d.interruptAccepted)
+		}
 	}
 	s.mu.Unlock()
 	return nil

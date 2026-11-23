@@ -158,10 +158,10 @@ type Session struct {
 }
 
 type commandDelivery struct {
-	interrupted bool     // Sob mu: impede despacho posterior a um Ctrl+C aceito.
-	afterEnd    []func() // Sob mu: eventos de encerramento pendentes.
-	ended       bool
-	err         error
+	interruptAccepted chan struct{} // Fechado sob mu quando a escrita de Ctrl+C é aceita.
+	afterEnd          []func()      // Sob mu: eventos de encerramento pendentes.
+	ended             bool
+	err               error
 }
 
 var nextSessionVersion atomic.Uint64
@@ -612,7 +612,7 @@ func (s *Session) runCommandInDirectory(ctx context.Context, command, directory 
 	if commandID == "" {
 		commandID = uuid.NewString()
 	}
-	delivery := &commandDelivery{}
+	delivery := &commandDelivery{interruptAccepted: make(chan struct{})}
 	if err := s.reserveCommand(delivery); err != nil {
 		return nil, err
 	}
@@ -679,7 +679,7 @@ func (s *Session) runCommandInDirectory(ctx context.Context, command, directory 
 		return err
 	}
 	if s.powerShellKey != "" {
-		marker.probe = true
+		marker.probeInterrupt = delivery.interruptAccepted
 		resultErr = runFrame(marker.powerShellProbe(s.powerShellKey))
 		if resultErr == nil && entry.ExitCode != 0 && entry.ExitCode != 1 {
 			resultErr = fmt.Errorf("consulta da biblioteca PowerShell retornou status %d", entry.ExitCode)
@@ -730,10 +730,14 @@ func (s *Session) writeManagedFrame(ctx context.Context, marker *CommandMarker, 
 		}
 		return cause
 	}
-	if s.commandDelivery != nil && s.commandDelivery.interrupted {
-		s.mu.Unlock()
-		s.ioMu.Unlock()
-		return context.Canceled
+	if s.commandDelivery != nil {
+		select {
+		case <-s.commandDelivery.interruptAccepted:
+			s.mu.Unlock()
+			s.ioMu.Unlock()
+			return context.Canceled
+		default:
+		}
 	}
 	s.mu.Unlock()
 	if s.ptyWriter == nil {
@@ -768,7 +772,7 @@ func (s *Session) writeManagedFrame(ctx context.Context, marker *CommandMarker, 
 		} else {
 			entry.Output = stream.partialOutput()
 		}
-		if marker.probe {
+		if marker.probeInterrupt != nil {
 			entry.Output = ""
 		}
 		if s.onOutput != nil && entry.Output != "" {
@@ -807,7 +811,7 @@ func (s *Session) exitedCommandResult(stream *markerStream) (string, int, error)
 	}
 	select {
 	case <-s.processDone:
-		if stream.started && !stream.marker.probe {
+		if stream.started && stream.marker.probeInterrupt == nil {
 			if s.processErr == nil {
 				return output, 0, nil
 			}
@@ -867,7 +871,7 @@ func (s *Session) waitForMarker(ctx context.Context, marker *CommandMarker, comm
 	// Conta os bytes dos deltas já entregues para emitir apenas o sufixo ao finalizar.
 	streamSentLen := 0
 	defer func() {
-		if marker.probe {
+		if marker.probeInterrupt != nil {
 			output = ""
 			return
 		}
@@ -879,6 +883,8 @@ func (s *Session) waitForMarker(ctx context.Context, marker *CommandMarker, comm
 
 	for {
 		select {
+		case <-marker.probeInterrupt:
+			return "", -1, context.Canceled
 		case <-ctx.Done():
 			return s.canceledCommandResult(ctx, stream)
 
@@ -905,7 +911,7 @@ func (s *Session) waitForMarker(ctx context.Context, marker *CommandMarker, comm
 				continue
 			}
 			delta, result := stream.append(chunk)
-			if !marker.probe && s.onOutput != nil && len(delta) > 0 {
+			if marker.probeInterrupt == nil && s.onOutput != nil && len(delta) > 0 {
 				s.onOutput(s.id, commandID, string(delta))
 				streamSentLen += len(delta)
 			}

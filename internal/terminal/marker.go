@@ -33,7 +33,7 @@ type CommandMarker struct {
 	id              string
 	startTag        string
 	endTag          string
-	probe           bool
+	probeInterrupt  <-chan struct{}
 	inlineEnd       bool
 	conPTY          bool
 	viewportColumns int

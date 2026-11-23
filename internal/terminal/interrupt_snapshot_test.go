@@ -541,7 +541,7 @@ func TestInterruptSnapshotRejectsZeroWriteWithoutError(t *testing.T) {
 }
 
 func TestInterruptAfterPowerShellProbe(t *testing.T) {
-	for _, mode := range []string{"snapshot", "direto"} {
+	for _, mode := range []string{"snapshot", "direto", "sem rodapé"} {
 		t.Run(mode, func(t *testing.T) {
 			synctest.Test(t, func(t *testing.T) {
 				writer := &interruptFakePTYWriter{}
@@ -562,7 +562,11 @@ func TestInterruptAfterPowerShellProbe(t *testing.T) {
 				if len(id) != 2 {
 					t.Fatal("sem identificador de moldura")
 				}
-				s.recordOutput(markerStart + string(id[1]) + markerSuffix + "\n" + markerEnd + string(id[1]) + markerSuffix + "1!")
+				reply := markerStart + string(id[1]) + markerSuffix + "\n"
+				if mode != "sem rodapé" {
+					reply += markerEnd + string(id[1]) + markerSuffix + "1!"
+				}
+				s.recordOutput(reply)
 				if mode == "snapshot" {
 					snapshot, err := manager.CaptureInterrupt(s.id)
 					if err != nil {
@@ -624,7 +628,7 @@ func TestPowerShellDispatchesBodyOnce(t *testing.T) {
 
 func TestPowerShellProbeRequiresFooterAfterProcessExit(t *testing.T) {
 	marker := newCommandMarkerForShell("powershell")
-	marker.probe = true
+	marker.probeInterrupt = make(chan struct{})
 	done := make(chan struct{})
 	close(done)
 	s := &Session{readerDone: done, processDone: done, onOutput: func(_, _, output string) {
