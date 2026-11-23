@@ -253,7 +253,8 @@ Pendente ou parcial:
   origem ambígua, o status é 1. Um ramo ignorado não fornece código de saída.
   O CI exercita o terminal no Windows PowerShell 5.1.
 - **Interrupção.** Cancelamento, falha de leitura e fechamento explícito preservam a causa e a saída
-  parcial. Se o leitor falhar e o prazo expirar, o resultado conserva as duas causas. A ferramenta
+  parcial, inclusive as quebras finais emitidas pelo comando. O resultado completo normaliza
+  essas quebras para exibição. Se o leitor falhar e o prazo expirar, o resultado conserva as duas causas. A ferramenta
   informa no texto e nos metadados a duração registrada pela sessão, inclusive no timeout sem saída,
   quando os dois horários da execução estão disponíveis. No timeout, `timeoutLimit`
   registra o limite configurado, inclusive quando o prazo do contexto vence antes.

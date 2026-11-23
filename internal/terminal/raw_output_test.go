@@ -101,7 +101,7 @@ func TestCommandStartWaitsForPreviousManualDelivery(t *testing.T) {
 					go func() {
 						defer close(done)
 						if managed {
-							_, _ = s.RunCommand(t.Context(), "comando", time.Second, "teste", "novo")
+							_, _ = s.runCommandInDirectory(t.Context(), "comando", "", time.Second, "teste", "novo", nil)
 						} else {
 							_, _ = s.SendInput("comando", "novo")
 						}
@@ -274,7 +274,7 @@ func TestManualOutputAcrossManagedCommand(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("saída manual inicial não chegou")
 	}
-	entry, err := s.RunCommand(t.Context(), "echo executado", time.Second, "teste", "teste")
+	entry, err := s.runCommandInDirectory(t.Context(), "echo executado", "", time.Second, "teste", "teste", nil)
 	if err != nil || entry == nil || entry.ExitCode != 0 || entry.Output != "executado" {
 		t.Fatalf("comando=%+v erro=%v", entry, err)
 	}

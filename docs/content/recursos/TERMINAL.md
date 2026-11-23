@@ -23,7 +23,8 @@ Cada sessão mantém:
 
 No Bash, no zsh e nos shells POSIX, o status é o da última operação do comando.
 No Linux, sessões zsh efêmeras e sessões persistentes criadas pelo modelo
-carregam o perfil do usuário e dispensam o completador global do Ubuntu.
+carregam o perfil do usuário e dispensam o completador global do Ubuntu. Os
+processos iniciados nessas sessões herdam a variável `skip_global_compinit=1`.
 Assim, a pergunta de configuração do completador não consome parte do comando.
 Sessões abertas manualmente carregam o completador conforme a configuração do sistema.
 Se o zsh fizer uma pergunta na abertura de uma dessas sessões, responda na aba
@@ -80,7 +81,8 @@ está carregando e quando a sessão vinculada já terminou. Para voltar a editar
 use a barra de ferramentas para escolher outra sessão ou criar uma nova.
 Essa orientação continua disponível com texto no campo. Anexos já carregados
 permanecem no rascunho. Se o editor entrar em modo de leitura enquanto um anexo
-está carregando, esse carregamento é descartado. Você pode anexar o arquivo de
+está carregando, esse carregamento é descartado e a aba ativa anuncia o cancelamento.
+Você pode anexar o arquivo de
 novo quando voltar a editar.
 A prévia falada inclui até 300 pontos de código Unicode do comando ao iniciar
 e da saída ao concluir ou receber texto. Um emoji composto
@@ -137,6 +139,7 @@ para abrir outro terminal assim que a limpeza termina.
 Uma falha de leitura, um cancelamento ou o fechamento explícito da sessão devolve erro com a saída parcial disponível. Se o leitor já falhou quando o prazo vence, o diagnóstico conserva as duas causas. A duração acompanha o resultado quando a sessão registrou o início e o fim da execução.
 
 Quando o prazo vence, a ferramenta informa o limite configurado e, quando disponível, a duração medida.
+Se houver saída parcial, o timeout devolve essa saída como resultado. Um cancelamento explícito devolve erro e inclui a saída que já chegou.
 Se o prazo vencer depois do envio, o Assistente tenta interromper o comando com
 `Ctrl+C` e recuperar a saída restante antes de encerrar uma sessão efêmera.
 

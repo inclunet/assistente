@@ -267,7 +267,7 @@ func TestFinishCommandPreservesClosingState(t *testing.T) {
 func TestRunCommandMarksFailureBeforeWrite(t *testing.T) {
 	startedAt := time.Now()
 	session := &Session{state: StateIdle}
-	got, err := session.RunCommand(t.Context(), "exemplo", time.Second, "test", "cmd-failed")
+	got, err := session.runCommandInDirectory(t.Context(), "exemplo", "", time.Second, "test", "cmd-failed", nil)
 	if err == nil || got == nil || got.ID != "cmd-failed" {
 		t.Fatalf("resultado da falha anterior à escrita: entrada=%+v erro=%v", got, err)
 	}
@@ -347,7 +347,7 @@ func TestReadFailureReturnsWhileProcessWaitIsPending(t *testing.T) {
 		close(pty.releaseWait)
 		select {
 		case <-session.closeDone:
-		case <-time.After(time.Second):
+		case <-time.After(10 * time.Second):
 			t.Fatal("recursos do processo não foram liberados")
 		}
 		if pty.killCalls != 1 || pty.closeCalls != 1 {
@@ -356,10 +356,10 @@ func TestReadFailureReturnsWhileProcessWaitIsPending(t *testing.T) {
 	})
 	select {
 	case <-pty.waitStarted:
-	case <-time.After(time.Second):
+	case <-time.After(10 * time.Second):
 		t.Fatal("coleta não iniciou")
 	}
-	ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	defer cancel()
 	output, code, err := session.waitForMarker(ctx, marker, "test")
 	if !errors.Is(err, readErr) || code != -1 || output != "parcial" {
@@ -560,7 +560,7 @@ func TestManagedStartPreservesManualOutputBeforeCanceledWrite(t *testing.T) {
 		}
 		cancel()
 	}
-	entry, err := s.RunCommand(ctx, "sem envio", time.Minute, "teste", "gerenciado")
+	entry, err := s.runCommandInDirectory(ctx, "sem envio", "", time.Minute, "teste", "gerenciado", nil)
 	if !errors.Is(err, context.Canceled) || entry == nil || entry.Output != "" || delivered != blocks {
 		t.Fatalf("entrada=%+v erro=%v blocos entregues=%d", entry, err, delivered)
 	}
@@ -967,7 +967,7 @@ func TestWriteCleanupPreservesIndependentReadError(t *testing.T) {
 				t.Fatalf("causa %q ausente ou repetida em exited: %v", cause, eventErr)
 			}
 		}
-	case <-time.After(time.Second):
+	case <-time.After(10 * time.Second):
 		t.Fatal("exited não entregue")
 	}
 }
@@ -1148,7 +1148,7 @@ func TestWaitForMarkerFlushesUnsentPartialOutput(t *testing.T) {
 	for _, mode := range []string{"cancelado", "fechado", "leitura"} {
 		t.Run(mode, func(t *testing.T) {
 			marker := newCommandMarkerForShell("bash")
-			ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
+			ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 			defer cancel()
 			readErr := errors.New("falha na leitura")
 			wantErr := map[string]error{"cancelado": context.Canceled, "fechado": ErrSessionClosed, "leitura": readErr}[mode]

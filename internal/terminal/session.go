@@ -596,12 +596,6 @@ func (s *Session) finishCommand() {
 	s.commandPending = false
 }
 
-// RunCommand executa um comando na sessão PTY e retorna o output.
-// O comando é envolvido com markers para detectar início/fim e exit code.
-func (s *Session) RunCommand(ctx context.Context, command string, timeout time.Duration, source, commandID string) (*HistoryEntry, error) {
-	return s.runCommandInDirectory(ctx, command, "", timeout, source, commandID, nil)
-}
-
 func (s *Session) runCommandInDirectory(ctx context.Context, command, directory string, timeout time.Duration, source, commandID string, onEnd func(*HistoryEntry, error, string)) (resultEntry *HistoryEntry, resultErr error) {
 	if commandID == "" {
 		commandID = uuid.NewString()
