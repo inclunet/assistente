@@ -157,7 +157,7 @@ function currentSessionFor(tab: WorkspaceTab): {
   if (!session || session.state === 'closing' || session.state === 'exited' || session.state === 'closed') return undefined;
   const activeEntryId = terminal.activeEntryBySession[sessionId] ?? null;
   const history = terminal.historyBySession[sessionId] ?? [];
-  const retained = terminal.manualEntryBySession?.[sessionId];
+  const retained = terminal.manualEntryBySession[sessionId];
   const currentCommand = activeEntryId
     ? history.find(entry => entry.id === activeEntryId) ??
       (retained?.id === activeEntryId && retained.source === 'user-raw' ? retained : null)

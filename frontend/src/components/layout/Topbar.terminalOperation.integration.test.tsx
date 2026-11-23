@@ -32,7 +32,7 @@ const workspace = { id: 'workspace-a', name: 'Workspace', activeTabId: 'terminal
   tabs: [{ id: 'terminal-a', type: 'terminal', state: { sessionId: 'pty-a' } }] };
 const terminal = { sessions: [{ id: 'pty-a', state: 'running' }],
   historyBySession: { 'pty-a': [{ id: 'command-a', output: '', endedAt: '' }] },
-  activeEntryBySession: { 'pty-a': 'command-a' } };
+  manualEntryBySession: {}, activeEntryBySession: { 'pty-a': 'command-a' } };
 const listeners = new Set<() => void>();
 const reservation = { ticket: 'ticket-a', invocationId: 'invocation-a', commandId: 'terminal.command.interrupt' };
 const handoff = { ...reservation, handoffId: 'handoff-a' };
