@@ -9,6 +9,7 @@ import { announceWithOrigin, registerVoiceAccessibilityActiveResolver, registerA
 import en from '../locales/en';
 import ptBR from '../locales/pt-BR';
 import i18next from 'i18next';
+import previewCases from '../../../internal/terminal/testdata/announcement-previews.json';
 
 const mockGetTerminalHistory = vi.fn();
 const terminalEventHandlers = vi.hoisted(() => new Map<string, (data: unknown) => void>());
@@ -389,7 +390,8 @@ describe('terminalStore', () => {
   });
 
   it.each(['evento final', 'saída acumulada', 'stream manual'].flatMap(path =>
-    ['', 'z'].map(tail => ({ path, tail }))))('preserva o emoji na posição 300 ($path, excedente "$tail")', ({ path, tail }) => {
+    [{ tail: '', truncated: false }, { tail: '\n', truncated: false }, { tail: '\n z', truncated: true }]
+      .map(test => ({ path, ...test }))))('preserva o emoji na posição 300 ($path, excedente "$tail")', ({ path, tail, truncated }) => {
     vi.useFakeTimers();
     const cleanup = useTerminalStore.getState().setupEventListeners();
     const prefix = 'a'.repeat(299) + '🌍';
@@ -404,17 +406,68 @@ describe('terminalStore', () => {
         if (path === 'saída acumulada') terminalEventHandlers.get('terminal:command_output')?.({ ...event, output: prefix + tail });
         terminalEventHandlers.get('terminal:command_end')?.({ ...event, output: path === 'evento final' ? prefix + tail : '', exitCode: 0 });
       }
-      const output = prefix + (tail ? i18next.t('terminal.announce.truncatedSuffix') : '');
+      const output = prefix + (truncated ? i18next.t('terminal.announce.truncatedSuffix') : '');
       const key = path === 'stream manual' ? 'terminal.announce.output' : 'terminal.announce.outputWithExit';
       expect(announce).toHaveBeenLastCalledWith(i18next.t(key, { output, exitCode: 0 }));
     } finally { cleanup(); vi.useRealTimers(); }
+  });
+
+  it.each(['evento final', 'saída acumulada', 'stream manual'])('ignora espaços externos antes de falar ($0)', path => {
+    vi.useFakeTimers();
+    const cleanup = useTerminalStore.getState().setupEventListeners();
+    const event = { sessionId: 'a', commandId: 'cmd' };
+    const chunks = [' '.repeat(300), 'ok  \n'];
+    try {
+      if (path === 'stream manual') {
+        for (const output of chunks) terminalEventHandlers.get('terminal:raw_output')?.({ ...event, output });
+        vi.runAllTimers();
+      } else {
+        terminalEventHandlers.get('terminal:command_start')?.({ ...event, command: 'pwd', source: 'llm' });
+        if (path === 'saída acumulada') terminalEventHandlers.get('terminal:command_output')?.({ ...event, output: chunks.join('') });
+        terminalEventHandlers.get('terminal:command_end')?.({ ...event, output: path === 'evento final' ? chunks.join('') : '', exitCode: 0 });
+      }
+      const key = path === 'stream manual' ? 'terminal.announce.output' : 'terminal.announce.outputWithExit';
+      expect(announce).toHaveBeenLastCalledWith(i18next.t(key, { output: 'ok', exitCode: 0 }));
+    } finally { cleanup(); vi.useRealTimers(); }
+  });
+
+  it.each(previewCases)('aplica o contrato da prévia ao rodapé: $name', test => {
+    const cleanup = useTerminalStore.getState().setupEventListeners();
+    const event = { sessionId: 'a', commandId: 'cmd' };
+    const prefix = 'a'.repeat(test.prefixLength);
+    try {
+      terminalEventHandlers.get('terminal:command_start')?.({ ...event, command: 'pwd', source: 'llm' });
+      terminalEventHandlers.get('terminal:command_output')?.({ ...event, output: 'outro texto no stream' });
+      terminalEventHandlers.get('terminal:command_end')?.({ ...event, output: prefix + test.text, exitCode: 0 });
+      const output = prefix + test.want + (test.truncated ? i18next.t('terminal.announce.truncatedSuffix') : '');
+      expect(announce).toHaveBeenLastCalledWith(i18next.t('terminal.announce.outputWithExit', { output, exitCode: 0 }));
+    } finally { cleanup(); }
+  });
+
+  it.each(['resultado limitado', 'rodapé vazio'])('fala o conteúdo que ficou fora do histórico (%s)', path => {
+    const cleanup = useTerminalStore.getState().setupEventListeners();
+    const event = { sessionId: 'a', commandId: 'cmd' };
+    try {
+      terminalEventHandlers.get('terminal:command_start')?.({ ...event, command: 'pwd', source: 'llm' });
+      const stream = ' '.repeat(60 * 1024) + 'ok';
+      terminalEventHandlers.get('terminal:command_output')?.({ ...event, output: stream });
+      const fields = path === 'rodapé vazio' ? { output: '' } : {
+        output: stream.slice(0, 50 * 1024) + '\n[TRUNCADO]', announcementPreview: { output: 'final', truncated: false },
+      };
+      terminalEventHandlers.get('terminal:command_end')?.({ ...event, ...fields, exitCode: 0 });
+      expect(announce).toHaveBeenLastCalledWith(i18next.t('terminal.announce.outputWithExit', {
+        output: path === 'rodapé vazio' ? 'ok' : 'final', exitCode: 0,
+      }));
+    } finally { cleanup(); }
   });
 
   it('entrega o resultado ao leitor antes do encerramento e indica saída cortada após espaços', () => {
     vi.useFakeTimers();
     const cleanup = useTerminalStore.getState().setupEventListeners();
     try {
-      terminalEventHandlers.get('terminal:raw_output')?.({ sessionId: 'a', output: 'A' + ' '.repeat(300) + 'B' });
+      for (const output of ['A' + ' '.repeat(300), '   ', 'B', '  ']) {
+        terminalEventHandlers.get('terminal:raw_output')?.({ sessionId: 'a', output });
+      }
       vi.runAllTimers();
       expect(announce.mock.calls[0][0]).toBe(i18next.t('terminal.announce.output', {
         output: 'A' + i18next.t('terminal.announce.truncatedSuffix'),

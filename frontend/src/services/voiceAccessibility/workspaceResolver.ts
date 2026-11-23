@@ -8,11 +8,15 @@ export function useVoiceAccessibilityWorkspaceResolver(panelsVisible: boolean) {
   useLayoutEffect(() => {
     const unregister = registerVoiceAccessibilityActiveResolver(
       origin => isVoiceAccessibilityOriginActive(origin, useWorkspaceStore.getState().workspace, panelsVisible),
-      origin => origin.tabId
-        ? useWorkspaceStore.getState().workspace?.tabs.find(tab => tab.id === origin.tabId &&
-          (!origin.surfaceType || tab.type === origin.surfaceType) &&
-          (!origin.terminalSessionId || (tab.type === 'terminal' && tab.state?.sessionId === origin.terminalSessionId)))?.title
-        : origin.title,
+      origin => {
+        const { tabId, terminalSessionId, surfaceType } = origin;
+        if (!tabId && !terminalSessionId) return origin.title;
+        if (terminalSessionId && surfaceType && surfaceType !== 'terminal') return undefined;
+        const expectedType = terminalSessionId ? 'terminal' : surfaceType;
+        return useWorkspaceStore.getState().workspace?.tabs.find(tab =>
+          (!tabId || tab.id === tabId) && (!expectedType || tab.type === expectedType) &&
+          (!terminalSessionId || tab.state?.sessionId === terminalSessionId))?.title;
+      },
     );
     cancelInactiveSTTSession();
     return unregister;

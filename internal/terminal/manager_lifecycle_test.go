@@ -3,6 +3,7 @@ package terminal
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -966,6 +967,104 @@ func TestAcquiredSessionAcceptsCommandAfterManualInputAndRelease(t *testing.T) {
 	entry, err := manager.RunCommand(t.Context(), session.ID(), "echo pronto", 15*time.Second, "test")
 	if err != nil || entry == nil || entry.ExitCode != 0 || !strings.Contains(entry.Output, "pronto") {
 		t.Fatalf("comando seguinte: entrada=%+v erro=%v", entry, err)
+	}
+}
+
+func TestAnnouncementPreviewContract(t *testing.T) {
+	data, err := os.ReadFile("testdata/announcement-previews.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var cases []map[string]json.RawMessage
+	if err := json.Unmarshal(data, &cases); err != nil {
+		t.Fatal(err)
+	}
+	if len(cases) == 0 {
+		t.Fatal("tabela de prévias vazia")
+	}
+	for i, row := range cases {
+		var name, text, expected string
+		var prefixLength int
+		var truncated bool
+		fields := map[string]any{"name": &name, "text": &text, "want": &expected, "prefixLength": &prefixLength, "truncated": &truncated}
+		if len(row) != len(fields) {
+			t.Fatalf("caso %d: esperadas exatamente %d chaves", i+1, len(fields))
+		}
+		// Os nomes exatos importam: o consumidor JavaScript distingue maiúsculas.
+		for key, dst := range fields {
+			raw := row[key]
+			if raw == nil || string(raw) == "null" {
+				t.Fatalf("caso %d: campo obrigatório %q ausente ou nulo", i+1, key)
+			}
+			if err := json.Unmarshal(raw, dst); err != nil {
+				t.Fatalf("caso %d, campo %q: %v", i+1, key, err)
+			}
+		}
+		if name == "" || prefixLength < 0 {
+			t.Fatalf("caso %d: nome vazio ou prefixo negativo", i+1)
+		}
+		t.Run(name, func(t *testing.T) {
+			prefix := strings.Repeat("a", prefixLength)
+			got := terminalAnnouncementPreview(prefix + text)
+			want := announcementPreview{Output: prefix + expected, Truncated: truncated}
+			if got != want {
+				t.Fatalf("prévia = %+v, esperada %+v", got, want)
+			}
+		})
+	}
+}
+
+func TestCommandEndPreviewsOriginalOutputBeyondHistoryLimit(t *testing.T) {
+	// Limite observável do histórico (AEP-0089), independente da constante de produção.
+	const historyBytes = 50 * 1024
+	emoji := strings.Repeat("🌍", 300)
+	padding := strings.Repeat(" ", 60*1024)
+	for _, tc := range []struct {
+		name, output string
+		want         *announcementPreview
+	}{
+		{"saída curta", "ok", nil},
+		{"limite exato", strings.Repeat("a", historyBytes), nil},
+		{"primeiro byte excedente", strings.Repeat("a", historyBytes+1), &announcementPreview{Output: strings.Repeat("a", 300), Truncated: true}},
+		{"espaços iniciais", padding + "ok", &announcementPreview{Output: "ok"}},
+		{"espaços finais", emoji + padding, &announcementPreview{Output: emoji}},
+		{"texto após espaços", emoji + padding + "x", &announcementPreview{Output: emoji, Truncated: true}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := &Session{id: "preview", shell: "bash", readerCtx: t.Context()}
+			s.ensureLifecycleChannels()
+			s.ptyWriter = manualTestWriter(func(data []byte) (int, error) {
+				_, tag, ok := strings.Cut(string(data), "'"+markerStart)
+				if !ok {
+					return 0, errors.New("moldura sem início")
+				}
+				id, _, _ := strings.Cut(tag, "'")
+				s.recordOutput(markerStart + id + "\n" + tc.output + "\n" + markerEnd + id + "0!\n")
+				return len(data), nil
+			})
+			var payload map[string]any
+			m := NewManager(DefaultManagerConfig(), func(event string, data any) {
+				if event == "terminal:command_end" {
+					payload = data.(map[string]any)
+				}
+			})
+			m.sessions[s.id] = s
+			entry, err := m.RunCommand(t.Context(), s.id, "example", time.Second, "test")
+			if err != nil || entry == nil || entry.Output != tc.output {
+				t.Fatalf("saída original incorreta: %v", err)
+			}
+			if payload["output"] != limitedHistoryEntry(entry).Output {
+				t.Fatal("evento perdeu a saída de histórico")
+			}
+			got, included := payload["announcementPreview"]
+			if tc.want == nil {
+				if included {
+					t.Errorf("evento sem corte incluiu prévia: %+v", got)
+				}
+			} else if got != *tc.want {
+				t.Errorf("prévia = %+v, esperada %+v", got, *tc.want)
+			}
+		})
 	}
 }
 

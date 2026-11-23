@@ -36,7 +36,7 @@ describe('TerminalEntry', () => {
     const entry = new terminal.HistoryEntry({ id: 'id', command: prefix + tail, source: 'user' });
     render(<TerminalCommandNode entry={entry} />);
     const label = screen.getByRole('listitem').getAttribute('aria-label');
-    expect(label).toMatch(new RegExp(prefix + (tail ? '… terminal.entry.truncated' : '') + '$'));
+    expect(label?.endsWith(prefix + (tail ? '… terminal.entry.truncated' : ''))).toBe(true);
   });
 
   it.each([1, -999])('renderiza saída com código final %s', exitCode => {

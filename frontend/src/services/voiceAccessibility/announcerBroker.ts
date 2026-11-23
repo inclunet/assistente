@@ -38,6 +38,7 @@ interface OriginResolver {
   resolveOriginTitle?: (origin: VoiceAccessibilityOrigin) => string | undefined;
 }
 
+// A atividade vem do registro mais recente e o título do último que resolve títulos.
 const originResolvers: OriginResolver[] = [];
 
 const INACTIVE_ALLOWED_EVENTS = new Set(['completion', 'error', 'system']);
