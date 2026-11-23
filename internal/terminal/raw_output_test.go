@@ -219,6 +219,35 @@ func TestManagedAnnouncementKeepsManualUTF8UntilDispatch(t *testing.T) {
 	}
 }
 
+func TestSessionOutputAfterFooterAcrossReads(t *testing.T) {
+	m := newCommandMarkerForShell("bash")
+	body := m.startTag + "\ntexto!\n" + m.endTag + "7!"
+	tail := "\r\n\r\n\x1b[31maviso😀!\x1b[0m"
+	for cut := 0; cut <= len(tail); cut++ {
+		s := &Session{shell: "bash"}
+		var output strings.Builder
+		s.onRawOutput = func(_, id, chunk string) {
+			if id != "" {
+				t.Errorf("corte %d: saída da sessão atribuída a %q", cut, id)
+			}
+			output.WriteString(chunk)
+		}
+		s.beginMarkerCapture(m)
+		stream := newMarkerStream(m)
+		_, result := stream.append(body + tail[:cut])
+		if !result.Found || result.ExitCode != 7 || result.Output != "texto!" {
+			t.Fatalf("corte %d: resultado=%+v", cut, result)
+		}
+		s.resumeRawAfterFooter(result.afterFooter)
+		s.recordOutput(tail[cut:])
+		s.finishRawOutput()
+		s.rawOwner.wait()
+		if got := output.String(); got != "\naviso😀!" {
+			t.Fatalf("corte %d: saída da sessão=%q", cut, got)
+		}
+	}
+}
+
 func TestManualOutputAcrossManagedCommand(t *testing.T) {
 	reader, writer := io.Pipe()
 	defer func() { _ = reader.Close() }()
@@ -236,13 +265,16 @@ func TestManualOutputAcrossManagedCommand(t *testing.T) {
 		},
 	}
 	s.rawCommandID = "manual"
+	// Complete a runa no intervalo entre a retirada do lote com o rodapé e a
+	// liberação da captura gerenciada pelo ticker.
+	s.onOutput = func(_, _, _ string) { s.recordOutput("\x82\xac\x1bPoculto") }
 	s.ptyWriter = manualTestWriter(func(p []byte) (int, error) {
 		_, tail, found := strings.Cut(string(p), "'"+markerStart)
 		if !found {
 			return 0, errors.New("falta marcador inicial na moldura")
 		}
 		suffix, _, _ := strings.Cut(tail, "'")
-		_, err := io.WriteString(writer, "\a\n"+markerStart+suffix+"\nexecutado\n"+markerEnd+suffix+"0!\n\x1bPoculto")
+		_, err := io.WriteString(writer, "\a\n"+markerStart+suffix+"\nexecutado\n"+markerEnd+suffix+"0!\r\n\x1b[31maviso\x1b[0m\xe2")
 		return len(p), err
 	})
 	s.Start()
@@ -265,10 +297,11 @@ func TestManualOutputAcrossManagedCommand(t *testing.T) {
 		t.Fatal(err)
 	}
 	<-s.readerDone
-	if !slices.Equal(destinations, []string{"manual", ""}) {
+	s.rawOwner.wait()
+	if !slices.Equal(destinations, []string{"manual", "", ""}) {
 		t.Errorf("destinos da saída antes e depois do comando gerenciado=%v", destinations)
 	}
-	if got := manual.String(); got != "antes\n\ndepois" {
+	if got := manual.String(); got != "antes\naviso€\ndepois" {
 		t.Fatalf("saída manual=%q", got)
 	}
 }

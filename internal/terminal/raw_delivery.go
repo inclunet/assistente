@@ -18,8 +18,8 @@ type rawDeliveryOwner struct {
 	queue    []rawChunk
 	// No encerramento forçado restam no máximo a leitura em curso e a cauda do decodificador.
 	finalSlots int
-	// O fechamento explícito e o término do processo são mutuamente exclusivos.
-	after func()
+	// Notifica o fluxo de saída seguinte e o encerramento após o último bloco.
+	after []func()
 }
 
 func newRawDeliveryOwner(opening bool, emit func(rawChunk)) *rawDeliveryOwner {
@@ -42,14 +42,14 @@ func (o *rawDeliveryOwner) reserve() {
 func (o *rawDeliveryOwner) complete() {
 	o.mu.Lock()
 	o.pending--
-	var after func()
+	var after []func()
 	if o.pending == 0 {
 		after, o.after = o.after, nil
 		o.changed.Broadcast()
 	}
 	o.mu.Unlock()
-	if after != nil {
-		after()
+	for _, notify := range after {
+		notify()
 	}
 }
 
@@ -64,7 +64,7 @@ func (o *rawDeliveryOwner) wait() {
 func (o *rawDeliveryOwner) afterDelivery(notify func()) {
 	o.mu.Lock()
 	if o.pending != 0 {
-		o.after = notify
+		o.after = append(o.after, notify)
 		o.mu.Unlock()
 		return
 	}

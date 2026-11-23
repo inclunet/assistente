@@ -13,6 +13,7 @@ type rawTerminalOutput struct {
 	text          parsedTerminalText
 	reportedCR    bool
 	wasSuppressed bool
+	footerBreak   bool
 }
 
 func (r *rawTerminalOutput) append(chunk string, suppressed bool) string {
@@ -77,6 +78,11 @@ func (r *rawTerminalOutput) take(final bool) string {
 	}
 	if cap(r.text.data) > 2*ptyReadSize {
 		r.text.data = append([]byte(nil), r.text.data...)
+	}
+	if r.footerBreak && out != "" {
+		// Descarte uma única quebra da moldura, inclusive se o PTY dividiu CRLF.
+		out = strings.TrimPrefix(out, "\n")
+		r.footerBreak = false
 	}
 	return out
 }

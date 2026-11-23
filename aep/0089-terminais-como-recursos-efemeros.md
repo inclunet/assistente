@@ -146,9 +146,10 @@ Entregue:
   início. Cada bloco conserva o `commandId` da entrada manual de origem.
   Os blocos sem dono, inclusive os recebidos depois da execução gerenciada,
   têm `commandId` vazio e pertencem à sessão. A interface insere os blocos
-  sem entrada manual correspondente na posição de chegada no histórico local.
-  O encerramento sucede a entrega
-  da saída já lida.
+  sem entrada manual correspondente na posição de chegada no histórico local,
+  em blocos de até 50 KiB, dentro do limite de 200 entradas. A transferência
+  inclui os bytes posteriores ao rodapé na mesma leitura e os já recebidos
+  antes da liberação da captura. O encerramento sucede a entrega da saída já lida.
 
 Pendente ou parcial:
 

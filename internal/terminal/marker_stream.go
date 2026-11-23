@@ -204,15 +204,47 @@ func newMarkerStream(marker *CommandMarker) *markerStream {
 }
 
 func (s *markerStream) append(chunk string) ([]byte, parseResult) {
+	// Pare no byte físico que confirma o rodapé. O restante ainda tem os
+	// controles e bytes UTF-8 originais e pertence ao fluxo manual da sessão.
+	first := -1
+	var result parseResult
+	for chunk != "" {
+		part := chunk
+		if at := strings.IndexByte(chunk, markerStatusTerminator[0]); at >= 0 {
+			part = chunk[:at+1]
+		}
+		chunk = chunk[len(part):]
+		var delta []byte
+		delta, result = s.appendPart(part, chunk != "")
+		if first < 0 && len(delta) > 0 {
+			first = s.sent - len(delta)
+		}
+		if result.Found {
+			result.afterFooter = chunk
+			break
+		}
+	}
+	if first >= 0 {
+		return s.text.data[first:s.sent], result
+	}
+	return nil, result
+}
+
+func (s *markerStream) appendPart(chunk string, more bool) ([]byte, parseResult) {
 	before := len(s.text.data)
 	var last byte
 	if before > 0 {
 		last = s.text.data[before-1]
 	}
 	s.text.feed(chunk)
+	// Exclamações ordinárias no corpo não requerem buscas de status. O último
+	// trecho publica o delta inteiro mesmo quando nenhum terminador foi encontrado.
+	if more && s.candidate == 0 && !bytes.Contains(s.text.data[max(0, before-len(s.marker.endTag)):], []byte(s.marker.endTag)) {
+		return nil, parseResult{}
+	}
 	// Um controle pendente pode consumir vários blocos sem alterar o texto.
 	// O único recuo possível substitui ou remove a última quebra de linha.
-	if before == len(s.text.data) && (before == 0 || last == s.text.data[before-1]) {
+	if s.scanned == before && before == len(s.text.data) && (before == 0 || last == s.text.data[before-1]) {
 		return nil, parseResult{}
 	}
 	return s.progress()

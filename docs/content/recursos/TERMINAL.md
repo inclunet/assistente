@@ -47,6 +47,9 @@ associada à última entrada manual, inclusive se o envio for cancelado. Ao digi
 um comando na aba, o início da nova entrada já passa a identificar sua saída. A saída
 que chega depois da execução gerenciada pode ser relida como saída da sessão.
 Isso também vale quando o comando manual de origem já saiu do histórico.
+No histórico, «Saída da sessão» identifica esse texto. Uma saída longa continua
+no bloco seguinte a cada 50 KiB, preservando os caracteres inteiros e o limite
+de 200 entradas da sessão.
 Se um comando for cancelado enquanto o terminal entrega a saída anterior, ele fica no
 histórico com código -1 e a sessão continua disponível. Se a escrita de um comando
 enviado pelo modelo falhar, o Assistente encerra a sessão

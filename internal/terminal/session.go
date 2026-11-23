@@ -121,6 +121,7 @@ type Session struct {
 	rawOutput    rawTerminalOutput
 	rawOwner     *rawDeliveryOwner
 	rawCommandID string
+	rawFinished  bool
 
 	// onOutput é chamado com chunks de output filtrado durante RunCommand (LLM)
 	onOutput outputCallback
@@ -331,6 +332,7 @@ func (s *Session) publishRaw(chunk rawChunk) {
 
 func (s *Session) finishRawOutput() {
 	s.outputMu.Lock()
+	s.rawFinished = true
 	s.deliverRawAndUnlock(s.rawOutput.finish())
 }
 
@@ -797,6 +799,40 @@ func (s *Session) exitedCommandResult(stream *markerStream) (string, int, error)
 	return output, -1, errors.New("sessão encerrada sem resultado do comando")
 }
 
+// A leitura já pode ter colocado outros bytes em outputBuf desde o último tick.
+// Transfere o sufixo e o lote concorrente antes de liberar a próxima leitura raw.
+func (s *Session) resumeRawAfterFooter(tail string) {
+	s.outputMu.Lock()
+	if !s.suppressRawOutput || s.discardOutput {
+		s.outputMu.Unlock()
+		return
+	}
+	s.suppressRawOutput = false
+	s.rawCommandID = ""
+	s.rawOutput = rawTerminalOutput{footerBreak: true}
+	previous := s.rawOwner
+	owner := newRawDeliveryOwner(true, s.publishRaw)
+	s.rawOwner = owner
+	if s.onRawOutput != nil {
+		text := s.rawOutput.append(tail, false)
+		text += s.rawOutput.append(s.outputBuf.String(), false)
+		if s.rawFinished {
+			text += s.rawOutput.finish()
+		}
+		if text != "" {
+			owner.reserve()
+			owner.submit(rawChunk{text: text})
+		}
+	}
+	s.outputBuf = bytes.Buffer{}
+	s.outputMu.Unlock()
+	if previous != nil {
+		previous.afterDelivery(owner.opened)
+	} else {
+		owner.opened()
+	}
+}
+
 // waitForMarker acompanha a saída até o marcador final ou o encerramento do shell.
 // O callback recebe o texto do comando durante a execução.
 func (s *Session) waitForMarker(ctx context.Context, marker *CommandMarker, commandID string) (output string, code int, err error) {
@@ -826,6 +862,7 @@ func (s *Session) waitForMarker(ctx context.Context, marker *CommandMarker, comm
 			}
 			result := stream.finish(s.takeCommandOutput())
 			if result.Found {
+				s.resumeRawAfterFooter(result.afterFooter)
 				return result.Output, result.ExitCode, nil
 			}
 			return s.exitedCommandResult(stream)
@@ -844,6 +881,7 @@ func (s *Session) waitForMarker(ctx context.Context, marker *CommandMarker, comm
 				streamSentLen += len(delta)
 			}
 			if result.Found {
+				s.resumeRawAfterFooter(result.afterFooter)
 				return result.Output, result.ExitCode, nil
 			}
 		}
@@ -870,7 +908,9 @@ func (s *Session) takeCommandOutput() string {
 }
 
 func (stream *markerStream) finish(chunk string) parseResult {
-	stream.text.feed(chunk)
+	if _, result := stream.append(chunk); result.Found {
+		return result
+	}
 	stream.text.finish()
 	_, result := stream.progress()
 	return result
@@ -922,6 +962,7 @@ func (s *Session) canceledCommandResult(ctx context.Context, stream *markerStrea
 		result = stream.finish(s.takeCommandOutput())
 	}
 	if result.Found {
+		s.resumeRawAfterFooter(result.afterFooter)
 		result.Output = stream.outputBeforeFooter()
 	} else {
 		result.Output = stream.partialOutput()
