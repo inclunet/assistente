@@ -105,12 +105,15 @@ func (s *DBStore) SetDefault(ctx context.Context, id string) error {
 	return database.SetDefaultProviderWithContext(ctx, id)
 }
 
-// GetDefault retorna o provedor marcado como padrão, ou nil + erro se nenhum.
+// GetDefault retorna o provedor marcado como padrão, ou nil se nenhum.
 func (s *DBStore) GetDefault(ctx context.Context) (*llm.ProviderConfig, error) {
 	if _, err := database.RequireUserID(ctx); err != nil {
 		return nil, err
 	}
 	dbP, err := database.GetDefaultProviderWithContext(ctx)
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, nil
+	}
 	if err != nil {
 		return nil, err
 	}
