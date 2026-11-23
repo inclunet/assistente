@@ -204,13 +204,16 @@ func (p *ContextProvider) build(ctx context.Context, req contextprovider.BuildRe
 	catalogContent := buildAvailableSkillsBlock(ctx, onDemandSkills, p.source)
 	blocks := make([]contextprovider.Block, 0, 2)
 	baseBudget := budget
+	commandBudget := budget
 	if catalogContent != "" {
 		reserve := contextprovider.MinimalTaggedBlockLen("available_skills", availableSkillsTruncationNotice)
-		if budget > reserve {
-			baseBudget = budget - reserve
+		commandBudget = max(0, budget-reserve)
+		// Abaixo da reserva, preserve instruções estáticas que ainda couberem.
+		if budget >= reserve {
+			baseBudget = commandBudget
 		}
 	}
-	baseContent, err := buildBaseSkillBlock(ctx, baseSkills, p.source, baseBudget)
+	baseContent, err := buildBaseSkillBlock(ctx, baseSkills, p.source, commandBudget)
 	if err != nil {
 		return nil, err
 	}

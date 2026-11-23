@@ -850,3 +850,27 @@ func TestPreparedBaseRecoversFullOutputWhenBudgetGrows(t *testing.T) {
 		}
 	}
 }
+
+func TestBaseCommandsRequireRoomBeyondCatalogReservation(t *testing.T) {
+	base := providerSkill("base", "!echo value", true)
+	base.Tools = &ToolPermissions{BashCommands: &BashCommands{Allowed: []string{"echo"}}}
+	later := providerSkill("later", "Instructions", false)
+	p := NewContextProvider(&contextProviderSourceStub{skills: []Skill{base, later}})
+	reserve := contextprovider.MinimalTaggedBlockLen("available_skills", availableSkillsTruncationNotice)
+	for _, budget := range []int{reserve - 1, reserve, reserve + 1, reserve + 500} {
+		calls := 0
+		ctx := WithCommandTurn(t.Context(), func(context.Context, *Skill, string) (string, error) {
+			calls++
+			return "ok", nil
+		})
+		req := contextprovider.BuildRequest{EnabledSkills: []string{"base", "later"}, ToolCallingEnabled: true, ProviderBudgets: map[string]int{"skills": budget}}
+		blocks, err := p.Build(ctx, req)
+		want := 0
+		if budget == reserve+500 {
+			want = 1
+		}
+		if err != nil || calls != want {
+			t.Fatalf("orçamento %d: chamadas=%d, esperado=%d, erro=%v, blocos=%v", budget, calls, want, err, blocks)
+		}
+	}
+}
