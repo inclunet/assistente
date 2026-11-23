@@ -1,8 +1,9 @@
 package providers
 
 import (
-	"assistente/internal/llm"
 	"testing"
+
+	"assistente/internal/llm"
 )
 
 func TestLoadForChatAcceptsEmptyStore(t *testing.T) {

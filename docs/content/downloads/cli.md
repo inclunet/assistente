@@ -83,7 +83,8 @@ processo são estados distintos. Para encerrar a sessão compartilhada, saia da 
 
 `history show ID` exibe a conversa e `history delete ID` a exclui do histórico
 da conta, inclusive no desktop. A CLI valida a sessão salva a cada operação. Se ela expirou ou foi
-encerrada, entre novamente no Assistente. Se mudar de conta no desktop
+encerrada, entre novamente no Assistente. Se a validação falhar enquanto o
+desktop renova a sessão, repita o comando após a renovação. Se mudar de conta no desktop
 ou se as permissões da conta mudarem durante um chat, reabra a CLI. A consulta de histórico e o chat
 não iniciam outra execução dos jobs agendados. O chat usa o último catálogo
 local válido para aplicar os parâmetros do modelo, inclusive quando o cache

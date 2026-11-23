@@ -214,7 +214,6 @@ func TestAuthenticateSavedSessionIsReadOnly(t *testing.T) {
 		t.Fatal(err)
 	}
 	read(issued.RefreshToken, ErrSessionRevoked)
-
 }
 
 func TestJWKSetExposesEd25519PublicKey(t *testing.T) {

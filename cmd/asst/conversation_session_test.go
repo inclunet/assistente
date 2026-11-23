@@ -324,7 +324,7 @@ data: [DONE]
 			t.Fatal(err)
 		}
 		if _, err := asCLI(rootApp).GetConversations(); !errors.Is(err, auth.ErrSessionRevoked) {
-			t.Fatal("a CLI manteve acesso após logout no desktop")
+			t.Fatalf("acesso após logout no desktop: %v; esperado ErrSessionRevoked", err)
 		}
 	})
 	run(historyListCmd, func(err error) {
