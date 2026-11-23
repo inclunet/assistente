@@ -421,7 +421,7 @@ func TestRunREPL_ProcessesMultipleLines(t *testing.T) {
 		_ = w.Close()
 	}()
 
-	err := runREPL(mock, emitter)
+	err := runREPL(mock, emitter, os.Stdin, os.Stderr)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -467,7 +467,7 @@ func TestRunREPL_SkipsEmptyLines(t *testing.T) {
 		_ = w.Close()
 	}()
 
-	err := runREPL(mock, emitter)
+	err := runREPL(mock, emitter, os.Stdin, os.Stderr)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -510,7 +510,7 @@ func TestRunREPL_ContinuesAfterSendError(t *testing.T) {
 		_ = w.Close()
 	}()
 
-	err := runREPL(mock, emitter)
+	err := runREPL(mock, emitter, os.Stdin, os.Stderr)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
