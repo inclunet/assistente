@@ -109,7 +109,7 @@ var powerShellInvocation = regexp.MustCompile(`(?i)(?:(?:^|[;({|]|` + powerShell
 // Uma interpolação como "${base}.$ext" também pode selecionar essa rota.
 // A AST distingue o dado interpolado de uma invocação após o fim do bloco.
 var powerShellAfterBlock = regexp.MustCompile(`}` + powerShellGap + `*\.(?:` + powerShellGap + `|[$({"'])`)
-var standalonePowerShellGroup = regexp.MustCompile(`(?:^|[;\r\n{]|#>)` + powerShellGap + `*[$@]?\(`)
+var standalonePowerShellGroup = regexp.MustCompile(`(?i)(?:^|[;\r\n{]|#>)` + powerShellGap + `*(?:return` + powerShellGap + `*)?[$@]?\(`)
 var powerShellGroupEnd = regexp.MustCompile(`\)(?:;|` + powerShellGap + `)*\z`)
 var powerShellNamespace = regexp.MustCompile(`(?i)(?:^|[;\r\n]|#>)` + powerShellGap + `*using` + powerShellGap + `+namespace\b`)
 
@@ -153,7 +153,7 @@ func (m *CommandMarker) wrapPowerShell(command, directory string) string {
 		state = "$__asstState" + m.id
 		setup = state + " = @{}; "
 		cleanup += "," + state[1:]
-		success += " -and " + state + "['Ok'] -ne $false"
+		success = "($? -or " + state + "['Ok'] -eq $true) -and " + state + "['Ok'] -ne $false"
 	}
 	status := fmt.Sprintf("%s = if (%s) { 0 } else { %s $MyInvocation.MyCommand.ScriptBlock.Ast %s }", code, success, singlePowerShellLine(failedPowerShellStatus), state)
 	guard := powerShellDirectoryGuard(directory)
@@ -197,7 +197,8 @@ const powerShellLastOperation = `	$last = $null;
 						$value = $expr.SubExpression.Statements[-1]
 					} else { break }
 				};
-				if ($value -is [System.Management.Automation.Language.PipelineAst] -and $value.PipelineElements.Count -and $value.PipelineElements[-1] -is [System.Management.Automation.Language.CommandAst]) { $last = $value }
+				if ($value -is [System.Management.Automation.Language.IfStatementAst]) { $last = $stmt.Pipeline }
+				elseif ($value -is [System.Management.Automation.Language.PipelineAst] -and $value.PipelineElements.Count -and $value.PipelineElements[-1] -is [System.Management.Automation.Language.CommandAst]) { $last = $value }
 			};
 			break
 		};
@@ -332,7 +333,12 @@ const prepareGroupedPowerShell = `& {
 		if ($container -and $last -is [System.Management.Automation.Language.IfStatementAst]) {
 			$blocks = @($last.Clauses.Item2) + @($last.ElseClause);
 			foreach ($block in $blocks) {
-				if ($block -and $block.Statements.Count) { & $visit $block.Statements[-1] $last }
+				if (!$block) { continue };
+				if ($block.Statements.Count) { & $visit $block.Statements[-1] $last }
+				else { [pscustomobject]@{ At = $block.Extent.EndOffset - 1; Text = [Environment]::NewLine + $capture + '.Ok = $true' + [Environment]::NewLine } }
+			};
+			if (!$last.ElseClause) {
+				[pscustomobject]@{ At = $last.Extent.EndOffset; Text = ' else { ' + $capture + '.Ok = $true }' }
 			};
 			return
 		};
@@ -342,9 +348,10 @@ const prepareGroupedPowerShell = `& {
 	};
 	$originalLength = $source.Length;
 	foreach ($operation in (& $visit $last $null)) {
+		$shift = $source.Length - $originalLength;
+		if ($operation.PSObject.Properties['Text']) { $source = $source.Insert($shift + $operation.At, $operation.Text); continue };
 		$last = $operation.Last;
 		$container = $operation.Container;
-		$shift = $source.Length - $originalLength;
 		$stages = $last.PipelineElements;
 		$prefix = '';
 		if ($container) {

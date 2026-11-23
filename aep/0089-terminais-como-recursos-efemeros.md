@@ -207,7 +207,8 @@ Pendente ou parcial:
   inicial e drenar a leitura. No PowerShell, um retorno antecipado preserva o status da última
   operação identificável. Um pipeline ou retorno condicional de origem ambígua devolve 1.
   Em `$()` e `@()`, o status reflete a última operação do ramo de `if` executado,
-  inclusive em `elseif` e `else`. Um ramo ignorado não fornece código de saída.
+  inclusive em `elseif` e `else` e quando a expressão é retornada por `return`.
+  Um ramo ignorado não fornece código de saída.
   O CI exercita o terminal no Windows PowerShell 5.1.
 - **Interrupção.** Cancelamento, falha de leitura e fechamento explícito preservam a causa e a saída
   parcial. Se o leitor falhar e o prazo expirar, o resultado conserva as duas causas. A ferramenta
