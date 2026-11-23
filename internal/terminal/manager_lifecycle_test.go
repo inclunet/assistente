@@ -621,6 +621,34 @@ func (p *pausedKillPTY) Kill() error {
 	return p.drainingPTYSession.Kill()
 }
 
+func TestConcurrentCreationReservesOneSlotAndReturnsItOnStartupFailure(t *testing.T) {
+	cfg := DefaultManagerConfig()
+	cfg.MaxSessions = 1
+	m := NewManager(cfg, nil)
+	dir := ptyTestDir(t)
+	t.Cleanup(m.CloseAll)
+	if _, err := m.Create("inválido", "\x00"); err == nil {
+		t.Fatal("criação em diretório inválido foi aceita")
+	}
+	start := make(chan struct{})
+	results := make(chan error, 2)
+	for range 2 {
+		go func() {
+			<-start
+			_, err := m.Create("válido", dir)
+			results <- err
+		}()
+	}
+	close(start)
+	first, second := <-results, <-results
+	if first == nil {
+		first, second = second, first
+	}
+	if first == nil || !strings.Contains(first.Error(), "limite de sessões") || second != nil || m.Stats().TotalSessions != 1 {
+		t.Fatalf("criações concorrentes: resultados=(%v, %v) sessões=%d", first, second, m.Stats().TotalSessions)
+	}
+}
+
 func TestManualPartialWriteKeepsSessionSlotUntilCleanup(t *testing.T) {
 	cfg := DefaultManagerConfig()
 	cfg.MaxSessions = 1
@@ -659,8 +687,9 @@ func TestManualPartialWriteKeepsSessionSlotUntilCleanup(t *testing.T) {
 			t.Fatalf("fim=%v sessões=%d", exitErr, m.Stats().TotalSessions)
 		}
 	})
+	dir := ptyTestDir(t)
 	t.Cleanup(m.CloseAll)
-	if _, err := m.Create("depois", ptyTestDir(t)); err != nil {
+	if _, err := m.Create("depois", dir); err != nil {
 		t.Fatalf("vaga indisponível após a limpeza: %v", err)
 	}
 }
