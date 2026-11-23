@@ -33,18 +33,32 @@ describe('TerminalHistory', () => {
     } finally { unregisterAnnouncerSink(); }
   });
 
-  it('oferece uma única saída navegável para texto da sessão sem comando', () => {
+  it.each(['hoje', ''])('agrupa a saída da sessão no nó anterior e navega para o próximo comando (saída %s)', output => {
     render(<TerminalHistory entries={[
-      new terminal.HistoryEntry({ source: 'llm', id: 'cmd', command: 'date', output: 'hoje', exitCode: 0 }),
-      new terminal.HistoryEntry({ source: 'session-output', id: 'saída', command: '', output: 'pronto' }),
+      new terminal.HistoryEntry({ source: 'llm', id: 'cmd', command: 'date', output, exitCode: 0 }),
+      new terminal.HistoryEntry({ source: 'session-output', id: 'saída', command: '', output: 'PS C:\\> ' }),
+      new terminal.HistoryEntry({ source: 'llm', id: 'próximo', command: 'pwd', output: '', exitCode: 0 }),
     ]} />);
     const nodes = screen.getAllByRole('listitem');
-    expect(nodes).toHaveLength(3);
-    nodes[1].focus();
-    fireEvent.keyDown(nodes[1], { key: 'ArrowDown' });
-    expect(nodes[2]).toHaveFocus();
-    expect(nodes[2]).toHaveAccessibleName('terminal.entry.sessionOutput: pronto');
-    expect(nodes[2]).not.toHaveTextContent('terminal.entry.exit');
+    expect(nodes).toHaveLength(output ? 3 : 2);
+    const previous = nodes[nodes.length - 2];
+    expect(previous).toHaveAccessibleName(/terminal\.entry\.sessionOutput: PS C:/);
+    expect(previous.textContent).toContain('PS C:\\> ');
+    previous.focus();
+    fireEvent.keyDown(previous, { key: 'ArrowDown' });
+    expect(nodes[nodes.length - 1]).toHaveFocus();
+    expect(nodes[nodes.length - 1]).toHaveAccessibleName(/pwd/);
+  });
+
+  it('mantém a saída anterior ao primeiro comando como item navegável e legível', () => {
+    render(<TerminalHistory entries={[
+      new terminal.HistoryEntry({ source: 'session-output', id: 'inicial', command: '', output: '  pronto' }),
+      new terminal.HistoryEntry({ source: 'session-output', id: 'continuação', command: '', output: ' para uso' }),
+    ]} />);
+    const node = screen.getByRole('listitem', { name: 'terminal.entry.sessionOutput: pronto para uso' });
+    node.focus();
+    expect(node).toHaveFocus();
+    expect(node).not.toHaveTextContent('terminal.entry.exit');
   });
 
   it('renderiza estado vazio', () => {

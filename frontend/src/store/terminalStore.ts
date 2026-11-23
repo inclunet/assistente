@@ -1,5 +1,5 @@
 import { codePointPrefix } from '../utils/format';
-import { hasTerminalEndTime, isManagedCommandRunning, sessionOutputSource } from '../lib/terminalHistory';
+import { hasTerminalEndTime, isManagedCommandRunning, recentTerminalHistory, sessionOutputSource } from '../lib/terminalHistory';
 import { logger } from '../utils/logger';
 import { create } from 'zustand';
 import { useWorkspaceStore } from './workspaceStore';
@@ -97,7 +97,7 @@ function scheduleOutputAnnounce(sessionId: string, chunk: string) {
 export type SessionInfo = terminal.SessionInfo;
 export type HistoryEntry = terminal.HistoryEntry;
 
-// Até 200 entradas e 50 KiB de conteúdo por entrada, como no histórico do backend.
+// Até 200 comandos, como no backend, e 200 blocos da sessão. Cada entrada guarda até 50 KiB.
 // O marcador de corte é adicional: ‘…’ no stream e o aviso original no resultado final.
 // Antes da primeira abertura, só o comando gerenciado em curso precisa acompanhar o stream.
 // Hidratar, concluir ou encerrar a sessão remove sua entrada. O último listener limpa as restantes.
@@ -153,7 +153,7 @@ function appendSessionOutput(history: HistoryEntry[], output: string): HistoryEn
     block = undefined;
     used = 0;
   }
-  return entries.length > historyEntryLimit ? entries.slice(-historyEntryLimit) : entries;
+  return entries.length === history.length ? entries : recentTerminalHistory(entries, historyEntryLimit);
 }
 
 interface TerminalState {
@@ -324,7 +324,7 @@ export const useTerminalStore = create<TerminalState>((set) => ({
         return {
           historyBySession: {
             ...state.historyBySession,
-            [sessionId]: ordered.concat(pendingOutput).slice(-historyEntryLimit),
+            [sessionId]: recentTerminalHistory(ordered.concat(pendingOutput), historyEntryLimit),
           },
           partialHistoryBySession: partial,
         };
@@ -482,11 +482,10 @@ export const useTerminalStore = create<TerminalState>((set) => ({
       unobservedCommands.delete(data.sessionId);
       set(state => {
         const sessionHistory = state.historyBySession[data.sessionId] || [];
-        const recent = sessionHistory.length >= historyEntryLimit ? sessionHistory.slice(1 - historyEntryLimit) : sessionHistory;
         return {
           historyBySession: {
             ...state.historyBySession,
-            [data.sessionId]: [...recent, tempEntry],
+            [data.sessionId]: recentTerminalHistory([...sessionHistory, tempEntry], historyEntryLimit),
           },
           partialHistoryBySession: state.historyBySession[data.sessionId] ? state.partialHistoryBySession
             : { ...state.partialHistoryBySession, [data.sessionId]: true },

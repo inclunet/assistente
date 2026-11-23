@@ -348,7 +348,7 @@ describe('terminalStore', () => {
     } finally { cleanup(); }
   });
 
-  it('abre um novo bloco para o emoji inteiro e conserva as 200 entradas mais recentes', () => {
+  it('abre um novo bloco para o emoji inteiro sem remover um comando retido', () => {
     const cleanup = useTerminalStore.getState().setupEventListeners({ lifecycleOnly: true });
     try {
       const commands = Array.from({ length: 199 }, (_, index) => terminal.HistoryEntry.createFrom({ id: String(index), source: 'llm' }));
@@ -359,9 +359,30 @@ describe('terminalStore', () => {
       raw('🌍');
       raw('depois');
       const entries = useTerminalStore.getState().historyBySession.s1;
-      expect(entries).toHaveLength(200);
-      expect(entries[0].id).toBe('1');
+      expect(entries).toHaveLength(201);
+      expect(entries[0].id).toBe('0');
       expect(entries.slice(-2).map(entry => entry.output)).toEqual([prefix, '🌍depois']);
+    } finally { cleanup(); }
+  });
+
+  it('retém os 200 comandos e os 200 blocos mais recentes na ordem do fluxo, inclusive após hidratar', async () => {
+    const cleanup = useTerminalStore.getState().setupEventListeners({ lifecycleOnly: true });
+    try {
+      useTerminalStore.setState({ sessions: [terminal.SessionInfo.createFrom({ id: 's1' })], historyBySession: { s1: [] } });
+      const emit = (event: string, data: object) => terminalEventHandlers.get('terminal:' + event)?.({ sessionId: 's1', ...data });
+      const expected = [];
+      for (let i = 0; i <= 200; i++) {
+        const commandId = String(i);
+        emit('command_start', { commandId, command: commandId, source: 'llm' });
+        emit('command_end', { commandId, output: 'ok', exitCode: 0 });
+        emit('raw_output', { commandId: '', output: `PTY ${i} > ` });
+        if (i > 0) expected.push(commandId, `PTY ${i} > `);
+      }
+      const actual = () => useTerminalStore.getState().historyBySession.s1.map(entry => entry.command || entry.output);
+      expect(actual()).toEqual(expected);
+      mockGetTerminalHistory.mockResolvedValueOnce(useTerminalStore.getState().historyBySession.s1.filter(entry => entry.source === 'llm'));
+      await useTerminalStore.getState().loadHistory('s1');
+      expect(actual()).toEqual(expected);
     } finally { cleanup(); }
   });
 

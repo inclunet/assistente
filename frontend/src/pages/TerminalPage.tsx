@@ -31,7 +31,7 @@ import {
 import { useWorkspaceCommandSurface } from '../components/workspace/useWorkspaceCommandSurface';
 import { usePagePresentationCommands, type PagePresentationCommandID } from '../lib/commandPagePresentation';
 import { useCommandShortcutHint } from '../lib/commandShortcutHints';
-import { sessionOutputSource } from '../lib/terminalHistory';
+import { recentTerminalHistory, sessionOutputSource } from '../lib/terminalHistory';
 import './TerminalPage.css';
 
 const TERMINAL_CHAT_HISTORY_LIMIT = 40;
@@ -71,9 +71,10 @@ function subscribeTerminalSession(
 function formatTerminalHistoryForChat(history: TerminalHistoryEntry[], sessionOutputLabel: string) {
   return history
     .map((e) => {
+      if (e.source === sessionOutputSource) return `[${sessionOutputLabel}]\n${e.output ?? ''}`;
       const cmd = String(e.command || '').trim();
       const out = String(e.output || '').trimEnd();
-      return e.source === sessionOutputSource ? `[${sessionOutputLabel}]\n${out}` : [`$ ${cmd}`, out].filter(Boolean).join('\n');
+      return [`$ ${cmd}`, out].filter(Boolean).join('\n');
     })
     .filter(Boolean)
     .join('\n---\n');
@@ -404,13 +405,13 @@ export default function TerminalPage({ sessionId: explicitSessionId }: TerminalP
 
     return {
       prepare: async () => {
-        const slice = currentHistory.slice(-TERMINAL_CHAT_HISTORY_LIMIT);
+        const slice = recentTerminalHistory(currentHistory, TERMINAL_CHAT_HISTORY_LIMIT);
         const lines = formatTerminalHistoryForChat(slice, t('terminal.entry.sessionOutput'));
         const contextDisplay = lines || t('terminal.chatModal.noHistory');
         return { ok: true, contextDisplay, meta: null };
       },
       send: async (instruction, media) => {
-        const historySlice = currentHistory.slice(-TERMINAL_CHAT_HISTORY_LIMIT);
+        const historySlice = recentTerminalHistory(currentHistory, TERMINAL_CHAT_HISTORY_LIMIT);
         const contextDisplay = formatTerminalHistoryForChat(historySlice, t('terminal.entry.sessionOutput')) || t('terminal.chatModal.noHistory');
         const selection = window.getSelection?.();
         const selectedOutput = selection && historyContainerRef.current?.contains(selection.anchorNode)

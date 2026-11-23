@@ -741,7 +741,9 @@ describe('TerminalPage', () => {
     };
 
     if (sessionOutput) {
-      storeState.historyBySession['term-1'].push({ id: 'bloco', command: '', source: 'session-output', output: 'pronto' });
+      storeState.historyBySession['term-1'] = storeState.historyBySession['term-1'].flatMap((entry, i) => [
+        entry, { id: `bloco-${i + 1}`, command: '', source: 'session-output', output: `prompt-${i + 1}> ` },
+      ]);
     }
     renderTerminalPage();
 
@@ -765,12 +767,14 @@ describe('TerminalPage', () => {
     expect(surfaceContext.surfaceId).toBe('terminal-tab');
     expect(surfaceContext.snapshotVersion).toMatch(/^terminal:terminal-tab:/);
     expect(surfaceContext.content.recentOutput).toBe(prepared.contextDisplay);
-    expect(surfaceContext.content.recentOutput).toContain(sessionOutput ? 'cmd-7' : 'cmd-6');
+    expect(surfaceContext.content.recentOutput).toContain('cmd-6');
     expect(surfaceContext.content.recentOutput).toContain('cmd-45');
     expect(surfaceContext.content.recentOutput).not.toContain('cmd-5');
     expect(surfaceContext.content.truncated).toBe(true);
     if (sessionOutput) {
-      expect(prepared.contextDisplay).toContain('out-45\n---\n[Saída da sessão]\npronto');
+      expect(prepared.contextDisplay).toContain('out-45\n---\n[Saída da sessão]\nprompt-45> ');
+      expect(prepared.contextDisplay).toContain('prompt-6> ');
+      expect(prepared.contextDisplay).not.toContain('prompt-5> ');
       expect(surfaceContext.metadata.lastExitCode).toBe(0);
     }
   });

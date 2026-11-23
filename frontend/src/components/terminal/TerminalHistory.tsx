@@ -28,6 +28,7 @@ interface FlatNode {
   type: 'command' | 'output';
   /** Entry original */
   entry: HistoryEntry;
+  sessionBlocks?: HistoryEntry[];
 }
 
 export const TerminalHistory = forwardRef<HTMLDivElement, TerminalHistoryProps>(
@@ -44,6 +45,11 @@ export const TerminalHistory = forwardRef<HTMLDivElement, TerminalHistoryProps>(
     const flatNodes = useMemo<FlatNode[]>(() => {
       const nodes: FlatNode[] = [];
       for (const entry of entries) {
+        const previous = nodes[nodes.length - 1];
+        if (entry.source === sessionOutputSource && previous) {
+          (previous.sessionBlocks ??= []).push(entry);
+          continue;
+        }
         if (entry.source !== sessionOutputSource) {
           nodes.push({ nodeId: `cmd-${entry.id}`, type: 'command', entry });
         }
@@ -60,8 +66,8 @@ export const TerminalHistory = forwardRef<HTMLDivElement, TerminalHistoryProps>(
     }, [entries]);
 
     // Auto-scroll para o final quando novo conteúdo chega
-    const lastNode = flatNodes[flatNodes.length - 1];
-    const scrollKey = lastNode ? `${lastNode.nodeId}-${lastNode.entry.output?.length ?? 0}` : '';
+    const lastEntry = entries[entries.length - 1];
+    const scrollKey = lastEntry ? `${lastEntry.id}-${lastEntry.output?.length ?? 0}` : '';
 
     useEffect(() => {
       if (bottomRef.current && containerRef.current) {
@@ -120,6 +126,7 @@ export const TerminalHistory = forwardRef<HTMLDivElement, TerminalHistoryProps>(
       <div className="terminal-history" ref={containerRef} role="list" aria-label={t('terminal.history.label')}>
         {flatNodes.map((node, index) => {
           const navProps = {
+            sessionBlocks: node.sessionBlocks,
             onNavigatePrev: index > 0 ? () => focusNode(index - 1) : undefined,
             onNavigateNext: index < flatNodes.length - 1 ? () => focusNode(index + 1) : onReachEnd,
             onNavigateFirst: () => focusNode(0),
