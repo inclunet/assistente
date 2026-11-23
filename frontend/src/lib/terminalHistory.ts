@@ -23,7 +23,8 @@ export function recentTerminalHistory(entries: terminal.HistoryEntry[], limitPer
 
 /** O provedor lê recentOutput com um limite de pontos de código antes do orçamento do perfil. */
 export function terminalChatHistory(history: terminal.HistoryEntry[], sessionOutputLabel: string, truncatedLabel: string) {
-  const recent = recentTerminalHistory(history, limits.itemsPerKind);
+  const readable = history.filter(entry => entry.source === sessionOutputSource || entry.command?.trim());
+  const recent = recentTerminalHistory(readable, limits.itemsPerKind);
   const separator = '\n---\n';
   // Seleciona primeiro os comandos mais recentes, depois preenche com blocos da sessão.
   const newest = recent.map((entry, index) => ({ entry, index })).reverse();
@@ -34,7 +35,7 @@ export function terminalChatHistory(history: terminal.HistoryEntry[], sessionOut
 
   function project(budget: number) {
     const parts: TerminalContextItem[] = [];
-    let truncated = history.length > recent.length;
+    let truncated = readable.length > recent.length;
     let kept = 0;
     for (const { entry, index } of priority) {
       const session = entry.source === sessionOutputSource;
@@ -48,10 +49,6 @@ export function terminalChatHistory(history: terminal.HistoryEntry[], sessionOut
         break;
       }
       const headerLength = Array.from(codePointPrefix(header, available + 1)).length;
-      if (!session && !command) {
-        truncated = true;
-        continue;
-      }
       if (headerLength + (output ? 2 : 0) > available) {
         truncated = true;
         // Identifica até um comando mais longo que o orçamento inteiro.

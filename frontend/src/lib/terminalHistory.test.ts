@@ -8,6 +8,14 @@ describe('contexto recente do terminal', () => {
     terminal.HistoryEntry.createFrom({ source, command, output });
   const project = (entries: terminal.HistoryEntry[]) => terminalChatHistory(entries, 'Sessão', '… truncado');
 
+  it('ignora comandos em branco antes de aplicar o limite por origem', () => {
+    const empty = entry('user-raw', ' \t\n ', '');
+    expect(project([empty])).toMatchObject({ text: '', items: [], truncated: false });
+    const meaningful = entry('llm', 'pwd', '/casa');
+    expect(project([meaningful, ...Array(limits.itemsPerKind + 1).fill(empty)]))
+      .toEqual(project([meaningful]));
+  });
+
   it('preserva o comando recente quando um bloco anterior ocupa todo o orçamento', () => {
     const result = project([entry('session-output', '', '🟣'.repeat(25000)), entry('llm', 'pwd', '/casa')]);
     expect(result.text).toMatch(/^… truncado\n\[Sessão\]\n…🟣+\n---\n\$ pwd\n\/casa$/u);
