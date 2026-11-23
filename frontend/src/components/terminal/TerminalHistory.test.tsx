@@ -24,7 +24,10 @@ describe('TerminalHistory', () => {
       const { rerender } = render(<TerminalHistory entries={[]} />);
       const failed = new terminal.HistoryEntry({ id: 'falha', command: 'anterior', output: '', exitCode: 1,
         endedAt: '2026-01-01T00:00:01Z', source: 'llm' });
-      rerender(<TerminalHistory entries={[failed]} />);
+      const previous = Array.from({ length: 199 }, (_, i) => new terminal.HistoryEntry({
+        id: String(i), command: 'pwd', output: '', exitCode: 0,
+      }));
+      rerender(<TerminalHistory entries={[...previous, failed]} />);
       expect(sink).not.toHaveBeenCalled();
       expect(screen.getByText('terminal.entry.exit 1')).toBeInTheDocument();
     } finally { unregisterAnnouncerSink(); }

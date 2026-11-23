@@ -19,7 +19,7 @@ import { type VoiceAnnounceRequest, announceWithOrigin, isVoiceAccessibilityOrig
 import i18next from 'i18next';
 
 // Debounce para anúncio de output (acumula chunks e espera streaming parar)
-const pendingAnnouncements = new Map<string, { output: string; truncated: boolean; timer: ReturnType<typeof setTimeout> }>();
+const pendingAnnouncements = new Map<string, { output: string; prefixComplete: boolean; truncated: boolean; timer: ReturnType<typeof setTimeout> }>();
 let terminalEventListenerRefCount = 0;
 let terminalOutputListenerRefCount = 0;
 let terminalSessionReadGeneration = 0;
@@ -59,23 +59,31 @@ function flushOutputAnnouncement(sessionId: string) {
 
 const announcementCharacterLimit = 300;
 
+function hasOmittedText(content: string, consumed: number): boolean {
+  return content.length > consumed && /\S/.test(content.slice(consumed));
+}
+
 function scheduleOutputAnnounce(sessionId: string, chunk: string) {
   if (!isVoiceAccessibilityOriginCurrentlyActive(terminalOrigin(sessionId))) return;
   const pending = pendingAnnouncements.get(sessionId);
   cancelOutputAnnouncement(sessionId);
   let output = pending?.output ?? '';
   let truncated = pending?.truncated ?? false;
-  if (!truncated) {
+  let prefixComplete = pending?.prefixComplete ?? false;
+  if (prefixComplete) {
+    truncated ||= hasOmittedText(chunk, 0);
+  } else {
     const content = output ? chunk : chunk.trimStart();
     const previousLength = output.length;
     // Dois elementos UTF-16 por ponto de código bastam para montar toda a prévia.
     const candidate = output + content.slice(0, 2 * announcementCharacterLimit - previousLength);
     output = codePointPrefix(candidate, announcementCharacterLimit);
     const consumed = output.length - previousLength;
-    truncated = content.length > consumed && /\S/.test(content.slice(consumed));
+    prefixComplete = content.length > consumed;
+    truncated = hasOmittedText(content, consumed);
   }
   const timer = setTimeout(() => flushOutputAnnouncement(sessionId), 500);
-  pendingAnnouncements.set(sessionId, { output, truncated, timer });
+  pendingAnnouncements.set(sessionId, { output, prefixComplete, truncated, timer });
 }
 
 // Re-export types for components
@@ -510,7 +518,7 @@ export const useTerminalStore = create<TerminalState>((set) => ({
         const output = data.output || (pending?.id === data.commandId && pending.output) || useTerminalStore.getState().historyBySession[data.sessionId]
           ?.find(entry => entry.id === data.commandId)?.output;
         const prefix = codePointPrefix(output || '', announcementCharacterLimit);
-        const outputPreview = output && prefix.length < output.length
+        const outputPreview = output && hasOmittedText(output, prefix.length)
           ? prefix + i18next.t('terminal.announce.truncatedSuffix')
           : prefix || i18next.t('terminal.announce.emptyOutput');
         const { sessionId, exitCode } = data;

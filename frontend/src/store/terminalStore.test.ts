@@ -389,7 +389,8 @@ describe('terminalStore', () => {
   });
 
   it.each(['evento final', 'saída acumulada', 'stream manual'].flatMap(path =>
-    ['', 'z'].map(tail => ({ path, tail }))))('preserva o emoji na posição 300 ($path, excedente "$tail")', ({ path, tail }) => {
+    [{ tail: '', truncated: false }, { tail: '\n', truncated: false }, { tail: '\n z', truncated: true }]
+      .map(test => ({ path, ...test }))))('preserva o emoji na posição 300 ($path, excedente "$tail")', ({ path, tail, truncated }) => {
     vi.useFakeTimers();
     const cleanup = useTerminalStore.getState().setupEventListeners();
     const prefix = 'a'.repeat(299) + '🌍';
@@ -404,7 +405,7 @@ describe('terminalStore', () => {
         if (path === 'saída acumulada') terminalEventHandlers.get('terminal:command_output')?.({ ...event, output: prefix + tail });
         terminalEventHandlers.get('terminal:command_end')?.({ ...event, output: path === 'evento final' ? prefix + tail : '', exitCode: 0 });
       }
-      const output = prefix + (tail ? i18next.t('terminal.announce.truncatedSuffix') : '');
+      const output = prefix + (truncated ? i18next.t('terminal.announce.truncatedSuffix') : '');
       const key = path === 'stream manual' ? 'terminal.announce.output' : 'terminal.announce.outputWithExit';
       expect(announce).toHaveBeenLastCalledWith(i18next.t(key, { output, exitCode: 0 }));
     } finally { cleanup(); vi.useRealTimers(); }
@@ -414,7 +415,9 @@ describe('terminalStore', () => {
     vi.useFakeTimers();
     const cleanup = useTerminalStore.getState().setupEventListeners();
     try {
-      terminalEventHandlers.get('terminal:raw_output')?.({ sessionId: 'a', output: 'A' + ' '.repeat(300) + 'B' });
+      for (const output of ['A' + ' '.repeat(300), '   ', 'B']) {
+        terminalEventHandlers.get('terminal:raw_output')?.({ sessionId: 'a', output });
+      }
       vi.runAllTimers();
       expect(announce.mock.calls[0][0]).toBe(i18next.t('terminal.announce.output', {
         output: 'A' + i18next.t('terminal.announce.truncatedSuffix'),

@@ -44,7 +44,6 @@ const workspaceMocks = vi.hoisted(() => ({
 const storeState = vi.hoisted(() => ({
   sessions: [{ id: 'term-1', name: 'Terminal 1', cwd: '/tmp', state: 'running', shell: 'sh' }],
   historyBySession: { 'term-1': [] as Array<{ id: string; command: string; output: string; exitCode?: number }> },
-  activeEntryBySession: { 'term-1': null as string | null },
   isLoadingSessions: false,
   sessionListFailed: false,
   loadingHistoryBySession: {},
@@ -214,7 +213,6 @@ describe('TerminalPage', () => {
     terminalPageMocks.modalOpen = false;
     vi.spyOn(document, 'hasFocus').mockReturnValue(true);
     storeState.historyBySession = { 'term-1': [] };
-    storeState.activeEntryBySession = { 'term-1': null };
     storeState.isLoadingSessions = false;
     storeState.sessions = [{ id: 'term-1', name: 'Terminal 1', cwd: '/tmp', state: 'running', shell: 'sh' }];
     workspaceMocks.workspace.activeTabId = 'terminal-tab';

@@ -10,7 +10,7 @@ export function formatDuration(ms: number): string {
   return `${min}m ${sec}s`;
 }
 
-/** Lê apenas o prefixo solicitado, preservando pares substitutos UTF-16. */
+/** Limita por pontos de código Unicode. Um grafema pode conter vários pontos de código. */
 export function codePointPrefix(text: string, limit: number): string {
   if (limit <= 0) return '';
   if (text.length <= limit) return text;
