@@ -286,6 +286,15 @@ Pendente ou parcial:
   pendentes antes das marcas de início e fim. Ao trocar a entrada ativa, a sessão entrega primeiro
   o texto manual pendente. O leitor limita a 4 KiB a cópia literal guardada para recuperar controles
   incompletos. Ultrapassado o limite, consome o restante do controle até a retomada do texto.
+- **Histórico nativo do PowerShell.** A aba navega pelo histórico do Assistente.
+  Em um ConPTY com PSReadLine 2.4.5 ativo, a recuperação da linha anterior
+  pelo editor do shell devolveu a moldura inteira do comando gerenciado.
+  No ensaio com `Write-Output 'gerenciado-revisao-1120'`, a moldura media
+  142 bytes na base `366e2f1a3` e 6.330 bytes em `093979e82`.
+  Com `SaveIncrementally`, o arquivo isolado continha
+  a moldura e as entradas manuais. Com `SaveNothing`, a moldura permaneceu
+  disponível em memória. A ativação do módulo depende da configuração do host.
+  As preferências e os critérios de inclusão no histórico pertencem ao shell.
 - **Shells POSIX e zsh.** Comentários finais e erros de sintaxe ficam contidos no comando.
   O zsh usa suas operações internas para avaliar o comando e conferir o diretório.
   No Linux, sessões efêmeras e sessões persistentes criadas pelo modelo dispensam o completador

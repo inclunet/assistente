@@ -93,6 +93,16 @@ No PowerShell, você pode iniciar o comando com `using namespace` para usar
 nomes de tipos abreviados. Por exemplo, depois de `using namespace System.Text`,
 `[StringBuilder]::new('texto').ToString()` devolve `texto`.
 
+Para reler um comando na aba Terminal, pressione **Seta para cima** no início
+do campo de comando. O foco vai para o último item do histórico do Assistente.
+O PowerShell também pode manter um histórico próprio por meio do PSReadLine.
+Quando esse módulo está ativo, ele pode guardar a linha que o Assistente envia
+ao executar um comando gerenciado. Essa linha inclui várias instruções para
+capturar a saída e o código de término. Ela pode aparecer ao recuperar comandos
+em um console PowerShell que compartilhe o mesmo arquivo de histórico.
+A preferência `HistorySaveStyle` do PSReadLine controla a gravação em disco.
+Com `SaveNothing`, a linha ainda pode ser recuperada em memória na mesma sessão.
+
 A saída registrada é textual. Programas que movem o cursor para redesenhar
 linhas anteriores podem aparecer de forma diferente no histórico e na tela
 interativa. Sequências de controle incompletas podem aparecer como texto ao
