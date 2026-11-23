@@ -37,9 +37,12 @@ falhou dentro de uma expressão composta, o status é 1. Isso pode ocorrer em um
 um programa termina com erro e envia a saída a um cmdlet como `Get-Item`, ou
 quando um `return` condicional pode ter encerrado o comando antes da etapa final.
 O terminal conserva o código nativo quando a saída passa apenas por `Out-String`
-ou `Out-String -Stream`.
+ou `Out-String -Stream`. Em `$()` e `@()`, o código de uma operação nativa no fim
+de um `if` corresponde ao ramo que o PowerShell executou.
 
-Se a escrita de um comando enviado pelo modelo falhar, o Assistente encerra a sessão
+Se um comando for cancelado enquanto o terminal entrega a saída anterior, ele fica no
+histórico com código -1 e a sessão continua disponível. Se a escrita de um comando
+enviado pelo modelo falhar, o Assistente encerra a sessão
 para impedir que o próximo comando complete a linha anterior. Isso também vale
 quando você abre um terminal persistente e pede ao modelo que use essa sessão.
 A aba continua aberta e o campo de comando fica somente para leitura. Você pode
@@ -87,7 +90,7 @@ Múltiplas sessões podem existir simultaneamente (até 10 por padrão), cada um
 | Timeout padrão | 15 segundos |
 | Histórico por sessão | 200 entradas |
 
-Uma falha de leitura, um cancelamento ou o fechamento explícito da sessão devolve erro com a saída parcial disponível. Se o leitor já falhou quando o prazo vence, o diagnóstico conserva as duas causas.
+Uma falha de leitura, um cancelamento ou o fechamento explícito da sessão devolve erro com a saída parcial disponível. Se o leitor já falhou quando o prazo vence, o diagnóstico conserva as duas causas. A duração acompanha o resultado quando a sessão registrou o início e o fim da execução.
 
 O timeout pode ser configurado em cada chamada da ferramenta. Quando ele é
 atingido, o Assistente envia `Ctrl+C`, aguarda e drena a saída restante e só

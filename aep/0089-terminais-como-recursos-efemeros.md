@@ -206,15 +206,23 @@ Pendente ou parcial:
   Se o comando encerra o shell, a sessão só atribui o status do processo após observar o marcador
   inicial e drenar a leitura. No PowerShell, um retorno antecipado preserva o status da última
   operação identificável. Um pipeline ou retorno condicional de origem ambígua devolve 1.
+  Em `$()` e `@()`, o status reflete a última operação do ramo de `if` executado,
+  inclusive em `elseif` e `else`. Um ramo ignorado não fornece código de saída.
   O CI exercita o terminal no Windows PowerShell 5.1.
 - **Interrupção.** Cancelamento, falha de leitura e fechamento explícito preservam a causa e a saída
   parcial. Se o leitor falhar e o prazo expirar, o resultado conserva as duas causas. A ferramenta
-  informa no texto e nos metadados a duração registrada pela sessão, inclusive no timeout sem saída.
+  informa no texto e nos metadados a duração registrada pela sessão, inclusive no timeout sem saída,
+  quando os dois horários da execução estão disponíveis.
+  Antes da primeira escrita de um comando gerenciado, a sessão revalida o contexto após
+  entregar eventos em espera. Se o contexto já terminou, conclui o histórico e o evento
+  de término com código -1 e preserva a sessão para o próximo comando.
   Em comandos gerenciados, uma falha de escrita depois do início fica no histórico com código -1.
   Uma falha de escrita encerra a sessão, inclusive quando nenhum byte foi escrito.
   A sessão recusa novas entradas imediatamente. Depois que a escrita devolve erro, o comando
   aguarda a limpeza até o seu prazo ou cancelamento. Se o processo ou leitor continuar bloqueado,
   a limpeza prossegue em segundo plano. A saída já recebida acompanha o erro, inclusive se o prazo vencer.
+  Se uma falha do leitor assume o encerramento, uma captura de fechamento anterior fica obsoleta
+  e a sessão publica o evento de saída uma única vez.
   O evento de término do comando precede o de saída da sessão, inclusive quando o próprio
   comando encerra o shell. O histórico já carregado continua recebendo eventos em segundo
   plano. Ao voltar à aba, ele inclui os comandos executados nesse intervalo.
