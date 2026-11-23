@@ -411,6 +411,25 @@ describe('terminalStore', () => {
     } finally { cleanup(); vi.useRealTimers(); }
   });
 
+  it.each(['evento final', 'saída acumulada', 'stream manual'])('ignora espaços externos antes de falar ($0)', path => {
+    vi.useFakeTimers();
+    const cleanup = useTerminalStore.getState().setupEventListeners();
+    const event = { sessionId: 'a', commandId: 'cmd' };
+    const chunks = [' '.repeat(300), 'ok  \n'];
+    try {
+      if (path === 'stream manual') {
+        for (const output of chunks) terminalEventHandlers.get('terminal:raw_output')?.({ ...event, output });
+        vi.runAllTimers();
+      } else {
+        terminalEventHandlers.get('terminal:command_start')?.({ ...event, command: 'pwd', source: 'llm' });
+        if (path === 'saída acumulada') terminalEventHandlers.get('terminal:command_output')?.({ ...event, output: chunks.join('') });
+        terminalEventHandlers.get('terminal:command_end')?.({ ...event, output: path === 'evento final' ? chunks.join('') : '', exitCode: 0 });
+      }
+      const key = path === 'stream manual' ? 'terminal.announce.output' : 'terminal.announce.outputWithExit';
+      expect(announce).toHaveBeenLastCalledWith(i18next.t(key, { output: 'ok', exitCode: 0 }));
+    } finally { cleanup(); vi.useRealTimers(); }
+  });
+
   it('entrega o resultado ao leitor antes do encerramento e indica saída cortada após espaços', () => {
     vi.useFakeTimers();
     const cleanup = useTerminalStore.getState().setupEventListeners();

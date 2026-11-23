@@ -49,7 +49,8 @@ antes da resposta. Se você já editou o texto, a edição é preservada. O camp
 está carregando e quando a sessão vinculada já terminou. Para voltar a editar,
 use a barra de ferramentas para escolher outra sessão ou criar uma nova.
 A prévia falada inclui até 300 pontos de código Unicode da saída. Um emoji composto
-pode ocupar vários desses pontos. O leitor só anuncia o corte se o trecho omitido
+pode ocupar vários desses pontos. Os espaços iniciais ficam fora da contagem.
+O leitor só anuncia o corte se o trecho omitido
 contiver algo além de espaços em branco ou quebras de linha.
 A saída comum só é lida quando a aba da sessão está visível e ativa. Em
 Configurações, as conclusões de comandos de sessões vinculadas a abas chegam como resumo. Se você trocar de

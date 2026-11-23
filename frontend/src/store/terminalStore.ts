@@ -50,14 +50,18 @@ function flushOutputAnnouncement(sessionId: string) {
   const pending = pendingAnnouncements.get(sessionId);
   if (!pending) return;
   cancelOutputAnnouncement(sessionId);
-  const text = pending.output.trim();
-  if (!text) return;
-  const preview = pending.truncated ? text + i18next.t('terminal.announce.truncatedSuffix') : text;
+  const preview = formatAnnouncementPreview(pending.output, pending.truncated);
+  if (!preview) return;
   if (announceWithOrigin({ origin: terminalOrigin(sessionId), message: i18next.t('terminal.announce.output', { output: preview }),
     eventType: 'progress', waitsForReading: true, protectsReading: true })) playReceiveSound();
 }
 
 const announcementCharacterLimit = 300;
+
+function formatAnnouncementPreview(prefix: string, truncated: boolean): string {
+  const text = prefix.trimEnd();
+  return truncated ? text + i18next.t('terminal.announce.truncatedSuffix') : text;
+}
 
 function hasOmittedText(content: string, consumed: number): boolean {
   return content.length > consumed && /\S/.test(content.slice(consumed));
@@ -517,10 +521,10 @@ export const useTerminalStore = create<TerminalState>((set) => ({
         if (isVoiceAccessibilityOriginCurrentlyActive(terminalOrigin(data.sessionId))) playReceiveSound();
         const output = data.output || (pending?.id === data.commandId && pending.output) || useTerminalStore.getState().historyBySession[data.sessionId]
           ?.find(entry => entry.id === data.commandId)?.output;
-        const prefix = codePointPrefix(output || '', announcementCharacterLimit);
-        const outputPreview = output && hasOmittedText(output, prefix.length)
-          ? prefix + i18next.t('terminal.announce.truncatedSuffix')
-          : prefix || i18next.t('terminal.announce.emptyOutput');
+        const content = (output || '').trimStart();
+        const prefix = codePointPrefix(content, announcementCharacterLimit);
+        const outputPreview = formatAnnouncementPreview(prefix, hasOmittedText(content, prefix.length)) ||
+          i18next.t('terminal.announce.emptyOutput');
         const { sessionId, exitCode } = data;
         const titleAtCompletion = tab?.title?.trim();
         const nameAtCompletion = useTerminalStore.getState().sessions.find(session => session.id === sessionId)?.name?.trim();
