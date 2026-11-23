@@ -85,7 +85,16 @@ func TestChatTurnStartupReconciliationWithConcurrentWriter(t *testing.T) {
 	if err := db.Exec("INSERT INTO schema_migrations VALUES (41),(42)").Error; err != nil {
 		t.Fatal(err)
 	}
-	seedChatTurnTestMessages(t, db, "conv", "legacy-question", "")
+	seedChatTurnTestMessages(t, db, "conv", "canonical-question", "")
+	repo := NewChatTurnRepository(db)
+	ctx := WithUserID(t.Context(), "user")
+	attempt, err := repo.Begin(ctx, "conv", "canonical-question", "", TurnModeNew)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.Finish(ctx, "conv", "canonical-question", attempt.ExecutionID, TurnFailed, "provider_error"); err != nil {
+		t.Fatal(err)
+	}
 	pool, err := db.DB()
 	if err != nil {
 		t.Fatal(err)
@@ -99,7 +108,7 @@ func TestChatTurnStartupReconciliationWithConcurrentWriter(t *testing.T) {
 	if _, err := concurrent.ExecContext(t.Context(), "PRAGMA busy_timeout=0"); err != nil {
 		t.Fatal(err)
 	}
-	const update = "UPDATE conversations SET title='renamed' WHERE id='other'"
+	const update = "UPDATE conversations SET title = title || 'x' WHERE id='other'"
 	var attempted bool
 	var writeErr error
 	if err := db.Callback().Query().After("gorm:query").Register("test:concurrent_writer", func(tx *gorm.DB) {
@@ -110,15 +119,19 @@ func TestChatTurnStartupReconciliationWithConcurrentWriter(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if err := initializeChatTurnsBeforeWorkers(db); err != nil {
-		t.Fatalf("recuperação concorrente: %v", err)
+	checkConcurrentRecovery := func(t *testing.T) {
+		t.Helper()
+		attempted, writeErr = false, nil
+		if err := initializeChatTurnsBeforeWorkers(db); err != nil {
+			t.Fatalf("recuperação concorrente: %v", err)
+		}
+		if !attempted || writeErr != nil {
+			t.Fatalf("escritor durante leitura: tentativa=%v erro=%v", attempted, writeErr)
+		}
 	}
-	if !attempted || !IsSQLiteBusyError(writeErr) {
-		t.Fatalf("escritor intercalado: tentativa=%v erro=%v", attempted, writeErr)
-	}
-	if _, err := concurrent.ExecContext(t.Context(), update); err != nil {
-		t.Fatal(err)
-	}
+	t.Run("somente canônico", checkConcurrentRecovery)
+	seedChatTurnTestMessages(t, db, "conv", "legacy-question", "")
+	t.Run("com legado", checkConcurrentRecovery)
 	var state string
 	if err := db.Raw("SELECT state FROM chat_turns WHERE user_message_id = ?", "legacy-question").Scan(&state).Error; err != nil || state != "historical_unknown" {
 		t.Fatalf("turno legado: %q, %v", state, err)
