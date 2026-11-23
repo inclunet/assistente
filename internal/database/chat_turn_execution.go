@@ -264,5 +264,12 @@ func initializeChatTurnsBeforeWorkers(db *gorm.DB) error {
 			return closeErr
 		}
 	}
-	return db.Transaction(func(tx *gorm.DB) error { return reconcileLegacyChatTurns(tx, "", "") })
+	// Sem legado, a reconciliação apenas lê e pode coexistir com outro escritor
+	// em WAL. Se precisar promover um snapshot antigo para gravar, recomeça
+	// em transação nova, com a política limitada de aquisição do writer.
+	reconcile := func(tx *gorm.DB) error { return reconcileLegacyChatTurns(tx, "", "") }
+	if err := db.Transaction(reconcile); !IsSQLiteBusyError(err) {
+		return err
+	}
+	return WithSQLiteImmediateTransaction(context.Background(), db, "chat.turns.startup_reconciliation", reconcile)
 }
