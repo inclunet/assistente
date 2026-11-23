@@ -1,20 +1,22 @@
+import { logger } from '../../utils/logger';
 import i18next from 'i18next';
 import type {
   VoiceAccessibilityOrigin,
   VoiceAccessibilityRequestBase,
 } from './types';
-import { getVoiceAccessibilityOriginLabel } from './types';
+import { getVoiceAccessibilityOriginLabel, isTerminalOrigin } from './types';
 
 export type AnnouncePriority = 'polite' | 'assertive';
 
 export interface VoiceAnnounceRequest extends VoiceAccessibilityRequestBase {
   message: string;
+  /** Resumo para entrega em segundo plano. A função calcula o texto no momento da fala. */
+  inactiveMessage?: string | { resolve: () => string; fallback: string };
   announcePriority?: AnnouncePriority;
   /**
-   * Marca o anúncio como leitura do conteúdo do assistente. A live region é
-   * única (AEP-0058): qualquer anúncio seguinte substitui o texto e o leitor de
-   * telas abandona o que estava lendo. Anúncios secundários esperam a leitura
-   * terminar em vez de atropelá-la.
+   * Protege a leitura deste anúncio na live region compartilhada (AEP-0058).
+   * Com waitsForReading, resultados aguardam a leitura anterior antes de
+   * proteger a própria fala. Erros e ações da pessoa têm prioridade imediata.
    */
   protectsReading?: boolean;
   /**
@@ -31,7 +33,13 @@ type AnnounceSink = (message: string, priority: AnnouncePriority) => void;
 type OriginActiveResolver = (origin?: VoiceAccessibilityOrigin) => boolean;
 
 let announceSink: AnnounceSink | null = null;
-let originActiveResolver: OriginActiveResolver = () => true;
+interface OriginResolver {
+  isActive: OriginActiveResolver;
+  resolveOriginTitle?: (origin: VoiceAccessibilityOrigin) => string | undefined;
+}
+
+// A atividade vem do registro mais recente e o título do último que resolve títulos.
+const originResolvers: OriginResolver[] = [];
 
 const INACTIVE_ALLOWED_EVENTS = new Set(['completion', 'error', 'system']);
 
@@ -108,20 +116,60 @@ export function unregisterAnnouncerSink() {
   clearArbitrationState();
 }
 
-export function registerVoiceAccessibilityActiveResolver(resolver: OriginActiveResolver): () => void {
-  originActiveResolver = resolver;
+export function registerVoiceAccessibilityActiveResolver(
+  isActive: OriginActiveResolver,
+  resolveOriginTitle?: OriginResolver['resolveOriginTitle'],
+): () => void {
+  const registration = { isActive, resolveOriginTitle };
+  originResolvers.push(registration);
   return () => {
-    if (originActiveResolver === resolver) {
-      originActiveResolver = () => true;
-    }
+    const index = originResolvers.indexOf(registration);
+    if (index >= 0) originResolvers.splice(index, 1);
   };
 }
 
 export function isVoiceAccessibilityOriginCurrentlyActive(origin?: VoiceAccessibilityOrigin): boolean {
-  return originActiveResolver(origin);
+  return originResolvers[originResolvers.length - 1]?.isActive(origin) ?? true;
+}
+
+function resolveTitle(origin: VoiceAccessibilityOrigin): string | undefined {
+  for (let i = originResolvers.length - 1; i >= 0; i--) {
+    const resolve = originResolvers[i].resolveOriginTitle;
+    if (resolve) return resolve(origin);
+  }
+  return origin.title;
+}
+
+function summaryErrorKind(value: unknown): string {
+  try {
+    for (const type of [TypeError, RangeError, ReferenceError, SyntaxError, URIError, EvalError, Error]) {
+      if (value instanceof type) return type.name;
+    }
+  } catch {
+    // Objetos lançados podem impedir a inspeção do protótipo.
+  }
+  return typeof value;
 }
 
 function formatInactiveAnnouncement(request: VoiceAnnounceRequest): string {
+  if (typeof request.inactiveMessage === 'object') {
+    try {
+      const summary = request.inactiveMessage.resolve();
+      if (summary.trim()) return summary;
+    } catch (error) {
+      // A mensagem da exceção pode conter o conteúdo privado do anúncio.
+      logger.warn('[announcerBroker] Falha ao calcular o resumo em segundo plano.', summaryErrorKind(error));
+    }
+    if (request.inactiveMessage.fallback.trim()) return request.inactiveMessage.fallback;
+  } else if (request.inactiveMessage?.trim()) return request.inactiveMessage;
+  if (isTerminalOrigin(request.origin)) {
+    const origin = request.origin;
+    const title = origin && resolveTitle(origin)?.trim();
+    if (title) return i18next.t('voiceAccessibility.backgroundNamedTerminalActivity', {
+      title, defaultValue: 'Atividade no terminal {{title}} em segundo plano',
+    });
+    return i18next.t('voiceAccessibility.backgroundTerminalActivity', { defaultValue: 'Atividade no terminal em segundo plano' });
+  }
   const label = getVoiceAccessibilityOriginLabel(request.origin);
   if (!label) return request.message;
 
@@ -134,13 +182,13 @@ function formatInactiveAnnouncement(request: VoiceAnnounceRequest): string {
 
 function shouldAnnounce(request: VoiceAnnounceRequest): boolean {
   if (!request.message.trim()) return false;
-  if (originActiveResolver(request.origin)) return true;
+  if (isVoiceAccessibilityOriginCurrentlyActive(request.origin)) return true;
 
   return INACTIVE_ALLOWED_EVENTS.has(request.eventType ?? 'progress');
 }
 
 function resolveMessage(request: VoiceAnnounceRequest): string {
-  return originActiveResolver(request.origin)
+  return isVoiceAccessibilityOriginCurrentlyActive(request.origin)
     ? request.message
     : formatInactiveAnnouncement(request);
 }
@@ -178,11 +226,9 @@ function flushNextDeferredAnnouncement() {
   const message = resolveMessage(next.request);
   emit(message, next.priority);
   const readingMs = estimateAnnouncementReadingMs(message);
-  if (next.durable) {
-    // Este aviso esperou justamente porque não pode se perder; deixá-lo ser
-    // substituído no meio o perderia do mesmo jeito. Um aviso de estado, ao
-    // contrário, deve ceder lugar a um estado mais recente: é o mais novo que
-    // descreve a situação atual.
+  if (next.durable || next.request.protectsReading) {
+    // Um pedido com protectsReading só entra na fila se também puder esperar
+    // (waitsForReading). Ao sair, ele e as conclusões duráveis protegem a leitura.
     readingProtectedUntil = Date.now() + readingMs;
   }
   if (deferredQueue.length > 0) {
@@ -216,7 +262,8 @@ function enqueueDeferredAnnouncement(item: DeferredAnnouncement) {
 }
 
 function isReadingProtected(request: VoiceAnnounceRequest, now: number): boolean {
-  if (request.protectsReading) return false;
+  // Um resultado pode esperar a fala anterior e proteger a própria leitura ao chegar.
+  if (request.protectsReading && !request.waitsForReading) return false;
   if (NEVER_DEFERRED_EVENTS.has(request.eventType ?? 'progress')) return false;
   return now < readingProtectedUntil;
 }
@@ -257,8 +304,8 @@ export function announceWithOrigin(request: VoiceAnnounceRequest): boolean {
 
   const message = resolveMessage(request);
 
-  // Conteúdo novo reinicia a proteção; erro e ação da pessoa a encerram, porque
-  // já substituíram a leitura que estava sendo protegida.
+  // A fala que ocupa a live region passa a definir a proteção, inclusive quando
+  // uma ação da pessoa interrompe a leitura anterior para abrir uma decisão.
   readingProtectedUntil = request.protectsReading
     ? now + estimateAnnouncementReadingMs(message)
     : 0;

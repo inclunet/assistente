@@ -4,9 +4,13 @@ import (
 	"assistente/internal/logging"
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
+	"runtime"
+	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	"github.com/google/uuid"
 )
@@ -46,6 +50,7 @@ type ManagerStats struct {
 // Manager gerencia sessões PTY independentes compartilháveis entre chat e UI.
 type Manager struct {
 	sessions  map[string]*Session
+	starting  int // criações que já reservaram uma vaga antes de abrir o PTY
 	mu        sync.RWMutex
 	config    ManagerConfig
 	emitEvent func(event string, data any) // callback para emitir eventos Wails
@@ -70,12 +75,18 @@ func NewManager(config ManagerConfig, emitEvent func(event string, data any)) *M
 // Create cria uma nova sessão PTY com nome e diretório de trabalho.
 // Usada pelo usuário via UI para criar terminais manualmente.
 func (m *Manager) Create(name, workDir string) (*Session, error) {
+	return m.create(name, workDir, nil)
+}
+
+func (m *Manager) create(name, workDir string, env []string) (*Session, error) {
 	m.mu.Lock()
 
-	if len(m.sessions) >= m.config.MaxSessions {
+	used := len(m.sessions) + m.starting
+	if used >= m.config.MaxSessions {
 		m.mu.Unlock()
-		return nil, fmt.Errorf("limite de sessões atingido (%d/%d)", len(m.sessions), m.config.MaxSessions)
+		return nil, fmt.Errorf("limite de sessões atingido (%d/%d)", used, m.config.MaxSessions)
 	}
+	m.starting++
 
 	if name == "" {
 		name = fmt.Sprintf("Terminal %d", m.nextNum)
@@ -95,8 +106,9 @@ func (m *Manager) Create(name, workDir string) (*Session, error) {
 	}
 
 	// Callback para raw output (streaming contínuo para Terminal Page)
-	onRawOutput := func(sessionID, chunk string) {
+	onRawOutput := func(sessionID, commandID, chunk string) {
 		m.emitEvent("terminal:raw_output", map[string]string{
+			"commandId":  commandID,
 			"sessionId":  sessionID,
 			"terminalId": sessionID,
 			"output":     chunk,
@@ -122,12 +134,13 @@ func (m *Manager) Create(name, workDir string) (*Session, error) {
 		})
 	}
 
-	session, err := newSession(name, workDir, m.config.DefaultShell, onOutput, onRawOutput, onCommandStart, onExit)
+	session, err := newSession(name, workDir, m.config.DefaultShell, env, onOutput, onRawOutput, onCommandStart, onExit)
+	m.mu.Lock()
+	m.starting--
 	if err != nil {
+		m.mu.Unlock()
 		return nil, err
 	}
-
-	m.mu.Lock()
 	m.sessions[session.id] = session
 	m.mu.Unlock()
 	session.Start()
@@ -140,7 +153,16 @@ func (m *Manager) Create(name, workDir string) (*Session, error) {
 
 // CreateInfo cria uma sessão e retorna somente seu contrato público.
 func (m *Manager) CreateInfo(name, workDir string) (SessionInfo, error) {
-	session, err := m.Create(name, workDir)
+	return m.createInfo(name, workDir, nil)
+}
+
+// CreateToolSession cria o terminal persistente solicitado pela ferramenta.
+func (m *Manager) CreateToolSession(name, workDir string) (SessionInfo, error) {
+	return m.createInfo(name, workDir, m.toolShellEnv())
+}
+
+func (m *Manager) createInfo(name, workDir string, env []string) (SessionInfo, error) {
+	session, err := m.create(name, workDir, env)
 	if err != nil {
 		return SessionInfo{}, err
 	}
@@ -154,7 +176,16 @@ func (m *Manager) CreateInfo(name, workDir string) (SessionInfo, error) {
 // permitiria ao chat capturar um terminal manual sem informar o usuário.
 func (m *Manager) Acquire(ctx context.Context, workDir string) (*Session, error) {
 	logging.Infof(ctx, "terminal.manager", "[Terminal] Criando sessão explícita para comando cwd=%s", workDir)
-	return m.Create("", workDir)
+	return m.create("", workDir, m.toolShellEnv())
+}
+
+func (m *Manager) toolShellEnv() []string {
+	if runtime.GOOS == "linux" && shellType(m.config.DefaultShell) == "zsh" && os.Getenv("skip_global_compinit") == "" {
+		// O zshrc do Ubuntu pode pedir confirmação para carregar completions.
+		// Sem interlocutor, a pergunta consumiria bytes do primeiro comando.
+		return append(os.Environ(), "skip_global_compinit=1")
+	}
+	return nil
 }
 
 // RunEphemeral executa um comando sem criar seção persistente visível.
@@ -172,9 +203,9 @@ func (m *Manager) RunEphemeral(ctx context.Context, workDir, command string, tim
 	if timeout == 0 {
 		timeout = m.config.DefaultTimeout
 	}
-	session, err := newSession("", workDir, m.config.DefaultShell,
+	session, err := newSession("", workDir, m.config.DefaultShell, m.toolShellEnv(),
 		func(_, _, _ string) {},
-		func(_, _ string) {},
+		nil, // A sessão efêmera não entrega saída manual à UI.
 		func(_, _, _, _ string) {},
 		func(string, error) {},
 	)
@@ -183,22 +214,19 @@ func (m *Manager) RunEphemeral(ctx context.Context, workDir, command string, tim
 	}
 	session.Start()
 	defer func() {
+		if session.faultOwnsCleanup() {
+			return
+		}
 		if err := session.Close(); err != nil {
 			logging.Warnf(ctx, "terminal.manager", "[Terminal] falha ao fechar sessão efêmera: %v", err)
 		}
 	}()
 
 	commandID := uuid.NewString()
-	entry := &HistoryEntry{ID: commandID, Command: command, Source: source, StartedAt: time.Now()}
-	if err := session.beginCommandWithID(commandID); err != nil {
-		return nil, err
-	}
 	// O shell pode carregar um perfil que muda o diretório. Reestabelecer o
 	// diretório da execução depois da inicialização impede que isso amplie
 	// uma autorização vinculada ao diretório, sem retirar o ambiente do usuário.
-	executionCommand := commandInDirectory(command, session.cwd, shellType(session.shell))
-	result, err := session.RunCommand(ctx, executionCommand, timeout, source, commandID)
-	return completeCommandEntry(entry, result, err), err
+	return session.runCommandInDirectory(ctx, command, session.cwd, timeout, source, commandID, nil)
 }
 
 // Release marca uma sessão como idle após uso pelo LLM.
@@ -207,13 +235,15 @@ func (m *Manager) Release(sessionID string) {
 	session, ok := m.sessions[sessionID]
 	m.mu.RUnlock()
 
-	if !ok {
+	if !ok || session.faultOwnsCleanup() {
 		return
 	}
 
 	session.ioMu.Lock()
 	session.mu.Lock()
-	if session.state == StateBusy {
+	// A execução que reservou um comando libera a própria geração. Uma
+	// chamada legada após RunCommand pode encontrar o próximo comando ativo.
+	if session.state == StateBusy && !session.commandReserved {
 		session.state = StateIdle
 	}
 	session.mu.Unlock()
@@ -236,44 +266,47 @@ func (m *Manager) RunCommand(ctx context.Context, sessionID, command string, tim
 	}
 
 	commandID := uuid.NewString()
-	entry := &HistoryEntry{
-		ID:        commandID,
-		Command:   command,
-		Source:    source,
-		StartedAt: time.Now(),
-	}
-	if err := session.beginCommandWithID(commandID); err != nil {
-		return nil, err
-	}
-
-	// Executa o comando
-	result, err := session.RunCommand(ctx, command, timeout, source, commandID)
-	entry = completeCommandEntry(entry, result, err)
-
-	// O retorno conserva o output bruto para a tool; o evento usa a mesma cópia
-	// limitada do histórico para não transferir vários MiB à UI.
-	eventEntry := limitedHistoryEntry(entry)
-	m.emitEvent("terminal:command_end", map[string]any{
-		"sessionId":  sessionID,
-		"terminalId": sessionID,
-		"commandId":  entry.ID,
-		"output":     eventEntry.Output,
-		"exitCode":   entry.ExitCode,
-		"error":      errToString(err),
+	return session.runCommandInDirectory(ctx, command, "", timeout, source, commandID, func(entry *HistoryEntry, err error, activeManualID string) {
+		// O retorno conserva o output bruto para a tool; o evento usa a mesma cópia
+		// limitada do histórico para não transferir vários MiB à UI.
+		eventEntry := limitedHistoryEntry(entry)
+		payload := map[string]any{
+			"sessionId":  sessionID,
+			"terminalId": sessionID,
+			"commandId":  entry.ID,
+			"output":     eventEntry.Output,
+			"exitCode":   entry.ExitCode,
+			"error":      errToString(err),
+		}
+		if activeManualID != "" {
+			payload["activeManualCommandId"] = activeManualID
+		}
+		if len(entry.Output) > maxOutputSize {
+			payload["announcementPreview"] = terminalAnnouncementPreview(entry.Output)
+		}
+		m.emitEvent("terminal:command_end", payload)
 	})
-
-	return entry, err
 }
 
-func completeCommandEntry(entry, result *HistoryEntry, err error) *HistoryEntry {
-	if result != nil {
-		return result
+// A prévia acompanha apenas resultados cujo histórico perdeu parte da saída original.
+type announcementPreview struct {
+	Output    string `json:"output"`
+	Truncated bool   `json:"truncated"`
+}
+
+func terminalAnnouncementPreview(output string) announcementPreview {
+	// Mesmo conjunto de espaços usado por String.trim no consumidor JavaScript.
+	text := strings.TrimFunc(output, func(r rune) bool {
+		return r == '\uFEFF' || (r != '\u0085' && unicode.IsSpace(r))
+	})
+	points := 0
+	for end := range text {
+		if points == 300 {
+			return announcementPreview{Output: strings.Clone(text[:end]), Truncated: true}
+		}
+		points++
 	}
-	if err != nil {
-		entry.ExitCode = -1
-		entry.EndedAt = time.Now()
-	}
-	return entry
+	return announcementPreview{Output: strings.Clone(text)}
 }
 
 // SendInput envia input raw para uma sessão PTY (modo interativo, sem markers).
@@ -362,10 +395,10 @@ func (m *Manager) PrepareInterrupt(snapshot InterruptSnapshot) (*InterruptOperat
 		session.sessionVersion == snapshot.token.sessionVersion &&
 		session.commandGeneration == snapshot.token.commandGeneration &&
 		session.commandPending == snapshot.token.commandPending &&
-		session.managedCommandID == snapshot.token.commandID &&
+		session.lastDispatchedID == snapshot.token.commandID &&
 		session.state == snapshot.token.state &&
 		(session.state == StateIdle || session.state == StateRunning) &&
-		!session.commandPending && session.managedCommandID != ""
+		!session.commandPending && session.lastDispatchedID != ""
 	if !valid || !snapshot.token.consumed.CompareAndSwap(0, 1) {
 		session.mu.Unlock()
 		session.ioMu.Unlock()
@@ -448,11 +481,11 @@ func (m *Manager) Info(sessionID string) (SessionInfo, bool) {
 	if !ok {
 		return SessionInfo{}, false
 	}
-	state := session.State()
-	if state == StateClosing || state == StateExited {
+	info := session.Info()
+	if info.State == StateClosing.String() || info.State == StateExited.String() {
 		return SessionInfo{}, false
 	}
-	return session.Info(), true
+	return info, true
 }
 
 // List retorna informações de todas as sessões ativas.
@@ -462,9 +495,9 @@ func (m *Manager) List() []SessionInfo {
 
 	result := make([]SessionInfo, 0, len(m.sessions))
 	for _, s := range m.sessions {
-		state := s.State()
-		if state != StateClosing && state != StateExited {
-			result = append(result, s.Info())
+		info := s.Info()
+		if info.State != StateClosing.String() && info.State != StateExited.String() {
+			result = append(result, info)
 		}
 	}
 	return result
@@ -472,31 +505,35 @@ func (m *Manager) List() []SessionInfo {
 
 // Close encerra uma sessão específica e remove do pool.
 func (m *Manager) Close(sessionID string) error {
-	m.mu.Lock()
+	m.mu.RLock()
 	session, ok := m.sessions[sessionID]
+	m.mu.RUnlock()
 	if !ok {
-		m.mu.Unlock()
 		return fmt.Errorf("sessão '%s' não encontrada", sessionID)
 	}
-	delete(m.sessions, sessionID)
-	m.mu.Unlock()
-
-	err := session.Close()
-
-	// Emite evento de fechamento
-	m.emitEvent("terminal:session_closed", map[string]string{
-		"sessionId": sessionID,
-	})
-
+	notify, err := session.closeForManager()
+	if m.removeIfSame(sessionID, session) && notify {
+		m.emitSessionClosed(session)
+	}
 	return err
 }
 
-func (m *Manager) removeIfSame(sessionID string, expected *Session) {
+func (m *Manager) emitSessionClosed(session *Session) {
+	session.afterCommandEnd(func() {
+		session.afterRawDelivery(func() {
+			m.emitEvent("terminal:session_closed", map[string]string{"sessionId": session.id})
+		})
+	})
+}
+
+func (m *Manager) removeIfSame(sessionID string, expected *Session) bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if current, ok := m.sessions[sessionID]; ok && current == expected {
 		delete(m.sessions, sessionID)
+		return true
 	}
+	return false
 }
 
 // CloseAll encerra todas as sessões. Chamado no shutdown do app.
@@ -506,13 +543,13 @@ func (m *Manager) CloseAll() {
 	for _, s := range m.sessions {
 		sessions = append(sessions, s)
 	}
-	m.sessions = make(map[string]*Session)
 	m.mu.Unlock()
 
 	for _, s := range sessions {
 		if err := s.Close(); err != nil {
 			logging.Errorf(context.Background(), "terminal.manager", "[Terminal] Erro ao fechar sessão %s: %v", s.id, err)
 		}
+		m.removeIfSame(s.id, s)
 	}
 
 	logging.Infof(context.Background(), "terminal.manager", "[Terminal] Todas as %d sessões encerradas", len(sessions))

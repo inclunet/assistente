@@ -3,6 +3,7 @@ import { Outlet, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Spin } from 'antd';
 import { useWorkspaceStore } from '../../store/workspaceStore';
+import { useTerminalStore } from '../../store/terminalStore';
 import { useShallow } from 'zustand/shallow';
 import { useDocumentTitle } from '../../hooks/useDocumentTitle';
 import { useWorkspaceKeyboardShortcuts } from '../../hooks/useWorkspaceKeyboardShortcuts';
@@ -44,11 +45,16 @@ export function WorkspaceLayout() {
     return cleanup;
   }, [setupEventListeners]);
 
+  useEffect(() => {
+    const terminal = useTerminalStore.getState();
+    return terminal.setupEventListeners({ lifecycleOnly: true });
+  }, []);
+
   const isWorkspaceRoute = pathname === '/' || pathname === '';
   useWorkspaceChatBridge();
   useWorkspacePanelRenameHandlers();
   useWorkspacePanelLifecycleCleanup();
-  useVoiceAccessibilityWorkspaceResolver();
+  useVoiceAccessibilityWorkspaceResolver(isWorkspaceRoute && isInitialized);
 
   useEffect(() => {
     pruneWorkspacePanelFocus(new Set(workspace?.tabs.map((tab) => tab.id) ?? []));

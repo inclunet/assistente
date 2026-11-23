@@ -4,6 +4,7 @@ import (
 	"assistente/internal/logging"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strconv"
@@ -285,39 +286,37 @@ func (rc *RunCommand) Execute(ctx context.Context, args json.RawMessage) (tools.
 		// sessionID permanece vazio — sem deep link para terminal inexistente.
 	}
 
+	metadata := map[string]any{"command": a.Command, "workDir": workDir, "exitCode": -1}
+	if sessionID != "" {
+		metadata["sessionId"] = sessionID
+		metadata["terminalId"] = sessionID
+		metadata["deepLink"] = deepLinkForSession(sessionID)
+	}
+	duration := ""
+	if entry != nil {
+		metadata["commandId"] = entry.ID
+		if !entry.StartedAt.IsZero() && !entry.EndedAt.Before(entry.StartedAt) {
+			duration = entry.EndedAt.Sub(entry.StartedAt).String()
+			metadata["duration"] = duration
+		}
+	}
 	if err != nil {
-		// Timeout ou erro — mas se temos output parcial, retorna como sucesso
-		// para que o LLM possa analisar o resultado parcial
 		output := ""
 		if entry != nil {
 			output = entry.Output
 		}
-
-		isTimeout := entry != nil && entry.ExitCode == -1
-
+		isTimeout := errors.Is(err, context.DeadlineExceeded) && !terminalFailure(err)
+		if isTimeout {
+			metadata["timeout"] = true
+			metadata["timeoutLimit"] = timeout.String()
+		}
 		if isTimeout && output != "" {
-			// Timeout COM output: retorna como sucesso com nota sobre timeout
-			content := fmt.Sprintf("[TIMEOUT após %ds — o comando foi interrompido com Ctrl+C. Output parcial capturado:]\n\n%s", int(timeout.Seconds()), output)
-
-			result := tools.ToolResult{
-				Content: content,
-				Metadata: func() map[string]any {
-					m := map[string]any{
-						"command":   a.Command,
-						"workDir":   workDir,
-						"exitCode":  -1,
-						"timeout":   true,
-						"duration":  timeout.String(),
-						"commandId": entry.ID,
-					}
-					if sessionID != "" {
-						m["sessionId"] = sessionID
-						m["terminalId"] = sessionID
-						m["deepLink"] = deepLinkForSession(sessionID)
-					}
-					return m
-				}(),
+			// O timeout parcial mantém a saída recuperável mesmo sem uma duração conhecida.
+			header := "TIMEOUT — limite configurado: " + timeout.String()
+			if duration != "" {
+				header += " — duração registrada: " + duration
 			}
+			result := tools.ToolResult{Content: "[" + header + ". Output parcial capturado:]\n\n" + output, Metadata: metadata}
 			protected, ok := tools.ProtectToolResult(ctx, result, outputLimit)
 			if !ok {
 				return tools.ToolResult{
@@ -329,22 +328,15 @@ func (rc *RunCommand) Execute(ctx context.Context, args json.RawMessage) (tools.
 			return protected, nil
 		}
 
-		// Erro real (sem output ou sem timeout)
-		metadata := map[string]any{
-			"command":  a.Command,
-			"workDir":  workDir,
-			"exitCode": -1,
+		message := fmt.Sprintf("Erro ao executar comando: %v", err)
+		if isTimeout {
+			message += "\nLimite configurado: " + timeout.String()
 		}
-		if sessionID != "" {
-			metadata["sessionId"] = sessionID
-			metadata["terminalId"] = sessionID
-			metadata["deepLink"] = deepLinkForSession(sessionID)
-		}
-		if entry != nil {
-			metadata["commandId"] = entry.ID
+		if duration != "" {
+			message += "\nDuração registrada: " + duration
 		}
 		result := tools.ToolResult{
-			Content:  fmt.Sprintf("Erro ao executar comando: %v\n\nOutput parcial:\n%s", err, output),
+			Content:  message + "\n\nOutput parcial:\n" + output,
 			IsError:  true,
 			Metadata: metadata,
 		}
@@ -367,24 +359,8 @@ func (rc *RunCommand) Execute(ctx context.Context, args json.RawMessage) (tools.
 		content = fmt.Sprintf("[exit code: %d]\n\n%s", entry.ExitCode, content)
 	}
 
-	result := tools.ToolResult{
-		Content: content,
-		Metadata: func() map[string]any {
-			m := map[string]any{
-				"command":   a.Command,
-				"workDir":   workDir,
-				"exitCode":  entry.ExitCode,
-				"duration":  entry.EndedAt.Sub(entry.StartedAt).String(),
-				"commandId": entry.ID,
-			}
-			if sessionID != "" {
-				m["sessionId"] = sessionID
-				m["terminalId"] = sessionID
-				m["deepLink"] = deepLinkForSession(sessionID)
-			}
-			return m
-		}(),
-	}
+	metadata["exitCode"] = entry.ExitCode
+	result := tools.ToolResult{Content: content, Metadata: metadata}
 	if entry.ExitCode == 0 && len(entry.Output) > outputLimit && tools.IsCanonicalJSON(entry.Output) {
 		result.Content = entry.Output
 		result.Structured = true
@@ -399,6 +375,10 @@ func (rc *RunCommand) Execute(ctx context.Context, args json.RawMessage) (tools.
 		}, nil
 	}
 	return protected, nil
+}
+
+func terminalFailure(err error) bool {
+	return errors.Is(err, terminal.ErrSessionWrite) || errors.Is(err, terminal.ErrSessionRead) || errors.Is(err, terminal.ErrSessionClosed)
 }
 
 func validateSkillBashCommand(ctx context.Context, command string) (tools.ToolResult, bool) {

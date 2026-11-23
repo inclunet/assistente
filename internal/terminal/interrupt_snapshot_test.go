@@ -44,7 +44,7 @@ func (w *interruptFakePTYWriter) snapshot() [][]byte {
 
 func newInterruptFakeManager(writer io.Writer) (*Manager, *Session) {
 	manager := NewManager(DefaultManagerConfig(), nil)
-	session := &Session{id: "interrupt-fake", state: StateIdle, managedCommandID: "command-original", ptyWriter: writer}
+	session := &Session{id: "interrupt-fake", state: StateIdle, lastDispatchedID: "command-original", ptyWriter: writer}
 	manager.sessions[session.id] = session
 	return manager, session
 }
@@ -83,6 +83,135 @@ func TestInterruptSnapshotCommitsOnlyOnceWithoutTerminalPayload(t *testing.T) {
 	}
 }
 
+func TestUndispatchedCommandKeepsManualInterruptTarget(t *testing.T) {
+	writer := &interruptFakePTYWriter{}
+	var activeID string
+	m := NewManager(DefaultManagerConfig(), func(event string, data any) {
+		if event == "terminal:command_end" {
+			activeID, _ = data.(map[string]any)["activeManualCommandId"].(string)
+		}
+	})
+	s := &Session{id: "sessão", shell: "bash", state: StateIdle, ptyWriter: writer}
+	m.sessions[s.id] = s
+	if _, err := s.SendInput("manual", "A"); err != nil {
+		t.Fatal(err)
+	}
+	old, err := m.CaptureInterrupt(s.id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	s.onCommandStart = func(_, _, _, _ string) {
+		if _, captureErr := m.CaptureInterrupt(s.id); !errors.Is(captureErr, ErrInterruptStale) {
+			t.Errorf("captura durante o despacho pendente: %v", captureErr)
+		}
+		cancel()
+	}
+	entry, err := m.RunCommand(ctx, s.id, "gerenciado", time.Minute, "teste")
+	if !errors.Is(err, context.Canceled) || entry == nil || entry.ExitCode != -1 || activeID != "A" {
+		t.Fatalf("resultado=%+v erro=%v alvo do evento=%q", entry, err, activeID)
+	}
+	if _, err = m.PrepareInterrupt(old); !errors.Is(err, ErrInterruptStale) {
+		t.Fatalf("snapshot anterior reutilizado: %v", err)
+	}
+	current, err := m.CaptureInterrupt(s.id)
+	if err != nil || !current.MatchesTarget(s.id, activeID) {
+		t.Fatalf("snapshot diverge do alvo publicado: %v", err)
+	}
+	op, err := m.PrepareInterrupt(current)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := op.Execute(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if writes := writer.snapshot(); len(writes) != 2 || !bytes.Equal(writes[1], []byte{3}) {
+		t.Fatalf("input recebido pelo PTY=%q", writes)
+	}
+}
+
+func TestCommandEndOnlyRestoresAnUndispatchedManualTarget(t *testing.T) {
+	for _, tc := range []struct {
+		name             string
+		manual, dispatch bool
+	}{{"sem entrada manual", false, false}, {"despachado depois da entrada manual", true, true}} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			ended := false
+			m := NewManager(DefaultManagerConfig(), func(event string, data any) {
+				if event == "terminal:command_end" {
+					ended = true
+					if _, ok := data.(map[string]any)["activeManualCommandId"]; ok {
+						t.Error("término anunciou um alvo manual antigo")
+					}
+				}
+			})
+			s := &Session{id: "sessão", shell: "bash", state: StateIdle, ptyWriter: io.Discard}
+			m.sessions[s.id] = s
+			if tc.manual {
+				if _, err := s.SendInput("manual", "A"); err != nil {
+					t.Fatal(err)
+				}
+			}
+			written := false
+			s.ptyWriter = manualTestWriter(func(p []byte) (int, error) {
+				written = true
+				cancel()
+				return len(p), nil
+			})
+			if !tc.dispatch {
+				s.onCommandStart = func(_, _, _, _ string) { cancel() }
+			}
+			_, err := m.RunCommand(ctx, s.id, "gerenciado", time.Minute, "teste")
+			if !errors.Is(err, context.Canceled) || !ended || written != tc.dispatch {
+				t.Fatalf("erro=%v término=%t escrito=%t", err, ended, written)
+			}
+		})
+	}
+}
+
+func TestHistoryRetainsActiveManualInputUntilAnotherDispatch(t *testing.T) {
+	writer := &interruptFakePTYWriter{}
+	m, s := newInterruptFakeManager(writer)
+	if _, err := s.SendInput("manual", "A"); err != nil {
+		t.Fatal(err)
+	}
+	var last *HistoryEntry
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	for i := 0; i < maxHistoryEntries+2; i++ {
+		var err error
+		last, err = m.RunCommand(ctx, s.id, "cancelado", time.Second, "teste")
+		if !errors.Is(err, context.Canceled) || last == nil {
+			t.Fatalf("tentativa %d: %v", i, err)
+		}
+	}
+	history, err := m.GetHistory(s.id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(history) != maxHistoryEntries || history[0].ID != "A" || history[0].Source != "user-raw" ||
+		history[0].Command != "manual" || history[len(history)-1].ID != last.ID {
+		t.Fatalf("histórico sem alvo manual ou última tentativa: %d entradas", len(history))
+	}
+	target, err := m.CaptureInterrupt(s.id)
+	if err != nil || !target.MatchesTarget(s.id, history[0].ID) {
+		t.Fatalf("alvo restaurado na hidratação: %v", err)
+	}
+	if _, err := s.SendInput("nova", "B"); err != nil {
+		t.Fatal(err)
+	}
+	history, err = m.GetHistory(s.id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(history) != maxHistoryEntries || history[0].ID == "A" || history[len(history)-1].ID != "B" {
+		t.Fatal("o próximo despacho não liberou a entrada manual anterior")
+	}
+}
+
 func TestInterruptSnapshotRejectsNewCommandGeneration(t *testing.T) {
 	writer := &interruptFakePTYWriter{}
 	manager, session := newInterruptFakeManager(writer)
@@ -91,8 +220,8 @@ func TestInterruptSnapshotRejectsNewCommandGeneration(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CaptureInterrupt: %v", err)
 	}
-	if err := session.beginCommandWithID("command-next"); err != nil {
-		t.Fatalf("beginCommandWithID: %v", err)
+	if err := session.reserveCommand(nil); err != nil {
+		t.Fatalf("reserveCommand: %v", err)
 	}
 	session.finishCommand()
 
@@ -107,8 +236,8 @@ func TestInterruptSnapshotRejectsNewCommandGeneration(t *testing.T) {
 func TestCaptureInterruptRejectsPendingWrite(t *testing.T) {
 	writer := &interruptFakePTYWriter{}
 	manager, session := newInterruptFakeManager(writer)
-	if err := session.beginCommandWithID("cmd-pending"); err != nil {
-		t.Fatalf("beginCommandWithID: %v", err)
+	if err := session.reserveCommand(nil); err != nil {
+		t.Fatalf("reserveCommand: %v", err)
 	}
 
 	if _, err := manager.CaptureInterrupt(session.id); !errors.Is(err, ErrInterruptStale) {
@@ -117,19 +246,19 @@ func TestCaptureInterruptRejectsPendingWrite(t *testing.T) {
 	session.finishCommand()
 }
 
-func TestCaptureInterruptRejectsSessionWithoutManagedCommandID(t *testing.T) {
+func TestCaptureInterruptRejectsSessionWithoutLastDispatchedID(t *testing.T) {
 	writer := &interruptFakePTYWriter{}
 	manager, session := newInterruptFakeManager(writer)
 	session.mu.Lock()
-	session.managedCommandID = ""
+	session.lastDispatchedID = ""
 	session.mu.Unlock()
 
 	if _, err := manager.CaptureInterrupt(session.id); !errors.Is(err, ErrInterruptStale) {
-		t.Fatalf("captura sem managedCommandID = %v, esperado ErrInterruptStale", err)
+		t.Fatalf("captura sem lastDispatchedID = %v, esperado ErrInterruptStale", err)
 	}
 }
 
-func TestSendInputPreservesManagedCommandIDWhenIdle(t *testing.T) {
+func TestSendInputPreservesLastDispatchedIDWhenIdle(t *testing.T) {
 	writer := &interruptFakePTYWriter{}
 	manager, session := newInterruptFakeManager(writer)
 	entry, err := session.SendInput("raw input", "")
@@ -167,10 +296,10 @@ func TestInterruptSnapshotSerializesBeginCommandBehindCommit(t *testing.T) {
 	}
 
 	beginDone := make(chan error, 1)
-	go func() { beginDone <- session.beginCommandWithID("command-next") }()
+	go func() { beginDone <- session.reserveCommand(nil) }()
 	select {
 	case err := <-beginDone:
-		t.Fatalf("beginCommandWithID atravessou o commit: %v", err)
+		t.Fatalf("reserveCommand atravessou o commit: %v", err)
 	case <-time.After(25 * time.Millisecond):
 	}
 
@@ -217,7 +346,7 @@ func TestPrepareInterruptHandoffReleasesAppGuardsAndReservesSession(t *testing.T
 	}
 
 	beginDone := make(chan error, 1)
-	go func() { beginDone <- session.beginCommandWithID("command-next") }()
+	go func() { beginDone <- session.reserveCommand(nil) }()
 	select {
 	case err := <-beginDone:
 		t.Fatalf("novo comando atravessou a reserva: %v", err)
@@ -277,7 +406,7 @@ func TestInterruptOperationCanceledContextIsStaleBeforeWrite(t *testing.T) {
 	if writes := writer.snapshot(); len(writes) != 0 {
 		t.Fatalf("write ocorreu após cancelamento prévio: %#v", writes)
 	}
-	if err := session.beginCommandWithID("command-after-cancel"); err != nil {
+	if err := session.reserveCommand(nil); err != nil {
 		t.Fatalf("sessão permaneceu reservada: %v", err)
 	}
 	session.finishCommand()

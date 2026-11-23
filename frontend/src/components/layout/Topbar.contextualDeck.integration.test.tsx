@@ -17,7 +17,7 @@ const state = vi.hoisted(() => ({
   navigate: vi.fn(), announce: vi.fn(),
   auth: { isAuthenticated: true, user: { userId: 'user-a', sessionId: 'session-a' } },
   workspace: { workspace: { id: 'workspace-a', defaultProfile: 'focused', activeTabId: 'tab-a', tabs: [{ id: 'tab-a', type: 'chat' }] }, workspaces: [] },
-  terminal: { sessions: [{ id: 'pty-a', state: 'running' }], historyBySession: { 'pty-a': [{ id: 'command-a', output: '', endedAt: '' }] }, activeEntryBySession: { 'pty-a': 'command-a' }, loadSessions: vi.fn(async () => undefined) },
+  terminal: { sessions: [{ id: 'pty-a', state: 'running' }], historyBySession: { 'pty-a': [{ id: 'command-a', output: '', endedAt: '' }] }, manualEntryBySession: {}, activeEntryBySession: { 'pty-a': 'command-a' }, loadSessions: vi.fn(async () => undefined) },
 }));
 vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key, i18n: { language: 'pt-BR' } }) }));
 vi.mock('react-router-dom', () => ({ useNavigate: () => state.navigate, useLocation: () => ({ pathname: '/', search: '', hash: '', key: '/' }) }));

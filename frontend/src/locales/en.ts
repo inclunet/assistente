@@ -284,6 +284,7 @@ notSaved: 'The decision applies only to this operation: it could not be remember
       dropFiles: 'Drop files here',
       selectFiles: 'Select files',
       attachFile: 'Attach file',
+      pendingAttachmentsCanceled: 'Pending attachments were canceled. Attach them again when you can edit.',
       messageLabel: 'Message',
       draftSaved: 'Draft saved',
       waitResponse: 'Wait for the response to finish before sending',
@@ -647,6 +648,8 @@ notSaved: 'The decision applies only to this operation: it could not be remember
     },
 
     voiceAccessibility: {
+      backgroundNamedTerminalActivity: 'Background activity in terminal {{title}}',
+      backgroundTerminalActivity: 'Background terminal activity',
       inactiveAnnouncement: '{{title}}: {{message}}',
     },
 
@@ -1988,7 +1991,7 @@ notSaved: 'The decision applies only to this operation: it could not be remember
       pageTitle: 'Terminal',
       aria: { toolbar: 'Terminal tools. Use arrows to navigate between buttons' },
       buttons: { stop: 'Interrupt', new: 'New terminal', terminate: 'Terminate terminal' },
-      placeholders: { creating: 'Select or create a terminal', command: 'Type a command... (Ctrl+C to interrupt)' },
+      placeholders: { unavailable: 'Could not load terminal sessions.', loading: 'Loading terminal sessions…', ended: 'Session ended. Select or create another session in the toolbar.', unbound: 'Select or create a terminal', command: 'Type a command... (Ctrl+C to interrupt)' },
       states: { idle: 'idle', busy: 'running', running: 'running', closing: 'closing', closed: 'closed', exited: 'exited' },
       picker: {
         label: 'Connected terminal',
@@ -2001,22 +2004,27 @@ notSaved: 'The decision applies only to this operation: it could not be remember
         title: 'Terminate terminal',
         message: 'Terminate "{{name}}" and every running process? Other connected tabs and chats will lose access.',
       },
-      entry: { llmCommand: 'LLM Command', command: 'Command', commandLLM: 'Command (LLM)', llm: 'LLM', output: 'Output', running: 'running', empty: 'empty', exitCode: 'Exit code:', duration: 'Duration:', exit: 'exit:', executing: 'Executing...', truncated: 'truncated', reading: 'Reading mode', readingDialog: 'Reading terminal entry. Press Escape to exit.', readingOpen: 'Terminal reading mode enabled. Press Escape to exit.', readingClose: 'Terminal reading mode disabled.' },
+      entry: { llmCommand: 'LLM Command', command: 'Command', commandLLM: 'Command (LLM)', llm: 'LLM', sessionOutput: 'Session output', output: 'Output', running: 'running', empty: 'empty', exitCode: 'Exit code:', duration: 'Duration:', exit: 'exit:', executing: 'Executing...', truncated: 'truncated', reading: 'Reading mode', readingDialog: 'Reading terminal entry. Press Escape to exit.', readingOpen: 'Terminal reading mode enabled. Press Escape to exit.', readingClose: 'Terminal reading mode disabled.' },
       history: { label: 'Terminal history', loading: 'Loading...', emptyTitle: 'No commands executed.', emptyHint: 'Type a command below to get started.', commandPrefix: 'Command:' },
       tabs: { closed: 'Terminal closed.', of: 'of', label: 'Terminals', listLabel: 'List of open terminals', running: 'Running', close: 'Close', newShortcut: 'Create new terminal, Ctrl+T', newTooltip: 'New terminal (Ctrl+T)' },
       announce: {
         output: 'Output: {{output}}',
+        unnamedTab: 'Terminal in tab {{position}}',
+        backgroundResult: '{{name}}: command finished with exit code {{exitCode}}.',
         outputWithExit: 'Output: {{output}}. Exit code: {{exitCode}}',
         truncatedSuffix: '… truncated',
         emptyOutput: 'empty',
         selected: 'Terminal selected: {{name}}',
         created: 'New terminal created and connected',
         createFailed: 'Could not create terminal',
+        exited: 'Terminal exited: {{name}}',
         terminated: 'Terminal terminated',
         terminateFailed: 'Could not terminate terminal',
       },
       chatModal: {
         noHistory: '(no terminal history)',
+        truncatedHistory: '… history truncated',
+        blankInput: 'Blank input',
       },
     },
 

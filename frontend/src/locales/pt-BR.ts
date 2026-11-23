@@ -284,6 +284,7 @@ notSaved: 'A decisão vale somente para esta operação: não foi possível lemb
       dropFiles: 'Solte os arquivos aqui',
       selectFiles: 'Selecionar arquivos',
       attachFile: 'Anexar arquivo',
+      pendingAttachmentsCanceled: 'O carregamento dos anexos pendentes foi cancelado. Anexe-os novamente quando puder editar.',
       messageLabel: 'Mensagem',
       draftSaved: 'Rascunho salvo',
       waitResponse: 'Aguarde o término da resposta para enviar',
@@ -647,6 +648,8 @@ notSaved: 'A decisão vale somente para esta operação: não foi possível lemb
     },
 
     voiceAccessibility: {
+      backgroundNamedTerminalActivity: 'Atividade no terminal {{title}} em segundo plano',
+      backgroundTerminalActivity: 'Atividade no terminal em segundo plano',
       inactiveAnnouncement: '{{title}}: {{message}}',
     },
 
@@ -1989,7 +1992,7 @@ notSaved: 'A decisão vale somente para esta operação: não foi possível lemb
       pageTitle: 'Terminal',
       aria: { toolbar: 'Ferramentas do terminal. Use setas para navegar entre os botões' },
       buttons: { stop: 'Interromper', new: 'Novo terminal', terminate: 'Encerrar terminal' },
-      placeholders: { creating: 'Selecione ou crie um terminal', command: 'Digite um comando... (Ctrl+C para interromper)' },
+      placeholders: { unavailable: 'Não foi possível carregar as sessões de terminal.', loading: 'Carregando sessões de terminal…', ended: 'Sessão encerrada. Escolha ou crie outra na barra de ferramentas.', unbound: 'Selecione ou crie um terminal', command: 'Digite um comando... (Ctrl+C para interromper)' },
       states: { idle: 'ocioso', busy: 'executando', running: 'executando', closing: 'encerrando', closed: 'encerrado', exited: 'encerrado' },
       picker: {
         label: 'Terminal conectado',
@@ -2002,22 +2005,27 @@ notSaved: 'A decisão vale somente para esta operação: não foi possível lemb
         title: 'Encerrar terminal',
         message: 'Encerrar "{{name}}" e todos os processos em execução? Outras abas e chats conectados perderão acesso.',
       },
-      entry: { llmCommand: 'Comando LLM', command: 'Comando', commandLLM: 'Comando (LLM)', llm: 'LLM', output: 'Saída', running: 'executando', empty: 'vazia', exitCode: 'Código de saída:', duration: 'Duração:', exit: 'exit:', executing: 'Executando...', truncated: 'truncado', reading: 'Modo de leitura', readingDialog: 'Leitura de entrada do terminal. Pressione Escape para sair.', readingOpen: 'Modo de leitura do terminal ativado. Pressione Escape para sair.', readingClose: 'Modo de leitura do terminal desativado.' },
+      entry: { llmCommand: 'Comando LLM', command: 'Comando', commandLLM: 'Comando (LLM)', llm: 'LLM', sessionOutput: 'Saída da sessão', output: 'Saída', running: 'executando', empty: 'vazia', exitCode: 'Código de saída:', duration: 'Duração:', exit: 'exit:', executing: 'Executando...', truncated: 'truncado', reading: 'Modo de leitura', readingDialog: 'Leitura de entrada do terminal. Pressione Escape para sair.', readingOpen: 'Modo de leitura do terminal ativado. Pressione Escape para sair.', readingClose: 'Modo de leitura do terminal desativado.' },
       history: { label: 'Histórico do terminal', loading: 'Carregando...', emptyTitle: 'Nenhum comando executado.', emptyHint: 'Digite um comando abaixo para começar.', commandPrefix: 'Comando:' },
       tabs: { closed: 'Terminal fechado.', of: 'de', label: 'Terminais', listLabel: 'Lista de terminais abertos', running: 'Executando', close: 'Fechar', newShortcut: 'Criar novo terminal, Ctrl+T', newTooltip: 'Novo terminal (Ctrl+T)' },
       announce: {
         output: 'Saída: {{output}}',
+        unnamedTab: 'Terminal na aba {{position}}',
+        backgroundResult: '{{name}}: comando concluído com código {{exitCode}}.',
         outputWithExit: 'Saída: {{output}}. Código de saída: {{exitCode}}',
         truncatedSuffix: '… truncado',
         emptyOutput: 'vazia',
         selected: 'Terminal selecionado: {{name}}',
         created: 'Novo terminal criado e conectado',
         createFailed: 'Não foi possível criar o terminal',
+        exited: 'Terminal encerrado: {{name}}',
         terminated: 'Terminal encerrado',
         terminateFailed: 'Não foi possível encerrar o terminal',
       },
       chatModal: {
         noHistory: '(sem histórico no terminal)',
+        truncatedHistory: '… histórico truncado',
+        blankInput: 'Entrada em branco',
       },
     },
 

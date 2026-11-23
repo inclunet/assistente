@@ -12,7 +12,7 @@ import (
 // TerminalSessionManager expõe apenas o ciclo de vida necessário à tool.
 type TerminalSessionManager interface {
 	List() []terminal.SessionInfo
-	CreateInfo(name, workDir string) (terminal.SessionInfo, error)
+	CreateToolSession(name, workDir string) (terminal.SessionInfo, error)
 	Interrupt(sessionID string) error
 	Close(sessionID string) error
 }
@@ -111,7 +111,7 @@ func (t *TerminalSession) Execute(_ context.Context, raw json.RawMessage) (tools
 			}
 			workDir = resolvedWorkDir
 		}
-		info, err := t.manager.CreateInfo(strings.TrimSpace(args.Name), workDir)
+		info, err := t.manager.CreateToolSession(strings.TrimSpace(args.Name), workDir)
 		if err != nil {
 			return tools.ToolResult{Content: "Erro ao criar terminal: " + err.Error(), IsError: true}, nil
 		}

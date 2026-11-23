@@ -283,6 +283,7 @@ notSaved: 'La decisión vale solo para esta operación: no se pudo recordar. Ser
       dropFiles: 'Suelta los archivos aquí',
       selectFiles: 'Seleccionar archivos',
       attachFile: 'Adjuntar archivo',
+      pendingAttachmentsCanceled: 'Se canceló la carga de los archivos adjuntos pendientes. Vuelve a adjuntarlos cuando puedas editar.',
       messageLabel: 'Mensaje',
       draftSaved: 'Borrador guardado',
       waitResponse: 'Espera a que termine la respuesta para enviar',
@@ -646,6 +647,8 @@ notSaved: 'La decisión vale solo para esta operación: no se pudo recordar. Ser
     },
 
     voiceAccessibility: {
+      backgroundNamedTerminalActivity: 'Actividad del terminal {{title}} en segundo plano',
+      backgroundTerminalActivity: 'Actividad del terminal en segundo plano',
       inactiveAnnouncement: '{{title}}: {{message}}',
     },
 
@@ -1991,7 +1994,7 @@ notSaved: 'La decisión vale solo para esta operación: no se pudo recordar. Ser
       pageTitle: 'Terminal',
       aria: { toolbar: 'Herramientas del terminal. Usa las flechas para navegar entre los botones' },
       buttons: { stop: 'Interrumpir', new: 'Nuevo terminal', terminate: 'Finalizar terminal' },
-      placeholders: { creating: 'Selecciona o crea un terminal', command: 'Escribe un comando... (Ctrl+C para interrumpir)' },
+      placeholders: { unavailable: 'No se pudieron cargar las sesiones de terminal.', loading: 'Cargando sesiones de terminal…', ended: 'Sesión finalizada. Selecciona o crea otra sesión en la barra de herramientas.', unbound: 'Selecciona o crea un terminal', command: 'Escribe un comando... (Ctrl+C para interrumpir)' },
       states: { idle: 'inactivo', busy: 'ejecutando', running: 'ejecutando', closing: 'finalizando', closed: 'cerrado', exited: 'finalizado' },
       picker: {
         label: 'Terminal conectado',
@@ -2004,22 +2007,27 @@ notSaved: 'La decisión vale solo para esta operación: no se pudo recordar. Ser
         title: 'Finalizar terminal',
         message: '¿Finalizar "{{name}}" y todos los procesos en ejecución? Otras pestañas y chats conectados perderán acceso.',
       },
-      entry: { llmCommand: 'Comando LLM', command: 'Comando', commandLLM: 'Comando (LLM)', llm: 'LLM', output: 'Salida', running: 'ejecutando', empty: 'vacía', exitCode: 'Código de salida:', duration: 'Duración:', exit: 'exit:', executing: 'Ejecutando...', truncated: 'truncado', reading: 'Modo de lectura', readingDialog: 'Lectura de entrada del terminal. Presiona Escape para salir.', readingOpen: 'Modo de lectura del terminal activado. Presiona Escape para salir.', readingClose: 'Modo de lectura del terminal desactivado.' },
+      entry: { llmCommand: 'Comando LLM', command: 'Comando', commandLLM: 'Comando (LLM)', llm: 'LLM', sessionOutput: 'Salida de la sesión', output: 'Salida', running: 'ejecutando', empty: 'vacía', exitCode: 'Código de salida:', duration: 'Duración:', exit: 'exit:', executing: 'Ejecutando...', truncated: 'truncado', reading: 'Modo de lectura', readingDialog: 'Lectura de entrada del terminal. Presiona Escape para salir.', readingOpen: 'Modo de lectura del terminal activado. Presiona Escape para salir.', readingClose: 'Modo de lectura del terminal desactivado.' },
       history: { label: 'Historial del terminal', loading: 'Cargando...', emptyTitle: 'Ningún comando ejecutado.', emptyHint: 'Escribe un comando abajo para comenzar.', commandPrefix: 'Comando:' },
       tabs: { closed: 'Terminal cerrado.', of: 'de', label: 'Terminales', listLabel: 'Lista de terminales abiertos', running: 'Ejecutando', close: 'Cerrar', newShortcut: 'Crear nuevo terminal, Ctrl+T', newTooltip: 'Nuevo terminal (Ctrl+T)' },
       announce: {
         output: 'Salida: {{output}}',
+        unnamedTab: 'Terminal en la pestaña {{position}}',
+        backgroundResult: '{{name}}: comando finalizado con código {{exitCode}}.',
         outputWithExit: 'Salida: {{output}}. Código de salida: {{exitCode}}',
         truncatedSuffix: '… truncado',
         emptyOutput: 'vacía',
         selected: 'Terminal seleccionado: {{name}}',
         created: 'Nuevo terminal creado y conectado',
         createFailed: 'No se pudo crear el terminal',
+        exited: 'Terminal finalizado: {{name}}',
         terminated: 'Terminal finalizado',
         terminateFailed: 'No se pudo finalizar el terminal',
       },
       chatModal: {
         noHistory: '(sin historial en el terminal)',
+        truncatedHistory: '… historial truncado',
+        blankInput: 'Entrada en blanco',
       },
     },
 

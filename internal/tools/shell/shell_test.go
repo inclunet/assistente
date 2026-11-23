@@ -535,10 +535,12 @@ func TestTimeoutWithPartialOutput(t *testing.T) {
 	mgr := &MockSessionManager{
 		fakeRunErr: context.DeadlineExceeded,
 		fakeEntry: &terminal.HistoryEntry{
-			ID:       "cmd-125",
-			Command:  "long-command",
-			Output:   "partial output here",
-			ExitCode: -1, // timeout indicator
+			StartedAt: time.Unix(1, 0),
+			EndedAt:   time.Unix(1, int64(200*time.Millisecond)),
+			ID:        "cmd-125",
+			Command:   "long-command",
+			Output:    "partial output here",
+			ExitCode:  -1, // timeout indicator
 		},
 	}
 
@@ -559,8 +561,28 @@ func TestTimeoutWithPartialOutput(t *testing.T) {
 	if !contains(result.Content, "TIMEOUT") {
 		t.Errorf("esperado '[TIMEOUT' no output, got %q", result.Content)
 	}
+	if result.Metadata["duration"] != "200ms" || result.Metadata["timeoutLimit"] != "5s" ||
+		!strings.Contains(result.Content, "limite configurado: 5s — duração registrada: 200ms") ||
+		strings.Contains(result.Content, "Ctrl+C") {
+		t.Fatalf("limite, duração ou interrupção incorretos: %+v", result)
+	}
 	if !contains(result.Content, "partial output") {
 		t.Errorf("esperado output parcial preservado, got %q", result.Content)
+	}
+}
+
+func TestPartialOutputKeepsTerminalFailures(t *testing.T) {
+	for _, cause := range []error{context.Canceled, terminal.ErrSessionClosed, terminal.ErrSessionRead, errors.Join(context.DeadlineExceeded, terminal.ErrSessionWrite), errors.Join(context.DeadlineExceeded, terminal.ErrSessionRead)} {
+		mgr := &MockSessionManager{fakeRunErr: cause, fakeEntry: &terminal.HistoryEntry{Output: "parcial", ExitCode: -1, StartedAt: time.Now()}}
+		policy := &allowlist.Allowlist{AutoApprove: []string{"*"}, DefaultAction: "deny"}
+		rc := NewRunCommand(mgr, nil, func(context.Context) (*allowlist.Allowlist, error) { return policy, nil }, ".")
+		result, err := rc.Execute(t.Context(), json.RawMessage(`{"command":"example"}`))
+		if err != nil || !result.IsError || result.Metadata["timeout"] == true || !strings.Contains(result.Content, "parcial") || !strings.Contains(result.Content, cause.Error()) {
+			t.Fatalf("causa=%v resultado=%+v erro=%v", cause, result, err)
+		}
+		if _, ok := result.Metadata["duration"]; ok || strings.Contains(result.Content, "Duração registrada") {
+			t.Fatalf("duração sem fim registrado: %+v", result)
+		}
 	}
 }
 
@@ -901,10 +923,12 @@ func TestMetadataTimeoutWithoutOutput(t *testing.T) {
 	mgr := &MockSessionManager{
 		fakeRunErr: context.DeadlineExceeded,
 		fakeEntry: &terminal.HistoryEntry{
-			ID:       "cmd-132",
-			Command:  "hang",
-			Output:   "",
-			ExitCode: -1,
+			ID:        "cmd-132",
+			StartedAt: time.Unix(100, 0),
+			EndedAt:   time.Unix(100, 250000000),
+			Command:   "hang",
+			Output:    "",
+			ExitCode:  -1,
 		},
 	}
 
@@ -929,6 +953,12 @@ func TestMetadataTimeoutWithoutOutput(t *testing.T) {
 	// Validar que metadata contém exitCode=-1
 	if exitCode, ok := result.Metadata["exitCode"].(int); !ok || exitCode != -1 {
 		t.Errorf("esperado exitCode=-1 em metadata, got %v", result.Metadata["exitCode"])
+	}
+	if result.Metadata["timeoutLimit"] != "1s" || result.Metadata["timeout"] != true || !strings.Contains(result.Content, "Limite configurado: 1s") {
+		t.Errorf("prazo configurado ausente: metadados=%v texto=%q", result.Metadata, result.Content)
+	}
+	if result.Metadata["duration"] != "250ms" || !strings.Contains(result.Content, "250ms") {
+		t.Errorf("esperado 250ms nos metadados e no texto; duration=%v, content=%q", result.Metadata["duration"], result.Content)
 	}
 	if commandID, ok := result.Metadata["commandId"].(string); !ok || commandID != "cmd-132" {
 		t.Errorf("esperado commandId=cmd-132 em metadata, got %v", result.Metadata["commandId"])
