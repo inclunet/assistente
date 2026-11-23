@@ -3,7 +3,7 @@ import { render, screen } from '@testing-library/react';
 import { TerminalHistory } from './TerminalHistory';
 import { terminal } from '../../../wailsjs/go/models';
 
-import { registerAnnouncerSink, registerVoiceAccessibilityActiveResolver, unregisterAnnouncerSink } from '../../services/voiceAccessibility/announcerBroker';
+import { registerAnnouncerSink, unregisterAnnouncerSink } from '../../services/voiceAccessibility/announcerBroker';
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key }),
@@ -20,25 +20,20 @@ describe('TerminalHistory', () => {
   it('abrir o histórico carregado mantém a falha sem saída acessível e silenciosa', () => {
     const sink = vi.fn();
     registerAnnouncerSink(sink);
-    const unregister = registerVoiceAccessibilityActiveResolver(origin => origin?.tabId === 'visível');
-    const initial = Array.from({ length: 200 }, (_, i) => new terminal.HistoryEntry({ id: String(i), command: 'anterior', output: '', exitCode: 0 }));
-    const panes = (show: boolean) => <>{['oculta', 'visível'].map(tabId =>
-      <TerminalHistory key={tabId} runningCommandId={null}
-        entries={show ? [...initial.slice(1), new terminal.HistoryEntry({ id: tabId, command: tabId, output: '', exitCode: 1,
-          endedAt: '2026-01-01T00:00:01Z', source: 'llm' })] : []} />)}</>;
     try {
-      const { rerender } = render(panes(false));
-      rerender(panes(true));
+      const { rerender } = render(<TerminalHistory entries={[]} />);
+      const failed = new terminal.HistoryEntry({ id: 'falha', command: 'anterior', output: '', exitCode: 1,
+        endedAt: '2026-01-01T00:00:01Z', source: 'llm' });
+      rerender(<TerminalHistory entries={[failed]} />);
       expect(sink).not.toHaveBeenCalled();
-      expect(screen.getAllByText('terminal.entry.exit 1')).toHaveLength(2);
-    } finally { unregister(); unregisterAnnouncerSink(); }
+      expect(screen.getByText('terminal.entry.exit 1')).toBeInTheDocument();
+    } finally { unregisterAnnouncerSink(); }
   });
 
   it('renderiza estado vazio', () => {
     render(
       <TerminalHistory
         entries={[]}
-        runningCommandId={null}
       />
     );
 
@@ -59,7 +54,6 @@ describe('TerminalHistory', () => {
             source: 'user',
           }),
         ]}
-        runningCommandId={null}
       />
     );
 

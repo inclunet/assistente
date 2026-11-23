@@ -107,7 +107,6 @@ export default function TerminalPage({ sessionId: explicitSessionId }: TerminalP
     isLoadingSessions,
     sessionListFailed,
     historyBySession,
-    activeEntryBySession = {},
     loadingHistoryBySession,
     loadSessions,
     sendInput,
@@ -234,9 +233,6 @@ export default function TerminalPage({ sessionId: explicitSessionId }: TerminalP
     }
   }, [sessionIsLive, isActive]);
   const currentHistory = currentSessionId ? (historyBySession[currentSessionId] || []) : [];
-  const currentRunningCommandId = currentSessionId
-    ? (activeEntryBySession[currentSessionId] ?? null)
-    : null;
   const isCurrentHistoryLoading = currentSessionId ? Boolean(loadingHistoryBySession[currentSessionId]) : false;
 
   const focusHistory = useCallback(() => {
@@ -545,7 +541,6 @@ export default function TerminalPage({ sessionId: explicitSessionId }: TerminalP
       <TerminalHistory
         ref={historyContainerRef}
         entries={currentHistory}
-        runningCommandId={currentRunningCommandId}
         isLoading={isCurrentHistoryLoading}
         onReachEnd={handleReachEnd}
       />

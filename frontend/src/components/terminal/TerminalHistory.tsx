@@ -14,7 +14,6 @@ import './TerminalHistory.css';
 
 interface TerminalHistoryProps {
   entries: HistoryEntry[];
-  runningCommandId: string | null;
   isLoading?: boolean;
   /** Chamado quando ArrowDown no último nó — foco volta ao input */
   onReachEnd?: () => void;
@@ -31,7 +30,7 @@ interface FlatNode {
 }
 
 export const TerminalHistory = forwardRef<HTMLDivElement, TerminalHistoryProps>(
-  function TerminalHistory({ entries, runningCommandId: _runningCommandId, isLoading, onReachEnd }, ref) {
+  function TerminalHistory({ entries, isLoading, onReachEnd }, ref) {
     const { t } = useTranslation();
     const containerRef = useRef<HTMLDivElement>(null);
     const bottomRef = useRef<HTMLDivElement>(null);

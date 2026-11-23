@@ -8,7 +8,10 @@ export function useVoiceAccessibilityWorkspaceResolver(panelsVisible: boolean) {
   useLayoutEffect(() => {
     const unregister = registerVoiceAccessibilityActiveResolver(
       origin => isVoiceAccessibilityOriginActive(origin, useWorkspaceStore.getState().workspace, panelsVisible),
-      tabId => useWorkspaceStore.getState().workspace?.tabs.find(tab => tab.id === tabId && tab.type === 'terminal')?.title,
+      origin => origin.tabId
+        ? useWorkspaceStore.getState().workspace?.tabs.find(tab => tab.id === origin.tabId &&
+          (!origin.surfaceType || tab.type === origin.surfaceType))?.title
+        : origin.title,
     );
     cancelInactiveSTTSession();
     return unregister;

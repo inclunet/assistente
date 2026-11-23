@@ -33,8 +33,12 @@ type AnnounceSink = (message: string, priority: AnnouncePriority) => void;
 type OriginActiveResolver = (origin?: VoiceAccessibilityOrigin) => boolean;
 
 let announceSink: AnnounceSink | null = null;
-let currentTerminalTabTitle: ((tabId: string) => string | undefined) | undefined;
-let originActiveResolver: OriginActiveResolver = () => true;
+interface OriginResolver {
+  isActive: OriginActiveResolver;
+  resolveOriginTitle?: (origin: VoiceAccessibilityOrigin) => string | undefined;
+}
+
+const originResolvers: OriginResolver[] = [];
 
 const INACTIVE_ALLOWED_EVENTS = new Set(['completion', 'error', 'system']);
 
@@ -112,21 +116,27 @@ export function unregisterAnnouncerSink() {
 }
 
 export function registerVoiceAccessibilityActiveResolver(
-  resolver: OriginActiveResolver,
-  terminalTabTitle?: (tabId: string) => string | undefined,
+  isActive: OriginActiveResolver,
+  resolveOriginTitle?: OriginResolver['resolveOriginTitle'],
 ): () => void {
-  currentTerminalTabTitle = terminalTabTitle;
-  originActiveResolver = resolver;
+  const registration = { isActive, resolveOriginTitle };
+  originResolvers.push(registration);
   return () => {
-    if (originActiveResolver === resolver) {
-      originActiveResolver = () => true;
-      currentTerminalTabTitle = undefined;
-    }
+    const index = originResolvers.indexOf(registration);
+    if (index >= 0) originResolvers.splice(index, 1);
   };
 }
 
 export function isVoiceAccessibilityOriginCurrentlyActive(origin?: VoiceAccessibilityOrigin): boolean {
-  return originActiveResolver(origin);
+  return originResolvers[originResolvers.length - 1]?.isActive(origin) ?? true;
+}
+
+function resolveTitle(origin: VoiceAccessibilityOrigin): string | undefined {
+  for (let i = originResolvers.length - 1; i >= 0; i--) {
+    const resolve = originResolvers[i].resolveOriginTitle;
+    if (resolve) return resolve(origin);
+  }
+  return origin.title;
 }
 
 function summaryErrorKind(value: unknown): string {
@@ -153,7 +163,7 @@ function formatInactiveAnnouncement(request: VoiceAnnounceRequest): string {
   } else if (request.inactiveMessage?.trim()) return request.inactiveMessage;
   if (isTerminalOrigin(request.origin)) {
     const origin = request.origin;
-    const title = (origin?.tabId && currentTerminalTabTitle ? currentTerminalTabTitle(origin.tabId) : origin?.title)?.trim();
+    const title = origin && resolveTitle(origin)?.trim();
     if (title) return i18next.t('voiceAccessibility.backgroundNamedTerminalActivity', {
       title, defaultValue: 'Atividade no terminal {{title}} em segundo plano',
     });
@@ -171,13 +181,13 @@ function formatInactiveAnnouncement(request: VoiceAnnounceRequest): string {
 
 function shouldAnnounce(request: VoiceAnnounceRequest): boolean {
   if (!request.message.trim()) return false;
-  if (originActiveResolver(request.origin)) return true;
+  if (isVoiceAccessibilityOriginCurrentlyActive(request.origin)) return true;
 
   return INACTIVE_ALLOWED_EVENTS.has(request.eventType ?? 'progress');
 }
 
 function resolveMessage(request: VoiceAnnounceRequest): string {
-  return originActiveResolver(request.origin)
+  return isVoiceAccessibilityOriginCurrentlyActive(request.origin)
     ? request.message
     : formatInactiveAnnouncement(request);
 }
