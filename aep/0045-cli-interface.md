@@ -270,7 +270,10 @@ focados nos arquivos `*_test.go` correspondentes. A ajuda é registrada em
   A validação usa a credencial da
   sessão vigente, preserva seu prazo e sua rotação pelo desktop e revalida
   revogação, atividade da conta e identidade da sessão persistida antes das
-  operações autenticadas do REPL. Uma troca de conta exige reabrir o processo.
+  operações autenticadas do REPL. Uma troca de conta ou de papel exige reabrir
+  o processo. O desbloqueio é determinado pela disponibilidade da chave do
+  cofre para o processo da CLI. A hidratação de provedores preserva o cadastro
+  compartilhado, inclusive entradas legadas sem formato ou padrão explícitos.
   Chat hidrata credenciais, provedores desse usuário e o último catálogo local
   válido, preservando defaults e limites sem atualização em segundo plano; o scheduler fica no
   processo que o iniciou. O percurso entre instâncias com SQLite e chaveiro

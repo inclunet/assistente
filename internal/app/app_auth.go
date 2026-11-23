@@ -730,7 +730,7 @@ func (a *App) requireAuthenticatedContext() (context.Context, error) {
 		return nil, err
 	}
 	if a.conversationCLI {
-		saved, _, err := a.savedConversationCLIPrincipal(ctx)
+		saved, role, err := a.savedConversationCLIPrincipal(ctx)
 		if err != nil {
 			return nil, err
 		}
@@ -738,7 +738,12 @@ func (a *App) requireAuthenticatedContext() (context.Context, error) {
 		if !ok || saved.UserID != userID || saved.SessionID != sessionID {
 			return nil, fmt.Errorf("a sessão ativa mudou; reabra a CLI: %w", auth.ErrUnauthenticatedLocalSession)
 		}
-
+		a.authMu.RLock()
+		roleChanged := a.currentAuthUser == nil || a.currentAuthUser.Role != role
+		a.authMu.RUnlock()
+		if roleChanged {
+			return nil, fmt.Errorf("as permissões da conta mudaram; reabra a CLI: %w", auth.ErrUnauthenticatedLocalSession)
+		}
 	}
 	return ctx, nil
 }

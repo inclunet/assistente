@@ -77,9 +77,14 @@ asst chat --conversation ID --profile PERFIL "Sua mensagem"
 
 Execute os dois comandos com o mesmo usuário do sistema e o mesmo banco do
 desktop. O uso simultâneo do mesmo banco pela CLI e pelo desktop é experimental.
-A CLI valida a sessão salva a cada operação. Se ela expirou ou foi
+O processo da CLI precisa conseguir ler a chave do cofre no chaveiro do sistema.
+O bloqueio da janela do desktop e a disponibilidade dessa chave para outro
+processo são estados distintos. Para encerrar a sessão compartilhada, saia da conta.
+
+`history show ID` exibe a conversa e `history delete ID` a exclui do histórico
+da conta, inclusive no desktop. A CLI valida a sessão salva a cada operação. Se ela expirou ou foi
 encerrada, entre novamente no Assistente. Se mudar de conta no desktop
-enquanto um chat estiver aberto, reabra a CLI para usar a nova sessão. A consulta de histórico e o chat
+ou se as permissões da conta mudarem durante um chat, reabra a CLI. A consulta de histórico e o chat
 não iniciam outra execução dos jobs agendados. O chat usa o último catálogo
 local válido para aplicar os parâmetros do modelo, inclusive quando o cache
 está desatualizado.

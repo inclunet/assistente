@@ -1247,7 +1247,9 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 		// legítimo criado em paralelo (created_at >= cutoff) não é marcado como
 		// órfão.
 		reconcileCutoff := time.Now()
+		a.bgWG.Add(1)
 		go func() {
+			defer a.bgWG.Done()
 			// Teto de tempo: a reconciliação roda em goroutine de startup e não pode
 			// pendurar o processo indefinidamente se o DB travar (lock/I/O lento).
 			// WithoutCancel é mantido (não deve ser cancelada por cancelamento normal

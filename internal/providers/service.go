@@ -139,11 +139,21 @@ func (s *Service) Save(ctx context.Context) error {
 
 // Load carrega provedores do store para o registry.
 func (s *Service) Load(ctx context.Context) error {
+	return s.load(ctx, true)
+}
+
+// LoadForChat hidrata o registro de um processo curto sem migrar o store
+// compartilhado, inclusive quando ainda não há provedores cadastrados.
+func (s *Service) LoadForChat(ctx context.Context) error {
+	return s.load(ctx, false)
+}
+
+func (s *Service) load(ctx context.Context, repair bool) error {
 	providers, err := s.store.Load(ctx)
 	if err != nil {
 		return err
 	}
-	if len(providers) == 0 {
+	if repair && len(providers) == 0 {
 		return fmt.Errorf("nenhum provedor encontrado")
 	}
 
@@ -177,6 +187,9 @@ func (s *Service) Load(ctx context.Context) error {
 		}
 	}
 	logging.Infof(ctx, "providers.service", "[providers] %d provedor(es) carregado(s) do store", len(providers))
+	if !repair {
+		return nil
+	}
 	s.EnsureDefault(ctx)
 
 	// Persistir api_format materializado para não repetir inferência no próximo boot

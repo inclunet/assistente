@@ -143,14 +143,14 @@ func (s *SessionService) RefreshLocalCandidate(ctx context.Context, refreshToken
 // A short-lived CLI process can share an active desktop session without racing
 // another process to replace or clear its refresh token.
 func (s *SessionService) AuthenticateSavedSession(ctx context.Context, token string) (LocalSessionPrincipal, string, error) {
-	session, user, err := s.checkRefreshCredential(ctx, token, false)
+	session, user, err := s.checkRefreshCredential(ctx, token, false, s.now())
 	if err != nil {
 		return LocalSessionPrincipal{}, "", err
 	}
 	return LocalSessionPrincipal{SessionID: session.ID, UserID: user.ID}, user.Role, nil
 }
 
-func (s *SessionService) checkRefreshCredential(ctx context.Context, refreshToken string, revokeOnMismatch bool) (*database.Session, *database.User, error) {
+func (s *SessionService) checkRefreshCredential(ctx context.Context, refreshToken string, revokeOnMismatch bool, now time.Time) (*database.Session, *database.User, error) {
 	sessionID, secret, err := parseRefreshToken(refreshToken)
 	if err != nil {
 		return nil, nil, err
@@ -165,7 +165,6 @@ func (s *SessionService) checkRefreshCredential(ctx context.Context, refreshToke
 		return nil, nil, err
 	}
 
-	now := s.now()
 	if session.RevokedAt != nil {
 		return nil, nil, ErrSessionRevoked
 	}
@@ -191,11 +190,11 @@ func (s *SessionService) checkRefreshCredential(ctx context.Context, refreshToke
 }
 
 func (s *SessionService) refresh(ctx context.Context, refreshToken string, revokeOnMismatch bool) (*TokenPair, error) {
-	session, user, err := s.checkRefreshCredential(ctx, refreshToken, revokeOnMismatch)
+	now := s.now()
+	session, user, err := s.checkRefreshCredential(ctx, refreshToken, revokeOnMismatch, now)
 	if err != nil {
 		return nil, err
 	}
-	now := s.now()
 	nextSecret, err := newRefreshSecret()
 	if err != nil {
 		return nil, err

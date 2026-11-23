@@ -49,7 +49,7 @@ func RestoreConversationCLISession(a *App, chat bool) error {
 		if err := a.credMgr.LoadUserCredentials(userCtx, principal.UserID); err != nil {
 			return fmt.Errorf("carregar credenciais: %w", err)
 		}
-		if err := a.providerSvc.Load(userCtx); err != nil {
+		if err := a.providerSvc.LoadForChat(userCtx); err != nil {
 			return fmt.Errorf("carregar provedores de chat: %w", err)
 		}
 	}

@@ -28,6 +28,11 @@ import (
 	"github.com/zalando/go-keyring"
 )
 
+// Permite mudar o estado entre duas linhas lidas pelo scanner do REPL.
+type nextREPLInput func([]byte) (int, error)
+
+func (read nextREPLInput) Read(buf []byte) (int, error) { return read(buf) }
+
 // Exercita o PersistentPreRunE real de dois comandos em processos lógicos
 // distintos da instância que fez login. Apenas o keyring do SO é simulado.
 func TestConversationCLIUsesSavedSessionAcrossInstances(t *testing.T) {
@@ -89,31 +94,34 @@ data: [DONE]
 `)
 	}))
 	defer server.Close()
-	var conversationID, profileSlug string
+	var conversationID, profileSlug, disposableID string
+	var foreign database.Conversation
 	var previousCredential database.CredentialEntry
 	var activeRun database.SubAgentRun
 	var pendingJob database.Job
-	desktop := app.NewCommandCLIApp()
+	// Usa a implementação de Login do desktop, sem iniciar serviços autônomos na fixture.
+	loginApp := app.NewCommandCLIApp()
 	initialize := func() {
-		if err := desktop.StartupWithAdapters(context.Background(), cliadapter.NewEmitterAdapter(), cliadapter.WindowAdapter{}, cliadapter.DialogAdapter{}); err != nil {
+		if err := loginApp.StartupWithAdapters(context.Background(), cliadapter.NewEmitterAdapter(), cliadapter.WindowAdapter{}, cliadapter.DialogAdapter{}); err != nil {
 			t.Fatal(err)
 		}
-		defer desktop.Shutdown()
-		if _, err := desktop.SetupVault("test-password"); err != nil {
+		defer loginApp.Shutdown()
+		if _, err := loginApp.SetupVault("test-password"); err != nil {
 			t.Fatal(err)
 		}
 		account := app.CreateAdminRequest{Username: "fixture", Password: "test-password"}
-		admin, err := desktop.CreateAdminUser(app.CreateAdminRequest{Username: "admin", Password: "other-password"})
+		admin, err := loginApp.CreateAdminUser(app.CreateAdminRequest{Username: "admin", Password: "other-password"})
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := database.DB().Create(&database.Conversation{UserID: admin.ID, Title: "conversa privada do admin"}).Error; err != nil {
+		foreign = database.Conversation{UserID: admin.ID, Title: "conversa privada do admin"}
+		if err := database.DB().Create(&foreign).Error; err != nil {
 			t.Fatal(err)
 		}
-		if _, err := auth.NewIdentityService(database.DB()).CreateLocalUser(context.Background(), auth.CreateUserParams{Username: account.Username, Password: account.Password}); err != nil {
+		if _, err := auth.NewIdentityService(database.DB()).CreateLocalUser(context.Background(), auth.CreateUserParams{Username: account.Username, Password: account.Password, Admin: true}); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := desktop.Login(app.LoginRequest{Username: admin.Username, Password: "other-password"}); err != nil {
+		if _, err := loginApp.Login(app.LoginRequest{Username: admin.Username, Password: "other-password"}); err != nil {
 			t.Fatal(err)
 		}
 		if err := database.DB().First(&previousCredential, "pattern = ? AND user_id = ''", credentials.InstanceSecretAuthRefreshToken).Error; err != nil {
@@ -123,7 +131,7 @@ data: [DONE]
 		if err != nil {
 			t.Fatal(err)
 		}
-		if _, err := desktop.Login(app.LoginRequest{Username: account.Username, Password: account.Password, ClientLabel: "desktop"}); err != nil {
+		if _, err := loginApp.Login(app.LoginRequest{Username: account.Username, Password: account.Password, ClientLabel: "desktop"}); err != nil {
 			t.Fatal(err)
 		}
 		// Simula login em outra conta com sucesso no banco, mas sem atualizar
@@ -131,18 +139,27 @@ data: [DONE]
 		if err := credentials.SaveAuthRefreshTokenToKeychain(staleMirror); err != nil {
 			t.Fatal(err)
 		}
-		cli := asCLI(desktop)
+		cli := asCLI(loginApp)
 		conv, err := cli.EnsureConversation("conversa de prova")
 		if err != nil {
 			t.Fatal(err)
 		}
 		conversationID = conv.ID
+		owner, err := loginApp.GetAuthUser()
+		if err != nil {
+			t.Fatal(err)
+		}
+		disposable := database.Conversation{UserID: owner.UserID, Title: "descartável"}
+		if err := database.DB().Create(&disposable).Error; err != nil {
+			t.Fatal(err)
+		}
+		disposableID = disposable.ID
 		if _, err := cli.CreateLLMProvider(apidto.CreateLLMProviderRequest{ID: "fixture", Name: "Fixture", Type: "openai", AuthMode: "required", APIKey: "fixture-key", APIFormat: "openai", BaseURL: server.URL + "/v1", DefaultModel: "fixture"}); err != nil {
 			t.Fatal(err)
 		}
 		// Cadastro preexistente do desktop. O teste começa com o vínculo privado
 		// já salvo; o comportamento sob prova é sua resolução no envio pela CLI.
-		if err := database.DB().Model(&database.LLMProvider{}).Where("id = ?", "fixture").UpdateColumn("model_aliases", `{"fixture":"vendor/fixture"}`).Error; err != nil {
+		if err := database.DB().Model(&database.LLMProvider{}).Where("id = ?", "fixture").Updates(map[string]any{"model_aliases": `{"fixture":"vendor/fixture"}`, "api_format": "", "is_default": false}).Error; err != nil {
 			t.Fatal(err)
 		}
 		profileSlug, err = cli.CreateProfile(profiles.Profile{Name: "Revisor teste", Chat: profiles.ChatConfig{LLMProvider: "fixture", Model: "fixture", ResponseTimeout: 30, EnabledSkills: []string{}}})
@@ -178,6 +195,10 @@ data: [DONE]
 		t.Helper()
 		defer func() {
 			cleanupRootApp()
+			var run database.SubAgentRun
+			if err := database.DB().First(&run, "id = ?", activeRun.ID).Error; err != nil || run.Status != database.SubAgentRunStatusRunning {
+				t.Errorf("subagente do desktop = %q, %v", run.Status, err)
+			}
 			if err := database.Close(); err != nil {
 				t.Error(err)
 			}
@@ -194,6 +215,36 @@ data: [DONE]
 			t.Fatalf("listagem: %q, %v", list.String(), err)
 		}
 
+	})
+	run(historyShowCmd, func(err error) {
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := historyShowCmd.RunE(historyShowCmd, []string{conversationID}); err != nil {
+			t.Fatal(err)
+		}
+		if err := historyShowCmd.RunE(historyShowCmd, []string{foreign.ID}); err == nil {
+			t.Fatal("exibiu histórico de outra conta")
+		}
+	})
+	run(historyDeleteCmd, func(err error) {
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := historyDeleteCmd.RunE(historyDeleteCmd, []string{disposableID}); err != nil {
+			t.Fatal(err)
+		}
+		if err := historyDeleteCmd.RunE(historyDeleteCmd, []string{foreign.ID}); err == nil {
+			t.Fatal("aceitou exclusão em outra conta")
+		}
+		var row database.Conversation
+		if err := database.DB().First(&row, "id = ?", foreign.ID).Error; err != nil {
+			t.Fatal(err)
+		}
+		var count int64
+		if err := database.DB().Model(&database.Conversation{}).Where("id = ?", disposableID).Count(&count).Error; err != nil || count != 0 {
+			t.Fatalf("exclusão da conversa própria: %d, %v", count, err)
+		}
 	})
 	run(chatCmd, func(err error) {
 		if err != nil {
@@ -212,13 +263,13 @@ data: [DONE]
 		if completions.Load() == 0 {
 			t.Fatal("o provedor da conta não recebeu a mensagem")
 		}
+		var stored database.LLMProvider
+		if err := database.DB().First(&stored, "id = ?", "fixture").Error; err != nil || stored.APIFormat != "" || stored.IsDefault {
+			t.Fatalf("chat alterou o provedor compartilhado: formato=%q padrão=%v erro=%v", stored.APIFormat, stored.IsDefault, err)
+		}
 		var history bytes.Buffer
 		if err := runHistoryShow(asCLI(rootApp), &history, conversationID); err != nil || !strings.Contains(history.String(), "resposta de prova") {
 			t.Fatalf("conversa restaurada: %q, %v", history.String(), err)
-		}
-		var run database.SubAgentRun
-		if err := database.DB().First(&run, "id = ?", activeRun.ID).Error; err != nil || run.Status != database.SubAgentRunStatusRunning {
-			t.Fatalf("subagente do desktop = %q, %v", run.Status, err)
 		}
 		var job database.Job
 		if err := database.DB().First(&job, "id = ?", pendingJob.ID).Error; err != nil || !job.Enabled {
@@ -238,8 +289,20 @@ data: [DONE]
 			t.Fatal(err)
 		}
 		activeTokenEnc := savedCredential.TokenEnc
-		if err := database.DB().Model(&savedCredential).UpdateColumn("token_enc", previousCredential.TokenEnc).Error; err != nil {
+		completionsBefore := completions.Load()
+		changedInput := nextREPLInput(func(buf []byte) (int, error) {
+			if err := database.DB().Model(&savedCredential).UpdateColumn("token_enc", previousCredential.TokenEnc).Error; err != nil {
+				return 0, err
+			}
+			return copy(buf, "segunda mensagem\n"), io.EOF
+		})
+		input := io.MultiReader(strings.NewReader("primeira mensagem\n"), changedInput)
+		var diagnostic bytes.Buffer
+		if err := runREPL(asCLI(rootApp), cliEmitter, input, &diagnostic); err != nil {
 			t.Fatal(err)
+		}
+		if completions.Load() != completionsBefore+1 || !strings.Contains(diagnostic.String(), "reabra a CLI") {
+			t.Fatalf("troca de sessão entre turnos: %q, requisições=%d", diagnostic.String(), completions.Load()-completionsBefore)
 		}
 		if _, err := asCLI(rootApp).GetConversation(conversationID); !errors.Is(err, auth.ErrUnauthenticatedLocalSession) {
 			t.Fatalf("troca de conta durante REPL: %v", err)
@@ -247,10 +310,20 @@ data: [DONE]
 		if err := database.DB().Model(&savedCredential).UpdateColumn("token_enc", activeTokenEnc).Error; err != nil {
 			t.Fatal(err)
 		}
+		userRow := database.DB().Model(&database.User{}).Where("id = ?", session.UserID)
+		if err := userRow.UpdateColumn("role", database.UserRoleUser).Error; err != nil {
+			t.Fatal(err)
+		}
+		if _, err := asCLI(rootApp).GetConversations(); !errors.Is(err, auth.ErrUnauthenticatedLocalSession) {
+			t.Fatalf("rebaixamento de admin: %v", err)
+		}
+		if err := userRow.UpdateColumn("role", database.UserRoleAdmin).Error; err != nil {
+			t.Fatal(err)
+		}
 		if err := database.DB().Model(&current).Update("revoked_at", time.Now()).Error; err != nil {
 			t.Fatal(err)
 		}
-		if _, err := asCLI(rootApp).GetConversations(); err == nil {
+		if _, err := asCLI(rootApp).GetConversations(); !errors.Is(err, auth.ErrSessionRevoked) {
 			t.Fatal("a CLI manteve acesso após logout no desktop")
 		}
 	})
