@@ -256,7 +256,7 @@ func TestCommandOutputUsesRemainingBudget(t *testing.T) {
 			return "a", nil
 		}
 		return "1234567890", nil
-	}, false, 10)
+	}, false, 10, nil)
 	if err != nil || got != "a\n12345678…" {
 		t.Fatalf("conteúdo=%q err=%v", got, err)
 	}
@@ -824,5 +824,29 @@ func TestSlashReservesSupportingFilesOnlyForCommands(t *testing.T) {
 	result, err := invoke(800)
 	if err != nil || result == nil || !strings.Contains(result.Content, "EXECUTADO") || !strings.Contains(result.Content, mgr.files[0]) || calls != 1 {
 		t.Fatalf("reserva completa: %v err=%v chamadas=%d", result, err, calls)
+	}
+}
+
+func TestPreparedBaseRecoversFullOutputWhenBudgetGrows(t *testing.T) {
+	base := providerSkill("base", "!echo value", true)
+	base.Tools = &ToolPermissions{BashCommands: &BashCommands{Allowed: []string{"echo"}}}
+	p := NewContextProvider(&contextProviderSourceStub{skills: []Skill{base}})
+	output := strings.Repeat("ç", 100)
+	calls := 0
+	ctx := WithCommandTurn(t.Context(), func(context.Context, *Skill, string) (string, error) {
+		calls++
+		return output, nil
+	})
+	for _, budget := range []int{80, 500, 80} {
+		req := contextprovider.BuildRequest{ToolCallingEnabled: true, ProviderBudgets: map[string]int{"skills": budget}}
+		blocks, err := p.Build(ctx, req)
+		if err != nil || len(blocks) != 1 {
+			t.Fatalf("orçamento %d: blocos=%v erro=%v", budget, blocks, err)
+		}
+		text := blocks[0].Content
+		if budget == 500 && !strings.Contains(text, output) ||
+			budget == 80 && (!strings.Contains(text, "ç…") || contextprovider.RuneLen(text) > budget) || calls != 1 {
+			t.Fatalf("orçamento %d: execuções=%d texto=%q", budget, calls, text)
+		}
 	}
 }

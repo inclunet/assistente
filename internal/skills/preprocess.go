@@ -305,14 +305,18 @@ func planCommandLines(ctx context.Context, skill *Skill, content string, base bo
 	return commandDocument{lines, commands}, nil
 }
 
-func (d commandDocument) render(ctx context.Context, skill *Skill, run SkillCommandRunner, base bool, remaining int) (string, error) {
+func (d commandDocument) render(ctx context.Context, skill *Skill, run SkillCommandRunner, base bool, remaining int, outputs map[int]string) (string, error) {
 	return d.renderLines(ctx, skill, base, remaining, func(line commandLine) (string, error) {
 		output, err := run(ctx, skill, line.command)
 		// Protege também runners injetados que não usam o serviço de invocação.
 		if err == nil && len(output) > MaxCommandOutputSize {
 			return "", fmt.Errorf("saída excedeu o limite da skill %q", skill.Slug)
 		}
-		return strings.TrimRight(output, "\r\n"), err
+		output = strings.TrimRight(output, "\r\n")
+		if err == nil && outputs != nil {
+			outputs[line.index] = output
+		}
+		return output, err
 	})
 }
 

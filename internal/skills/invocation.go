@@ -126,7 +126,7 @@ func InvokeContext(ctx context.Context, userContent string, mgr InvokerManager, 
 				return nil, true, fmt.Errorf("orçamento insuficiente para as instruções e os resultados da skill %q", slug)
 			}
 		}
-		body, err := doc.render(ctx, skill, run, false, quota)
+		body, err := doc.render(ctx, skill, run, false, quota, nil)
 		if err != nil {
 			return nil, true, err
 		}

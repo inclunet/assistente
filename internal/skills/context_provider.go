@@ -350,13 +350,12 @@ func (turn *commandTurn) renderBase(ctx context.Context, skill *Skill, doc comma
 			return outputs[line.index], nil
 		})
 	}
-	content, err := doc.render(ctx, skill, turn.run, true, quota)
+	var outputs map[int]string
+	if prepared != nil {
+		outputs = make(map[int]string, len(doc.commands))
+	}
+	content, err := doc.render(ctx, skill, turn.run, true, quota, outputs)
 	if err == nil && prepared != nil {
-		// Guarde só a saída já admitida no orçamento da preparação.
-		outputs := make(map[int]string, len(doc.commands))
-		for _, line := range doc.commands {
-			outputs[line.index] = doc.lines[line.index]
-		}
 		prepared.outputs[skill.Slug] = outputs
 	}
 	return content, err

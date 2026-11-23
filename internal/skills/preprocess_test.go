@@ -341,5 +341,5 @@ func renderCommands(ctx context.Context, skill *Skill, content string, base bool
 	if err != nil {
 		return "", err
 	}
-	return doc.render(ctx, skill, run, base, -1)
+	return doc.render(ctx, skill, run, base, -1, nil)
 }
