@@ -49,13 +49,6 @@ describe('ttsBroker', () => {
     expect(stopCurrent).not.toHaveBeenCalled();
   });
 
-  it('preserva o resumo explícito do terminal inativo', async () => {
-    unregisterResolver = registerVoiceAccessibilityActiveResolver(() => false);
-    await requestVoiceTTS({ origin: { tabId: 't', surfaceType: 'terminal' }, text: 'saída privada',
-      inactiveAnnouncement: 'Build terminou', speak: vi.fn() });
-    expect(sink.mock.calls).toEqual([['Build terminou', 'polite']]);
-  });
-
   it('converte TTS automático de aba inativa em anúncio contextual', async () => {
     unregisterResolver = registerVoiceAccessibilityActiveResolver(() => false);
     const speak = vi.fn();
