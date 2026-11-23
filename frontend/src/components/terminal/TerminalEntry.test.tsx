@@ -31,6 +31,14 @@ describe('TerminalEntry', () => {
     expect(screen.getByText('terminal.entry.command')).toBeInTheDocument();
   });
 
+  it.each(['', 'x'])('preserva o emoji no limite do rótulo acessível (excedente: "%s")', tail => {
+    const prefix = 'a'.repeat(499) + '🌍';
+    const entry = new terminal.HistoryEntry({ id: 'id', command: prefix + tail, source: 'user' });
+    render(<TerminalCommandNode entry={entry} />);
+    const label = screen.getByRole('listitem').getAttribute('aria-label');
+    expect(label).toMatch(new RegExp(prefix + (tail ? '… terminal.entry.truncated' : '') + '$'));
+  });
+
   it.each([1, -999])('renderiza saída com código final %s', exitCode => {
     render(
       <TerminalOutputNode

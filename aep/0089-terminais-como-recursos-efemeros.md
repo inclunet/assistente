@@ -225,7 +225,8 @@ Pendente ou parcial:
   O backend atribui o ID antes do início do comando.
   O histórico correlaciona eventos pelo ID do comando e preserva inclusive o
   código final -999, distinguindo-o de uma execução ainda sem término. A última
-  prévia de saída manual é entregue antes do anúncio de encerramento.
+  prévia de saída manual é entregue antes do anúncio de encerramento. A prévia
+  falada limita a saída a 300 pontos de código Unicode, inclusive no resultado final.
   O editor preserva o rascunho após rejeição do envio. O aceite limpa o texto
   enviado se ele continua no campo, inclusive se a sessão já tiver terminado. Ao carregar a lista,
   mantém o pedido de foco se a origem desaparecer e respeita a navegação da pessoa.
