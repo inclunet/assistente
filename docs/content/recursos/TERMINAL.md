@@ -41,8 +41,9 @@ ou `Out-String -Stream`. Em `$()` e `@()`, o código de uma operação nativa no
 de um `if` corresponde ao ramo que o PowerShell executou.
 
 Você pode enviar uma nova entrada mesmo enquanto o terminal continua produzindo saída.
-A saída que chega enquanto o Assistente prepara o envio de um comando permanece
-associada à última entrada manual, inclusive se o envio for cancelado. A saída
+Quando o modelo envia um comando, a saída anterior ao despacho permanece
+associada à última entrada manual, inclusive se o envio for cancelado. Ao digitar
+um comando na aba, o início da nova entrada já passa a identificar sua saída. A saída
 que chega depois da execução gerenciada pode ser relida como saída da sessão.
 Se um comando for cancelado enquanto o terminal entrega a saída anterior, ele fica no
 histórico com código -1 e a sessão continua disponível. Se a escrita de um comando
