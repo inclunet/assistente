@@ -51,14 +51,19 @@ func TestCommandInDirectoryRejectsDirectorySwapBeforeExecution(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 			defer cancel()
 			var stderr bytes.Buffer
-			process := exec.CommandContext(ctx, shell, append(args, setup+newCommandMarkerForShell(kind).wrapCommandInDirectory("echo EXECUTED", authorized, kind))...)
+			marker := newCommandMarkerForShell(kind)
+			process := exec.CommandContext(ctx, shell, append(args, setup+marker.wrapCommandInDirectory("echo EXECUTED", authorized, kind))...)
 			process.Stderr = &stderr
-			output, _ := process.Output()
-			if target, err := os.Readlink(a); err != nil || target != b {
-				t.Fatalf("troca não exercitada: %q %v (%s, %s)", target, err, output, stderr.String())
+			output, processErr := process.Output()
+			target, linkErr := os.Readlink(a)
+			got, gotErr := os.Stat(a)
+			want, wantErr := os.Stat(b)
+			if linkErr != nil || gotErr != nil || wantErr != nil || !os.SameFile(got, want) {
+				t.Fatalf("troca não exercitada: link=%q destino=%q erros=(%v,%v,%v) stderr=%.240s", target, b, linkErr, gotErr, wantErr, stderr.String())
 			}
-			if strings.Contains(string(output), "EXECUTED") {
-				t.Fatalf("executou no destino substituído: %s", output)
+			result := parseMarkerOutput(marker, string(output))
+			if processErr != nil || !result.Found || result.ExitCode == 0 || strings.Contains(result.Output, "EXECUTED") {
+				t.Fatalf("guarda após troca: encontrado=%t status=%d saída=%.240s erro=%v", result.Found, result.ExitCode, result.Output, processErr)
 			}
 		})
 	}
@@ -145,9 +150,10 @@ func TestCommandInDirectoryQuotesPathsAndStopsOnFailure(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	output, err := exec.CommandContext(ctx, shell, append(args, newCommandMarkerForShell(kind).wrapCommandInDirectory(command, directory, kind))...).CombinedOutput()
-	if err != nil || !strings.Contains(string(output), directory) {
-		t.Fatalf("caminho literal: %s %v", output, err)
+	pathMarker := newCommandMarkerForShell(kind)
+	output, err := exec.CommandContext(ctx, shell, append(args, pathMarker.wrapCommandInDirectory(command, directory, kind))...).CombinedOutput()
+	if err != nil || !sameTestDirectory(strings.TrimSpace(parseMarkerOutput(pathMarker, string(output)).Output), directory) {
+		t.Fatalf("caminho literal: esperado=%q saída=%.240s erro=%v", directory, output, err)
 	}
 	output, _ = exec.CommandContext(ctx, shell, append(args, newCommandMarkerForShell(kind).wrapCommandInDirectory("echo EXECUTED", filepath.Join(directory, "missing"), kind))...).Output()
 	if strings.Contains(string(output), "EXECUTED") {
@@ -317,4 +323,13 @@ func TestNativeZshPersistentStartupByOrigin(t *testing.T) {
 			}
 		})
 	}
+}
+
+func sameTestDirectory(a, b string) bool {
+	x, err := os.Stat(a)
+	if err != nil {
+		return false
+	}
+	y, err := os.Stat(b)
+	return err == nil && os.SameFile(x, y)
 }

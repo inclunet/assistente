@@ -33,6 +33,7 @@ type CommandMarker struct {
 	id              string
 	startTag        string
 	endTag          string
+	probeInterrupt  <-chan struct{}
 	inlineEnd       bool
 	conPTY          bool
 	viewportColumns int
@@ -53,7 +54,7 @@ func newCommandMarkerForShell(shell string) *CommandMarker {
 func (m *CommandMarker) wrapCommandInDirectory(command, directory, shellType string) string {
 	switch shellType {
 	case "powershell", "powershell.exe", "pwsh", "pwsh.exe":
-		return m.wrapPowerShell(command, directory)
+		return m.wrapPowerShell(command, directory, "")
 	default:
 		return m.wrapPOSIX(command, directory, shellType)
 	}
@@ -138,8 +139,34 @@ func selectPowerShellPreparation(command string) powerShellPreparation {
 	}
 }
 
+// A biblioteca fica no processo do shell. A entrada interativa contém apenas
+// a moldura específica da invocação, inclusive quando PSReadLine está ausente.
+const libraryVariable = "AssistenteTerminalLibrary"
+const libraryTuple = "[Tuple[string,scriptblock,scriptblock,scriptblock]]"
+
+// Uma única constante associa os três blocos ao identificador desta sessão.
+// Um perfil que já é dono do nome conserva seu valor.
+func powerShellSessionLibrary(key string) string {
+	return "if (!$ExecutionContext.SessionState.PSVariable.Get('global:" + libraryVariable + "')) { " +
+		`Microsoft.PowerShell.Utility\New-Variable -Scope Global -Option Constant -ErrorAction Ignore -Name ` + libraryVariable +
+		" -Value (" + libraryTuple + "::new('" + key + "'," + singlePowerShellLine(failedPowerShellStatus) + "," +
+		singlePowerShellLine(prepareGroupedPowerShell) + "," + singlePowerShellLine(powerShellBareTargetExpression) + ")) }"
+}
+
+func powerShellLibraryPresent(key string) string {
+	value := "$ExecutionContext.SessionState.PSVariable.GetValue('global:" + libraryVariable + "')"
+	return value + " -is " + libraryTuple + " -and $global:" + libraryVariable + ".Item1 -ceq '" + key + "'"
+}
+
+// A consulta não carrega o corpo autorizado. Use enquadramento distinto para
+// a execução, que recebe o corpo uma única vez em ambos os modos.
+func (m *CommandMarker) powerShellProbe(key string) string {
+	return fmt.Sprintf("Write-Host ([string][char]24 + [Environment]::NewLine + '%s' + '%s'); Write-Host ([string][char]24 + '%s' + '%s' + [int](!(%s)) + '!')",
+		markerStart, m.id+markerSuffix, markerEnd, m.id+markerSuffix, powerShellLibraryPresent(key))
+}
+
 // wrapPowerShell gera comando wrapped para PowerShell.
-func (m *CommandMarker) wrapPowerShell(command, directory string) string {
+func (m *CommandMarker) wrapPowerShell(command, directory, key string) string {
 	// O ConPTY pode colar a saída ao eco ou redesenhar o comando anterior.
 	// Só o shell concatena os fragmentos: o eco nunca contém as tags deste comando.
 	start := fmt.Sprintf("Write-Host ([string][char]24 + [Environment]::NewLine + '%s' + '%s')", markerStart, m.id+markerSuffix)
@@ -155,7 +182,13 @@ func (m *CommandMarker) wrapPowerShell(command, directory string) string {
 		cleanup += "," + state[1:]
 		success = "($? -or " + state + "['Ok'] -eq $true) -and " + state + "['Ok'] -ne $false"
 	}
-	status := fmt.Sprintf("%s = if (%s) { 0 } else { %s $MyInvocation.MyCommand.ScriptBlock.Ast %s }", code, success, singlePowerShellLine(failedPowerShellStatus), state)
+	statusHelper, prepareHelper, targetHelper := "& $global:"+libraryVariable+".Item2", "& $global:"+libraryVariable+".Item3", "$global:"+libraryVariable+".Item4"
+	if key == "" {
+		statusHelper = "& " + singlePowerShellLine(failedPowerShellStatus)
+		prepareHelper = "& " + singlePowerShellLine(prepareGroupedPowerShell)
+		targetHelper = singlePowerShellLine(powerShellBareTargetExpression)
+	}
+	status := fmt.Sprintf("%s = if (%s) { 0 } else { %s $MyInvocation.MyCommand.ScriptBlock.Ast %s }", code, success, statusHelper, state)
 	guard := powerShellDirectoryGuard(directory)
 	body, parseGuard := guard+command, ""
 	if preparation.namespace {
@@ -174,9 +207,12 @@ func (m *CommandMarker) wrapPowerShell(command, directory string) string {
 	if preparation.needed() {
 		normalize := "$null"
 		if preparation.computed {
-			normalize = singlePowerShellLine(powerShellBareTargetExpression)
+			normalize = targetHelper
 		}
-		script = fmt.Sprintf("%s (%s) {%s} '%s' '%s' %s", singlePowerShellLine(prepareGroupedPowerShell), source, status, state, parseGuard, normalize)
+		script = fmt.Sprintf("%s (%s) {%s} '%s' '%s' %s", prepareHelper, source, status, state, parseGuard, normalize)
+	}
+	if key != "" {
+		parseGuard = "if (!(" + powerShellLibraryPresent(key) + ")) { throw 'PowerShell session changed' }; " + parseGuard
 	}
 	return fmt.Sprintf("%s; %stry { %s. (%s) } catch { Microsoft.PowerShell.Utility\\Write-Error -ErrorRecord $_ -ErrorAction Continue; %s=1 }; Write-Host (%s + %s + '%s'); Microsoft.PowerShell.Utility\\Remove-Variable -Name %s -ErrorAction Ignore", start, setup, parseGuard, script, code, end, code, markerStatusTerminator, cleanup)
 }
@@ -239,7 +275,7 @@ const powerShellLastOperation = `	$isConstantReturn = {
 // LASTEXITCODE pertence à sessão e sobrevive a cmdlets. Consulte a operação
 // antes de atribuir sua falha a um executável. Na saída stderr com status zero,
 // confira a posição real do erro e aceite só os formatadores conhecidos.
-const failedPowerShellStatus = `& {
+const failedPowerShellStatus = `{
 	param($ast, $targets);
 	$scope = $ast.EndBlock.Statements[0].Body;
 	$stmts = $scope.Statements;
@@ -326,7 +362,7 @@ const powerShellBareTargetExpression = `{
 // Capture $? antes que o agrupamento o restaure. Preserve os delimitadores:
 // @() pode descartar toda a saída acumulada em uma falha terminante.
 // () só admite um pipeline; a subexpressão interna comporta seu try/finally.
-const prepareGroupedPowerShell = `& {
+const prepareGroupedPowerShell = `{
 	param($source, $status, $capture, $guard, $normalize);
 	$tokens = $null;
 	$errors = $null;

@@ -92,8 +92,8 @@ func TestCommandMarker_WrapPowerShell(t *testing.T) {
 	if !strings.Contains(wrapped, base64.StdEncoding.EncodeToString([]byte("Get-Process"))) {
 		t.Errorf("wrapped command should contain original command, got: %s", wrapped)
 	}
-	if !strings.Contains(wrapped, "$LASTEXITCODE") {
-		t.Errorf("wrapped command should capture exit code with $LASTEXITCODE, got: %s", wrapped)
+	if !strings.Contains(powerShellSessionLibrary("test"), "$LASTEXITCODE") {
+		t.Error("falta captura do status nativo na biblioteca da sessão")
 	}
 }
 
@@ -435,6 +435,10 @@ func TestPowerShellConPTYRedrawPreservesOutput(t *testing.T) {
 	marker.viewportColumns = 3
 	for _, tc := range []struct{ raw, want string }{
 		{"abc\r\n\x1b[39;3Hcdef\r\n\x1b[39;3Hfgh", "abcdefgh"},
+		{"abcdef\r\n\x1b[39;3Hfg", "abcdefg"},
+		{"abcdefg\r\n\x1b[39;3Hgh", "abcdefg\ngh"},
+		{"ab界x\r\n\x1b[39;3Hxy", "ab界xy"},
+		{"abc界a\r\n\x1b[39;3Hab", "abc界ab"},
 		{"界a\r\n\x1b[39;3Hab", "界ab"},
 		{"abc\r\n\x1b[39;2Hcdef", "abc\ncdef"},
 		{"abc\r\n\x1b[39;3Hzdef", "abc\nzdef"},
@@ -885,6 +889,21 @@ func BenchmarkMarkerStreamScale(b *testing.B) {
 					}
 				}
 			})
+		}
+	}
+}
+
+func TestPowerShellProbeIgnoresUnframedReply(t *testing.T) {
+	m := newCommandMarkerForShell("powershell")
+	for _, code := range []int{0, 1} {
+		wire := m.endTag + "!\n" + m.startTag + "\n" + m.endTag + strconv.Itoa(code) + "!"
+		for split := 0; split < len(wire); split++ {
+			stream := newMarkerStream(m)
+			stream.append(wire[:split])
+			_, got := stream.append(wire[split:])
+			if !got.Found || got.ExitCode != code || got.Output != "" {
+				t.Fatalf("corte %d: %+v", split, got)
+			}
 		}
 	}
 }

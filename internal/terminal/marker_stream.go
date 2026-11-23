@@ -203,11 +203,20 @@ func lastCellAt(rest []byte, column int) []byte {
 	var last []byte
 	state := -1
 	for len(rest) > 0 {
+		// O ConPTY pode entregar várias linhas visuais sem CRLF. Conte
+		// as células na linha corrente ao conferir a margem redesenhada.
+		if cells == column {
+			cells = 0
+		}
 		last, rest, lastWidth, state = uniseg.FirstGraphemeCluster(rest, state)
-		cells += lastWidth
-		if cells > column {
+		if lastWidth > column {
 			return nil
 		}
+		if cells+lastWidth > column {
+			// Um grafema largo que não cabe começa na próxima linha.
+			cells = 0
+		}
+		cells += lastWidth
 	}
 	if cells == column && lastWidth > 0 {
 		return last

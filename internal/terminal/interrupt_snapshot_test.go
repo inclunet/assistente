@@ -3,11 +3,15 @@ package terminal
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"io"
+	"regexp"
+	"strings"
 	"sync"
 	"testing"
+	"testing/synctest"
 	"time"
 )
 
@@ -533,5 +537,113 @@ func TestInterruptSnapshotRejectsZeroWriteWithoutError(t *testing.T) {
 	err = operation.Execute(context.Background())
 	if err == nil || errors.Is(err, ErrInterruptStale) || !errors.Is(err, io.ErrShortWrite) {
 		t.Fatalf("write zero sem erro = %v, esperado io.ErrShortWrite não-stale", err)
+	}
+}
+
+func TestInterruptAfterPowerShellProbe(t *testing.T) {
+	for _, mode := range []string{"snapshot", "direto", "sem rodapé"} {
+		t.Run(mode, func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				writer := &interruptFakePTYWriter{}
+				manager, s := newInterruptFakeManager(writer)
+				var raw strings.Builder
+				s.onRawOutput = func(_, _, output string) { raw.WriteString(output) }
+				s.shell = "powershell"
+				s.powerShellKey = "test"
+				done := make(chan error, 1)
+				go func() {
+					_, err := s.runCommandInDirectory(t.Context(), "Write-Output exemplo", "", time.Minute, "test", "cmd", nil)
+					done <- err
+				}()
+				synctest.Wait()
+				writes := writer.snapshot()
+				if len(writes) != 1 {
+					t.Fatalf("escritas antes da resposta: %d", len(writes))
+				}
+				id := regexp.MustCompile(`([a-f0-9]{8})__'`).FindSubmatch(writes[0])
+				if len(id) != 2 {
+					t.Fatal("sem identificador de moldura")
+				}
+				reply := markerStart + string(id[1]) + markerSuffix + "\n"
+				if mode != "sem rodapé" {
+					reply += markerEnd + string(id[1]) + markerSuffix + "1!\ntexto manual"
+				}
+				s.recordOutput(reply)
+				if mode == "snapshot" {
+					snapshot, err := manager.CaptureInterrupt(s.id)
+					if err != nil {
+						t.Fatal(err)
+					}
+					op, err := manager.PrepareInterrupt(snapshot)
+					if err != nil {
+						t.Fatal(err)
+					}
+					if err := op.Execute(t.Context()); err != nil {
+						t.Fatal(err)
+					}
+				} else if err := s.Interrupt(); err != nil {
+					t.Fatal(err)
+				}
+				if err := <-done; !errors.Is(err, context.Canceled) {
+					t.Fatalf("comando interrompido: %v", err)
+				}
+				synctest.Wait()
+				if mode != "sem rodapé" && !strings.Contains(raw.String(), "texto manual") {
+					t.Fatalf("saída posterior à consulta = %q", raw.String())
+				}
+				writes = writer.snapshot()
+				if len(writes) != 2 || !bytes.Equal(writes[1], []byte{3}) {
+					t.Fatalf("esperado Ctrl+C como última de duas escritas, total=%d", len(writes))
+				}
+			})
+		})
+	}
+}
+
+func TestPowerShellDispatchesBodyOnce(t *testing.T) {
+	for _, reply := range []string{"0", "1"} {
+		t.Run(reply, func(t *testing.T) {
+			s := &Session{shell: "powershell", powerShellKey: "test", state: StateIdle}
+			var writes []string
+			const body = "Write-Output exemplo"
+			encoded := base64.StdEncoding.EncodeToString([]byte(body))
+			s.ptyWriter = manualTestWriter(func(p []byte) (int, error) {
+				writes = append(writes, string(p))
+				id := regexp.MustCompile(`([a-f0-9]{8})__'`).FindSubmatch(p)
+				if len(id) != 2 {
+					return 0, errors.New("sem id")
+				}
+				tag := string(id[1]) + markerSuffix
+				code, output := reply, ""
+				if len(writes) > 1 {
+					code = "0"
+					output = "ok\n"
+				}
+				// Antes do início e depois da execução, a mesma saída residual
+				// é compatível com a resposta de ausência usada no protocolo antigo.
+				s.recordOutput(markerEnd + tag + "!\n" + markerStart + tag + "\n" + output + markerEnd + tag + code + "!" + markerEnd + tag + "!")
+				return len(p), nil
+			})
+			e, err := s.runCommandInDirectory(t.Context(), body, "", 5*time.Second, "test", "cmd", nil)
+			if err != nil || e.ExitCode != 0 || e.Output != "ok" || len(writes) != 2 || strings.Contains(writes[0], encoded) || strings.Count(writes[1], encoded) != 1 {
+				t.Fatalf("despacho: resultado=%+v erro=%v escritas=%d", e, err, len(writes))
+			}
+		})
+	}
+}
+
+func TestPowerShellProbeRequiresFooterAfterProcessExit(t *testing.T) {
+	marker := newCommandMarkerForShell("powershell")
+	marker.probeInterrupt = make(chan struct{})
+	done := make(chan struct{})
+	close(done)
+	s := &Session{readerDone: done, processDone: done, onOutput: func(_, _, output string) {
+		t.Errorf("saída da consulta entregue como comando: %q", output)
+	}}
+	s.beginMarkerCapture(marker)
+	s.recordOutput(marker.startTag + "\ntexto residual")
+	output, code, err := s.waitForMarker(t.Context(), marker, "cmd")
+	if err == nil || code != -1 || output != "" {
+		t.Fatalf("consulta sem rodapé: output=%q code=%d err=%v", output, code, err)
 	}
 }

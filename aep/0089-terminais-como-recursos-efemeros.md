@@ -175,7 +175,8 @@ Entregue:
   inclui os bytes posteriores ao rodapé na mesma leitura e os já recebidos
   antes da liberação da captura. Um redesenho da última célula do rodapé na margem
   direita do ConPTY é consumido sem duplicar o terminador na saída da sessão.
-  O encerramento sucede a entrega da saída já lida.
+  A margem é a da linha visual, inclusive quando o ConPTY enviou várias larguras
+  de texto sem quebra explícita. O encerramento sucede a entrega da saída já lida.
 
 Pendente ou parcial:
 
@@ -312,14 +313,23 @@ Pendente ou parcial:
   o texto manual pendente. O leitor limita a 4 KiB a cópia literal guardada para recuperar controles
   incompletos. Ultrapassado o limite, consome o restante do controle até a retomada do texto.
 - **Histórico nativo do PowerShell.** A aba navega pelo histórico do Assistente.
-  Em um ConPTY com PSReadLine 2.4.5 ativo, a recuperação da linha anterior
-  pelo editor do shell devolveu a moldura inteira do comando gerenciado.
-  No ensaio com `Write-Output 'gerenciado-revisao-1120'`, a moldura media
-  142 bytes na base `366e2f1a3` e 6.330 bytes na medição desta alteração.
-  Com `SaveIncrementally`, o arquivo isolado continha
-  a moldura e as entradas manuais. Com `SaveNothing`, a moldura permaneceu
-  disponível em memória. A ativação do módulo depende da configuração do host.
-  As preferências e os critérios de inclusão no histórico pertencem ao shell.
+  Na abertura, o PowerShell tenta registrar os três auxiliares juntos, numa
+  constante identificada pela sessão. Uma variável do perfil que já ocupe o nome
+  permanece intacta. Antes de cada despacho, uma consulta sem o corpo do comando
+  verifica a instalação no processo que controla o PTY. Só a segunda escrita
+  contém o comando, mesmo quando há saída residual ou um PowerShell filho.
+  A moldura compacta revalida a instalação antes de executar. O prazo e a
+  interrupção abrangem as duas etapas e a aplicação registra uma única entrada.
+  No Windows PowerShell 5.1 com ConPTY e PSReadLine, a linha recuperada pela
+  seta para `Write-Output 'gerenciado-revisao-1120'` passou de 6.330 para
+  1.036 bytes. A consulta anterior registrou 411 bytes (1.447 no total, sem
+  terminadores). `TestPowerShellNativeHistory` verifica os dois estilos de
+  persistência, a entrada manual, a execução sem o módulo e no shell filho.
+  `BenchmarkPowerShellSessionStartup` mede até o primeiro prompt e até o
+  resultado de um único comando em uma sessão nova, com o mesmo perfil
+  sintético nas duas variantes. Em cinco amostras locais por variante, as
+  médias foram 1.917 e 2.217 ms com a moldura autônoma, e 2.069 e 2.270 ms com
+  a biblioteca. Esses números descrevem o ensaio no Windows PowerShell 5.1.
 - **Shells POSIX e zsh.** Comentários finais e erros de sintaxe ficam contidos no comando.
   O zsh usa suas operações internas para avaliar o comando e conferir o diretório.
   No Linux, sessões efêmeras e sessões persistentes criadas pelo modelo dispensam o completador

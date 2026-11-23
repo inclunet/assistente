@@ -109,12 +109,16 @@ nomes de tipos abreviados. Por exemplo, depois de `using namespace System.Text`,
 Para reler um comando na aba Terminal, pressione **Seta para cima** no início
 do campo de comando. O foco vai para o último item do histórico do Assistente.
 O PowerShell também pode manter um histórico próprio por meio do PSReadLine.
-Quando esse módulo está ativo, ele pode guardar a linha que o Assistente envia
-ao executar um comando gerenciado. Essa linha inclui várias instruções para
-capturar a saída e o código de término. Ela pode aparecer ao recuperar comandos
-em um console PowerShell que compartilhe o mesmo arquivo de histórico.
-A preferência `HistorySaveStyle` do PSReadLine controla a gravação em disco.
-Com `SaveNothing`, a linha ainda pode ser recuperada em memória na mesma sessão.
+Com o módulo ativo, podem aparecer duas linhas técnicas por comando gerenciado.
+A primeira consulta a preparação disponível na sessão e a segunda executa o
+comando. Quando você abre um PowerShell dentro da aba, ou o perfil já ocupa o
+nome reservado para essa preparação, o Assistente envia a versão completa na
+segunda linha. O comando aparece uma vez no histórico da aba.
+Em outro console que compartilhe o arquivo do PSReadLine, a linha compacta
+depende da sessão de origem e pode falhar ao ser reexecutada. Para reutilizar o
+texto original, consulte o histórico da aba Terminal do Assistente.
+A preferência `HistorySaveStyle` controla a gravação em disco. Com
+`SaveNothing`, a navegação nativa ainda recupera as linhas em memória.
 
 A saída registrada é textual. Programas que movem o cursor para redesenhar
 linhas anteriores podem aparecer de forma diferente no histórico e na tela

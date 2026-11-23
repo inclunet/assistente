@@ -410,9 +410,8 @@ func (m *Manager) PrepareInterrupt(snapshot InterruptSnapshot) (*InterruptOperat
 	m.mu.RUnlock()
 
 	return &InterruptOperation{
-		session:   session,
-		sessionID: session.id,
-		writer:    writer,
+		session: session,
+		writer:  writer,
 	}, nil
 }
 
