@@ -94,12 +94,26 @@ data: [DONE]
 `)
 	}))
 	defer server.Close()
-	otherServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		t.Error("chat enviado ao segundo provedor em vez do primeiro ID")
-		http.Error(w, "destino inesperado", http.StatusBadRequest)
+	var otherCompletions atomic.Int32
+	otherServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		otherCompletions.Add(1)
+		var payload struct {
+			Model string `json:"model"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil || payload.Model != "outro" || r.Header.Get("Authorization") != "" {
+			t.Error("modelo ou credencial incorretos no segundo destino")
+			http.Error(w, "rota inesperada", http.StatusBadRequest)
+			return
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(w, `data: {"choices":[{"index":0,"delta":{"content":"segundo provedor"},"finish_reason":"stop"}]}
+
+data: [DONE]
+
+`)
 	}))
 	defer otherServer.Close()
-	var conversationID, profileSlug, disposableID string
+	var conversationID, profileSlug, explicitProfile, disposableID string
 	var foreign database.Conversation
 	var previousCredential database.CredentialEntry
 	var activeRun database.SubAgentRun
@@ -176,6 +190,10 @@ data: [DONE]
 			t.Fatal(err)
 		}
 		profileSlug, err = cli.CreateProfile(profiles.Profile{Name: "Revisor teste", Chat: profiles.ChatConfig{LLMProvider: profiles.DefaultProviderSentinel, Model: profiles.DefaultProviderSentinel, ResponseTimeout: 30, EnabledSkills: []string{}}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		explicitProfile, err = cli.CreateProfile(profiles.Profile{Name: "Segundo explícito", Chat: profiles.ChatConfig{LLMProvider: "z-outro", Model: "outro", ResponseTimeout: 30, EnabledSkills: []string{}}})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -271,7 +289,7 @@ data: [DONE]
 		if err := chatCmd.RunE(chatCmd, []string{"Mensagem de prova"}); err != nil {
 			t.Fatal(err)
 		}
-		if completions.Load() == 0 {
+		if completions.Load() == 0 || otherCompletions.Load() != 0 {
 			t.Fatal("o provedor da conta não recebeu a mensagem")
 		}
 		var stored database.LLMProvider
@@ -282,6 +300,50 @@ data: [DONE]
 		if err := database.DB().Model(&database.LLMProvider{}).Where("user_id = ? AND is_default = ?", session.UserID, true).Count(&defaults).Error; err != nil || defaults != 0 {
 			t.Fatalf("padrão gravado após o chat: %d, erro=%v", defaults, err)
 		}
+		var second database.LLMProvider
+		if err := database.DB().First(&second, "user_id = ? AND id = ?", session.UserID, "z-outro").Error; err != nil {
+			t.Fatal(err)
+		}
+		if err := database.DB().Model(&second).UpdateColumn("is_default", true).Error; err != nil {
+			t.Fatal(err)
+		}
+		if err := chatCmd.RunE(chatCmd, []string{"Agora no segundo provedor"}); err != nil || otherCompletions.Load() != 1 {
+			t.Fatalf("troca para padrão carregado: %v, envios=%d", err, otherCompletions.Load())
+		}
+		countBefore := completions.Load()
+		assertReopen := func(scenario string) {
+			t.Helper()
+			err := chatCmd.RunE(chatCmd, []string{"Não envie este conteúdo"})
+			if err == nil || !strings.Contains(err.Error(), "reabra a CLI") || completions.Load() != countBefore || otherCompletions.Load() != 1 {
+				t.Fatalf("%s: err=%v, envios=%d/%d", scenario, err, completions.Load(), otherCompletions.Load())
+			}
+		}
+		if err := database.DB().Model(&second).UpdateColumn("is_default", false).Error; err != nil {
+			t.Fatal(err)
+		}
+		added := second
+		added.ID, added.IsDefault = "novo-padrao", true
+		if err := database.DB().Create(&added).Error; err != nil {
+			t.Fatal(err)
+		}
+		assertReopen("padrão criado após hidratação")
+		if err := database.DB().Delete(&added).Error; err != nil {
+			t.Fatal(err)
+		}
+		if err := database.DB().Model(&second).Updates(map[string]any{"is_default": true, "default_model": "novo"}).Error; err != nil {
+			t.Fatal(err)
+		}
+		assertReopen("somente o modelo padrão mudou")
+		if err := database.DB().Model(&second).Updates(map[string]any{"default_model": "outro", "base_url": server.URL + "/v1", "credential_pattern": stored.CredentialPattern}).Error; err != nil {
+			t.Fatal(err)
+		}
+		assertReopen("cadastro do padrão alterado")
+		if err := database.DB().Delete(&second).Error; err != nil {
+			t.Fatal(err)
+		}
+		chatProfile = explicitProfile
+		assertReopen("provedor explícito removido")
+		chatProfile = profileSlug
 		var history bytes.Buffer
 		if err := runHistoryShow(asCLI(rootApp), &history, conversationID); err != nil || !strings.Contains(history.String(), "resposta de prova") {
 			t.Fatalf("conversa restaurada: %q, %v", history.String(), err)

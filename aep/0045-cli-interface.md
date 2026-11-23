@@ -275,6 +275,9 @@ focados nos arquivos `*_test.go` correspondentes. A ajuda é registrada em
   compartilhado, inclusive entradas legadas sem formato ou padrão explícitos.
   Nesse último caso, perfis com `$default` usam o primeiro ID do registro
   disponível para a conta, seguindo a ordem do desktop sem persistir a escolha.
+  A criação, remoção ou alteração do cadastro escolhido exige reabrir o chat
+  antes do envio. O cliente, sua configuração e suas credenciais permanecem
+  vinculados ao runtime que os carregou.
   Chat hidrata credenciais, provedores desse usuário e o último catálogo local
   válido, preservando defaults e limites sem atualização em segundo plano; o scheduler fica no
   processo que o iniciou. O percurso entre instâncias com SQLite e chaveiro

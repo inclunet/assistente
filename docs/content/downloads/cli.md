@@ -90,7 +90,10 @@ não iniciam outra execução dos jobs agendados. O chat usa o último catálogo
 local válido para aplicar os parâmetros do modelo, inclusive quando o cache
 está desatualizado. Se o perfil usa o provedor padrão e nenhum estiver marcado,
 o chat escolhe o primeiro provedor por ID, como o desktop. A escolha pela CLI
-preserva as configurações salvas.
+preserva as configurações salvas. Durante um chat, o padrão pode mudar para outro
+provedor já carregado. Se o cadastro do provedor escolhido foi criado, alterado
+ou removido depois da abertura, reabra a CLI para carregar a configuração e
+as credenciais correspondentes.
 
 ## Configuração inicial
 

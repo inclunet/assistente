@@ -12,6 +12,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"reflect"
 	"strings"
 	"sync"
 	"time"
@@ -1116,6 +1117,11 @@ func (s *Service) GetChatProviderWithConfigSnapshot(ctx context.Context, provide
 		return nil, nil, fmt.Errorf("registro de provedores não inicializado")
 	}
 	provider := s.registry.GetSnapshot(providerID)
+	if s.skipBootRepairs {
+		if err := s.validateChatProviderSnapshot(ctx, providerID, provider); err != nil {
+			return nil, nil, err
+		}
+	}
 	if provider == nil {
 		return nil, nil, fmt.Errorf("provedor LLM não encontrado: %s", providerID)
 	}
@@ -1132,6 +1138,39 @@ func (s *Service) GetChatProviderWithConfigSnapshot(ctx context.Context, provide
 		s.rateLimitPolicy,
 	)
 	return chatProvider, provider, nil
+}
+
+var errChatProviderSnapshotChanged = errors.New("o cadastro do provedor mudou ou está indisponível nesta sessão; reabra a CLI")
+
+// A CLI mantém o registro e as credenciais da abertura. Confira o cadastro
+// escolhido antes de montar o cliente a partir desse mesmo snapshot.
+func (s *Service) validateChatProviderSnapshot(ctx context.Context, id string, loaded *llm.ProviderConfig) error {
+	if loaded == nil {
+		return errChatProviderSnapshotChanged
+	}
+	stored, err := s.store.Get(ctx, id)
+	if errors.Is(err, gorm.ErrRecordNotFound) || err == nil && stored == nil {
+		return errChatProviderSnapshotChanged
+	}
+	if err != nil {
+		return fmt.Errorf("revalidar provedor de chat: %w", err)
+	}
+	// A promoção a padrão muda a seleção e pode ocorrer entre dois turnos.
+	// A configuração do cliente escolhido continua sendo a da abertura.
+	stored.IsDefault = loaded.IsDefault
+	if stored.APIFormat == "" {
+		stored.APIFormat = stored.GetAPIFormat()
+	}
+	// O registro normaliza os campos de texto na admissão. Uma configuração
+	// pendente mantém o diagnóstico específico da validação no ponto de envio.
+	validationErr := stored.Validate()
+	if len(stored.ACPArgs) == 0 {
+		stored.ACPArgs = nil
+	}
+	if !reflect.DeepEqual(stored, loaded) {
+		return errChatProviderSnapshotChanged
+	}
+	return validationErr
 }
 
 // ListModelsRawRequest contém os parâmetros para listagem de modelos via credenciais ad-hoc.
