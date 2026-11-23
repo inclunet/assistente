@@ -73,22 +73,16 @@ function hasOmittedText(content: string, consumed: number): boolean {
 }
 
 function appendOutputPreview(pending: OutputPreview | undefined, chunk: string): OutputPreview {
-  let output = pending?.output ?? '';
-  let truncated = pending?.truncated ?? false;
-  let prefixComplete = pending?.prefixComplete ?? false;
-  if (prefixComplete) {
-    truncated ||= hasOmittedText(chunk, 0);
-  } else {
-    const content = output ? chunk : chunk.trimStart();
-    const previousLength = output.length;
-    // Dois elementos UTF-16 por ponto de código bastam para montar toda a prévia.
-    const candidate = output + content.slice(0, 2 * announcementCharacterLimit - previousLength);
-    output = codePointPrefix(candidate, announcementCharacterLimit);
-    const consumed = output.length - previousLength;
-    prefixComplete = content.length > consumed;
-    truncated = hasOmittedText(content, consumed);
+  if (pending?.prefixComplete) {
+    return pending.truncated || !hasOmittedText(chunk, 0) ? pending : { ...pending, truncated: true };
   }
-  return { output, prefixComplete, truncated };
+  const previous = pending?.output ?? '';
+  const content = previous ? chunk : chunk.trimStart();
+  // Dois elementos UTF-16 por ponto de código bastam para montar toda a prévia.
+  const candidate = previous + content.slice(0, 2 * announcementCharacterLimit - previous.length);
+  const output = codePointPrefix(candidate, announcementCharacterLimit);
+  const consumed = output.length - previous.length;
+  return { output, prefixComplete: content.length > consumed, truncated: hasOmittedText(content, consumed) };
 }
 
 function scheduleOutputAnnounce(sessionId: string, chunk: string) {
