@@ -140,7 +140,12 @@ describe('terminalStore', () => {
     } finally { cleanup(); useAuthStore.setState(owner); }
   });
 
-  it.each([true, false])('abre a aba durante o comando e preserva o resultado (criação antes do início: %s)', async createdFirst => {
+  it.each([
+    { createdFirst: true, hasRunningSnapshot: false },
+    { createdFirst: false, hasRunningSnapshot: false },
+    { createdFirst: true, hasRunningSnapshot: true },
+    { createdFirst: false, hasRunningSnapshot: true },
+  ])('preserva o resultado durante a hidratação (criação anterior: $createdFirst, snapshot em execução: $hasRunningSnapshot)', async ({ createdFirst, hasRunningSnapshot }) => {
     const lifecycle = useTerminalStore.getState().setupEventListeners({ lifecycleOnly: true });
     const emit = (event: string, payload: object) => terminalEventHandlers.get('terminal:' + event)?.(payload);
     const data = { sessionId: 's1', commandId: 'c1' };
@@ -159,7 +164,9 @@ describe('terminalStore', () => {
         expect(useTerminalStore.getState().partialHistoryBySession.s1).toBe(true);
         expect(useTerminalStore.getState().historyBySession.s1[0].output).toBe('antes');
         emit('command_end', { ...data, output: 'antes e depois', exitCode: 7 });
-        snapshot.resolve([]);
+        snapshot.resolve(hasRunningSnapshot ? [terminal.HistoryEntry.createFrom({
+          id: 'c1', command: 'date', source: 'llm', exitCode: -999, endedAt: '0001-01-01T00:00:00Z',
+        })] : []);
         await load;
         expect(useTerminalStore.getState().historyBySession.s1).toEqual([expect.objectContaining({ id: 'c1', exitCode: 7, output: 'antes e depois' })]);
         expect(useTerminalStore.getState().sessions[0].state).toBe('idle');

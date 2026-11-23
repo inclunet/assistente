@@ -1,5 +1,5 @@
 import { codePointPrefix } from '../utils/format';
-import { isManagedCommandRunning } from '../lib/terminalHistory';
+import { hasTerminalEndTime, isManagedCommandRunning } from '../lib/terminalHistory';
 import { logger } from '../utils/logger';
 import { create } from 'zustand';
 import { useWorkspaceStore } from './workspaceStore';
@@ -279,7 +279,7 @@ export const useTerminalStore = create<TerminalState>((set) => ({
             const used = historyBytes.get(entry);
             if (used !== undefined) historyBytes.set(hydrated, used);
             entries.set(entry.id, hydrated);
-          } else if (!stored || (!stored.endedAt && entry.endedAt)) {
+          } else if (!stored || (!hasTerminalEndTime(stored) && hasTerminalEndTime(entry))) {
             entries.set(entry.id, entry);
           }
         }
