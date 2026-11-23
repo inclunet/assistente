@@ -208,6 +208,9 @@ const powerShellLastOperation = `	$last = $null;
 		if (!$last.Clauses[0].Item2.Statements.Count) { break };
 		$last = $last.Clauses[0].Item2.Statements[-1]
 	};
+	if ($last -is [System.Management.Automation.Language.ReturnStatementAst] -and $last.Pipeline) {
+		$last = $last.Pipeline
+	};
 `
 
 // LASTEXITCODE pertence à sessão e sobrevive a cmdlets. Consulte a operação
@@ -404,6 +407,9 @@ type parseResult struct {
 
 	// Found indica se os markers foram encontrados no output
 	Found bool
+
+	// Bytes do mesmo lote que chegaram depois do terminador do rodapé.
+	afterFooter string
 }
 
 // stripANSI remove todas as sequências ANSI escape de uma string.
