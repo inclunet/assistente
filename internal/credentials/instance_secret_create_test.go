@@ -448,6 +448,40 @@ func TestEnsureInstanceSecretStoreErrorIsRedacted(t *testing.T) {
 	}
 }
 
+func TestReadPersistedInstanceSecretUsesCurrentRow(t *testing.T) {
+	db, _, cleanup := openEnsureSecretDB(t)
+	defer cleanup()
+	mgr := loadedEnsureManager(t, NewDBStore())
+	ctx := t.Context()
+	const pattern = InstanceSecretAuthRefreshToken
+	assertRead := func(want string, wantFound bool, wantErr error) {
+		t.Helper()
+		value, found, err := mgr.ReadPersistedInstanceSecret(ctx, pattern)
+		if value != want || found != wantFound || !errors.Is(err, wantErr) {
+			t.Fatalf("leitura do cofre: valor corresponde=%v, encontrado=%v, erro=%v; esperados encontrado=%v, erro=%v", value == want, found, err, wantFound, wantErr)
+		}
+	}
+	assertRead("", false, nil)
+	if _, err := mgr.EnsureInstanceSecret(ctx, pattern, func() (string, error) { return "fixture", nil }); err != nil {
+		t.Fatal(err)
+	}
+	assertRead("fixture", true, nil)
+	if err := db.Model(&database.CredentialEntry{}).Where("pattern = ? AND user_id = ''", pattern).UpdateColumn("token_enc", "invalido").Error; err != nil {
+		t.Fatal(err)
+	}
+	assertRead("", true, ErrInstanceSecretInvalid)
+}
+
+func TestReadPersistedInstanceSecretSanitizesStoreFailure(t *testing.T) {
+	store := ensureFailingStore{err: errors.New("detalhes internos da consulta")}
+	mgr := NewManagerWithStoreAndPersistence(ensureTestDEK, store, true)
+	mgr.integrity.set(VaultIntegrityStatus{OK: true, KeychainDekID: DEKIdentity(ensureTestDEK)})
+	value, found, err := mgr.ReadPersistedInstanceSecret(t.Context(), InstanceSecretAuthRefreshToken)
+	if value != "" || found || err != ErrInstanceSecretStore {
+		t.Fatalf("resultado da falha de leitura: encontrado=%v, erro=%v", found, err)
+	}
+}
+
 func TestEnsureInstanceSecretSanitizesWrappedContextErrors(t *testing.T) {
 	if got := sanitizeInstanceSecretStoreError(fmt.Errorf("private: %w", context.Canceled)); got != context.Canceled {
 		t.Fatalf("canceled error = %v, want canonical context.Canceled", got)

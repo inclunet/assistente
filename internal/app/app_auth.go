@@ -4,6 +4,7 @@ import (
 	"assistente/internal/logging"
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
@@ -724,8 +725,25 @@ func (a *App) internalBootstrapCtx() context.Context {
 // pós-login.
 func (a *App) requireAuthenticatedContext() (context.Context, error) {
 	ctx := a.internalBootstrapCtx()
-	if _, err := database.RequireUserID(ctx); err != nil {
+	userID, err := database.RequireUserID(ctx)
+	if err != nil {
 		return nil, err
+	}
+	if a.conversationCLI {
+		saved, role, err := a.savedConversationCLIPrincipal(ctx)
+		if err != nil {
+			return nil, err
+		}
+		sessionID, ok := userctx.SessionIDFromContext(ctx)
+		if !ok || saved.UserID != userID || saved.SessionID != sessionID {
+			return nil, fmt.Errorf("a sessão ativa mudou; reabra a CLI: %w", auth.ErrUnauthenticatedLocalSession)
+		}
+		a.authMu.RLock()
+		roleChanged := a.currentAuthUser == nil || a.currentAuthUser.Role != role
+		a.authMu.RUnlock()
+		if roleChanged {
+			return nil, fmt.Errorf("as permissões da conta mudaram; reabra a CLI: %w", auth.ErrUnauthenticatedLocalSession)
+		}
 	}
 	return ctx, nil
 }
