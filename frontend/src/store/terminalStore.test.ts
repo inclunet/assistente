@@ -465,7 +465,7 @@ describe('terminalStore', () => {
     vi.useFakeTimers();
     const cleanup = useTerminalStore.getState().setupEventListeners();
     try {
-      for (const output of ['A' + ' '.repeat(300), '   ', 'B', 'C']) {
+      for (const output of ['A' + ' '.repeat(300), '   ', 'B', '  ']) {
         terminalEventHandlers.get('terminal:raw_output')?.({ sessionId: 'a', output });
       }
       vi.runAllTimers();
