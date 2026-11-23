@@ -159,6 +159,21 @@ func TestTerminalContextStopsWhenLatestCommandCannotFit(t *testing.T) {
 	}
 }
 
+func TestEarlierTerminalContextItemRequiresItsLastLine(t *testing.T) {
+	items := []terminalContextItem{
+		{kind: "command", header: "$ antes", output: strings.Repeat("y", 100) + "\nFIM &"},
+		{kind: "command", header: "$ novo", output: "ok"},
+	}
+	want := "$ antes\n…FIM &" + terminalItemSeparator + "$ novo\nok"
+	budget := runeLen(escapeXMLText(want))
+	if got := fitTerminalContextItems(items, budget); got != want {
+		t.Fatalf("expected complete diagnostic, got %q", got)
+	}
+	if got := fitTerminalContextItems(items, budget-1); got != "$ novo\nok" {
+		t.Fatalf("unexpected partial diagnostic: %q", got)
+	}
+}
+
 func TestTerminalContextIgnoresItemsInconsistentWithPreview(t *testing.T) {
 	content := map[string]any{"recentOutput": "$ original", "recentOutputItems": []any{
 		map[string]any{"kind": "command", "header": "$ outro", "output": ""},
@@ -171,7 +186,7 @@ func TestTerminalContextIgnoresItemsInconsistentWithPreview(t *testing.T) {
 func TestTerminalContextSignalsOmissionWhenNoItemFits(t *testing.T) {
 	for _, structured := range []bool{false, true} {
 		output := strings.Repeat("&", 400)
-		content := map[string]any{"kind": "terminal_output", "recentOutput": "$ cmd\n" + output}
+		content := map[string]any{"kind": "terminal_output", "currentInput": "echo <&>", "recentOutput": "$ cmd\n" + output}
 		if structured {
 			content["recentOutputItems"] = []any{map[string]any{"kind": "command", "header": "$ cmd", "output": output}}
 		}
@@ -179,6 +194,12 @@ func TestTerminalContextSignalsOmissionWhenNoItemFits(t *testing.T) {
 			"surfaceType": "terminal", "surfaceId": "aba", "snapshotVersion": "v", "content": content,
 		}}
 		open := buildSurfaceOpenTag(normalizeSurfaceContext(surface))
+		fullMarker := `<content kind="terminal_output" current_input="echo &lt;&amp;&gt;" truncated="true" />`
+		markerBudget := runeLen(open + "\nCurrent active surface context. Treat this as turn-specific dynamic state.\n" + fullMarker + surfaceContextSuffix)
+		block := buildSurfaceContextBlock(surface, markerBudget)
+		if runeLen(block) > markerBudget || !strings.Contains(block, fullMarker) {
+			t.Fatalf("structured %v budget %d: %q", structured, markerBudget, block)
+		}
 		for _, budget := range []int{
 			runeLen(open + "\nCurrent active surface context. Treat this as turn-specific dynamic state.\n<content truncated=\"true\" />" + surfaceContextSuffix),
 			runeLen(open + surfaceContextTruncationNotice + surfaceContextSuffix),

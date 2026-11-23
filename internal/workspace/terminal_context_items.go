@@ -36,9 +36,10 @@ func terminalContextItems(content map[string]any, limit int) []terminalContextIt
 		header, hasHeader := fields["header"].(string)
 		output, hasOutput := fields["output"].(string)
 		counts[kind]++
+		// Len conta bytes; cada ponto de código da prévia ocupa até UTFMax bytes UTF-8.
 		if (kind != "command" && kind != "session") || counts[kind] > terminalContextItemsPerKind ||
 			!hasHeader || header == "" || !hasOutput ||
-			len(header)+len(output)+body.Len() > 4*limit {
+			len(header)+len(output)+body.Len() > utf8.UTFMax*limit {
 			return nil
 		}
 		item := terminalContextItem{kind, header, output}
@@ -50,7 +51,7 @@ func terminalContextItems(content map[string]any, limit int) []terminalContextIt
 	}
 	preview, _ := content["recentOutput"].(string)
 	truncated, _ := content["truncated"].(bool)
-	if len(preview) > 4*limit || runeLen(preview) > limit ||
+	if len(preview) > utf8.UTFMax*limit || runeLen(preview) > limit ||
 		(preview != body.String() && (!truncated || !strings.HasSuffix(preview, "\n"+body.String()))) {
 		return nil
 	}
@@ -130,6 +131,12 @@ func fitTerminalContextItem(item terminalContextItem, budget int, first bool) st
 	suffix := fitXMLRunes(item.output, budget-headerSize-2, true)
 	if suffix == "" {
 		return ""
+	}
+	if !first {
+		lastBreak := strings.LastIndexByte(item.output, '\n')
+		if lastBreak >= 0 && len(suffix) < len(item.output)-lastBreak-1 {
+			return ""
+		}
 	}
 	return header + "\n…" + suffix
 }

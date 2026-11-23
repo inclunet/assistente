@@ -377,18 +377,20 @@ func writeStructuredContent(sb *strings.Builder, surface *normalizedSurfaceConte
 		}
 	}
 	attrs = append(baseAttrs, xmlAttr("truncated", "true"))
+	best := render("", attrs)
+	if runeLen(strings.TrimSuffix(best, "\n")) > budget {
+		best = "<content truncated=\"true\" />\n"
+	}
 	if items := terminalContextItems(surface.Content, limit); len(items) > 0 {
 		// A moldura XML é a mesma para qualquer texto não vazio.
 		overhead := runeLen(strings.TrimSuffix(render("x", attrs), "\n")) - 1
 		if excerpt := fitTerminalContextItems(items, budget-overhead); excerpt != "" {
-			sb.WriteString(render(excerpt, attrs))
-		} else {
-			sb.WriteString("<content truncated=\"true\" />\n")
+			best = render(excerpt, attrs)
 		}
+		sb.WriteString(best)
 		return
 	}
 	// Contextos gravados antes de recentOutputItems contêm apenas texto.
-	best := ""
 	for low, high := 1, min(len(runes)-1, limit-1); low <= high; {
 		count := (low + high) / 2
 		head := count / 4
@@ -400,9 +402,6 @@ func writeStructuredContent(sb *strings.Builder, surface *normalizedSurfaceConte
 		} else {
 			high = count - 1
 		}
-	}
-	if best == "" {
-		best = "<content truncated=\"true\" />\n"
 	}
 	sb.WriteString(best)
 }

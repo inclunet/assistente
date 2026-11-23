@@ -162,7 +162,10 @@ Entregue:
   recentes, preserva cabeçalhos e finais de saída e escreve os itens em ordem
   cronológica. A reserva para o fim da saída inclui o custo do último ponto de
   código após o escape XML. Quando o próximo item prioritário já não cabe, a
-  seleção termina e o elemento indica o corte. Contextos anteriores com apenas
+  seleção termina e o elemento indica o corte. Uma entrada adicional com saída de
+  várias linhas só entra se couber a última linha inteira. Se nenhum item couber, o
+  marcador de corte conserva o tipo e o rascunho do comando enquanto houver espaço.
+  Contextos anteriores com apenas
   `recentOutput` conservam a projeção de início e fim do texto disponível.
   A navegação agrega a saída da sessão ao item anterior quando ele existe. Um
   prompt personalizado pertence a esse fluxo, como qualquer texto espontâneo. A transferência
