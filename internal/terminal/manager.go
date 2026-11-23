@@ -239,7 +239,7 @@ func (m *Manager) Release(sessionID string) {
 	session.mu.Lock()
 	// A execução que reservou um comando libera a própria geração. Uma
 	// chamada legada após RunCommand pode encontrar o próximo comando ativo.
-	if session.state == StateBusy && session.managedCommandID == "" {
+	if session.state == StateBusy && !session.commandReserved {
 		session.state = StateIdle
 	}
 	session.mu.Unlock()

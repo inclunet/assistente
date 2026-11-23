@@ -103,6 +103,7 @@ type Session struct {
 	viewportColumns   int
 	state             SessionState
 	commandGeneration uint64
+	commandReserved   bool // A chamada mantém a sessão até a entrega do resultado.
 	// commandPending cobre a janela entre beginCommand e o write inicial.
 	// Não é uma prova de PID nem do estado de um subprocesso natural.
 	commandPending    bool
@@ -574,6 +575,7 @@ func (s *Session) reserveCommand(delivery *commandDelivery) error {
 	}
 	s.state = StateRunning
 	s.commandDelivery = delivery
+	s.commandReserved = true
 	s.commandGeneration++
 	s.commandPending = true
 	s.lastUsed = time.Now()
@@ -589,6 +591,7 @@ func (s *Session) finishCommand() {
 	if s.state == StateRunning {
 		s.state = StateIdle
 	}
+	s.commandReserved = false
 	s.commandPending = false
 }
 
