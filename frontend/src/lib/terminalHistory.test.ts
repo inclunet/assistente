@@ -17,7 +17,9 @@ describe('contexto recente do terminal', () => {
 
   it('aplica o limite exato em pontos de código e informa quando o excede', () => {
     const output = '🟣'.repeat(limits.textFieldCodePoints - '$ cmd\n'.length);
-    expect(project([entry('llm', 'cmd', output)])).toEqual({ text: '$ cmd\n' + output, truncated: false });
+    expect(project([entry('llm', 'cmd', output)])).toEqual({
+      text: '$ cmd\n' + output, items: [{ kind: 'command', header: '$ cmd', output }], truncated: false,
+    });
     const result = project([entry('llm', 'cmd', output + '🟣')]);
     expect(result.text).toMatch(/^… truncado\n\$ cmd\n…🟣+$/u);
     expect(Array.from(result.text)).toHaveLength(limits.textFieldCodePoints);

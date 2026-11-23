@@ -384,10 +384,10 @@ export default function TerminalPage({ sessionId: explicitSessionId }: TerminalP
     if (!panelTab || panelTab.type !== 'terminal') return null;
 
     const projectHistory = () => {
-      const { text, truncated } = terminalChatHistory(
-        currentHistory, t('terminal.entry.sessionOutput'), t('terminal.announce.truncatedSuffix'),
+      const { text, items, truncated } = terminalChatHistory(
+        currentHistory, t('terminal.entry.sessionOutput'), t('terminal.chatModal.truncatedHistory'),
       );
-      return { contextDisplay: text || t('terminal.chatModal.noHistory'), truncated };
+      return { contextDisplay: text || t('terminal.chatModal.noHistory'), items, truncated };
     };
     return {
       prepare: async () => {
@@ -395,7 +395,7 @@ export default function TerminalPage({ sessionId: explicitSessionId }: TerminalP
         return { ok: true, contextDisplay, meta: null };
       },
       send: async (instruction, media) => {
-        const { contextDisplay, truncated } = projectHistory();
+        const { contextDisplay, items, truncated } = projectHistory();
         const selection = window.getSelection?.();
         const selectedOutput = selection && historyContainerRef.current?.contains(selection.anchorNode)
           ? selection.toString().trim()
@@ -426,6 +426,7 @@ export default function TerminalPage({ sessionId: explicitSessionId }: TerminalP
           content: {
             kind: 'terminal_output',
             recentOutput: contextDisplay,
+            recentOutputItems: items,
             currentInput,
             truncated,
           },

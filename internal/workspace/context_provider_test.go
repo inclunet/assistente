@@ -21,12 +21,16 @@ func TestTerminalFrontendTextLimitMatchesProvider(t *testing.T) {
 	}
 	var limits struct {
 		TextFieldCodePoints int `json:"textFieldCodePoints"`
+		ItemsPerKind        int `json:"itemsPerKind"`
 	}
 	if err := json.Unmarshal(data, &limits); err != nil {
 		t.Fatal(err)
 	}
 	if got := surfaceTextLimit("terminal"); limits.TextFieldCodePoints != got {
 		t.Fatalf("limite frontend %d, provedor %d", limits.TextFieldCodePoints, got)
+	}
+	if limits.ItemsPerKind != terminalContextItemsPerKind {
+		t.Fatalf("itens por origem: frontend %d, provedor %d", limits.ItemsPerKind, terminalContextItemsPerKind)
 	}
 }
 
@@ -58,6 +62,84 @@ func TestTerminalContextPreservesRecentCommandAfterXMLEscaping(t *testing.T) {
 		if runeLen(block) > budget || !doc.Content.Truncated || !strings.HasPrefix(doc.Content.Text, "[Sessão]\n") ||
 			!strings.HasSuffix(doc.Content.Text, recent) || !strings.Contains(block, "&amp;") {
 			t.Fatalf("budget %d: %q", budget, block)
+		}
+	}
+}
+
+func TestTerminalContextKeepsMiddleCommandBetweenEscapedSessionOutputs(t *testing.T) {
+	const command = "$ conferir\nERRO: modulo ausente"
+	const label = "[Saída da sessão]"
+	before := strings.Repeat("&", 395)
+	for _, extra := range []string{"", "\n---\n$ literal"} {
+		after := before + extra
+		items := []any{
+			map[string]any{"kind": "session", "header": label, "output": before},
+			map[string]any{"kind": "command", "header": "$ conferir", "output": "ERRO: modulo ausente"},
+			map[string]any{"kind": "session", "header": label, "output": after},
+		}
+		for _, budget := range []int{550, defaultSurfacePromptBudget, 8000} {
+			preview := strings.Join([]string{label + "\n" + before, command, label + "\n" + after}, terminalItemSeparator)
+			blocks, err := NewSurfaceContextProvider().Build(context.Background(), contextprovider.BuildRequest{
+				ProviderBudgets: map[string]int{"surface_context": budget},
+				Surface: &contextprovider.Surface{Type: "terminal", Context: map[string]any{
+					"surfaceType": "terminal", "surfaceId": "aba", "snapshotVersion": "v",
+					"content": map[string]any{"kind": "terminal_output", "truncated": false,
+						"recentOutput": preview, "recentOutputItems": items},
+				}},
+			})
+			if err != nil || len(blocks) != 1 {
+				t.Fatalf("budget %d: Build = %v, %v", budget, blocks, err)
+			}
+			var doc struct {
+				Content struct {
+					Text      string `xml:",chardata"`
+					Truncated bool   `xml:"truncated,attr"`
+				} `xml:"content"`
+			}
+			block := blocks[0].Content
+			if err := xml.Unmarshal([]byte(block), &doc); err != nil {
+				t.Fatal(err)
+			}
+			if runeLen(block) > budget || !strings.Contains(doc.Content.Text, command+"\n---\n"+label) ||
+				!strings.HasSuffix(doc.Content.Text, extra) || doc.Content.Truncated != (budget < 8000) {
+				t.Fatalf("budget %d: %q", budget, block)
+			}
+			if budget == 8000 && doc.Content.Text != preview {
+				t.Fatalf("expected full preview: %q", doc.Content.Text)
+			}
+		}
+	}
+}
+
+func TestTerminalContextIgnoresItemsInconsistentWithPreview(t *testing.T) {
+	content := map[string]any{"recentOutput": "$ original", "recentOutputItems": []any{
+		map[string]any{"kind": "command", "header": "$ outro", "output": ""},
+	}}
+	if items := terminalContextItems(content, maxTerminalTextFieldChars); items != nil {
+		t.Fatalf("unexpected items: %+v", items)
+	}
+}
+
+func TestTerminalContextSignalsOmissionWhenNoItemFits(t *testing.T) {
+	for _, structured := range []bool{false, true} {
+		output := strings.Repeat("&", 400)
+		content := map[string]any{"kind": "terminal_output", "recentOutput": "$ cmd\n" + output}
+		if structured {
+			content["recentOutputItems"] = []any{map[string]any{"kind": "command", "header": "$ cmd", "output": output}}
+		}
+		surface := &contextprovider.Surface{Type: "terminal", Context: map[string]any{
+			"surfaceType": "terminal", "surfaceId": "aba", "snapshotVersion": "v", "content": content,
+		}}
+		open := buildSurfaceOpenTag(normalizeSurfaceContext(surface))
+		for _, budget := range []int{
+			runeLen(open + "\nCurrent active surface context. Treat this as turn-specific dynamic state.\n<content truncated=\"true\" />" + surfaceContextSuffix),
+			runeLen(open + surfaceContextTruncationNotice + surfaceContextSuffix),
+		} {
+			block := buildSurfaceContextBlock(surface, budget)
+			if runeLen(block) > budget || !(strings.Contains(block, `<content truncated="true" />`) ||
+				strings.Contains(block, surfaceContextTruncationNotice)) {
+				t.Fatalf("structured %v budget %d: %q", structured, budget, block)
+			}
 		}
 	}
 }

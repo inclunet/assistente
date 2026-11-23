@@ -60,7 +60,7 @@ vi.mock('react-i18next', () => ({
     t: (key: string) =>
       ({
         'terminal.pageTitle': 'Terminal',
-        'terminal.announce.truncatedSuffix': ptBR.translation.terminal.announce.truncatedSuffix,
+        'terminal.chatModal.truncatedHistory': ptBR.translation.terminal.chatModal.truncatedHistory,
         'terminal.entry.sessionOutput': ptBR.translation.terminal.entry.sessionOutput,
         'terminal.buttons.stop': 'Parar',
         'terminal.buttons.new': 'Novo',
@@ -728,7 +728,7 @@ describe('TerminalPage', () => {
     expect(storeMocks.sendInput).toHaveBeenCalledWith('term-1', 'pwd');
   });
 
-  it.each(['comandos', 'sessão', 'diagnóstico'])('usa o mesmo histórico na prévia e no envio do chat (%s)', async scenario => {
+  it.each(['comandos', 'sessão', 'diagnóstico', 'blocos intercalados'])('usa o mesmo histórico na prévia e no envio do chat (%s)', async scenario => {
     storeState.historyBySession = {
       'term-1': Array.from({ length: 45 }, (_, index) => {
         const entryNumber = index + 1;
@@ -741,6 +741,13 @@ describe('TerminalPage', () => {
       }),
     };
 
+    if (scenario === 'blocos intercalados') {
+      storeState.historyBySession['term-1'] = [
+        { id: 'antes', command: '', source: 'session-output', output: '&'.repeat(395) },
+        { id: 'teste', command: 'conferir', output: 'ERRO: modulo ausente', exitCode: 1 },
+        { id: 'depois', command: '', source: 'session-output', output: '&'.repeat(395) + '\n---\n$ literal' },
+      ];
+    }
     if (scenario === 'diagnóstico') {
       storeState.historyBySession['term-1'] = [{
         id: 'erro', command: 'npm test', output: '✅ aprovado\n'.repeat(300) + 'ERRO: módulo ausente', exitCode: 1,
@@ -773,9 +780,18 @@ describe('TerminalPage', () => {
     expect(surfaceContext.surfaceId).toBe('terminal-tab');
     expect(surfaceContext.snapshotVersion).toMatch(/^terminal:terminal-tab:/);
     expect(surfaceContext.content.recentOutput).toBe(prepared.contextDisplay);
+    if (scenario === 'blocos intercalados') {
+      expect(surfaceContext.content.truncated).toBe(false);
+      expect(surfaceContext.content.recentOutputItems).toEqual([
+        { kind: 'session', header: '[Saída da sessão]', output: '&'.repeat(395) },
+        { kind: 'command', header: '$ conferir', output: 'ERRO: modulo ausente' },
+        { kind: 'session', header: '[Saída da sessão]', output: '&'.repeat(395) + '\n---\n$ literal' },
+      ]);
+      return;
+    }
     expect(surfaceContext.content.truncated).toBe(true);
     if (scenario === 'diagnóstico') {
-      expect(prepared.contextDisplay).toMatch(/^… truncado\n\$ npm test\n…/);
+      expect(prepared.contextDisplay).toMatch(/^… histórico truncado\n\$ npm test\n…/);
       expect(prepared.contextDisplay).toMatch(/\nERRO: módulo ausente$/);
       return;
     }
@@ -785,7 +801,7 @@ describe('TerminalPage', () => {
     if (scenario === 'sessão') {
       expect(prepared.contextDisplay).toContain('out-45\n---\n[Saída da sessão]\nprompt-45> ');
       expect(prepared.contextDisplay).not.toContain('prompt-6> ');
-      expect(prepared.contextDisplay).toMatch(/^… truncado/);
+      expect(prepared.contextDisplay).toMatch(/^… histórico truncado/);
       expect(Array.from(prepared.contextDisplay).length).toBeLessThanOrEqual(900);
       expect(prepared.contextDisplay).not.toContain('prompt-5> ');
       expect(surfaceContext.metadata.lastExitCode).toBe(0);

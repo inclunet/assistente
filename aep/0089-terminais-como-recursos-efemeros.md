@@ -156,8 +156,12 @@ Entregue:
   Um comando que sozinho excede o orçamento é identificado pelo início do nome e
   da linha de comando. A prévia indica o corte e reserva espaço para o fim da saída.
   No provedor de contexto, o orçamento do perfil conta os pontos de código do XML
-  já escapado. Se esse orçamento exigir outro corte, o provedor conserva o início
-  e privilegia o fim do texto disponível, marcando o elemento como truncado.
+  já escapado. O campo opcional `recentOutputItems` acompanha a prévia em
+  `recentOutput` com a origem, o cabeçalho e a saída de cada item selecionado.
+  Se o XML exigir outro corte, o provedor acomoda primeiro os comandos mais
+  recentes, preserva cabeçalhos e finais de saída e escreve os itens em ordem
+  cronológica. O elemento indica o corte. Contextos anteriores com apenas
+  `recentOutput` conservam a projeção de início e fim do texto disponível.
   A navegação agrega a saída da sessão ao item anterior quando ele existe. Um
   prompt personalizado pertence a esse fluxo, como qualquer texto espontâneo. A transferência
   inclui os bytes posteriores ao rodapé na mesma leitura e os já recebidos

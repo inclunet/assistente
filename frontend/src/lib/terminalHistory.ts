@@ -1,5 +1,6 @@
 import { codePointPrefix } from '../utils/format';
 import limits from './terminalContextLimits.json';
+import type { TerminalContextItem } from './chatSurface';
 import type { terminal } from '../../wailsjs/go/models';
 
 // Nó local de saída do PTY, sem comando, duração ou status de processo.
@@ -22,7 +23,7 @@ export function recentTerminalHistory(entries: terminal.HistoryEntry[], limitPer
 
 /** O provedor lê recentOutput com um limite de pontos de código antes do orçamento do perfil. */
 export function terminalChatHistory(history: terminal.HistoryEntry[], sessionOutputLabel: string, truncatedLabel: string) {
-  const recent = recentTerminalHistory(history, 40);
+  const recent = recentTerminalHistory(history, limits.itemsPerKind);
   const separator = '\n---\n';
   // Seleciona primeiro os comandos mais recentes, depois preenche com blocos da sessão.
   const newest = recent.map((entry, index) => ({ entry, index })).reverse();
@@ -32,7 +33,7 @@ export function terminalChatHistory(history: terminal.HistoryEntry[], sessionOut
   ];
 
   function project(budget: number) {
-    const parts: string[] = [];
+    const parts: TerminalContextItem[] = [];
     let truncated = history.length > recent.length;
     let kept = 0;
     for (const { entry, index } of priority) {
@@ -54,12 +55,13 @@ export function terminalChatHistory(history: terminal.HistoryEntry[], sessionOut
       if (headerLength + (output ? 2 : 0) > available) {
         truncated = true;
         // Identifica até um comando mais longo que o orçamento inteiro.
-        // Quando só sobra uma fração após outro item, pule o cabeçalho incompleto.
+        // Um item antigo que ainda cabe pode contribuir com um resultado inteiro.
+        // O aviso global assinala a omissão de itens intermediários.
         if (session || kept) continue;
         const headerBudget = output ? Math.floor(available / 2) : available;
         header = codePointPrefix(header, headerBudget - 1) + '…';
       }
-      let excerpt = header;
+      let excerptOutput = '';
       if (output) {
         const room = available - Array.from(header).length - 1;
         const fits = codePointPrefix(output, room).length === output.length;
@@ -79,21 +81,23 @@ export function terminalChatHistory(history: terminal.HistoryEntry[], sessionOut
             continue;
           }
         }
-        excerpt += '\n' + tail;
+        excerptOutput = tail;
         if (!fits) truncated = true;
       }
-      parts[index] = excerpt;
+      parts[index] = { kind: session ? 'session' : 'command', header, output: excerptOutput };
       kept++;
-      budget = available - Array.from(excerpt).length;
+      budget = available - Array.from(header).length - (excerptOutput ? 1 + Array.from(excerptOutput).length : 0);
     }
-    return { text: parts.filter(Boolean).join(separator), truncated };
+    const items = parts.filter(Boolean);
+    const text = items.map(({ header, output }) => output ? header + '\n' + output : header).join(separator);
+    return { text, items, truncated };
   }
 
   const full = project(limits.textFieldCodePoints);
   if (!full.truncated) return full;
   const notice = truncatedLabel + '\n';
   const excerpt = project(limits.textFieldCodePoints - Array.from(notice).length);
-  return { text: notice + excerpt.text, truncated: true };
+  return { ...excerpt, text: notice + excerpt.text, truncated: true };
 }
 
 export function hasTerminalEndTime(entry: terminal.HistoryEntry): boolean {
