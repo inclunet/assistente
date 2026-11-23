@@ -959,18 +959,30 @@ func TestCloseReleasesReaderWhenPTYDoesNotDeliverEOF(t *testing.T) {
 // A sessão sem PTY força a saída antes da escrita. O caminho de execução real
 // é exercitado por TestPersistentExitPublishesResultBeforeExit.
 func TestNaturalExitWaitsForCommandResult(t *testing.T) {
-	var events []string
-	s := &Session{state: StateIdle, shell: "bash", onExit: func(string, error) { events = append(events, "exited") }}
-	s.onCommandStart = func(_, _, _, _ string) {
-		s.markExited(nil)
-		if len(events) != 0 {
-			t.Fatalf("saída publicada antes do resultado: %v", events)
-		}
-	}
-	_, _ = s.runCommandInDirectory(context.Background(), "exit 7", "", time.Second, "test", "comando",
-		func(*HistoryEntry, error) { events = append(events, "command_end") })
-	if got := strings.Join(events, ","); got != "command_end,exited" {
-		t.Fatalf("ordem de publicação: %s", got)
+	for _, closeAfterExit := range []bool{false, true} {
+		t.Run(fmt.Sprintf("fechar=%t", closeAfterExit), func(t *testing.T) {
+			var events []string
+			s := &Session{id: "terminal", state: StateIdle, shell: "bash", onExit: func(string, error) {
+				events = append(events, "exited")
+			}}
+			m := closeTestManager(s)
+			m.emitEvent = func(name string, _ any) { events = append(events, name) }
+			s.onCommandStart = func(_, _, _, _ string) {
+				s.markExited(nil)
+				if closeAfterExit {
+					if err := m.Close(s.id); err != nil {
+						t.Fatal(err)
+					}
+				}
+				if len(events) != 0 {
+					t.Fatalf("saída publicada antes do resultado: %v", events)
+				}
+			}
+			_, _ = m.RunCommand(t.Context(), s.id, "exit 7", time.Second, "test")
+			if got := strings.Join(events, ","); got != "terminal:command_end,exited" {
+				t.Fatalf("ordem de publicação: %s", got)
+			}
+		})
 	}
 }
 

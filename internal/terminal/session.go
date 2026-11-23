@@ -1204,11 +1204,13 @@ func (s *Session) faultOwnsCleanup() bool {
 	return s.writeClosing || s.readerErr != nil
 }
 
-// closeForManager informa se o manager deve publicar session_closed. Quando
-// uma falha já iniciou o cleanup, o dono publicará exited ao concluir.
+// Somente um fechamento explícito produz session_closed. Uma saída natural
+// ou falha pode já ter enfileirado exited atrás do resultado do comando.
 func (s *Session) closeForManager() (bool, error) {
 	err := s.Close()
-	return !s.faultOwnsCleanup(), err
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.explicitClose, err
 }
 
 // A segunda operação a terminar publica exited, mesmo se o contexto tiver

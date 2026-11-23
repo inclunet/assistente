@@ -223,6 +223,8 @@ Pendente ou parcial:
   a limpeza prossegue em segundo plano. A saída já recebida acompanha o erro, inclusive se o prazo vencer.
   Se uma falha do leitor assume o encerramento, uma captura de fechamento anterior fica obsoleta
   e a sessão publica o evento de saída uma única vez.
+  Um fechamento solicitado após a saída natural também conserva essa notificação única,
+  mesmo quando sua entrega aguarda a conclusão do comando.
   O evento de término do comando precede o de saída da sessão, inclusive quando o próprio
   comando encerra o shell. O histórico já carregado continua recebendo eventos em segundo
   plano. Ao voltar à aba, ele inclui os comandos executados nesse intervalo.
