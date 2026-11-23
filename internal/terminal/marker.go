@@ -183,7 +183,14 @@ func (m *CommandMarker) wrapPowerShell(command, directory string) string {
 
 // A preparação e a leitura da falha precisam identificar a mesma operação.
 // Um retorno de valor literal conserva o status da operação precedente.
-const powerShellLastOperation = `	$lastInBlock = {
+const powerShellLastOperation = `	$isConstantReturn = {
+		param($stmt);
+		if ($stmt -isnot [System.Management.Automation.Language.ReturnStatementAst]) { return $false };
+		if (!$stmt.Pipeline) { return $true };
+		$elements = $stmt.Pipeline.PipelineElements;
+		return $elements.Count -eq 1 -and !$elements[0].Redirections.Count -and $elements[0].Expression -is [System.Management.Automation.Language.ConstantExpressionAst]
+	};
+	$lastInBlock = {
 		param($items, $keepReturn);
 		$last = $null;
 		foreach ($stmt in $items) {
@@ -203,7 +210,7 @@ const powerShellLastOperation = `	$lastInBlock = {
 						if ($keepReturn) { $last = $stmt } else { $last = $stmt.Pipeline }
 					} elseif ($value -is [System.Management.Automation.Language.PipelineAst] -and $value.PipelineElements.Count -and $value.PipelineElements[-1] -is [System.Management.Automation.Language.CommandAst]) {
 						if ($keepReturn) { $last = $stmt } else { $last = $value }
-					}
+					} elseif (!(& $isConstantReturn $stmt)) { $last = $null }
 				};
 				break
 			};
@@ -347,8 +354,9 @@ const prepareGroupedPowerShell = `& {
 			$blocks = @($last.Clauses.Item2) + @($last.ElseClause);
 			foreach ($block in $blocks) {
 				if (!$block) { continue };
-				if ($block.Statements.Count) { & $visit (& $lastInBlock $block.Statements $true) $last }
-				else { [pscustomobject]@{ At = $block.Extent.EndOffset - 1; Text = [Environment]::NewLine + $capture + '.Ok = $true' + [Environment]::NewLine } }
+				if (!$block.Statements.Count -or (& $isConstantReturn $block.Statements[0])) {
+					[pscustomobject]@{ At = $block.Extent.StartOffset + 1; Text = [Environment]::NewLine + $capture + '.Ok = $true' + [Environment]::NewLine }
+				} else { & $visit (& $lastInBlock $block.Statements $true) $last }
 			};
 			if (!$last.ElseClause) {
 				[pscustomobject]@{ At = $last.Extent.EndOffset; Text = ' else { ' + $capture + '.Ok = $true }' }

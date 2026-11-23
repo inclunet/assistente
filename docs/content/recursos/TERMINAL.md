@@ -49,7 +49,8 @@ um comando na aba, o início da nova entrada já passa a identificar sua saída.
 que chega depois da execução gerenciada pode ser relida como saída da sessão.
 Isso também vale quando o comando manual de origem já saiu do histórico.
 No histórico, **Saída da sessão** identifica esse texto, inclusive o prompt
-interativo do shell. Você pode relê-lo no item imediatamente anterior. Quando a
+interativo do shell. Na aba ativa, o leitor de telas pode falar o prompt porque o shell
+o envia pelo mesmo fluxo da saída espontânea. Você pode relê-lo no item imediatamente anterior. Quando a
 saída precede o primeiro comando, ela ganha um item próprio. Uma saída longa
 continua no bloco seguinte a cada 50 KiB. O histórico guarda até 200 comandos
 e 200 blocos da sessão. Ao enviar contexto ao chat, seguem até 40 de cada.

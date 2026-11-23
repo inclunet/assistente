@@ -223,7 +223,9 @@ Pendente ou parcial:
   inclusive em `elseif` e `else`. A expressão pode ser retornada por `return`,
   e o próprio ramo pode retornar o pipeline nativo. Se o ramo termina com
   `return` vazio ou literal, vale a operação anterior que efetivamente executou.
-  Um ramo ignorado não fornece código de saída.
+  Um ramo que apenas retorna uma constante tem sucesso. Se a expressão de retorno
+  observa o estado do shell, preserva-se o valor observado. Em caso de falha com
+  origem ambígua, o status é 1. Um ramo ignorado não fornece código de saída.
   O CI exercita o terminal no Windows PowerShell 5.1.
 - **Interrupção.** Cancelamento, falha de leitura e fechamento explícito preservam a causa e a saída
   parcial. Se o leitor falhar e o prazo expirar, o resultado conserva as duas causas. A ferramenta
