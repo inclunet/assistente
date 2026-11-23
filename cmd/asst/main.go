@@ -27,7 +27,6 @@ var (
 	rootApp    *app.App
 	cliEmitter *cliadapter.EmitterAdapter
 	rootCancel context.CancelFunc
-	rootSigCh  chan os.Signal
 )
 
 var rootCmd = &cobra.Command{
@@ -40,32 +39,25 @@ var rootCmd = &cobra.Command{
 			return nil
 		}
 
-		// Inicializa o app com adapters CLI
-		ctx, cancel := context.WithCancel(context.Background())
+		// SIGINT é tratado pelo chat para cancelar a geração mantendo o REPL.
+		ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGTERM)
 		rootCancel = cancel
-
-		// Cancela o contexto apenas em SIGTERM.
-		// SIGINT é tratado localmente pelo chat (barge-in) para não encerrar o REPL.
-		rootSigCh = make(chan os.Signal, 1)
-		signal.Notify(rootSigCh, syscall.SIGTERM)
-		go func() {
-			select {
-			case <-rootSigCh:
-				cancel()
-			case <-ctx.Done():
-			}
-		}()
 
 		if verbose {
 			enableVerboseLogs(os.Stderr)
 		}
 
-		rootApp = app.NewApp()
-		for current := cmd; current != nil; current = current.Parent() {
-			if current == commandsCmd {
-				rootApp = app.NewCommandCLIApp()
-				break
-			}
+		group := cmd
+		for group.Parent() != nil && group.Parent().Parent() != nil {
+			group = group.Parent()
+		}
+		switch group {
+		case chatCmd, historyCmd:
+			rootApp = app.NewConversationCLIApp()
+		case commandsCmd:
+			rootApp = app.NewCommandCLIApp()
+		default:
+			rootApp = app.NewApp()
 		}
 
 		cliEmitter = cliadapter.NewEmitterAdapter(
@@ -84,9 +76,7 @@ var rootCmd = &cobra.Command{
 			cliadapter.WindowAdapter{},
 			cliadapter.DialogAdapter{},
 		); err != nil {
-			signal.Stop(rootSigCh)
 			cancel()
-			rootSigCh = nil
 			rootCancel = nil
 			rootApp = nil
 			cliEmitter = nil
@@ -99,6 +89,9 @@ var rootCmd = &cobra.Command{
 			silenceDefaultLogs()
 		}
 
+		if group == chatCmd || group == historyCmd {
+			return app.RestoreConversationCLISession(rootApp, group == chatCmd)
+		}
 		return nil
 	},
 	PersistentPostRun: func(cmd *cobra.Command, args []string) {
@@ -112,10 +105,6 @@ func cleanupRootApp() {
 	if rootApp != nil {
 		rootApp.Shutdown()
 		rootApp = nil
-	}
-	if rootSigCh != nil {
-		signal.Stop(rootSigCh)
-		rootSigCh = nil
 	}
 	if rootCancel != nil {
 		rootCancel()
