@@ -203,15 +203,17 @@ describe('terminalStore', () => {
     } finally { cleanup(); }
   });
 
-  it('hidrata o histórico anterior quando outra aba acompanhou só o fim da execução', async () => {
+  it.each([true, false])('hidrata o histórico quando outra aba acompanhou só o fim (início com ID: %s)', async startHasId => {
     const cleanup = useTerminalStore.getState().setupEventListeners({ lifecycleOnly: true });
     try {
       const data = { sessionId: 'b', commandId: 'recente' };
       terminalEventHandlers.get('terminal:session_created')?.(terminal.SessionInfo.createFrom({ id: 'b' }));
-      terminalEventHandlers.get('terminal:command_start')?.({ ...data, command: 'date', source: 'llm' });
+      terminalEventHandlers.get('terminal:command_start')?.({ ...data, commandId: startHasId ? data.commandId : undefined, command: 'date', source: 'llm' });
+      terminalEventHandlers.get('terminal:command_output')?.({ ...data, output: 'hoje' });
       const closeOtherPage = useTerminalStore.getState().setupEventListeners();
       try {
-        terminalEventHandlers.get('terminal:command_end')?.({ ...data, output: 'hoje', exitCode: 0 });
+        terminalEventHandlers.get('terminal:command_end')?.({ ...data, output: '', exitCode: 0 });
+        expect(useTerminalStore.getState().historyBySession.b[0].output).toBe('hoje');
         expect(useTerminalStore.getState().partialHistoryBySession.b).toBe(true);
         mockGetTerminalHistory.mockResolvedValueOnce([terminal.HistoryEntry.createFrom({ id: 'antigo' })]);
         await useTerminalStore.getState().loadHistory('b');

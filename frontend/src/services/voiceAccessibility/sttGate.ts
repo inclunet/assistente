@@ -15,6 +15,9 @@ let activeSession: STTSession | null = null;
 
 function isSameOrigin(a?: VoiceAccessibilityOrigin, b?: VoiceAccessibilityOrigin): boolean {
   if (!a || !b) return a === b;
+  if (a.terminalSessionId && b.terminalSessionId && !a.tabId && !b.tabId && !a.surfaceId && !b.surfaceId && !a.sessionKey && !b.sessionKey) {
+    return a.terminalSessionId === b.terminalSessionId;
+  }
   return Boolean(
     (a.tabId && a.tabId === b.tabId)
     || (a.surfaceId && a.surfaceId === b.surfaceId)

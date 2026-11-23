@@ -310,6 +310,16 @@ export const useTerminalStore = create<TerminalState>((set) => ({
     // Uma sessão pode produzir comandos antes do evento de criação chegar.
     // Só ignoramos eventos depois de seu encerramento explícito ou espontâneo.
     const endedSessions = new Set<string>();
+    // Produtores antigos só informavam o ID real na saída ou na conclusão.
+    const legacyStarts = new Map<string, { localId: string; backendId?: string }>();
+    const entryForEvent = (sessionId: string, backendId: string) => {
+      const legacy = legacyStarts.get(sessionId);
+      if (legacy && (!backendId || !legacy.backendId || legacy.backendId === backendId)) {
+        if (backendId) legacy.backendId = backendId;
+        return legacy.localId;
+      }
+      return backendId || unobservedCommands.get(sessionId)?.id || useTerminalStore.getState().activeEntryBySession[sessionId];
+    };
     // Uma sessão já exibida conserva seu histórico entre montagens da página.
     // Continue aplicando eventos ao cache mesmo quando os anúncios estão suspensos.
     const tracksHistory = (sessionId: string) =>
@@ -348,6 +358,7 @@ export const useTerminalStore = create<TerminalState>((set) => ({
       terminalSessionReadGeneration += 1;
       // IDs são únicos; limite a memória usada para descartar eventos tardios.
       unobservedCommands.delete(sessionId);
+      legacyStarts.delete(sessionId);
       endedSessions.add(sessionId);
       if (endedSessions.size > 1024) endedSessions.delete(endedSessions.values().next().value!);
       flushOutputAnnouncement(sessionId);
@@ -402,6 +413,8 @@ export const useTerminalStore = create<TerminalState>((set) => ({
         source: data.source,
       });
 
+      if (!data.commandId && data.source !== 'user-raw') legacyStarts.set(data.sessionId, { localId: tempEntry.id });
+      else legacyStarts.delete(data.sessionId);
       if (!tracksHistory(data.sessionId)) {
         if (data.source !== 'user-raw') {
           unobservedCommands.set(data.sessionId, tempEntry);
@@ -463,7 +476,8 @@ export const useTerminalStore = create<TerminalState>((set) => ({
     // Output filtrado (durante RunCommand do LLM com markers)
     unsubs.push(EventsOn('terminal:command_output', (data: { sessionId: string; commandId: string; output: string }) => {
       const pending = unobservedCommands.get(data.sessionId);
-      if (pending && pending.id === data.commandId) {
+      const entryId = entryForEvent(data.sessionId, data.commandId);
+      if (pending && pending.id === entryId) {
         unobservedCommands.set(data.sessionId, appendHistoryOutput(pending, data.output));
         return;
       }
@@ -471,7 +485,7 @@ export const useTerminalStore = create<TerminalState>((set) => ({
       set(state => {
         const sessionHistory = state.historyBySession[data.sessionId] || [];
         const updatedHistory = sessionHistory.map(entry => {
-          if (isManagedCommandRunning(entry) && entry.id === (data.commandId || state.activeEntryBySession[data.sessionId])) {
+          if (isManagedCommandRunning(entry) && entry.id === entryId) {
             return appendHistoryOutput(entry, data.output);
           }
           return entry;
@@ -488,6 +502,10 @@ export const useTerminalStore = create<TerminalState>((set) => ({
     // Comando finalizado (apenas para RunCommand com markers — LLM)
     unsubs.push(EventsOn('terminal:command_end', (data: { sessionId: string; commandId: string; output: string; exitCode: number }) => {
       if (endedSessions.has(data.sessionId)) return;
+      const entryId = entryForEvent(data.sessionId, data.commandId);
+      const legacy = legacyStarts.get(data.sessionId);
+      if (legacy && entryId !== legacy.localId) return;
+      legacyStarts.delete(data.sessionId);
       listingStates?.set(data.sessionId, 'idle');
       const pending = unobservedCommands.get(data.sessionId);
       unobservedCommands.delete(data.sessionId);
@@ -522,11 +540,10 @@ export const useTerminalStore = create<TerminalState>((set) => ({
       set(state => {
         const sessionHistory = state.historyBySession[data.sessionId] ?? (pending ? [pending] : []);
         const updatedHistory = sessionHistory.map(entry => {
-          // O backend usa o mesmo commandId no início, na saída e na conclusão.
-          // Eventos legados sem ID usam a entrada ativa.
-          if (isManagedCommandRunning(entry) && entry.id === (data.commandId || state.activeEntryBySession[data.sessionId])) {
+          if (isManagedCommandRunning(entry) && entry.id === entryId) {
             return terminal.HistoryEntry.createFrom({
               ...entry,
+              ...(legacy?.backendId && { id: legacy.backendId }),
               output: data.output || entry.output,
               exitCode: data.exitCode,
               endedAt: new Date().toISOString(),
