@@ -7,7 +7,7 @@ import { cancelInactiveSTTSession } from './sttGate';
 export function useVoiceAccessibilityWorkspaceResolver(panelsVisible: boolean) {
   useLayoutEffect(() => {
     return registerVoiceAccessibilityActiveResolver((origin) => (
-      (!origin?.terminalSessionId || panelsVisible) && isVoiceAccessibilityOriginActive(origin, useWorkspaceStore.getState().workspace)
+      isVoiceAccessibilityOriginActive(origin, useWorkspaceStore.getState().workspace, panelsVisible)
     ));
   }, [panelsVisible]);
 
