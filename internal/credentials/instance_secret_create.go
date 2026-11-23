@@ -47,6 +47,35 @@ type instanceSecretCreateStore interface {
 	InsertInstanceCredentialIfAbsent(ctx context.Context, cred StoredCredential) (bool, error)
 }
 
+// ReadPersistedInstanceSecret lê a linha de instância exata no banco atual.
+// O booleano indica presença; erro de leitura ou decifração não prova ausência.
+func (m *Manager) ReadPersistedInstanceSecret(ctx context.Context, pattern string) (string, bool, error) {
+	if m == nil {
+		return "", false, ErrInstanceSecretPersistenceRequired
+	}
+	if ctx == nil {
+		return "", false, errors.New("context is required")
+	}
+	if pattern != strings.TrimSpace(pattern) || !IsInstanceSecretPattern(pattern) {
+		return "", false, ErrInstanceSecretInvalid
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if err := m.ensureInstanceSecretReadyLocked(ctx); err != nil {
+		return "", false, err
+	}
+	store := m.store.(instanceSecretCreateStore)
+	cred, found, err := store.GetInstanceCredential(ctx, pattern)
+	if err != nil {
+		return "", false, sanitizeInstanceSecretStoreError(err)
+	}
+	if !found {
+		return "", false, nil
+	}
+	token, err := m.validateStoredInstanceSecretLocked(pattern, cred)
+	return token, true, err
+}
+
 // EnsureInstanceSecret retorna o segredo de instância já persistido ou cria e
 // persiste exatamente um segredo para pattern.
 //
