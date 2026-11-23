@@ -187,10 +187,10 @@ describe('terminalStore', () => {
       terminalEventHandlers.get('terminal:session_created')?.(terminal.SessionInfo.createFrom({ id: 's1' }));
       const load = useTerminalStore.getState().loadHistory('s1');
       terminalEventHandlers.get('terminal:command_start')?.({ sessionId: 's1', commandId: 'c', command: 'pwd', source: 'user-raw' });
-      terminalEventHandlers.get('terminal:raw_output')?.({ sessionId: 's1', output: chunk });
+      terminalEventHandlers.get('terminal:raw_output')?.({ sessionId: 's1', commandId: 'c', output: chunk });
       snapshot.resolve([terminal.HistoryEntry.createFrom({ id: 'c', command: 'pwd', source: 'user-raw', output: stored, endedAt: '0001-01-01T00:00:00Z' })]);
       await load;
-      terminalEventHandlers.get('terminal:raw_output')?.({ sessionId: 's1', output: '!' });
+      terminalEventHandlers.get('terminal:raw_output')?.({ sessionId: 's1', commandId: 'c', output: '!' });
       expect(useTerminalStore.getState().historyBySession.s1).toEqual([expect.objectContaining({ id: 'c', output: final })]);
     } finally { cleanup(); }
   });
@@ -302,6 +302,25 @@ describe('terminalStore', () => {
       expect(useTerminalStore.getState().historyBySession.s1).toEqual([
         expect.objectContaining({ id: 'a', exitCode: -999, output: 'primeiro' }),
         expect.objectContaining({ id: 'b', exitCode: 0, output: 'segundo' }),
+      ]);
+    } finally { cleanup(); }
+  });
+
+  it('atribui a saída manual ao comando de origem durante e após um comando gerenciado cancelado', () => {
+    const cleanup = useTerminalStore.getState().setupEventListeners({ lifecycleOnly: true });
+    useTerminalStore.setState({ historyBySession: { s1: [] } });
+    const emit = (event: string, commandId: string, data: object) =>
+      terminalEventHandlers.get('terminal:' + event)?.({ sessionId: 's1', commandId, ...data });
+    try {
+      emit('command_start', 'manual', { command: 'logs', source: 'user-raw' });
+      emit('command_start', 'modelo', { command: 'date', source: 'llm' });
+      emit('raw_output', 'manual', { output: 'antes' });
+      emit('command_end', 'modelo', { output: '', exitCode: -1 });
+      emit('raw_output', 'manual', { output: ' e depois' });
+      for (const id of ['', 'desconhecido', 'modelo']) emit('raw_output', id, { output: 'sem entrada manual correspondente' });
+      expect(useTerminalStore.getState().historyBySession.s1).toEqual([
+        expect.objectContaining({ id: 'manual', output: 'antes e depois' }),
+        expect.objectContaining({ id: 'modelo', output: '', exitCode: -1 }),
       ]);
     } finally { cleanup(); }
   });

@@ -462,25 +462,22 @@ export const useTerminalStore = create<TerminalState>((set) => ({
       });
     }));
 
-    // Raw output (streaming contínuo do PTY — vai para o último entry da sessão)
-    unsubs.push(EventsOn('terminal:raw_output', (data: { sessionId: string; output: string }) => {
+    // A saída manual pode chegar depois do início de outro comando na mesma sessão.
+    unsubs.push(EventsOn('terminal:raw_output', (data: { sessionId: string; commandId: string; output: string }) => {
       if (!tracksHistory(data.sessionId)) return;
       // Agenda anúncio do output (com debounce para esperar fim do streaming)
       if (terminalOutputListenerRefCount > 0) scheduleOutputAnnounce(data.sessionId, data.output);
+      if (!data.commandId) return;
 
       set(state => {
         const sessionHistory = state.historyBySession[data.sessionId];
-        if (!sessionHistory || sessionHistory.length === 0) return state;
-
-        const activeEntryId = state.activeEntryBySession[data.sessionId];
-
-        // Appenda output ao entry ativo (ou ao último entry)
-        const updatedHistory = sessionHistory.map(entry => {
-          if (activeEntryId ? entry.id === activeEntryId : entry === sessionHistory[sessionHistory.length - 1]) {
-            return appendHistoryOutput(entry, data.output);
-          }
-          return entry;
-        });
+        const index = sessionHistory?.findIndex(entry => entry.id === data.commandId && entry.source === 'user-raw') ?? -1;
+        if (index < 0) return state;
+        const entry = sessionHistory[index];
+        const updated = appendHistoryOutput(entry, data.output);
+        if (entry === updated) return state;
+        const updatedHistory = sessionHistory.slice();
+        updatedHistory[index] = updated;
 
         return {
           historyBySession: {
