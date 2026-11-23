@@ -621,3 +621,19 @@ func TestPowerShellDispatchesBodyOnce(t *testing.T) {
 		})
 	}
 }
+
+func TestPowerShellProbeRequiresFooterAfterProcessExit(t *testing.T) {
+	marker := newCommandMarkerForShell("powershell")
+	marker.probe = true
+	done := make(chan struct{})
+	close(done)
+	s := &Session{readerDone: done, processDone: done, onOutput: func(_, _, output string) {
+		t.Errorf("saída da consulta entregue como comando: %q", output)
+	}}
+	s.beginMarkerCapture(marker)
+	s.recordOutput(marker.startTag + "\ntexto residual")
+	output, code, err := s.waitForMarker(t.Context(), marker, "cmd")
+	if err == nil || code != -1 || output != "" {
+		t.Fatalf("consulta sem rodapé: output=%q code=%d err=%v", output, code, err)
+	}
+}
