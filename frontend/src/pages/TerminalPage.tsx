@@ -31,16 +31,8 @@ import {
 import { useWorkspaceCommandSurface } from '../components/workspace/useWorkspaceCommandSurface';
 import { usePagePresentationCommands, type PagePresentationCommandID } from '../lib/commandPagePresentation';
 import { useCommandShortcutHint } from '../lib/commandShortcutHints';
-import { recentTerminalHistory, sessionOutputSource } from '../lib/terminalHistory';
+import { terminalChatHistory, sessionOutputSource } from '../lib/terminalHistory';
 import './TerminalPage.css';
-
-const TERMINAL_CHAT_HISTORY_LIMIT = 40;
-
-type TerminalHistoryEntry = {
-  source?: string;
-  command?: string;
-  output?: string;
-};
 
 function subscribeTerminalSession(
   sessionId: string | null | undefined,
@@ -66,18 +58,6 @@ function subscribeTerminalSession(
     previousFacts = currentFacts;
     invalidate();
   });
-}
-
-function formatTerminalHistoryForChat(history: TerminalHistoryEntry[], sessionOutputLabel: string) {
-  return history
-    .map((e) => {
-      if (e.source === sessionOutputSource) return `[${sessionOutputLabel}]\n${e.output ?? ''}`;
-      const cmd = String(e.command || '').trim();
-      const out = String(e.output || '').trimEnd();
-      return [`$ ${cmd}`, out].filter(Boolean).join('\n');
-    })
-    .filter(Boolean)
-    .join('\n---\n');
 }
 
 interface TerminalPageProps {
@@ -403,16 +383,19 @@ export default function TerminalPage({ sessionId: explicitSessionId }: TerminalP
   const terminalChatModalAdapter = useMemo((): WorkspaceChatModalAdapter | null => {
     if (!panelTab || panelTab.type !== 'terminal') return null;
 
+    const projectHistory = () => {
+      const { text, truncated } = terminalChatHistory(
+        currentHistory, t('terminal.entry.sessionOutput'), t('terminal.announce.truncatedSuffix'),
+      );
+      return { contextDisplay: text || t('terminal.chatModal.noHistory'), truncated };
+    };
     return {
       prepare: async () => {
-        const slice = recentTerminalHistory(currentHistory, TERMINAL_CHAT_HISTORY_LIMIT);
-        const lines = formatTerminalHistoryForChat(slice, t('terminal.entry.sessionOutput'));
-        const contextDisplay = lines || t('terminal.chatModal.noHistory');
+        const { contextDisplay } = projectHistory();
         return { ok: true, contextDisplay, meta: null };
       },
       send: async (instruction, media) => {
-        const historySlice = recentTerminalHistory(currentHistory, TERMINAL_CHAT_HISTORY_LIMIT);
-        const contextDisplay = formatTerminalHistoryForChat(historySlice, t('terminal.entry.sessionOutput')) || t('terminal.chatModal.noHistory');
+        const { contextDisplay, truncated } = projectHistory();
         const selection = window.getSelection?.();
         const selectedOutput = selection && historyContainerRef.current?.contains(selection.anchorNode)
           ? selection.toString().trim()
@@ -444,7 +427,7 @@ export default function TerminalPage({ sessionId: explicitSessionId }: TerminalP
             kind: 'terminal_output',
             recentOutput: contextDisplay,
             currentInput,
-            truncated: currentHistory.length > historySlice.length,
+            truncated,
           },
           metadata: {
             sessionId: currentSessionId,

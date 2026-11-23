@@ -2,6 +2,8 @@ package workspace
 
 import (
 	"context"
+	"encoding/json"
+	"os"
 	"net/url"
 	"path/filepath"
 	"strings"
@@ -9,6 +11,23 @@ import (
 
 	"assistente/internal/contextprovider"
 )
+
+// A prévia e o envio do frontend precisam caber no campo consumido pelo provedor.
+func TestTerminalFrontendTextLimitMatchesProvider(t *testing.T) {
+	data, err := os.ReadFile("../../frontend/src/lib/terminalContextLimits.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var limits struct {
+		TextFieldCodePoints int `json:"textFieldCodePoints"`
+	}
+	if err := json.Unmarshal(data, &limits); err != nil {
+		t.Fatal(err)
+	}
+	if got := surfaceTextLimit("terminal"); limits.TextFieldCodePoints != got {
+		t.Fatalf("limite frontend %d, provedor %d", limits.TextFieldCodePoints, got)
+	}
+}
 
 func mustAbsPath(t *testing.T, name string) string {
 	t.Helper()

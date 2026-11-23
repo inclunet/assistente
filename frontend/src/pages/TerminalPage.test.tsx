@@ -60,6 +60,7 @@ vi.mock('react-i18next', () => ({
     t: (key: string) =>
       ({
         'terminal.pageTitle': 'Terminal',
+        'terminal.announce.truncatedSuffix': ptBR.translation.terminal.announce.truncatedSuffix,
         'terminal.entry.sessionOutput': ptBR.translation.terminal.entry.sessionOutput,
         'terminal.buttons.stop': 'Parar',
         'terminal.buttons.new': 'Novo',
@@ -773,7 +774,9 @@ describe('TerminalPage', () => {
     expect(surfaceContext.content.truncated).toBe(true);
     if (sessionOutput) {
       expect(prepared.contextDisplay).toContain('out-45\n---\n[Saída da sessão]\nprompt-45> ');
-      expect(prepared.contextDisplay).toContain('prompt-6> ');
+      expect(prepared.contextDisplay).not.toContain('prompt-6> ');
+      expect(prepared.contextDisplay).toMatch(/^… truncado/);
+      expect(Array.from(prepared.contextDisplay).length).toBeLessThanOrEqual(900);
       expect(prepared.contextDisplay).not.toContain('prompt-5> ');
       expect(surfaceContext.metadata.lastExitCode).toBe(0);
     }
