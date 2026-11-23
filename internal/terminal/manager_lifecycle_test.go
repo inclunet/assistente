@@ -975,19 +975,38 @@ func TestAnnouncementPreviewContract(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var cases []struct {
-		Name, Text, Want string
-		PrefixLength     int
-		Truncated        bool
-	}
+	var cases []map[string]json.RawMessage
 	if err := json.Unmarshal(data, &cases); err != nil {
 		t.Fatal(err)
 	}
-	for _, tc := range cases {
-		t.Run(tc.Name, func(t *testing.T) {
-			prefix := strings.Repeat("a", tc.PrefixLength)
-			got := terminalAnnouncementPreview(prefix + tc.Text)
-			want := announcementPreview{Output: prefix + tc.Want, Truncated: tc.Truncated}
+	if len(cases) == 0 {
+		t.Fatal("tabela de prévias vazia")
+	}
+	for i, row := range cases {
+		var name, text, expected string
+		var prefixLength int
+		var truncated bool
+		fields := map[string]any{"name": &name, "text": &text, "want": &expected, "prefixLength": &prefixLength, "truncated": &truncated}
+		if len(row) != len(fields) {
+			t.Fatalf("caso %d: esperadas exatamente %d chaves", i+1, len(fields))
+		}
+		// Os nomes exatos importam: o consumidor JavaScript distingue maiúsculas.
+		for key, dst := range fields {
+			raw := row[key]
+			if raw == nil || string(raw) == "null" {
+				t.Fatalf("caso %d: campo obrigatório %q ausente ou nulo", i+1, key)
+			}
+			if err := json.Unmarshal(raw, dst); err != nil {
+				t.Fatalf("caso %d, campo %q: %v", i+1, key, err)
+			}
+		}
+		if name == "" || prefixLength < 0 {
+			t.Fatalf("caso %d: nome vazio ou prefixo negativo", i+1)
+		}
+		t.Run(name, func(t *testing.T) {
+			prefix := strings.Repeat("a", prefixLength)
+			got := terminalAnnouncementPreview(prefix + text)
+			want := announcementPreview{Output: prefix + expected, Truncated: truncated}
 			if got != want {
 				t.Fatalf("prévia = %+v, esperada %+v", got, want)
 			}
@@ -996,6 +1015,8 @@ func TestAnnouncementPreviewContract(t *testing.T) {
 }
 
 func TestCommandEndPreviewsOriginalOutputBeyondHistoryLimit(t *testing.T) {
+	// Limite observável do histórico (AEP-0089), independente da constante de produção.
+	const historyBytes = 50 * 1024
 	emoji := strings.Repeat("🌍", 300)
 	padding := strings.Repeat(" ", 60*1024)
 	for _, tc := range []struct {
@@ -1003,8 +1024,8 @@ func TestCommandEndPreviewsOriginalOutputBeyondHistoryLimit(t *testing.T) {
 		want         *announcementPreview
 	}{
 		{"saída curta", "ok", nil},
-		{"limite exato", strings.Repeat("a", 50*1024), nil},
-		{"primeiro byte excedente", strings.Repeat("a", 50*1024+1), &announcementPreview{Output: strings.Repeat("a", 300), Truncated: true}},
+		{"limite exato", strings.Repeat("a", historyBytes), nil},
+		{"primeiro byte excedente", strings.Repeat("a", historyBytes+1), &announcementPreview{Output: strings.Repeat("a", 300), Truncated: true}},
 		{"espaços iniciais", padding + "ok", &announcementPreview{Output: "ok"}},
 		{"espaços finais", emoji + padding, &announcementPreview{Output: emoji}},
 		{"texto após espaços", emoji + padding + "x", &announcementPreview{Output: emoji, Truncated: true}},

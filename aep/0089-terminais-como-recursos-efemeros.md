@@ -229,7 +229,7 @@ Pendente ou parcial:
   falada limita a saída a 300 pontos de código Unicode, inclusive no resultado final.
   Os dois percursos ignoram espaços iniciais antes da contagem e espaços ao fim da prévia.
   Indicam corte apenas quando o excedente contém texto além de espaços em branco.
-  Quando a saída excede o limite do histórico, `terminal:command_end` inclui
+  Quando a saída excede os 50 KiB de conteúdo por entrada no histórico, `terminal:command_end` inclui
   `announcementPreview` com a prévia do texto original e a indicação de corte.
   Sem saída final, o frontend usa a prévia acumulada antes de limitar o histórico.
   O produtor Go e o consumidor TypeScript validam a mesma tabela de limites e espaços
