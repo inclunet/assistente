@@ -602,6 +602,11 @@ func TestPowerShellReturnInPersistentSession(t *testing.T) {
 		{"$(if ($true) { return (cmd /c exit 7) })", "", 7},
 		{"if ($true) { return (cmd /c exit 7) }", "", 7},
 		{"if ($true) { return cmd /c exit 7 }", "", 7},
+		{"$(if ($true) { cmd /c exit 7; return })", "", 7},
+		{"$(return (cmd /c exit 7))", "", 7},
+		{"@(if ($true) { cmd /c exit 8; return 'oi' })", "", 8}, // @() descarta a saída acumulada ao sair por return.
+		{"cmd /c exit 6; $(if ($true) { Get-Item missing-leaf -ErrorAction Ignore; return 'oi' })", "oi", 1},
+		{"cmd /c exit 6; $(if ($false) { cmd /c exit 7; return 'oi' } else { Write-Output ok })", "ok", 0},
 		{"@(if ($true) { return cmd /c exit 8 })", "", 8},
 		{"cmd /c exit 6; $(if ($false) { return (cmd /c exit 7) } else { Write-Output ok })", "ok", 0},
 		{"cmd.exe /c exit 6; return @(if ($false) { cmd.exe /c exit 7 })", "", 0},

@@ -183,33 +183,38 @@ func (m *CommandMarker) wrapPowerShell(command, directory string) string {
 
 // A preparação e a leitura da falha precisam identificar a mesma operação.
 // Um retorno de valor literal conserva o status da operação precedente.
-const powerShellLastOperation = `	$last = $null;
-	foreach ($stmt in $stmts) {
-		if ($stmt -is [System.Management.Automation.Language.ReturnStatementAst]) {
-			if ($stmt.Pipeline) {
-				$value = $stmt.Pipeline;
-				while ($value -is [System.Management.Automation.Language.PipelineAst] -and $value.PipelineElements.Count -eq 1 -and $value.PipelineElements[0] -is [System.Management.Automation.Language.CommandExpressionAst]) {
-					$expr = $value.PipelineElements[0].Expression;
-					if ($expr -is [System.Management.Automation.Language.ParenExpressionAst]) {
-						$value = $expr.Pipeline
-					} elseif ($expr -is [System.Management.Automation.Language.SubExpressionAst] -or $expr -is [System.Management.Automation.Language.ArrayExpressionAst]) {
-						if (!$expr.SubExpression.Statements.Count) { break };
-						$value = $expr.SubExpression.Statements[-1]
-					} else { break }
+const powerShellLastOperation = `	$lastInBlock = {
+		param($items, $keepReturn);
+		$last = $null;
+		foreach ($stmt in $items) {
+			if ($stmt -is [System.Management.Automation.Language.ReturnStatementAst]) {
+				if ($stmt.Pipeline) {
+					$value = $stmt.Pipeline;
+					while ($value -is [System.Management.Automation.Language.PipelineAst] -and $value.PipelineElements.Count -eq 1 -and $value.PipelineElements[0] -is [System.Management.Automation.Language.CommandExpressionAst]) {
+						$expr = $value.PipelineElements[0].Expression;
+						if ($expr -is [System.Management.Automation.Language.ParenExpressionAst]) {
+							$value = $expr.Pipeline
+						} elseif ($expr -is [System.Management.Automation.Language.SubExpressionAst] -or $expr -is [System.Management.Automation.Language.ArrayExpressionAst]) {
+							if (!$expr.SubExpression.Statements.Count) { break };
+							$value = $expr.SubExpression.Statements[-1]
+						} else { break }
+					};
+					if ($value -is [System.Management.Automation.Language.IfStatementAst]) {
+						if ($keepReturn) { $last = $stmt } else { $last = $stmt.Pipeline }
+					} elseif ($value -is [System.Management.Automation.Language.PipelineAst] -and $value.PipelineElements.Count -and $value.PipelineElements[-1] -is [System.Management.Automation.Language.CommandAst]) {
+						if ($keepReturn) { $last = $stmt } else { $last = $value }
+					}
 				};
-				if ($value -is [System.Management.Automation.Language.IfStatementAst]) { $last = $stmt.Pipeline }
-				elseif ($value -is [System.Management.Automation.Language.PipelineAst] -and $value.PipelineElements.Count -and $value.PipelineElements[-1] -is [System.Management.Automation.Language.CommandAst]) { $last = $value }
+				break
 			};
-			break
+			$last = $stmt
 		};
-		$last = $stmt
+		return $last
 	};
+	$last = & $lastInBlock $stmts $false;
 	while ($last -is [System.Management.Automation.Language.IfStatementAst] -and $last.Clauses.Count -eq 1 -and !$last.ElseClause) {
 		if (!$last.Clauses[0].Item2.Statements.Count) { break };
-		$last = $last.Clauses[0].Item2.Statements[-1]
-	};
-	if ($last -is [System.Management.Automation.Language.ReturnStatementAst] -and $last.Pipeline) {
-		$last = $last.Pipeline
+		$last = & $lastInBlock $last.Clauses[0].Item2.Statements $false
 	};
 `
 
@@ -321,11 +326,12 @@ const prepareGroupedPowerShell = `& {
 	$stmts = $ast.EndBlock.Statements;
 ` + powerShellLastOperation + `	$visit = {
 		param($last, $container);
-		if ($last -is [System.Management.Automation.Language.ReturnStatementAst]) {
-			$container = $last;
-			$last = $last.Pipeline
-		};
-		while ($last -is [System.Management.Automation.Language.PipelineAst] -and $last.PipelineElements.Count -eq 1) {
+		while ($true) {
+			if ($last -is [System.Management.Automation.Language.ReturnStatementAst]) {
+				$container = $last;
+				$last = $last.Pipeline
+			};
+			if ($last -isnot [System.Management.Automation.Language.PipelineAst] -or $last.PipelineElements.Count -ne 1) { break };
 			$element = $last.PipelineElements[0];
 			if ($element -isnot [System.Management.Automation.Language.CommandExpressionAst] -or $element.Redirections.Count) { break };
 			$group = $element.Expression;
@@ -333,7 +339,7 @@ const prepareGroupedPowerShell = `& {
 				$last = $group.Pipeline
 			} elseif ($group -is [System.Management.Automation.Language.SubExpressionAst] -or $group -is [System.Management.Automation.Language.ArrayExpressionAst]) {
 				if (!$group.SubExpression.Statements.Count) { break };
-				$last = $group.SubExpression.Statements[-1]
+				$last = & $lastInBlock $group.SubExpression.Statements $true
 			} else { break };
 			$container = $group
 		};
@@ -341,7 +347,7 @@ const prepareGroupedPowerShell = `& {
 			$blocks = @($last.Clauses.Item2) + @($last.ElseClause);
 			foreach ($block in $blocks) {
 				if (!$block) { continue };
-				if ($block.Statements.Count) { & $visit $block.Statements[-1] $last }
+				if ($block.Statements.Count) { & $visit (& $lastInBlock $block.Statements $true) $last }
 				else { [pscustomobject]@{ At = $block.Extent.EndOffset - 1; Text = [Environment]::NewLine + $capture + '.Ok = $true' + [Environment]::NewLine } }
 			};
 			if (!$last.ElseClause) {
