@@ -34,6 +34,7 @@ type CommandMarker struct {
 	startTag        string
 	endTag          string
 	inlineEnd       bool
+	checkLibrary    bool
 	conPTY          bool
 	viewportColumns int
 	control         terminalControl
@@ -53,7 +54,8 @@ func newCommandMarkerForShell(shell string) *CommandMarker {
 func (m *CommandMarker) wrapCommandInDirectory(command, directory, shellType string) string {
 	switch shellType {
 	case "powershell", "powershell.exe", "pwsh", "pwsh.exe":
-		return m.wrapPowerShell(command, directory)
+		m.checkLibrary = true
+		return m.wrapPowerShell(command, directory, true)
 	default:
 		return m.wrapPOSIX(command, directory, shellType)
 	}
@@ -138,8 +140,24 @@ func selectPowerShellPreparation(command string) powerShellPreparation {
 	}
 }
 
+// A biblioteca fica no processo do shell. A entrada interativa contém apenas
+// a moldura específica da invocação, inclusive quando PSReadLine está ausente.
+func shellStartupArgs(shell string) []string {
+	if shellType(shell) != "powershell" {
+		return nil
+	}
+	return []string{"-NoExit", "-Command", powerShellSessionLibrary()}
+}
+
+func powerShellSessionLibrary() string {
+	const define = `Microsoft.PowerShell.Utility\New-Variable -Scope Global -Option Constant -ErrorAction Stop -Name `
+	return define + "AssistenteTerminalStatus -Value " + singlePowerShellLine(failedPowerShellStatus) +
+		"; " + define + "AssistenteTerminalPrepare -Value " + singlePowerShellLine(prepareGroupedPowerShell) +
+		"; " + define + "AssistenteTerminalTarget -Value " + singlePowerShellLine(powerShellBareTargetExpression)
+}
+
 // wrapPowerShell gera comando wrapped para PowerShell.
-func (m *CommandMarker) wrapPowerShell(command, directory string) string {
+func (m *CommandMarker) wrapPowerShell(command, directory string, compact bool) string {
 	// O ConPTY pode colar a saída ao eco ou redesenhar o comando anterior.
 	// Só o shell concatena os fragmentos: o eco nunca contém as tags deste comando.
 	start := fmt.Sprintf("Write-Host ([string][char]24 + [Environment]::NewLine + '%s' + '%s')", markerStart, m.id+markerSuffix)
@@ -155,7 +173,13 @@ func (m *CommandMarker) wrapPowerShell(command, directory string) string {
 		cleanup += "," + state[1:]
 		success = "($? -or " + state + "['Ok'] -eq $true) -and " + state + "['Ok'] -ne $false"
 	}
-	status := fmt.Sprintf("%s = if (%s) { 0 } else { %s $MyInvocation.MyCommand.ScriptBlock.Ast %s }", code, success, singlePowerShellLine(failedPowerShellStatus), state)
+	statusHelper, prepareHelper, targetHelper := "& $global:AssistenteTerminalStatus", "& $global:AssistenteTerminalPrepare", "$global:AssistenteTerminalTarget"
+	if !compact {
+		statusHelper = "& " + singlePowerShellLine(failedPowerShellStatus)
+		prepareHelper = "& " + singlePowerShellLine(prepareGroupedPowerShell)
+		targetHelper = singlePowerShellLine(powerShellBareTargetExpression)
+	}
+	status := fmt.Sprintf("%s = if (%s) { 0 } else { %s $MyInvocation.MyCommand.ScriptBlock.Ast %s }", code, success, statusHelper, state)
 	guard := powerShellDirectoryGuard(directory)
 	body, parseGuard := guard+command, ""
 	if preparation.namespace {
@@ -174,11 +198,17 @@ func (m *CommandMarker) wrapPowerShell(command, directory string) string {
 	if preparation.needed() {
 		normalize := "$null"
 		if preparation.computed {
-			normalize = singlePowerShellLine(powerShellBareTargetExpression)
+			normalize = targetHelper
 		}
-		script = fmt.Sprintf("%s (%s) {%s} '%s' '%s' %s", singlePowerShellLine(prepareGroupedPowerShell), source, status, state, parseGuard, normalize)
+		script = fmt.Sprintf("%s (%s) {%s} '%s' '%s' %s", prepareHelper, source, status, state, parseGuard, normalize)
 	}
-	return fmt.Sprintf("%s; %stry { %s. (%s) } catch { Microsoft.PowerShell.Utility\\Write-Error -ErrorRecord $_ -ErrorAction Continue; %s=1 }; Write-Host (%s + %s + '%s'); Microsoft.PowerShell.Utility\\Remove-Variable -Name %s -ErrorAction Ignore", start, setup, parseGuard, script, code, end, code, markerStatusTerminator, cleanup)
+	frame = fmt.Sprintf("%s; %stry { %s. (%s) } catch { Microsoft.PowerShell.Utility\\Write-Error -ErrorRecord $_ -ErrorAction Continue; %s=1 }; Write-Host (%s + %s + '%s'); Microsoft.PowerShell.Utility\\Remove-Variable -Name %s -ErrorAction Ignore", start, setup, parseGuard, script, code, end, code, markerStatusTerminator, cleanup)
+	if !compact {
+		return frame
+	}
+	// Um shell filho pode assumir o PTY. A resposta de ausência precede o
+	// marcador de início: o corpo autorizado ainda não foi executado.
+	return fmt.Sprintf("if (@(Microsoft.PowerShell.Utility\\Get-Variable -Scope Global -Name AssistenteTerminalStatus,AssistenteTerminalPrepare,AssistenteTerminalTarget -ErrorAction Ignore).Count -eq 3) { %s } else { Write-Host (%s + '!') }", frame, end)
 }
 
 // A preparação e a leitura da falha precisam identificar a mesma operação.
@@ -239,7 +269,7 @@ const powerShellLastOperation = `	$isConstantReturn = {
 // LASTEXITCODE pertence à sessão e sobrevive a cmdlets. Consulte a operação
 // antes de atribuir sua falha a um executável. Na saída stderr com status zero,
 // confira a posição real do erro e aceite só os formatadores conhecidos.
-const failedPowerShellStatus = `& {
+const failedPowerShellStatus = `{
 	param($ast, $targets);
 	$scope = $ast.EndBlock.Statements[0].Body;
 	$stmts = $scope.Statements;
@@ -326,7 +356,7 @@ const powerShellBareTargetExpression = `{
 // Capture $? antes que o agrupamento o restaure. Preserve os delimitadores:
 // @() pode descartar toda a saída acumulada em uma falha terminante.
 // () só admite um pipeline; a subexpressão interna comporta seu try/finally.
-const prepareGroupedPowerShell = `& {
+const prepareGroupedPowerShell = `{
 	param($source, $status, $capture, $guard, $normalize);
 	$tokens = $null;
 	$errors = $null;

@@ -233,7 +233,7 @@ type markerStream struct {
 	marker                        *CommandMarker
 	text                          parsedTerminalText
 	scanned, start, sent          int
-	started                       bool
+	started, missingLibrary       bool
 	candidate, cutoff, statusScan int
 }
 
@@ -298,6 +298,19 @@ func (s *markerStream) progress() (delta []byte, result parseResult) {
 	if !s.started {
 		needle := []byte(s.marker.startTag + "\n")
 		from := max(0, previous-len(needle))
+		if s.marker.checkLibrary {
+			// O rodapé sem status só pede a moldura autônoma antes do início.
+			// Depois dele, qualquer texto pertence à saída da própria execução.
+			probe := []byte(s.marker.endTag + markerStatusTerminator)
+			probeFrom := max(0, previous-len(probe))
+			if n := bytes.Index(data[probeFrom:], probe); n >= 0 {
+				start := bytes.Index(data[from:], needle)
+				if start < 0 || probeFrom+n < from+start {
+					s.missingLibrary = true
+					return
+				}
+			}
+		}
 		for from < len(data) {
 			n := bytes.Index(data[from:], needle)
 			if n < 0 {

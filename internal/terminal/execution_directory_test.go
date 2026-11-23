@@ -13,6 +13,13 @@ import (
 	"time"
 )
 
+func standaloneShellSetup(kind string) string {
+	if kind == "powershell" {
+		return powerShellSessionLibrary() + "; "
+	}
+	return ""
+}
+
 func TestCommandInDirectoryRejectsDirectorySwapBeforeExecution(t *testing.T) {
 	for _, ancestor := range []bool{false, true} {
 		t.Run(fmt.Sprintf("ancestor=%t", ancestor), func(t *testing.T) {
@@ -51,7 +58,7 @@ func TestCommandInDirectoryRejectsDirectorySwapBeforeExecution(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 			defer cancel()
 			var stderr bytes.Buffer
-			process := exec.CommandContext(ctx, shell, append(args, setup+newCommandMarkerForShell(kind).wrapCommandInDirectory("echo EXECUTED", authorized, kind))...)
+			process := exec.CommandContext(ctx, shell, append(args, standaloneShellSetup(kind)+setup+newCommandMarkerForShell(kind).wrapCommandInDirectory("echo EXECUTED", authorized, kind))...)
 			process.Stderr = &stderr
 			output, _ := process.Output()
 			if target, err := os.Readlink(a); err != nil || target != b {
@@ -145,11 +152,11 @@ func TestCommandInDirectoryQuotesPathsAndStopsOnFailure(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	output, err := exec.CommandContext(ctx, shell, append(args, newCommandMarkerForShell(kind).wrapCommandInDirectory(command, directory, kind))...).CombinedOutput()
+	output, err := exec.CommandContext(ctx, shell, append(args, standaloneShellSetup(kind)+newCommandMarkerForShell(kind).wrapCommandInDirectory(command, directory, kind))...).CombinedOutput()
 	if err != nil || !strings.Contains(string(output), directory) {
 		t.Fatalf("caminho literal: %s %v", output, err)
 	}
-	output, _ = exec.CommandContext(ctx, shell, append(args, newCommandMarkerForShell(kind).wrapCommandInDirectory("echo EXECUTED", filepath.Join(directory, "missing"), kind))...).Output()
+	output, _ = exec.CommandContext(ctx, shell, append(args, standaloneShellSetup(kind)+newCommandMarkerForShell(kind).wrapCommandInDirectory("echo EXECUTED", filepath.Join(directory, "missing"), kind))...).Output()
 	if strings.Contains(string(output), "EXECUTED") {
 		t.Fatalf("executou após falhar cd: %s", output)
 	}

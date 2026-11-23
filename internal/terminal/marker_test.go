@@ -92,8 +92,8 @@ func TestCommandMarker_WrapPowerShell(t *testing.T) {
 	if !strings.Contains(wrapped, base64.StdEncoding.EncodeToString([]byte("Get-Process"))) {
 		t.Errorf("wrapped command should contain original command, got: %s", wrapped)
 	}
-	if !strings.Contains(wrapped, "$LASTEXITCODE") {
-		t.Errorf("wrapped command should capture exit code with $LASTEXITCODE, got: %s", wrapped)
+	if !strings.Contains(powerShellSessionLibrary(), "$LASTEXITCODE") {
+		t.Error("falta captura do status nativo na biblioteca da sessão")
 	}
 }
 
@@ -420,7 +420,7 @@ func TestPowerShellMarkerAfterEchoWithoutNewline(t *testing.T) {
 	}
 	for _, command := range []string{"cmd /c exit 7", "(cmd /c exit 7)"} {
 		marker := newCommandMarkerForShell("powershell")
-		script := "Write-Host -NoNewline 'eco sem quebra'; " + marker.wrapCommandInDirectory(command, "", "powershell")
+		script := powerShellSessionLibrary() + "; Write-Host -NoNewline 'eco sem quebra'; " + marker.wrapCommandInDirectory(command, "", "powershell")
 		output, err := exec.Command(shell, "-NoProfile", "-NonInteractive", "-Command", script).CombinedOutput()
 		result := parseMarkerOutput(marker, string(output))
 		if err != nil || !result.Found || result.ExitCode != 7 || result.Output != "" {
@@ -886,5 +886,29 @@ func BenchmarkMarkerStreamScale(b *testing.B) {
 				}
 			})
 		}
+	}
+}
+
+func TestPowerShellLibraryReplyOnlyBeforeStart(t *testing.T) {
+	m := newCommandMarkerForShell("powershell")
+	m.checkLibrary = true
+	reply := m.endTag + markerStatusTerminator
+	for _, tc := range []struct {
+		name, wire string
+		missing    bool
+	}{
+		{"processo filho", reply, true},
+		{"texto após início", m.startTag + "\n" + reply + "\n" + m.endTag + "0!", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			for split := 0; split <= len(tc.wire); split++ {
+				stream := newMarkerStream(m)
+				stream.append(tc.wire[:split])
+				stream.append(tc.wire[split:])
+				if stream.missingLibrary != tc.missing {
+					t.Fatalf("divisão %d: ausência=%t", split, stream.missingLibrary)
+				}
+			}
+		})
 	}
 }
