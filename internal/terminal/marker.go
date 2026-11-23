@@ -315,28 +315,44 @@ const prepareGroupedPowerShell = `& {
 		if ($insertAt) { $frame = [Environment]::NewLine + $frame }
 	};
 	$stmts = $ast.EndBlock.Statements;
-` + powerShellLastOperation + `	$container = $null;
-	while ($last -is [System.Management.Automation.Language.PipelineAst] -and $last.PipelineElements.Count -eq 1) {
-		$element = $last.PipelineElements[0];
-		if ($element -isnot [System.Management.Automation.Language.CommandExpressionAst] -or $element.Redirections.Count) { break };
-		$group = $element.Expression;
-		if ($group -is [System.Management.Automation.Language.ParenExpressionAst]) {
-			$last = $group.Pipeline
-		} elseif ($group -is [System.Management.Automation.Language.SubExpressionAst] -or $group -is [System.Management.Automation.Language.ArrayExpressionAst]) {
-			if (!$group.SubExpression.Statements.Count) { break };
-			$last = $group.SubExpression.Statements[-1]
-		} else { break };
-		$container = $group
+` + powerShellLastOperation + `	$visit = {
+		param($last, $container);
+		while ($last -is [System.Management.Automation.Language.PipelineAst] -and $last.PipelineElements.Count -eq 1) {
+			$element = $last.PipelineElements[0];
+			if ($element -isnot [System.Management.Automation.Language.CommandExpressionAst] -or $element.Redirections.Count) { break };
+			$group = $element.Expression;
+			if ($group -is [System.Management.Automation.Language.ParenExpressionAst]) {
+				$last = $group.Pipeline
+			} elseif ($group -is [System.Management.Automation.Language.SubExpressionAst] -or $group -is [System.Management.Automation.Language.ArrayExpressionAst]) {
+				if (!$group.SubExpression.Statements.Count) { break };
+				$last = $group.SubExpression.Statements[-1]
+			} else { break };
+			$container = $group
+		};
+		if ($container -and $last -is [System.Management.Automation.Language.IfStatementAst]) {
+			$blocks = @($last.Clauses.Item2) + @($last.ElseClause);
+			foreach ($block in $blocks) {
+				if ($block -and $block.Statements.Count) { & $visit $block.Statements[-1] $last }
+			};
+			return
+		};
+		if ($last -is [System.Management.Automation.Language.PipelineAst] -and $last.PipelineElements.Count -and $last.PipelineElements[-1] -is [System.Management.Automation.Language.CommandAst]) {
+			[pscustomobject]@{ Last = $last; Container = $container }
+		}
 	};
-	if ($last -is [System.Management.Automation.Language.PipelineAst] -and $last.PipelineElements.Count -and $last.PipelineElements[-1] -is [System.Management.Automation.Language.CommandAst]) {
+	$originalLength = $source.Length;
+	foreach ($operation in (& $visit $last $null)) {
+		$last = $operation.Last;
+		$container = $operation.Container;
+		$shift = $source.Length - $originalLength;
 		$stages = $last.PipelineElements;
 		$prefix = '';
 		if ($container) {
 			if ($container -is [System.Management.Automation.Language.ParenExpressionAst]) { $prefix = '$(try { ' };
-			$offset = $frame.Length + $last.Extent.StartOffset + $prefix.Length;
+			$offset = $frame.Length + $shift + $last.Extent.StartOffset + $prefix.Length;
 			$record = $capture + '.Ok = $?; ' + $capture + '.Offset = ' + $offset;
 			$suffix = if ($prefix) { ' } finally { ' + $record + ' })' } else { '; ' + $record };
-			$source = $source.Insert($last.Extent.EndOffset, [Environment]::NewLine + $suffix + [Environment]::NewLine)
+			$source = $source.Insert($shift + $last.Extent.EndOffset, [Environment]::NewLine + $suffix + [Environment]::NewLine)
 		};
 		for ($n = $stages.Count - 1; $n -ge 0; $n--) {
 			$stage = $stages[$n];
@@ -350,9 +366,10 @@ const prepareGroupedPowerShell = `& {
 				if (!$text) { continue }
 			};
 			$replacement = '(' + $capture + '[' + $n + '] = ' + $text + ')';
-			$source = $source.Remove($target.StartOffset, $target.EndOffset - $target.StartOffset).Insert($target.StartOffset, $replacement)
+			$at = $shift + $target.StartOffset;
+			$source = $source.Remove($at, $target.EndOffset - $target.StartOffset).Insert($at, $replacement)
 		};
-		if ($prefix) { $source = $source.Insert($last.Extent.StartOffset, $prefix) }
+		if ($prefix) { $source = $source.Insert($shift + $last.Extent.StartOffset, $prefix) }
 	};
 	return [scriptblock]::Create($source.Insert($insertAt, $frame) + ' } finally { ' + $status.ToString() + ' }')
 }`
