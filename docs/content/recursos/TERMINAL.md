@@ -39,7 +39,8 @@ quando um `return` condicional pode ter encerrado o comando antes da etapa final
 O terminal conserva o código nativo quando a saída passa apenas por `Out-String`
 ou `Out-String -Stream`. Em `$()` e `@()`, o código de uma operação nativa no fim
 de um `if` corresponde ao ramo que o PowerShell executou, inclusive se o ramo
-retornar esse programa com `return`.
+retornar esse programa com `return`. Se o ramo retorna apenas texto ou termina
+com `return` vazio, a operação anterior do ramo determina o status.
 
 Você pode enviar uma nova entrada mesmo enquanto o terminal continua produzindo saída.
 Quando o modelo envia um comando, a saída anterior ao despacho permanece
@@ -47,9 +48,11 @@ associada à última entrada manual, inclusive se o envio for cancelado. Ao digi
 um comando na aba, o início da nova entrada já passa a identificar sua saída. A saída
 que chega depois da execução gerenciada pode ser relida como saída da sessão.
 Isso também vale quando o comando manual de origem já saiu do histórico.
-No histórico, «Saída da sessão» identifica esse texto. Uma saída longa continua
-no bloco seguinte a cada 50 KiB, preservando os caracteres inteiros e o limite
-de 200 entradas da sessão.
+No histórico, **Saída da sessão** identifica esse texto, inclusive o prompt
+interativo do shell. Você pode relê-lo no item imediatamente anterior. Quando a
+saída precede o primeiro comando, ela ganha um item próprio. Uma saída longa
+continua no bloco seguinte a cada 50 KiB. O histórico guarda até 200 comandos
+e 200 blocos da sessão. Ao enviar contexto ao chat, seguem até 40 de cada.
 Se um comando for cancelado enquanto o terminal entrega a saída anterior, ele fica no
 histórico com código -1 e a sessão continua disponível. Se a escrita de um comando
 enviado pelo modelo falhar, o Assistente encerra a sessão
