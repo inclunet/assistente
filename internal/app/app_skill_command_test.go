@@ -6,7 +6,9 @@ import (
 	"errors"
 	"runtime"
 	"strings"
+	"sync"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"assistente/internal/agent"
@@ -15,6 +17,8 @@ import (
 	"assistente/internal/contextprovider"
 	"assistente/internal/database"
 	"assistente/internal/events"
+	"assistente/internal/messaging"
+	"assistente/internal/questionnaire"
 	"assistente/internal/shelltrust"
 	"assistente/internal/skills"
 	"assistente/internal/terminal"
@@ -22,6 +26,7 @@ import (
 	"assistente/internal/tools"
 	"assistente/internal/tools/invocationctx"
 	"assistente/internal/tools/shell"
+	"gorm.io/gorm"
 )
 
 type skillTestTerminal struct {
@@ -62,24 +67,9 @@ func TestSkillCommandInAdmittedTurn(t *testing.T) {
 				t.Skip("PTY POSIX exercitado no CI Linux")
 			}
 			db := setupAuthAppTestDB(t)
-			user := database.User{Username: "skill-review", PasswordHash: "unused", Role: database.UserRoleUser, IsActive: true}
-			if err := db.Create(&user).Error; err != nil {
-				t.Fatal(err)
-			}
-			a := &App{currentUserID: user.ID}
-			conv, err := database.CreateConversationWithContext(database.WithUserID(context.Background(), user.ID), "skill", "")
-			if err != nil {
-				t.Fatal(err)
-			}
-			cid := conv.ID
-			question := messageCommandSeed(t, cid)
-			svc := agent.NewService(agent.ServiceConfig{Emitter: events.NoopEmitter{}, Turns: database.NewChatTurnRepository(db), Timeline: chat.NewDBTimelineReader(db)})
-			ctx, err := svc.BeginTurn(database.WithUserID(context.Background(), a.currentUserID), cid, question.ID, database.TurnModeNew)
-			if err != nil {
-				t.Fatal(err)
-			}
-			defer svc.EndUnfinishedTurn(ctx, cid, question.ID, nil)
-			ctx = invocationctx.With(ctx, invocationctx.InvocationContext{ConversationID: cid, TurnID: question.ID, Source: "wails"})
+			ctx := beginSkillTestTurn(t, db, "wails")
+			inv, _ := invocationctx.Get(ctx)
+			a := &App{}
 			term := &skillTestTerminal{exitCode: tc.exitCode}
 			prompts := 0
 			command := "example-tool private-argument"
@@ -141,10 +131,10 @@ func TestSkillCommandInAdmittedTurn(t *testing.T) {
 				return
 			}
 			var entries []database.ToolInvocation
-			if err := db.Where("origin_id = ?", question.ID).Find(&entries).Error; err != nil {
+			if err := db.Where("origin_id = ?", inv.TurnID).Find(&entries).Error; err != nil {
 				t.Fatal(err)
 			}
-			if len(entries) != 1 || entries[0].ConversationID == nil || *entries[0].ConversationID != cid {
+			if len(entries) != 1 || entries[0].ConversationID == nil || *entries[0].ConversationID != inv.ConversationID {
 				t.Fatalf("ledger: %+v", entries)
 			}
 			data, err := json.Marshal(entries)
@@ -156,6 +146,121 @@ func TestSkillCommandInAdmittedTurn(t *testing.T) {
 					t.Fatalf("ledger contains %q", secret)
 				}
 			}
+		})
+	}
+}
+
+func beginSkillTestTurn(t *testing.T, db *gorm.DB, source string) context.Context {
+	t.Helper()
+	user := database.User{Username: "skill-review", PasswordHash: "unused", Role: database.UserRoleUser, IsActive: true}
+	if err := db.Create(&user).Error; err != nil {
+		t.Fatal(err)
+	}
+	conv, err := database.CreateConversationWithContext(database.WithUserID(context.Background(), user.ID), "skill", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cid := conv.ID
+	question := messageCommandSeed(t, cid)
+	svc := agent.NewService(agent.ServiceConfig{Emitter: events.NoopEmitter{}, Turns: database.NewChatTurnRepository(db), Timeline: chat.NewDBTimelineReader(db)})
+	ctx, err := svc.BeginTurn(database.WithUserID(context.Background(), user.ID), cid, question.ID, database.TurnModeNew)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { svc.EndUnfinishedTurn(ctx, cid, question.ID, nil) })
+	return invocationctx.With(ctx, invocationctx.InvocationContext{ConversationID: cid, TurnID: question.ID, Source: source})
+}
+
+type channelConsentBaseSkill struct {
+	skill skills.Skill
+}
+
+func (s channelConsentBaseSkill) GetAllSkillsFull() ([]skills.Skill, error) {
+	return []skills.Skill{s.skill}, nil
+}
+func (channelConsentBaseSkill) GetSkillFiles(string) ([]string, error) { return nil, nil }
+
+func TestBaseSkillChannelRefusalAtExecutorDeadline(t *testing.T) {
+	for _, tc := range []struct {
+		name               string
+		denyBeforeDeadline bool
+		wantCode           string
+	}{
+		{"negativa antes do prazo", true, shell.FailureCommandRefused},
+		{"prazo antes da negativa", false, shell.FailureConfirmationUnavailable},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			db := setupAuthAppTestDB(t)
+			ctx := beginSkillTestTurn(t, db, "telegram")
+			inv, _ := invocationctx.Get(ctx)
+			synctest.Test(t, func(t *testing.T) {
+				opened, release := make(chan struct{}), make(chan struct{})
+				resume := sync.OnceFunc(func() { close(release) })
+				defer resume()
+				gateway := messaging.NewGateway(nil, nil, nil, nil, nil, nil)
+				gateway.Register("telegram", &consentMessenger{send: func(msg messaging.OutgoingMessage) error {
+					if !strings.Contains(msg.Text, "2 - Negar") {
+						t.Errorf("opções: %s", msg.Text)
+					}
+					close(opened)
+					<-release // A resposta pode chegar antes de o transporte confirmar o envio da pergunta.
+					return nil
+				}})
+				questions := gateway.ChannelQuestions()
+				router := questionnaire.NewRouter(nil, func() questionnaire.ChannelAsker { return questions })
+				auth := shelltrust.Authorizer{Prompt: func(ctx context.Context, req shelltrust.PromptRequest) (shelltrust.PromptDecision, error) {
+					return askShellConfirmation(ctx, router, questionnaire.ChannelSurface(inv.ConversationID, "telegram", "dono"), req)
+				}}
+				term := &skillTestTerminal{}
+				reg := tools.NewRegistry()
+				reg.MustRegister(shell.NewRunCommand(term, auth.Authorize, nil, dir))
+				cfg := tools.DefaultExecutorConfig()
+				cfg.ToolTimeout = time.Second
+				a := &App{toolInvocationSvc: toolinvocations.NewService(toolinvocations.NewDBRepository(db), tools.NewExecutor(reg, cfg))}
+				skill := skills.Skill{Slug: "base", Content: "!example check\ninstrução preservada"}
+				skill.Tools = &skills.ToolPermissions{BashCommands: &skills.BashCommands{Allowed: []string{"example"}}}
+				provider := skills.NewContextProvider(channelConsentBaseSkill{skill})
+				turn := skills.WithCommandTurn(ctx, a.runSkillCommand)
+				done := make(chan struct{})
+				var blocks []contextprovider.Block
+				var buildErr error
+				go func() {
+					defer close(done)
+					blocks, buildErr = provider.Build(turn, contextprovider.BuildRequest{EnabledSkills: []string{"base"}, ToolCallingEnabled: true})
+				}()
+				select {
+				case <-opened:
+				case <-done:
+					t.Fatalf("preparação terminou sem confirmação: %v %v", blocks, buildErr)
+				}
+				answer := func(owner string) messaging.AnswerResult {
+					return questions.TryAnswer(t.Context(), inv.ConversationID, owner, "2")
+				}
+				if answer("terceiro") != messaging.AnswerIgnored {
+					t.Fatal("resposta do terceiro aceita")
+				}
+				if tc.denyBeforeDeadline && answer("dono") != messaging.AnswerDelivered {
+					t.Fatal("negativa do dono perdida")
+				}
+				<-done // O relógio virtual vence com o transporte ainda bloqueado.
+				if !tc.denyBeforeDeadline && answer("dono") != messaging.AnswerIgnored {
+					t.Fatal("negativa tardia aceita")
+				}
+				if tc.denyBeforeDeadline {
+					if !errors.Is(buildErr, contextprovider.ErrCommandRefused) || len(blocks) != 0 || !errors.Is(skills.CommandTurnError(turn), contextprovider.ErrCommandRefused) {
+						t.Fatalf("turno não interrompido: %v %v", blocks, buildErr)
+					}
+				} else if buildErr != nil || skills.CommandTurnError(turn) != nil || len(blocks) != 1 || !strings.Contains(blocks[0].Content, "instrução preservada") || strings.Contains(blocks[0].Content, "!example") {
+					t.Fatalf("turno após confirmação indisponível: %v %v", blocks, buildErr)
+				}
+				resume()
+				synctest.Wait()
+				var entry database.ToolInvocation
+				if err := db.Where("origin_id = ?", inv.TurnID).First(&entry).Error; err != nil || entry.ErrorCode != tc.wantCode || term.calls != 0 {
+					t.Fatalf("código=%q despachos=%d erro=%v", entry.ErrorCode, term.calls, err)
+				}
+			})
 		})
 	}
 }

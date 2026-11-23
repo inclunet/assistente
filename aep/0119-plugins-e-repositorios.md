@@ -88,10 +88,10 @@ Uma recusa expressa da pessoa usa `shell_command_refused`. Um veto da política 
 
 Na falta de confirmação, o código é `shell_confirmation_unavailable`. Um argumento `working_directory` inválido recebe um diagnóstico de entrada que permite corrigir a chamada. Falhas de política, resolução do diretório do projeto ou consulta às concessões usam `shell_prerequisite_unavailable`, inclusive na releitura após uma aprovação. O diagnóstico registra a categoria da causa e o ID da chamada. Nesses casos, a base omite a linha e sua saída parcial, e a barra encerra a invocação.
 
-No desktop, o questionário entrega a resposta aceita antes do prazo conforme o
+No desktop e nos canais externos, o aceite da resposta é arbitrado conforme o
 [AEP-0091](0091-dialogos-de-decisao-unificados.md). O adaptador valida a ação oferecida
-e publica a recusa antes de `Respond` retornar. A aprovação ainda exige revalidação.
-Se o diálogo expirar sem resposta, a confirmação fica indisponível. A paridade dessa garantia nos canais externos é acompanhada na [issue #1131](https://github.com/inclunet/assistente/issues/1131). Nos canais, a apresentação literal abrange tanto o comando quanto o diretório público usado na decisão.
+e publica a recusa antes de o transporte confirmar o aceite. A aprovação ainda exige revalidação.
+Se o diálogo expirar sem resposta, a confirmação fica indisponível. `TestBaseSkillChannelRefusalAtExecutorDeadline` cobre as duas ordens entre a negativa e o prazo, a resposta de terceiro e a ausência de despacho durante a preparação da skill base. Nos canais, a apresentação literal abrange tanto o comando quanto o diretório público usado na decisão.
 
 O executor conserva o prazo do chamador. Após uma aprovação revalidada, uma interrupção
 é classificada como cancelamento ou timeout da operação. Se o prazo terminar entre a

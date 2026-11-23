@@ -104,10 +104,16 @@ type RequestPayload struct {
 }
 
 // WithAcceptGuard arbitra a aceitação sob o lock do gerenciador. O guard deve
-// ser rápido, não bloqueante e não chamar métodos do Manager.
+// ser rápido, não bloqueante e não voltar ao transporte que recebe a resposta.
 func (p RequestPayload) WithAcceptGuard(guard func(Response) bool) RequestPayload {
 	p.acceptGuard = guard
 	return p
+}
+
+// TryAcceptResponse consulta a guarda no instante da entrega. O transporte
+// deve chamá-la sob seu lock, após as validações próprias da superfície.
+func (p RequestPayload) TryAcceptResponse(resp Response) bool {
+	return p.acceptGuard == nil || p.acceptGuard(resp)
 }
 
 // Response representa a resposta do usuário.
@@ -296,7 +302,7 @@ func (m *Manager) Respond(requestID string, answers map[string]any, cancelled bo
 		Cancelled: cancelled,
 	}
 
-	if req.acceptGuard != nil && !req.acceptGuard(resp) {
+	if !req.TryAcceptResponse(resp) {
 		m.mu.Unlock()
 		return fmt.Errorf("solicitação de questionário '%s' não encontrada ou expirada", requestID)
 	}
