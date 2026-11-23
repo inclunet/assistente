@@ -112,11 +112,8 @@ describe('useTerminalSurfaceController', () => {
     }, true));
     await waitFor(() => expect(terminalMocks.loadSessions).toHaveBeenCalledTimes(1));
     expect(terminalMocks.loadHistory).not.toHaveBeenCalled();
-    for (const loading of [true, false, true]) {
-      terminalMocks.isLoadingSessions = loading;
-      terminalMocks.listeners.forEach(notify => notify());
-    }
-    await Promise.resolve();
+    terminalMocks.isLoadingSessions = true;
+    terminalMocks.listeners.forEach(notify => notify());
     terminalMocks.sessions = [{ id: 'session-a' }, { id: 'session-b' }];
     terminalMocks.listeners.forEach((listener) => listener());
     expect(terminalMocks.loadHistory).toHaveBeenCalledTimes(1);

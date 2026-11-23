@@ -122,6 +122,27 @@ describe('terminalStore', () => {
     } finally { cleanup(); }
   });
 
+  it.each(['session_created', 'session_closed'])('mantém a carga contínua durante %s e a consulta substituta', async event => {
+    const original = createDeferred<terminal.SessionInfo[]>();
+    const replacement = createDeferred<terminal.SessionInfo[]>();
+    vi.mocked(ListTerminalSessions).mockReturnValueOnce(original.promise).mockReturnValueOnce(replacement.promise);
+    const cleanup = useTerminalStore.getState().setupEventListeners();
+    const transitions: boolean[] = [];
+    const unsubscribe = useTerminalStore.subscribe((next, previous) => {
+      if (next.isLoadingSessions !== previous.isLoadingSessions) transitions.push(next.isLoadingSessions);
+    });
+    try {
+      const request = useTerminalStore.getState().loadSessions();
+      terminalEventHandlers.get('terminal:' + event)?.({ id: 'active', sessionId: 'active' });
+      original.resolve([]);
+      await Promise.resolve();
+      expect(transitions).toEqual([true]);
+      replacement.resolve([]);
+      expect(await request).toBe(true);
+      expect(transitions).toEqual([true, false]);
+    } finally { unsubscribe(); cleanup(); }
+  });
+
   it('não considera válida a relistagem substituta após troca de usuário', async () => {
     const owner = useAuthStore.getState();
     const original = createDeferred<terminal.SessionInfo[]>();

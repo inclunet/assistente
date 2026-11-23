@@ -427,7 +427,6 @@ export const useTerminalStore = create<TerminalState>((set) => ({
         return {
           sessions: [...state.sessions, unobservedCommands.has(data.id)
             ? terminal.SessionInfo.createFrom({ ...data, state: 'running' }) : data],
-          isLoadingSessions: false,
           historyBySession: terminalOutputListenerRefCount > 0 && !unobservedCommands.has(data.id)
             ? { ...state.historyBySession, [data.id]: state.historyBySession[data.id] ?? [] }
             : state.historyBySession,
@@ -463,7 +462,6 @@ export const useTerminalStore = create<TerminalState>((set) => ({
         delete newLoadingHistory[sessionId];
         return {
           sessions: state.sessions.filter(s => s.id !== sessionId),
-          isLoadingSessions: false,
           historyBySession: newHistory,
           partialHistoryBySession: partial,
           activeEntryBySession: newActiveEntry,
