@@ -66,6 +66,31 @@ func TestPrepareCloseRejectsChangedManagedGenerationWithoutEffect(t *testing.T) 
 	}
 }
 
+func TestPreparedCloseLeavesExitNotificationToReadFailure(t *testing.T) {
+	var events []string
+	s := &Session{id: "fault-before-close", state: StateIdle, onExit: func(_ string, _ error) {
+		events = append(events, "exited")
+	}}
+	s.ensureLifecycleChannels()
+	m := closeTestManager(s)
+	m.emitEvent = func(event string, _ any) { events = append(events, event) }
+	snapshot, err := m.CaptureClose(s.id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	op, err := m.PrepareClose(snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.closeAfterReadFailure(errors.New("leitor indisponível"))
+	if err := op.Execute(t.Context()); !errors.Is(err, ErrCloseStale) {
+		t.Fatalf("captura após falha: %v", err)
+	}
+	if !slices.Equal(events, []string{"exited"}) {
+		t.Fatalf("eventos: %v", events)
+	}
+}
+
 func TestCloseOperationCancelPreservesSession(t *testing.T) {
 	session := &Session{id: "close-cancel", state: StateIdle}
 	m := closeTestManager(session)

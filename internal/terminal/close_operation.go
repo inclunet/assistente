@@ -58,10 +58,10 @@ func (op *CloseOperation) Execute(ctx context.Context) error {
 	default:
 	}
 
-	// closeCapturedSession libera ioMu antes de esperar o processo e o leitor.
+	// closeWithIOLock libera ioMu antes de esperar o processo e o leitor.
 	// O manager só remove a identidade depois da segunda validação, evitando
 	// apagar uma sessão diferente em caso de reuso do ID em outro runtime.
-	err := op.session.closeCapturedSession(op.token)
+	err := op.session.closeWithIOLock(op.token)
 	op.release(closeOperationDone, false)
 	if !errors.Is(err, ErrCloseStale) && op.manager != nil && op.manager.removeIfSame(op.sessionID, op.session) {
 		op.manager.emitSessionClosed(op.session)

@@ -385,6 +385,31 @@ func (p *failingWritePTY) Close() error {
 	return p.fakePTYSession.Close()
 }
 
+func TestCancellationDuringCommandStartSkipsDispatch(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	var events []string
+	s := &Session{id: "canceled", state: StateIdle, shell: "bash", onCommandStart: func(_, _, _, _ string) {
+		events = append(events, "start")
+		cancel()
+	}, ptyWriter: manualTestWriter(func(data []byte) (int, error) {
+		t.Errorf("escrita após cancelamento (%d bytes)", len(data))
+		return 0, io.ErrClosedPipe
+	})}
+	m := NewManager(DefaultManagerConfig(), func(event string, _ any) { events = append(events, event) })
+	m.sessions[s.id] = s
+	entry, err := m.RunCommand(ctx, s.id, "exemplo", time.Minute, "test")
+	if !errors.Is(err, context.Canceled) || entry == nil || entry.ExitCode != -1 || entry.EndedAt.Before(entry.StartedAt) {
+		t.Fatalf("entrada=%+v erro=%v", entry, err)
+	}
+	if history := s.GetHistory(); len(history) != 1 || history[0] != *entry || s.State() != StateIdle {
+		t.Fatalf("histórico=%+v estado=%v", history, s.State())
+	}
+	if strings.Join(events, ",") != "start,terminal:command_end" {
+		t.Fatalf("eventos=%v", events)
+	}
+}
+
 func TestUnavailableCommandWriterKeepsHistory(t *testing.T) {
 	for _, writer := range []io.Writer{nil, manualTestWriter(func([]byte) (int, error) { return 0, io.ErrClosedPipe })} {
 		s := &Session{id: "missing-writer", shell: "bash", readerCtx: t.Context(), ptyWriter: writer}

@@ -677,6 +677,10 @@ func (s *Session) runCommandInDirectory(ctx context.Context, command, directory 
 		return failBeforeResult(fmt.Errorf("sessão %s não possui writer PTY", s.id))
 	}
 	request := []byte(wrappedCmd + enter)
+	if err := commandCtx.Err(); err != nil {
+		s.ioMu.Unlock()
+		return failBeforeResult(err)
+	}
 	nWritten, err := s.ptyWriter.Write(request)
 	if nWritten != len(request) && err == nil {
 		err = io.ErrShortWrite
@@ -1090,14 +1094,21 @@ func (s *Session) Interrupt() error {
 func (s *Session) Close() error {
 	s.ensureLifecycleChannels()
 	s.ioMu.Lock()
-	return s.closeWithIOLock()
+	return s.closeWithIOLock(nil)
 }
 
 // closeWithIOLock executa o cleanup assumindo que ioMu está reservado pelo
 // chamador. Ele libera ioMu assim que Kill/estado closing terminam, antes de
 // aguardar o processo e drenar o leitor.
-func (s *Session) closeWithIOLock() error {
+func (s *Session) closeWithIOLock(captured *closeSnapshotToken) error {
 	s.mu.Lock()
+	// A falha do leitor pode iniciar o cleanup sem ioMu. Valide a captura
+	// sob o mesmo lock que atribui o encerramento à ação explícita.
+	if captured != nil && !s.matchesCloseSnapshot(captured) {
+		s.mu.Unlock()
+		s.ioMu.Unlock()
+		return ErrCloseStale
+	}
 	if s.state == StateClosing {
 		closeDone := s.closeDone
 		s.mu.Unlock()
@@ -1204,7 +1215,7 @@ func (s *Session) closeForManager() (bool, error) {
 // vencido enquanto o backend continuava bloqueado em Kill, Wait ou Close.
 func (s *Session) notifyFaultExit() {
 	s.mu.Lock()
-	if s.state != StateExited || !s.writeClosing && s.readerErr == nil || s.explicitClose || s.onExit == nil {
+	if s.state != StateExited || (!s.writeClosing && s.readerErr == nil) || s.explicitClose || s.onExit == nil {
 		s.mu.Unlock()
 		return
 	}
@@ -1224,20 +1235,6 @@ func (s *Session) notifyFaultExit() {
 	}
 	s.mu.Unlock()
 	s.exitOnce.Do(func() { s.deliverExit(cause) })
-}
-
-// closeCapturedSession é usado somente por CloseOperation depois de
-// PrepareClose reservar ioMu. A segunda comparação fecha a janela entre a
-// captura e o efeito, inclusive contra saída natural da sessão.
-func (s *Session) closeCapturedSession(token *closeSnapshotToken) error {
-	s.mu.Lock()
-	if !s.matchesCloseSnapshot(token) {
-		s.mu.Unlock()
-		s.ioMu.Unlock()
-		return ErrCloseStale
-	}
-	s.mu.Unlock()
-	return s.closeWithIOLock()
 }
 
 func isExpectedTermination(err error) bool {
