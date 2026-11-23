@@ -16,7 +16,10 @@ func (a *App) initLLMCatalog() {
 			}
 		}})
 	}
-	a.llmCatalog.Start(a.appContext())
+	// O chat da CLI carrega o cache sob demanda após validar sua sessão.
+	if !a.conversationCLI {
+		a.llmCatalog.Start(a.appContext())
+	}
 }
 
 func (a *App) wireLLMCatalog() {

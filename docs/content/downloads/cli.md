@@ -65,6 +65,37 @@ Binários pré-compilados para todas as plataformas estão disponíveis na [pág
 
 Após baixar, dê permissão de execução (Linux/macOS: `chmod +x asst-*`) e mova para um diretório no PATH.
 
+## Usar a conversa do desktop
+
+Com a conta conectada no Assistente e o cofre desbloqueado, liste as conversas
+recentes e continue uma delas com o perfil desejado:
+
+```bash
+asst history list --limit 10
+asst chat --conversation ID --profile PERFIL "Sua mensagem"
+```
+
+Execute os dois comandos com o mesmo usuário do sistema e o mesmo banco do
+desktop. O uso simultâneo do mesmo banco pela CLI e pelo desktop é experimental.
+O processo da CLI precisa conseguir ler a chave do cofre no chaveiro do sistema.
+O bloqueio da janela do desktop e a disponibilidade dessa chave para outro
+processo são estados distintos. Para encerrar a sessão compartilhada, saia da conta.
+
+`history show ID` exibe a conversa e `history delete ID` a exclui do histórico
+da conta, inclusive no desktop. A CLI valida a sessão salva a cada operação. Se ela expirou ou foi
+encerrada, entre novamente no Assistente. Se a validação falhar enquanto o
+desktop renova a sessão, repita o comando após a renovação. Se mudar de conta no desktop
+ou se as permissões da conta mudarem durante um chat, reabra a CLI. A consulta de histórico e o chat
+não iniciam outra execução dos jobs agendados. O chat usa o último catálogo
+local válido para aplicar os parâmetros do modelo, inclusive quando o cache
+está desatualizado. Se o perfil usa o provedor padrão e nenhum estiver marcado,
+o chat escolhe o primeiro provedor elegível por ID no cadastro atual da conta,
+como o desktop. A escolha pela CLI
+preserva as configurações salvas. Durante um chat, o padrão pode mudar para outro
+provedor já carregado. Se o cadastro do provedor escolhido foi criado, alterado
+ou removido depois da abertura, reabra a CLI para carregar a configuração e
+as credenciais correspondentes.
+
 ## Configuração inicial
 
 Na primeira execução, use o wizard de setup:
