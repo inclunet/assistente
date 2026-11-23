@@ -162,13 +162,21 @@ func buildSurfaceContextBlock(surface *contextprovider.Surface, budgetChars int)
 	var body strings.Builder
 	writeStructuredSelection(&body, normalized)
 	writeStructuredFocus(&body, normalized)
-	writeStructuredContent(&body, normalized)
-	writeStructuredMetadata(&body, normalized)
+	prefix := buildSurfaceOpenTag(normalized) + "\nCurrent active surface context. Treat this as turn-specific dynamic state.\n"
+	var metadata strings.Builder
+	writeStructuredMetadata(&metadata, normalized)
+	// Guarda o espaço do fechamento e, se necessário, do aviso de metadados omitidos.
+	contentBudget := budgetChars - runeLen(prefix) - runeLen(body.String()) - runeLen(surfaceContextSuffix)
+	if metadata.Len() > 0 {
+		contentBudget -= min(runeLen(metadata.String()), runeLen(surfaceContextTruncationNotice))
+	}
+	writeStructuredContent(&body, normalized, contentBudget)
+	body.WriteString(metadata.String())
 	bodyContent := strings.TrimRight(body.String(), "\n")
 	if strings.TrimSpace(bodyContent) == "" {
 		return ""
 	}
-	content := buildSurfaceOpenTag(normalized) + "\nCurrent active surface context. Treat this as turn-specific dynamic state.\n" + bodyContent
+	content := prefix + bodyContent
 	trimmed := trimSurfaceContextBlock(content, budgetChars)
 	if surfaceSelectionText(normalized) == "" || strings.Contains(trimmed, "<selection") {
 		return trimmed
@@ -330,14 +338,11 @@ func writeStructuredFocus(sb *strings.Builder, surface *normalizedSurfaceContext
 	writeXMLTextElement(sb, "focus", attrs, stringFromMap(surface.Focus, "text"), surfaceTextLimit(surface.SurfaceType))
 }
 
-func writeStructuredContent(sb *strings.Builder, surface *normalizedSurfaceContext) {
+func writeStructuredContent(sb *strings.Builder, surface *normalizedSurfaceContext, budget int) {
 	if surface == nil || len(surface.Content) == 0 {
 		return
 	}
 	attrs := []string{xmlAttr("kind", firstNonEmpty(stringFromMap(surface.Content, "kind"), "unknown"))}
-	if value := boolStringFromMap(surface.Content, "truncated"); value != "" {
-		attrs = append(attrs, xmlAttr("truncated", value))
-	}
 	text := firstNonEmpty(
 		stringFromMap(surface.Content, "markdown"),
 		stringFromMap(surface.Content, "recentOutput"),
@@ -347,7 +352,45 @@ func writeStructuredContent(sb *strings.Builder, surface *normalizedSurfaceConte
 	if currentInput := stringFromMap(surface.Content, "currentInput"); currentInput != "" {
 		attrs = append(attrs, xmlAttr("current_input", truncateText(currentInput, 240)))
 	}
-	writeXMLTextElement(sb, "content", attrs, text, surfaceTextLimit(surface.SurfaceType))
+	baseAttrs := attrs
+	if value := boolStringFromMap(surface.Content, "truncated"); value != "" {
+		attrs = append(baseAttrs, xmlAttr("truncated", value))
+	}
+	if surface.SurfaceType != "terminal" || text == "" || text != stringFromMap(surface.Content, "recentOutput") {
+		writeXMLTextElement(sb, "content", attrs, text, surfaceTextLimit(surface.SurfaceType))
+		return
+	}
+	// O escape XML também consome o orçamento do perfil. Preserve a identidade
+	// no início e a saída recente no fim antes que o corte geral remova linhas.
+	runes := []rune(text)
+	render := func(value string, attributes []string) string {
+		var element strings.Builder
+		writeXMLTextElement(&element, "content", attributes, value, 0)
+		return element.String()
+	}
+	limit := surfaceTextLimit(surface.SurfaceType)
+	if len(runes) <= limit {
+		full := render(text, attrs)
+		if runeLen(strings.TrimSuffix(full, "\n")) <= budget {
+			sb.WriteString(full)
+			return
+		}
+	}
+	attrs = append(baseAttrs, xmlAttr("truncated", "true"))
+	best := ""
+	for low, high := 1, min(len(runes)-1, limit-1); low <= high; {
+		count := (low + high) / 2
+		head := count / 4
+		excerpt := string(runes[:head]) + "…" + string(runes[len(runes)-(count-head):])
+		element := render(excerpt, attrs)
+		if runeLen(strings.TrimSuffix(element, "\n")) <= budget {
+			best = element
+			low = count + 1
+		} else {
+			high = count - 1
+		}
+	}
+	sb.WriteString(best)
 }
 
 func writeStructuredMetadata(sb *strings.Builder, surface *normalizedSurfaceContext) {

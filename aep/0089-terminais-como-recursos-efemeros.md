@@ -155,6 +155,9 @@ Entregue:
   incluindo a marca de corte que o histórico acrescenta ao exceder 50 KiB.
   Um comando que sozinho excede o orçamento é identificado pelo início do nome e
   da linha de comando. A prévia indica o corte e reserva espaço para o fim da saída.
+  No provedor de contexto, o orçamento do perfil conta os pontos de código do XML
+  já escapado. Se esse orçamento exigir outro corte, o provedor conserva o início
+  e privilegia o fim do texto disponível, marcando o elemento como truncado.
   A navegação agrega a saída da sessão ao item anterior quando ele existe. Um
   prompt personalizado pertence a esse fluxo, como qualquer texto espontâneo. A transferência
   inclui os bytes posteriores ao rodapé na mesma leitura e os já recebidos

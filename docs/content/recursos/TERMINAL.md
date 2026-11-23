@@ -60,6 +60,8 @@ Quando uma saída é longa, a prévia mostra o comando e o fim da saída dispon�
 onde costuma aparecer o diagnóstico. As reticências indicam o trecho omitido. Se o
 histórico já atingiu o limite de 50 KiB do comando, esse fim corresponde à parte
 guardada e inclui a marca de corte do histórico.
+O orçamento de contexto do perfil pode abreviar novamente o texto entregue ao
+modelo. Nesse corte, o Assistente também prioriza as linhas finais disponíveis.
 Se o prazo vencer ou o comando for cancelado enquanto o terminal entrega a saída
 anterior, o comando fica no histórico com código -1. A sessão volta a ficar disponível
 e a saída pendente conserva a identificação original. Se você havia enviado um

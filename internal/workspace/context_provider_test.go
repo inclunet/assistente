@@ -3,8 +3,9 @@ package workspace
 import (
 	"context"
 	"encoding/json"
-	"os"
+	"encoding/xml"
 	"net/url"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -26,6 +27,38 @@ func TestTerminalFrontendTextLimitMatchesProvider(t *testing.T) {
 	}
 	if got := surfaceTextLimit("terminal"); limits.TextFieldCodePoints != got {
 		t.Fatalf("limite frontend %d, provedor %d", limits.TextFieldCodePoints, got)
+	}
+}
+
+func TestTerminalContextPreservesRecentCommandAfterXMLEscaping(t *testing.T) {
+	for _, budget := range []int{defaultSurfacePromptBudget, 550} {
+		recent := "$ teste-recente\nERRO: módulo <ausente>"
+		blocks, err := NewSurfaceContextProvider().Build(context.Background(), contextprovider.BuildRequest{
+			ProviderBudgets: map[string]int{"surface_context": budget},
+			Surface: &contextprovider.Surface{Type: "terminal", Context: map[string]any{
+				"surfaceType": "terminal", "surfaceId": "aba-1", "snapshotVersion": "terminal:aba-1:7",
+				"content": map[string]any{"kind": "terminal_output", "truncated": false,
+					"recentOutput": "[Sessão]\n" + strings.Repeat("&", 850) + "\n---\n" + recent},
+				"metadata": map[string]any{"sessionId": "s1", "cwd": "/tmp"},
+			}},
+		})
+		if err != nil || len(blocks) != 1 {
+			t.Fatalf("budget %d: Build = %v, %v", budget, blocks, err)
+		}
+		var doc struct {
+			Content struct {
+				Text      string `xml:",chardata"`
+				Truncated bool   `xml:"truncated,attr"`
+			} `xml:"content"`
+		}
+		block := blocks[0].Content
+		if err := xml.Unmarshal([]byte(block), &doc); err != nil {
+			t.Fatal(err)
+		}
+		if runeLen(block) > budget || !doc.Content.Truncated || !strings.HasPrefix(doc.Content.Text, "[Sessão]\n") ||
+			!strings.HasSuffix(doc.Content.Text, recent) || !strings.Contains(block, "&amp;") {
+			t.Fatalf("budget %d: %q", budget, block)
+		}
 	}
 }
 
