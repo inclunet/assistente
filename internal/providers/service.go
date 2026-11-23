@@ -1145,25 +1145,30 @@ var errChatProviderSnapshotChanged = errors.New("o cadastro do provedor mudou ou
 // A CLI mantém o registro e as credenciais da abertura. Confira o cadastro
 // escolhido antes de montar o cliente a partir desse mesmo snapshot.
 func (s *Service) validateChatProviderSnapshot(ctx context.Context, id string, loaded *llm.ProviderConfig) error {
-	if loaded == nil {
-		return errChatProviderSnapshotChanged
-	}
 	stored, err := s.store.Get(ctx, id)
 	if errors.Is(err, gorm.ErrRecordNotFound) || err == nil && stored == nil {
+		if loaded == nil {
+			return fmt.Errorf("provedor LLM não encontrado: %s", id)
+		}
 		return errChatProviderSnapshotChanged
 	}
 	if err != nil {
 		return fmt.Errorf("revalidar provedor de chat: %w", err)
 	}
-	// A promoção a padrão muda a seleção e pode ocorrer entre dois turnos.
-	// A configuração do cliente escolhido continua sendo a da abertura.
-	stored.IsDefault = loaded.IsDefault
 	if stored.APIFormat == "" {
 		stored.APIFormat = stored.GetAPIFormat()
 	}
 	// O registro normaliza os campos de texto na admissão. Uma configuração
 	// pendente mantém o diagnóstico específico da validação no ponto de envio.
 	validationErr := stored.Validate()
+	if loaded == nil {
+		if validationErr != nil {
+			return validationErr
+		}
+		return errChatProviderSnapshotChanged
+	}
+	// A promoção a padrão muda a seleção e pode ocorrer entre dois turnos.
+	stored.IsDefault = loaded.IsDefault
 	if len(stored.ACPArgs) == 0 {
 		stored.ACPArgs = nil
 	}

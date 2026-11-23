@@ -113,7 +113,7 @@ data: [DONE]
 `)
 	}))
 	defer otherServer.Close()
-	var conversationID, profileSlug, explicitProfile, disposableID string
+	var conversationID, profileSlug, explicitProfile, missingProfile, disposableID string
 	var foreign database.Conversation
 	var previousCredential database.CredentialEntry
 	var activeRun database.SubAgentRun
@@ -168,7 +168,6 @@ data: [DONE]
 		if _, err := cli.CreateLLMProvider(apidto.CreateLLMProviderRequest{ID: "z-outro", Name: "A primeiro nome", Type: "openai", AuthMode: "none", APIFormat: "openai", BaseURL: otherServer.URL + "/v1", DefaultModel: "outro"}); err != nil {
 			t.Fatal(err)
 		}
-
 		owner, err := loginApp.GetAuthUser()
 		if err != nil {
 			t.Fatal(err)
@@ -194,6 +193,10 @@ data: [DONE]
 			t.Fatal(err)
 		}
 		explicitProfile, err = cli.CreateProfile(profiles.Profile{Name: "Segundo explícito", Chat: profiles.ChatConfig{LLMProvider: "z-outro", Model: "outro", ResponseTimeout: 30, EnabledSkills: []string{}}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		missingProfile, err = cli.CreateProfile(profiles.Profile{Name: "Provedor ausente", Chat: profiles.ChatConfig{LLMProvider: "ausente", Model: "modelo", ResponseTimeout: 30, EnabledSkills: []string{}}})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -300,6 +303,13 @@ data: [DONE]
 		if err := database.DB().Model(&database.LLMProvider{}).Where("user_id = ? AND is_default = ?", session.UserID, true).Count(&defaults).Error; err != nil || defaults != 0 {
 			t.Fatalf("padrão gravado após o chat: %d, erro=%v", defaults, err)
 		}
+		chatProfile = missingProfile
+		sentBefore := completions.Load()
+		err = chatCmd.RunE(chatCmd, []string{"Não envie pelo cadastro ausente"})
+		if err == nil || !strings.Contains(err.Error(), "provedor LLM não encontrado: ausente") || strings.Contains(err.Error(), "reabra") || completions.Load() != sentBefore || otherCompletions.Load() != 0 {
+			t.Fatalf("provedor já ausente na abertura: err=%v, envios=%d/%d", err, completions.Load(), otherCompletions.Load())
+		}
+		chatProfile = profileSlug
 		var second database.LLMProvider
 		if err := database.DB().First(&second, "user_id = ? AND id = ?", session.UserID, "z-outro").Error; err != nil {
 			t.Fatal(err)
