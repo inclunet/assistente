@@ -249,7 +249,9 @@ propagada:
   `clear` (reset); integração com sumarização para conversas longas.
 - **Fase 4 — Jobs**: job chamando a tool `subagent` (conversa fixa = histórico
   recorrente; ou conversa nova por run); proveniência/circuit-breaker compartilhados;
-  reconciliação de runs órfãos no startup.
+  reconciliação de runs órfãos no startup. O bootstrap curto dos grupos
+  `commands`, `history` e `chat` da CLI preserva os runs de um desktop que usa
+  o mesmo banco.
 - **Fase 5 — UI + limites**: sub-conversas são **mescladas na listagem do Histórico**
   (`HistoryPage`), não em página separada — são conversas comuns do ponto de vista do
   usuário (mesma tabela, mesmas ações: abrir, renomear, excluir, exportar). A listagem
