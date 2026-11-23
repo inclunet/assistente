@@ -254,7 +254,7 @@ export const useTerminalStore = create<TerminalState>((set) => ({
         const entries = new Map((history || []).map(entry => [entry.id, entry]));
         for (const entry of state.historyBySession[sessionId] ?? []) {
           const stored = entries.get(entry.id);
-          if (stored && entry.source === 'user-raw' && entry.output) {
+          if (stored && !stored.output && entry.source === 'user-raw' && entry.output) {
             // A sessão registra o comando manual. Sua saída chega à interface pelo stream.
             const hydrated = terminal.HistoryEntry.createFrom({ ...stored, output: entry.output });
             const used = historyBytes.get(entry);
@@ -491,9 +491,7 @@ export const useTerminalStore = create<TerminalState>((set) => ({
       const pending = unobservedCommands.get(data.sessionId);
       unobservedCommands.delete(data.sessionId);
       const workspace = useWorkspaceStore.getState().workspace;
-      const tabsAtCompletion = workspace?.tabs ?? [];
-      const tabIndex = tabsAtCompletion.findIndex(candidate => candidate.type === 'terminal' && candidate.state?.sessionId === data.sessionId);
-      const tab = tabsAtCompletion[tabIndex];
+      const tab = workspace?.tabs.find(candidate => candidate.type === 'terminal' && candidate.state?.sessionId === data.sessionId);
       if (terminalOutputListenerRefCount > 0 || tab) {
         if (isVoiceAccessibilityOriginCurrentlyActive(terminalOrigin(data.sessionId))) playReceiveSound();
         const outputPreview = data.output
@@ -503,7 +501,7 @@ export const useTerminalStore = create<TerminalState>((set) => ({
         const titleAtCompletion = tab?.title?.trim();
         const nameAtCompletion = useTerminalStore.getState().sessions.find(session => session.id === sessionId)?.name?.trim();
         const fallback = i18next.t('terminal.announce.backgroundResult', {
-          name: nameAtCompletion || titleAtCompletion || unnamedTerminalTab(tabIndex), exitCode,
+          name: nameAtCompletion || titleAtCompletion || i18next.t('terminal.pageTitle'), exitCode,
         });
         const resolve = () => {
           const tabs = useWorkspaceStore.getState().workspace?.tabs ?? [];
@@ -511,7 +509,7 @@ export const useTerminalStore = create<TerminalState>((set) => ({
           const session = useTerminalStore.getState().sessions.find(candidate => candidate.id === sessionId);
           // O fechamento pode retirar a sessão do catálogo antes de a fila chegar a ela.
           const sessionName = session ? session.name?.trim() : nameAtCompletion;
-          const name = sessionName || tabs[index]?.title?.trim() || (index < 0 && titleAtCompletion) || unnamedTerminalTab(index >= 0 ? index : tabIndex);
+          const name = sessionName || tabs[index]?.title?.trim() || (index < 0 && titleAtCompletion) || unnamedTerminalTab(index);
           return i18next.t('terminal.announce.backgroundResult', { name, exitCode });
         };
         announceTerminalResult(sessionId, i18next.t('terminal.announce.outputWithExit', { output: outputPreview, exitCode }), { resolve, fallback });
