@@ -325,7 +325,7 @@ export const useTerminalStore = create<TerminalState>((set) => ({
           sessions: [...state.sessions, unobservedCommands.has(data.id)
             ? terminal.SessionInfo.createFrom({ ...data, state: 'running' }) : data],
           isLoadingSessions: false,
-          historyBySession: terminalOutputListenerRefCount > 0
+          historyBySession: terminalOutputListenerRefCount > 0 && !unobservedCommands.has(data.id)
             ? { ...state.historyBySession, [data.id]: state.historyBySession[data.id] ?? [] }
             : state.historyBySession,
         };
