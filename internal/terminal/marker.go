@@ -34,7 +34,6 @@ type CommandMarker struct {
 	startTag        string
 	endTag          string
 	inlineEnd       bool
-	checkLibrary    bool
 	conPTY          bool
 	viewportColumns int
 	control         terminalControl
@@ -54,8 +53,7 @@ func newCommandMarkerForShell(shell string) *CommandMarker {
 func (m *CommandMarker) wrapCommandInDirectory(command, directory, shellType string) string {
 	switch shellType {
 	case "powershell", "powershell.exe", "pwsh", "pwsh.exe":
-		m.checkLibrary = true
-		return m.wrapPowerShell(command, directory, true)
+		return m.wrapPowerShell(command, directory, "")
 	default:
 		return m.wrapPOSIX(command, directory, shellType)
 	}
@@ -142,22 +140,32 @@ func selectPowerShellPreparation(command string) powerShellPreparation {
 
 // A biblioteca fica no processo do shell. A entrada interativa contém apenas
 // a moldura específica da invocação, inclusive quando PSReadLine está ausente.
-func shellStartupArgs(shell string) []string {
-	if shellType(shell) != "powershell" {
-		return nil
-	}
-	return []string{"-NoExit", "-Command", powerShellSessionLibrary()}
+const libraryVariable = "AssistenteTerminalLibrary"
+const libraryTuple = "[Tuple[string,scriptblock,scriptblock,scriptblock]]"
+
+// Uma única constante associa os três blocos ao identificador desta sessão.
+// Um perfil que já é dono do nome conserva seu valor.
+func powerShellSessionLibrary(key string) string {
+	return "if (!$ExecutionContext.SessionState.PSVariable.Get('global:" + libraryVariable + "')) { " +
+		`Microsoft.PowerShell.Utility\New-Variable -Scope Global -Option Constant -ErrorAction Ignore -Name ` + libraryVariable +
+		" -Value (" + libraryTuple + "::new('" + key + "'," + singlePowerShellLine(failedPowerShellStatus) + "," +
+		singlePowerShellLine(prepareGroupedPowerShell) + "," + singlePowerShellLine(powerShellBareTargetExpression) + ")) }"
 }
 
-func powerShellSessionLibrary() string {
-	const define = `Microsoft.PowerShell.Utility\New-Variable -Scope Global -Option Constant -ErrorAction Stop -Name `
-	return define + "AssistenteTerminalStatus -Value " + singlePowerShellLine(failedPowerShellStatus) +
-		"; " + define + "AssistenteTerminalPrepare -Value " + singlePowerShellLine(prepareGroupedPowerShell) +
-		"; " + define + "AssistenteTerminalTarget -Value " + singlePowerShellLine(powerShellBareTargetExpression)
+func powerShellLibraryPresent(key string) string {
+	value := "$ExecutionContext.SessionState.PSVariable.GetValue('global:" + libraryVariable + "')"
+	return value + " -is " + libraryTuple + " -and $global:" + libraryVariable + ".Item1 -ceq '" + key + "'"
+}
+
+// A consulta não carrega o corpo autorizado. Use enquadramento distinto para
+// a execução, que recebe o corpo uma única vez em ambos os modos.
+func (m *CommandMarker) powerShellProbe(key string) string {
+	return fmt.Sprintf("Write-Host ([string][char]24 + [Environment]::NewLine + '%s' + '%s'); Write-Host ([string][char]24 + '%s' + '%s' + [int](!(%s)) + '!')",
+		markerStart, m.id+markerSuffix, markerEnd, m.id+markerSuffix, powerShellLibraryPresent(key))
 }
 
 // wrapPowerShell gera comando wrapped para PowerShell.
-func (m *CommandMarker) wrapPowerShell(command, directory string, compact bool) string {
+func (m *CommandMarker) wrapPowerShell(command, directory, key string) string {
 	// O ConPTY pode colar a saída ao eco ou redesenhar o comando anterior.
 	// Só o shell concatena os fragmentos: o eco nunca contém as tags deste comando.
 	start := fmt.Sprintf("Write-Host ([string][char]24 + [Environment]::NewLine + '%s' + '%s')", markerStart, m.id+markerSuffix)
@@ -173,8 +181,8 @@ func (m *CommandMarker) wrapPowerShell(command, directory string, compact bool) 
 		cleanup += "," + state[1:]
 		success = "($? -or " + state + "['Ok'] -eq $true) -and " + state + "['Ok'] -ne $false"
 	}
-	statusHelper, prepareHelper, targetHelper := "& $global:AssistenteTerminalStatus", "& $global:AssistenteTerminalPrepare", "$global:AssistenteTerminalTarget"
-	if !compact {
+	statusHelper, prepareHelper, targetHelper := "& $global:"+libraryVariable+".Item2", "& $global:"+libraryVariable+".Item3", "$global:"+libraryVariable+".Item4"
+	if key == "" {
 		statusHelper = "& " + singlePowerShellLine(failedPowerShellStatus)
 		prepareHelper = "& " + singlePowerShellLine(prepareGroupedPowerShell)
 		targetHelper = singlePowerShellLine(powerShellBareTargetExpression)
@@ -202,13 +210,10 @@ func (m *CommandMarker) wrapPowerShell(command, directory string, compact bool) 
 		}
 		script = fmt.Sprintf("%s (%s) {%s} '%s' '%s' %s", prepareHelper, source, status, state, parseGuard, normalize)
 	}
-	frame = fmt.Sprintf("%s; %stry { %s. (%s) } catch { Microsoft.PowerShell.Utility\\Write-Error -ErrorRecord $_ -ErrorAction Continue; %s=1 }; Write-Host (%s + %s + '%s'); Microsoft.PowerShell.Utility\\Remove-Variable -Name %s -ErrorAction Ignore", start, setup, parseGuard, script, code, end, code, markerStatusTerminator, cleanup)
-	if !compact {
-		return frame
+	if key != "" {
+		parseGuard = "if (!(" + powerShellLibraryPresent(key) + ")) { throw 'PowerShell session changed' }; " + parseGuard
 	}
-	// Um shell filho pode assumir o PTY. A resposta de ausência precede o
-	// marcador de início: o corpo autorizado ainda não foi executado.
-	return fmt.Sprintf("if (@(Microsoft.PowerShell.Utility\\Get-Variable -Scope Global -Name AssistenteTerminalStatus,AssistenteTerminalPrepare,AssistenteTerminalTarget -ErrorAction Ignore).Count -eq 3) { %s } else { Write-Host (%s + '!') }", frame, end)
+	return fmt.Sprintf("%s; %stry { %s. (%s) } catch { Microsoft.PowerShell.Utility\\Write-Error -ErrorRecord $_ -ErrorAction Continue; %s=1 }; Write-Host (%s + %s + '%s'); Microsoft.PowerShell.Utility\\Remove-Variable -Name %s -ErrorAction Ignore", start, setup, parseGuard, script, code, end, code, markerStatusTerminator, cleanup)
 }
 
 // A preparação e a leitura da falha precisam identificar a mesma operação.

@@ -3,10 +3,12 @@ package terminal
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"io"
 	"regexp"
+	"strings"
 	"sync"
 	"testing"
 	"testing/synctest"
@@ -538,13 +540,14 @@ func TestInterruptSnapshotRejectsZeroWriteWithoutError(t *testing.T) {
 	}
 }
 
-func TestInterruptBeforePowerShellFallback(t *testing.T) {
+func TestInterruptAfterPowerShellProbe(t *testing.T) {
 	for _, mode := range []string{"snapshot", "direto"} {
 		t.Run(mode, func(t *testing.T) {
 			synctest.Test(t, func(t *testing.T) {
 				writer := &interruptFakePTYWriter{}
 				manager, s := newInterruptFakeManager(writer)
 				s.shell = "powershell"
+				s.powerShellKey = "test"
 				done := make(chan error, 1)
 				go func() {
 					_, err := s.runCommandInDirectory(t.Context(), "Write-Output exemplo", "", time.Minute, "test", "cmd", nil)
@@ -555,11 +558,11 @@ func TestInterruptBeforePowerShellFallback(t *testing.T) {
 				if len(writes) != 1 {
 					t.Fatalf("escritas antes da resposta: %d", len(writes))
 				}
-				id := regexp.MustCompile(`__asstCode([a-f0-9]{8})`).FindSubmatch(writes[0])
+				id := regexp.MustCompile(`([a-f0-9]{8})__'`).FindSubmatch(writes[0])
 				if len(id) != 2 {
 					t.Fatal("sem identificador de moldura")
 				}
-				s.recordOutput(markerEnd + string(id[1]) + markerSuffix + markerStatusTerminator)
+				s.recordOutput(markerStart + string(id[1]) + markerSuffix + "\n" + markerEnd + string(id[1]) + markerSuffix + "1!")
 				if mode == "snapshot" {
 					snapshot, err := manager.CaptureInterrupt(s.id)
 					if err != nil {
@@ -583,6 +586,38 @@ func TestInterruptBeforePowerShellFallback(t *testing.T) {
 					t.Fatalf("esperado Ctrl+C como última de duas escritas, total=%d", len(writes))
 				}
 			})
+		})
+	}
+}
+
+func TestPowerShellDispatchesBodyOnce(t *testing.T) {
+	for _, reply := range []string{"0", "1"} {
+		t.Run(reply, func(t *testing.T) {
+			s := &Session{shell: "powershell", powerShellKey: "test", state: StateIdle}
+			var writes []string
+			const body = "Write-Output exemplo"
+			encoded := base64.StdEncoding.EncodeToString([]byte(body))
+			s.ptyWriter = manualTestWriter(func(p []byte) (int, error) {
+				writes = append(writes, string(p))
+				id := regexp.MustCompile(`([a-f0-9]{8})__'`).FindSubmatch(p)
+				if len(id) != 2 {
+					return 0, errors.New("sem id")
+				}
+				tag := string(id[1]) + markerSuffix
+				code, output := reply, ""
+				if len(writes) > 1 {
+					code = "0"
+					output = "ok\n"
+				}
+				// Antes do início e depois da execução, a mesma saída residual
+				// é compatível com a resposta de ausência usada no protocolo antigo.
+				s.recordOutput(markerEnd + tag + "!\n" + markerStart + tag + "\n" + output + markerEnd + tag + code + "!" + markerEnd + tag + "!")
+				return len(p), nil
+			})
+			e, err := s.runCommandInDirectory(t.Context(), body, "", 5*time.Second, "test", "cmd", nil)
+			if err != nil || e.ExitCode != 0 || e.Output != "ok" || len(writes) != 2 || strings.Contains(writes[0], encoded) || strings.Count(writes[1], encoded) != 1 {
+				t.Fatalf("despacho: resultado=%+v erro=%v escritas=%d", e, err, len(writes))
+			}
 		})
 	}
 }

@@ -193,7 +193,7 @@ func TestPowerShellNamespaceAndNativeReturn(t *testing.T) {
 			{"Write-Output 'inválido'; using namespace System.Text", "", 1},
 			{"using namespace System.Text; Write-Output 'inválido'; if (", "", 1},
 		} {
-			cmd := exec.CommandContext(t.Context(), "powershell.exe", "-NoProfile", "-NonInteractive", "-Command", powerShellSessionLibrary()+"; "+marker.wrapCommandInDirectory(tc.cmd, dir, "powershell"))
+			cmd := exec.CommandContext(t.Context(), "powershell.exe", "-NoProfile", "-NonInteractive", "-Command", marker.wrapCommandInDirectory(tc.cmd, dir, "powershell"))
 			out, err := cmd.CombinedOutput()
 			result := parseMarkerOutput(marker, string(out))
 			if err != nil || !result.Found || result.ExitCode != tc.code || (tc.code != 1 && strings.TrimSpace(result.Output) != tc.output) {
@@ -204,10 +204,10 @@ func TestPowerShellNamespaceAndNativeReturn(t *testing.T) {
 			}
 		}
 		if dir != "" {
-			cmd := powerShellSessionLibrary() + "; " + marker.wrapCommandInDirectory("using namespace System.Text; (Get-Location).ProviderPath", dir, "powershell")
+			cmd := marker.wrapCommandInDirectory("using namespace System.Text; (Get-Location).ProviderPath", dir, "powershell")
 			out, err := exec.CommandContext(t.Context(), "powershell.exe", "-NoProfile", "-NonInteractive", "-Command", cmd).CombinedOutput()
 			result := parseMarkerOutput(marker, string(out))
-			if err != nil || !result.Found || result.ExitCode != 0 || strings.TrimSpace(result.Output) != dir {
+			if err != nil || !result.Found || result.ExitCode != 0 || !sameTestDirectory(strings.TrimSpace(result.Output), dir) {
 				t.Fatalf("diretório após using: saída=%q status=%d erro=%v", result.Output, result.ExitCode, err)
 			}
 		}

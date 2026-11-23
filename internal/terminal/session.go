@@ -92,6 +92,7 @@ type commandStartCallback func(sessionID, commandID, command, source string)
 
 // Session encapsula uma sessão PTY persistente com um shell.
 type Session struct {
+	powerShellKey  string
 	id             string
 	sessionVersion uint64
 	name           string
@@ -223,17 +224,22 @@ func newSession(name, workDir, shell string, env []string, onOutput outputCallba
 
 	opts := ptyx.SpawnOpts{
 		Prog: shell,
-		Args: shellStartupArgs(shell),
+
 		Env:  env,
 		Dir:  workDir,
 		Cols: defaultCols,
 		Rows: defaultRows,
 	}
 
-	return spawnSession(name, opts, onOutput, onRawOutput, onCommandStart, onExit)
+	key := ""
+	if shellType(shell) == "powershell" {
+		key = uuid.NewString()
+		opts.Args = []string{"-NoExit", "-Command", powerShellSessionLibrary(key)}
+	}
+	return spawnSession(name, opts, key, onOutput, onRawOutput, onCommandStart, onExit)
 }
 
-func spawnSession(name string, opts ptyx.SpawnOpts, onOutput outputCallback, onRawOutput rawOutputCallback, onCommandStart commandStartCallback, onExit func(string, error)) (*Session, error) {
+func spawnSession(name string, opts ptyx.SpawnOpts, key string, onOutput outputCallback, onRawOutput rawOutputCallback, onCommandStart commandStartCallback, onExit func(string, error)) (*Session, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 	ptySession, err := ptyx.Spawn(ctx, opts)
 	if err != nil {
@@ -247,6 +253,7 @@ func spawnSession(name string, opts ptyx.SpawnOpts, onOutput outputCallback, onR
 	ptyWriter := ptySession.PtyWriter()
 
 	s := &Session{
+		powerShellKey:   key,
 		id:              uuid.NewString(),
 		sessionVersion:  newSessionVersion(),
 		name:            name,
@@ -671,12 +678,21 @@ func (s *Session) runCommandInDirectory(ctx context.Context, command, directory 
 		entry.Output, entry.ExitCode, err = s.waitForMarker(commandCtx, marker, entry.ID)
 		return err
 	}
-	resultErr = runFrame(marker.wrapCommandInDirectory(command, directory, shellType(s.shell)))
-	if errors.Is(resultErr, errPowerShellLibraryMissing) {
-		// O processo respondeu antes do início. Conserve a autorização e o prazo,
-		// com marcas novas e a moldura autônoma para o shell filho.
-		marker = newCommandMarkerForShell("powershell")
-		resultErr = runFrame(marker.wrapPowerShell(command, directory, false))
+	if s.powerShellKey != "" {
+		resultErr = runFrame(marker.powerShellProbe(s.powerShellKey))
+		if resultErr == nil && entry.ExitCode != 0 && entry.ExitCode != 1 {
+			resultErr = fmt.Errorf("consulta da biblioteca PowerShell retornou status %d", entry.ExitCode)
+		}
+		if resultErr == nil {
+			key := ""
+			if entry.ExitCode == 0 {
+				key = s.powerShellKey
+			}
+			marker = newCommandMarkerForShell("powershell")
+			resultErr = runFrame(marker.wrapPowerShell(command, directory, key))
+		}
+	} else {
+		resultErr = runFrame(marker.wrapCommandInDirectory(command, directory, shellType(s.shell)))
 	}
 	entry.EndedAt = time.Now()
 	s.addHistoryEntry(entry)
@@ -838,8 +854,6 @@ func (s *Session) resumeRawAfterFooter(result parseResult) {
 	}
 }
 
-var errPowerShellLibraryMissing = errors.New("biblioteca PowerShell ausente no processo interativo")
-
 // waitForMarker acompanha a saída até o marcador final ou o encerramento do shell.
 // O callback recebe o texto do comando durante a execução.
 func (s *Session) waitForMarker(ctx context.Context, marker *CommandMarker, commandID string) (output string, code int, err error) {
@@ -883,9 +897,6 @@ func (s *Session) waitForMarker(ctx context.Context, marker *CommandMarker, comm
 				continue
 			}
 			delta, result := stream.append(chunk)
-			if stream.missingLibrary {
-				return "", -1, errPowerShellLibraryMissing
-			}
 			if s.onOutput != nil && len(delta) > 0 {
 				s.onOutput(s.id, commandID, string(delta))
 				streamSentLen += len(delta)

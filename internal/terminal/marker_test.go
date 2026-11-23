@@ -92,7 +92,7 @@ func TestCommandMarker_WrapPowerShell(t *testing.T) {
 	if !strings.Contains(wrapped, base64.StdEncoding.EncodeToString([]byte("Get-Process"))) {
 		t.Errorf("wrapped command should contain original command, got: %s", wrapped)
 	}
-	if !strings.Contains(powerShellSessionLibrary(), "$LASTEXITCODE") {
+	if !strings.Contains(powerShellSessionLibrary("test"), "$LASTEXITCODE") {
 		t.Error("falta captura do status nativo na biblioteca da sessão")
 	}
 }
@@ -420,7 +420,7 @@ func TestPowerShellMarkerAfterEchoWithoutNewline(t *testing.T) {
 	}
 	for _, command := range []string{"cmd /c exit 7", "(cmd /c exit 7)"} {
 		marker := newCommandMarkerForShell("powershell")
-		script := powerShellSessionLibrary() + "; Write-Host -NoNewline 'eco sem quebra'; " + marker.wrapCommandInDirectory(command, "", "powershell")
+		script := "Write-Host -NoNewline 'eco sem quebra'; " + marker.wrapCommandInDirectory(command, "", "powershell")
 		output, err := exec.Command(shell, "-NoProfile", "-NonInteractive", "-Command", script).CombinedOutput()
 		result := parseMarkerOutput(marker, string(output))
 		if err != nil || !result.Found || result.ExitCode != 7 || result.Output != "" {
@@ -437,6 +437,7 @@ func TestPowerShellConPTYRedrawPreservesOutput(t *testing.T) {
 		{"abc\r\n\x1b[39;3Hcdef\r\n\x1b[39;3Hfgh", "abcdefgh"},
 		{"abcdef\r\n\x1b[39;3Hfg", "abcdefg"},
 		{"abcdefg\r\n\x1b[39;3Hgh", "abcdefg\ngh"},
+		{"ab界x\r\n\x1b[39;3Hxy", "ab界xy"},
 		{"abc界a\r\n\x1b[39;3Hab", "abc界ab"},
 		{"界a\r\n\x1b[39;3Hab", "界ab"},
 		{"abc\r\n\x1b[39;2Hcdef", "abc\ncdef"},
@@ -892,26 +893,17 @@ func BenchmarkMarkerStreamScale(b *testing.B) {
 	}
 }
 
-func TestPowerShellLibraryReplyOnlyBeforeStart(t *testing.T) {
+func TestPowerShellProbeIgnoresUnframedReply(t *testing.T) {
 	m := newCommandMarkerForShell("powershell")
-	m.checkLibrary = true
-	reply := m.endTag + markerStatusTerminator
-	for _, tc := range []struct {
-		name, wire string
-		missing    bool
-	}{
-		{"processo filho", reply, true},
-		{"texto após início", m.startTag + "\n" + reply + "\n" + m.endTag + "0!", false},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			for split := 0; split <= len(tc.wire); split++ {
-				stream := newMarkerStream(m)
-				stream.append(tc.wire[:split])
-				stream.append(tc.wire[split:])
-				if stream.missingLibrary != tc.missing {
-					t.Fatalf("divisão %d: ausência=%t", split, stream.missingLibrary)
-				}
+	for _, code := range []int{0, 1} {
+		wire := m.endTag + "!\n" + m.startTag + "\n" + m.endTag + strconv.Itoa(code) + "!"
+		for split := 0; split < len(wire); split++ {
+			stream := newMarkerStream(m)
+			stream.append(wire[:split])
+			_, got := stream.append(wire[split:])
+			if !got.Found || got.ExitCode != code || got.Output != "" {
+				t.Fatalf("corte %d: %+v", split, got)
 			}
-		})
+		}
 	}
 }
