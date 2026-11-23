@@ -557,6 +557,21 @@ describe('terminalStore', () => {
     } finally { vi.restoreAllMocks(); page(); reset(); useWorkspaceStore.setState({ workspace: original }); vi.useRealTimers(); await i18next.changeLanguage(language); }
   });
 
+  it.each(['llm', 'user-raw'])('limita o anúncio inicial sem cortar o comando no histórico (%s)', source => {
+    const cleanup = useTerminalStore.getState().setupEventListeners();
+    const prefix = 'x'.repeat(299) + '🌍';
+    try {
+      for (const extra of ['\n', '\núltima linha']) {
+        const command = '  ' + prefix + extra;
+        terminalEventHandlers.get('terminal:command_start')?.({ sessionId: 's1', commandId: extra, command, source });
+        const notice = extra.trim() ? i18next.t('terminal.announce.truncatedSuffix') : '';
+        expect(announce).toHaveBeenLastCalledWith(i18next.t('terminal.history.commandPrefix') + ' ' + prefix + notice);
+        const history = useTerminalStore.getState().historyBySession.s1;
+        expect(history[history.length - 1].command).toBe(command);
+      }
+    } finally { cleanup(); }
+  });
+
   it.each(['evento final', 'saída acumulada', 'stream manual'].flatMap(path =>
     [{ tail: '', truncated: false }, { tail: '\n', truncated: false }, { tail: '\n z', truncated: true }]
       .map(test => ({ path, ...test }))))('preserva o emoji na posição 300 ($path, excedente "$tail")', ({ path, tail, truncated }) => {

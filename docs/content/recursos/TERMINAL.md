@@ -75,7 +75,12 @@ só é limpo depois que o backend aceita o envio, mesmo se a sessão terminar
 antes da resposta. Se você já editou o texto, a edição é preservada. O campo informa quando a lista
 está carregando e quando a sessão vinculada já terminou. Para voltar a editar,
 use a barra de ferramentas para escolher outra sessão ou criar uma nova.
-A prévia falada inclui até 300 pontos de código Unicode da saída. Um emoji composto
+Essa orientação continua disponível com texto no campo. Anexos já carregados
+permanecem no rascunho. Se o editor entrar em modo de leitura enquanto um anexo
+está carregando, esse carregamento é descartado. Você pode anexar o arquivo de
+novo quando voltar a editar.
+A prévia falada inclui até 300 pontos de código Unicode do comando ao iniciar
+e da saída ao concluir ou receber texto. Um emoji composto
 pode ocupar vários desses pontos. Os espaços iniciais ficam fora da contagem.
 O leitor só anuncia o corte se o trecho omitido
 contiver algo além de espaços em branco ou quebras de linha. Essa prévia usa
@@ -128,7 +133,7 @@ para abrir outro terminal assim que a limpeza termina.
 
 Uma falha de leitura, um cancelamento ou o fechamento explícito da sessão devolve erro com a saída parcial disponível. Se o leitor já falhou quando o prazo vence, o diagnóstico conserva as duas causas. A duração acompanha o resultado quando a sessão registrou o início e o fim da execução.
 
-A ferramenta informa o limite configurado e, quando disponível, a duração medida.
+Quando o prazo vence, a ferramenta informa o limite configurado e, quando disponível, a duração medida.
 Se o prazo vencer depois do envio, o Assistente tenta interromper o comando com
 `Ctrl+C` e recuperar a saída restante antes de encerrar uma sessão efêmera.
 

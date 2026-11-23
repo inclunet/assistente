@@ -495,10 +495,11 @@ export const useTerminalStore = create<TerminalState>((set) => ({
       cancelOutputAnnouncement(data.sessionId);
 
       if (terminalOutputListenerRefCount > 0) {
+        const preview = appendOutputPreview(undefined, data.command || '');
         announceWithOrigin({
           origin: terminalOrigin(data.sessionId),
           eventType: data.source === 'user-raw' ? 'user-action' : 'progress',
-          message: `${i18next.t('terminal.history.commandPrefix')} ${data.command}`,
+          message: `${i18next.t('terminal.history.commandPrefix')} ${formatAnnouncementPreview(preview.output, preview.truncated)}`,
         });
       }
 
