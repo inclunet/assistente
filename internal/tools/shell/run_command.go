@@ -286,40 +286,34 @@ func (rc *RunCommand) Execute(ctx context.Context, args json.RawMessage) (tools.
 		// sessionID permanece vazio — sem deep link para terminal inexistente.
 	}
 
+	metadata := map[string]any{"command": a.Command, "workDir": workDir, "exitCode": -1}
+	if sessionID != "" {
+		metadata["sessionId"] = sessionID
+		metadata["terminalId"] = sessionID
+		metadata["deepLink"] = deepLinkForSession(sessionID)
+	}
+	duration := ""
+	if entry != nil {
+		metadata["commandId"] = entry.ID
+		if !entry.StartedAt.IsZero() && !entry.EndedAt.Before(entry.StartedAt) {
+			duration = entry.EndedAt.Sub(entry.StartedAt).String()
+			metadata["duration"] = duration
+		}
+	}
 	if err != nil {
-		// Um prazo expirado pode entregar saída parcial. A duração da entrada
-		// reflete a execução mesmo quando o contexto pai venceu primeiro.
-		output, duration := "", ""
+		output := ""
 		if entry != nil {
 			output = entry.Output
-			duration = entry.EndedAt.Sub(entry.StartedAt).String()
 		}
-
 		isTimeout := errors.Is(err, context.DeadlineExceeded) && !terminalFailure(err)
-
 		if isTimeout && output != "" {
-			// Timeout COM output: retorna como sucesso com nota sobre timeout
-			content := fmt.Sprintf("[TIMEOUT — duração registrada: %s. Output parcial capturado:]\n\n%s", duration, output)
-
-			result := tools.ToolResult{
-				Content: content,
-				Metadata: func() map[string]any {
-					m := map[string]any{
-						"command":   a.Command,
-						"workDir":   workDir,
-						"exitCode":  -1,
-						"timeout":   true,
-						"duration":  duration,
-						"commandId": entry.ID,
-					}
-					if sessionID != "" {
-						m["sessionId"] = sessionID
-						m["terminalId"] = sessionID
-						m["deepLink"] = deepLinkForSession(sessionID)
-					}
-					return m
-				}(),
+			// O timeout parcial mantém a saída recuperável mesmo sem uma duração conhecida.
+			header := "TIMEOUT"
+			if duration != "" {
+				header += " — duração registrada: " + duration
 			}
+			metadata["timeout"] = true
+			result := tools.ToolResult{Content: "[" + header + ". Output parcial capturado:]\n\n" + output, Metadata: metadata}
 			protected, ok := tools.ProtectToolResult(ctx, result, outputLimit)
 			if !ok {
 				return tools.ToolResult{
@@ -331,23 +325,9 @@ func (rc *RunCommand) Execute(ctx context.Context, args json.RawMessage) (tools.
 			return protected, nil
 		}
 
-		// Erro real (sem output ou sem timeout)
-		metadata := map[string]any{
-			"command":  a.Command,
-			"workDir":  workDir,
-			"exitCode": -1,
-		}
-		if sessionID != "" {
-			metadata["sessionId"] = sessionID
-			metadata["terminalId"] = sessionID
-			metadata["deepLink"] = deepLinkForSession(sessionID)
-		}
 		message := fmt.Sprintf("Erro ao executar comando: %v", err)
-		// A sessão fornece os horários na entrada de histórico. Sem ela, a duração é desconhecida.
-		if entry != nil {
+		if duration != "" {
 			message += "\nDuração registrada: " + duration
-			metadata["commandId"] = entry.ID
-			metadata["duration"] = duration
 		}
 		result := tools.ToolResult{
 			Content:  message + "\n\nOutput parcial:\n" + output,
@@ -373,24 +353,8 @@ func (rc *RunCommand) Execute(ctx context.Context, args json.RawMessage) (tools.
 		content = fmt.Sprintf("[exit code: %d]\n\n%s", entry.ExitCode, content)
 	}
 
-	result := tools.ToolResult{
-		Content: content,
-		Metadata: func() map[string]any {
-			m := map[string]any{
-				"command":   a.Command,
-				"workDir":   workDir,
-				"exitCode":  entry.ExitCode,
-				"duration":  entry.EndedAt.Sub(entry.StartedAt).String(),
-				"commandId": entry.ID,
-			}
-			if sessionID != "" {
-				m["sessionId"] = sessionID
-				m["terminalId"] = sessionID
-				m["deepLink"] = deepLinkForSession(sessionID)
-			}
-			return m
-		}(),
-	}
+	metadata["exitCode"] = entry.ExitCode
+	result := tools.ToolResult{Content: content, Metadata: metadata}
 	if entry.ExitCode == 0 && len(entry.Output) > outputLimit && tools.IsCanonicalJSON(entry.Output) {
 		result.Content = entry.Output
 		result.Structured = true

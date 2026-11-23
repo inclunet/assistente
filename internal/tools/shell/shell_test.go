@@ -571,12 +571,15 @@ func TestTimeoutWithPartialOutput(t *testing.T) {
 
 func TestPartialOutputKeepsTerminalFailures(t *testing.T) {
 	for _, cause := range []error{context.Canceled, terminal.ErrSessionClosed, terminal.ErrSessionRead, errors.Join(context.DeadlineExceeded, terminal.ErrSessionWrite), errors.Join(context.DeadlineExceeded, terminal.ErrSessionRead)} {
-		mgr := &MockSessionManager{fakeRunErr: cause, fakeEntry: &terminal.HistoryEntry{Output: "parcial", ExitCode: -1}}
+		mgr := &MockSessionManager{fakeRunErr: cause, fakeEntry: &terminal.HistoryEntry{Output: "parcial", ExitCode: -1, StartedAt: time.Now()}}
 		policy := &allowlist.Allowlist{AutoApprove: []string{"*"}, DefaultAction: "deny"}
 		rc := NewRunCommand(mgr, nil, func(context.Context) (*allowlist.Allowlist, error) { return policy, nil }, ".")
 		result, err := rc.Execute(t.Context(), json.RawMessage(`{"command":"example"}`))
 		if err != nil || !result.IsError || result.Metadata["timeout"] == true || !strings.Contains(result.Content, "parcial") || !strings.Contains(result.Content, cause.Error()) {
 			t.Fatalf("causa=%v resultado=%+v erro=%v", cause, result, err)
+		}
+		if _, ok := result.Metadata["duration"]; ok || strings.Contains(result.Content, "Duração registrada") {
+			t.Fatalf("duração sem fim registrado: %+v", result)
 		}
 	}
 }
