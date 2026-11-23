@@ -388,6 +388,28 @@ describe('terminalStore', () => {
     } finally { vi.restoreAllMocks(); page(); reset(); useWorkspaceStore.setState({ workspace: original }); vi.useRealTimers(); await i18next.changeLanguage(language); }
   });
 
+  it.each(['evento final', 'saída acumulada', 'stream manual'].flatMap(path =>
+    ['', 'z'].map(tail => ({ path, tail }))))('preserva o emoji na posição 300 ($path, excedente "$tail")', ({ path, tail }) => {
+    vi.useFakeTimers();
+    const cleanup = useTerminalStore.getState().setupEventListeners();
+    const prefix = 'a'.repeat(299) + '🌍';
+    const event = { sessionId: 'a', commandId: 'cmd' };
+    try {
+      if (path === 'stream manual') {
+        terminalEventHandlers.get('terminal:raw_output')?.({ sessionId: 'a', output: prefix.slice(0, -1) });
+        terminalEventHandlers.get('terminal:raw_output')?.({ sessionId: 'a', output: prefix.slice(-1) + tail });
+        vi.runAllTimers();
+      } else {
+        terminalEventHandlers.get('terminal:command_start')?.({ ...event, command: 'pwd', source: 'llm' });
+        if (path === 'saída acumulada') terminalEventHandlers.get('terminal:command_output')?.({ ...event, output: prefix + tail });
+        terminalEventHandlers.get('terminal:command_end')?.({ ...event, output: path === 'evento final' ? prefix + tail : '', exitCode: 0 });
+      }
+      const output = prefix + (tail ? i18next.t('terminal.announce.truncatedSuffix') : '');
+      const key = path === 'stream manual' ? 'terminal.announce.output' : 'terminal.announce.outputWithExit';
+      expect(announce).toHaveBeenLastCalledWith(i18next.t(key, { output, exitCode: 0 }));
+    } finally { cleanup(); vi.useRealTimers(); }
+  });
+
   it('entrega o resultado ao leitor antes do encerramento e indica saída cortada após espaços', () => {
     vi.useFakeTimers();
     const cleanup = useTerminalStore.getState().setupEventListeners();

@@ -1,3 +1,4 @@
+import { codePointPrefix } from '../utils/format';
 import { isManagedCommandRunning } from '../lib/terminalHistory';
 import { logger } from '../utils/logger';
 import { create } from 'zustand';
@@ -56,15 +57,18 @@ function flushOutputAnnouncement(sessionId: string) {
     eventType: 'progress', waitsForReading: true, protectsReading: true })) playReceiveSound();
 }
 
+const announcementCharacterLimit = 300;
+
 function scheduleOutputAnnounce(sessionId: string, chunk: string) {
   if (!isVoiceAccessibilityOriginCurrentlyActive(terminalOrigin(sessionId))) return;
   const pending = pendingAnnouncements.get(sessionId);
   const previous = pending?.output ?? '';
   cancelOutputAnnouncement(sessionId);
   const content = previous ? chunk : chunk.trimStart();
-  const remaining = 300 - previous.length;
-  const output = previous + content.slice(0, remaining);
-  const truncated = pending?.truncated || (content.length > remaining && /\S/.test(content.slice(remaining)));
+  // Dois elementos UTF-16 por ponto de código bastam para montar toda a prévia.
+  const output = codePointPrefix(previous + content.slice(0, 2 * announcementCharacterLimit - previous.length), announcementCharacterLimit);
+  const consumed = output.length - previous.length;
+  const truncated = pending?.truncated || (content.length > consumed && /\S/.test(content.slice(consumed)));
   const timer = setTimeout(() => flushOutputAnnouncement(sessionId), 500);
   pendingAnnouncements.set(sessionId, { output, truncated, timer });
 }
@@ -500,9 +504,10 @@ export const useTerminalStore = create<TerminalState>((set) => ({
         if (isVoiceAccessibilityOriginCurrentlyActive(terminalOrigin(data.sessionId))) playReceiveSound();
         const output = data.output || (pending?.id === data.commandId && pending.output) || useTerminalStore.getState().historyBySession[data.sessionId]
           ?.find(entry => entry.id === data.commandId)?.output;
-        const outputPreview = output
-          ? (output.length > 300 ? output.slice(0, 300) + i18next.t('terminal.announce.truncatedSuffix') : output)
-          : i18next.t('terminal.announce.emptyOutput');
+        const prefix = codePointPrefix(output || '', announcementCharacterLimit);
+        const outputPreview = output && prefix.length < output.length
+          ? prefix + i18next.t('terminal.announce.truncatedSuffix')
+          : prefix || i18next.t('terminal.announce.emptyOutput');
         const { sessionId, exitCode } = data;
         const titleAtCompletion = tab?.title?.trim();
         const nameAtCompletion = useTerminalStore.getState().sessions.find(session => session.id === sessionId)?.name?.trim();

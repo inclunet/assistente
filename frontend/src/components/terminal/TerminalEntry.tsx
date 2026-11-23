@@ -17,7 +17,7 @@ import { useTranslation } from 'react-i18next';
 import { isManagedCommandRunning } from '../../lib/terminalHistory';
 import type { HistoryEntry } from '../../store/terminalStore';
 import { playBumpSound } from '../../services/audioFeedback';
-import { formatDuration } from '../../utils/format';
+import { codePointPrefix, formatDuration } from '../../utils/format';
 import { useVirtualModal } from '../../hooks/useVirtualModal';
 import './TerminalEntry.css';
 
@@ -27,8 +27,8 @@ import './TerminalEntry.css';
 function truncateForAria(text: string, maxLen: number, truncatedLabel: string): string {
   if (!text) return '';
   const clean = text.trim();
-  if (clean.length <= maxLen) return clean;
-  return clean.slice(0, maxLen) + '… ' + truncatedLabel;
+  const prefix = codePointPrefix(clean, maxLen);
+  return prefix.length < clean.length ? prefix + '… ' + truncatedLabel : prefix;
 }
 
 interface NavigationProps {

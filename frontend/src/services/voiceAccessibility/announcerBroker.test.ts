@@ -59,6 +59,20 @@ describe('announcerBroker', () => {
     expect(sink).toHaveBeenCalledWith(expected, 'polite');
   });
 
+  it('preserva o resolvedor de título enquanto outro registro altera só a atividade', () => {
+    const origin = { tabId: 'tab', surfaceType: 'terminal' as const, title: 'Antes' };
+    const named = registerVoiceAccessibilityActiveResolver(() => true, () => 'Atual');
+    const override = registerVoiceAccessibilityActiveResolver(() => false);
+    try {
+      const request = { message: 'detalhe', eventType: 'completion' as const, origin };
+      announceWithOrigin(request);
+      expect(sink).toHaveBeenLastCalledWith('Atividade no terminal Atual em segundo plano', 'polite');
+      named();
+      announceWithOrigin(request);
+      expect(sink).toHaveBeenLastCalledWith('Atividade no terminal Antes em segundo plano', 'polite');
+    } finally { override(); named(); }
+  });
+
   it('usa assertive por padrão para erros', () => {
     expect(announceWithOrigin({
       message: 'Falha',
