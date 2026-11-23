@@ -430,6 +430,23 @@ describe('terminalStore', () => {
     } finally { cleanup(); vi.useRealTimers(); }
   });
 
+  it.each(['resultado limitado', 'rodapé vazio'])('fala o conteúdo que ficou fora do histórico (%s)', path => {
+    const cleanup = useTerminalStore.getState().setupEventListeners();
+    const event = { sessionId: 'a', commandId: 'cmd' };
+    try {
+      terminalEventHandlers.get('terminal:command_start')?.({ ...event, command: 'pwd', source: 'llm' });
+      const stream = ' '.repeat(60 * 1024) + 'ok';
+      terminalEventHandlers.get('terminal:command_output')?.({ ...event, output: stream });
+      const fields = path === 'rodapé vazio' ? { output: '' } : {
+        output: stream.slice(0, 50 * 1024) + '\n[TRUNCADO]', announcementPreview: { output: 'final', truncated: false },
+      };
+      terminalEventHandlers.get('terminal:command_end')?.({ ...event, ...fields, exitCode: 0 });
+      expect(announce).toHaveBeenLastCalledWith(i18next.t('terminal.announce.outputWithExit', {
+        output: path === 'rodapé vazio' ? 'ok' : 'final', exitCode: 0,
+      }));
+    } finally { cleanup(); }
+  });
+
   it('entrega o resultado ao leitor antes do encerramento e indica saída cortada após espaços', () => {
     vi.useFakeTimers();
     const cleanup = useTerminalStore.getState().setupEventListeners();

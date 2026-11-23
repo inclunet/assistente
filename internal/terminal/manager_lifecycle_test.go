@@ -969,6 +969,47 @@ func TestAcquiredSessionAcceptsCommandAfterManualInputAndRelease(t *testing.T) {
 	}
 }
 
+func TestCommandEndPreviewsOriginalOutputBeyondHistoryLimit(t *testing.T) {
+	emoji := strings.Repeat("🌍", 300)
+	padding := strings.Repeat(" ", 60*1024)
+	for _, tc := range []struct {
+		name, output string
+		want         announcementPreview
+	}{
+		{"espaços iniciais", padding + "ok", announcementPreview{Output: "ok"}},
+		{"espaços finais", emoji + padding, announcementPreview{Output: emoji}},
+		{"texto após espaços", emoji + padding + "x", announcementPreview{Output: emoji, Truncated: true}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := &Session{id: "preview", shell: "bash", readerCtx: t.Context()}
+			s.ensureLifecycleChannels()
+			s.ptyWriter = manualTestWriter(func(data []byte) (int, error) {
+				_, tag, ok := strings.Cut(string(data), "'"+markerStart)
+				if !ok {
+					return 0, errors.New("moldura sem início")
+				}
+				id, _, _ := strings.Cut(tag, "'")
+				s.recordOutput(markerStart + id + "\n" + tc.output + "\n" + markerEnd + id + "0!\n")
+				return len(data), nil
+			})
+			var payload map[string]any
+			m := NewManager(DefaultManagerConfig(), func(event string, data any) {
+				if event == "terminal:command_end" {
+					payload = data.(map[string]any)
+				}
+			})
+			m.sessions[s.id] = s
+			entry, err := m.RunCommand(t.Context(), s.id, "example", time.Second, "test")
+			if err != nil || entry == nil || entry.Output != tc.output {
+				t.Fatalf("saída original incorreta: %v", err)
+			}
+			if payload["output"] != limitedHistoryEntry(entry).Output || payload["announcementPreview"] != tc.want {
+				t.Fatalf("evento não preservou histórico e prévia: prévia=%+v", payload["announcementPreview"])
+			}
+		})
+	}
+}
+
 func TestReleaseKeepsCommandReservedThroughEnd(t *testing.T) {
 	s := &Session{id: "terminal", state: StateIdle}
 	m := closeTestManager(s)

@@ -7,8 +7,10 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	"github.com/google/uuid"
 )
@@ -263,15 +265,40 @@ func (m *Manager) RunCommand(ctx context.Context, sessionID, command string, tim
 		// O retorno conserva o output bruto para a tool; o evento usa a mesma cópia
 		// limitada do histórico para não transferir vários MiB à UI.
 		eventEntry := limitedHistoryEntry(entry)
-		m.emitEvent("terminal:command_end", map[string]any{
+		payload := map[string]any{
 			"sessionId":  sessionID,
 			"terminalId": sessionID,
 			"commandId":  entry.ID,
 			"output":     eventEntry.Output,
 			"exitCode":   entry.ExitCode,
 			"error":      errToString(err),
-		})
+		}
+		if len(entry.Output) > maxOutputSize {
+			payload["announcementPreview"] = terminalAnnouncementPreview(entry.Output)
+		}
+		m.emitEvent("terminal:command_end", payload)
 	})
+}
+
+// A prévia acompanha apenas resultados cujo histórico perdeu parte da saída original.
+type announcementPreview struct {
+	Output    string `json:"output"`
+	Truncated bool   `json:"truncated"`
+}
+
+func terminalAnnouncementPreview(output string) announcementPreview {
+	// Mesmo conjunto de espaços usado por String.trim no consumidor JavaScript.
+	text := strings.TrimFunc(output, func(r rune) bool {
+		return r == '\uFEFF' || (r != '\u0085' && unicode.IsSpace(r))
+	})
+	points := 0
+	for end := range text {
+		if points == 300 {
+			return announcementPreview{Output: strings.Clone(text[:end]), Truncated: true}
+		}
+		points++
+	}
+	return announcementPreview{Output: strings.Clone(text)}
 }
 
 // SendInput envia input raw para uma sessão PTY (modo interativo, sem markers).

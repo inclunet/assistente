@@ -51,7 +51,8 @@ use a barra de ferramentas para escolher outra sessão ou criar uma nova.
 A prévia falada inclui até 300 pontos de código Unicode da saída. Um emoji composto
 pode ocupar vários desses pontos. Os espaços iniciais ficam fora da contagem.
 O leitor só anuncia o corte se o trecho omitido
-contiver algo além de espaços em branco ou quebras de linha.
+contiver algo além de espaços em branco ou quebras de linha. Essa prévia usa
+a saída original mesmo quando o histórico só guarda parte dela.
 A saída comum só é lida quando a aba da sessão está visível e ativa. Em
 Configurações, as conclusões de comandos de sessões vinculadas a abas chegam como resumo. Se você trocar de
 aba enquanto um comando estiver rodando, o anúncio de conclusão identifica a

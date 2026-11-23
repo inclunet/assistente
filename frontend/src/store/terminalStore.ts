@@ -19,7 +19,12 @@ import { type VoiceAnnounceRequest, announceWithOrigin, isVoiceAccessibilityOrig
 import i18next from 'i18next';
 
 // Debounce para anúncio de output (acumula chunks e espera streaming parar)
-const pendingAnnouncements = new Map<string, { output: string; prefixComplete: boolean; truncated: boolean; timer: ReturnType<typeof setTimeout> }>();
+interface OutputPreview {
+  output: string;
+  prefixComplete: boolean;
+  truncated: boolean;
+}
+const pendingAnnouncements = new Map<string, OutputPreview & { timer: ReturnType<typeof setTimeout> }>();
 let terminalEventListenerRefCount = 0;
 let terminalOutputListenerRefCount = 0;
 let terminalSessionReadGeneration = 0;
@@ -67,10 +72,7 @@ function hasOmittedText(content: string, consumed: number): boolean {
   return content.length > consumed && /\S/.test(content.slice(consumed));
 }
 
-function scheduleOutputAnnounce(sessionId: string, chunk: string) {
-  if (!isVoiceAccessibilityOriginCurrentlyActive(terminalOrigin(sessionId))) return;
-  const pending = pendingAnnouncements.get(sessionId);
-  cancelOutputAnnouncement(sessionId);
+function appendOutputPreview(pending: OutputPreview | undefined, chunk: string): OutputPreview {
   let output = pending?.output ?? '';
   let truncated = pending?.truncated ?? false;
   let prefixComplete = pending?.prefixComplete ?? false;
@@ -86,8 +88,15 @@ function scheduleOutputAnnounce(sessionId: string, chunk: string) {
     prefixComplete = content.length > consumed;
     truncated = hasOmittedText(content, consumed);
   }
+  return { output, prefixComplete, truncated };
+}
+
+function scheduleOutputAnnounce(sessionId: string, chunk: string) {
+  if (!isVoiceAccessibilityOriginCurrentlyActive(terminalOrigin(sessionId))) return;
+  const preview = appendOutputPreview(pendingAnnouncements.get(sessionId), chunk);
+  cancelOutputAnnouncement(sessionId);
   const timer = setTimeout(() => flushOutputAnnouncement(sessionId), 500);
-  pendingAnnouncements.set(sessionId, { output, prefixComplete, truncated, timer });
+  pendingAnnouncements.set(sessionId, { ...preview, timer });
 }
 
 // Re-export types for components
@@ -325,6 +334,8 @@ export const useTerminalStore = create<TerminalState>((set) => ({
     // Uma sessão pode produzir comandos antes do evento de criação chegar.
     // Só ignoramos eventos depois de seu encerramento explícito ou espontâneo.
     const endedSessions = new Set<string>();
+    // O rodapé pode vir vazio. Preserve a prévia do stream antes do limite do histórico.
+    const commandPreviews = new Map<string, { id: string; preview?: OutputPreview }>();
     // Uma sessão já exibida conserva seu histórico entre montagens da página.
     // Continue aplicando eventos ao cache mesmo quando os anúncios estão suspensos.
     const tracksHistory = (sessionId: string) =>
@@ -365,6 +376,7 @@ export const useTerminalStore = create<TerminalState>((set) => ({
       unobservedCommands.delete(sessionId);
       endedSessions.add(sessionId);
       if (endedSessions.size > 1024) endedSessions.delete(endedSessions.values().next().value!);
+      commandPreviews.delete(sessionId);
       flushOutputAnnouncement(sessionId);
       set(state => {
         const newHistory = { ...state.historyBySession };
@@ -404,6 +416,7 @@ export const useTerminalStore = create<TerminalState>((set) => ({
     unsubs.push(EventsOn('terminal:command_start', (data: { sessionId: string; commandId: string; command: string; source: string }) => {
       if (endedSessions.has(data.sessionId)) return;
       if (data.source !== 'user-raw') listingStates?.set(data.sessionId, 'running');
+      if (data.source !== 'user-raw') commandPreviews.set(data.sessionId, { id: data.commandId });
       // Limpa pending output do comando anterior
       cancelOutputAnnouncement(data.sessionId);
 
@@ -486,6 +499,8 @@ export const useTerminalStore = create<TerminalState>((set) => ({
 
     // Output filtrado (durante RunCommand do LLM com markers)
     unsubs.push(EventsOn('terminal:command_output', (data: { sessionId: string; commandId: string; output: string }) => {
+      const tracked = commandPreviews.get(data.sessionId);
+      if (tracked && tracked.id === data.commandId) tracked.preview = appendOutputPreview(tracked.preview, data.output);
       const pending = unobservedCommands.get(data.sessionId);
       if (pending && pending.id === data.commandId) {
         unobservedCommands.set(data.sessionId, appendHistoryOutput(pending, data.output));
@@ -510,9 +525,13 @@ export const useTerminalStore = create<TerminalState>((set) => ({
     }));
 
     // Comando finalizado (apenas para RunCommand com markers — LLM)
-    unsubs.push(EventsOn('terminal:command_end', (data: { sessionId: string; commandId: string; output: string; exitCode: number }) => {
+    unsubs.push(EventsOn('terminal:command_end', (data: { sessionId: string; commandId: string; output: string; exitCode: number;
+      announcementPreview?: Pick<OutputPreview, 'output' | 'truncated'> }) => {
       if (endedSessions.has(data.sessionId)) return;
       listingStates?.set(data.sessionId, 'idle');
+      const tracked = commandPreviews.get(data.sessionId);
+      const streamPreview = tracked?.id === data.commandId ? tracked?.preview : undefined;
+      if (tracked?.id === data.commandId) commandPreviews.delete(data.sessionId);
       const pending = unobservedCommands.get(data.sessionId);
       unobservedCommands.delete(data.sessionId);
       const workspace = useWorkspaceStore.getState().workspace;
@@ -521,9 +540,9 @@ export const useTerminalStore = create<TerminalState>((set) => ({
         if (isVoiceAccessibilityOriginCurrentlyActive(terminalOrigin(data.sessionId))) playReceiveSound();
         const output = data.output || (pending?.id === data.commandId && pending.output) || useTerminalStore.getState().historyBySession[data.sessionId]
           ?.find(entry => entry.id === data.commandId)?.output;
-        const content = (output || '').trimStart();
-        const prefix = codePointPrefix(content, announcementCharacterLimit);
-        const outputPreview = formatAnnouncementPreview(prefix, hasOmittedText(content, prefix.length)) ||
+        const preview = data.announcementPreview ?? (data.output ? undefined : streamPreview) ??
+          appendOutputPreview(undefined, output || '');
+        const outputPreview = formatAnnouncementPreview(preview.output, preview.truncated) ||
           i18next.t('terminal.announce.emptyOutput');
         const { sessionId, exitCode } = data;
         const titleAtCompletion = tab?.title?.trim();
