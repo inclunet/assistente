@@ -166,7 +166,7 @@ func TestCloseWaitsForProcessAndDrainsReaderBeforeClosingPTY(t *testing.T) {
 		state:       StateIdle,
 		ptySession:  ptySession,
 		readerCtx:   context.Background(),
-		onRawOutput: func(_, chunk string) { output.WriteString(chunk) },
+		onRawOutput: func(_, _, chunk string) { output.WriteString(chunk) },
 	}
 	session.Start()
 
@@ -302,7 +302,7 @@ func TestWaitForMarkerPreservesReadFailureAndCancellation(t *testing.T) {
 				ptyReader:  reader,
 				readerCtx:  t.Context(),
 			}
-			session.startCommandOutput(marker, &HistoryEntry{})
+			session.beginMarkerCapture(marker)
 			session.Start()
 			<-session.readerDone
 			deadline := time.Now().Add(time.Second)
@@ -341,7 +341,7 @@ func TestReadFailureReturnsWhileProcessWaitIsPending(t *testing.T) {
 	session := &Session{ptySession: pty, readerCtx: t.Context(),
 		ptyReader: io.MultiReader(strings.NewReader(marker.startTag+"\nparcial"), iotest.ErrReader(readErr)),
 	}
-	session.startCommandOutput(marker, &HistoryEntry{})
+	session.beginMarkerCapture(marker)
 	session.Start()
 	t.Cleanup(func() {
 		close(pty.releaseWait)
@@ -400,7 +400,7 @@ func TestManualInputWritesDuringContinuousOutput(t *testing.T) {
 			events = append(events, "início")
 			close(started)
 			<-publishStart
-		}, onRawOutput: func(_, raw string) {
+		}, onRawOutput: func(_, _, raw string) {
 			<-releaseOutput
 			events = append(events, raw)
 		}, onExit: func(string, error) { events = append(events, "fim") }}
@@ -447,14 +447,14 @@ func TestManualInputWritesDuringContinuousOutput(t *testing.T) {
 func TestCloseDuringStartDrainsBoundedHandoff(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		pty := &noEOFPTY{newDrainingPTYSession()}
-		defer pty.writer.Close()
+		defer func() { _ = pty.writer.Close() }()
 		ctx, cancel := context.WithCancel(t.Context())
 		defer cancel()
 		var events []string
 		m := NewManager(DefaultManagerConfig(), func(event string, _ any) { events = append(events, event) })
 		s := &Session{id: "manual", state: StateIdle, ptySession: pty, readerCtx: ctx, cancelReader: cancel}
 		m.sessions[s.id] = s
-		s.onRawOutput = func(_, raw string) { events = append(events, raw) }
+		s.onRawOutput = func(_, _, raw string) { events = append(events, raw) }
 		s.onCommandStart = func(_, _, _, _ string) {
 			events = append(events, "start")
 			// Pipe.Write confirma cada leitura. A última está aguardando espaço
@@ -483,6 +483,38 @@ func TestCloseDuringStartDrainsBoundedHandoff(t *testing.T) {
 			t.Fatalf("eventos=%v esperados=%v", events, want)
 		}
 	})
+}
+
+func TestManagedStartPreservesManualOutputBeforeCanceledWrite(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	block := strings.Repeat("x", ptyReadSize)
+	const blocks = 64
+	delivered := 0
+	s := &Session{shell: "bash", ptyWriter: manualTestWriter(func([]byte) (int, error) {
+		t.Error("escrita após cancelamento")
+		return 0, io.ErrClosedPipe
+	})}
+	s.rawOwner = s.newRawOwner(false, "manual")
+	s.onRawOutput = func(_, id, data string) {
+		if id != "manual" || data != block {
+			t.Errorf("destino=%q tamanho=%d", id, len(data))
+		}
+		delivered++
+	}
+	s.onCommandStart = func(_, _, _, _ string) {
+		for i := 0; i < blocks; i++ {
+			s.recordOutput(block)
+		}
+		if n := s.outputBuf.Len(); n != 0 {
+			t.Errorf("%d bytes anteriores à escrita atribuídos ao comando gerenciado", n)
+		}
+		cancel()
+	}
+	entry, err := s.RunCommand(ctx, "sem envio", time.Minute, "teste", "gerenciado")
+	if !errors.Is(err, context.Canceled) || entry == nil || entry.Output != "" || delivered != blocks {
+		t.Fatalf("entrada=%+v erro=%v blocos entregues=%d", entry, err, delivered)
+	}
 }
 
 func TestCancellationDuringCommandStartSkipsDispatch(t *testing.T) {
@@ -684,7 +716,7 @@ func TestWriteFailureBoundsCallerWhileCleanupContinues(t *testing.T) {
 			exited := make(chan error, 1)
 			var raw, output strings.Builder
 			s := &Session{id: "blocked", shell: "bash", readerCtx: t.Context(), ptySession: p, onExit: func(_ string, err error) { exited <- err },
-				onOutput: func(_, _, chunk string) { output.WriteString(chunk) }, onRawOutput: func(_, chunk string) { raw.WriteString(chunk) }}
+				onOutput: func(_, _, chunk string) { output.WriteString(chunk) }, onRawOutput: func(_, _, chunk string) { raw.WriteString(chunk) }}
 			s.ptyWriter = manualTestWriter(func(data []byte) (int, error) {
 				_, after, ok := strings.Cut(string(data), "'"+markerStart)
 				if !ok {

@@ -117,7 +117,7 @@ func BenchmarkStartCommandOutput(b *testing.B) {
 			b.ReportAllocs()
 			for b.Loop() {
 				s.outputBuf = *bytes.NewBuffer(raw)
-				s.startCommandOutput(m, &HistoryEntry{})
+				s.beginMarkerCapture(m)
 			}
 		})
 	}
@@ -160,12 +160,12 @@ func TestLargeControlsKeepBoundedStateInManualAndManagedOutput(t *testing.T) {
 		for _, mode := range []string{"manual", "gerenciado"} {
 			t.Run(tc.name+"/"+mode, func(t *testing.T) {
 				var emitted strings.Builder
-				session := &Session{onRawOutput: func(_, chunk string) { emitted.WriteString(chunk) }}
+				session := &Session{onRawOutput: func(_, _, chunk string) { emitted.WriteString(chunk) }}
 				m := newCommandMarkerForShell("powershell")
 				parser := newMarkerStream(m)
 				managed := mode == "gerenciado"
 				if managed {
-					session.startCommandOutput(m, &HistoryEntry{})
+					session.beginMarkerCapture(m)
 				}
 				deliver := func(chunk string) {
 					session.recordOutput(chunk)

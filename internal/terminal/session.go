@@ -86,7 +86,7 @@ type SessionInfo struct {
 type outputCallback func(sessionID, commandID, chunk string)
 
 // rawOutputCallback entrega texto da sessão manual após interpretar os controles do PTY.
-type rawOutputCallback func(sessionID, chunk string)
+type rawOutputCallback func(sessionID, commandID, chunk string)
 
 type commandStartCallback func(sessionID, commandID, command, source string)
 
@@ -315,45 +315,65 @@ func (s *Session) deliverRawAndUnlock(raw string) {
 		return
 	}
 	if s.rawOwner == nil {
-		s.rawOwner = newRawDeliveryOwner(false)
+		s.rawOwner = s.newRawOwner(false, "")
 	}
 	owner := s.rawOwner
 	owner.reserve()
 	s.outputMu.Unlock()
-	owner.submit(raw, s.publishRaw)
+	owner.submit(raw)
 }
 
-func (s *Session) publishRaw(raw string) { s.onRawOutput(s.id, raw) }
+func (s *Session) newRawOwner(opening bool, id string) *rawDeliveryOwner {
+	return newRawDeliveryOwner(opening, id, func(raw string) { s.onRawOutput(s.id, id, raw) })
+}
 
 func (s *Session) finishRawOutput() {
 	s.outputMu.Lock()
 	s.deliverRawAndUnlock(s.rawOutput.finish())
 }
 
-func (s *Session) startCommandOutput(marker *CommandMarker, entry *HistoryEntry) {
+func (s *Session) startCommandOutput(entry *HistoryEntry, manual bool) {
 	s.outputMu.Lock()
-	if marker != nil {
-		marker.viewportColumns = s.viewportColumns
-		marker.control = s.viewportControl
-		s.outputBuf.Reset()
-		s.suppressRawOutput = true
-	}
 	previousOwner := s.rawOwner
-	owner := newRawDeliveryOwner(true)
+	if previousOwner == nil {
+		previousOwner = s.newRawOwner(false, "")
+	}
+	id := previousOwner.commandID
+	if manual {
+		id = entry.ID
+	}
+	owner := s.newRawOwner(true, id)
 	s.rawOwner = owner
-	previous := s.rawOutput.changeOwner()
+	var previous string
+	if manual {
+		previous = s.rawOutput.changeOwner()
+	}
 	s.outputMu.Unlock()
 
-	if previousOwner != nil {
-		previousOwner.wait()
-	}
+	previousOwner.wait()
 	if previous != "" {
-		s.publishRaw(previous)
+		previousOwner.publish(previous)
+	}
+	// A saída até a escrita gerenciada ainda pertence à entrada anterior, já
+	// identificada no evento. O leitor pode entregá-la durante o anúncio.
+	if !manual {
+		owner.opened()
 	}
 	if s.onCommandStart != nil {
 		s.onCommandStart(s.id, entry.ID, entry.Command, entry.Source)
 	}
-	owner.opened(s.publishRaw)
+	if manual {
+		owner.opened()
+	}
+}
+
+func (s *Session) beginMarkerCapture(marker *CommandMarker) {
+	s.outputMu.Lock()
+	defer s.outputMu.Unlock()
+	marker.viewportColumns = s.viewportColumns
+	marker.control = s.viewportControl
+	s.outputBuf.Reset()
+	s.suppressRawOutput = true
 }
 
 // readLoop lê continuamente do PTY e acumula no buffer.
@@ -613,8 +633,8 @@ func (s *Session) runCommandInDirectory(ctx context.Context, command, directory 
 	// Cria marker único para esta execução
 	marker := newCommandMarkerForShell(shellType(s.shell))
 
-	// Suprime raw output durante execução com markers (para não poluir o Terminal Page)
-	s.startCommandOutput(marker, entry)
+	// Durante o anúncio a saída ainda é da entrada manual anterior.
+	s.startCommandOutput(entry, false)
 
 	defer func() {
 		s.outputMu.Lock()
@@ -669,6 +689,7 @@ func (s *Session) runCommandInDirectory(ctx context.Context, command, directory 
 		s.ioMu.Unlock()
 		return failBeforeResult(err)
 	}
+	s.beginMarkerCapture(marker)
 	nWritten, err := s.ptyWriter.Write(request)
 	if nWritten != len(request) && err == nil {
 		err = io.ErrShortWrite
@@ -1029,7 +1050,7 @@ func (s *Session) SendInput(input, commandID string) (*HistoryEntry, error) {
 		ExitCode:  -999, // sentinel: "raw/interativo, sem exit code"
 		Source:    "user-raw",
 	}
-	s.startCommandOutput(nil, entry)
+	s.startCommandOutput(entry, true)
 	s.ioMu.Lock()
 	s.mu.Lock()
 	canWrite := s.state == StateRunning

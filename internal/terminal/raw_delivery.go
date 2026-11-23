@@ -7,19 +7,21 @@ import "sync"
 const rawDeliverySlots = 8
 
 type rawDeliveryOwner struct {
-	mu       sync.Mutex
-	changed  *sync.Cond
-	opening  bool
-	draining bool
-	pending  int
-	queue    []string
+	commandID string
+	publish   func(string)
+	mu        sync.Mutex
+	changed   *sync.Cond
+	opening   bool
+	draining  bool
+	pending   int
+	queue     []string
 	// No encerramento forçado restam no máximo a leitura em curso e a cauda do decodificador.
 	finalSlots int
 	after      func()
 }
 
-func newRawDeliveryOwner(opening bool) *rawDeliveryOwner {
-	o := &rawDeliveryOwner{opening: opening}
+func newRawDeliveryOwner(opening bool, commandID string, emit func(string)) *rawDeliveryOwner {
+	o := &rawDeliveryOwner{opening: opening, commandID: commandID, publish: emit}
 	o.changed = sync.NewCond(&o.mu)
 	if opening {
 		o.pending = 1
@@ -75,7 +77,7 @@ func (o *rawDeliveryOwner) finishReader() {
 	o.mu.Unlock()
 }
 
-func (o *rawDeliveryOwner) submit(raw string, publish func(string)) {
+func (o *rawDeliveryOwner) submit(raw string) {
 	o.mu.Lock()
 	for len(o.queue) >= rawDeliverySlots+o.finalSlots {
 		o.changed.Wait()
@@ -87,7 +89,7 @@ func (o *rawDeliveryOwner) submit(raw string, publish func(string)) {
 	}
 	o.draining = true
 	o.mu.Unlock()
-	o.drain(raw, publish)
+	o.drain(raw)
 }
 
 // take entrega o próximo bloco na ordem do leitor. Chamado sob mu.
@@ -103,9 +105,9 @@ func (o *rawDeliveryOwner) take() string {
 	return raw
 }
 
-func (o *rawDeliveryOwner) drain(raw string, publish func(string)) {
+func (o *rawDeliveryOwner) drain(raw string) {
 	for raw != "" {
-		publish(raw)
+		o.publish(raw)
 		o.complete()
 		o.mu.Lock()
 		raw = o.take()
@@ -113,7 +115,7 @@ func (o *rawDeliveryOwner) drain(raw string, publish func(string)) {
 	}
 }
 
-func (o *rawDeliveryOwner) opened(publish func(string)) {
+func (o *rawDeliveryOwner) opened() {
 	o.mu.Lock()
 	o.opening = false
 	first := o.take()
@@ -122,6 +124,6 @@ func (o *rawDeliveryOwner) opened(publish func(string)) {
 	// A escrita não espera que o consumidor alcance um terminal que continua
 	// produzindo. A goroutine só existe se a abertura realmente reteve saída.
 	if first != "" {
-		go o.drain(first, publish)
+		go o.drain(first)
 	}
 }

@@ -10,20 +10,29 @@ const ptyReadSize = 4096
 // reconstrução de redesenhos do histórico de comandos. Cada evento entrega
 // texto UTF-8 e converte CR isolado e CRLF em uma única quebra.
 type rawTerminalOutput struct {
-	text       parsedTerminalText
-	reportedCR bool
+	text          parsedTerminalText
+	reportedCR    bool
+	wasSuppressed bool
 }
 
 func (r *rawTerminalOutput) append(chunk string, suppressed bool) string {
 	if suppressed {
+		// Uma runa manual parcial recebida durante o anúncio não pode ser
+		// completada pelos bytes de outra origem depois da moldura.
+		var tail string
+		if !r.wasSuppressed {
+			tail = r.changeOwner()
+			r.wasSuppressed = true
+		}
 		// Um bloco da moldura separa o CR manual anterior da próxima
 		// leitura visível, mesmo quando o bloco não produz texto na UI.
 		if chunk != "" {
 			r.reportedCR, r.text.cr = false, false
 		}
 		r.text.control.trackViewport(chunk, &r.text.columns)
-		return ""
+		return tail
 	}
+	r.wasSuppressed = false
 	r.text.feed(chunk)
 	return r.take(false)
 }

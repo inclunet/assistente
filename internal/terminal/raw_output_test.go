@@ -18,7 +18,7 @@ func TestReadLoopDeliversManualOutputAcrossReads(t *testing.T) {
 	for cut := 0; cut <= len(raw); cut++ {
 		var out strings.Builder
 		s := &Session{ptyReader: io.MultiReader(strings.NewReader(raw[:cut]), strings.NewReader(raw[cut:])),
-			onRawOutput: func(_, chunk string) {
+			onRawOutput: func(_, _, chunk string) {
 				if !utf8.ValidString(chunk) {
 					t.Fatalf("corte=%d evento UTF-8 inválido %q", cut, chunk)
 				}
@@ -57,9 +57,9 @@ func TestCommandStartWaitsForPreviousManualDelivery(t *testing.T) {
 				defer unblock()
 				var mu sync.Mutex
 				var events []string
-				owner := "anterior"
 				s := &Session{readerCtx: t.Context(), ptyReader: reader, ptyWriter: io.Discard}
-				s.onRawOutput = func(_, chunk string) {
+				s.rawOwner = s.newRawOwner(false, "anterior")
+				s.onRawOutput = func(_, owner, chunk string) {
 					if chunk == "antes" {
 						close(reading)
 						<-release
@@ -76,7 +76,6 @@ func TestCommandStartWaitsForPreviousManualDelivery(t *testing.T) {
 				}
 				s.onCommandStart = func(_, id, _, _ string) {
 					mu.Lock()
-					owner = id
 					events = append(events, "início")
 					mu.Unlock()
 					// O leitor deve conseguir drenar inclusive enquanto este callback
@@ -138,7 +137,13 @@ func TestCommandStartWaitsForPreviousManualDelivery(t *testing.T) {
 				mu.Lock()
 				defer mu.Unlock()
 				want := []string{"anterior/antes", "anterior/\uFFFD", "início", "fim"}
-				if !managed && tail != "" {
+				if managed {
+					// Sem despacho, inclusive o trecho incompleto continua manual até o EOF.
+					want = []string{"anterior/antes", "início", "anterior/\uFFFD\x1bPpendente", "fim"}
+					if tail != "" {
+						want = []string{"anterior/antes", "início", "anterior/\uFFFDdepois", "anterior/\x1b]nova", "fim"}
+					}
+				} else if tail != "" {
 					want = []string{"anterior/antes", "anterior/\uFFFD", "início", "novo/depois", "novo/\x1b]nova", "fim"}
 				}
 				if !slices.Equal(events, want) {
@@ -172,7 +177,7 @@ func TestSendInputPreservesReportedCRAcrossOwners(t *testing.T) {
 					owner = id
 					events = append(events, "início/"+id)
 				},
-				onRawOutput: func(_, text string) { events = append(events, owner+"/"+text) },
+				onRawOutput: func(_, _, text string) { events = append(events, owner+"/"+text) },
 			}
 			if _, err := s.SendInput("primeiro", "A"); err != nil {
 				t.Fatal(err)
@@ -193,6 +198,27 @@ func TestSendInputPreservesReportedCRAcrossOwners(t *testing.T) {
 	}
 }
 
+func TestManagedAnnouncementKeepsManualUTF8UntilDispatch(t *testing.T) {
+	var manual strings.Builder
+	s := &Session{onRawOutput: func(_, id, text string) {
+		if id != "A" {
+			t.Errorf("destino da saída manual=%q", id)
+		}
+		manual.WriteString(text)
+	}}
+	s.rawOwner = s.newRawOwner(false, "A")
+	s.recordOutput("\xc3")
+	s.onCommandStart = func(_, _, _, _ string) {
+		s.recordOutput("\xa9\xe2")
+	}
+	s.startCommandOutput(&HistoryEntry{ID: "B"}, false)
+	s.beginMarkerCapture(newCommandMarkerForShell("bash"))
+	s.recordOutput("controle")
+	if manual.String() != "é\uFFFD" {
+		t.Errorf("saída anterior ao despacho=%q", manual.String())
+	}
+}
+
 func TestManualOutputAcrossManagedCommand(t *testing.T) {
 	reader, writer := io.Pipe()
 	defer func() { _ = reader.Close() }()
@@ -200,7 +226,7 @@ func TestManualOutputAcrossManagedCommand(t *testing.T) {
 	manualStarted := make(chan struct{}, 1)
 	var manual strings.Builder
 	s := &Session{shell: "bash", readerCtx: t.Context(), ptyReader: reader,
-		onRawOutput: func(_, chunk string) {
+		onRawOutput: func(_, _, chunk string) {
 			manual.WriteString(chunk)
 			if chunk == "antes\n" {
 				manualStarted <- struct{}{}
@@ -248,7 +274,7 @@ func TestReadLoopFlushesManualOutputBeforeExit(t *testing.T) {
 		var out strings.Builder
 		s := &Session{
 			ptyReader:   io.MultiReader(strings.NewReader(pending), iotest.ErrReader(err)),
-			onRawOutput: func(_, chunk string) { out.WriteString(chunk) },
+			onRawOutput: func(_, _, chunk string) { out.WriteString(chunk) },
 			onExit: func(_ string, _ error) {
 				if out.String() != want {
 					t.Fatalf("encerramento=%v saída no evento de saída=%q", err, out.String())

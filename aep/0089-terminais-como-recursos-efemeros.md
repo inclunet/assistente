@@ -141,7 +141,10 @@ Entregue:
   concorrentes em `internal/terminal/manager_lifecycle_test.go` cobrem a
   ausência da corrida entre leitor e ConPTY. Na troca de comando, a fila de
   saída é limitada e a escrita pode prosseguir sob fluxo contínuo. O início,
-  os blocos já lidos e o encerramento chegam à interface nessa ordem.
+  os blocos já lidos e o encerramento chegam à interface nessa ordem. Cada
+  evento de saída bruta identifica a última entrada manual pelo `commandId`,
+  vazio se ainda não houve uma. Até o despacho da moldura, os bytes recebidos
+  continuam no fluxo manual, inclusive durante o anúncio ou cancelamento.
 
 Pendente ou parcial:
 

@@ -103,8 +103,9 @@ func (m *Manager) create(name, workDir string, env []string) (*Session, error) {
 	}
 
 	// Callback para raw output (streaming contínuo para Terminal Page)
-	onRawOutput := func(sessionID, chunk string) {
+	onRawOutput := func(sessionID, commandID, chunk string) {
 		m.emitEvent("terminal:raw_output", map[string]string{
+			"commandId":  commandID,
 			"sessionId":  sessionID,
 			"terminalId": sessionID,
 			"output":     chunk,
