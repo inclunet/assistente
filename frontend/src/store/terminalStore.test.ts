@@ -348,7 +348,7 @@ describe('terminalStore', () => {
     { title: 'Build', before: 'Antigo', after: null, expected: 'Antigo' },
     { title: 'Build', before: '', after: null, expected: 'Build' },
     { title: '', before: '', after: null, expected: 'Terminal' },
-    { title: '', before: '', after: null, expected: 'Terminal', failLookup: true },
+    { title: 'Reserva', before: '', after: 'Atual', expected: 'Reserva', failLookup: true },
   ])('identifica a sessão na entrega (aba "$title", nome "$before" → "$after")', async ({ title, before, after, expected, failLookup }) => {
     const language = i18next.language;
     vi.useFakeTimers();
@@ -373,7 +373,10 @@ describe('terminalStore', () => {
       if (!failLookup) await i18next.changeLanguage('pt-BR');
       useTerminalStore.setState({ sessions: after === null ? [] : [terminal.SessionInfo.createFrom({ id: 'a', name: after })] });
       useWorkspaceStore.setState({ workspace: { ...workspace, tabs: after === null ? workspace.tabs.slice(1) : [...workspace.tabs].reverse(), activeTabId: 'tab-b' } });
-      if (failLookup) vi.spyOn(useTerminalStore, 'getState').mockImplementationOnce(() => { throw new Error('catálogo indisponível'); });
+      if (failLookup) {
+        const sessions = useTerminalStore.getState().sessions;
+        vi.spyOn(sessions, 'find').mockImplementation(() => { throw new Error('catálogo indisponível'); });
+      }
       vi.runAllTimers();
       expect(announce.mock.calls.map(([message]) => message)).toEqual([
         'Leitura em curso', i18next.t('terminal.announce.backgroundResult', { name: expected ?? i18next.t('terminal.announce.unnamedTab', { position: 2 }), exitCode: 7 }),

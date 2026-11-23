@@ -55,6 +55,8 @@ sessão pelo nome disponível no momento da fala e informa o código de saída.
 Enquanto a aba existir, a posição atual pode identificá-la. Se ela fechar durante
 a espera, o resumo usa o nome da sessão ou o título registrado ao concluir o comando. Sem esses
 dados, o leitor anuncia “Terminal” e o código de saída.
+Quando chega um aviso de atividade em segundo plano sem resumo da saída,
+o leitor identifica o terminal pelo título da aba, se disponível.
 O leitor de telas anuncia o encerramento mesmo com a aba de terminal fechada.
 Quando o nome da sessão está disponível, o anúncio o inclui. Se o foco estava
 no campo de comando, ele passa ao seletor de sessões ou a Novo terminal quando

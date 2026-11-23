@@ -1,7 +1,7 @@
 import type { WorkspaceData } from '../../store/workspaceStore';
-import type { VoiceAccessibilityOrigin } from './types';
+import { canStartSTT, requestSTTStart, resetSTTGateForTests } from './sttGate';
 import { renderHook } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useVoiceAccessibilityWorkspaceResolver } from './workspaceResolver';
 
 const hoisted = vi.hoisted(() => ({
@@ -15,8 +15,6 @@ const hoisted = vi.hoisted(() => ({
     ],
   } as WorkspaceData,
   subscribe: vi.fn<(listener: unknown) => () => void>(),
-  registerResolver: vi.fn<(resolver: (origin?: VoiceAccessibilityOrigin) => boolean) => () => void>(() => vi.fn()),
-  cancelInactiveSTTSession: vi.fn(),
 }));
 
 vi.mock('../../store/workspaceStore', () => ({
@@ -26,32 +24,23 @@ vi.mock('../../store/workspaceStore', () => ({
   },
 }));
 
-vi.mock('./announcerBroker', () => ({
-  registerVoiceAccessibilityActiveResolver: (resolver: (origin?: VoiceAccessibilityOrigin) => boolean) => hoisted.registerResolver(resolver),
-}));
-
-vi.mock('./sttGate', () => ({
-  cancelInactiveSTTSession: () => hoisted.cancelInactiveSTTSession(),
-}));
-
 describe('useVoiceAccessibilityWorkspaceResolver', () => {
   beforeEach(() => {
     hoisted.subscribe.mockReset();
     hoisted.subscribe.mockReturnValue(vi.fn());
-    hoisted.registerResolver.mockClear();
-    hoisted.cancelInactiveSTTSession.mockClear();
+
     hoisted.workspace.activeTabId = 'tab-1';
   });
+
+  afterEach(resetSTTGateForTests);
 
   it('registra resolver global baseado na aba ativa do workspace', () => {
     renderHook(() => useVoiceAccessibilityWorkspaceResolver(true));
 
-    const resolver = hoisted.registerResolver.mock.calls[0][0] as (origin?: { tabId?: string; conversationId?: string }) => boolean;
-
-    expect(resolver({ tabId: 'tab-1' })).toBe(true);
-    expect(resolver({ tabId: 'tab-2' })).toBe(false);
-    expect(resolver({ conversationId: 'conv-1' })).toBe(true);
-    expect(resolver({ conversationId: 'conv-2' })).toBe(false);
+    expect(canStartSTT({ tabId: 'tab-1' })).toBe(true);
+    expect(canStartSTT({ tabId: 'tab-2' })).toBe(false);
+    expect(canStartSTT({ conversationId: 'conv-1' })).toBe(true);
+    expect(canStartSTT({ conversationId: 'conv-2' })).toBe(false);
   });
 
   it.each([
@@ -62,12 +51,14 @@ describe('useVoiceAccessibilityWorkspaceResolver', () => {
     hoisted.workspace = { ...original, tabs: [{ ...original.tabs[0], type: 'terminal', state: { sessionId: 's' } }] };
     try {
       const { rerender } = renderHook(({ visible }) => useVoiceAccessibilityWorkspaceResolver(visible), { initialProps: { visible: true } });
-      const active = () => hoisted.registerResolver.mock.lastCall![0](origin);
-      expect(active()).toBe(true);
+      const cancel = vi.fn();
+      expect(requestSTTStart({ origin, cancel })).toBe(true);
       rerender({ visible: false });
-      expect(active()).toBe(false);
+      expect(cancel).toHaveBeenCalledTimes(1);
+      expect(requestSTTStart({ origin, cancel })).toBe(false);
       rerender({ visible: true });
-      expect(active()).toBe(true);
+      expect(canStartSTT(origin)).toBe(true);
+      expect(cancel).toHaveBeenCalledTimes(1);
       expect(hoisted.subscribe).toHaveBeenCalledTimes(1);
     } finally { hoisted.workspace = original; }
   });
@@ -80,11 +71,11 @@ describe('useVoiceAccessibilityWorkspaceResolver', () => {
       previousState: { workspace: typeof hoisted.workspace },
     ) => void;
 
-    listener(
-      { workspace: { ...hoisted.workspace, activeTabId: 'tab-2' } },
-      { workspace: { ...hoisted.workspace, activeTabId: 'tab-1' } },
-    );
-
-    expect(hoisted.cancelInactiveSTTSession).toHaveBeenCalled();
+    const cancel = vi.fn();
+    expect(requestSTTStart({ origin: { tabId: 'tab-1' }, cancel })).toBe(true);
+    const previous = { ...hoisted.workspace };
+    hoisted.workspace.activeTabId = 'tab-2';
+    listener({ workspace: hoisted.workspace }, { workspace: previous });
+    expect(cancel).toHaveBeenCalledTimes(1);
   });
 });
