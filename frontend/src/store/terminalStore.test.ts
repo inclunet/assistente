@@ -306,6 +306,44 @@ describe('terminalStore', () => {
     } finally { cleanup(); }
   });
 
+  it.each(['manual', 'outro tipo', 'substituído', 'sem autoridade'])('só restaura o alvo manual confirmado na hidratação: %s', async scenario => {
+    const cleanup = useTerminalStore.getState().setupEventListeners({ lifecycleOnly: true });
+    const emit = (name: string, data: object) => terminalEventHandlers.get('terminal:' + name)?.({ sessionId: 's1', ...data });
+    try {
+      emit('command_start', { commandId: 'modelo', source: 'llm', command: 'date' });
+      emit('command_end', { commandId: 'modelo', output: '', exitCode: -1,
+        ...(scenario !== 'sem autoridade' && { activeManualCommandId: 'manual' }) });
+      expect(useTerminalStore.getState().activeEntryBySession.s1).toBeFalsy();
+      const session = terminal.SessionInfo.createFrom({ id: 's1', state: 'idle' });
+      vi.mocked(ListTerminalSessions).mockResolvedValueOnce([session]);
+      await useTerminalStore.getState().loadSessions();
+      const snapshot = createDeferred<terminal.HistoryEntry[]>();
+      mockGetTerminalHistory.mockReturnValueOnce(snapshot.promise);
+      const loading = useTerminalStore.getState().loadHistory('s1');
+      if (scenario === 'substituído') emit('command_start', { commandId: 'novo', command: 'pwd', source: 'user-raw' });
+      snapshot.resolve([terminal.HistoryEntry.createFrom({ id: 'manual', source: scenario === 'outro tipo' ? 'llm' : 'user-raw' })]);
+      await loading;
+      if (scenario === 'manual') expect(useTerminalStore.getState().activeEntryBySession.s1).toBe('manual');
+      else expect(useTerminalStore.getState().activeEntryBySession.s1).not.toBe('manual');
+    } finally { cleanup(); }
+  });
+
+  it('um término atrasado completa o próprio histórico e preserva o alvo e o estado mais recentes', () => {
+    const cleanup = useTerminalStore.getState().setupEventListeners();
+    try {
+      const emit = (name: string, data: object) => terminalEventHandlers.get('terminal:' + name)?.({ sessionId: 's1', ...data });
+      emit('session_created', { id: 's1', state: 'idle' });
+      for (const [commandId, source] of [['manual', 'user-raw'], ['superado', 'llm'], ['novo', 'llm']]) {
+        emit('command_start', { commandId, source, command: commandId });
+      }
+      emit('command_end', { commandId: 'superado', exitCode: -1, output: 'parcial', activeManualCommandId: 'manual' });
+      const state = useTerminalStore.getState();
+      expect(state.activeEntryBySession.s1).toBe('novo');
+      expect(state.sessions[0].state).toBe('running');
+      expect(state.historyBySession.s1[1]).toMatchObject({ id: 'superado', exitCode: -1, output: 'parcial' });
+    } finally { cleanup(); }
+  });
+
   it('atribui a saída manual ao comando de origem durante e após um comando gerenciado cancelado', () => {
     const cleanup = useTerminalStore.getState().setupEventListeners({ lifecycleOnly: true });
     useTerminalStore.setState({ historyBySession: { s1: [] } });

@@ -1,4 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import * as runtime from '@wailsjs/runtime/runtime';
+import * as audio from '../services/audioFeedback';
 import { acquireCommandFocusTracking } from './commandFocusContext';
 import {
   captureTerminalOperationTarget,
@@ -133,6 +135,39 @@ afterEach(() => {
 });
 
 describe('registry real da operação de terminal', () => {
+  it('recaptura o comando manual para Ctrl+C após uma tentativa gerenciada sem escrita', async () => {
+    vi.spyOn(audio, 'playReceiveSound').mockImplementation(() => {});
+    const events = new Map<string, (data: unknown) => void>();
+    vi.spyOn(runtime, 'EventsOn').mockImplementation((name, handler) => {
+      events.set(name, handler);
+      return () => events.delete(name);
+    });
+    const fixture = setup();
+    cleanups.push(useTerminalStore.getState().setupEventListeners({ lifecycleOnly: true }));
+    const original = fixture.capture()!;
+    const sessionId = fixture.session.id;
+    const commandId = 'tentativa';
+    events.get('terminal:command_start')!({ sessionId, commandId, source: 'llm', command: 'date' });
+    events.get('terminal:command_end')!({ sessionId, commandId, exitCode: -1, output: '', activeManualCommandId: fixture.command.id });
+    expect(original.isCurrent()).toBe(false);
+    original.dispose();
+    const history = useTerminalStore.getState().historyBySession[sessionId];
+    expect(history[1]).toMatchObject({ id: commandId, exitCode: -1 });
+    const target = fixture.capture()!;
+    expect(target.currentCommand).toEqual(fixture.command);
+    const { port } = fakePort();
+    await expect(executeTerminalInterrupt(port, target)).resolves.toBe('succeeded');
+    expect(port.prepareTerminalInterruptCommand).toHaveBeenCalledExactlyOnceWith(
+      'terminal-ticket', 'workspace-a', 'tab-a', sessionId, fixture.command.id,
+    );
+    events.get('terminal:command_start')!({ sessionId, commandId: 'seguinte', source: 'llm', command: 'pwd' });
+    events.get('terminal:command_end')!({ sessionId, commandId: 'seguinte', exitCode: 0, output: 'ok' });
+    events.get('terminal:command_end')!({ sessionId, commandId, exitCode: -1, activeManualCommandId: fixture.command.id });
+    expect(fixture.capture()).toBeUndefined();
+    events.get('terminal:exited')!({ sessionId });
+    events.get('terminal:command_end')!({ sessionId, commandId, exitCode: -1, activeManualCommandId: fixture.command.id });
+    expect(fixture.capture()).toBeUndefined();
+  });
   it('recusa sessão sem execução conhecida em vez de enviar Ctrl+C sem alvo', () => {
     const fixture = setup();
     useTerminalStore.setState({ activeEntryBySession: { 'session-a': null } });
