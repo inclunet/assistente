@@ -448,6 +448,16 @@ func TestEnsureInstanceSecretStoreErrorIsRedacted(t *testing.T) {
 	}
 }
 
+func TestReadPersistedInstanceSecretDistinguishesStoreFailureFromAbsence(t *testing.T) {
+	store := ensureFailingStore{err: errors.New("detalhes internos da consulta")}
+	mgr := NewManagerWithStoreAndPersistence(ensureTestDEK, store, true)
+	mgr.integrity.set(VaultIntegrityStatus{OK: true, KeychainDekID: DEKIdentity(ensureTestDEK)})
+	value, found, err := mgr.ReadPersistedInstanceSecret(t.Context(), InstanceSecretAuthRefreshToken)
+	if value != "" || found || err != ErrInstanceSecretStore {
+		t.Fatalf("resultado da falha de leitura: encontrado=%v, erro=%v", found, err)
+	}
+}
+
 func TestEnsureInstanceSecretSanitizesWrappedContextErrors(t *testing.T) {
 	if got := sanitizeInstanceSecretStoreError(fmt.Errorf("private: %w", context.Canceled)); got != context.Canceled {
 		t.Fatalf("canceled error = %v, want canonical context.Canceled", got)

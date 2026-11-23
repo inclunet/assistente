@@ -47,11 +47,7 @@ func (a *App) initCredentialManager() {
 	if err := a.credMgr.LoadInstanceSecrets(a.internalBootstrapCtx()); err != nil {
 		logging.Errorf(context.Background(), "app.app-credentials", "[Credentials] Erro ao carregar instance secrets: %v", err)
 	}
-	// Um consumidor de conversas precisa distinguir segredo ausente de
-	// segredo ilegível. A manutenção automática do cofre cabe ao desktop.
-	if !a.conversationCLI {
-		a.handleVaultIntegrityOnBoot()
-	}
+	a.handleVaultIntegrityOnBoot()
 	a.registerEnvCredentials(a.internalBootstrapCtx(), a.credMgr)
 	a.initCommandStorage()
 }
@@ -70,7 +66,9 @@ func (a *App) initCredentialManager() {
 //     bloqueado para escritas; recovery exige ação explícita do
 //     usuário (UnlockOverwriteKeychain ou setup nova senha).
 func (a *App) handleVaultIntegrityOnBoot() {
-	if a.credMgr == nil {
+	// O processo curto deve distinguir linha ausente de segredo ilegível.
+	// Preserva as evidências até que o desktop faça a manutenção do cofre.
+	if a.credMgr == nil || a.conversationCLI {
 		return
 	}
 	status := a.credMgr.IntegrityStatus()
