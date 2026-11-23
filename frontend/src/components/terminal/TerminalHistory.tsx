@@ -79,16 +79,19 @@ export const TerminalHistory = forwardRef<HTMLDivElement, TerminalHistoryProps>(
     }, [scrollKey]);
 
     // Anuncia novo comando quando aparece
-    const prevEntryCount = useRef(entries.length);
+    const previousEntries = useRef(entries);
     useEffect(() => {
-      if (entries.length > prevEntryCount.current) {
-        const lastEntry = entries[entries.length - 1];
-        if (lastEntry) {
-          announceWithOrigin({ origin: { surfaceType: 'terminal', tabId }, eventType: 'progress',
-            message: `${t('terminal.history.commandPrefix')} ${lastEntry.command}` });
-        }
+      const previous = previousEntries.current;
+      previousEntries.current = entries;
+      const last = entries[entries.length - 1];
+      const previousLast = previous[previous.length - 1];
+      if (!last || last.id === previousLast?.id) return;
+      const grew = entries.length > previous.length;
+      const rolled = entries.length === previous.length && entries.some(entry => entry.id === previousLast?.id);
+      if (grew || rolled) {
+        announceWithOrigin({ origin: { surfaceType: 'terminal', tabId }, eventType: 'progress',
+          message: `${t('terminal.history.commandPrefix')} ${last.command}` });
       }
-      prevEntryCount.current = entries.length;
     }, [entries, t, tabId]);
 
     /** Registra/remove ref de nó */

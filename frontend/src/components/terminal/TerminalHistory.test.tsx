@@ -21,15 +21,16 @@ describe('TerminalHistory', () => {
     const sink = vi.fn();
     registerAnnouncerSink(sink);
     const unregister = registerVoiceAccessibilityActiveResolver(origin => origin?.tabId === 'visível');
+    const initial = Array.from({ length: 200 }, (_, i) => new terminal.HistoryEntry({ id: String(i), command: 'anterior', output: '', exitCode: 0 }));
     const panes = (show: boolean) => <>{['oculta', 'visível'].map(tabId =>
       <TerminalHistory key={tabId} tabId={tabId} runningCommandId={null}
-        entries={show ? [new terminal.HistoryEntry({ id: tabId, command: tabId, output: '', exitCode: -999,
-          endedAt: '2026-01-01T00:00:01Z', source: 'llm' })] : []} />)}</>;
+        entries={show ? [...initial.slice(1), new terminal.HistoryEntry({ id: tabId, command: tabId, output: '', exitCode: 1,
+          endedAt: '2026-01-01T00:00:01Z', source: 'llm' })] : initial} />)}</>;
     try {
       const { rerender } = render(panes(false));
       rerender(panes(true));
       expect(sink.mock.calls).toEqual([['terminal.history.commandPrefix visível', 'polite']]);
-      expect(screen.getAllByText('terminal.entry.exit -999')).toHaveLength(2);
+      expect(screen.getAllByText('terminal.entry.exit 1')).toHaveLength(2);
     } finally { unregister(); unregisterAnnouncerSink(); }
   });
 
