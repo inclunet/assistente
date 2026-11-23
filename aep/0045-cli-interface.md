@@ -264,7 +264,10 @@ focados nos arquivos `*_test.go` correspondentes. A ajuda é registrada em
   `TestLinuxModifierMasksMatchNativeBackend` confere a equivalência no build
   nativo. A recusa de captura global fora do Windows (AEP-0103) permanece.
 - [x] `asst history` e `asst chat` vinculam o processo ao usuário da sessão
-  local persistida com o cofre desbloqueado. A validação usa a credencial da
+  local persistida com o cofre desbloqueado. A identidade vem da linha de
+  instância deste banco: o espelho no chaveiro pode guardar outra conta
+  após falha de escrita. Erros de leitura do cofre são informados.
+  A validação usa a credencial da
   sessão vigente, preserva seu prazo e sua rotação pelo desktop e revalida
   revogação e atividade da conta antes das operações autenticadas do REPL.
   Chat hidrata credenciais e provedores desse usuário; o scheduler fica no

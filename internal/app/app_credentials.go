@@ -47,7 +47,11 @@ func (a *App) initCredentialManager() {
 	if err := a.credMgr.LoadInstanceSecrets(a.internalBootstrapCtx()); err != nil {
 		logging.Errorf(context.Background(), "app.app-credentials", "[Credentials] Erro ao carregar instance secrets: %v", err)
 	}
-	a.handleVaultIntegrityOnBoot()
+	// Um consumidor de conversas precisa distinguir segredo ausente de
+	// segredo ilegível. A manutenção automática do cofre cabe ao desktop.
+	if !a.conversationCLI {
+		a.handleVaultIntegrityOnBoot()
+	}
 	a.registerEnvCredentials(a.internalBootstrapCtx(), a.credMgr)
 	a.initCommandStorage()
 }

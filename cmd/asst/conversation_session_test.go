@@ -94,7 +94,19 @@ data: [DONE]
 		if _, err := auth.NewIdentityService(database.DB()).CreateLocalUser(context.Background(), auth.CreateUserParams{Username: account.Username, Password: account.Password}); err != nil {
 			t.Fatal(err)
 		}
+		if _, err := desktop.Login(app.LoginRequest{Username: admin.Username, Password: "other-password"}); err != nil {
+			t.Fatal(err)
+		}
+		staleMirror, err := credentials.LoadAuthRefreshTokenFromKeychain()
+		if err != nil {
+			t.Fatal(err)
+		}
 		if _, err := desktop.Login(app.LoginRequest{Username: account.Username, Password: account.Password, ClientLabel: "desktop"}); err != nil {
+			t.Fatal(err)
+		}
+		// Simula login em outra conta com sucesso no banco, mas sem atualizar
+		// o espelho do SO. Ambas as sessões são válidas.
+		if err := credentials.SaveAuthRefreshTokenToKeychain(staleMirror); err != nil {
 			t.Fatal(err)
 		}
 		cli := asCLI(desktop)
@@ -114,7 +126,7 @@ data: [DONE]
 	}
 	initialize()
 	var session database.Session
-	if err := database.DB().First(&session).Error; err != nil {
+	if err := database.DB().First(&session, "client_label = ?", "desktop").Error; err != nil {
 		t.Fatal(err)
 	}
 	activeRun = database.SubAgentRun{UserID: session.UserID, ChildConversationID: conversationID, Status: database.SubAgentRunStatusRunning}
@@ -198,6 +210,12 @@ data: [DONE]
 		if _, err := asCLI(rootApp).GetConversations(); err == nil {
 			t.Fatal("a CLI manteve acesso após logout no desktop")
 		}
+	})
+	run(historyListCmd, func(err error) {
+		if !errors.Is(err, auth.ErrSessionRevoked) {
+			t.Fatalf("sessão revogada com espelho de outra conta: %v", err)
+		}
+		current := session
 		if err := database.DB().Model(&current).Update("revoked_at", nil).Error; err != nil {
 			t.Fatal(err)
 		}
@@ -217,8 +235,13 @@ data: [DONE]
 		if _, err := app.AuthenticatedContext(rootApp); err == nil {
 			t.Fatal("histórico acessível sem autorização")
 		}
-		if err := credentials.DeleteAuthRefreshTokenFromKeychain(); err != nil {
+		if err := database.DB().Model(&database.CredentialEntry{}).Where("pattern = ?", credentials.InstanceSecretAuthRefreshToken).Update("token_enc", "fixture-corrompido").Error; err != nil {
 			t.Fatal(err)
+		}
+	})
+	run(historyListCmd, func(err error) {
+		if err == nil || errors.Is(err, auth.ErrInvalidRefreshToken) || !strings.Contains(err.Error(), "cofre") || strings.Contains(err.Error(), "fixture-corrompido") {
+			t.Fatalf("leitura de segredo ilegível: %v", err)
 		}
 		if err := database.DB().Where("pattern = ?", credentials.InstanceSecretAuthRefreshToken).Delete(&database.CredentialEntry{}).Error; err != nil {
 			t.Fatal(err)
