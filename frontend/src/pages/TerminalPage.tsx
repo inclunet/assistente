@@ -543,7 +543,6 @@ export default function TerminalPage({ sessionId: explicitSessionId }: TerminalP
 
       <div className="ws-content-area">
       <TerminalHistory
-        tabId={panelTab.id}
         ref={historyContainerRef}
         entries={currentHistory}
         runningCommandId={currentRunningCommandId}

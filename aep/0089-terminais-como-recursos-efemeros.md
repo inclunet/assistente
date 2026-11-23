@@ -221,6 +221,8 @@ Pendente ou parcial:
   Na primeira abertura durante um comando, a aba recupera a saída em andamento
   e preserva o resultado que chegar durante a leitura do histórico, inclusive a saída
   manual já exibida quando a consulta devolve o mesmo comando sem saída.
+  O evento de início dispara o anúncio do comando. Carregar o histórico é silencioso.
+  O backend atribui o ID antes do início do comando.
   O histórico correlaciona eventos pelo ID do comando e preserva inclusive o
   código final -999, distinguindo-o de uma execução ainda sem término. A última
   prévia de saída manual é entregue antes do anúncio de encerramento.

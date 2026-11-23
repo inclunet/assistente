@@ -1,5 +1,4 @@
 import { announceWithOrigin, isVoiceAccessibilityOriginCurrentlyActive } from './announcerBroker';
-import { isTerminalOrigin } from './types';
 import type {
   VoiceAccessibilityOrigin,
   VoiceAccessibilityPriority,
@@ -27,7 +26,6 @@ export async function requestVoiceTTS(request: VoiceTTSRequest): Promise<boolean
     if (message) {
       announceWithOrigin({
         message,
-        inactiveMessage: isTerminalOrigin(request.origin) ? request.inactiveAnnouncement : undefined,
         origin: request.origin,
         eventType: request.eventType ?? 'completion',
       });

@@ -1,5 +1,6 @@
 import type { WorkspaceData } from '../../store/workspaceStore';
 import { canStartSTT, requestSTTStart, resetSTTGateForTests } from './sttGate';
+import { announceWithOrigin, registerAnnouncerSink, unregisterAnnouncerSink, estimateAnnouncementReadingMs } from './announcerBroker';
 import { renderHook } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useVoiceAccessibilityWorkspaceResolver } from './workspaceResolver';
@@ -60,6 +61,39 @@ describe('useVoiceAccessibilityWorkspaceResolver', () => {
       expect(canStartSTT(origin)).toBe(true);
       expect(cancel).toHaveBeenCalledTimes(1);
       expect(hoisted.subscribe).toHaveBeenCalledTimes(1);
+    } finally { hoisted.workspace = original; }
+  });
+
+  it.each(['Atual', ''])('usa o título vigente na entrega do aviso adiado: %s', title => {
+    const original = hoisted.workspace;
+    const sink = vi.fn();
+    registerAnnouncerSink(sink);
+    vi.useFakeTimers();
+    try {
+      hoisted.workspace = { ...original, tabs: [original.tabs[0], { ...original.tabs[1], type: 'terminal', title: 'Antes' }] };
+      renderHook(() => useVoiceAccessibilityWorkspaceResolver(true));
+      announceWithOrigin({ message: 'Leitura', protectsReading: true });
+      announceWithOrigin({ message: 'privado', eventType: 'completion', origin: { surfaceType: 'terminal', tabId: 'tab-2', title: 'Antes' } });
+      hoisted.workspace = { ...original, tabs: title ? [original.tabs[0], { ...original.tabs[1], type: 'terminal', title }] : [original.tabs[0]] };
+      vi.advanceTimersByTime(estimateAnnouncementReadingMs('Leitura'));
+      expect(sink.mock.calls.map(([message]) => message)).toEqual(['Leitura', title
+        ? 'Atividade no terminal Atual em segundo plano' : 'Atividade no terminal em segundo plano']);
+    } finally { unregisterAnnouncerSink(); vi.useRealTimers(); hoisted.workspace = original; }
+  });
+
+  it('cancela a captura quando a aba ativa passa a exibir outra sessão', () => {
+    const original = hoisted.workspace;
+    try {
+      const tab = { ...original.tabs[0], type: 'terminal' as const, state: { sessionId: 'a' } };
+      const previous = { ...original, tabs: [tab] };
+      hoisted.workspace = previous;
+      renderHook(() => useVoiceAccessibilityWorkspaceResolver(true));
+      const cancel = vi.fn();
+      expect(requestSTTStart({ origin: { terminalSessionId: 'a' }, cancel })).toBe(true);
+      hoisted.workspace = { ...previous, tabs: [{ ...tab, state: { sessionId: 'b' } }] };
+      const listener = hoisted.subscribe.mock.calls[0][0] as (next: { workspace: WorkspaceData }, prev: { workspace: WorkspaceData }) => void;
+      listener({ workspace: hoisted.workspace }, { workspace: previous });
+      expect(cancel).toHaveBeenCalledTimes(1);
     } finally { hoisted.workspace = original; }
   });
 
