@@ -50,7 +50,7 @@ func TestProfileDefaultWithStartupRepairsDisabled(t *testing.T) {
 		selected, want     string
 	}{
 		{name: "padrão escolhido entre leituras", registered: []string{"a", "b"}, stored: []string{"a", "b"}, selected: "b", want: "b"},
-		{name: "registro e cadastro divergem", registered: []string{"a", "c"}, stored: []string{"b", "c"}, want: "c"},
+		{name: "novo ID precede o primeiro registro carregado", registered: []string{"a", "c"}, stored: []string{"b", "c"}, want: "b"},
 		{name: "cadastro vazio", registered: []string{"a"}, want: profiles.DefaultProviderSentinel},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -75,6 +75,35 @@ func TestProfileDefaultWithStartupRepairsDisabled(t *testing.T) {
 			resolved := svc.ResolveProfileDefaults(ctx, profile)
 			if resolved.Chat.LLMProvider != tc.want {
 				t.Fatalf("provedor selecionado=%q, esperado=%q", resolved.Chat.LLMProvider, tc.want)
+			}
+		})
+	}
+}
+
+// O primeiro cadastro apto a aparecer no desktop também é o candidato da CLI,
+// inclusive quando aguarda autorização. Cadastro rejeitado fica fora da escolha.
+func TestProfileDefaultEligibility(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		first *llm.ProviderConfig
+		want  string
+	}{
+		{name: "cadastro rejeitado", first: &llm.ProviderConfig{ReasoningContentMode: "desconhecido"}, want: "b"},
+		{name: "URL pendente", first: &llm.ProviderConfig{BaseURL: "://"}, want: "a"},
+		{name: "HTTP pendente", first: &llm.ProviderConfig{BaseURL: "http://example.org", AuthMode: llm.AuthModeRequired}, want: "a"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			first := tc.first
+			first.ID, first.Name, first.Type = "a", "Primeiro", llm.ProviderCustom
+			valid := &llm.ProviderConfig{ID: "b", Name: "Segundo", Type: llm.ProviderCustom, BaseURL: "https://example.org"}
+			store := NewMemoryStore()
+			if err := store.Save(t.Context(), []*llm.ProviderConfig{valid, first}); err != nil {
+				t.Fatal(err)
+			}
+			svc := NewService(ServiceConfig{Registry: llm.NewProviderRegistry(), Store: store, SkipBootRepairs: true})
+			selected, err := svc.profileDefaultProvider(t.Context())
+			if err != nil || selected == nil || selected.ID != tc.want {
+				t.Fatalf("cadastro selecionado: %v, erro=%v; esperado %s", selected, err, tc.want)
 			}
 		})
 	}

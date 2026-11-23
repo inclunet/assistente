@@ -332,6 +332,14 @@ data: [DONE]
 			t.Fatal(err)
 		}
 		added := second
+		added.ID, added.IsDefault = "a-novo-primeiro", false
+		if err := database.DB().Create(&added).Error; err != nil {
+			t.Fatal(err)
+		}
+		assertReopen("primeiro ID sem padrão criado após hidratação")
+		if err := database.DB().Delete(&added).Error; err != nil {
+			t.Fatal(err)
+		}
 		added.ID, added.IsDefault = "novo-padrao", true
 		if err := database.DB().Create(&added).Error; err != nil {
 			t.Fatal(err)

@@ -875,20 +875,23 @@ func (s *Service) profileDefaultProvider(ctx context.Context) (*llm.ProviderConf
 	if err != nil {
 		return nil, err
 	}
-	byID := make(map[string]*llm.ProviderConfig, len(available))
+	var first *llm.ProviderConfig
 	for _, p := range available {
 		// O desktop pode ter escolhido o padrão entre as duas leituras.
 		if p.IsDefault {
 			return p, nil
 		}
-		byID[p.ID] = p
-	}
-	for _, registered := range s.registry.List() {
-		if current := byID[registered.ID]; current != nil {
-			return current, nil
+		// Load inclui no registro os cadastros válidos e os mantidos para
+		// autorizar HTTP ou corrigir a URL. Os demais ficam fora da seleção.
+		err := validateStoredProvider(p)
+		if err != nil && !errors.Is(err, llm.ErrInsecureHTTPAuthorizationRequired) && !errors.Is(err, llm.ErrInvalidProviderBaseURL) {
+			continue
+		}
+		if first == nil || p.ID < first.ID {
+			first = p
 		}
 	}
-	return nil, nil
+	return first, nil
 }
 
 // ResolveProfileDefaults substitui sentinelas "$default" no perfil pelo
@@ -1155,12 +1158,7 @@ func (s *Service) validateChatProviderSnapshot(ctx context.Context, id string, l
 	if err != nil {
 		return fmt.Errorf("revalidar provedor de chat: %w", err)
 	}
-	if stored.APIFormat == "" {
-		stored.APIFormat = stored.GetAPIFormat()
-	}
-	// O registro normaliza os campos de texto na admissão. Uma configuração
-	// pendente mantém o diagnóstico específico da validação no ponto de envio.
-	validationErr := stored.Validate()
+	validationErr := validateStoredProvider(stored)
 	if loaded == nil {
 		if validationErr != nil {
 			return validationErr
@@ -1176,6 +1174,14 @@ func (s *Service) validateChatProviderSnapshot(ctx context.Context, id string, l
 		return errChatProviderSnapshotChanged
 	}
 	return validationErr
+}
+
+// O carregamento do registro materializa o formato antes de validar o cadastro.
+func validateStoredProvider(p *llm.ProviderConfig) error {
+	if p.APIFormat == "" {
+		p.APIFormat = p.GetAPIFormat()
+	}
+	return p.Validate()
 }
 
 // ListModelsRawRequest contém os parâmetros para listagem de modelos via credenciais ad-hoc.

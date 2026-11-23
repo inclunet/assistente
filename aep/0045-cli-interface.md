@@ -273,13 +273,15 @@ focados nos arquivos `*_test.go` correspondentes. A ajuda é registrada em
   o processo. O desbloqueio é determinado pela disponibilidade da chave do
   cofre para o processo da CLI. A hidratação de provedores preserva o cadastro
   compartilhado, inclusive entradas legadas sem formato ou padrão explícitos.
-  Nesse último caso, perfis com `$default` usam o primeiro ID do registro
-  disponível para a conta, seguindo a ordem do desktop sem persistir a escolha.
+  Nesse último caso, perfis com `$default` usam o primeiro ID elegível do cadastro
+  atual da conta, seguindo a ordem do desktop sem persistir a escolha. Um ID
+  anterior cadastrado depois da abertura também participa dessa seleção.
   A criação, remoção ou alteração do cadastro escolhido exige reabrir o chat
   antes do envio. O cliente, sua configuração e suas credenciais permanecem
   vinculados ao runtime que os carregou.
   Chat hidrata credenciais, provedores desse usuário e o último catálogo local
-  válido, preservando defaults e limites sem atualização em segundo plano; o scheduler fica no
+  válido, preservando defaults e limites sem atualização em segundo plano.
+  O scheduler fica no
   processo que o iniciou. O percurso entre instâncias com SQLite e chaveiro
   de teste está em `TestConversationCLIUsesSavedSessionAcrossInstances`.
 - [x] Chat interativo e pipe são cobertos por `cmd/asst/chat_test.go`.
