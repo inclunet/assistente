@@ -143,55 +143,56 @@ func (s *SessionService) RefreshLocalCandidate(ctx context.Context, refreshToken
 // A short-lived CLI process can share an active desktop session without racing
 // another process to replace or clear its refresh token.
 func (s *SessionService) AuthenticateSavedSession(ctx context.Context, token string) (LocalSessionPrincipal, string, error) {
-	session, user, err := s.checkRefreshCredential(ctx, token, false, s.now())
+	session, _, err := s.checkRefreshCredential(ctx, token, false)
 	if err != nil {
 		return LocalSessionPrincipal{}, "", err
 	}
-	return LocalSessionPrincipal{SessionID: session.ID, UserID: user.ID}, user.Role, nil
+	return LocalSessionPrincipal{SessionID: session.ID, UserID: session.UserID}, session.User.Role, nil
 }
 
-func (s *SessionService) checkRefreshCredential(ctx context.Context, refreshToken string, revokeOnMismatch bool, now time.Time) (*database.Session, *database.User, error) {
+func (s *SessionService) checkRefreshCredential(ctx context.Context, refreshToken string, revokeOnMismatch bool) (*database.Session, time.Time, error) {
 	sessionID, secret, err := parseRefreshToken(refreshToken)
 	if err != nil {
-		return nil, nil, err
+		return nil, time.Time{}, err
 	}
 
 	var session database.Session
-	err = s.db.WithContext(ctx).First(&session, "id = ?", sessionID).Error
+	err = s.db.WithContext(ctx).Joins("User").First(&session, "sessions.id = ?", sessionID).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, nil, ErrInvalidRefreshToken
+			return nil, time.Time{}, ErrInvalidRefreshToken
 		}
-		return nil, nil, err
+		return nil, time.Time{}, err
 	}
 
+	// O prazo é avaliado depois da leitura de sessão e conta: esperar pelo banco
+	// pode consumir todo o tempo restante da credencial.
+	now := s.now()
 	if session.RevokedAt != nil {
-		return nil, nil, ErrSessionRevoked
+		return nil, time.Time{}, ErrSessionRevoked
 	}
 	if !now.Before(session.ExpiresAt) {
-		return nil, nil, ErrSessionExpired
+		return nil, time.Time{}, ErrSessionExpired
 	}
 	if !s.matchRefreshSecret(session.RefreshTokenHash, secret) {
 		if revokeOnMismatch {
 			revokedAt := now
 			_ = s.db.WithContext(ctx).Model(&database.Session{}).Where("id = ?", session.ID).Update("revoked_at", revokedAt).Error
 		}
-		return nil, nil, ErrInvalidRefreshToken
+		return nil, time.Time{}, ErrInvalidRefreshToken
 	}
 
-	var user database.User
-	if err := s.db.WithContext(ctx).First(&user, "id = ?", session.UserID).Error; err != nil {
-		return nil, nil, err
+	if session.User == nil {
+		return nil, time.Time{}, gorm.ErrRecordNotFound
 	}
-	if !user.IsActive {
-		return nil, nil, ErrInactiveUser
+	if !session.User.IsActive {
+		return nil, time.Time{}, ErrInactiveUser
 	}
-	return &session, &user, nil
+	return &session, now, nil
 }
 
 func (s *SessionService) refresh(ctx context.Context, refreshToken string, revokeOnMismatch bool) (*TokenPair, error) {
-	now := s.now()
-	session, user, err := s.checkRefreshCredential(ctx, refreshToken, revokeOnMismatch, now)
+	session, now, err := s.checkRefreshCredential(ctx, refreshToken, revokeOnMismatch)
 	if err != nil {
 		return nil, err
 	}
@@ -212,7 +213,7 @@ func (s *SessionService) refresh(ctx context.Context, refreshToken string, revok
 	session.LastUsedAt = &lastUsedAt
 	session.ExpiresAt = updates["expires_at"].(time.Time)
 
-	return s.tokenPairForSession(session, user.Role, nextSecret, now)
+	return s.tokenPairForSession(session, session.User.Role, nextSecret, now)
 }
 
 func (s *SessionService) Logout(ctx context.Context, refreshToken string) error {
