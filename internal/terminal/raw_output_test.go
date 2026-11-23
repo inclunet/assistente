@@ -211,7 +211,7 @@ func TestManagedAnnouncementKeepsManualUTF8UntilDispatch(t *testing.T) {
 	s.onCommandStart = func(_, _, _, _ string) {
 		s.recordOutput("\xa9\xe2")
 	}
-	s.startCommandOutput(&HistoryEntry{ID: "B"}, false)
+	s.startManagedOutput(t.Context(), &HistoryEntry{ID: "B"})
 	s.beginMarkerCapture(newCommandMarkerForShell("bash"))
 	s.recordOutput("controle")
 	if manual.String() != "é\uFFFD" {

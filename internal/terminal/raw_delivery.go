@@ -1,6 +1,9 @@
 package terminal
 
-import "sync"
+import (
+	"context"
+	"sync"
+)
 
 // Cada leitura do PTY tem até ptyReadSize bytes. Durante a troca de entrada,
 // o leitor aguarda espaço depois de oito entregas, sem bloquear os locks da sessão.
@@ -9,13 +12,14 @@ const rawDeliverySlots = 8
 type rawChunk struct{ commandID, text string }
 
 type rawDeliveryOwner struct {
-	publish  func(rawChunk)
-	mu       sync.Mutex
-	changed  *sync.Cond
-	opening  bool
-	draining bool
-	pending  int
-	queue    []rawChunk
+	publish   func(rawChunk)
+	mu        sync.Mutex
+	changed   *sync.Cond
+	opening   bool
+	draining  bool
+	pending   int
+	completed uint64
+	queue     []rawChunk
 	// No encerramento forçado restam no máximo a leitura em curso e a cauda do decodificador.
 	finalSlots int
 	// Notifica o fluxo de saída seguinte e o encerramento após o último bloco.
@@ -42,10 +46,11 @@ func (o *rawDeliveryOwner) reserve() {
 func (o *rawDeliveryOwner) complete() {
 	o.mu.Lock()
 	o.pending--
+	o.completed++
+	o.changed.Broadcast()
 	var after []func()
 	if o.pending == 0 {
 		after, o.after = o.after, nil
-		o.changed.Broadcast()
 	}
 	o.mu.Unlock()
 	for _, notify := range after {
@@ -59,6 +64,26 @@ func (o *rawDeliveryOwner) wait() {
 		o.changed.Wait()
 	}
 	o.mu.Unlock()
+}
+
+// A entrada gerenciada mantém o dono da saída manual. Aguarde só as entregas
+// já reservadas, mesmo se a sessão continuar produzindo durante a troca.
+func (o *rawDeliveryOwner) waitBeforeDispatch(ctx context.Context) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	if o.pending == 0 {
+		return
+	}
+	target := o.completed + uint64(o.pending)
+	stop := context.AfterFunc(ctx, func() {
+		o.mu.Lock()
+		o.changed.Broadcast()
+		o.mu.Unlock()
+	})
+	defer stop()
+	for o.completed < target && ctx.Err() == nil {
+		o.changed.Wait()
+	}
 }
 
 func (o *rawDeliveryOwner) afterDelivery(notify func()) {

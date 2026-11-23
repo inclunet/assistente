@@ -336,19 +336,30 @@ func (s *Session) finishRawOutput() {
 	s.deliverRawAndUnlock(s.rawOutput.finish())
 }
 
-func (s *Session) startCommandOutput(entry *HistoryEntry, manual bool) {
+func (s *Session) startManagedOutput(ctx context.Context, entry *HistoryEntry) {
+	s.outputMu.Lock()
+	owner := s.rawOwner
+	s.outputMu.Unlock()
+	if owner != nil {
+		owner.waitBeforeDispatch(ctx)
+	}
+	s.announceCommandStart(entry)
+}
+
+func (s *Session) announceCommandStart(entry *HistoryEntry) {
+	if s.onCommandStart != nil {
+		s.onCommandStart(s.id, entry.ID, entry.Command, entry.Source)
+	}
+}
+
+func (s *Session) startManualOutput(entry *HistoryEntry) {
 	s.outputMu.Lock()
 	previousOwner := s.rawOwner
 	previousID := s.rawCommandID
-	if manual {
-		s.rawCommandID = entry.ID
-	}
+	s.rawCommandID = entry.ID
 	owner := newRawDeliveryOwner(true, s.publishRaw)
 	s.rawOwner = owner
-	var previous string
-	if manual {
-		previous = s.rawOutput.changeOwner()
-	}
+	previous := s.rawOutput.changeOwner()
 	s.outputMu.Unlock()
 
 	if previousOwner != nil {
@@ -357,17 +368,8 @@ func (s *Session) startCommandOutput(entry *HistoryEntry, manual bool) {
 	if previous != "" {
 		s.publishRaw(rawChunk{commandID: previousID, text: previous})
 	}
-	// A saída até a escrita gerenciada ainda pertence à entrada anterior, já
-	// identificada no evento. O leitor pode entregá-la durante o anúncio.
-	if !manual {
-		owner.opened()
-	}
-	if s.onCommandStart != nil {
-		s.onCommandStart(s.id, entry.ID, entry.Command, entry.Source)
-	}
-	if manual {
-		owner.opened()
-	}
+	s.announceCommandStart(entry)
+	owner.opened()
 }
 
 func (s *Session) beginMarkerCapture(marker *CommandMarker) {
@@ -637,7 +639,7 @@ func (s *Session) runCommandInDirectory(ctx context.Context, command, directory 
 	marker := newCommandMarkerForShell(shellType(s.shell))
 
 	// Durante o anúncio a saída ainda é da entrada manual anterior.
-	s.startCommandOutput(entry, false)
+	s.startManagedOutput(commandCtx, entry)
 
 	defer func() {
 		s.outputMu.Lock()
@@ -1097,7 +1099,7 @@ func (s *Session) SendInput(input, commandID string) (*HistoryEntry, error) {
 		ExitCode:  -999, // sentinel: "raw/interativo, sem exit code"
 		Source:    "user-raw",
 	}
-	s.startCommandOutput(entry, true)
+	s.startManualOutput(entry)
 	s.ioMu.Lock()
 	s.mu.Lock()
 	canWrite := s.state == StateRunning

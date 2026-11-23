@@ -485,6 +485,55 @@ func TestCloseDuringStartDrainsBoundedHandoff(t *testing.T) {
 	})
 }
 
+func TestManagedDeadlineReleasesReservationWhileRawDeliveryIsBlocked(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		started, release := make(chan struct{}), make(chan struct{})
+		var events []string
+		m := NewManager(DefaultManagerConfig(), func(name string, _ any) {
+			events = append(events, name)
+		})
+		s := &Session{id: "sessão", shell: "bash", state: StateIdle, rawCommandID: "manual",
+			ptyWriter: manualTestWriter(func(p []byte) (int, error) {
+				t.Error("o comando expirado chegou ao PTY")
+				return len(p), nil
+			}), onCommandStart: func(_, _, _, _ string) {
+				events = append(events, "início")
+			}, onRawOutput: func(_, id, raw string) {
+				close(started)
+				<-release
+				events = append(events, id+"/"+raw)
+			},
+		}
+		m.sessions[s.id] = s
+		go s.recordOutput("anterior")
+		<-started
+		finished := make(chan error, 1)
+		go func() {
+			_, err := m.RunCommand(t.Context(), s.id, "não enviado", time.Second, "teste")
+			finished <- err
+		}()
+		time.Sleep(2 * time.Second)
+		synctest.Wait()
+		select {
+		case err := <-finished:
+			if !errors.Is(err, context.DeadlineExceeded) {
+				t.Errorf("erro ao vencer o prazo: %v", err)
+			}
+		default:
+			t.Error("o comando ainda aguarda a saída anterior")
+		}
+		history := s.GetHistory()
+		if s.State() != StateIdle || len(history) != 1 || history[0].ExitCode != -1 {
+			t.Errorf("estado=%v histórico=%+v", s.State(), history)
+		}
+		close(release)
+		synctest.Wait()
+		if !slices.Equal(events, []string{"início", "terminal:command_end", "manual/anterior"}) {
+			t.Fatalf("eventos=%v", events)
+		}
+	})
+}
+
 func TestManagedStartPreservesManualOutputBeforeCanceledWrite(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()

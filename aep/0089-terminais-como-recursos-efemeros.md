@@ -234,7 +234,9 @@ Pendente ou parcial:
   informa no texto e nos metadados a duração registrada pela sessão, inclusive no timeout sem saída,
   quando os dois horários da execução estão disponíveis.
   Antes da primeira escrita de um comando gerenciado, a sessão revalida o contexto após
-  entregar eventos em espera. Se o contexto já terminou, conclui o histórico e o evento
+  aguardar as entregas raw já reservadas. Essa espera respeita o prazo, mesmo que
+  o consumidor continue bloqueado. A saída conserva o identificador de origem.
+  Se o contexto já terminou, conclui o histórico e o evento
   de término com código -1 e preserva a sessão para o próximo comando.
   Em comandos gerenciados, uma falha de escrita depois do início fica no histórico com código -1.
   Uma falha de escrita encerra a sessão, inclusive quando nenhum byte foi escrito.
