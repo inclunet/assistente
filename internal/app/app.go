@@ -998,7 +998,7 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 	// Inicializa o Provider Service (camada de negócio para provedores LLM)
 	a.providerSvc = providers.NewService(providers.ServiceConfig{
 		Registry:                a.llmRegistry,
-		ReadOnlyStartup:         a.conversationCLI,
+		SkipBootRepairs:         a.conversationCLI,
 		CredMgr:                 a.credMgr,
 		Store:                   providers.NewDBStore(),
 		RateLimiter:             llmRateLimiter,

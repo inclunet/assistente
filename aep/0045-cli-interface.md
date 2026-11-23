@@ -267,9 +267,8 @@ focados nos arquivos `*_test.go` correspondentes. A ajuda é registrada em
   local persistida com o cofre desbloqueado. A identidade vem da linha de
   instância deste banco: o espelho no chaveiro pode guardar outra conta
   após falha de escrita. Erros de leitura do cofre são informados.
-  A validação usa a credencial da sessão vigente, preserva seu prazo e sua
-  rotação pelo desktop e revalida
-  revogação, atividade da conta e identidade da sessão persistida antes das
+  A validação usa a credencial da sessão vigente e preserva prazo e rotação.
+  A CLI revalida revogação, atividade da conta e identidade da sessão antes das
   operações autenticadas do REPL. Uma troca de conta ou de papel exige reabrir
   o processo. O desbloqueio é determinado pela disponibilidade da chave do
   cofre para o processo da CLI. A hidratação de provedores preserva o cadastro

@@ -19,7 +19,7 @@ func newChatTurnTestDB(t *testing.T, file bool) *gorm.DB {
 	t.Helper()
 	name := ":memory:"
 	if file {
-		name = filepath.Join(t.TempDir(), "turns.db")
+		name = SQLiteDSN(filepath.Join(t.TempDir(), "turns.db"))
 	}
 	db, err := gorm.Open(sqlite.Open(name), &gorm.Config{})
 	if err != nil {

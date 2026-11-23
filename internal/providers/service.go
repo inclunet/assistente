@@ -37,8 +37,8 @@ type CredentialManager interface {
 
 // ServiceConfig contém as dependências externas do Service.
 type ServiceConfig struct {
-	// ReadOnlyStartup hidrata o registro e resolve o padrão sem reparar o cadastro no banco.
-	ReadOnlyStartup bool
+	// SkipBootRepairs hidrata o registro e resolve o padrão sem reparar o cadastro no banco.
+	SkipBootRepairs bool
 	Registry        *llm.ProviderRegistry
 	CredMgr         CredentialManager
 	Store           ProviderStore
@@ -65,7 +65,7 @@ type ServiceConfig struct {
 // Service encapsula a lógica de negócio de gerenciamento de provedores LLM.
 // Não depende de Wails — é testável de forma isolada.
 type Service struct {
-	readOnlyStartup  bool
+	skipBootRepairs  bool
 	publicationMu    sync.Mutex
 	oauth            *oauthflow.Service
 	oauthMu          sync.Mutex
@@ -94,7 +94,7 @@ func NewService(cfg ServiceConfig) *Service {
 	return &Service{
 		oauth: oauth, oauthAttempts: make(map[string]context.CancelFunc),
 		registry:         cfg.Registry,
-		readOnlyStartup:  cfg.ReadOnlyStartup,
+		skipBootRepairs:  cfg.SkipBootRepairs,
 		credMgr:          cfg.CredMgr,
 		store:            cfg.Store,
 		rateLimiter:      cfg.RateLimiter,
@@ -147,7 +147,7 @@ func (s *Service) Load(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	if !s.readOnlyStartup && len(providers) == 0 {
+	if !s.skipBootRepairs && len(providers) == 0 {
 		return fmt.Errorf("nenhum provedor encontrado")
 	}
 
@@ -181,7 +181,7 @@ func (s *Service) Load(ctx context.Context) error {
 		}
 	}
 	logging.Infof(ctx, "providers.service", "[providers] %d provedor(es) carregado(s) do store", len(providers))
-	if s.readOnlyStartup {
+	if s.skipBootRepairs {
 		return nil
 	}
 	s.EnsureDefault(ctx)
@@ -867,7 +867,7 @@ func (s *Service) ListWithStatus(ctx context.Context) []ProviderStatus {
 // O chat da CLI faz a mesma escolha apenas para a conta e a operação atuais.
 func (s *Service) profileDefaultProvider(ctx context.Context) (*llm.ProviderConfig, error) {
 	provider, err := s.store.GetDefault(ctx)
-	if err != nil || provider != nil || !s.readOnlyStartup {
+	if err != nil || provider != nil || !s.skipBootRepairs {
 		return provider, err
 	}
 	available, err := s.store.Load(ctx)

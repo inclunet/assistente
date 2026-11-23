@@ -179,7 +179,6 @@ data: [DONE]
 		if err != nil {
 			t.Fatal(err)
 		}
-
 	}
 	initialize()
 	var session database.Session
@@ -227,7 +226,6 @@ data: [DONE]
 		if err := runHistoryList(cli, &list, "", 10); err != nil || (!strings.Contains(list.String(), "conversa de prova") || strings.Contains(list.String(), "privada do admin")) {
 			t.Fatalf("listagem: %q, %v", list.String(), err)
 		}
-
 	})
 	run(historyShowCmd, func(err error) {
 		if err != nil {
