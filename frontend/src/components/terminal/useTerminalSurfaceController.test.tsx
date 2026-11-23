@@ -128,7 +128,8 @@ describe('useTerminalSurfaceController', () => {
     unmount();
   });
 
-  it.each([true, false])('encerra a observação após uma consulta definitiva sem sessão (publicada: %s)', async published => {
+  it.each([true, false])('distingue ausência confirmada de falha com nova tentativa (publicada: %s)', async published => {
+    terminalMocks.sessions = [{ id: 'outra' }];
     terminalMocks.loadSessions.mockImplementationOnce(async () => {
       terminalMocks.sessionListFailed = !published;
       return published;
@@ -136,8 +137,17 @@ describe('useTerminalSurfaceController', () => {
     renderHook(() => useTerminalSurfaceController({
       ...terminalTab, state: { sessionId: 'encerrada' },
     }, true));
-    await waitFor(() => expect(terminalMocks.listeners.size).toBe(0));
+    await waitFor(() => expect(terminalMocks.loadSessions).toHaveBeenCalledTimes(1));
+    await Promise.resolve();
+    expect(terminalMocks.listeners.size).toBe(published ? 0 : 1);
     expect(terminalMocks.loadHistory).not.toHaveBeenCalled();
+    if (!published) {
+      terminalMocks.sessionListFailed = false;
+      terminalMocks.sessions = [{ id: 'outra' }, { id: 'encerrada' }];
+      terminalMocks.listeners.forEach(notify => notify());
+      expect(terminalMocks.loadHistory).toHaveBeenCalledWith('encerrada');
+      expect(terminalMocks.listeners.size).toBe(0);
+    }
   });
 
   it('encerra a observação quando a consulta de outra superfície termina sem a sessão', async () => {

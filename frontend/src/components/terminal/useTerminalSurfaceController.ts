@@ -40,15 +40,15 @@ export function useTerminalSurfaceController(tab: WorkspaceTab, isActive: boolea
         if (previous.isLoadingSessions && !next.isLoadingSessions) {
           // Um evento de ciclo de vida pode iniciar outra consulta no mesmo despacho.
           queueMicrotask(() => {
-            if (!useTerminalStore.getState().isLoadingSessions) unsubscribe();
+            const current = useTerminalStore.getState();
+            if (!current.isLoadingSessions && !current.sessionListFailed) unsubscribe();
           });
         }
       });
       void store.loadSessions().then((published) => {
         hydrate();
-        if (published || useTerminalStore.getState().sessionListFailed) unsubscribe();
+        if (published) unsubscribe();
       }).catch((error: unknown) => {
-        unsubscribe();
         if (isWorkspaceTabActive(tab.id)) {
           logger.error('[TerminalSurfaceController] Erro ao carregar sessões:', error);
         }
