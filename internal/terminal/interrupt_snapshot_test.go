@@ -172,6 +172,46 @@ func TestCommandEndOnlyRestoresAnUndispatchedManualTarget(t *testing.T) {
 	}
 }
 
+func TestHistoryRetainsActiveManualInputUntilAnotherDispatch(t *testing.T) {
+	writer := &interruptFakePTYWriter{}
+	m, s := newInterruptFakeManager(writer)
+	if _, err := s.SendInput("manual", "A"); err != nil {
+		t.Fatal(err)
+	}
+	var last *HistoryEntry
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	for i := 0; i < maxHistoryEntries+2; i++ {
+		var err error
+		last, err = m.RunCommand(ctx, s.id, "cancelado", time.Second, "teste")
+		if !errors.Is(err, context.Canceled) || last == nil {
+			t.Fatalf("tentativa %d: %v", i, err)
+		}
+	}
+	history, err := m.GetHistory(s.id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(history) != maxHistoryEntries || history[0].ID != "A" || history[0].Source != "user-raw" ||
+		history[0].Command != "manual" || history[len(history)-1].ID != last.ID {
+		t.Fatalf("histórico sem alvo manual ou última tentativa: %d entradas", len(history))
+	}
+	target, err := m.CaptureInterrupt(s.id)
+	if err != nil || !target.MatchesTarget(s.id, history[0].ID) {
+		t.Fatalf("alvo restaurado na hidratação: %v", err)
+	}
+	if _, err := s.SendInput("nova", "B"); err != nil {
+		t.Fatal(err)
+	}
+	history, err = m.GetHistory(s.id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(history) != maxHistoryEntries || history[0].ID == "A" || history[len(history)-1].ID != "B" {
+		t.Fatal("o próximo despacho não liberou a entrada manual anterior")
+	}
+}
+
 func TestInterruptSnapshotRejectsNewCommandGeneration(t *testing.T) {
 	writer := &interruptFakePTYWriter{}
 	manager, session := newInterruptFakeManager(writer)

@@ -242,6 +242,8 @@ Pendente ou parcial:
   de término com código -1 e preserva a sessão para o próximo comando. Se a última
   entrada entregue ao PTY foi manual, `command_end.activeManualCommandId` a identifica
   para uma nova captura de interrupção. A reserva já invalidou os snapshots antigos.
+  Enquanto o alvo permanecer manual, o histórico do backend conserva sua entrada
+  dentro do limite de 200 comandos para permitir a identificação após a hidratação.
   Em comandos gerenciados, uma falha de escrita depois do início fica no histórico com código -1.
   Uma falha de escrita encerra a sessão, inclusive quando nenhum byte foi escrito.
   A sessão recusa novas entradas imediatamente. Depois que a escrita devolve erro, o comando

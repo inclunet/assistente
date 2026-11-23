@@ -1027,9 +1027,14 @@ func (s *Session) addHistoryEntry(entry *HistoryEntry) {
 
 	s.history = append(s.history, historyEntry)
 
-	// Mantém apenas as últimas N entradas
+	// Uma interface que acabou de abrir deve poder identificar a entrada
+	// manual ainda interrompível, mesmo após muitas tentativas sem despacho.
 	if len(s.history) > maxHistoryEntries {
-		s.history = s.history[len(s.history)-maxHistoryEntries:]
+		if s.interruptIsManual && s.history[0].ID == s.managedCommandID {
+			s.history[1] = s.history[0]
+		}
+		s.history[0] = HistoryEntry{}
+		s.history = s.history[1:]
 	}
 }
 
