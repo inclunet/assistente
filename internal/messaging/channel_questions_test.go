@@ -390,6 +390,19 @@ func TestDecisaoDistingueControleInvisivelDeTextoLiteral(t *testing.T) {
 	}
 }
 
+func TestDiretorioDaDecisaoDistingueCaracteresInvisiveis(t *testing.T) {
+	render := func(dir string) string {
+		return renderChannelDecision(questionnaire.RequestPayload{
+			Hint: questionnaire.Plain("Diretório: " + dir), Body: "pwd",
+		}, []string{"Negar"}, time.Minute)
+	}
+	dir := "projeto\u200b"
+	got := render(dir)
+	if got == render("projeto") || got == render(`projeto\u200b`) || strings.ContainsRune(got, '\u200b') || !strings.Contains(got, strconv.QuoteToGraphic("Diretório: "+dir)) {
+		t.Fatalf("diretório ambíguo na pergunta: %q", got)
+	}
+}
+
 func TestOTextoDoAgenteNaoVaiCruParaOCanal(t *testing.T) {
 	// A mensagem fica gravada no histórico de um app de terceiro: escape de
 	// terminal e espaço invisível não têm o que fazer ali, e o invisível é como

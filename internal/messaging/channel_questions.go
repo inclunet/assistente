@@ -410,7 +410,7 @@ func renderChannelDecision(payload questionnaire.RequestPayload, labels []string
 		head.WriteString(description)
 		head.WriteString("\n\n")
 	}
-	if hint := sanitizeChannelText(payload.Hint.String()); hint != "" {
+	if hint := decisionBodyText(payload.Hint.String()); hint != "" {
 		head.WriteString(hint)
 		head.WriteString("\n\n")
 	}

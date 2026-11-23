@@ -91,7 +91,7 @@ Na falta de confirmação, o código é `shell_confirmation_unavailable`. Um arg
 No desktop, o questionário entrega a resposta aceita antes do prazo conforme o
 [AEP-0091](0091-dialogos-de-decisao-unificados.md). O adaptador valida a ação oferecida
 e publica a recusa antes de `Respond` retornar. A aprovação ainda exige revalidação.
-Se o diálogo expirar sem resposta, a confirmação fica indisponível.
+Se o diálogo expirar sem resposta, a confirmação fica indisponível. A paridade dessa garantia nos canais externos é acompanhada na [issue #1131](https://github.com/inclunet/assistente/issues/1131). Nos canais, a apresentação literal abrange tanto o comando quanto o diretório público usado na decisão.
 
 O executor conserva o prazo do chamador. Após uma aprovação revalidada, uma interrupção
 é classificada como cancelamento ou timeout da operação. Se o prazo terminar entre a
