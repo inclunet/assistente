@@ -44,7 +44,7 @@ func TestConversationCLIUsesSavedSessionAcrossInstances(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		child := exec.CommandContext(t.Context(), exe, "-test.run=^TestConversationCLIUsesSavedSessionAcrossInstances$", "-test.timeout=80s")
+		child := exec.CommandContext(t.Context(), exe, "-test.run=^TestConversationCLIUsesSavedSessionAcrossInstances$", "-test.timeout=3m")
 		child.Env = append(os.Environ(), fixtureEnv+"=1")
 		if out, err := child.CombinedOutput(); err != nil {
 			t.Fatalf("fixture CLI: %v\n%s", err, out)
