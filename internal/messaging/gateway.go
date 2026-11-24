@@ -153,7 +153,7 @@ func NewGateway(
 		if !ok {
 			return fmt.Errorf("messenger %s ausente", channel)
 		}
-		return messenger.Send(ctx, OutgoingMessage{ChatID: chatID, Text: text})
+		return messenger.Send(ctx, OutgoingMessage{ChatID: chatID, Text: text, PlainText: true})
 	})
 	return g
 }

@@ -152,6 +152,7 @@ export function canPrepareWorkspaceChatOpen(tabID: string): boolean {
 export async function prepareWorkspaceChatOpen(
   tabID: string,
   sourceIsCurrent: () => boolean = () => true,
+  onPreparationFailure?: () => void,
 ): Promise<PreparedWorkspaceChatOpen | undefined> {
   const requestGeneration = ++openingGeneration;
   const isSourceCurrent = () => {
@@ -225,6 +226,7 @@ export async function prepareWorkspaceChatOpen(
       result = await adapter.prepare();
     } catch (error) {
       logger.error('[workspaceChatModal] prepare() falhou:', error);
+      try { onPreparationFailure?.(); } catch { /* diagnóstico não altera o fluxo */ }
       if (isCurrent()) {
         useUIStore.getState().addToast(i18next.t('workspace.chatModal.prepareFailed'), 'error');
       }

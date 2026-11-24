@@ -3,6 +3,7 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event';
 import { useLayoutEffect, useRef } from 'react';
 import { Topbar } from './Topbar';
+import { flushWorkspaceNavigation } from '../../store/workspaceStore';
 import { CommandContextProvider, useCommandContextScope } from '../../lib/commandContextReact';
 import { registerChatClearSurface } from '../../lib/commandChatClear';
 import { registerChatMessagingSurface } from '../../lib/commandChatMessaging';
@@ -18,7 +19,7 @@ const state = vi.hoisted(() => ({
   events: new Map<string, (payload?: unknown) => void>(),
   auth: { isAuthenticated: true, user: { userId: 'user-a', sessionId: 'session-a' } },
   workspace: { workspace: { id: 'workspace-a', defaultProfile: 'focused', activeTabId: 'tab-a', tabs: [{ id: 'tab-a', type: 'chat' }] }, workspaces: [], reconcileActiveSelection: vi.fn(async () => true) },
-  terminal: { sessions: [{ id: 'pty-a', state: 'running' }], historyBySession: { 'pty-a': [{ id: 'command-a', output: '', endedAt: '' }] }, activeEntryBySession: { 'pty-a': 'command-a' }, loadSessions: vi.fn(async () => undefined) },
+  terminal: { sessions: [{ id: 'pty-a', state: 'running' }], historyBySession: { 'pty-a': [{ id: 'command-a', output: '', endedAt: '' }] }, manualEntryBySession: {}, activeEntryBySession: { 'pty-a': 'command-a' }, loadSessions: vi.fn(async () => undefined) },
 }));
 vi.mock('../../lib/commandGlobalOwnershipWails', () => ({ acquireGlobalCommandOwnership: () => ({ isReady: () => true, owns: () => false, dispose: () => {}, ready: Promise.resolve() }) }));
 vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key, i18n: { language: 'pt-BR' } }) }));
@@ -44,6 +45,7 @@ const commandId = 'workspace.tab.chat.create';
 const reservation = { ticket: 'ticket', invocationId: 'invocation', commandId };
 const handoff = { ...reservation, handoffId: 'handoff' };
 const api = {
+  ReportLocalPaletteCommand: vi.fn(),
   ExecuteContextualPaletteLayerCommand: vi.fn(), ExecutePaletteCommand: vi.fn(),
   BeginUICommand: vi.fn(), BeginContextualPaletteUICommand: vi.fn(), TakeUICommand: vi.fn(),
   CompleteUICommand: vi.fn(), GetUICommandResult: vi.fn(), CancelUICommand: vi.fn(), CommitWorkspaceTabCommand: vi.fn(),
@@ -76,6 +78,7 @@ describe('Topbar — paleta contextual durável pela bridge real', () => {
     state.workspace.workspace = { id: 'workspace-a', defaultProfile: 'focused', activeTabId: 'tab-a', tabs: [{ id: 'tab-a', type: 'chat' }] };
     vi.spyOn(document, 'hasFocus').mockReturnValue(true);
     Object.values(api).forEach(spy => spy.mockReset());
+    api.ReportLocalPaletteCommand.mockResolvedValue(undefined);
     api.BeginUICommand.mockResolvedValue(reservation);
     api.BeginContextualPaletteUICommand.mockResolvedValue(reservation);
     api.TakeUICommand.mockResolvedValue(handoff);
@@ -107,6 +110,16 @@ describe('Topbar — paleta contextual durável pela bridge real', () => {
     const option = await screen.findByRole('option', { name: /Criar chat/ });
     return { user, view, option };
   }
+
+  it('registra a recusa da barreira com origem da paleta', async () => {
+    vi.mocked(flushWorkspaceNavigation).mockResolvedValueOnce(false);
+    const { user, view } = await open();
+    try {
+      await user.keyboard('{Enter}');
+      await waitFor(() => expect(api.ReportLocalPaletteCommand).toHaveBeenCalledWith(commandId, expect.any(String), 'not_completed', expect.any(Number), 'context_navigation', 'palette'));
+      expect(api.BeginContextualPaletteUICommand).not.toHaveBeenCalled();
+    } finally { view.unmount(); }
+  });
 
   it.each(['layer.activate', 'layer.toggle', 'layer.back'])('contextual %s submits once, survives its own map publication, never uses UI handoff', async id => {
     await project(id);

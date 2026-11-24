@@ -207,6 +207,26 @@ A remontagem por workspace também reconcilia recibos elegíveis da própria
 sessão antes da projeção/preflight, pela mesma rotina autenticada do login e
 do hot-swap. O teste de remontagem inclui confirmação aceita já vencida.
 
+**Diagnóstico de execução de comandos: In Progress.** A reserva UI compartilhada,
+o handoff e a confirmação de mutações do workspace registram etapas e resultados
+com ID de invocação, origem, duração e classificação de erro redigida. Comandos
+duráveis da paleta também registram seu resultado; ações locais selecionadas
+na paleta informam aceitação, cancelamento ou falha de apresentação. Aceitação
+não confirma persistência assíncrona, como a mudança de aba que pode ser revertida.
+Recusas anteriores à reserva registram a etapa de admissão; a duração de falha
+do catálogo inclui a espera desde o início da consulta.
+Recusas na captura do alvo ou na barreira de navegação recebem etapas próprias;
+com o catálogo desmontado, somente IDs internos conhecidos podem ser registrados,
+após revalidação da sessão. IDs dinâmicos continuam redigidos como desconhecidos.
+A barreira de navegação usa `not_completed` quando não pode distinguir falha de
+cancelamento; a rejeição do adapter de chat é classificada como falha sem expor
+seu conteúdo, enquanto a recusa normal permanece cancelada.
+Argumentos, tickets, conteúdo, caminhos e mensagens arbitrárias não são
+registrados. Uma fila limitada evita espera pelo disco; sob saturação, o
+diagnóstico pode ser descartado e nunca impede ou repete a ação. A cobertura
+não inclui gestos nem todo ingresso local fora da paleta; validação na instalação
+que apresentou a falha continua pendente.
+
 **Contenção ao configurar comandos (16/10/2026): In Progress.** O coordenador
 aplica recuo de 30s até 5min após falha na retenção/compactação, sem atrasar
 heartbeat, outbox ou recuperação. A pausa não muda autorização, proteção de

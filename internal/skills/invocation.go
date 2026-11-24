@@ -1,10 +1,12 @@
 package skills
 
 import (
-	"assistente/internal/logging"
 	"context"
 	"fmt"
 	"strings"
+	"unicode/utf8"
+
+	"assistente/internal/logging"
 )
 
 // InvokerManager é a interface mínima necessária para invocar um skill via slash command.
@@ -70,18 +72,7 @@ func ParseSlashCommand(content string) (slug string, args string, ok bool) {
 	return slug, args, true
 }
 
-// Invoke tenta invocar um skill via slash command no conteúdo da mensagem do usuário.
-//
-//   - mgr: repositório de skills para busca e listagem de arquivos complementares.
-//   - tplData: parâmetro legado mantido para compatibilidade de assinatura; templates não são executados no runtime novo.
-//   - sessionID: ID numérico da conversa, disponibilizado como variável $CLAUDE_SESSION_ID.
-//
-// Retorna (resultado, encontrado, erro).
-// found=false significa que o conteúdo não é um slash command ou o skill não existe.
-func Invoke(userContent string, mgr InvokerManager, tplData any, sessionID string, policy SelectionPolicy) (*InvocationResult, bool, error) {
-	return InvokeContext(context.Background(), userContent, mgr, sessionID, policy)
-}
-
+// InvokeContext prepara a skill invocada dentro do contexto do turno.
 func InvokeContext(ctx context.Context, userContent string, mgr InvokerManager, sessionID string, policy SelectionPolicy) (*InvocationResult, bool, error) {
 	slug, args, ok := ParseSlashCommand(userContent)
 	if !ok || mgr == nil {
@@ -102,57 +93,49 @@ func InvokeContext(ctx context.Context, userContent string, mgr InvokerManager, 
 		return nil, true, fmt.Errorf("skill /%s está desabilitada no perfil ativo", slug)
 	}
 
-	logging.Infof(context.Background(), "skills.invocation", "[Skills] Slash command detectado: /%s args=%q", slug, args)
+	logging.Logger(ctx, "skills.invocation").Info("Slash command detectado", "skill", slug)
 
-	// Substitui $ARGUMENTS, $N e variáveis de sessão no conteúdo
-	sessionVars := map[string]string{
-		"CLAUDE_SESSION_ID": sessionID,
-	}
-	processedContent := skill.Content
-
-	// Base content is rendered once by the context provider.
+	var content string
 	if mode != SkillModeBase {
-		processedContent, err = prepareCommands(ctx, skill, processedContent, false, argumentExpander(args, parseArgs(args), sessionVars))
+		turn, _ := ctx.Value(commandTurnKey{}).(*commandTurn)
+		var run SkillCommandRunner
+		budget := -1
+		if turn != nil {
+			run = turn.run
+			budget = turn.budget
+		}
+		doc, err := planCommandLines(ctx, skill, skill.Content, false, run, argumentExpander(args, parseArgs(args), map[string]string{"CLAUDE_SESSION_ID": sessionID}), args)
 		if err != nil {
 			return nil, true, err
 		}
-	}
-
-	if mode == SkillModeBase {
-		processedContent = SubstituteArguments(processedContent, args, sessionVars)
-	} else if args != "" && !containsPlainArguments(skill.Content) {
-		processedContent += "\n\nARGUMENTS: " + args
-	}
-
-	// Monta seção XML do skill invocado
-	var sb strings.Builder
-	sb.WriteString("<invoked_skill>\n## ")
-	sb.WriteString(skill.GetDisplayName())
-	if skill.Type != "" {
-		sb.WriteString(" [")
-		sb.WriteString(skill.Type)
-		sb.WriteString("]")
-	}
-	sb.WriteString("\n")
-	sb.WriteString(processedContent)
-	sb.WriteString("\n")
-
-	// Progressive file loading: lista arquivos complementares do skill
-	supplementary, _ := mgr.GetSkillFiles(slug)
-	if len(supplementary) > 0 {
-		sb.WriteString("\nSupporting files (use read_file to access when needed):\n")
-		for _, f := range supplementary {
-			sb.WriteString("- `")
-			sb.WriteString(f)
-			sb.WriteString("`\n")
+		files, err := invocationFiles(mgr, slug, skill.Path)
+		if err != nil {
+			warnSupportingFiles(ctx, slug, err, false)
+			if len(doc.commands) > 0 {
+				return nil, true, fmt.Errorf("não foi possível listar os arquivos de apoio da skill %q", slug)
+			}
+			files = nil
 		}
+		before, after := invocationFrame(skill, files)
+		after = argumentFallback(skill.Content, args) + after
+		quota := -1
+		if len(doc.commands) > 0 && budget >= 0 {
+			static := utf8.RuneCountInString(before) + utf8.RuneCountInString(strings.Join(doc.lines, "\n")) + utf8.RuneCountInString(after)
+			quota = budget - static
+			if quota/len(doc.commands) < 2 {
+				return nil, true, fmt.Errorf("orçamento insuficiente para as instruções e os resultados da skill %q", slug)
+			}
+		}
+		body, err := doc.render(ctx, skill, run, false, quota, nil)
+		if err != nil {
+			return nil, true, err
+		}
+		content = before + body + after
 	}
-	sb.WriteString("</invoked_skill>")
-
 	result := &InvocationResult{
 		SkillSlug:   slug,
 		DisplayName: skill.GetDisplayName(),
-		Content:     sb.String(),
+		Content:     content,
 		Arguments:   args,
 		Mode:        mode,
 	}
@@ -167,4 +150,41 @@ func InvokeContext(ctx context.Context, userContent string, mgr InvokerManager, 
 	}
 
 	return result, true, nil
+}
+
+func invocationFiles(mgr InvokerManager, slug, manifestPath string) ([]string, error) {
+	if source, ok := mgr.(supportingFileLister); ok && manifestPath != "" {
+		return source.listSupportingFiles(manifestPath)
+	}
+	// Adaptadores que só expõem o catálogo por slug conservam sua própria
+	// resolução de origem; não é possível fixar o manifesto nesse contrato.
+	return mgr.GetSkillFiles(slug)
+}
+
+func invocationFrame(skill *Skill, supplementary []string) (string, string) {
+	var sb strings.Builder
+	sb.WriteString("<invoked_skill>\n## ")
+	sb.WriteString(skill.GetDisplayName())
+	if skill.Type != "" {
+		sb.WriteString(" [")
+		sb.WriteString(skill.Type)
+		sb.WriteString("]")
+	}
+	sb.WriteString("\n")
+	before := sb.String()
+	sb.Reset()
+	sb.WriteString("\n")
+
+	// Progressive file loading: lista arquivos complementares do skill
+	if len(supplementary) > 0 {
+		sb.WriteString("\nSupporting files (use read_file to access when needed):\n")
+		for _, f := range supplementary {
+			sb.WriteString("- `")
+			sb.WriteString(f)
+			sb.WriteString("`\n")
+		}
+	}
+	sb.WriteString("</invoked_skill>")
+
+	return before, sb.String()
 }

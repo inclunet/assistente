@@ -142,24 +142,25 @@ type TimelineWindowSplice struct {
 }
 
 type SubscribedTimelineSnapshot struct {
-	ConversationID   string             `json:"conversationId"`
-	ScopeParentID    *string            `json:"scopeParentId"`
-	RetainedItemIDs  []string           `json:"retainedItemIds"`
-	RetentionBlocked bool               `json:"retentionBlocked"`
-	Mode             TimelineWindowMode `json:"mode"`
-	WindowID         string             `json:"windowId"`
-	WindowRevision   string             `json:"windowRevision"`
-	Epoch            string             `json:"epoch"`
-	Sequence         string             `json:"sequence"`
-	Items            []CanonicalItem    `json:"items"`
-	OrderedItemIDs   []string           `json:"orderedItemIds"`
-	TotalCount       int                `json:"totalCount"`
-	StartIndex       int                `json:"startIndex"`
-	EndIndex         int                `json:"endIndex"`
-	HasBefore        bool               `json:"hasBefore"`
-	HasAfter         bool               `json:"hasAfter"`
-	BeforeCursor     string             `json:"beforeCursor"`
-	AfterCursor      string             `json:"afterCursor"`
+	ConversationID     string             `json:"conversationId"`
+	ScopeParentID      *string            `json:"scopeParentId"`
+	RetainedItemIDs    []string           `json:"retainedItemIds"`
+	RetentionBlocked   bool               `json:"retentionBlocked"`
+	Mode               TimelineWindowMode `json:"mode"`
+	WindowID           string             `json:"windowId"`
+	WindowRevision     string             `json:"windowRevision"`
+	StorageIncarnation string             `json:"storageIncarnation"`
+	Epoch              string             `json:"epoch"`
+	Sequence           string             `json:"sequence"`
+	Items              []CanonicalItem    `json:"items"`
+	OrderedItemIDs     []string           `json:"orderedItemIds"`
+	TotalCount         int                `json:"totalCount"`
+	StartIndex         int                `json:"startIndex"`
+	EndIndex           int                `json:"endIndex"`
+	HasBefore          bool               `json:"hasBefore"`
+	HasAfter           bool               `json:"hasAfter"`
+	BeforeCursor       string             `json:"beforeCursor"`
+	AfterCursor        string             `json:"afterCursor"`
 }
 
 type TimelineWindowNavigation struct {

@@ -2,6 +2,7 @@ import { useWorkspaceList } from '../workspace/useWorkspaceList';
 import { WorkspaceListDialog } from '../workspace/WorkspaceListDialog';
 import { isProviderSettingsPath } from '../../lib/commandAppPage';
 import { logger } from '../../utils/logger';
+import { beginLocalPaletteDiagnostic, type CommandDiagnosticSource } from '../../lib/commandLocalDiagnostics';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
@@ -171,6 +172,7 @@ const isCommandToolExecutionID = (commandID: string): boolean => {
 };
 
 interface PendingCommandIntent {
+  readonly diagnosticSource?: CommandDiagnosticSource;
   readonly contextualPalette?: ContextualPaletteCommandLease;
   readonly commandID: string;
   readonly userId: string;
@@ -1347,8 +1349,9 @@ export function Topbar() {
     }
   }, []);
 
-  const executeContextualCommand = useCallback(async (executor: CommandUIExecution, commandID: string, capturedTarget?: ReturnType<typeof prepareWorkspaceMutationTarget>, sourceLease?: ContextualPaletteCommandLease) => {
+  const executeContextualCommand = useCallback(async (executor: CommandUIExecution, commandID: string, capturedTarget?: ReturnType<typeof prepareWorkspaceMutationTarget>, sourceLease?: ContextualPaletteCommandLease, diagnosticSource: CommandDiagnosticSource = 'unknown') => {
     if (isEditorModeCommand(commandID) && activeEditorModeTargetRef.current) {
+      beginLocalPaletteDiagnostic(commandID, 'context_target', diagnosticSource)('cancelled');
       return { invocationId: '', status: 'cancelled' as const, errorCode: 'editor-mode-busy' };
     }
     let editorModeTarget: EditorModeTargetLease | undefined;
@@ -1380,11 +1383,15 @@ export function Topbar() {
         if (pendingEditorModeTargetRef.current && pendingEditorModeTargetRef.current.commandID !== commandID) {
           pendingEditorModeTargetRef.current.dispose();
           pendingEditorModeTargetRef.current = null;
+          beginLocalPaletteDiagnostic(commandID, 'context_target', diagnosticSource)('cancelled');
           return { invocationId: '', status: 'cancelled' as const, errorCode: 'ui-context-stale' };
         }
         editorModeTarget = pendingEditorModeTargetRef.current ?? captureEditorModeTarget(() => pathnameRef.current, commandID);
         pendingEditorModeTargetRef.current = null;
-        if (!editorModeTarget?.isCurrent()) return { invocationId: '', status: 'cancelled' as const, errorCode: 'ui-context-stale' };
+        if (!editorModeTarget?.isCurrent()) {
+          beginLocalPaletteDiagnostic(commandID, 'context_target', diagnosticSource)('cancelled');
+          return { invocationId: '', status: 'cancelled' as const, errorCode: 'ui-context-stale' };
+        }
         activeEditorModeTargetRef.current = editorModeTarget;
       }
       if (commandID === WORKSPACE_CHAT_OPEN_COMMAND_ID) {
@@ -1392,6 +1399,7 @@ export function Topbar() {
         const capturedWorkspace = useWorkspaceStore.getState().workspace;
         const activeTabID = capturedWorkspace?.activeTabId;
         if (!activeTabID || !canPrepareWorkspaceChatOpen(activeTabID)) {
+          beginLocalPaletteDiagnostic(commandID, 'context_target', diagnosticSource)('cancelled');
           return { invocationId: '', status: 'cancelled' as const, errorCode: 'ui-context-stale' };
         }
         preparationToken = {
@@ -1402,7 +1410,9 @@ export function Topbar() {
         };
         const currentPreparationToken = preparationToken;
         workspaceChatPreparationRef.current = currentPreparationToken;
-        chatLease = await prepareWorkspaceChatOpen(activeTabID, () => {
+        const reportPreparation = beginLocalPaletteDiagnostic(commandID, 'context_target', diagnosticSource);
+        let preparationFailed = false;
+        try { chatLease = await prepareWorkspaceChatOpen(activeTabID, () => {
           const current = useWorkspaceStore.getState().workspace;
           return workspaceChatPreparationRef.current === currentPreparationToken &&
             (!sourceLease || sourceLease.isCurrent()) &&
@@ -1413,10 +1423,11 @@ export function Topbar() {
             current?.id === capturedWorkspace?.id &&
             current?.activeTabId === activeTabID &&
             !isModalOpen() && document.hasFocus();
-        }) ?? null;
+        }, () => { preparationFailed = true; }) ?? null; } catch (error) { reportPreparation('failed'); throw error; }
         if (!chatLease || !chatLease.isCurrent() ||
             cancellationGeneration !== commandCancellationGenerationRef.current ||
             !commandPickerMountedRef.current) {
+          reportPreparation(preparationFailed ? 'failed' : 'cancelled');
           return { invocationId: '', status: 'cancelled' as const, errorCode: 'ui-context-stale' };
         }
         workspaceChatOpenLeaseRef.current = chatLease;
@@ -1429,10 +1440,19 @@ export function Topbar() {
         // the store's active-tab projection before committing the captured
         // source. This is a barrier, never a retargeting operation.
         if (!originalTarget) {
+          beginLocalPaletteDiagnostic(commandID, 'context_target', diagnosticSource)('cancelled');
           return { invocationId: '', status: 'cancelled' as const, errorCode: 'ui-context-stale' };
         }
-        const flushed = await flushWorkspaceNavigation();
-        if (!flushed || cancellationGeneration !== commandCancellationGenerationRef.current || !originalTarget.isCurrent() || (sourceLease && !sourceLease.isCurrent())) {
+        const reportNavigation = beginLocalPaletteDiagnostic(commandID, 'context_navigation', diagnosticSource);
+        let flushed: boolean;
+        try { flushed = await flushWorkspaceNavigation(); }
+        catch (error) { reportNavigation('failed'); throw error; }
+        if (!flushed) {
+          reportNavigation('not_completed');
+          return { invocationId: '', status: 'cancelled' as const, errorCode: 'ui-context-stale' };
+        }
+        if (cancellationGeneration !== commandCancellationGenerationRef.current || !originalTarget.isCurrent() || (sourceLease && !sourceLease.isCurrent())) {
+          beginLocalPaletteDiagnostic(commandID, 'context_target', diagnosticSource)('cancelled');
           return { invocationId: '', status: 'cancelled' as const, errorCode: 'ui-context-stale' };
         }
       }
@@ -1784,8 +1804,10 @@ export function Topbar() {
       if (!tabCreationMenu || !canShowCreationMenu) return false;
       const openingFocus = document.activeElement;
       const ids = bindings ? new Set(bindings.map((binding) => binding.commandId)) : new Set<string>(WORKSPACE_TAB_CREATE_COMMAND_IDS);
+      const reportCatalog = beginLocalPaletteDiagnostic('', 'creation_catalog', bindings ? 'keyboard.local' : 'ui.action');
       const failCatalogLoad = (error: unknown) => {
         if (!creationIntentCurrent(intent)) return;
+        reportCatalog('failed');
         cancelCreationMenu();
         logger.error('[Commands] Falha ao carregar comandos de criação', error);
         creationPresentationRef.current.announce(creationPresentationRef.current.t('commandPalette.error'));
@@ -1811,13 +1833,15 @@ export function Topbar() {
         const shown = tabCreationMenu.show({ origin: bindings ? 'keyboard' : 'toolbar', intent, items }, (commandID, selectedIntent) => {
           if (selectedIntent !== intent || !creationIntentCurrent(intent) ||
               !items.some((item) => item.commandID === commandID && !item.disabled)) {
+            beginLocalPaletteDiagnostic(commandID, 'creation_selection', bindings ? 'keyboard.local' : 'ui.action')('cancelled');
             cancelCreationMenu();
             return;
           }
+          beginLocalPaletteDiagnostic(commandID, 'creation_selection', bindings ? 'keyboard.local' : 'ui.action')('succeeded');
           closeCreationMenu(true);
           localCommandKeyboardRef.current?.cancelSequence();
           // Click/Enter are palette selections, never synthetic key events.
-          pendingCommandExecutionRef.current = { ...intent, commandID };
+          pendingCommandExecutionRef.current = { ...intent, commandID, diagnosticSource: bindings ? 'keyboard.local' : 'ui.action' };
           executePendingCommandRef.current?.();
         });
         if (!shown) cancelCreationMenu();
@@ -2197,7 +2221,7 @@ export function Topbar() {
           );
           localCommandContextualExecutionRef.current = localContextualExecutor;
           try {
-            await executeContextualCommand(localContextualExecutor, request.commandId);
+            await executeContextualCommand(localContextualExecutor, request.commandId, undefined, undefined, 'keyboard.local');
           } finally {
             if (activeCommandIntentRef.current === intent) activeCommandIntentRef.current = null;
             if (localCommandContextualExecutionRef.current === localContextualExecutor) localCommandContextualExecutionRef.current = null;
@@ -2476,7 +2500,7 @@ export function Topbar() {
           });
       localCommandContextualExecutionRef.current?.dispose();
       localCommandContextualExecutionRef.current = deckExecutor;
-      void executeContextualCommand(deckExecutor, reservation.commandId).then(async (result) => {
+      void executeContextualCommand(deckExecutor, reservation.commandId, undefined, undefined, 'streamdeck.key').then(async (result) => {
         // A reserva física já existe mesmo se o preparo local recusar antes de
         // chamar o Begin emprestado. Nesse caso, liberar a reserva sem Take.
         if (!result.invocationId) {
@@ -2805,7 +2829,10 @@ export function Topbar() {
         if (target) void executeFileCommand(commandId, undefined, lease, target).catch(() => undefined);
       } else if (isWorkspaceMutationCommand(commandId)) {
         const target = commandId === WORKSPACE_CHAT_OPEN_COMMAND_ID ? undefined : prepareWorkspaceMutationTarget(commandId);
-        if (!target && commandId !== WORKSPACE_CHAT_OPEN_COMMAND_ID) return;
+        if (!target && commandId !== WORKSPACE_CHAT_OPEN_COMMAND_ID) {
+          beginLocalPaletteDiagnostic(commandId, 'context_target', 'streamdeck.key')('cancelled');
+          return;
+        }
         const executor = createCommandContextualBackendExecution(createCommandWorkspaceTabWailsPort({ contextualPalette: lease }), {
           trustedSession, surfaceID: first.surface.surfaceId, canCommitEffect: isCurrent,
           prepareTarget: id => {
@@ -2815,7 +2842,7 @@ export function Topbar() {
           },
         });
         contextualPaletteExecutorsRef.current.add(executor);
-        void executeContextualCommand(executor, commandId, target, lease).catch(() => undefined).finally(() => {
+        void executeContextualCommand(executor, commandId, target, lease, 'streamdeck.key').catch(() => undefined).finally(() => {
           executor.dispose(); target?.dispose(); contextualPaletteExecutorsRef.current.delete(executor);
         });
       }
@@ -3087,6 +3114,7 @@ export function Topbar() {
       (currentWorkspace?.activeTabId ?? null) === intent.activeTabId &&
       commandRouteIdentityRef.current === intent.routeIdentity;
     if (!intentStillCurrent || !commandPickerMountedRef.current || isModalOpen()) {
+      if (intent && isLocalUICommand(intent.commandID)) beginLocalPaletteDiagnostic(intent.commandID)('cancelled');
       pendingPageMutationRef.current?.dispose(); pendingPageMutationRef.current = null;
       pendingMermaidRef.current?.dispose(); pendingMermaidRef.current = null;
       pendingEditorFormatTargetRef.current?.dispose();
@@ -3109,6 +3137,7 @@ export function Topbar() {
     // específico (inclusive Mermaid); um alvo capturado não substitui essa
     // revalidação final.
     if (isLocalUICommand(intent.commandID) && !hasCurrentLocalPaletteCommand(intent.commandID)) {
+      beginLocalPaletteDiagnostic(intent.commandID)('cancelled');
       pendingMermaidRef.current?.dispose(); pendingMermaidRef.current = null;
       pendingChatMessagingRef.current?.dispose(); pendingChatMessagingRef.current = null;
       pendingCommandExecutionRef.current = null;
@@ -3175,6 +3204,7 @@ export function Topbar() {
       return;
     }
     if (isLocalUICommand(intent.commandID) && !isChatMessagingCommand(intent.commandID)) {
+      const reportLocal = beginLocalPaletteDiagnostic(intent.commandID);
       const currentAuth = useAuthStore.getState();
       const currentWorkspace = useWorkspaceStore.getState().workspace;
       const mapOwner = localKeyboardOwnerRef.current;
@@ -3182,18 +3212,26 @@ export function Topbar() {
           !currentAuth.isAuthenticated || !currentAuth.user || !currentWorkspace || !mapOwner ||
           mapOwner.ownerId !== currentAuth.user.userId || mapOwner.sessionId !== currentAuth.user.sessionId ||
           mapOwner.workspaceId !== currentWorkspace.id) {
+        reportLocal('cancelled');
         activeCommandIntentRef.current = null;
         return;
       }
       // A paleta já capturou a instância e o alvo antes de abrir sua busca.
       // Ausência/invalidação dessa lease nunca permite procurar outra origem.
-      if (isCapturedPresentationCommand(intent.commandID)) {
-        const target = palettePresentationCommandsRef.current.get(intent.commandID);
-        if (target) executeLocalUICommand(intent.commandID, false, target);
-      } else if (isLandmarkNavigationCommand(intent.commandID)) {
-        if (paletteLandmarkTargetRef.current) executeLocalUICommand(intent.commandID, false, paletteLandmarkTargetRef.current);
-      } else if ((!isChatPickerCommand(intent.commandID) && !isEditorPresentationCommand(intent.commandID)) || paletteSurfaceTargetRef.current) {
-        executeLocalUICommand(intent.commandID, false, paletteSurfaceTargetRef.current, intent.arguments);
+      let accepted = false;
+      try {
+        if (isCapturedPresentationCommand(intent.commandID)) {
+          const target = palettePresentationCommandsRef.current.get(intent.commandID);
+          if (target) accepted = executeLocalUICommand(intent.commandID, false, target);
+        } else if (isLandmarkNavigationCommand(intent.commandID)) {
+          if (paletteLandmarkTargetRef.current) accepted = executeLocalUICommand(intent.commandID, false, paletteLandmarkTargetRef.current);
+        } else if ((!isChatPickerCommand(intent.commandID) && !isEditorPresentationCommand(intent.commandID)) || paletteSurfaceTargetRef.current) {
+          accepted = executeLocalUICommand(intent.commandID, false, paletteSurfaceTargetRef.current, intent.arguments);
+        }
+        reportLocal(accepted ? 'accepted' : 'cancelled');
+      } catch (error) {
+        reportLocal('failed');
+        throw error;
       }
       if (activeCommandIntentRef.current === intent) activeCommandIntentRef.current = null;
       return;
@@ -3282,7 +3320,7 @@ export function Topbar() {
       }
       const executionGeneration = commandCancellationGenerationRef.current;
       if (lease) contextualPaletteExecutorsRef.current.add(contextualExecutor);
-      void executeContextualCommand(contextualExecutor, intent.commandID).then((result) => {
+      void executeContextualCommand(contextualExecutor, intent.commandID, undefined, undefined, intent.diagnosticSource ?? 'unknown').then((result) => {
         const stillCurrent = executionStillCurrent() &&
           commandCancellationGenerationRef.current === executionGeneration;
         if (intent.commandID === WORKSPACE_CREATE_COMMAND_ID || intent.commandID === WORKSPACE_CHAT_OPEN_COMMAND_ID || isEditorModeCommand(intent.commandID)) return;
@@ -3440,6 +3478,7 @@ export function Topbar() {
     pendingWorkspaceCreateTargetRef.current = target;
     pendingCommandExecutionRef.current = {
       commandID: WORKSPACE_CREATE_COMMAND_ID,
+      diagnosticSource: 'ui.action',
       userId: auth.user.userId,
       sessionId: auth.user.sessionId,
       workspaceId: currentWorkspace.id,
@@ -3602,6 +3641,7 @@ export function Topbar() {
             if (item.id === 'workspace.tab.go_to' && !currentPaletteArguments) return;
             pendingCommandExecutionRef.current = {
               commandID: item.id,
+              diagnosticSource: 'palette',
               ...(contextualPalette ? { contextualPalette } : {}),
               userId: auth.user.userId,
               sessionId: auth.user.sessionId,
