@@ -152,6 +152,8 @@ notSaved: 'The decision applies only to this operation: it could not be remember
 
     plugins: {
       disable: 'Disable {{name}}',
+      editedServer: 'Edited server: {{name}}',
+      editedLifecycle: 'Keep the servers marked as edited as independent servers, then retry the operation.',
       disableConfirm: 'Disable the plugin and remove its activations and linked MCP servers? The installed revision will be kept.',
       disableDone: 'Plugin {{name}} disabled.',
       enable: 'Enable {{name}}',

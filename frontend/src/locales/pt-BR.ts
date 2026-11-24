@@ -152,6 +152,8 @@ notSaved: 'A decisão vale somente para esta operação: não foi possível lemb
 
     plugins: {
       disable: 'Desativar {{name}}',
+      editedServer: 'Servidor editado: {{name}}',
+      editedLifecycle: 'Mantenha os servidores identificados como editados como independentes e repita a operação.',
       disableConfirm: 'Desativar o plugin e remover as ativações e os servidores MCP vinculados? A revisão instalada será preservada.',
       disableDone: 'Plugin {{name}} desativado.',
       enable: 'Habilitar {{name}}',

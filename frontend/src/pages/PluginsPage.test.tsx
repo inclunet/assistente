@@ -17,6 +17,7 @@ vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string, opti
 describe('PluginsPage', () => {
   beforeEach(() => {
     vi.resetAllMocks();
+    mocks.lifecycle.mockResolvedValue(undefined);
     mocks.list.mockResolvedValue([]);
     mocks.preview.mockResolvedValue({ token: 'reviewed', name: 'demo', origin: 'local', digest: '123', files: ['plugin.json'], diagnostics: [] });
     mocks.install.mockResolvedValue({});
@@ -286,7 +287,7 @@ describe('PluginsPage', () => {
 
   it('removes the selected revision only after confirmation and refreshes the installed list', async () => {
     const user = userEvent.setup();
-    mocks.list.mockResolvedValueOnce([{ id: 'one', name: 'Demo', digest: 'sha' }]).mockResolvedValue([]);
+    mocks.list.mockResolvedValueOnce([{ id: 'one', name: 'Demo', digest: 'sha', origin: '/selected' }]).mockResolvedValue([]);
     mocks.components.mockResolvedValue([]);
     mocks.confirm.mockResolvedValueOnce(false).mockResolvedValueOnce(true);
     render(<PluginsPage />);
@@ -295,9 +296,55 @@ describe('PluginsPage', () => {
     const remove = await screen.findByRole('button', { name: 'plugins.uninstall' });
     await user.click(remove);
     expect(mocks.lifecycle).not.toHaveBeenCalled();
+    expect(remove).toHaveFocus();
+    expect(mocks.confirm.mock.calls[0][0].message).toContain('/selected');
     await user.click(remove);
     expect(mocks.lifecycle).toHaveBeenCalledWith('one','sha','uninstall');
     expect(await screen.findByText('plugins.empty')).toBeInTheDocument();
+  });
+
+  it('keeps the committed state and the selected cell when the list reload fails', async () => {
+    const user = userEvent.setup();
+    mocks.list.mockResolvedValueOnce([{ id: 'one', name: 'Demo', digest: 'sha', origin: '/demo' }])
+      .mockRejectedValueOnce(new Error('offline'));
+    mocks.components.mockResolvedValue([]);
+    mocks.confirm.mockResolvedValue(true);
+    render(<PluginsPage />);
+    const cell = await screen.findByRole('gridcell', { name: /Demo/ });
+    cell.focus();
+    await user.keyboard('{Enter}');
+    await user.click(await screen.findByRole('button', { name: 'plugins.disable' }));
+    await screen.findByText('plugins.listError');
+    await waitFor(() => expect(cell).toHaveFocus());
+    await user.keyboard('{Enter}');
+    expect(await screen.findByRole('button', { name: 'plugins.enable' })).toBeEnabled();
+  });
+
+  it('waits for a removal across navigation and retains its sync warning until reconciliation', async () => {
+    const user = userEvent.setup();
+    mocks.list.mockResolvedValueOnce([{ id: 'one', name: 'Demo', digest: 'sha' }]).mockResolvedValue([]);
+    mocks.components.mockResolvedValue([]);
+    mocks.confirm.mockResolvedValue(true);
+    let fail!: () => void;
+    mocks.lifecycle.mockImplementationOnce(() => new Promise((_, reject) => {
+      fail = () => reject(new Error('PLUGIN_MCP_SYNC_PENDING'));
+    }));
+    const first = render(<PluginsPage />);
+    (await screen.findByRole('gridcell', { name: /Demo/ })).focus();
+    await user.keyboard('{Enter}');
+    await user.click(await screen.findByRole('button', { name: 'plugins.uninstall' }));
+    first.unmount();
+    const second = render(<PluginsPage />);
+    expect(mocks.list).toHaveBeenCalledTimes(1);
+    await act(async () => fail());
+    expect(await screen.findByText('plugins.syncPending')).toBeVisible();
+    second.unmount();
+    render(<PluginsPage />);
+    expect(await screen.findByText('plugins.syncPending')).toBeVisible();
+    const retry = screen.getByRole('button', { name: 'plugins.retrySync' });
+    await waitFor(() => expect(retry).toBeEnabled());
+    await user.click(retry);
+    await waitFor(() => expect(screen.queryByText('plugins.syncPending')).toBeNull());
   });
 
   it('closes the preview without installing', async () => {

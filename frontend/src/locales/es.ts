@@ -151,6 +151,8 @@ notSaved: 'La decisión vale solo para esta operación: no se pudo recordar. Ser
 
     plugins: {
       disable: 'Desactivar {{name}}',
+      editedServer: 'Servidor editado: {{name}}',
+      editedLifecycle: 'Conserva como independientes los servidores marcados como editados y repite la operación.',
       disableConfirm: '¿Desactivar el plugin y eliminar sus activaciones y servidores MCP vinculados? Se conservará la revisión instalada.',
       disableDone: 'Plugin {{name}} desactivado.',
       enable: 'Habilitar {{name}}',

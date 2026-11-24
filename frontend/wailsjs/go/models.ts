@@ -8037,6 +8037,7 @@ export namespace oauthflow {
 export namespace plugins {
 	
 	export class Component {
+	    editedServer?: string;
 	    endpoint?: string;
 	    active: boolean;
 	    slug?: string;
@@ -8053,6 +8054,7 @@ export namespace plugins {
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.editedServer = source["editedServer"];
 	        this.endpoint = source["endpoint"];
 	        this.active = source["active"];
 	        this.slug = source["slug"];
