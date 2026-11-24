@@ -99,6 +99,21 @@ type RequestPayload struct {
 	Timeout      time.Duration       `json:"-"` // 0 = DefaultTimeout
 	CreatedAt    string              `json:"createdAt"`
 	response     chan Response
+	waitCtx      context.Context
+	acceptGuard  func(Response) bool
+}
+
+// WithAcceptGuard arbitra a aceitação sob o lock do gerenciador. O guard deve
+// ser rápido, não bloqueante e não voltar ao transporte que recebe a resposta.
+func (p RequestPayload) WithAcceptGuard(guard func(Response) bool) RequestPayload {
+	p.acceptGuard = guard
+	return p
+}
+
+// TryAcceptResponse consulta a guarda no instante da entrega. O transporte
+// deve chamá-la sob seu lock, após as validações próprias da superfície.
+func (p RequestPayload) TryAcceptResponse(resp Response) bool {
+	return p.acceptGuard == nil || p.acceptGuard(resp)
 }
 
 // Response representa a resposta do usuário.
@@ -110,10 +125,11 @@ type Response struct {
 
 // Manager gerencia solicitações de questionários entre backend e frontend.
 type Manager struct {
-	pending   map[string]*RequestPayload
-	mu        sync.Mutex
-	emitEvent func(event string, data any)
-	display   chan struct{}
+	lastAcceptedID string // último diálogo respondido, sem reter o conteúdo da resposta
+	pending        map[string]*RequestPayload
+	mu             sync.Mutex
+	emitEvent      func(event string, data any)
+	display        chan struct{}
 }
 
 // NewManager cria um novo gerenciador de questionários.
@@ -141,7 +157,17 @@ func (m *Manager) RequestQuestionnaire(ctx context.Context, payload RequestPaylo
 		return Response{}, fmt.Errorf("solicitação cancelada antes de abrir o diálogo: %w", ctx.Err())
 	}
 
+	timeout := payload.Timeout
+	if timeout <= 0 {
+		timeout = DefaultTimeout
+	}
+
+	timeoutCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
 	req := &RequestPayload{
+		waitCtx:      timeoutCtx,
+		acceptGuard:  payload.acceptGuard,
 		ID:           uuid.New().String()[:8],
 		Kind:         payload.Kind,
 		Severity:     payload.Severity,
@@ -208,18 +234,21 @@ func (m *Manager) RequestQuestionnaire(ctx context.Context, payload RequestPaylo
 	}
 	m.emitEvent(EventQuestionnaire, eventData)
 
-	timeout := payload.Timeout
-	if timeout <= 0 {
-		timeout = DefaultTimeout
-	}
-
-	timeoutCtx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
-
 	select {
 	case resp := <-req.response:
 		return resp, nil
 	case <-timeoutCtx.Done():
+		// Respond serializa a aceitação com a retirada da solicitação. Uma
+		// resposta aceita antes do prazo continua válida se os dois canais
+		// estiverem prontos quando o solicitante retomar a execução.
+		m.mu.Lock()
+		_, pending := m.pending[req.ID]
+		delete(m.pending, req.ID)
+		m.mu.Unlock()
+		if !pending {
+			// Respond já deixou a resposta no canal antes de liberar o lock.
+			return <-req.response, nil
+		}
 		// A pergunta acabou sem dono, mas o diálogo continua na tela pedindo
 		// uma decisão que não chega a lugar nenhum. Quem está lendo precisa
 		// saber disso — ainda mais quem lê por leitor de telas, que teria de
@@ -255,10 +284,15 @@ func (m *Manager) emitClosed(requestID, reason string) {
 // Respond envia a resposta do usuário para um questionário pendente.
 func (m *Manager) Respond(requestID string, answers map[string]any, cancelled bool) error {
 	m.mu.Lock()
-	req, ok := m.pending[requestID]
-	m.mu.Unlock()
 
-	if !ok {
+	req, ok := m.pending[requestID]
+
+	if !ok && requestID != "" && requestID == m.lastAcceptedID {
+		m.mu.Unlock()
+		return fmt.Errorf("resposta já enviada para o questionário %q", requestID)
+	}
+	if !ok || req.waitCtx.Err() != nil {
+		m.mu.Unlock()
 		return fmt.Errorf("solicitação de questionário '%s' não encontrada ou expirada", requestID)
 	}
 
@@ -268,12 +302,16 @@ func (m *Manager) Respond(requestID string, answers map[string]any, cancelled bo
 		Cancelled: cancelled,
 	}
 
-	select {
-	case req.response <- resp:
-		return nil
-	default:
-		return fmt.Errorf("resposta já enviada para questionário '%s'", requestID)
+	if !req.TryAcceptResponse(resp) {
+		m.mu.Unlock()
+		return fmt.Errorf("solicitação de questionário '%s' não encontrada ou expirada", requestID)
 	}
+	m.lastAcceptedID = requestID
+	delete(m.pending, requestID)
+	// Há uma única aceitação e o canal tem capacidade para uma resposta.
+	req.response <- resp
+	m.mu.Unlock()
+	return nil
 }
 
 // PendingCount retorna o número de solicitações pendentes.

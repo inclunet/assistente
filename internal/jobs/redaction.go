@@ -1,8 +1,25 @@
 package jobs
 
-import "strings"
+import (
+	"context"
+	"regexp"
+	"strings"
+
+	"assistente/internal/tools/invocationctx"
+)
 
 const redactedValue = "[redacted]"
+
+// Só um primeiro token literal e separado do template pode identificar a
+// operação na pergunta. Nunca extraímos o programa do valor do cofre.
+var shellTemplatePrefix = regexp.MustCompile(`^[ \t]*([a-zA-Z][a-zA-Z0-9._-]{0,63})[ \t]+`)
+
+// Formas literais de origem verificável: programa literal e referências
+// simples ao cofre. Argumentos livres, caminhos, comentários, pipelines e
+// outras expressões podem conter dados privados já no próprio template.
+const publicSecretAction = `\{\{[\t ]*secret[\t ]+"[A-Za-z_][A-Za-z0-9_-]{0,63}"[\t ]*\}\}`
+
+var publicShellTemplate = regexp.MustCompile(`^[\t ]*[A-Za-z][A-Za-z0-9._-]{0,63}[\t ]+` + publicSecretAction + `(?:[\t ]+` + publicSecretAction + `)*[\t ]*$`)
 
 // RedactResolvedInputs keeps run history useful without persisting secrets
 // resolved from templates or values entered directly into sensitive fields.
@@ -15,6 +32,42 @@ func RedactResolvedInputs(original, resolved map[string]any) map[string]any {
 		redacted[key] = redactValue(key, original[key], value)
 	}
 	return redacted
+}
+
+// O shell ecoa comando e diretório nos metadados. Propague as redações antes
+// da confirmação e do despacho, inclusive para os resultados parciais.
+func withRedactedShellMetadata(ctx context.Context, original, resolved map[string]any) context.Context {
+	// encoding/json aceita variantes de caixa nas chaves de uma struct. Se
+	// houver mais de uma variante de command ou working_directory, qualquer
+	// variante redigida protege os metadados daquele campo.
+	matches := 0
+	var protectedKey string
+	for key := range resolved {
+		if strings.EqualFold(key, "working_directory") && redactInput(key, original[key]) {
+			ctx = invocationctx.WithShellDirectoryMetadata(ctx, redactedValue)
+		}
+		if strings.EqualFold(key, "command") {
+			matches++
+			if redactInput(key, original[key]) {
+				protectedKey = key
+			}
+		}
+	}
+	if protectedKey == "" {
+		return ctx
+	}
+	template, _ := original[protectedKey].(string)
+	var prefix string
+	if matches == 1 && containsSecretTemplate(template) {
+		if match := shellTemplatePrefix.FindStringSubmatch(template); match != nil {
+			prefix = match[1]
+		}
+	}
+	ctx = invocationctx.WithProtectedShellCommand(ctx, redactedValue, prefix)
+	if command, ok := resolved[protectedKey].(string); ok && matches == 1 && publicShellTemplate.MatchString(template) {
+		return invocationctx.WithShellConsentTemplate(ctx, template, command)
+	}
+	return ctx
 }
 
 func ContainsRedactedValue(value any) bool {
@@ -37,8 +90,12 @@ func ContainsRedactedValue(value any) bool {
 	return false
 }
 
+func redactInput(key string, original any) bool {
+	return isSensitiveInputKey(key) || containsSecretTemplate(original)
+}
+
 func redactValue(key string, original, resolved any) any {
-	if isSensitiveInputKey(key) || containsSecretTemplate(original) {
+	if redactInput(key, original) {
 		return redactedValue
 	}
 	switch value := resolved.(type) {

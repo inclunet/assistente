@@ -140,11 +140,15 @@ func (a *Archive) Read(name string, limit int64) ([]byte, error) {
 	return data, nil
 }
 
+func (a *Archive) Has(name string) bool {
+	return a.files[name] != nil
+}
+
 func (a *Archive) Wrapper() string {
 	var prefix string
 	for name := range a.files {
 		dir, _, ok := strings.Cut(name, "/")
-		if !ok || strings.HasPrefix(dir, ".") {
+		if !ok {
 			return ""
 		}
 		if prefix != "" && prefix != dir+"/" {
@@ -179,5 +183,5 @@ func (a *Archive) Package(origin, dir string) (*LocalSnapshot, error) {
 		total += int64(len(data))
 		snap.Files[rel] = data
 	}
-	return finishSnapshot(snap)
+	return finishSnapshot(snap, "")
 }

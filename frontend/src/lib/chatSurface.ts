@@ -42,12 +42,19 @@ export type SurfaceFocus = {
   entity?: Record<string, unknown>;
 };
 
+export type TerminalContextItem = {
+  kind: 'command' | 'session';
+  header: string;
+  output: string;
+};
+
 export type SurfaceContent = {
   kind: string;
   text?: string;
   markdown?: string;
   summary?: string;
   recentOutput?: string;
+  recentOutputItems?: TerminalContextItem[];
   currentInput?: string;
   truncated?: boolean;
 };
