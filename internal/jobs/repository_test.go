@@ -719,6 +719,20 @@ func TestDBRepositoryHydratesRunTechnicalDetailsFromLedger(t *testing.T) {
 	if !got.Replayable {
 		t.Fatalf("run canônico deveria ser reproduzível: %#v", got)
 	}
+
+	t.Run("null com metadados", func(t *testing.T) {
+		raw, err := json.Marshal(tools.ToolResult{Content: " null\n", Metadata: map[string]any{"source": "ledger"}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := repo.db.Model(&invocation).Update("output", string(raw)).Error; err != nil {
+			t.Fatal(err)
+		}
+		got, err := repo.GetRun(userA, job.ID, run.RunID)
+		if err != nil || got.Output["content"] != " null\n" || got.Output["_meta_source"] != "ledger" {
+			t.Fatalf("run=%+v erro=%v", got, err)
+		}
+	})
 }
 
 func TestDBRepositoryLogRunPersistsRunEvents(t *testing.T) {

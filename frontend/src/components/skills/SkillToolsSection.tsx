@@ -1,15 +1,33 @@
+import { useEffect, useRef } from 'react';
+import { useAnnouncer } from '../../hooks/useAnnouncer';
 import { useTranslation } from 'react-i18next';
 
 interface SkillToolsSectionProps {
   toolsString: string;
+  declaresShellPrograms?: boolean;
+  deniesShell?: boolean;
   onToolsChange: (tools: string) => void;
 }
 
 export function SkillToolsSection({
   toolsString,
+  declaresShellPrograms,
+  deniesShell,
   onToolsChange,
 }: SkillToolsSectionProps) {
   const { t } = useTranslation();
+  function conflictsWithShell(value: string) {
+    const allowed = value.split(',').map(name => name.trim()).filter(Boolean);
+    return declaresShellPrograms && (deniesShell || (allowed.length > 0 && !allowed.includes('run_command')));
+  }
+  const shellConflict = conflictsWithShell(toolsString);
+  const { announce } = useAnnouncer();
+  const warning = t('skills.toolsSection.shellConflict');
+  const previousConflict = useRef(shellConflict);
+  useEffect(() => {
+    if (!previousConflict.current && shellConflict) announce(warning);
+    previousConflict.current = shellConflict;
+  }, [announce, shellConflict, warning]);
   return (
     <section className="skills-section" data-testid="skill-tools-section">
       <h3 className="skills-section__title">{t('skills.toolsSection.title')}</h3>
@@ -22,10 +40,12 @@ export function SkillToolsSection({
             id="sk-tools"
             type="text"
             className="skills-field__input"
+            aria-describedby={shellConflict ? 'sk-shell-conflict' : undefined}
             value={toolsString}
             onChange={(e) => onToolsChange(e.target.value)}
             placeholder={t('skills.toolsSection.placeholder')}
           />
+          {shellConflict && <p id="sk-shell-conflict" className="skills-field-warning">{warning}</p>}
           <span className="skills-field__hint">
             {t('skills.toolsSection.hint')}
           </span>

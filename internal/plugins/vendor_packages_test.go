@@ -60,6 +60,7 @@ func TestVendorPackagesUseRetainedFormatAndCommandRunner(t *testing.T) {
 			}
 			owner := database.WithUserID(context.Background(), "reader")
 			store := NewInventory(db)
+			allow := func(_ *gorm.DB, commit func() error) error { return commit() }
 			row, err := store.InstallLocal(owner, dir, snap.Digest, "")
 			if err != nil {
 				t.Fatal(err)
@@ -68,7 +69,7 @@ func TestVendorPackagesUseRetainedFormatAndCommandRunner(t *testing.T) {
 			if err != nil || len(components) != 2 || components[0].Reason != "" || components[0].Endpoint != "https://example.org/mcp" || components[1].Reason != "" || components[1].RequestsShell != (format == "claude") {
 				t.Fatal(components, err)
 			}
-			if err := store.SetSkillActive(owner, row.ID, row.Digest, "skills/note", true); err != nil {
+			if err := store.SetSkillActive(owner, row.ID, row.Digest, "skills/note", true, allow); err != nil {
 				t.Fatal(err)
 			}
 			manager := skills.NewManagerWithInstalledSkills(store.ActiveSkills)
@@ -116,19 +117,19 @@ func TestVendorPackagesUseRetainedFormatAndCommandRunner(t *testing.T) {
 			if format == "claude" && (strings.Join(calls, ",") != "echo first,echo second" || strings.Count(result, "result !`other`") != 2) {
 				t.Fatal(calls, result)
 			}
-			if err := store.SetSkillActive(owner, row.ID, row.Digest, "skills/note", true); err != nil {
+			if err := store.SetSkillActive(owner, row.ID, row.Digest, "skills/note", true, allow); err != nil {
 				t.Fatal(err)
 			}
 			if err := active[0].CheckCommandActivation(owner); err != nil {
 				t.Fatal(err)
 			}
-			if err := store.SetSkillActive(owner, row.ID, row.Digest, "skills/note", false); err != nil {
+			if err := store.SetSkillActive(owner, row.ID, row.Digest, "skills/note", false, allow); err != nil {
 				t.Fatal(err)
 			}
 			if err := active[0].CheckCommandActivation(owner); !errors.Is(err, ErrComponentUnavailable) {
 				t.Fatal("stale skill retained command access", err)
 			}
-			if err := store.SetSkillActive(owner, row.ID, row.Digest, "skills/note", true); err != nil {
+			if err := store.SetSkillActive(owner, row.ID, row.Digest, "skills/note", true, allow); err != nil {
 				t.Fatal(err)
 			}
 			if err := active[0].CheckCommandActivation(owner); !errors.Is(err, ErrComponentUnavailable) {
@@ -168,5 +169,37 @@ func TestVendorConventionsInCapturedFiles(t *testing.T) {
 	})
 	if err != nil || manifest.Format != pluginpackage.AgentPlugins || manifest.Name != "legacy" {
 		t.Fatal(manifest, err)
+	}
+}
+
+func TestVendorMCPRequirements(t *testing.T) {
+	for _, tc := range []struct{ path, data, kind, reason string }{
+		{".mcp.json", `{"mcpServers":{"docs":{"url":"https://${TENANT}.example.org/mcp"}}}`, "mcp", "configuration"},
+		{".mcp.json/example", "{}", "invalidMcp", ""},
+		{".mcp.json", `{"mcpServers":{"docs":{"url":"https://example.org/${TENANT}/mcp"}}}`, "mcp", "configuration"},
+	} {
+		snap := &pluginpackage.LocalSnapshot{Manifest: pluginpackage.Manifest{Format: pluginpackage.ClaudeCode}, Files: map[string][]byte{tc.path: []byte(tc.data)}}
+		got := DiscoverComponents(snap)
+		if len(got) != 1 || got[0].Kind != tc.kind || got[0].Reason != tc.reason {
+			t.Fatalf("%s: %+v", tc.path, got)
+		}
+	}
+}
+
+func TestVendorRequirementsStayWithTheirContribution(t *testing.T) {
+	files := map[string][]byte{".cursor-plugin/plugin.json": []byte(`{"name":"kit","mcpServers":{"server":{}}}`), "skills/note/SKILL.md": []byte("---\nname: note\ndescription: A note\n---\nread")}
+	_, manifest, _, err := pluginpackage.CapturedManifest(files)
+	if err != nil {
+		t.Fatal(err)
+	}
+	components := DiscoverComponents(&pluginpackage.LocalSnapshot{Manifest: manifest, Files: files})
+	if len(components) != 2 || components[0].Kind != "mcp" || components[0].Reason != "manifestConfiguration" || components[1].Reason != "" {
+		t.Fatal(components)
+	}
+	delete(files, "skills/note/SKILL.md")
+	files["SKILL.md"] = []byte("note")
+	components = DiscoverComponents(&pluginpackage.LocalSnapshot{Manifest: manifest, Files: files})
+	if len(components) != 2 || components[0].Entry != "SKILL.md" || components[0].Reason != "rootSkill" {
+		t.Fatal(components)
 	}
 }

@@ -14,9 +14,10 @@ import {
   useState,
 } from 'react';
 import { useTranslation } from 'react-i18next';
+import { isManagedCommandRunning, sessionOutputSource } from '../../lib/terminalHistory';
 import type { HistoryEntry } from '../../store/terminalStore';
 import { playBumpSound } from '../../services/audioFeedback';
-import { formatDuration } from '../../utils/format';
+import { codePointPrefix, formatDuration } from '../../utils/format';
 import { useVirtualModal } from '../../hooks/useVirtualModal';
 import './TerminalEntry.css';
 
@@ -26,16 +27,40 @@ import './TerminalEntry.css';
 function truncateForAria(text: string, maxLen: number, truncatedLabel: string): string {
   if (!text) return '';
   const clean = text.trim();
-  if (clean.length <= maxLen) return clean;
-  return clean.slice(0, maxLen) + '… ' + truncatedLabel;
+  const prefix = codePointPrefix(clean, maxLen);
+  return prefix.length < clean.length ? prefix + '… ' + truncatedLabel : prefix;
 }
 
 interface NavigationProps {
+  sessionBlocks?: HistoryEntry[];
   onNavigatePrev?: () => void;
   onNavigateNext?: () => void;
   onNavigateFirst?: () => void;
   onNavigateLast?: () => void;
   onReachEnd?: () => void;
+}
+
+function SessionOutputText({ blocks, label }: { blocks: HistoryEntry[]; label: string }) {
+  return (
+    <div>
+      <span className="terminal-node__label">{label}</span>
+      <pre className="terminal-node__text">{blocks.map(block => block.output)}</pre>
+    </div>
+  );
+}
+
+function sessionOutputAnnouncement(blocks: HistoryEntry[] | undefined, label: string, truncated: string): string {
+  if (!blocks?.length) return '';
+  let preview = '';
+  let remaining = 500;
+  for (const block of blocks) {
+    const text = preview ? block.output : block.output.trimStart();
+    const prefix = codePointPrefix(text, remaining);
+    preview += prefix;
+    if (text.slice(prefix.length).trim()) return `${label}: ${preview.trimEnd()}… ${truncated}`;
+    remaining -= Array.from(prefix).length;
+  }
+  return `${label}: ${preview.trimEnd()}`;
 }
 
 function useNodeKeyboard(
@@ -118,7 +143,7 @@ export interface TerminalCommandNodeProps extends NavigationProps {
 }
 
 export const TerminalCommandNode = forwardRef<HTMLDivElement, TerminalCommandNodeProps>(
-  function TerminalCommandNode({ entry, ...nav }, ref) {
+  function TerminalCommandNode({ entry, sessionBlocks, ...nav }, ref) {
     const { t } = useTranslation();
     const { nodeRef, isReading, startReading } = useTerminalReadingMode(ref, {
       dialog: t('terminal.entry.readingDialog'),
@@ -128,7 +153,10 @@ export const TerminalCommandNode = forwardRef<HTMLDivElement, TerminalCommandNod
     const handleKeyDown = useNodeKeyboard(nav, isReading, startReading);
 
     const sourceLabel = entry.source === 'llm' ? t('terminal.entry.llmCommand') : t('terminal.entry.command');
-    const ariaLabel = `${sourceLabel}: ${truncateForAria(entry.command, 500, t('terminal.entry.truncated'))}`;
+    const sessionLabel = t('terminal.entry.sessionOutput');
+    const truncated = t('terminal.entry.truncated');
+    const ariaLabel = [`${sourceLabel}: ${truncateForAria(entry.command, 500, truncated)}`,
+      sessionOutputAnnouncement(sessionBlocks, sessionLabel, truncated)].filter(Boolean).join('. ');
 
     return (
       <div
@@ -153,6 +181,7 @@ export const TerminalCommandNode = forwardRef<HTMLDivElement, TerminalCommandNod
             )}
           </div>
           <pre className="terminal-node__text"><code>{entry.command}</code></pre>
+          {sessionBlocks && <SessionOutputText blocks={sessionBlocks} label={sessionLabel} />}
         </div>
       </div>
     );
@@ -166,7 +195,7 @@ export interface TerminalOutputNodeProps extends NavigationProps {
 }
 
 export const TerminalOutputNode = forwardRef<HTMLDivElement, TerminalOutputNodeProps>(
-  function TerminalOutputNode({ entry, ...nav }, ref) {
+  function TerminalOutputNode({ entry, sessionBlocks, ...nav }, ref) {
     const { t } = useTranslation();
     const { nodeRef, isReading, startReading } = useTerminalReadingMode(ref, {
       dialog: t('terminal.entry.readingDialog'),
@@ -175,19 +204,23 @@ export const TerminalOutputNode = forwardRef<HTMLDivElement, TerminalOutputNodeP
     });
     const handleKeyDown = useNodeKeyboard(nav, isReading, startReading);
 
-    const isRaw = entry.source === 'user-raw';
-    const hasExitCode = !isRaw && entry.exitCode !== -999;
-    const isRunning = entry.exitCode === -999 && !isRaw;
+    const isRaw = entry.source === 'user-raw' || entry.source === sessionOutputSource;
+    const isRunning = isManagedCommandRunning(entry);
+    const hasExitCode = !isRaw && !isRunning;
 
     const duration = entry.endedAt && entry.startedAt && !isRaw
       ? formatDuration(new Date(entry.endedAt).getTime() - new Date(entry.startedAt).getTime())
       : null;
 
-    const outputLabel = t('terminal.entry.output');
+    const sessionLabel = t('terminal.entry.sessionOutput');
+    const standalone = entry.source === sessionOutputSource ? [entry, ...(sessionBlocks ?? [])] : undefined;
+    const outputLabel = standalone ? sessionLabel : t('terminal.entry.output');
     const truncatedText = t('terminal.entry.truncated');
     // Constrói aria-label com informações relevantes
     let ariaLabel = outputLabel;
-    if (entry.output) {
+    if (standalone) {
+      ariaLabel = sessionOutputAnnouncement(standalone, sessionLabel, truncatedText);
+    } else if (entry.output) {
       ariaLabel += `: ${truncateForAria(entry.output, 500, truncatedText)}`;
     } else if (isRunning) {
       ariaLabel += `: ${t('terminal.entry.running')}`;
@@ -200,10 +233,11 @@ export const TerminalOutputNode = forwardRef<HTMLDivElement, TerminalOutputNodeP
     if (duration) {
       ariaLabel += `. ${t('terminal.entry.duration')} ${duration}`;
     }
+    if (!standalone && sessionBlocks) ariaLabel += '. ' + sessionOutputAnnouncement(sessionBlocks, sessionLabel, truncatedText);
 
     const exitBadgeClass = entry.exitCode === 0
       ? 'terminal-node__exit-badge--success'
-      : entry.exitCode === -999
+      : !hasExitCode
         ? ''
         : 'terminal-node__exit-badge--error';
 
@@ -239,8 +273,9 @@ export const TerminalOutputNode = forwardRef<HTMLDivElement, TerminalOutputNodeP
             )}
           </div>
           {entry.output && (
-            <pre className="terminal-node__text">{entry.output}</pre>
+            <pre className="terminal-node__text">{standalone ? standalone.map(block => block.output) : entry.output}</pre>
           )}
+          {!standalone && sessionBlocks && <SessionOutputText blocks={sessionBlocks} label={sessionLabel} />}
         </div>
       </div>
     );

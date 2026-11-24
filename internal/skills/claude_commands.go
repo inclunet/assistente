@@ -1,70 +1,86 @@
 package skills
 
 import (
-	"context"
 	"fmt"
+	"regexp"
 	"strings"
-	"unicode"
-	"unicode/utf8"
 )
 
-// Claude skill placeholders begin at a word boundary. Offsets refer to the
-// original definition; neither user text nor command output is scanned again.
-func nextClaudeCommand(text string, from int) (start, end int, ok bool) {
-	for from < len(text) {
-		offset := strings.Index(text[from:], "!`")
-		if offset < 0 {
-			return 0, 0, false
-		}
-		start = from + offset
-		prior, _ := utf8.DecodeLastRuneInString(text[:start])
-		if start != 0 && !unicode.IsSpace(prior) {
-			from = start + 2
-			continue
-		}
-		stop := strings.IndexAny(text[start+2:], "`\r\n")
-		if stop < 0 || text[start+2+stop] != '`' || stop == 0 {
-			from = start + 2
-			continue
-		}
-		return start, start + 3 + stop, true
+// ContainsClaudeCommand reports whether the source contains an executable inline placeholder.
+func ContainsClaudeCommand(content string) bool {
+	if !strings.Contains(content, "!`") {
+		return false
 	}
-	return 0, 0, false
+	found := false
+	inspectSkillMarkdown(content, func(_, _ int) { found = true }, nil)
+	return found
 }
-func ContainsClaudeCommand(text string) bool { _, _, ok := nextClaudeCommand(text, 0); return ok }
 
-func renderClaudeCommands(ctx context.Context, skill *Skill, content string, run SkillCommandRunner, expand func(string) string) (string, error) {
-	var out strings.Builder
-	writeText := func(s string) {
+// Cada ocorrência tem seu próprio espaço no plano, inclusive na mesma linha.
+// A renderização comum aplica orçamento, cancelamento e cache por tentativa.
+func planPluginCommands(skill *Skill, content string, base bool, run SkillCommandRunner, expand func(string) string, rawArgs string) (commandDocument, error) {
+	doc := commandDocument{inline: true}
+	literal := func(value string) {
 		if expand != nil {
-			s = expand(s)
+			value = expand(value)
 		}
-		out.WriteString(s)
+		doc.lines = append(doc.lines, value)
 	}
 	pos := 0
-	for {
-		start, end, ok := nextClaudeCommand(content, pos)
-		if !ok {
-			writeText(content[pos:])
-			break
-		}
-		writeText(content[pos:start])
-		command := content[start+2 : end-1]
-		if expand != nil {
-			command = expand(command)
-		}
-		if strings.ContainsAny(command, "\r\n") || run == nil {
-			return "", fmt.Errorf("comando de skill indisponível")
-		}
-		result, err := run(ctx, skill, command)
-		if err != nil {
-			return "", err
-		}
-		if len(result) > MaxCommandOutputSize {
-			return "", fmt.Errorf("saída excedeu o limite da skill %q", skill.Slug)
-		}
-		out.WriteString(strings.TrimRight(result, "\r\n"))
-		pos = end
+	var planErr error
+	if skill.PackageFormat == "claude-code" && strings.Contains(content, "!`") {
+		inspectSkillMarkdown(content, func(start, end int) {
+			if planErr != nil {
+				return
+			}
+			literal(content[pos:start])
+			pos = end
+			command := content[start+2 : end-1]
+			if run == nil {
+				if !base {
+					planErr = fmt.Errorf("executor de comandos indisponível para a skill %q", skill.Slug)
+				}
+				return
+			}
+			if expand != nil {
+				if shellArgumentReference.MatchString(command) && !validInterpolatedCommand(rawArgs, command, expand) {
+					planErr = fmt.Errorf("argumentos incompatíveis com uma linha de comando da skill %q", skill.Slug)
+					return
+				}
+				command = expand(command)
+			}
+			if strings.ContainsAny(command, "\r\n") {
+				planErr = fmt.Errorf("comando de skill deve ocupar uma linha")
+				return
+			}
+			doc.commands = append(doc.commands, commandLine{len(doc.lines), command})
+			doc.lines = append(doc.lines, "")
+		}, nil)
 	}
-	return out.String(), nil
+	if planErr != nil {
+		return commandDocument{}, planErr
+	}
+	literal(content[pos:])
+	return doc, nil
+}
+
+var claudeDirectoryReference = regexp.MustCompile(`\$\{?CLAUDE_(?:PLUGIN_ROOT|PLUGIN_DATA|SKILL_DIR|PROJECT_DIR)\b`)
+
+// HasUnsupportedClaudeCommand identifies executable blocks and command substitutions
+// whose working paths depend on a Claude runtime.
+func HasUnsupportedClaudeCommand(content string) bool {
+	if !strings.Contains(content, "!") {
+		return false
+	}
+	pending := false
+	inspectSkillMarkdown(content, func(start, end int) {
+		if claudeDirectoryReference.MatchString(content[start+2 : end-1]) {
+			pending = true
+		}
+	}, func(info string) {
+		if strings.TrimSpace(info) == "!" {
+			pending = true
+		}
+	})
+	return pending
 }

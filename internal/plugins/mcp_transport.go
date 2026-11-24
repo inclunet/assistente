@@ -12,7 +12,7 @@ import (
 
 // mcpTransport validates the transport-specific 1.0.0 shape before offering
 // a component. A valid declaration may still require an unavailable runtime.
-func mcpTransport(raw json.RawMessage) (string, bool) {
+func mcpTransport(raw json.RawMessage, vendor bool) (string, bool) {
 	var fields map[string]any
 	if json.Unmarshal(raw, &fields) != nil {
 		return "", false
@@ -24,7 +24,7 @@ func mcpTransport(raw json.RawMessage) (string, bool) {
 			return "", false
 		}
 	case "sse", "streamable-http":
-		if endpoint, _ := fields["url"].(string); !validMCPEndpoint(endpoint) {
+		if endpoint, _ := fields["url"].(string); !validMCPEndpoint(endpoint) && !(vendor && strings.Contains(endpoint, "${")) {
 			return "", false
 		}
 	default:

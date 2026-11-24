@@ -1,0 +1,40 @@
+name: Pacotes locais de plugins
+
+on:
+  pull_request:
+    paths:
+      - internal/pluginpackage/**
+      - .github/workflows/pluginpackage.yml
+      - go.mod
+      - go.sum
+
+permissions:
+  contents: read
+
+jobs:
+  snapshot:
+    strategy:
+      matrix:
+        os: [macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Preparar diretórios de compilação no worktree
+        shell: pwsh
+        run: |
+          $root = Join-Path $env:GITHUB_WORKSPACE 'build/bin/ci'
+          foreach ($name in @('go-work', 'go-cache', 'scratch')) {
+            New-Item -ItemType Directory -Force -Path (Join-Path $root $name) | Out-Null
+          }
+          "GOTMPDIR=$(Join-Path $root 'go-work')" >> $env:GITHUB_ENV
+          "GOCACHE=$(Join-Path $root 'go-cache')" >> $env:GITHUB_ENV
+          foreach ($name in @('TEMP', 'TMP', 'TMPDIR')) {
+            "$name=$(Join-Path $root 'scratch')" >> $env:GITHUB_ENV
+          }
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Testar leitura e identidade no sistema de arquivos nativo
+        run: go test -v ./internal/pluginpackage

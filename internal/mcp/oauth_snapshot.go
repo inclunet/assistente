@@ -58,7 +58,7 @@ func (m *Manager) RestoreOAuthSnapshot(ctx context.Context, id string) error {
 		m.servers[slug] = &ServerStatus{ID: restored.ID, Slug: slug, Config: restored, Status: StatusDisconnected, NeedsReauth: restored.AuthType == AuthOAuth2PKCE, Tools: []MCPToolInfo{}}
 	}, func(row database.MCPServer) error {
 		var convertErr error
-		restored, convertErr = serverModelToConfig(row)
+		restored, convertErr = ConfigFromServerRecord(row)
 		return convertErr
 	})
 	if err != nil {

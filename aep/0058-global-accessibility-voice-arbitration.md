@@ -93,6 +93,28 @@ uma resposta longa não é motivo para perder o aviso. A regra de aba inativa da
 seção 2 é reavaliada na hora de falar, não na de produzir: a pessoa pode ter
 trocado de aba durante a espera.
 
+No terminal, a origem é a sessão vinculada à aba ativa no momento da fala.
+A saída comum de uma sessão em segundo plano é silenciosa. A conclusão
+identifica a origem e informa o código de saída. O resumo usa o nome vigente
+na entrega ou, se a sessão já saiu do catálogo, o nome conhecido na conclusão.
+Sem nome ou título, a posição atual identifica a aba enquanto ela existir. Após
+o fechamento, ou na reserva estática sem identificação nominal, usa-se “Terminal”.
+Uma falha ao calcular o resumo gera um aviso de diagnóstico e preserva o resumo
+preparado na conclusão.
+
+O `WorkspaceLayout` registra os resolvedores de atividade e título da origem no
+broker. A API aceita também um registro que fornece apenas atividade. Nesse caso,
+o registro mais recente decide se a origem está ativa, e o título vem do último
+registro que fornece essa consulta. Cada função de limpeza remove apenas seu
+próprio registro. Isso preserva a atribuição dos anúncios adiados mesmo quando as
+limpezas chegam fora de ordem. O teste do broker cobre essa sobreposição; no
+aplicativo, o layout é o único registrante atual.
+
+Resultados consecutivos do terminal aguardam a leitura em andamento e protegem a
+própria leitura quando entregues. Assim, o encerramento da sessão pode ser anunciado
+depois da saída e do código do comando. O teste do broker cobre o pedido que combina
+espera e proteção, tanto para progresso quanto para conclusão, inclusive após a entrega.
+
 A fila tem um teto. Ao enchê-la, o aviso de estado cede o lugar primeiro; se só
 restarem conclusões, sai a mais antiga. Um despejo maior que isso ao fim da
 leitura já não é utilizável e cai na regra de ruído da seção 2.
@@ -128,6 +150,9 @@ Fala automática de resposta deve ser coordenada para evitar sobreposição. Se 
 ### 5. STT local restrito à aba ativa
 
 Captura local de microfone só pode funcionar na aba ativa.
+
+Ocultar os painéis ao entrar em Configurações reavalia a captura em curso pela
+mesma regra de origem que autoriza seu início.
 
 Quando uma aba fica inativa:
 

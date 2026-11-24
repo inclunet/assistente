@@ -44,7 +44,7 @@ func LocateManifest(read func(string) ([]byte, error)) (string, []byte, Manifest
 		}
 	}
 	if selected == "" {
-		return "", nil, Manifest{}, nil, errors.New("PLUGIN_MANIFEST_MISSING")
+		return "", nil, Manifest{}, nil, fmt.Errorf("PLUGIN_MANIFEST_MISSING: %w", fs.ErrNotExist)
 	}
 	if format == AgentPlugins {
 		m, w, err := decodeManifest(contents)
@@ -83,27 +83,42 @@ func decodeVendorManifest(format string, raw []byte) (Manifest, []string, error)
 	var warnings []string
 	for key := range fields {
 		switch key {
+		case "metadata":
+			if format == ClaudeCode {
+				var object map[string]json.RawMessage
+				if json.Unmarshal(fields[key], &object) == nil && object != nil {
+					continue
+				}
+			}
 		case "skills":
+			m.DeclaresSkills = true
 			var dir string
 			if json.Unmarshal(fields[key], &dir) == nil && strings.TrimSuffix(strings.TrimPrefix(dir, "./"), "/") == "skills" {
 				continue
 			}
-			m.Unmapped = append(m.Unmapped, key)
-			warnings = append(warnings, "unsupported manifest field: "+key)
 		case "mcpServers":
 			var file string
 			if json.Unmarshal(fields[key], &file) == nil && ((format == Cursor && strings.TrimPrefix(file, "./") == "mcp.json") || (format != Cursor && strings.TrimPrefix(file, "./") == ".mcp.json")) {
 				continue
 			}
-			m.Unmapped = append(m.Unmapped, key)
-			warnings = append(warnings, "unsupported manifest field: "+key)
 		case "name", "version", "description", "author", "license", "homepage", "repository", "keywords", "interface", "logo", "icon", "documentationUrl", "supportUrl", "privacyPolicyUrl", "termsOfServiceUrl", "category", "displayName":
-		default:
-			m.Unmapped = append(m.Unmapped, key)
-			warnings = append(warnings, "unsupported manifest field: "+key)
+			continue
 		}
+		m.Unmapped = append(m.Unmapped, key)
+		warnings = append(warnings, "unknown manifest field: "+key)
 	}
 	sort.Strings(m.Unmapped)
 	sort.Strings(warnings)
 	return m, warnings, nil
+}
+
+// CapturedManifest selects the interpreter using only the retained revision.
+func CapturedManifest(files map[string][]byte) (string, Manifest, []string, error) {
+	name, _, manifest, warnings, err := LocateManifest(func(name string) ([]byte, error) {
+		if raw, ok := files[name]; ok {
+			return raw, nil
+		}
+		return nil, fs.ErrNotExist
+	})
+	return name, manifest, warnings, err
 }
