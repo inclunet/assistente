@@ -157,6 +157,7 @@ notSaved: 'A decisão vale somente para esta operação: não foi possível lemb
       editedUpdate: 'A atualização está bloqueada por edições locais em servidores MCP. Cancele para preservar os servidores indicados nos detalhes do plugin.',
       affectedServers: 'Servidores MCP afetados',
       affectedServersNotice: 'A atualização remove os servidores MCP vinculados e encerra suas conexões. Para manter um servidor, cancele e escolha mantê-lo como independente nos detalhes do plugin antes de atualizar.',
+      syncReloadError: 'Servidores MCP sincronizados. Não foi possível recarregar os dados dos plugins. Tente novamente.',
       syncFailed: 'Não foi possível sincronizar os servidores MCP. Tente novamente.',
       retrySync: 'Sincronizar servidores MCP',
       synchronized: 'Servidores MCP sincronizados.',

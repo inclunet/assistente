@@ -465,56 +465,7 @@ func (m *Manager) LoadConfigs() error {
 		logging.Infof(context.Background(), "mcp.manager", "[MCP] LoadConfigs aguardando usuário autenticado: %v", err)
 		return nil
 	}
-	configs, err := repo.ListServers(ctx)
-	if err != nil {
-		return err
-	}
-	roots := m.GetWorkspaceRoots()
-	configBySlug := make(map[string]ServerConfig, len(configs))
-	for _, cfg := range configs {
-		cfg.applyDefaults(cfg.Slug)
-		configBySlug[cfg.Slug] = cfg
-		logging.Infof(context.Background(), "mcp.manager", "[MCP] Servidor carregado do DB: %s (%s, transport=%s, enabled=%v, auto_connect=%v)",
-			cfg.Slug, cfg.Name, cfg.Transport, cfg.Enabled, cfg.AutoConnect)
-	}
-
-	m.mu.RLock()
-	removed := make([]string, 0)
-	for slug := range m.servers {
-		if _, ok := configBySlug[slug]; !ok {
-			removed = append(removed, slug)
-		}
-	}
-	m.mu.RUnlock()
-	for _, slug := range removed {
-		if err := m.Disconnect(slug); err != nil {
-			logging.Errorf(context.Background(), "mcp.manager", "[MCP] erro ao desconectar servidor removido '%s' durante LoadConfigs: %v", slug, err)
-		}
-	}
-
-	next := make(map[string]*ServerStatus, len(configBySlug))
-	m.mu.Lock()
-	for slug, cfg := range configBySlug {
-		if existing, ok := m.servers[slug]; ok {
-			existing.ID = cfg.ID
-			existing.Slug = slug
-			existing.Config = cfg
-			existing.Roots = roots
-			next[slug] = existing
-			continue
-		}
-		next[slug] = &ServerStatus{
-			ID:     cfg.ID,
-			Slug:   slug,
-			Config: cfg,
-			Status: StatusDisconnected,
-			Tools:  []MCPToolInfo{},
-			Roots:  roots,
-		}
-	}
-	m.servers = next
-	m.mu.Unlock()
-	return nil
+	return m.reconcileConfigsLocked(ctx, repo, false)
 }
 
 // AutoConnectAll conecta sequencialmente a todos os servidores
@@ -3197,12 +3148,27 @@ func sortMCPPromptInfos(infos []MCPPromptInfo) {
 // ReloadPackagedConfigs reconciles the native registry after the package
 // transaction commits. Startup already calls LoadConfigs after login.
 func (m *Manager) ReloadPackagedConfigs(ctx context.Context) error {
+	m.configReloadMu.Lock()
+	repo := m.repository()
+	if repo == nil {
+		m.configReloadMu.Unlock()
+		return errors.New("repository MCP indisponível")
+	}
+	err := m.reconcileConfigsLocked(ctx, repo, true)
+	m.configReloadMu.Unlock()
+	if err == nil {
+		m.emit("mcp:config_changed", map[string]string{})
+	}
+	return err
+}
+
+// O carregamento completo também retira servidores da conta anterior. O
+// incremental só alcança servidores de pacotes da conta da chamada.
+func (m *Manager) reconcileConfigsLocked(ctx context.Context, repo Repository, packagesOnly bool) error {
 	owner, err := database.RequireUserID(ctx)
 	if err != nil {
 		return err
 	}
-	m.configReloadMu.Lock()
-	defer m.configReloadMu.Unlock()
 	sessionID, _ := userctx.SessionIDFromContext(ctx)
 	checkScope := func() error {
 		if err := ctx.Err(); err != nil {
@@ -3219,16 +3185,12 @@ func (m *Manager) ReloadPackagedConfigs(ctx context.Context) error {
 	if err := checkScope(); err != nil {
 		return err
 	}
-	repo := m.repository()
-	if repo == nil {
-		return errors.New("repository MCP indisponível")
-	}
 	// Compare a identidade observada antes da leitura com a do banco. Uma
 	// edição nativa concorrente publica sua própria configuração no runtime.
 	before := map[string]ServerConfig{}
 	m.mu.RLock()
 	for slug, status := range m.servers {
-		if strings.HasPrefix(slug, "plugin-") && status.Config.UserID == owner {
+		if !packagesOnly || (strings.HasPrefix(slug, "plugin-") && status.Config.UserID == owner) {
 			before[slug] = persistedLegacyConfig(status.Config)
 		}
 	}
@@ -3244,9 +3206,13 @@ func (m *Manager) ReloadPackagedConfigs(ctx context.Context) error {
 	}
 	pending := make(map[string]ServerConfig)
 	for _, cfg := range configs {
-		if strings.HasPrefix(cfg.Slug, "plugin-") {
+		if !packagesOnly || strings.HasPrefix(cfg.Slug, "plugin-") {
 			cfg.applyDefaults(cfg.Slug)
 			pending[cfg.Slug] = cfg
+			if !packagesOnly {
+				logging.Infof(context.Background(), "mcp.manager", "[MCP] Servidor carregado do DB: %s (%s, transport=%s, enabled=%v, auto_connect=%v)",
+					cfg.Slug, cfg.Name, cfg.Transport, cfg.Enabled, cfg.AutoConnect)
+			}
 		}
 	}
 	retiredAny := false
@@ -3268,7 +3234,7 @@ func (m *Manager) ReloadPackagedConfigs(ctx context.Context) error {
 			pending[slug] = ServerConfig{}
 		}
 	}
-	if retiredAny && len(pending) > 0 {
+	if retiredAny {
 		latest, err := repo.ListServers(ctx)
 		if err != nil {
 			return err
@@ -3292,6 +3258,5 @@ func (m *Manager) ReloadPackagedConfigs(ctx context.Context) error {
 		}
 	}
 	m.mu.Unlock()
-	m.emit("mcp:config_changed", map[string]string{})
 	return nil
 }

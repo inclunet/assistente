@@ -56,16 +56,17 @@ function InstalledPlugins({ session }: { session: string }) {
   const [items, setItems] = useState<database.PluginInstallation[] | null>(null);
   const [preview, setPreview] = useState<wailsapi.PluginPreview | null>(null);
   const [details, setDetails] = useState<{ installation: database.PluginInstallation; components: plugins.Component[] } | null>(null);
-  const [listFailed, setListFailed] = useState(false);
+  const [listError, setListError] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(true);
   useEffect(() => {
     if (error) announce(t(error), 'assertive');
   }, [error, announce, t]);
   const detailsOpener = useRef<HTMLElement | null>(null);
+  const listErrorText = listError ? t(listError) : '';
   useEffect(() => {
-    if (listFailed) announce(t('plugins.listError'), 'assertive');
-  }, [listFailed, announce, t]);
+    if (listErrorText) announce(listErrorText, 'assertive');
+  }, [listErrorText, announce]);
   const mounted = useRef(false);
   const openToken = useRef<string | null>(null);
   const chooseButton = useRef<HTMLButtonElement>(null);
@@ -81,7 +82,7 @@ function InstalledPlugins({ session }: { session: string }) {
       chooseButton.current?.focus();
     }
   }, [preview, details, busy]);
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (failureMessage = 'plugins.listError') => {
     const pending = pendingInstalls.get(session);
     if (pending) {
       try {
@@ -90,12 +91,14 @@ function InstalledPlugins({ session }: { session: string }) {
         if (mounted.current) setError(installationError(cause));
       }
     }
-    if (!mounted.current) return;
+    if (!mounted.current) return false;
     try {
       const rows = await ListInstalled();
-      if (mounted.current) { setItems(rows ?? []); setListFailed(false); }
+      if (mounted.current) { setItems(rows ?? []); setListError(''); }
+      return true;
     } catch {
-      if (mounted.current) setListFailed(true);
+      if (mounted.current) setListError(failureMessage);
+      return false;
     }
   }, [session]);
   useEffect(() => {
@@ -157,20 +160,9 @@ function InstalledPlugins({ session }: { session: string }) {
     } catch { if (mounted.current) setError('plugins.listError'); }
     finally { if (mounted.current) setBusy(false); }
   };
-  const refreshAfterSync = async () => {
-    if (details) {
-      const { installation } = details;
-      const components = await InstalledComponents(installation.id, installation.digest);
-      if (mounted.current) setDetails({ installation, components: components ?? [] });
-    } else {
-      await refresh();
-    }
-  };
-  const showPendingSync = async () => {
-    try {
-      await refreshAfterSync();
-      if (mounted.current) setError('plugins.syncPending');
-    } catch { if (mounted.current) setError('plugins.syncPendingStale'); }
+  const refreshDetails = async (installation: database.PluginInstallation) => {
+    const components = await InstalledComponents(installation.id, installation.digest);
+    if (mounted.current) setDetails({ installation, components: components ?? [] });
   };
   const changeComponent = async (component: plugins.Component, preserve = false) => {
     if (!details || busy || error === 'plugins.syncPendingStale') return;
@@ -191,9 +183,8 @@ function InstalledPlugins({ session }: { session: string }) {
       }
       if (!mounted.current) return;
       try {
-        const components = await InstalledComponents(installation.id, installation.digest);
+        await refreshDetails(installation);
         if (mounted.current) {
-          setDetails({ installation, components: components ?? [] });
           announce(t(component.kind === 'mcp' ? 'plugins.serverChanged' : component.active ? 'plugins.deactivated' : 'plugins.activated', { name: component.name }));
         }
       } catch {
@@ -205,7 +196,10 @@ function InstalledPlugins({ session }: { session: string }) {
     } catch (cause) {
       if (!mounted.current) return;
       if (String(cause).includes('PLUGIN_MCP_SYNC_PENDING')) {
-        await showPendingSync();
+        try {
+          await refreshDetails(installation);
+          if (mounted.current) setError('plugins.syncPending');
+        } catch { if (mounted.current) setError('plugins.syncPendingStale'); }
       } else setError(String(cause).includes('PLUGIN_COMPONENT_EDITED') ? 'plugins.edited' : 'plugins.componentError');
     }
     finally { if (mounted.current) setBusy(false); }
@@ -215,8 +209,19 @@ function InstalledPlugins({ session }: { session: string }) {
     setBusy(true);
     try {
       await SyncMCP();
-      try { await refreshAfterSync(); } catch { if (mounted.current) setError('plugins.syncPendingStale'); return; }
-      if (mounted.current) { setError(''); announce(t('plugins.synchronized')); }
+      if (!mounted.current) return;
+      setError('');
+      if (details) {
+        try {
+          await refreshDetails(details.installation);
+        } catch {
+          if (mounted.current) { setDetails(null); setError('plugins.syncReloadError'); }
+          return;
+        }
+      } else if (!await refresh('plugins.syncReloadError')) {
+        return;
+      }
+      if (mounted.current) announce(t('plugins.synchronized'));
     } catch { if (mounted.current && error !== 'plugins.syncPendingStale') setError('plugins.syncFailed'); }
     finally { if (mounted.current) setBusy(false); }
   };
@@ -257,10 +262,10 @@ function InstalledPlugins({ session }: { session: string }) {
       right={<><Button ref={chooseButton} onClick={() => void inspect()} disabled={busy}>{t('plugins.choose')}</Button>{!details && !preview && syncAction}</>} />
     <h2>{t('plugins.installed')}</h2>
     {!preview && !details && error && <p>{t(error)}</p>}
-    {listFailed && <p>{t('plugins.listError')}</p>}
+    {listErrorText && <p>{listErrorText}</p>}
     {items && items.length > 0 ? <DataGrid items={items} onActivate={row => void openDetails(row)} getItemId={row => row.id} label={t('plugins.installed')}
       columns={[{ key: 'name', label: t('plugins.name') }, { key: 'version', label: t('plugins.version') }, { key: 'origin', label: t('plugins.origin') }]} />
-      : items && !busy && !error && !listFailed && <p>{t('plugins.empty')}</p>}
+      : items && !busy && !error && !listError && <p>{t('plugins.empty')}</p>}
     {details && <Modal isOpen title={details.installation.name} onClose={() => setDetails(null)} allowClose={!busy} readingMode>
       {error && <p>{t(error)}</p>}
       {syncAction}

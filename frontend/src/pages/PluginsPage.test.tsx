@@ -193,6 +193,25 @@ describe('PluginsPage', () => {
     expect(await screen.findByRole('button', { name: 'plugins.update' })).toBeEnabled();
   });
 
+  it('anuncia uma vez a sincronização confirmada com falha na recarga da lista', async () => {
+    const user = userEvent.setup();
+    mocks.list.mockResolvedValueOnce([]).mockRejectedValueOnce(new Error('read')).mockResolvedValueOnce([]);
+    render(<PluginsPage />);
+    const sync = screen.getByRole('button', { name: 'plugins.retrySync' });
+    await waitFor(() => expect(sync).toBeEnabled());
+    mocks.announce.mockClear();
+    await user.click(sync);
+    expect(await screen.findByText('plugins.syncReloadError')).toBeVisible();
+    expect(screen.queryByText('plugins.empty')).toBeNull();
+    expect(mocks.announce.mock.calls).toEqual([['plugins.syncReloadError', 'assertive']]);
+    await user.click(sync);
+    await waitFor(() => expect(mocks.announce).toHaveBeenCalledWith('plugins.synchronized'));
+    expect(screen.queryByText('plugins.syncReloadError')).toBeNull();
+    expect(screen.getByText('plugins.empty')).toBeVisible();
+    expect(mocks.sync).toHaveBeenCalledTimes(2);
+    expect(mocks.list).toHaveBeenCalledTimes(3);
+  });
+
   it('permite sincronizar após sair da página com um registro já salvo', async () => {
     const user = userEvent.setup();
     const row = { id: 'one', name: 'Demo', digest: 'sha' };

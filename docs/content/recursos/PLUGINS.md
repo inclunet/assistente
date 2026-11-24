@@ -31,4 +31,4 @@ Na prévia e nos detalhes do plugin, confira o endereço e o transporte. Quando 
 
 Nos detalhes do plugin, você pode remover o servidor ou mantê-lo como servidor independente. A prévia da atualização identifica os servidores afetados e aponta os editados. Ao atualizar o plugin, servidores vinculados cuja configuração continua igual são removidos. Se você editou um deles, mantenha-o como independente antes de repetir a atualização para preservar sua configuração.
 
-Se a alteração for salva e a sincronização com o gerenciador MCP falhar, use a opção de sincronizar novamente. O cadastro ou a remoção já foi gravado.
+Se a alteração for salva e a sincronização com o gerenciador MCP falhar, use a opção de sincronizar novamente. O cadastro ou a remoção já foi gravado. Se o gerenciador sincronizar e a leitura da lista ou dos detalhes falhar, a tela informa que os dados exibidos precisam ser recarregados.

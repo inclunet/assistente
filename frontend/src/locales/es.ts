@@ -156,6 +156,7 @@ notSaved: 'La decisión vale solo para esta operación: no se pudo recordar. Ser
       editedUpdate: 'Los cambios locales en servidores MCP bloquean la actualización. Cancela para conservar los servidores indicados en los detalles del plugin.',
       affectedServers: 'Servidores MCP afectados',
       affectedServersNotice: 'La actualización elimina los servidores MCP vinculados y cierra sus conexiones. Para conservar un servidor, cancela y elige conservarlo como independiente en los detalles del plugin antes de actualizar.',
+      syncReloadError: 'Servidores MCP sincronizados. No se pudieron volver a cargar los datos de los plugins. Inténtalo de nuevo.',
       syncFailed: 'No se pudieron sincronizar los servidores MCP. Inténtalo de nuevo.',
       retrySync: 'Sincronizar servidores MCP',
       synchronized: 'Servidores MCP sincronizados.',

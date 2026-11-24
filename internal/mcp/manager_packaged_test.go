@@ -223,3 +223,44 @@ func TestPackagedRetirementAlreadyDetachedCatalog(t *testing.T) {
 		t.Fatalf("missing diagnostic for live registration: %s", logs.String())
 	}
 }
+
+func TestLoadConfigsRetiresOnlyChangedConnections(t *testing.T) {
+	alice := database.WithUserID(context.Background(), "alice")
+	m := NewManager(nil, nil, nil)
+	t.Cleanup(m.CloseAll)
+	m.SetAuthContextProvider(func() context.Context { return alice })
+	active := make(map[string]context.Context)
+	var persisted []ServerConfig
+	for _, slug := range []string{"plugin-replaced", "native-updated", "unchanged"} {
+		cfg := ServerConfig{ID: slug, UserID: "alice", Slug: slug, URL: "https://example.org/old", Name: slug, AuthType: AuthNone, Enabled: true}
+		cfg.applyDefaults(slug)
+		m.servers[slug] = &ServerStatus{ID: cfg.ID, Slug: slug, Config: cfg, Status: StatusConnected}
+		ctx, cancel := context.WithCancel(alice)
+		active[slug] = ctx
+		m.connections[slug] = &serverConnection{cancelSession: cancel}
+		switch slug {
+		case "plugin-replaced":
+			cfg.ID = "replacement"
+		case "native-updated":
+			cfg.URL = "https://example.org/new"
+		}
+		persisted = append(persisted, cfg)
+	}
+	m.SetRepository(packagedListRepo{
+		list: func(context.Context) ([]ServerConfig, error) { return persisted, nil },
+		log:  func(*MCPServerLog) {},
+	})
+	if err := m.LoadConfigs(); err != nil {
+		t.Fatal(err)
+	}
+	for _, cfg := range persisted {
+		status := m.servers[cfg.Slug]
+		if status == nil || status.ID != cfg.ID || status.Config.URL != cfg.URL {
+			t.Fatalf("configuration not loaded: %+v", status)
+		}
+		preserved := cfg.Slug == "unchanged"
+		if (m.connections[cfg.Slug] != nil) != preserved || (active[cfg.Slug].Err() == nil) != preserved || (status.Status == StatusConnected) != preserved {
+			t.Errorf("%s: connection=%v, context=%v, status=%v", cfg.Slug, m.connections[cfg.Slug] != nil, active[cfg.Slug].Err(), status.Status)
+		}
+	}
+}
