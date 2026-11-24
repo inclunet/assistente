@@ -29,6 +29,7 @@ export default function PluginRepositories({ session, catalog, parentBusy, onPre
   const [busy, setBusy] = useState(true);
   const [error, setError] = useState('');
   const mounted = useRef(false);
+  const addButton = useRef<HTMLButtonElement>(null);
   const refresh = async () => {
     const result = await ListRepositories();
     if (mounted.current) setRepositories(result ?? []);
@@ -59,7 +60,6 @@ export default function PluginRepositories({ session, catalog, parentBusy, onPre
       if (action === 'remove' && repo) {
         const accepted = await confirm({ title: t('plugins.removeRepo'), message: t('plugins.removeRepoConfirm', { origin: repo.origin }), confirmText: t('plugins.removeRepo'), cancelText: t('common.cancel') });
         if (!accepted || !mounted.current) return;
-
       }
       const pending = action === 'add' ? AddLocalRepository()
         : repo ? (action === 'remove' ? RemoveRepository : RefreshRepository)(repo.id, repo.revision).then(() => true)
@@ -71,6 +71,7 @@ export default function PluginRepositories({ session, catalog, parentBusy, onPre
       } finally {
         if (pendingWrites.get(session) === pending) pendingWrites.delete(session);
       }
+      if (action === 'remove' && repo) setRepositories(rows => rows.filter(row => row.id !== repo.id));
       await refresh();
       if (mounted.current) announce(t('plugins.repoUpdated'));
     } catch { if (mounted.current) setError('plugins.repositoryReadError'); }
@@ -103,9 +104,9 @@ export default function PluginRepositories({ session, catalog, parentBusy, onPre
     finally { if (mounted.current) setBusy(false); }
   };
   return <>
-    <Toolbar left={<h2>{t(catalog ? 'plugins.catalog' : 'plugins.repositories')}</h2>}
+    <Toolbar ariaLabel={t(catalog ? 'plugins.catalog' : 'plugins.repositories')} left={<h2>{t(catalog ? 'plugins.catalog' : 'plugins.repositories')}</h2>}
       right={catalog ? <Input label={t('plugins.searchCatalog')} value={search} onChange={event => { setSearch(event.target.value); setPage(0); }} /> :
-        <Button disabled={busy} onClick={() => void change('add')}>{t('plugins.addRepo')}</Button>} />
+        <Button ref={addButton} disabled={busy} onClick={() => void change('add')}>{t('plugins.addRepo')}</Button>} />
     {error && <p>{t(error)}</p>}
     {catalog ? <>
       {entries.length > 0 ? <DataGrid items={entries.slice(currentPage * pageSize, (currentPage + 1) * pageSize)} getItemId={item => item.id} autoFocusOnMount={false} label={t('plugins.catalog')} onActivate={entry => void preview(entry)}
@@ -121,11 +122,22 @@ export default function PluginRepositories({ session, catalog, parentBusy, onPre
         <span>{t('plugins.pageOf', { page: currentPage + 1, total: lastPage + 1 })}</span>
         <Button aria-disabled={currentPage === lastPage} onClick={() => selectPage(currentPage + 1)}>{t('plugins.nextPage')}</Button>
       </nav>}
-    </> : <ul>{repositories.map(repo => <li key={repo.id}>
-      <strong>{repo.origin}</strong>
-      <p>{t('plugins.lastIndex', { date: new Date(repo.updated).toLocaleString(i18n.language) })}</p>
-      <Button disabled={busy} onClick={() => void change('refresh', repo)}>{t('plugins.refreshRepo', { origin: repo.origin })}</Button>
-      <Button disabled={busy} onClick={() => void change('remove', repo)}>{t('plugins.removeRepoNamed', { origin: repo.origin })}</Button>
-    </li>)}</ul>}
+    </> : repositories.length === 0 && (busy || error) ? null : <DataGrid
+      items={repositories} getItemId={repo => repo.id} label={t('plugins.repositories')} autoFocusOnMount={false}
+      onEmptyFocus={() => { addButton.current?.focus(); }}
+      onCellAction={(repo, column) => {
+        if (column.key === 'refresh' || column.key === 'remove') void change(column.key, repo);
+      }}
+      columns={[
+        { key: 'origin', label: t('plugins.origin') },
+        { key: 'updated', label: t('plugins.lastIndexLabel'), format: (_, repo) => new Date(repo.updated).toLocaleString(i18n.language) },
+        ...(['refresh', 'remove'] as const).map(action => ({
+          key: action, label: t(action === 'refresh' ? 'plugins.refreshLabel' : 'plugins.removeRepo'), keyboardAction: true,
+          format: (_: unknown, repo: plugins.Repository) => <Button tabIndex={-1} disabled={busy} onClick={() => void change(action, repo)}>
+            {t(action === 'refresh' ? 'plugins.refreshRepo' : 'plugins.removeRepoNamed', { origin: repo.origin })}
+          </Button>,
+        })),
+      ]}
+    />}
   </>;
 }

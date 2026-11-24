@@ -70,6 +70,19 @@ describe('PluginRepositories', () => {
     expect(mocks.list).toHaveBeenCalledTimes(2);
   });
 
+  it('navigates between repository rows and confirms removal for the focused row', async () => {
+    mocks.list.mockResolvedValue([repo, { ...repo, id: 'two', origin: 'second folder' }]);
+    mocks.confirm.mockResolvedValueOnce(true);
+    mocks.remove.mockResolvedValue(undefined);
+    const user = userEvent.setup();
+    render(<PluginRepositories session="keyboard" catalog={false} onPreview={vi.fn()} />);
+    const first = await screen.findByRole('gridcell', { name: 'folder' });
+    expect(screen.getByRole('toolbar', { name: 'plugins.repositories' })).toBeVisible();
+    first.focus();
+    await user.keyboard('{ArrowDown}{ArrowRight}{ArrowRight}{ArrowRight}{Enter}');
+    expect(mocks.remove).toHaveBeenCalledWith('two', 'reviewed');
+  });
+
   it('paginates the grid while searching all entries', async () => {
     const entries = Array.from({ length: 51 }, (_, index) => ({ name: 'sample-' + index }));
     mocks.list.mockResolvedValue([{ ...repo, indices: [{ ...repo.indices[0], entries }] }]);

@@ -350,7 +350,7 @@ function InstalledPlugins({ session }: { session: string }) {
     }
   };
   return <section className="plugins-page" aria-label={t('menu.plugins')}>
-    <Toolbar left={<h1 className="page-toolbar__title">{t('menu.plugins')}</h1>}
+    <Toolbar ariaLabel={t('menu.plugins')} left={<h1 className="page-toolbar__title">{t('menu.plugins')}</h1>}
       right={<><Button ref={chooseButton} onClick={() => void inspect()} disabled={busy}>{t('plugins.choose')}</Button>{!details && !preview && syncAction}</>} />
     <Tabs value={section} onValueChange={setSection}>
       <TabList ariaLabel={t('menu.plugins')}>{['installed','catalog','repositories'].map(value => <Tab value={value} key={value}>{t('plugins.' + value)}</Tab>)}</TabList>
