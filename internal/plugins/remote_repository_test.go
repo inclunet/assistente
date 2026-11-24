@@ -41,7 +41,7 @@ func TestRemoteStoreRetainsReviewedArchiveAndVaultOrigin(t *testing.T) {
 	}
 	var payload bytes.Buffer
 	zw := zip.NewWriter(&payload)
-	for name, body := range map[string]string{".github-main/.claude-plugin/marketplace.json": `{"name":"demo","owner":{"name":"publisher"},"plugins":[{"name":"sample","source":"./plugins/sample"}]}`, ".github-main/plugins/sample/plugin.json": `{"$schema":"` + pluginpackage.ManifestSchema + `","name":"sample"}`} {
+	for name, body := range map[string]string{".github-main/.claude-plugin/marketplace.json": `{"name":"demo","owner":{"name":"publisher"},"plugins":[{"name":"sample","source":"./plugins/sample"}]}`, ".github-main/plugins/sample/.git/HEAD": "fixture", ".github-main/plugins/sample/plugin.json": `{"$schema":"` + pluginpackage.ManifestSchema + `","name":"sample"}`} {
 		w, err := zw.Create(name)
 		if err != nil {
 			t.Fatal(err)
@@ -59,6 +59,7 @@ func TestRemoteStoreRetainsReviewedArchiveAndVaultOrigin(t *testing.T) {
 	var changed atomic.Bool
 	var requests atomic.Int32
 	var redirect atomic.Bool
+	var reject atomic.Bool
 	var block atomic.Bool
 	started := make(chan struct{})
 	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -66,6 +67,10 @@ func TestRemoteStoreRetainsReviewedArchiveAndVaultOrigin(t *testing.T) {
 		if r.Header.Get("Authorization") != "Bearer test-secret" {
 			t.Error("missing expected vault authorization")
 			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		if reject.Load() {
+			w.WriteHeader(http.StatusForbidden)
 			return
 		}
 		if block.Load() {
@@ -131,6 +136,9 @@ func TestRemoteStoreRetainsReviewedArchiveAndVaultOrigin(t *testing.T) {
 	if err != nil || snap.Manifest.Name != "sample" || snap.DiscoveryRepositoryID != row.ID {
 		t.Fatal(snap, err)
 	}
+	if _, ok := snap.Files[".git/HEAD"]; ok {
+		t.Fatal("archive retained repository metadata")
+	}
 	changed.Store(true)
 	inspect := func() (*pluginpackage.LocalSnapshot, error) {
 		return store.InspectRepositoryEntry(ctx, row.ID, row.Revision, plugincatalog.Claude, "sample")
@@ -153,6 +161,11 @@ func TestRemoteStoreRetainsReviewedArchiveAndVaultOrigin(t *testing.T) {
 	if _, err := store.InstallSource(ctx, snap.Origin, snap.Digest, "", nil, admit, inspect); err != nil {
 		t.Fatal(err)
 	}
+	reject.Store(true)
+	if _, err := inspect(); err == nil || err.Error() != "PLUGIN_REPOSITORY_CREDENTIAL" {
+		t.Fatal("missing vault diagnostic", err)
+	}
+	reject.Store(false)
 	redirect.Store(true)
 	if err := store.SaveRepository(ctx, "", row.ID, row.Revision, admit); err == nil {
 		t.Fatal("cross-origin redirect accepted")
@@ -228,7 +241,7 @@ func TestRemoteStoreDefaultPortPersistsAcrossOperations(t *testing.T) {
 	ctx := database.WithUserID(context.Background(), "owner")
 	admit := commandsecurity.Admission(func(_ *gorm.DB, fn func() error) error { return fn() })
 	store := makeInventory()
-	for _, address := range []string{"https://store.example:0443", "https://store.example:443", "https://store.example/"} {
+	for _, address := range []string{"https://store.example", "https://store.example:0443", "https://store.example:443", "https://store.example/"} {
 		if err := store.SaveRemoteRepository(ctx, address, false, admit); err != nil {
 			t.Fatal(err)
 		}
@@ -241,7 +254,7 @@ func TestRemoteStoreDefaultPortPersistsAcrossOperations(t *testing.T) {
 	if err := store.SaveRepository(ctx, "", rows[0].ID, rows[0].Revision, admit); err != nil {
 		t.Fatal(err)
 	}
-	if !slices.Equal(ports, []string{"443", "443", "", "443"}) {
+	if !slices.Equal(ports, []string{"", "443", "443", "", "443"}) {
 		t.Fatalf("dispatched ports = %q", ports)
 	}
 }
@@ -307,5 +320,14 @@ func TestRemoteStoreNetworkAndCredentialChoice(t *testing.T) {
 				t.Fatalf("contacts=%d decisions=%d error=%v", contacts.Load()-before, decision.calls, err)
 			}
 		})
+	}
+}
+
+func TestRepositoryIPv6Authority(t *testing.T) {
+	for _, raw := range []string{"https://[2001:0db8:0:0:0:0:0:1]:0443", "https://[2001:db8::1]/"} {
+		u, err := remoteURL(raw)
+		if err != nil || addressHost(u, true) != "[2001:db8::1]" {
+			t.Fatal(raw, err)
+		}
 	}
 }

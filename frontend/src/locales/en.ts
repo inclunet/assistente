@@ -185,6 +185,7 @@ notSaved: 'The decision applies only to this operation: it could not be remember
       removeRepo: 'Remove repository',
       removeRepoConfirm: 'Remove {{origin}} from this account and keep installed plugins?',
       repoUpdated: 'Repository list updated.',
+      archiveAccessChanged: 'To change the vault credential for this repository, remove it and add it again.',
       archiveURLError: 'Enter an HTTPS ZIP URL without credentials, query or fragment.',
       archiveCredentialError: 'Check the vault credential for this host and port.',
       archiveDownloadError: 'Could not read the remote ZIP. Check the address and archive.',

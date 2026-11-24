@@ -159,7 +159,10 @@ func (i *Inventory) publishRepository(ctx context.Context, owner, origin, rootID
 			lookup := tx.Where("user_id=? AND origin=?", owner, origin).Take(&existing).Error
 			if lookup == nil {
 				if ref != existing.CredentialRef {
-					return ErrInstallationChanged
+					return errors.New("PLUGIN_REPOSITORY_ACCESS_CHANGED")
+				}
+				if explicitHTTPSPort && !existing.ExplicitHTTPSPort {
+					return tx.Model(&existing).Update("explicit_https_port", true).Error
 				}
 				return nil
 			}

@@ -33,7 +33,7 @@ func TestArchiveLimitsAndPortablePaths(t *testing.T) {
 	}
 	ordinary := bytes.Clone(archive)
 	binary.LittleEndian.PutUint16(ordinary[len(ordinary)-2:], 4)
-	if _, err := OpenArchive(append(ordinary, "note"...)); err != nil {
+	if _, err := OpenArchive(append(ordinary, "PK\x05\x06"...)); err != nil {
 		t.Fatal("ordinary ZIP comment rejected", err)
 	}
 	withComment := bytes.Clone(archive)

@@ -185,6 +185,7 @@ notSaved: 'A decisão vale somente para esta operação: não foi possível lemb
       removeRepo: 'Remover repositório',
       removeRepoConfirm: 'Remover {{origin}} desta conta e preservar os plugins instalados?',
       repoUpdated: 'Lista de repositórios atualizada.',
+      archiveAccessChanged: 'Para mudar a credencial deste repositório, remova-o e adicione-o novamente.',
       archiveURLError: 'Informe a URL HTTPS do ZIP sem credenciais, consulta ou fragmento.',
       archiveCredentialError: 'Confira a credencial do cofre para este host e porta.',
       archiveDownloadError: 'Não foi possível ler o ZIP remoto. Confira o endereço e o arquivo.',

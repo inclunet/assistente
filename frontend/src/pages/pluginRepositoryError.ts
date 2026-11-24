@@ -1,4 +1,5 @@
 const remoteErrors: Record<string, string> = {
+  PLUGIN_REPOSITORY_ACCESS_CHANGED: 'plugins.archiveAccessChanged',
   PLUGIN_REPOSITORY_URL: 'plugins.archiveURLError',
   PLUGIN_REPOSITORY_CREDENTIAL: 'plugins.archiveCredentialError',
   PLUGIN_REPOSITORY_DOWNLOAD: 'plugins.archiveDownloadError',

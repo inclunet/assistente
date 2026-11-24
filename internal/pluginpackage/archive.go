@@ -30,7 +30,7 @@ func validateDirectory(data []byte) error {
 		}
 		// archive/zip also accepts EOCD candidates with a shorter comment.
 		// An embedded signature must never select a different directory.
-		if found || bytes.Contains(record[4:], []byte("PK\x05\x06")) {
+		if found || len(record) >= endSize+4 && bytes.Contains(record[4:len(record)-endSize+4], []byte("PK\x05\x06")) {
 			return fs.ErrInvalid
 		}
 		count := int(binary.LittleEndian.Uint16(record[10:]))
@@ -167,18 +167,19 @@ func (a *Archive) Package(origin, dir string) (*LocalSnapshot, error) {
 	snap := &LocalSnapshot{Origin: origin, Files: make(map[string][]byte)}
 	prefix := strings.TrimSuffix(dir, "/") + "/"
 	var total int64
+files:
 	for name := range a.files {
 		rel, ok := strings.CutPrefix(name, prefix)
 		if !ok {
 			continue
 		}
-		if len(snap.Files) >= maxEntries || strings.Count(rel, "/") > maxDepth {
-			return nil, fs.ErrInvalid
-		}
 		for _, part := range strings.Split(rel, "/") {
 			if strings.EqualFold(part, ".git") {
-				return nil, fs.ErrInvalid
+				continue files
 			}
+		}
+		if len(snap.Files) >= maxEntries || strings.Count(rel, "/") > maxDepth {
+			return nil, fs.ErrInvalid
 		}
 		data, err := a.Read(path.Join(dir, rel), min(maxFileBytes, maxPackageBytes-total))
 		if err != nil {

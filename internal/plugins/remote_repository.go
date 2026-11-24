@@ -7,6 +7,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"strconv"
 	"strings"
@@ -52,12 +53,14 @@ func RepositoryHTTPClient(manager *credentials.Manager, reference string, author
 // addressHost normalizes the representation of a validated HTTPS authority.
 // The transfer retains an explicit default port for network consent.
 func addressHost(u *url.URL, omitDefault bool) string {
-	host := strings.ToLower(u.Host)
+	name := strings.ToLower(u.Hostname())
+	if addr, err := netip.ParseAddr(u.Hostname()); err == nil && addr.Is6() {
+		name = "[" + addr.String() + "]"
+	}
 	port := u.Port()
 	if port == "" {
-		return host
+		return name
 	}
-	name := strings.TrimSuffix(host, ":"+port)
 	number := strings.TrimLeft(port, "0")
 	if omitDefault && number == "443" {
 		return name
@@ -88,7 +91,9 @@ func remoteURL(raw string) (*url.URL, error) {
 	} else if strings.HasSuffix(u.Host, ":") {
 		return nil, errors.New("PLUGIN_REPOSITORY_URL")
 	}
-	u.Host = strings.ToLower(u.Host)
+	if !strings.Contains(u.Host, "%") {
+		u.Host = strings.ToLower(u.Host)
+	}
 	return u, nil
 }
 
@@ -128,6 +133,9 @@ func (i *Inventory) download(ctx context.Context, origin, reference string) (*pl
 		return nil, "", errors.New("PLUGIN_REPOSITORY_DOWNLOAD")
 	}
 	defer func() { _ = res.Body.Close() }()
+	if (res.StatusCode == http.StatusUnauthorized || res.StatusCode == http.StatusForbidden) && reference != "" {
+		return nil, "", errors.New("PLUGIN_REPOSITORY_CREDENTIAL")
+	}
 	const maxDownload = 32 << 20
 	if res.StatusCode != http.StatusOK || res.ContentLength > maxDownload {
 		return nil, "", errors.New("PLUGIN_REPOSITORY_DOWNLOAD")

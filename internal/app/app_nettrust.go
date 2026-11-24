@@ -30,6 +30,9 @@ func networkConfirmationPayload(req nettrust.PromptRequest) questionnaire.Reques
 	fmt.Fprintf(&details, "host: %s\n", req.Host)
 	if req.Port != "" {
 		fmt.Fprintf(&details, "port: %s\n", req.Port)
+		if !req.PortExplicit && len(req.AvailableScopes) > 1 {
+			fmt.Fprintln(&details, "remembered_ports: 80, 443")
+		}
 	}
 	if len(req.IPs) > 0 {
 		fmt.Fprintf(&details, "ips: %s\n", strings.Join(req.IPs, ", "))

@@ -184,6 +184,7 @@ notSaved: 'La decisión vale solo para esta operación: no se pudo recordar. Ser
       removeRepo: 'Eliminar repositorio',
       removeRepoConfirm: '¿Eliminar {{origin}} de esta cuenta y conservar los plugins instalados?',
       repoUpdated: 'Lista de repositorios actualizada.',
+      archiveAccessChanged: 'Para cambiar la credencial del repositorio, elimínalo y vuelve a añadirlo.',
       archiveURLError: 'Introduce una URL HTTPS de un ZIP sin credenciales, consulta ni fragmento.',
       archiveCredentialError: 'Comprueba la credencial de la caja fuerte para este host y puerto.',
       archiveDownloadError: 'No se pudo leer el ZIP remoto. Comprueba la dirección y el archivo.',
