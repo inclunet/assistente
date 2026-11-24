@@ -21,4 +21,6 @@ Se os arquivos mudarem depois da prévia, abra a pasta novamente para examinar a
 
 Na grade de plugins instalados, selecione o pacote e pressione Enter. Os detalhes listam as skills e os servidores MCP encontrados. Para uma skill de instruções compatível, escolha **Ativar**. O identificador exibido após a ativação pode ser usado no chat como comando de barra, desde que o perfil permita a skill. Use **Desativar** para removê-la das próximas seleções. O seletor de skills de um perfil aberto acompanha essas mudanças. Ao atualizar a revisão, confira e ative os componentes desejados novamente.
 
+A revisão preserva os arquivos do pacote. Pastas vazias, inclusive uma pasta chamada `mcp.json`, ficam fora da prévia e do diagnóstico de componentes.
+
 A interface indica quando arquivos auxiliares ou campos de configuração exigem suporte adicional. O reconhecimento de um servidor MCP na prévia ainda não inicia uma conexão.

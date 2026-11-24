@@ -149,10 +149,18 @@ function InstalledPlugins({ session }: { session: string }) {
     const { installation } = details;
     try {
       await SetSkillActive(installation.id, installation.digest, component.key, !component.active);
-      const components = await InstalledComponents(installation.id, installation.digest);
-      if (mounted.current) {
-        setDetails({ installation, components: components ?? [] });
-        announce(t(component.active ? 'plugins.deactivated' : 'plugins.activated', { name: component.name }));
+      if (!mounted.current) return;
+      try {
+        const components = await InstalledComponents(installation.id, installation.digest);
+        if (mounted.current) {
+          setDetails({ installation, components: components ?? [] });
+          announce(t(component.active ? 'plugins.deactivated' : 'plugins.activated', { name: component.name }));
+        }
+      } catch {
+        if (mounted.current) {
+          setDetails(null);
+          setError('plugins.componentReloadError');
+        }
       }
     } catch { if (mounted.current) setError('plugins.componentError'); }
     finally { if (mounted.current) setBusy(false); }

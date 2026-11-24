@@ -160,6 +160,7 @@ notSaved: 'La decisión vale solo para esta operación: no se pudo recordar. Ser
       deactivate: 'Desactivar {{name}}',
       activated: 'Se activó {{name}} en esta cuenta.',
       deactivated: 'Se desactivó {{name}}.',
+      componentReloadError: 'Cambio guardado. Vuelve a abrir los detalles del plugin para ver el estado actualizado.',
       componentError: 'No se pudo cambiar el componente. Comprueba la revisión instalada.',
       filesPending: 'Esta skill requiere archivos auxiliares.',
       fieldsPending: 'Esta skill declara campos que requieren soporte adicional.',

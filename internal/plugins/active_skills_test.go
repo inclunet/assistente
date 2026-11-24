@@ -44,6 +44,9 @@ func TestInstalledSkillActivationAndSlashIsolation(t *testing.T) {
 			settings = "allowed-tools: Read\n"
 		}
 		raw := "---\nname: " + name + "\ndescription: Example instruction skill\n" + settings + "---\nReviewed instructions."
+		if name == "note" {
+			raw += "\n![diagrama](fig.png)\n\n~~~text\n!exemplo\n~~~"
+		}
 		if name == "with-shell" {
 			raw += "\n!echo checked"
 		}

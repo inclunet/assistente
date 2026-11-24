@@ -161,6 +161,7 @@ notSaved: 'A decisão vale somente para esta operação: não foi possível lemb
       deactivate: 'Desativar {{name}}',
       activated: '{{name}} foi ativada nesta conta.',
       deactivated: '{{name}} foi desativada.',
+      componentReloadError: 'Alteração salva. Reabra os detalhes do plugin para consultar o estado atualizado.',
       componentError: 'Não foi possível alterar o componente. Confira a revisão instalada.',
       filesPending: 'A skill depende de arquivos auxiliares.',
       fieldsPending: 'A skill declara campos que exigem suporte adicional.',

@@ -86,6 +86,22 @@ describe('PluginsPage', () => {
     expect(mocks.install).not.toHaveBeenCalled();
   });
 
+  it('informa que a alteração foi salva quando a atualização dos detalhes falha', async () => {
+    const user = userEvent.setup();
+    mocks.list.mockResolvedValue([{ id: 'one', name: 'Demo', origin: 'folder', version: 'v1', digest: 'sha' }]);
+    const note = { name: 'note', key: 'skills/note', kind: 'skill', active: false };
+    mocks.components.mockResolvedValueOnce([note]).mockRejectedValueOnce(new Error('offline'));
+    render(<PluginsPage />);
+    const cell = await screen.findByRole('gridcell', { name: /Demo/ });
+    cell.focus();
+    await user.keyboard('{Enter}');
+    await user.click(await screen.findByRole('button', { name: 'plugins.activate' }));
+    expect(await screen.findByText('plugins.componentReloadError')).toBeVisible();
+    expect(screen.queryByRole('button', { name: 'plugins.activate' })).toBeNull();
+    expect(mocks.toggle).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(cell).toHaveFocus());
+  });
+
   it('opens installed components with Enter and applies the selected revision', async () => {
     const user = userEvent.setup();
     mocks.list.mockResolvedValue([{ id: 'one', name: 'Demo', origin: 'folder', version: 'v1', digest: 'sha' }]);

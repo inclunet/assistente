@@ -161,6 +161,7 @@ notSaved: 'The decision applies only to this operation: it could not be remember
       deactivate: 'Deactivate {{name}}',
       activated: 'Activated {{name}} for this account.',
       deactivated: 'Deactivated {{name}}.',
+      componentReloadError: 'Change saved. Reopen the plugin details to see the updated state.',
       componentError: 'Could not change the component. Check the installed revision.',
       filesPending: 'This skill requires supporting files.',
       fieldsPending: 'This skill declares fields that require additional support.',
