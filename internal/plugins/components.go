@@ -85,12 +85,16 @@ func DiscoverComponents(snapshot *pluginpackage.LocalSnapshot) []Component {
 			meta.Name = name
 		}
 		requirement, valid := pluginSkillFrontmatter(string(raw))
+		var runtimeRequirement string
+		if claude {
+			runtimeRequirement = skills.ClaudeRuntimeRequirement(body)
+		}
 		if !valid || err != nil || meta.Name != name || strings.TrimSpace(meta.Description) == "" || utf8.RuneCountInString(meta.Description) > 1024 {
 			component.Kind = "invalidSkill"
 		} else if !portableSkillName.MatchString(name) || strings.Contains(name, "--") || len(name) > 64 {
 			component.Kind = "invalidSkill"
-		} else if snapshot.Manifest.Format == pluginpackage.ClaudeCode && skills.HasUnsupportedClaudeCommand(body) {
-			component.Reason = "shellCommands"
+		} else if runtimeRequirement != "" {
+			component.Reason = runtimeRequirement
 		} else if snapshot.Manifest.Format != pluginpackage.ClaudeCode && skills.ContainsShellCommands(body) {
 			component.Reason = "shellCommands"
 		} else if supplemental[name] || (claude && hasExecutables && skills.ContainsClaudeCommand(body)) {

@@ -26,6 +26,7 @@ function componentRequirement(component: plugins.Component) {
   if (component.reason === 'shellCommands') return 'plugins.shellPending';
   if (component.reason === 'supportingFiles') return 'plugins.filesPending';
   if (component.reason === 'manifestConfiguration') return 'plugins.manifestPending';
+  if (component.reason === 'packagePaths') return 'plugins.packagePathsPending';
   if (component.reason === 'rootSkill') return 'plugins.rootSkillPending';
   if (component.reason === 'frontmatter') return 'plugins.fieldsPending';
   if (component.reason === 'configuration') return 'plugins.mcpConfigRequired';

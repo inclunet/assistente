@@ -668,7 +668,10 @@ func TestUnclosedPreWarnsOncePerSkillAndAttempt(t *testing.T) {
 	unclosed.Tools = &ToolPermissions{BashCommands: &BashCommands{Allowed: []string{"echo"}}}
 	closed := providerSkill("completo", "<pre>\n!echo "+private+"\n</pre>", false)
 	withoutCommands := providerSkill("sem-comando", "<pre>\n"+private, false)
-	p := NewContextProvider(contextProviderSourceStub{skills: []Skill{unclosed, closed, withoutCommands}})
+	plugin := providerSkill("plugin-guide", "<pre>\n"+private, false)
+	plugin.Source = "plugin"
+	plugin.PackageFormat = "claude-code"
+	p := NewContextProvider(contextProviderSourceStub{skills: []Skill{unclosed, closed, withoutCommands, plugin}})
 	run := func(context.Context, *Skill, string) (string, error) { t.Fatal("exemplo executado"); return "", nil }
 	build := func(ctx context.Context, slug string, budget int) {
 		t.Helper()
@@ -689,9 +692,12 @@ func TestUnclosedPreWarnsOncePerSkillAndAttempt(t *testing.T) {
 	build(t.Context(), "manual", 450)
 	build(ctx, "completo", 400)
 	build(ctx, "sem-comando", 400)
+	build(ctx, "plugin-guide", 400)
+	build(ctx, "plugin-guide", 450)
+	build(t.Context(), "plugin-guide", 400)
 	build(WithCommandTurn(t.Context(), run), "manual", 400)
 	output := logs.String()
-	if strings.Count(output, "level=WARN") != 3 || strings.Count(output, "skill=manual") != 2 ||
+	if strings.Count(output, "level=WARN") != 4 || strings.Count(output, "skill=plugin-guide") != 1 || strings.Count(output, "skill=manual") != 2 ||
 		strings.Count(output, "skill=sem-comando") != 1 || strings.Contains(output, private) || strings.Contains(output, "!echo") {
 		t.Fatalf("avisos: %s", output)
 	}
@@ -919,11 +925,12 @@ func TestClaudeCommandRequirementsIgnoreDocumentation(t *testing.T) {
 		requires bool
 	}{
 		{"Mention CLAUDE_PLUGIN_ROOT in prose", false},
+		{"Read ${CLAUDE_PLUGIN_ROOT}/docs/manual.md", true},
 		{"````text\n```!\necho example\n```\n````", false},
 		{"```!\necho example\n```", true},
 		{"Run !`pwd ${CLAUDE_SKILL_DIR}`", true},
 	} {
-		if got := HasUnsupportedClaudeCommand(tc.text); got != tc.requires {
+		if got := ClaudeRuntimeRequirement(tc.text); (got != "") != tc.requires {
 			t.Errorf("%q: got %v", tc.text, got)
 		}
 	}

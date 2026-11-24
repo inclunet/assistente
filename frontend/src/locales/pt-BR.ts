@@ -151,6 +151,7 @@ notSaved: 'A decisão vale somente para esta operação: não foi possível lemb
     },
 
     plugins: {
+      packagePathsPending: 'A skill usa caminhos fornecidos pelo ambiente do Claude Code.',
       rootSkillPending: 'O adaptador ainda não ativa pacotes com SKILL.md na raiz.',
       manifestPending: 'O manifesto declara configurações que este adaptador ainda não aplica.',
       commandPolicy: 'Os comandos desta skill seguem as regras de autorização de comandos do Assistente.',

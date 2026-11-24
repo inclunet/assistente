@@ -150,6 +150,7 @@ notSaved: 'La decisión vale solo para esta operación: no se pudo recordar. Ser
     },
 
     plugins: {
+      packagePathsPending: 'La skill usa rutas proporcionadas por el entorno de Claude Code.',
       rootSkillPending: 'El adaptador aún no admite paquetes con SKILL.md en la raíz.',
       manifestPending: 'El manifiesto declara configuraciones aún no compatibles con este adaptador.',
       commandPolicy: 'Los comandos de esta skill siguen las reglas habituales de confirmación.',

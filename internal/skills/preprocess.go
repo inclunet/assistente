@@ -263,9 +263,15 @@ func validInterpolatedCommand(rawArgs, template string, expand func(string) stri
 	return true
 }
 
+func warnUnclosedPre(ctx context.Context, slug string, base, unclosedPre bool) {
+	if unclosedPre && firstSkillWarning(ctx, slug, "unclosed_pre", base) {
+		logging.Logger(ctx, "skills.preprocess").Warn("Elemento <pre> sem fechamento no fim da skill", "skill", slug)
+	}
+}
+
 func planCommandLines(ctx context.Context, skill *Skill, content string, base bool, run SkillCommandRunner, expand func(string) string, rawArgs string) (commandDocument, error) {
 	if skill.Source == "plugin" {
-		return planPluginCommands(skill, content, base, run, expand, rawArgs)
+		return planPluginCommands(ctx, skill, content, base, run, expand, rawArgs)
 	}
 	var commands []commandLine
 	lines := strings.Split(content, "\n")
@@ -283,9 +289,7 @@ func planCommandLines(ctx context.Context, skill *Skill, content string, base bo
 	shellToolAllowed := skill.Tools == nil || (!slices.Contains(skill.Tools.Denied, "run_command") &&
 		(len(skill.Tools.Allowed) == 0 || slices.Contains(skill.Tools.Allowed, "run_command")))
 	fenced, unclosedPre := codeLineStarts(content)
-	if unclosedPre && firstSkillWarning(ctx, skill.Slug, "unclosed_pre", base) {
-		logging.Logger(ctx, "skills.preprocess").Warn("Elemento <pre> sem fechamento no fim da skill", "skill", skill.Slug)
-	}
+	warnUnclosedPre(ctx, skill.Slug, base, unclosedPre)
 	offset := 0
 	for idx, line := range lines {
 		trimmed := strings.TrimSpace(line)
