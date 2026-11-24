@@ -10,7 +10,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
-	"runtime"
+
 	"sort"
 	"strings"
 )
@@ -42,23 +42,12 @@ func inspectLocal(dir string, entryLimit, depthLimit int, fileLimit, byteLimit i
 	if err != nil {
 		return nil, err
 	}
-	origin, err := filepath.EvalSymlinks(absolute)
-	if err != nil {
-		return nil, err
-	}
-	if runtime.GOOS == "windows" {
-		origin = ordinaryWindowsPath(origin)
-		volume := filepath.VolumeName(origin)
-		if strings.HasPrefix(volume, `\\`) && !strings.HasPrefix(volume, `\\?\`) {
-			origin = strings.ToLower(volume) + origin[len(volume):]
-		}
-	}
-	root, err := os.OpenRoot(origin)
+	root, err := os.OpenRoot(absolute)
 	if err != nil {
 		return nil, err
 	}
 	defer func() { _ = root.Close() }()
-	snapshot := &LocalSnapshot{Origin: origin, Files: make(map[string][]byte)}
+	snapshot := &LocalSnapshot{Files: make(map[string][]byte)}
 	manifest, err := ReadFile(root, "plugin.json", min(int64(1<<20), byteLimit, fileLimit))
 	if err != nil {
 		return nil, err
@@ -81,6 +70,23 @@ func inspectLocal(dir string, entryLimit, depthLimit int, fileLimit, byteLimit i
 			return err
 		}
 		defer func() { _ = opened.Close() }()
+		if depth == 0 {
+			snapshot.Origin, err = packageOrigin(opened, absolute)
+			if err != nil {
+				return err
+			}
+			current, err := opened.Stat()
+			if err != nil {
+				return err
+			}
+			location, err := os.Stat(snapshot.Origin)
+			if err != nil {
+				return err
+			}
+			if !os.SameFile(current, location) {
+				return fmt.Errorf("package directory changed during inspection")
+			}
+		}
 		for {
 			entries, err := opened.ReadDir(64)
 			if err != nil && err != io.EOF {
@@ -145,34 +151,4 @@ func inspectLocal(dir string, entryLimit, depthLimit int, fileLimit, byteLimit i
 	}
 	snapshot.Digest = hex.EncodeToString(h.Sum(nil))
 	return snapshot, nil
-}
-
-// Prefer the ordinary spelling only when it names the same existing directory.
-// Some extended Windows paths (for example names ending in a dot) need their prefix.
-func ordinaryWindowsPath(origin string) string {
-	const extended = `\\?\`
-	if !strings.HasPrefix(origin, extended) {
-		return origin
-	}
-	name := strings.TrimPrefix(origin, extended)
-	switch {
-	case len(name) >= 4 && strings.EqualFold(name[:4], `UNC\`):
-		name = `\\` + name[4:]
-	case len(name) >= 3 && name[1] == ':' && name[2] == '\\':
-	default:
-		return origin
-	}
-	ordinary, err := filepath.EvalSymlinks(name)
-	if err != nil {
-		return origin
-	}
-	current, err := os.Stat(origin)
-	if err != nil {
-		return origin
-	}
-	other, err := os.Stat(ordinary)
-	if err != nil || !os.SameFile(current, other) {
-		return origin
-	}
-	return ordinary
 }
