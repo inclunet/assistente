@@ -1,3 +1,4 @@
+import { logger } from '../../utils/logger';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   announceWithOrigin,
@@ -49,6 +50,29 @@ describe('announcerBroker', () => {
     expect(sink).toHaveBeenCalledWith('Chat B: terminou de responder', 'polite');
   });
 
+  it.each([
+    [{ terminalSessionId: 's' }, 'Atividade no terminal em segundo plano'],
+    [{ surfaceType: 'terminal', tabId: 'tab', title: 'Build' }, 'Atividade no terminal Build em segundo plano'],
+  ] as const)('troca a saída de terminal sem resumo pelo aviso genérico em segundo plano', (origin, expected) => {
+    unregisterResolver = registerVoiceAccessibilityActiveResolver(() => false);
+    announceWithOrigin({ message: 'detalhe privado', eventType: 'completion', origin });
+    expect(sink).toHaveBeenCalledWith(expected, 'polite');
+  });
+
+  it('preserva o resolvedor de título enquanto outro registro altera só a atividade', () => {
+    const origin = { tabId: 'tab', surfaceType: 'terminal' as const, title: 'Antes' };
+    const named = registerVoiceAccessibilityActiveResolver(() => true, () => 'Atual');
+    const override = registerVoiceAccessibilityActiveResolver(() => false);
+    try {
+      const request = { message: 'detalhe', eventType: 'completion' as const, origin };
+      announceWithOrigin(request);
+      expect(sink).toHaveBeenLastCalledWith('Atividade no terminal Atual em segundo plano', 'polite');
+      named();
+      announceWithOrigin(request);
+      expect(sink).toHaveBeenLastCalledWith('Atividade no terminal Antes em segundo plano', 'polite');
+    } finally { override(); named(); }
+  });
+
   it('usa assertive por padrão para erros', () => {
     expect(announceWithOrigin({
       message: 'Falha',
@@ -69,7 +93,43 @@ describe('announcerBroker', () => {
     });
 
     afterEach(() => {
+      vi.restoreAllMocks();
       vi.useRealTimers();
+    });
+
+    it.each([true, false])('só calcula o resumo na entrega em segundo plano (origem ativa ao falar: %s)', activeAtDelivery => {
+      let active = false;
+      let name = 'Antes';
+      unregisterResolver = registerVoiceAccessibilityActiveResolver(origin => !origin?.tabId || active);
+      const summary = vi.fn(() => name);
+      announceWithOrigin({ message: content, protectsReading: true });
+      announceWithOrigin({ message: 'Conclusão', origin: { tabId: 'origem' }, eventType: 'completion', inactiveMessage: { resolve: summary, fallback: 'Reserva' } });
+      expect(summary).not.toHaveBeenCalled();
+      active = activeAtDelivery;
+      name = 'Depois';
+      vi.advanceTimersByTime(estimateAnnouncementReadingMs(content));
+      expect(summary).toHaveBeenCalledTimes(activeAtDelivery ? 0 : 1);
+      expect(sink).toHaveBeenLastCalledWith(activeAtDelivery ? 'Conclusão' : 'Depois', 'polite');
+    });
+
+    it.each([
+      { error: undefined, kind: undefined },
+      { error: new TypeError('conteúdo privado'), kind: 'TypeError' },
+      { error: Object.assign(new SyntaxError('conteúdo privado'), { name: 'nome privado' }), kind: 'SyntaxError' },
+      { error: 'conteúdo privado', kind: 'string' },
+    ])('preserva a fila e diagnostica exceção no resumo (tipo: $kind)', ({ error, kind }) => {
+      const warn = vi.spyOn(logger, 'warn').mockImplementation(() => {});
+      const summary = () => {
+        if (error !== undefined) throw error;
+        return '';
+      };
+      unregisterResolver = registerVoiceAccessibilityActiveResolver(origin => !origin?.terminalSessionId);
+      announceWithOrigin({ message: content, protectsReading: true });
+      announceWithOrigin({ origin: { terminalSessionId: 'a' }, eventType: 'completion', message: 'Saída detalhada', inactiveMessage: { resolve: summary, fallback: 'Origem: Fim' } });
+      announceWithOrigin({ message: 'Seguinte', eventType: 'completion' });
+      vi.runAllTimers();
+      expect(sink.mock.calls.map(([message]) => message)).toEqual([content, 'Origem: Fim', 'Seguinte']);
+      expect(warn.mock.calls).toEqual(kind ? [['[announcerBroker] Falha ao calcular o resumo em segundo plano.', kind]] : []);
     });
 
     it('adia aviso secundário e o fala depois da leitura terminar', () => {
@@ -86,6 +146,23 @@ describe('announcerBroker', () => {
       vi.advanceTimersByTime(estimateAnnouncementReadingMs(content));
 
       expect(sink).toHaveBeenCalledWith('Mensagens 1 a 20 de 34 carregadas', 'polite');
+    });
+
+    it.each(['progress', 'completion'] as const)('espera e protege a leitura após entregar %s', (eventType) => {
+      const first = 'Leitura inicial';
+      const next = 'Texto aguardando sua vez';
+      const last = 'Operação concluída';
+      announceWithOrigin({ message: first, protectsReading: true });
+      announceWithOrigin({ message: next, eventType, protectsReading: true, waitsForReading: true });
+      expect(sink.mock.calls).toEqual([[first, 'polite']]);
+      vi.advanceTimersByTime(estimateAnnouncementReadingMs(first));
+      expect(sink.mock.calls).toEqual([[first, 'polite'], [next, 'polite']]);
+
+      announceWithOrigin({ message: last, eventType: 'completion' });
+      vi.advanceTimersByTime(estimateAnnouncementReadingMs(next) - 1);
+      expect(sink).toHaveBeenCalledTimes(2);
+      vi.advanceTimersByTime(1);
+      expect(sink).toHaveBeenNthCalledWith(3, last, 'polite');
     });
 
     it('guarda apenas o aviso mais recente entre os adiados', () => {

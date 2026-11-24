@@ -536,15 +536,16 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 	}
 
 	// Detecta slash skill, compõe system prompt e pré-processa mídia.
+	disableTools := activeProfile.Chat.DisableTools
+	preferredToolPackages := activeProfile.Chat.PreferredToolPackages
 	toolPolicy := chat.NewToolSelectionPolicy(uc.toolRegistry)
 	toolCfg := chat.ProfileToolConfig{
 		EnabledTools:      activeProfile.Chat.EnabledTools,
 		ToolPolicy:        activeProfile.Chat.ToolPolicy,
 		ToolPolicyDefault: activeProfile.Chat.ToolPolicyDefault,
-		DisableTools:      activeProfile.Chat.DisableTools,
-
+		DisableTools:      disableTools,
 		SchemaBytesBudget: activeProfile.Chat.ToolSchemaBudgetBytes,
-		PreferredPackages: activeProfile.Chat.PreferredToolPackages,
+		PreferredPackages: preferredToolPackages,
 	}
 	prepResult := uc.chatInteractor.PrepareMessages(ctx, chat.PrepareMessagesRequest{
 		AllowSkillShell:     toolPolicy.ResolveEffectiveToolPolicy(toolCfg).AllowsRuntimeLoad("run_command"),
@@ -576,8 +577,6 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 	invokedExecutionContext := prepResult.InvokedExecutionContext
 
 	// Constrói tool definitions para o LLM.
-	disableTools := activeProfile.Chat.DisableTools
-	preferredToolPackages := activeProfile.Chat.PreferredToolPackages
 	var runtimeTools []string
 	if prepResult.ModelOnDemandSkillAvailable {
 		runtimeTools = append(runtimeTools, tools.LoadSkillName)

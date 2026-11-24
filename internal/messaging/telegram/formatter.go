@@ -1,10 +1,12 @@
 package telegram
 
-// maxMessageLength é o limite de caracteres de uma mensagem no Telegram.
+import "strings"
+
+// maxMessageLength limita cada parte a 4096 bytes, conservador para texto Unicode.
 const maxMessageLength = 4096
 
 // SplitMessage divide uma mensagem longa em múltiplas mensagens respeitando
-// o limite do Telegram (4096 caracteres). Tenta quebrar em linhas quando possível.
+// o limite do Telegram. Prefere linhas e espaços e mantém os separadores na mensagem.
 func SplitMessage(text string) []string {
 	if len(text) <= maxMessageLength {
 		return []string{text}
@@ -19,25 +21,22 @@ func SplitMessage(text string) []string {
 			break
 		}
 
-		// Tenta encontrar uma quebra de linha antes do limite
-		cutAt := maxMessageLength
-		for i := maxMessageLength - 1; i > maxMessageLength/2; i-- {
-			if remaining[i] == '\n' {
-				cutAt = i + 1 // inclui a quebra de linha
+		// range visita apenas o início dos caracteres. Inclua até o último que
+		// cabe inteiro, mesmo quando o limite cai dentro de um emoji.
+		cutAt := 0
+		for pos := range remaining {
+			if pos > maxMessageLength {
 				break
 			}
+			cutAt = pos
 		}
-
-		// Se não achou quebra de linha, tenta um espaço
-		if cutAt == maxMessageLength {
-			for i := maxMessageLength - 1; i > maxMessageLength/2; i-- {
-				if remaining[i] == ' ' {
-					cutAt = i + 1
-					break
-				}
-			}
+		windowStart := maxMessageLength / 2
+		window := remaining[windowStart:cutAt]
+		if newline := strings.LastIndexByte(window, '\n'); newline >= 0 {
+			cutAt = windowStart + newline + 1
+		} else if space := strings.LastIndexByte(window, ' '); space >= 0 {
+			cutAt = windowStart + space + 1
 		}
-
 		parts = append(parts, remaining[:cutAt])
 		remaining = remaining[cutAt:]
 	}

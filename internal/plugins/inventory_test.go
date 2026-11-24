@@ -125,6 +125,9 @@ func TestLocalInventoryPublishesReviewedRevisionPerAccount(t *testing.T) {
 		if string(files["plugin.json"]) != manifest {
 			t.Fatal("lost manifest")
 		}
+		if revision.Digest == update.Digest && string(files["README.md"]) != "v2" {
+			t.Fatal("lost updated file")
+		}
 		if revision.Digest == seed.Digest && files["README.md"] != nil {
 			t.Fatal("prior revision changed")
 		}

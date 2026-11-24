@@ -73,6 +73,11 @@ type OutgoingMessage struct {
 	// Text é o conteúdo textual da mensagem.
 	Text string
 
+	// PlainText exige que cada adaptador preserve o texto literal da pergunta.
+	// O Slack escapa os caracteres de controle e desativa mrkdwn. O Telegram
+	// já envia sem ParseMode e o Signal envia o texto no campo message, sem estilos.
+	PlainText bool
+
 	// Attachments são os anexos a serem enviados (áudio TTS, imagens, etc.).
 	Attachments []Attachment
 

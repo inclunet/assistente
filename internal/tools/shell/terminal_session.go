@@ -3,6 +3,7 @@ package shell
 import (
 	"assistente/internal/terminal"
 	"assistente/internal/tools"
+	"assistente/internal/tools/invocationctx"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -12,7 +13,7 @@ import (
 // TerminalSessionManager expõe apenas o ciclo de vida necessário à tool.
 type TerminalSessionManager interface {
 	List() []terminal.SessionInfo
-	CreateInfo(name, workDir string) (terminal.SessionInfo, error)
+	CreateToolSession(name string, workDir terminal.WorkingDirectory) (terminal.SessionInfo, error)
 	Interrupt(sessionID string) error
 	Close(sessionID string) error
 }
@@ -70,7 +71,7 @@ type terminalSessionArgs struct {
 	WorkingDirectory string `json:"working_directory"`
 }
 
-func (t *TerminalSession) Execute(_ context.Context, raw json.RawMessage) (tools.ToolResult, error) {
+func (t *TerminalSession) Execute(ctx context.Context, raw json.RawMessage) (tools.ToolResult, error) {
 	if t.manager == nil {
 		return tools.ToolResult{Content: "Gerenciador de terminais indisponível", IsError: true}, nil
 	}
@@ -111,9 +112,13 @@ func (t *TerminalSession) Execute(_ context.Context, raw json.RawMessage) (tools
 			}
 			workDir = resolvedWorkDir
 		}
-		info, err := t.manager.CreateInfo(strings.TrimSpace(args.Name), workDir)
+		info, err := t.manager.CreateToolSession(strings.TrimSpace(args.Name), terminal.WorkingDirectory{Path: workDir, PublicOverride: invocationctx.ShellDirectoryMetadata(ctx)})
 		if err != nil {
-			return tools.ToolResult{Content: "Erro ao criar terminal: " + err.Error(), IsError: true}, nil
+			message, kind, transient := classifySessionStartError(err)
+			return tools.ToolResult{
+				Content: message, IsError: true,
+				Failure: &tools.ToolFailure{Code: FailureSessionStart, Kind: kind, Retryable: transient, NotDispatched: true},
+			}, nil
 		}
 		link := fmt.Sprintf("assistente://terminal/%s", info.ID)
 		displayName := strings.TrimSpace(info.Name)
