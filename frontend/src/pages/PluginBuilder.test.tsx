@@ -7,9 +7,15 @@ const mock = vi.hoisted(() => ({list:vi.fn(),preview:vi.fn(),save:vi.fn(),announ
 vi.mock('@wailsjs/go/wailsapi/Tasklist', () => ({GetAllTaskLists:mock.list}));
 vi.mock('@wailsjs/go/wailsapi/Plugins', () => ({PreviewBuilder:mock.preview,SaveBuilder:mock.save}));
 vi.mock('../hooks/useAnnouncer', () => ({useAnnouncer:()=>({announce:mock.announce})}));
-vi.mock('react-i18next', () => ({useTranslation:()=>({t:(key:string)=>key})}));
+vi.mock('react-i18next', () => ({useTranslation:()=>({t:(key:string, args?: {name?: string, position?: number})=>key === 'plugins.builderListPosition' ? args?.name + ' #' + args?.position : key})}));
 
 describe('PluginBuilder', () => {
+  it('distinguishes lists with identical titles before selection', async () => {
+    mock.list.mockResolvedValue([{id:'first',title:'Release',description:'Mobile'}, {id:'second',title:'Release',description:'Desktop'}]);
+    render(<PluginBuilder />);
+    expect(await screen.findByRole('checkbox',{name:'Release #1 · Mobile'})).toBeEnabled();
+    expect(screen.getByRole('checkbox',{name:'Release #2 · Desktop'})).toBeEnabled();
+  });
   it('requires a fresh preview when the selection changes and saves the reviewed package',async () => {
     mock.list.mockResolvedValue([{id:'source',title:'Release',slug:'release'}]);
     mock.preview.mockResolvedValue({name:'release-kit',digest:'digest',files:['plugin.json'],contents:{'plugin.json':'Release template content'},components:[]});

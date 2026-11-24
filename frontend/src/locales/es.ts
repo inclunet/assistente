@@ -174,6 +174,7 @@ notSaved: 'La decisión vale solo para esta operación: no se pudo recordar. Ser
       builderContents: 'Contenido del paquete',
       builderSave: 'Guardar ZIP',
       builderReview: 'Revisar paquete',
+      builderListPosition: '{{name}} (lista {{position}})',
       builderReady: 'Vista previa disponible. Revise los archivos antes de guardar.',
       builderSaved: 'Paquete guardado.',
       builderDestination: 'No se pudo guardar el ZIP en este destino. Elige otra carpeta y vuelve a intentarlo.',

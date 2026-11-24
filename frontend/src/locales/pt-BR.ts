@@ -175,6 +175,7 @@ notSaved: 'A decisão vale somente para esta operação: não foi possível lemb
       builderContents: 'Conteúdo do pacote',
       builderSave: 'Salvar ZIP',
       builderReview: 'Revisar pacote',
+      builderListPosition: '{{name}} (lista {{position}})',
       builderReady: 'Prévia disponível. Confira os arquivos antes de salvar.',
       builderSaved: 'Pacote salvo.',
       builderDestination: 'Não foi possível salvar o ZIP nesse destino. Escolha outra pasta e tente novamente.',

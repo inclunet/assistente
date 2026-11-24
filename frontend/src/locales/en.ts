@@ -175,6 +175,7 @@ notSaved: 'The decision applies only to this operation: it could not be remember
       builderContents: 'Package contents',
       builderSave: 'Save ZIP',
       builderReview: 'Review package',
+      builderListPosition: '{{name}} (list {{position}})',
       builderReady: 'Preview ready. Review the files before saving.',
       builderSaved: 'Package saved.',
       builderDestination: 'Could not save the ZIP at this destination. Choose another folder and try again.',
