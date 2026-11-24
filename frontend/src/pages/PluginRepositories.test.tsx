@@ -76,7 +76,11 @@ describe('PluginRepositories', () => {
     render(<PluginRepositories session="pages" catalog onPreview={vi.fn()} />);
     const next = await screen.findByRole('button', { name: 'plugins.nextPage' });
     expect(screen.queryByText('sample-50')).toBeNull();
-    await userEvent.click(next);
+    next.focus();
+    await userEvent.keyboard('{Enter}');
+    expect(next).toHaveFocus();
+    expect(next).toHaveAttribute('aria-disabled', 'true');
+    expect(mocks.announce).toHaveBeenCalledWith('plugins.pageOf');
     expect(screen.getByText('sample-50')).toBeVisible();
     await userEvent.type(screen.getByLabelText('plugins.searchCatalog'), 'sample-2');
     expect(screen.getByText('sample-2')).toBeVisible();

@@ -85,6 +85,11 @@ export default function PluginRepositories({ session, catalog, parentBusy, onPre
   const entries = useMemo(() => allEntries.filter(entry => [entry.name, entry.description, entry.store, entry.author, entry.license, entry.repo.origin].some(text => text?.toLocaleLowerCase().includes(needle))), [allEntries, needle]);
   const lastPage = Math.max(0, Math.ceil(entries.length / pageSize) - 1);
   const currentPage = Math.min(page, lastPage);
+  const selectPage = (next: number) => {
+    if (next < 0 || next > lastPage) return;
+    setPage(next);
+    announce(t('plugins.pageOf', { page: next + 1, total: lastPage + 1 }));
+  };
   const preview = async (entry: typeof entries[number]) => {
     if (busy || parentBusy || entry.diagnostic) return;
     const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
@@ -112,9 +117,9 @@ export default function PluginRepositories({ session, catalog, parentBusy, onPre
           { key: 'diagnostic', label: t('common.status'), format: (_, item) => t(item.diagnostic === 'policy' ? 'plugins.catalogPolicy' : item.diagnostic === 'configuration' ? 'plugins.catalogConfig' : item.diagnostic ? 'plugins.catalogSource' : 'plugins.catalogAvailable') },
         ]} /> : !busy && !error && <p>{t('plugins.catalogEmpty')}</p>}
       {lastPage > 0 && <nav aria-label={t('plugins.catalog')}>
-        <Button disabled={currentPage === 0} onClick={() => setPage(currentPage - 1)}>{t('plugins.prevPage')}</Button>
+        <Button aria-disabled={currentPage === 0} onClick={() => selectPage(currentPage - 1)}>{t('plugins.prevPage')}</Button>
         <span>{t('plugins.pageOf', { page: currentPage + 1, total: lastPage + 1 })}</span>
-        <Button disabled={currentPage === lastPage} onClick={() => setPage(currentPage + 1)}>{t('plugins.nextPage')}</Button>
+        <Button aria-disabled={currentPage === lastPage} onClick={() => selectPage(currentPage + 1)}>{t('plugins.nextPage')}</Button>
       </nav>}
     </> : <ul>{repositories.map(repo => <li key={repo.id}>
       <strong>{repo.origin}</strong>
