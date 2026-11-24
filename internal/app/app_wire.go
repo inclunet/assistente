@@ -9,6 +9,7 @@ import (
 	"assistente/internal/database"
 	"assistente/internal/logging"
 	"assistente/internal/plugins"
+	httpclient "assistente/internal/tools/http"
 	"assistente/internal/wailsapi"
 	"assistente/internal/workspace"
 	"context"
@@ -39,6 +40,11 @@ func (a *App) wireAllowlist() {
 
 func (a *App) wirePlugins() {
 	if a.pluginsAPI != nil && a.dialogPort != nil {
+		var authorizer httpclient.NetworkAuthorizer
+		if a.netTrustMgr != nil && a.questionnaireMgr != nil {
+			// Repository requests originate in the desktop manager, outside a conversation.
+			authorizer = a.repositoryNetworkAuthorizer()
+		}
 		wailsapi.AttachPlugins(a.pluginsAPI, wailsSession{app: a}, plugins.NewInventory(database.DB()).WithMCPSync(func(ctx context.Context) error {
 			// Serialize runtime publication with login/logout; ReloadPackagedConfigs
 			// verifies the captured account and session after acquiring this lock.
@@ -48,7 +54,9 @@ func (a *App) wirePlugins() {
 				return fmt.Errorf("gerenciador MCP indisponível")
 			}
 			return a.mcpMgr.ReloadPackagedConfigs(ctx)
-		}), a.dialogPort.OpenDirectoryDialog, a.captureDialogAdmission, func() { a.emitter.Emit("plugins:skills_changed", nil) })
+		}).WithRemoteClient(func(ref string) *httpclient.Client {
+			return plugins.RepositoryHTTPClient(a.credMgr, ref, authorizer)
+		}, a.watchRepositorySession), a.dialogPort.OpenDirectoryDialog, a.captureDialogAdmission, func() { a.emitter.Emit("plugins:skills_changed", nil) })
 	}
 }
 

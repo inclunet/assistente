@@ -172,11 +172,15 @@ func inspectOpened(root *os.Root, absolute string, entryLimit, depthLimit int, f
 	if !foundManifest {
 		return nil, fmt.Errorf("%s disappeared during inspection: %w", manifestPath, fs.ErrNotExist)
 	}
+	return finishSnapshot(snapshot, manifestPath)
+}
+
+func finishSnapshot(snapshot *LocalSnapshot, manifestPath string) (*LocalSnapshot, error) {
 	captured, metadata, warnings, err := CapturedManifest(snapshot.Files)
 	if err != nil {
 		return nil, err
 	}
-	if captured != manifestPath {
+	if manifestPath != "" && captured != manifestPath {
 		return nil, fmt.Errorf("package manifest changed during inspection")
 	}
 	snapshot.Manifest, snapshot.Warnings = metadata, warnings

@@ -1,3 +1,4 @@
+import { repositoryError } from './pluginRepositoryError';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { create } from 'zustand';
 import { useTranslation } from 'react-i18next';
@@ -38,7 +39,7 @@ function installationError(cause: unknown, fallback = 'plugins.installError') {
   const message = String(cause);
   if (message.includes('PLUGIN_MCP_SYNC_PENDING')) return 'plugins.syncPending';
   if (message.includes('PLUGIN_COMPONENT_EDITED')) return 'plugins.edited';
-  return fallback;
+  return repositoryError(cause, fallback);
 }
 
 // Cleanup can outlive the session that owned the preview. The backend still

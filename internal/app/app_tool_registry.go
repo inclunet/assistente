@@ -327,8 +327,7 @@ func (a *App) initToolRegistry() {
 	// de hard-deny seco. nil-safe: sem manager, as tools mantêm o bloqueio padrão.
 	var netAuthorizer *nettrust.Authorizer
 	if a.netTrustMgr != nil {
-		netAuthorizer = nettrust.NewAuthorizer(a.netTrustMgr, &appNetworkPrompter{ask: a.askOperationAuthorization})
-		netAuthorizer.PersistenceFailed = a.authorizationPersistenceFailed
+		netAuthorizer = a.newNetworkAuthorizer(&appNetworkPrompter{ask: a.askOperationAuthorization})
 		netAuthorizer.ScopeFilter = a.authorizationScopes
 	}
 
@@ -470,4 +469,10 @@ func (a *App) initToolRegistry() {
 	a.toolRegistry.MustRegister(deeplinktool.NewOpenDeepLink(&appDeepLinkEmitter{emitter: a.emitter}))
 
 	logging.Infof(context.Background(), "app.app-tool-registry", "[Tools] Registry inicializado com %d ferramentas: %v", a.toolRegistry.Count(), a.toolRegistry.Names())
+}
+
+func (a *App) newNetworkAuthorizer(prompter *appNetworkPrompter) *nettrust.Authorizer {
+	netAuthorizer := nettrust.NewAuthorizer(a.netTrustMgr, prompter)
+	netAuthorizer.PersistenceFailed = a.authorizationPersistenceFailed
+	return netAuthorizer
 }

@@ -43,6 +43,8 @@ const (
 // que aceitam http.Client customizado.
 type CredentialTransport struct {
 	// ExpectedType optionally constrains the resolved snapshot for legacy consumers.
+	// RequireCredential rejects anonymous fallback when the caller explicitly selected a vault reference.
+	RequireCredential   bool
 	ExpectedType        string
 	DisableCommandCache bool // SDKs que capturam uma chave fora deste transport
 	Base                http.RoundTripper
@@ -105,16 +107,19 @@ func (t *CredentialTransport) RoundTrip(req *http.Request) (*http.Response, erro
 			stripManagedPlaceholder(req)
 			return t.Base.RoundTrip(req)
 		}
+		if t.RequireCredential {
+			return nil, ErrCredentialResolution
+		}
 		if hasManagedCredentialPlaceholder(req) {
 			return nil, unresolvedCredentialError(req, t.CredPattern)
 		}
 		return t.Base.RoundTrip(req)
 	}
 
-	if strings.HasPrefix(t.CredPattern, "oauth:") {
+	if !t.RequireCredential && strings.HasPrefix(t.CredPattern, "oauth:") {
 		return t.roundTripOAuth(req)
 	}
-	auth, err := t.CredMgr.getByPatternWithContext(req.Context(), t.CredPattern, !t.DisableCommandCache)
+	auth, err := t.CredMgr.resolvePattern(req.Context(), t.CredPattern, !t.DisableCommandCache, t.RequireCredential)
 	if err != nil {
 		if t.AuthMode == AuthOptional {
 			// AuthOptional + erro de resolução: tratamos como "sem
@@ -136,6 +141,9 @@ func (t *CredentialTransport) RoundTrip(req *http.Request) (*http.Response, erro
 			stripManagedPlaceholder(req)
 			return t.Base.RoundTrip(req)
 		}
+		if t.RequireCredential {
+			return nil, ErrCredentialResolution
+		}
 		if hasManagedCredentialPlaceholder(req) {
 			return nil, unresolvedCredentialError(req, t.CredPattern)
 		}
@@ -148,7 +156,7 @@ func (t *CredentialTransport) RoundTrip(req *http.Request) (*http.Response, erro
 	}
 
 	first := req.Clone(req.Context())
-	if err := ApplyAuth(first, auth); err != nil {
+	if err := t.applyCredential(first, auth); err != nil {
 		return nil, err
 	}
 	response, err := t.Base.RoundTrip(first)
@@ -160,7 +168,7 @@ func (t *CredentialTransport) RoundTrip(req *http.Request) (*http.Response, erro
 	if req.Body != nil && req.Body != http.NoBody && req.GetBody == nil {
 		return response, nil
 	}
-	fresh, err := t.CredMgr.getByPatternWithContext(req.Context(), t.CredPattern, !t.DisableCommandCache)
+	fresh, err := t.CredMgr.resolvePattern(req.Context(), t.CredPattern, !t.DisableCommandCache, t.RequireCredential)
 	if err != nil {
 		_ = response.Body.Close()
 		return nil, fmt.Errorf("%w: %w", ErrCredentialResolution, err)
@@ -180,7 +188,7 @@ func (t *CredentialTransport) RoundTrip(req *http.Request) (*http.Response, erro
 			return response, nil
 		}
 	}
-	if err := ApplyAuth(retry, fresh); err != nil {
+	if err := t.applyCredential(retry, fresh); err != nil {
 		if retry.Body != nil {
 			_ = retry.Body.Close()
 		}
@@ -193,6 +201,19 @@ func (t *CredentialTransport) RoundTrip(req *http.Request) (*http.Response, erro
 		t.CredMgr.rejectCommandCredential(fresh)
 	}
 	return response, err
+}
+
+func (t *CredentialTransport) applyCredential(req *http.Request, auth *AuthConfig) error {
+	if !t.RequireCredential {
+		return ApplyAuth(req, auth)
+	}
+	if auth.Type == "none" || auth.Type == "custom" && len(auth.Headers) == 0 {
+		return ErrCredentialResolution
+	}
+	if err := ApplyAuth(req, auth); err != nil {
+		return fmt.Errorf("%w: %w", ErrCredentialResolution, err)
+	}
+	return nil
 }
 
 func sameHTTPAuth(a, b *AuthConfig) bool {

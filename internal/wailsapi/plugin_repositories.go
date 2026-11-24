@@ -43,6 +43,12 @@ func (api *Plugins) ListRepositories() ([]plugins.Repository, error) {
 	}
 	return rows, nil
 }
+func (api *Plugins) AddRemoteRepository(origin string, authenticated bool) error {
+	return api.withRepositorySession(func(ctx context.Context, i *plugins.Inventory, _ func() (string, error), admit commandsecurity.Admission) error {
+		return i.SaveRemoteRepository(ctx, origin, authenticated, admit)
+	})
+}
+
 func (api *Plugins) AddLocalRepository() (bool, error) {
 	var selected bool
 	err := api.withRepositorySession(func(ctx context.Context, i *plugins.Inventory, choose func() (string, error), admit commandsecurity.Admission) error {

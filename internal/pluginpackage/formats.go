@@ -116,6 +116,9 @@ func decodeVendorManifest(format string, raw []byte) (Manifest, []string, error)
 func CapturedManifest(files map[string][]byte) (string, Manifest, []string, error) {
 	name, _, manifest, warnings, err := LocateManifest(func(name string) ([]byte, error) {
 		if raw, ok := files[name]; ok {
+			if len(raw) > 1<<20 {
+				return nil, ErrTooLarge
+			}
 			return raw, nil
 		}
 		return nil, fs.ErrNotExist

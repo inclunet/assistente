@@ -56,3 +56,9 @@ A prévia e os detalhes identificam skills que pedem execução de comandos. Ao 
 A ferramenta `load_skill` entrega ao modelo o texto da definição, com os comandos literais. A execução automática das diretivas ocorre na preparação da base ou na invocação pela barra.
 
 A compatibilidade depende dos recursos usados pelo pacote. Os detalhes indicam requisitos que impedem a ativação, como arquivos auxiliares ou restrições de execução que o Assistente ainda não consegue aplicar.
+
+## Adicionar uma loja remota
+
+Em **Plugins → Repositórios**, informe o endereço HTTPS de um arquivo ZIP que contenha o índice da loja e os pacotes. Os arquivos podem estar na raiz ou dentro da pasta que alguns serviços Git acrescentam ao gerar o ZIP. Para uma loja privada, selecione a opção de usar a credencial cadastrada para aquele host e porta. Use uma credencial HTTP do tipo Bearer, Basic ou cabeçalhos personalizados. Entradas de configuração OAuth exigem um fluxo próprio e não servem como credencial direta da loja. Guarde a credencial no cofre da conta. O acesso a destinos de rede privada segue a mesma autorização das ferramentas de rede. Ao lembrar uma autorização por host sem porta explícita, a regra de rede cobre as portas 80 e 443. Para restringi-la a 443, informe a porta na URL. O nome DNS informado identifica a origem HTTP, inclusive o ponto final de um domínio absoluto. Lojas públicas são consultadas sem credenciais. Remover uma loja cancela as consultas em andamento. A URL deve estar livre de senha e parâmetros de consulta.
+
+Escolha **Adicionar loja por URL**. Uma mudança no arquivo exige **Atualizar** antes de abrir uma nova prévia ou instalar. Se a consulta falhar, o catálogo continua mostrando o último índice válido. Para arquivos hospedados em outro domínio, informe diretamente o endereço HTTPS do domínio que entrega o ZIP e escolha a credencial correspondente.

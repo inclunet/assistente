@@ -487,6 +487,7 @@ describe('PluginsPage', () => {
 
   it.each([
     ['offline', 'plugins.installError'],
+    ['PLUGIN_REPOSITORY_ARCHIVE_CHANGED', 'plugins.archiveChanged'],
     ['PLUGIN_MCP_SYNC_PENDING', 'plugins.syncPending'],
   ])('reports %s to a new page that waited for the installation', async (cause, message) => {
     const user = userEvent.setup();
