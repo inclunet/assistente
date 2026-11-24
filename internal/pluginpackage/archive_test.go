@@ -52,3 +52,30 @@ func TestArchiveLimitsAndPortablePaths(t *testing.T) {
 		}
 	}
 }
+
+func TestDirectoryCandidateUniqueness(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		candidates []bool
+		accept     bool
+	}{
+		{"ordinary", []bool{true}, true},
+		{"incidental earlier signatures", []bool{true, false, false}, true},
+		{"two directories", []bool{true, false, true}, false},
+		{"invalid selected directory", []bool{false, true}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var found bool
+			var err error
+			for _, valid := range tc.candidates {
+				found, err = acceptDirectoryCandidate(found, valid)
+				if err != nil {
+					break
+				}
+			}
+			if (found && err == nil) != tc.accept {
+				t.Fatalf("found=%v err=%v", found, err)
+			}
+		})
+	}
+}

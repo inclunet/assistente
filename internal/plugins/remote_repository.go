@@ -54,7 +54,7 @@ func RepositoryHTTPClient(manager *credentials.Manager, reference string, author
 // addressHost normalizes the representation of a validated HTTPS authority.
 // The transfer retains an explicit default port for network consent.
 func addressHost(u *url.URL, omitDefault bool) string {
-	name := strings.ToLower(u.Hostname())
+	name := u.Hostname()
 	if addr, err := netip.ParseAddr(u.Hostname()); err == nil && addr.Is6() {
 		name = "[" + addr.String() + "]"
 	} else if !isASCIIHost(name) {
@@ -63,6 +63,8 @@ func addressHost(u *url.URL, omitDefault bool) string {
 			return ""
 		}
 		name = ascii
+	} else {
+		name = strings.ToLower(name)
 	}
 	port := u.Port()
 	if port == "" {
@@ -105,7 +107,7 @@ func remoteURL(raw string) (*url.URL, error) {
 	} else if strings.HasSuffix(u.Host, ":") {
 		return nil, errors.New("PLUGIN_REPOSITORY_URL")
 	}
-	if !strings.Contains(u.Host, "%") {
+	if isASCIIHost(u.Host) && !strings.Contains(u.Host, "%") {
 		u.Host = strings.ToLower(u.Host)
 	}
 	return u, nil

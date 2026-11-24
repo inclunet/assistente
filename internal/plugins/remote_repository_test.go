@@ -324,6 +324,13 @@ func TestRemoteStoreNetworkAndCredentialChoice(t *testing.T) {
 }
 
 func TestRepositoryInternationalAuthority(t *testing.T) {
+	unicodeHost, err := remoteURL("https://İ.example")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if unicodeHost.Host != "İ.example" || addressHost(unicodeHost, true) == "i.example" {
+		t.Fatalf("changed Unicode reference or target: %s / %s", unicodeHost.Host, addressHost(unicodeHost, true))
+	}
 	for _, raw := range []string{"https://bücher.example:0443", "https://xn--bcher-kva.example/"} {
 		u, err := remoteURL(raw)
 		if err != nil || addressHost(u, true) != "xn--bcher-kva.example" {

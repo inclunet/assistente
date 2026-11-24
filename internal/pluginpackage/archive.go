@@ -33,21 +33,31 @@ func validateDirectory(data []byte) error {
 		if !found && len(record) >= endSize+4 && bytes.Contains(record[4:len(record)-endSize+4], []byte("PK\x05\x06")) {
 			return fs.ErrInvalid
 		}
-		if !validDirectoryAt(data, end, record) {
-			if found {
-				continue // incidental signature in ordinary file data
-			}
-			return fs.ErrInvalid
+		var err error
+		found, err = acceptDirectoryCandidate(found, validDirectoryAt(data, end, record))
+		if err != nil {
+			return err
 		}
-		if found {
-			return fs.ErrInvalid
-		}
-		found = true
 	}
 	if found {
 		return nil
 	}
 	return fs.ErrInvalid
+}
+
+// Scan in reverse, starting at the directory selected by archive/zip.
+// Earlier incidental signatures are harmless; another valid directory is ambiguous.
+func acceptDirectoryCandidate(found, valid bool) (bool, error) {
+	if !valid {
+		if found {
+			return true, nil
+		}
+		return false, fs.ErrInvalid
+	}
+	if found {
+		return false, fs.ErrInvalid
+	}
+	return true, nil
 }
 
 func validDirectoryAt(data []byte, end int, record []byte) bool {
