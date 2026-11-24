@@ -64,7 +64,8 @@ Preparação da fase 1: a execução de comandos embutidos em skills pelo chat
 usa a autorização de shell do AEP-0117 e o executor de invocações do turno.
 Testes de regressão em `internal/skills/command_turn_test.go` exercitam
 recusa, expansão de argumentos no texto e reconstrução do prompt sem repetir a execução. O caso POSIX de `TestSkillCommandInAdmittedTurn` usa o terminal real com saída sem quebra de linha.
-A instalação de pacotes e as demais entregas das fases abaixo permanecem pendentes.
+
+O leitor local de `internal/pluginpackage` reconhece o manifesto Agent Plugins 1.0.0 e limita a leitura à raiz do pacote e ao orçamento de bytes. Em `extensions`, preserva os valores JSON brutos de cada chave. Se o campo estiver presente e não for um objeto, emite um diagnóstico e ignora o campo. A descoberta de componentes, a instalação e a recuperação permanecem pendentes.
 
 1. Contrato de pacote, instalação local, identidade, inventário no banco, recuperação e primeira instalação de skill e MCP.
 2. Tela Plugins, repositórios e adaptadores de catálogos e pacotes, com fixtures por formato e versão.
