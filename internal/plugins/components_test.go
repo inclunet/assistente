@@ -85,3 +85,16 @@ func TestPluginSkillFrontmatterTypes(t *testing.T) {
 		}
 	}
 }
+
+func TestPluginSkillDelimiters(t *testing.T) {
+	for _, tc := range []struct{ definition, kind string }{
+		{"---\r\nname: note\r\ndescription: Note\r\n---\r\nHello", "skill"},
+		{"---\nname: note\ndescription: Note\n---custom: value\nallowed-tools: Read\n---\nHello", "invalidSkill"},
+		{"---\nname: note\ndescription: Note\n---other", "invalidSkill"},
+	} {
+		got := DiscoverComponents(&pluginpackage.LocalSnapshot{Files: map[string][]byte{"skills/note/SKILL.md": []byte(tc.definition)}})
+		if len(got) != 1 || got[0].Kind != tc.kind {
+			t.Errorf("%q: %+v", tc.definition, got)
+		}
+	}
+}

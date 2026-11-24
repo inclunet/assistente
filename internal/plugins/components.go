@@ -94,9 +94,18 @@ var portableSkillName = regexp.MustCompile("^[a-z0-9]+(-[a-z0-9]+)*$")
 // An unknown frontmatter key may declare a runtime restriction. Only expose
 // a plain instruction skill once all its requirements have a local mapping.
 func pluginSkillFrontmatter(raw string) (string, bool) {
-	rest := strings.TrimPrefix(strings.TrimSpace(raw), "---")
-	frontmatter, _, found := strings.Cut(rest, "\n---")
+	opening, rest, found := strings.Cut(strings.TrimLeft(raw, " \t\r\n"), "\n")
+	if !found || strings.TrimRight(opening, " \t\r") != "---" {
+		return "", false
+	}
+	// The runtime uses the first delimiter prefix. Reject ambiguous boundaries
+	// so discovery and invocation always see the same metadata and body.
+	frontmatter, suffix, found := strings.Cut(rest, "\n---")
 	if !found {
+		return "", false
+	}
+	trailing, _, _ := strings.Cut(suffix, "\n")
+	if strings.Trim(trailing, " \t\r") != "" {
 		return "", false
 	}
 	var fields map[string]any
