@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"sync/atomic"
 	"testing"
 
 	"assistente/internal/commandsecurity"
@@ -39,13 +40,37 @@ func TestPluginPreviewUsesSelectedDirectoryAndSession(t *testing.T) {
 	ctx := database.WithUserID(context.Background(), "owner")
 	session := stubSession{ctx: ctx}
 	AttachPlugins(api, session, inventory, func() (string, error) { return dir, nil }, func(context.Context) (commandsecurity.Admission, error) {
-		return func(handoff func() error) error {
+		return func(_ *gorm.DB, handoff func() error) error {
 			if !active {
 				return missing
 			}
 			return handoff()
 		}, nil
 	})
+	// Hold the old picker until the next page has received its own preview.
+	var first atomic.Bool
+	entered, release := make(chan struct{}), make(chan struct{})
+	api.choose = func() (string, error) {
+		if !first.Swap(true) {
+			close(entered)
+			<-release
+		}
+		return dir, nil
+	}
+	old := make(chan error, 1)
+	go func() { _, err := api.PreviewLocal(); old <- err }()
+	<-entered
+	current, err := api.PreviewLocal()
+	close(release)
+	if oldErr := <-old; oldErr == nil || err != nil {
+		t.Fatalf("old error %v, current error %v", oldErr, err)
+	}
+	api.mu.Lock()
+	currentSelection := api.selection
+	api.mu.Unlock()
+	if currentSelection == nil || currentSelection.preview.Token != current.Token {
+		t.Fatal("late preview replaced the current selection")
+	}
 	preview, err := api.PreviewLocal()
 	if err != nil || preview.Name != "local" || len(preview.Files) != 1 {
 		t.Fatal(preview, err)

@@ -32,12 +32,13 @@ type pluginSelection struct {
 }
 
 type Plugins struct {
-	mu        sync.Mutex
-	session   Session
-	inventory *plugins.Inventory
-	choose    func() (string, error)
-	capture   func(context.Context) (commandsecurity.Admission, error)
-	selection *pluginSelection
+	mu                sync.Mutex
+	session           Session
+	inventory         *plugins.Inventory
+	choose            func() (string, error)
+	capture           func(context.Context) (commandsecurity.Admission, error)
+	selection         *pluginSelection
+	previewGeneration uint64
 }
 
 func NewPlugins() *Plugins { return &Plugins{} }
@@ -47,6 +48,7 @@ func AttachPlugins(api *Plugins, session Session, inventory *plugins.Inventory, 
 	defer api.mu.Unlock()
 	api.session, api.inventory, api.choose, api.capture = session, inventory, choose, capture
 	api.selection = nil
+	api.previewGeneration++
 }
 
 func (api *Plugins) wired() (Session, *plugins.Inventory, func() (string, error), func(context.Context) (commandsecurity.Admission, error), error) {
@@ -99,6 +101,10 @@ func (api *Plugins) PreviewLocal() (*PluginPreview, error) {
 		if err != nil {
 			return nil, err
 		}
+		api.mu.Lock()
+		api.previewGeneration++
+		generation := api.previewGeneration
+		api.mu.Unlock()
 		dir, err := choose()
 		if err != nil || dir == "" {
 			return nil, err
@@ -134,6 +140,9 @@ func (api *Plugins) PreviewLocal() (*PluginPreview, error) {
 		defer api.mu.Unlock()
 		if err := validate.Check(); err != nil {
 			return nil, err
+		}
+		if generation != api.previewGeneration {
+			return nil, errors.New("plugin preview superseded")
 		}
 		api.selection = &pluginSelection{preview: p, owner: owner, validate: validate}
 		return &p, nil
