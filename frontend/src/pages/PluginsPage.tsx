@@ -57,7 +57,18 @@ async function reconcileMCP(session: string, operation: Promise<void>) {
 }
 
 async function publish(session: string, operation: Promise<unknown>, lifecycle = false) {
-  const pending = operation.then(() => undefined).catch(cause => {
+  const outstandingSync = usePendingLifecycleSync.getState().get(session);
+  const pending = operation.then(async () => {
+    // The write may skip reconciliation when it does not affect a linked server.
+    // Finish an earlier removal before treating its warning as resolved.
+    if (outstandingSync && usePendingLifecycleSync.getState().get(session) === outstandingSync) {
+      try {
+        await reconcileMCP(session, SyncMCP());
+      } catch {
+        throw new Error('PLUGIN_MCP_SYNC_PENDING');
+      }
+    }
+  }).catch(cause => {
     const message = installationError(cause, lifecycle ? 'plugins.componentError' : 'plugins.installError');
     if (lifecycle && message === 'plugins.syncPending') {
       usePendingLifecycleSync.setState(current => new Map(current).set(session, Symbol()), true);

@@ -353,6 +353,26 @@ describe('PluginsPage', () => {
     await waitFor(() => expect(screen.queryByText('plugins.syncPending')).toBeNull());
   });
 
+  it('completes a pending removal after a later inventory write succeeds', async () => {
+    const user = userEvent.setup();
+    const plugin = { id: 'one', name: 'Demo', digest: 'sha', origin: '/demo' };
+    mocks.list.mockResolvedValueOnce([plugin]).mockResolvedValue([{ ...plugin, disabled: true }]);
+    mocks.components.mockResolvedValue([]);
+    mocks.confirm.mockResolvedValue(true);
+    mocks.lifecycle.mockRejectedValueOnce(new Error('PLUGIN_MCP_SYNC_PENDING'));
+    render(<PluginsPage />);
+    (await screen.findByRole('gridcell', { name: /Demo/ })).focus();
+    await user.keyboard('{Enter}');
+    await user.click(await screen.findByRole('button', { name: 'plugins.disable' }));
+    await screen.findByText('plugins.syncPending');
+    await waitFor(() => expect(screen.getByRole('button', { name: 'plugins.choose' })).toBeEnabled());
+    screen.getByRole('gridcell', { name: /Demo/ }).focus();
+    await user.keyboard('{Enter}');
+    await user.click(await screen.findByRole('button', { name: 'plugins.enable' }));
+    await waitFor(() => expect(mocks.sync).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(screen.queryByText('plugins.syncPending')).toBeNull());
+  });
+
   it('closes the preview without installing', async () => {
     const user = userEvent.setup();
     render(<PluginsPage />);
