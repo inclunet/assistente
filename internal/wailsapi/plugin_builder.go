@@ -90,7 +90,7 @@ func (api *Plugins) SaveBuilder(request plugins.BuilderRequest, expectedDigest s
 		if closeErr != nil {
 			return closeErr
 		}
-		err = admit(func() error { return os.Rename(tmp.Name(), file) })
+		err = admit(nil, func() error { return os.Rename(tmp.Name(), file) })
 		saved = err == nil
 		return err
 	})

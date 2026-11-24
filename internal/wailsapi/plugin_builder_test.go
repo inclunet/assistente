@@ -41,13 +41,13 @@ func TestBuilderSaveRechecksRevisionAndSessionBeforePublishing(t *testing.T) {
 	valid := true
 	api := NewPlugins()
 	AttachPlugins(api, stubSession{ctx: ctx}, plugins.NewInventory(db), func() (string, error) { return "", nil }, func(context.Context) (commandsecurity.Admission, error) {
-		return func(fn func() error) error {
+		return func(_ *gorm.DB, fn func() error) error {
 			if !valid {
 				return errors.New("session changed")
 			}
 			return fn()
 		}, nil
-	})
+	}, nil)
 	req := plugins.BuilderRequest{Name: "release", TaskLists: []plugins.BuilderTaskList{{ID: list.ID, Key: "plan"}}}
 	first, err := api.PreviewBuilder(req)
 	if err != nil || len(first.Contents) != 2 {
