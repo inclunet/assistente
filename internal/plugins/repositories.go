@@ -106,7 +106,7 @@ func (i *Inventory) SaveRepository(ctx context.Context, absolute, id, expected s
 			return err
 		}
 		if strings.HasPrefix(row.Origin, "https://") {
-			return i.saveRemote(ctx, row.Origin, row.CredentialRef, id, expected, admit)
+			return i.saveRemote(ctx, repositoryDownloadURL(row), row.CredentialRef, id, expected, admit)
 		}
 		absolute = row.Origin
 		expectedRoot = row.RootID
@@ -137,10 +137,10 @@ func (i *Inventory) SaveRepository(ctx context.Context, absolute, id, expected s
 	if err != nil {
 		return err
 	}
-	return i.publishRepository(ctx, owner, origin, rootID, "", id, expected, indices, admit)
+	return i.publishRepository(ctx, owner, origin, rootID, "", false, id, expected, indices, admit)
 }
 
-func (i *Inventory) publishRepository(ctx context.Context, owner, origin, rootID, ref, id, expected string, indices []plugincatalog.Index, admit commandsecurity.Admission) error {
+func (i *Inventory) publishRepository(ctx context.Context, owner, origin, rootID, ref string, explicitHTTPSPort bool, id, expected string, indices []plugincatalog.Index, admit commandsecurity.Admission) error {
 	data, err := json.Marshal(indices)
 	if err != nil {
 		return err
@@ -166,7 +166,7 @@ func (i *Inventory) publishRepository(ctx context.Context, owner, origin, rootID
 			if !errors.Is(lookup, gorm.ErrRecordNotFound) {
 				return lookup
 			}
-			return tx.Create(&database.PluginRepository{UserID: owner, Origin: origin, RootID: rootID, CredentialRef: ref, Indices: data, Revision: revision}).Error
+			return tx.Create(&database.PluginRepository{UserID: owner, Origin: origin, ExplicitHTTPSPort: explicitHTTPSPort, RootID: rootID, CredentialRef: ref, Indices: data, Revision: revision}).Error
 		}
 		result := tx.Model(&database.PluginRepository{}).Where("id=? AND user_id=? AND revision=?", id, owner, expected).Updates(map[string]any{"indices": data, "revision": revision, "root_id": rootID})
 		if result.Error != nil {

@@ -5,11 +5,13 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"path/filepath"
+	"slices"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -174,6 +176,67 @@ func TestRemoteStoreRetainsReviewedArchiveAndVaultOrigin(t *testing.T) {
 	}
 	if err := <-result; err == nil || requestCtx.Err() != nil {
 		t.Fatal("removing the repository did not cancel the preview", err)
+	}
+}
+
+type storeRoundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f storeRoundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
+func TestRemoteStoreDefaultPortPersistsAcrossOperations(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(filepath.Join(t.TempDir(), "port.db")), &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	conn, err := db.DB()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = conn.Close() })
+	if err := db.AutoMigrate(&database.PluginRepository{}); err != nil {
+		t.Fatal(err)
+	}
+	var body bytes.Buffer
+	archive := zip.NewWriter(&body)
+	w, err := archive.Create(".claude-plugin/marketplace.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := io.WriteString(w, `{"name":"demo","owner":{"name":"publisher"},"plugins":[]}`); err != nil {
+		t.Fatal(err)
+	}
+	if err := archive.Close(); err != nil {
+		t.Fatal(err)
+	}
+	var ports []string
+	makeInventory := func() *Inventory {
+		return NewInventory(db).WithRemoteClient(func(ref string) *httpclient.Client {
+			client := RepositoryHTTPClient(nil, ref, nil)
+			client.GetBaseClient().Transport = storeRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+				ports = append(ports, req.URL.Port())
+				return &http.Response{StatusCode: 200, Body: io.NopCloser(bytes.NewReader(body.Bytes())), Header: make(http.Header)}, nil
+			})
+			return client
+		})
+	}
+	ctx := database.WithUserID(context.Background(), "owner")
+	admit := commandsecurity.Admission(func(_ *gorm.DB, fn func() error) error { return fn() })
+	store := makeInventory()
+	for _, address := range []string{"https://store.example:443", "https://store.example/"} {
+		if err := store.SaveRemoteRepository(ctx, address, false, admit); err != nil {
+			t.Fatal(err)
+		}
+	}
+	store = makeInventory()
+	rows, err := store.Repositories(ctx)
+	if err != nil || len(rows) != 1 || rows[0].Origin != "https://store.example/" {
+		t.Fatal(rows, err)
+	}
+	if err := store.SaveRepository(ctx, "", rows[0].ID, rows[0].Revision, admit); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(ports, []string{"443", "", "443"}) {
+		t.Fatalf("dispatched ports = %q", ports)
 	}
 }
 

@@ -41,8 +41,9 @@ func (a *App) wireAllowlist() {
 func (a *App) wirePlugins() {
 	if a.pluginsAPI != nil && a.dialogPort != nil {
 		var authorizer httpclient.NetworkAuthorizer
-		if a.netTrustMgr != nil {
-			authorizer = a.newNetworkAuthorizer()
+		if a.netTrustMgr != nil && a.questionnaireMgr != nil {
+			// Repository requests originate in the desktop manager, outside a conversation.
+			authorizer = a.repositoryNetworkAuthorizer()
 		}
 		wailsapi.AttachPlugins(a.pluginsAPI, wailsSession{app: a}, plugins.NewInventory(database.DB()).WithMCPSync(func(ctx context.Context) error {
 			// Serialize runtime publication with login/logout; ReloadPackagedConfigs

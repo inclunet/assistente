@@ -1,7 +1,11 @@
 package app
 
 import (
+	httpclient "assistente/internal/tools/http"
+	"context"
+	"net"
 	"testing"
+	"time"
 
 	"assistente/internal/nettrust"
 	"assistente/internal/questionnaire"
@@ -34,5 +38,27 @@ func TestNetworkDecisionActionsDeclaramAtalhosSemanticosSemColisao(t *testing.T)
 		if action := byID[id]; action.Scope != "" {
 			t.Errorf("%s não deve disputar o chord persistente: %+v", id, action)
 		}
+	}
+}
+
+func TestRepositoryNetworkDecisionUsesDesktopWithoutConversation(t *testing.T) {
+	a := &App{}
+	asked := false
+	a.questionnaireMgr = questionnaire.NewManager(func(event string, payload any) {
+		if event == questionnaire.EventQuestionnaire {
+			asked = true
+			id := payload.(map[string]any)["id"].(string)
+			if err := a.questionnaireMgr.Respond(id, nil, true); err != nil {
+				t.Error(err)
+			}
+		}
+	})
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	_, allowed, err := a.repositoryNetworkAuthorizer().Authorize(ctx, httpclient.BlockedDestination{
+		Host: "store.example", Port: "443", PortExplicit: true, IPs: []net.IP{net.IPv4(10, 0, 0, 1)},
+	})
+	if err != nil || allowed || !asked {
+		t.Fatalf("asked=%v allowed=%v err=%v", asked, allowed, err)
 	}
 }

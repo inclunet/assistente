@@ -64,6 +64,9 @@ func remoteURL(raw string) (*url.URL, error) {
 	if err != nil || u.Scheme != "https" || u.Hostname() == "" || u.User != nil || u.Opaque != "" || u.RawQuery != "" || u.ForceQuery || u.Fragment != "" {
 		return nil, errors.New("PLUGIN_REPOSITORY_URL")
 	}
+	if u.Path == "" {
+		u.Path = "/"
+	}
 	u.Host = strings.ToLower(u.Host)
 	return u, nil
 }
@@ -121,8 +124,21 @@ func (i *Inventory) SaveRemoteRepository(ctx context.Context, raw string, authen
 	if authenticated {
 		ref = u.Host
 	}
-	u.Host = canonicalHost(u)
 	return i.saveRemote(ctx, u.String(), ref, "", "", admit)
+}
+
+// The canonical origin identifies a store; network authorization distinguishes an
+// explicitly requested default port from a host-wide destination.
+func repositoryDownloadURL(row database.PluginRepository) string {
+	if !row.ExplicitHTTPSPort {
+		return row.Origin
+	}
+	u, err := remoteURL(row.Origin)
+	if err != nil || u.Port() != "" {
+		return row.Origin
+	}
+	u.Host += ":443"
+	return u.String()
 }
 
 func (i *Inventory) saveRemote(ctx context.Context, origin, ref, id, expected string, admit commandsecurity.Admission) error {
@@ -145,14 +161,20 @@ func (i *Inventory) saveRemote(ctx context.Context, origin, ref, id, expected st
 	if err != nil {
 		return err
 	}
-	return i.publishRepository(ctx, owner, origin, digest, ref, id, expected, indices, admit)
+	u, err := remoteURL(origin)
+	if err != nil {
+		return err
+	}
+	explicitHTTPSPort := u.Port() == "443"
+	u.Host = canonicalHost(u)
+	return i.publishRepository(ctx, owner, u.String(), digest, ref, explicitHTTPSPort, id, expected, indices, admit)
 }
 
 func (i *Inventory) repositoryPackage(ctx context.Context, row database.PluginRepository, entry string) (*pluginpackage.LocalSnapshot, error) {
 	if !strings.HasPrefix(row.Origin, "https://") {
 		return pluginpackage.InspectRepositoryPackage(row.Origin, row.RootID, entry)
 	}
-	archive, digest, err := i.download(ctx, row.Origin, row.CredentialRef)
+	archive, digest, err := i.download(ctx, repositoryDownloadURL(row), row.CredentialRef)
 	if err != nil {
 		return nil, err
 	}

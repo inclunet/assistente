@@ -88,3 +88,8 @@ func (p *appNetworkPrompter) PromptNetworkAuthorization(ctx context.Context, req
 	}
 	return nettrust.PromptDecision{Approve: choice.Effect == "allow", Scope: choice.Scope}, nil
 }
+
+// The desktop repository manager owns this decision even without an active chat.
+func (a *App) repositoryNetworkAuthorizer() *nettrust.Authorizer {
+	return a.newNetworkAuthorizer(&appNetworkPrompter{ask: a.questionnaireMgr.RequestQuestionnaire})
+}
