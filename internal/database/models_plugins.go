@@ -23,6 +23,8 @@ type PluginRevision struct {
 
 // PluginSkillActivation belongs to the exact reviewed package revision.
 type PluginSkillActivation struct {
+	Generation     string `gorm:"not null;default:''" json:"-"`
+	PackageFormat  string `json:"-"`
 	InstallationID string `gorm:"primaryKey"`
 	ComponentKey   string `gorm:"primaryKey"`
 	Digest         string `gorm:"not null"`

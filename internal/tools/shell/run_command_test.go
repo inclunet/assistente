@@ -937,3 +937,23 @@ func TestProjecaoPublicaNaoAlteraMotivosDaPolitica(t *testing.T) {
 		t.Fatalf("original=%+v pública=%+v", original, public)
 	}
 }
+
+func TestPluginRevokedDuringCommandConfirmation(t *testing.T) {
+	active := true
+	rc := NewRunCommand(nil, func(context.Context, string, string) (bool, error) {
+		active = false
+		return true, nil
+	}, nil, t.TempDir())
+	ctx := tools.WithExecutionContext(context.Background(), tools.ExecutionContext{
+		CheckCommandActivation: func(context.Context) error {
+			if active {
+				t.Fatal("expected the command confirmation before admission")
+			}
+			return fmt.Errorf("revoked")
+		},
+	})
+	result, err := rc.Execute(ctx, json.RawMessage(`{"command":"echo test"}`))
+	if err != nil || !result.IsError || !strings.Contains(result.Content, "ativação do plugin") {
+		t.Fatal(result, err)
+	}
+}

@@ -319,7 +319,7 @@ func buildBaseSkillBlock(ctx context.Context, baseSkills []Skill, source Context
 			return "", err
 		}
 		part.doc = doc
-		part.content = strings.Join(doc.lines, "\n")
+		part.content = doc.content()
 		commands += len(doc.commands)
 		remaining -= contextprovider.RuneLen(part.heading) + contextprovider.RuneLen(part.content) + contextprovider.RuneLen(part.files)
 	}
@@ -493,6 +493,9 @@ func filterSkillsWithoutToolDependencies(input []Skill) []Skill {
 }
 
 func skillDependsOnTools(skill Skill) bool {
+	if skill.Source == "plugin" && skill.PackageFormat == "claude-code" && ContainsClaudeCommand(skill.Content) {
+		return true
+	}
 	if skill.Tools != nil {
 		if len(skill.Tools.Allowed) > 0 || len(skill.Tools.Denied) > 0 || skill.Tools.BashCommands != nil {
 			return true

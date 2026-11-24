@@ -131,7 +131,7 @@ func InvokeContext(ctx context.Context, userContent string, mgr InvokerManager, 
 		after = argumentFallback(skill.Content, args) + after
 		quota := -1
 		if len(doc.commands) > 0 && budget >= 0 {
-			static := utf8.RuneCountInString(before) + utf8.RuneCountInString(strings.Join(doc.lines, "\n")) + utf8.RuneCountInString(after)
+			static := utf8.RuneCountInString(before) + utf8.RuneCountInString(doc.content()) + utf8.RuneCountInString(after)
 			quota = budget - static
 			if quota/len(doc.commands) < 2 {
 				return nil, true, fmt.Errorf("orçamento insuficiente para as instruções e os resultados da skill %q", slug)

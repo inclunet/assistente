@@ -155,6 +155,26 @@ describe('PluginsPage', () => {
     expect(mocks.register).not.toHaveBeenCalled();
   });
 
+  it.each([undefined, 'frontmatter'])('informa a política na prévia e nos detalhes com requisito %s', async reason => {
+    const user = userEvent.setup();
+    const skill = { kind: 'skill', key: 'skills/build', name: 'build', requestsShell: true, reason };
+    mocks.preview.mockResolvedValueOnce({ token: 'reviewed', name: 'demo', files: [], components: [skill] });
+    mocks.list.mockResolvedValue([{ id: 'one', name: 'Demo', digest: 'sha' }]);
+    mocks.components.mockResolvedValue([skill]);
+    render(<PluginsPage />);
+    const cell = await screen.findByRole('gridcell', { name: /Demo/ });
+    await user.click(screen.getByRole('button', { name: 'plugins.choose' }));
+    expect(await screen.findByText(/plugins\.commandPolicy/)).toBeVisible();
+    await user.click(screen.getByRole('button', { name: 'common.cancel' }));
+    cell.focus();
+    await user.keyboard('{Enter}');
+    expect(await screen.findByText('plugins.commandPolicy')).toBeVisible();
+    if (reason) {
+      expect(screen.getByText('plugins.fieldsPending')).toBeVisible();
+      expect(screen.queryByRole('button', { name: /plugins.activate/ })).toBeNull();
+    }
+  });
+
   it('identifica os servidores afetados e explica a desconexão antes de confirmar a atualização', async () => {
     const user = userEvent.setup();
     mocks.preview.mockResolvedValueOnce({ token: 'reviewed', name: 'demo', digest: 'new', previousDigest: 'old', files: [], affectedMcpServers: ['build', 'docs'] });

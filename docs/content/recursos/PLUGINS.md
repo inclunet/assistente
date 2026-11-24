@@ -9,7 +9,7 @@ Abra **Plugins** pelo menu principal para consultar os pacotes instalados na sua
 
 ## Instalar uma pasta local
 
-1. Escolha **Escolher pasta de plugin** e selecione a pasta que contém o `plugin.json` do formato Agent Plugins 1.0.0.
+1. Escolha **Escolher pasta de plugin** e selecione a raiz do pacote. No formato Agent Plugins 1.0.0, ela contém `plugin.json`. Para Claude Code, Cursor ou Codex, escolha a pasta que contém `.claude-plugin`, `.cursor-plugin` ou `.codex-plugin`.
 2. Confira a origem e os arquivos incluídos na prévia. O identificador SHA-256 corresponde aos nomes e ao conteúdo dos arquivos capturados. Ele permite conferir a revisão instalada.
 3. Escolha **Instalar revisão** para guardar uma cópia na conta atual ou **Cancelar** para fechar a prévia.
 
@@ -43,8 +43,16 @@ Se a sincronização MCP ficar pendente após desativar ou desinstalar, o aviso 
 
 ## Consultar uma loja local
 
-Em **Plugins → Repositórios**, escolha **Adicionar pasta de repositório** e selecione a pasta raiz da loja. O Assistente reconhece índices locais de Claude Code, Cursor e Codex. Na aba **Catálogo**, pesquise pelo nome, autor ou origem. Selecione uma linha e pressione Enter para conferir a prévia. Nesta etapa, a instalação pelo catálogo aceita pacotes Agent Plugins 1.0.0 em subpastas do repositório.
+Em **Plugins → Repositórios**, escolha **Adicionar pasta de repositório** e selecione a pasta raiz da loja. O Assistente reconhece índices locais de Claude Code, Cursor e Codex. Na aba **Catálogo**, pesquise pelo nome, autor ou origem. Selecione uma linha e pressione Enter para conferir a prévia. A instalação pelo catálogo aceita pacotes Agent Plugins 1.0.0 e pacotes com manifesto de Claude Code, Cursor ou Codex em subpastas do repositório.
 
 Na grade de **Repositórios**, use as setas para escolher a loja e percorrer suas ações. A grade informa a data do último índice salvo. Escolha **Atualizar** para reler a pasta. Se ela estiver indisponível, você pode pesquisar a cópia do índice armazenada na conta. Para examinar ou instalar um pacote, sua pasta precisa estar acessível. **Remover repositório** retira a loja do catálogo e preserva as instalações feitas a partir dela.
 
 A pesquisa abrange todas as entradas, e a grade exibe até 50 por página. Na loja Claude, um caminho com `./` parte da raiz; nomes simples usam o `metadata.pluginRoot`. Uma entrada na própria raiz continua visível para consulta. Restrições de produto do Codex ficam indicadas como política da loja. Pacotes de instruções admitem autenticação no primeiro uso; quando há exigência de autenticação para um servidor MCP, a prévia informa a limitação do adaptador.
+
+## Usar uma skill com comandos do Claude Code
+
+A prévia e os detalhes identificam skills que pedem execução de comandos. Ao invocar pela barra ou usar a skill como base do turno, cada comando usa a autorização de shell da conta. Uma regra de aprovação permite executar o comando imediatamente. Uma regra de negação interrompe a invocação. Quando a regra pede confirmação, o Assistente aguarda sua decisão. As opções permanentes seguem o mesmo fluxo dos demais comandos. Se a skill perder a ativação enquanto você decide, o comando é interrompido.
+
+A ferramenta `load_skill` entrega ao modelo o texto da definição, com os comandos literais. A execução automática das diretivas ocorre na preparação da base ou na invocação pela barra.
+
+A compatibilidade depende dos recursos usados pelo pacote. Os detalhes indicam requisitos que impedem a ativação, como arquivos auxiliares ou restrições de execução que o Assistente ainda não consegue aplicar.

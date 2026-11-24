@@ -68,6 +68,15 @@ func (a *App) runSkillCommand(ctx context.Context, skill *skills.Skill, command 
 		}
 	}
 	ec := tools.ExecutionContext{InvokedSkillSlug: skill.Slug}
+	if skill.Source == "plugin" {
+		if skill.CheckCommandActivation == nil {
+			return "", plugins.ErrComponentUnavailable
+		}
+		if err := skill.CheckCommandActivation(ctx); err != nil {
+			return "", err
+		}
+		ec.CheckCommandActivation = skill.CheckCommandActivation
+	}
 	if skill.Tools != nil {
 		ec.AllowedTools = skill.Tools.Allowed
 		ec.DeniedTools = skill.Tools.Denied

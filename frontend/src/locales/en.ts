@@ -151,6 +151,10 @@ notSaved: 'The decision applies only to this operation: it could not be remember
     },
 
     plugins: {
+      packagePathsPending: 'The skill uses paths supplied by the Claude Code runtime.',
+      rootSkillPending: 'Single-skill packages with SKILL.md at the root are not supported yet.',
+      manifestPending: 'The manifest declares configuration that this adapter cannot apply yet.',
+      commandPolicy: 'Commands in this skill use the usual command approval rules.',
       category: 'Category',
       authentication: 'Authentication',
       prevPage: 'Previous page',

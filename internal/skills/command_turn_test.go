@@ -668,7 +668,10 @@ func TestUnclosedPreWarnsOncePerSkillAndAttempt(t *testing.T) {
 	unclosed.Tools = &ToolPermissions{BashCommands: &BashCommands{Allowed: []string{"echo"}}}
 	closed := providerSkill("completo", "<pre>\n!echo "+private+"\n</pre>", false)
 	withoutCommands := providerSkill("sem-comando", "<pre>\n"+private, false)
-	p := NewContextProvider(contextProviderSourceStub{skills: []Skill{unclosed, closed, withoutCommands}})
+	plugin := providerSkill("plugin-guide", "<pre>\n"+private, false)
+	plugin.Source = "plugin"
+	plugin.PackageFormat = "claude-code"
+	p := NewContextProvider(contextProviderSourceStub{skills: []Skill{unclosed, closed, withoutCommands, plugin}})
 	run := func(context.Context, *Skill, string) (string, error) { t.Fatal("exemplo executado"); return "", nil }
 	build := func(ctx context.Context, slug string, budget int) {
 		t.Helper()
@@ -689,9 +692,12 @@ func TestUnclosedPreWarnsOncePerSkillAndAttempt(t *testing.T) {
 	build(t.Context(), "manual", 450)
 	build(ctx, "completo", 400)
 	build(ctx, "sem-comando", 400)
+	build(ctx, "plugin-guide", 400)
+	build(ctx, "plugin-guide", 450)
+	build(t.Context(), "plugin-guide", 400)
 	build(WithCommandTurn(t.Context(), run), "manual", 400)
 	output := logs.String()
-	if strings.Count(output, "level=WARN") != 3 || strings.Count(output, "skill=manual") != 2 ||
+	if strings.Count(output, "level=WARN") != 4 || strings.Count(output, "skill=plugin-guide") != 1 || strings.Count(output, "skill=manual") != 2 ||
 		strings.Count(output, "skill=sem-comando") != 1 || strings.Contains(output, private) || strings.Contains(output, "!echo") {
 		t.Fatalf("avisos: %s", output)
 	}
@@ -883,5 +889,49 @@ func TestPluginSlashDoesNotFallBackToLocalDefinition(t *testing.T) {
 	result, found, err := InvokeContext(t.Context(), "/"+slug, mgr, "conversation", SelectionPolicy{OnDemand: []Skill{*local}})
 	if !found || err == nil || result != nil {
 		t.Fatalf("unexpected fallback: result=%v found=%v err=%v", result, found, err)
+	}
+}
+
+func TestClaudeInlinePlanningAndRendering(t *testing.T) {
+	skill := &Skill{Source: "plugin", PackageFormat: "claude-code", Slug: "plugin:example"}
+	source := "one !`echo first` and !`echo $ARGUMENTS`.\n~~~\n!`example`\n~~~\nExample: `` !`literal` ``"
+	calls := 0
+	run := func(context.Context, *Skill, string) (string, error) { calls++; return "out\n", nil }
+	if _, err := planCommandLines(t.Context(), skill, source, false, run, argumentExpander("--option", []string{"--option"}), "--option"); err == nil || calls != 0 {
+		t.Fatalf("invalid arguments: err=%v calls=%d", err, calls)
+	}
+	doc, err := planCommandLines(t.Context(), skill, source, false, run, argumentExpander("valid", []string{"valid"}), "valid")
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := doc.render(t.Context(), skill, run, false, -1, nil)
+	want := "one out and out.\n~~~\n!`example`\n~~~\nExample: `` !`literal` ``"
+	if err != nil || out != want || calls != 2 {
+		t.Fatalf("output=%q err=%v calls=%d", out, err, calls)
+	}
+	skill.Content = source
+	if !skillDependsOnTools(*skill) {
+		t.Fatal("inline commands require tools")
+	}
+	skill.Content = "~~~\n!`example`\n~~~"
+	if skillDependsOnTools(*skill) {
+		t.Fatal("literal example should remain available")
+	}
+}
+
+func TestClaudeCommandRequirementsIgnoreDocumentation(t *testing.T) {
+	for _, tc := range []struct {
+		text     string
+		requires bool
+	}{
+		{"Mention CLAUDE_PLUGIN_ROOT in prose", false},
+		{"Read ${CLAUDE_PLUGIN_ROOT}/docs/manual.md", true},
+		{"````text\n```!\necho example\n```\n````", false},
+		{"```!\necho example\n```", true},
+		{"Run !`pwd ${CLAUDE_SKILL_DIR}`", true},
+	} {
+		if _, got := ClaudeCommandRequirements(tc.text); (got != "") != tc.requires {
+			t.Errorf("%q: got %v", tc.text, got)
+		}
 	}
 }

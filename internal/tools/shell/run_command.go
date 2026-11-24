@@ -266,6 +266,11 @@ func (rc *RunCommand) Execute(ctx context.Context, args json.RawMessage) (tools.
 			return shellPrerequisiteFailure(ctx, "directory_changed", "O diretório mudou durante a autorização."), nil
 		}
 	}
+	if origin, ok := tools.GetExecutionContext(ctx); ok && origin.CheckCommandActivation != nil {
+		if err := origin.CheckCommandActivation(ctx); err != nil {
+			return tools.ToolResult{Content: "A ativação do plugin mudou ou está indisponível.", IsError: true}, nil
+		}
+	}
 	// O executor pode ter devolvido o timeout enquanto a política ou o log
 	// concluíam. O marcador de retry já está publicado antes desta checagem.
 	if err := ctx.Err(); err != nil {

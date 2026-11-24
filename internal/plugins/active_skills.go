@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/google/uuid"
 	"strings"
 
 	"assistente/internal/commandsecurity"
@@ -33,6 +34,11 @@ func (i *Inventory) installedSnapshot(ctx context.Context, id, digest string) (*
 	if err := json.Unmarshal(revision.Files, &result.Files); err != nil {
 		return nil, err
 	}
+	_, manifest, warnings, err := pluginpackage.CapturedManifest(result.Files)
+	if err != nil {
+		return nil, err
+	}
+	result.Manifest, result.Warnings = manifest, warnings
 	return result, nil
 }
 
@@ -98,7 +104,7 @@ func (i *Inventory) SetSkillActive(ctx context.Context, id, digest, key string, 
 			if len(prefix) > 28 {
 				prefix = prefix[:28]
 			}
-			activation = database.PluginSkillActivation{InstallationID: id, ComponentKey: key, Digest: digest, Slug: skills.PluginPrefix + strings.TrimRight(prefix, "-") + "-" + hex.EncodeToString(hash[:12]), Definition: string(snap.Files[component.Entry])}
+			activation = database.PluginSkillActivation{Generation: uuid.NewString(), PackageFormat: snap.Manifest.Format, InstallationID: id, ComponentKey: key, Digest: digest, Slug: skills.PluginPrefix + strings.TrimRight(prefix, "-") + "-" + hex.EncodeToString(hash[:12]), Definition: string(snap.Files[component.Entry])}
 			break
 		}
 		if activation.Slug == "" {
@@ -116,7 +122,7 @@ func (i *Inventory) SetSkillActive(ctx context.Context, id, digest, key string, 
 		if !active {
 			return tx.Where("installation_id = ? AND component_key = ?", id, key).Delete(&database.PluginSkillActivation{}).Error
 		}
-		return tx.Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "installation_id"}, {Name: "component_key"}}, DoUpdates: clause.AssignmentColumns([]string{"digest", "slug", "definition"})}).Create(&activation).Error
+		return tx.Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "installation_id"}, {Name: "component_key"}}, DoNothing: true}).Create(&activation).Error
 	}, admit)
 }
 
@@ -136,9 +142,30 @@ func (i *Inventory) ActiveSkills(ctx context.Context) ([]skills.Skill, error) {
 		if err != nil {
 			return nil, fmt.Errorf("plugin skill %s: %w", row.Slug, err)
 		}
+		if meta.Name == "" {
+			meta.Name = strings.TrimPrefix(row.ComponentKey, "skills/")
+		}
 		meta.DisplayName = meta.Name
 		meta.Name = row.Slug
-		result = append(result, skills.Skill{SkillMetadata: *meta, Slug: row.Slug, Source: "plugin", Content: body})
+		check := func(ctx context.Context) error {
+			current, err := database.RequireUserID(ctx)
+			if err != nil || current != owner {
+				return ErrComponentUnavailable
+			}
+			var count int64
+			err = i.db.WithContext(ctx).Model(&database.PluginSkillActivation{}).
+				Joins("JOIN plugin_installations p ON p.id = plugin_skill_activations.installation_id AND p.digest = plugin_skill_activations.digest").
+				Where("p.user_id = ? AND p.disabled = ? AND p.id = ? AND p.digest = ? AND plugin_skill_activations.component_key = ? AND plugin_skill_activations.generation = ?", owner, false, row.InstallationID, row.Digest, row.ComponentKey, row.Generation).
+				Count(&count).Error
+			if err != nil {
+				return err
+			}
+			if count != 1 {
+				return ErrComponentUnavailable
+			}
+			return nil
+		}
+		result = append(result, skills.Skill{CheckCommandActivation: check, SkillMetadata: *meta, Slug: row.Slug, Source: "plugin", PackageFormat: row.PackageFormat, Content: body})
 	}
 	return result, nil
 }

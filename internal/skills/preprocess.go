@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/yuin/goldmark"
@@ -76,6 +77,14 @@ type commandLine struct {
 type commandDocument struct {
 	lines    []string
 	commands []commandLine
+	inline   bool
+}
+
+func (d commandDocument) content() string {
+	if d.inline {
+		return strings.Join(d.lines, "")
+	}
+	return strings.Join(d.lines, "\n")
 }
 
 var shellArgumentReference = regexp.MustCompile(`\$(?:ARGUMENTS|[0-9]+)`)
@@ -85,6 +94,10 @@ var shellArgumentText = regexp.MustCompile(`^(?:[\pL\pN._][\pL\pN._/-]*(?: +[\pL
 
 // O parser CommonMark resolve o recuo relativo de cercas em listas e citações.
 func codeLineStarts(content string) (starts map[int]bool, unclosedPre bool) {
+	return inspectSkillMarkdown(content, nil, nil)
+}
+
+func inspectSkillMarkdown(content string, collect func(start, end int), fence func(string)) (starts map[int]bool, unclosedPre bool) {
 	if !strings.ContainsAny(content, "!<") {
 		return nil, false
 	}
@@ -133,6 +146,25 @@ func codeLineStarts(content string) (starts map[int]bool, unclosedPre bool) {
 		}
 		literal := node.Kind() == ast.KindFencedCodeBlock || node.Kind() == ast.KindCodeBlock
 		switch n := node.(type) {
+		case *ast.FencedCodeBlock:
+			if fence != nil && n.Info != nil {
+				fence(string(n.Info.Segment.Value(source)))
+			}
+		case *ast.CodeSpan:
+			if collect != nil && preStart < 0 && n.ChildCount() == 1 {
+				segment := n.FirstChild().(*ast.Text).Segment
+				start, end := segment.Start, segment.Stop
+				if start > 0 && end < len(source) && source[start-1] == ' ' && source[end] == ' ' {
+					start--
+					end++
+				}
+				if start >= 2 && end < len(source) && string(source[start-2:start]) == "!`" && source[end] == '`' {
+					prior, _ := utf8.DecodeLastRune(source[:start-2])
+					if start == 2 || unicode.IsSpace(prior) {
+						collect(start-2, end+1)
+					}
+				}
+			}
 		case *ast.Text:
 			// Goldmark cria um segmento por linha do code span. A primeira
 			// linha pode ter uma diretiva antes das crases, como !`echo ok`.
@@ -231,7 +263,16 @@ func validInterpolatedCommand(rawArgs, template string, expand func(string) stri
 	return true
 }
 
+func warnUnclosedPre(ctx context.Context, slug string, base, unclosedPre bool) {
+	if unclosedPre && firstSkillWarning(ctx, slug, "unclosed_pre", base) {
+		logging.Logger(ctx, "skills.preprocess").Warn("Elemento <pre> sem fechamento no fim da skill", "skill", slug)
+	}
+}
+
 func planCommandLines(ctx context.Context, skill *Skill, content string, base bool, run SkillCommandRunner, expand func(string) string, rawArgs string) (commandDocument, error) {
+	if skill.Source == "plugin" {
+		return planPluginCommands(ctx, skill, content, base, run, expand, rawArgs)
+	}
 	var commands []commandLine
 	lines := strings.Split(content, "\n")
 	var allowed []string
@@ -248,9 +289,7 @@ func planCommandLines(ctx context.Context, skill *Skill, content string, base bo
 	shellToolAllowed := skill.Tools == nil || (!slices.Contains(skill.Tools.Denied, "run_command") &&
 		(len(skill.Tools.Allowed) == 0 || slices.Contains(skill.Tools.Allowed, "run_command")))
 	fenced, unclosedPre := codeLineStarts(content)
-	if unclosedPre && firstSkillWarning(ctx, skill.Slug, "unclosed_pre", base) {
-		logging.Logger(ctx, "skills.preprocess").Warn("Elemento <pre> sem fechamento no fim da skill", "skill", skill.Slug)
-	}
+	warnUnclosedPre(ctx, skill.Slug, base, unclosedPre)
 	offset := 0
 	for idx, line := range lines {
 		trimmed := strings.TrimSpace(line)
@@ -302,7 +341,7 @@ func planCommandLines(ctx context.Context, skill *Skill, content string, base bo
 		lines[idx] = ""
 		commands = append(commands, commandLine{idx, command})
 	}
-	return commandDocument{lines, commands}, nil
+	return commandDocument{lines: lines, commands: commands}, nil
 }
 
 func (d commandDocument) render(ctx context.Context, skill *Skill, run SkillCommandRunner, base bool, remaining int, outputs map[int]string) (string, error) {
@@ -353,7 +392,7 @@ func (d commandDocument) renderLines(ctx context.Context, skill *Skill, base boo
 		}
 		d.lines[line.index] = output
 	}
-	return strings.Join(d.lines, "\n"), nil
+	return d.content(), nil
 }
 
 // stripBackticks remove backticks envolvendo o comando.

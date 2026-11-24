@@ -86,15 +86,13 @@ func InspectRepositoryPackage(directory, expectedRoot, relative string) (*LocalS
 
 func inspectOpened(root *os.Root, absolute string, entryLimit, depthLimit int, fileLimit, byteLimit int64) (*LocalSnapshot, error) {
 	snapshot := &LocalSnapshot{Files: make(map[string][]byte)}
-	manifest, err := ReadFile(root, "plugin.json", min(int64(1<<20), byteLimit, fileLimit))
+	manifestPath, manifest, _, _, err := LocateManifest(func(name string) ([]byte, error) {
+		return ReadFile(root, name, min(int64(1<<20), byteLimit, fileLimit))
+	})
 	if err != nil {
 		return nil, err
 	}
-	snapshot.Manifest, snapshot.Warnings, err = decodeManifest(manifest)
-	if err != nil {
-		return nil, err
-	}
-	snapshot.Files["plugin.json"] = manifest
+	snapshot.Files[manifestPath] = manifest
 	remaining := byteLimit - int64(len(manifest))
 	entriesLeft := entryLimit
 	foundManifest := false
@@ -136,9 +134,9 @@ func inspectOpened(root *os.Root, absolute string, entryLimit, depthLimit int, f
 					return fmt.Errorf("package exceeds entry limit")
 				}
 				name := path.Join(dir, entry.Name())
-				if strings.EqualFold(name, "plugin.json") {
+				if strings.EqualFold(name, manifestPath) {
 					if foundManifest {
-						return fmt.Errorf("ambiguous plugin.json entries")
+						return fmt.Errorf("ambiguous %s entries", manifestPath)
 					}
 					foundManifest = true
 					continue
@@ -172,8 +170,16 @@ func inspectOpened(root *os.Root, absolute string, entryLimit, depthLimit int, f
 		return nil, err
 	}
 	if !foundManifest {
-		return nil, fmt.Errorf("plugin.json disappeared during inspection: %w", fs.ErrNotExist)
+		return nil, fmt.Errorf("%s disappeared during inspection: %w", manifestPath, fs.ErrNotExist)
 	}
+	captured, metadata, warnings, err := CapturedManifest(snapshot.Files)
+	if err != nil {
+		return nil, err
+	}
+	if captured != manifestPath {
+		return nil, fmt.Errorf("package manifest changed during inspection")
+	}
+	snapshot.Manifest, snapshot.Warnings = metadata, warnings
 	names := make([]string, 0, len(snapshot.Files))
 	for name := range snapshot.Files {
 		names = append(names, name)
