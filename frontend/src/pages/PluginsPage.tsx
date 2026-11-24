@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { create } from 'zustand';
 import { useTranslation } from 'react-i18next';
 import { ChangeInstallation, DiscardPreview, InstalledComponents, InstallReviewed, ListInstalled, PreviewLocal, RegisterMCP, RemoveMCP, SetSkillActive, SyncMCP } from '@wailsjs/go/wailsapi/Plugins';
 import type { database, plugins, wailsapi } from '@wailsjs/go/models';
@@ -43,12 +44,24 @@ function discardAbandonedPreview(token: string) {
 
 // Confirmed inventory writes outlive the page that submitted them.
 const publications = new Map<string, Promise<void>>();
-const pendingLifecycleSync = new Set<string>();
+const usePendingLifecycleSync = create<ReadonlyMap<string, symbol>>(() => new Map());
+
+async function reconcileMCP(session: string, operation: Promise<void>) {
+  const pending = usePendingLifecycleSync.getState().get(session);
+  await operation;
+  if (pending && usePendingLifecycleSync.getState().get(session) === pending) {
+    const next = new Map(usePendingLifecycleSync.getState());
+    next.delete(session);
+    usePendingLifecycleSync.setState(next, true);
+  }
+}
 
 async function publish(session: string, operation: Promise<unknown>, lifecycle = false) {
   const pending = operation.then(() => undefined).catch(cause => {
     const message = installationError(cause, lifecycle ? 'plugins.componentError' : 'plugins.installError');
-    if (lifecycle && message === 'plugins.syncPending') pendingLifecycleSync.add(session);
+    if (lifecycle && message === 'plugins.syncPending') {
+      usePendingLifecycleSync.setState(current => new Map(current).set(session, Symbol()), true);
+    }
     throw message;
   });
   publications.set(session, pending);
@@ -74,7 +87,8 @@ function InstalledPlugins({ session }: { session: string }) {
   const [details, setDetails] = useState<{ installation: InstallationRow; components: plugins.Component[] } | null>(null);
   const [listError, setListError] = useState('');
   const [operationError, setError] = useState('');
-  const error = operationError || (pendingLifecycleSync.has(session) ? 'plugins.syncPending' : '');
+  const pendingSync = usePendingLifecycleSync(state => state.has(session));
+  const error = operationError || (pendingSync ? 'plugins.syncPending' : '');
   const [busy, setBusy] = useState(true);
   useEffect(() => {
     if (error) announce(t(error), 'assertive');
@@ -108,7 +122,7 @@ function InstalledPlugins({ session }: { session: string }) {
       try {
         await pending;
       } catch (cause) {
-        if (mounted.current) setError(String(cause));
+        if (mounted.current && !(cause === 'plugins.syncPending' && usePendingLifecycleSync.getState().has(session))) setError(String(cause));
       }
     }
     if (!mounted.current) return false;
@@ -194,9 +208,9 @@ function InstalledPlugins({ session }: { session: string }) {
         if (component.active) {
           const accepted = await confirm({ title: t(preserve ? 'plugins.keepServer' : 'plugins.removeServer', { name: component.name }), message: t(preserve ? 'plugins.keepConfirm' : 'plugins.removeConfirm', { name: component.name }), confirmText: t(preserve ? 'plugins.keepServer' : 'plugins.removeServer', { name: component.name }), cancelText: t('common.cancel') });
           if (!accepted || !mounted.current) return;
-          await RemoveMCP(installation.id, installation.digest, component.key, preserve);
+          await reconcileMCP(session, RemoveMCP(installation.id, installation.digest, component.key, preserve));
         } else {
-          await RegisterMCP(installation.id, installation.digest, component.key);
+          await reconcileMCP(session, RegisterMCP(installation.id, installation.digest, component.key));
         }
       } else {
         await SetSkillActive(installation.id, installation.digest, component.key, !component.active);
@@ -228,8 +242,7 @@ function InstalledPlugins({ session }: { session: string }) {
     if (busy) return;
     setBusy(true);
     try {
-      await SyncMCP();
-      pendingLifecycleSync.delete(session);
+      await reconcileMCP(session, SyncMCP());
       if (!mounted.current) return;
       setError('');
       if (details) {
@@ -281,8 +294,7 @@ function InstalledPlugins({ session }: { session: string }) {
         ? rows.filter(row => row.id !== installation.id)
         : rows.map(row => row.id === installation.id ? { ...row, disabled: action === 'disable' } : row));
       setDetails(null);
-      if (syncPending) setError('plugins.syncPending');
-      else announce(t('plugins.' + action + 'Done', { name: installation.name }));
+      if (!syncPending) announce(t('plugins.' + action + 'Done', { name: installation.name }));
       await refresh();
     } catch (cause) {
       if (!mounted.current) return;

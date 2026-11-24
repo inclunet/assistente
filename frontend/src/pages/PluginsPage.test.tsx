@@ -339,11 +339,17 @@ describe('PluginsPage', () => {
     await act(async () => fail());
     expect(await screen.findByText('plugins.syncPending')).toBeVisible();
     second.unmount();
-    render(<PluginsPage />);
+    const third = render(<PluginsPage />);
     expect(await screen.findByText('plugins.syncPending')).toBeVisible();
     const retry = screen.getByRole('button', { name: 'plugins.retrySync' });
     await waitFor(() => expect(retry).toBeEnabled());
+    let synchronized!: () => void;
+    mocks.sync.mockImplementationOnce(() => new Promise<void>(resolve => { synchronized = resolve; }));
     await user.click(retry);
+    third.unmount();
+    render(<PluginsPage />);
+    expect(await screen.findByText('plugins.syncPending')).toBeVisible();
+    await act(async () => synchronized());
     await waitFor(() => expect(screen.queryByText('plugins.syncPending')).toBeNull());
   });
 
