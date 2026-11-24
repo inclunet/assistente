@@ -2,6 +2,8 @@ package app
 
 import (
 	"assistente/internal/authorization"
+	"assistente/internal/database"
+	"assistente/internal/userctx"
 	"context"
 	"fmt"
 	"strings"
@@ -92,4 +94,33 @@ func (p *appNetworkPrompter) PromptNetworkAuthorization(ctx context.Context, req
 // The desktop repository manager owns this decision even without an active chat.
 func (a *App) repositoryNetworkAuthorizer() *nettrust.Authorizer {
 	return a.newNetworkAuthorizer(&appNetworkPrompter{ask: a.questionnaireMgr.RequestQuestionnaire})
+}
+
+// Keep the decision, vault access and HTTP transfer bound to the desktop login
+// that submitted the request, including time spent waiting for another dialog.
+func (a *App) watchRepositorySession(ctx context.Context) (context.Context, func(), error) {
+	owner, err := database.RequireUserID(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	session, ok := userctx.SessionIDFromContext(ctx)
+	if !ok {
+		return nil, nil, database.ErrUserScopeRequired
+	}
+	epochs, err := a.commandSecurityService()
+	if err != nil {
+		return nil, nil, err
+	}
+	snapshot, err := epochs.CaptureAuthenticated(ctx, func(context.Context) (string, string, error) {
+		a.authMu.RLock()
+		defer a.authMu.RUnlock()
+		if a.currentAuthUser == nil || a.currentUserID != owner || a.currentAuthUser.UserID != owner || a.currentAuthUser.SessionID != session {
+			return "", "", database.ErrUserScopeRequired
+		}
+		return owner, session, nil
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+	return epochs.WatchSecurityEpoch(ctx, snapshot)
 }

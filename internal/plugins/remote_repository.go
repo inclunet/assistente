@@ -53,9 +53,10 @@ func canonicalHost(u *url.URL) string {
 	return strings.TrimSuffix(host, ":443")
 }
 
-func (i *Inventory) WithRemoteClient(create RemoteClient) *Inventory {
+func (i *Inventory) WithRemoteClient(create RemoteClient, watch func(context.Context) (context.Context, func(), error)) *Inventory {
 	copy := *i
 	copy.remote = create
+	copy.watchRemote = watch
 	return &copy
 }
 
@@ -78,6 +79,14 @@ func (i *Inventory) download(ctx context.Context, origin, reference string) (*pl
 	u, err := remoteURL(origin)
 	if err != nil || (reference != "" && canonicalHost(&url.URL{Host: reference}) != canonicalHost(u)) || i.remote == nil {
 		return nil, "", errors.New("PLUGIN_REPOSITORY_URL")
+	}
+	if i.watchRemote != nil {
+		var release func()
+		ctx, release, err = i.watchRemote(ctx)
+		if err != nil {
+			return nil, "", err
+		}
+		defer release()
 	}
 	client := i.remote(reference)
 	if client == nil {

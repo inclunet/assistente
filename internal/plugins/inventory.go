@@ -20,10 +20,11 @@ var ErrPackageChanged = errors.New("o pacote mudou desde a prévia")
 var ErrInstallationChanged = errors.New("a instalação mudou desde a prévia")
 
 type Inventory struct {
-	queries *repositoryQueries
-	remote  RemoteClient
-	db      *gorm.DB
-	syncMCP func(context.Context) error
+	watchRemote func(context.Context) (context.Context, func(), error)
+	queries     *repositoryQueries
+	remote      RemoteClient
+	db          *gorm.DB
+	syncMCP     func(context.Context) error
 }
 
 func NewInventory(db *gorm.DB) *Inventory { return &Inventory{db: db, queries: &repositoryQueries{}} }

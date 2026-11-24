@@ -99,7 +99,7 @@ func TestRemoteStoreRetainsReviewedArchiveAndVaultOrigin(t *testing.T) {
 		client := RepositoryHTTPClient(manager, ref, nil)
 		client.GetBaseClient().Transport.(*credentials.CredentialTransport).Base = server.Client().Transport
 		return client
-	})
+	}, nil)
 	ctx := database.WithUserID(context.Background(), "owner")
 	admit := commandsecurity.Admission(func(_ *gorm.DB, fn func() error) error { return fn() })
 	other := database.WithUserID(context.Background(), "other")
@@ -217,7 +217,7 @@ func TestRemoteStoreDefaultPortPersistsAcrossOperations(t *testing.T) {
 				return &http.Response{StatusCode: 200, Body: io.NopCloser(bytes.NewReader(body.Bytes())), Header: make(http.Header)}, nil
 			})
 			return client
-		})
+		}, nil)
 	}
 	ctx := database.WithUserID(context.Background(), "owner")
 	admit := commandsecurity.Admission(func(_ *gorm.DB, fn func() error) error { return fn() })
