@@ -26,6 +26,8 @@ function mcpConnectionLabel(component: plugins.Component) {
 function componentRequirement(component: plugins.Component) {
   if (component.reason === 'shellCommands') return 'plugins.shellPending';
   if (component.reason === 'supportingFiles') return 'plugins.filesPending';
+  if (component.reason === 'missingTemplate') return 'plugins.missingTemplate';
+  if (component.reason === 'invalidTemplate') return 'plugins.invalidTemplate';
   if (component.reason === 'manifestConfiguration') return 'plugins.manifestPending';
   if (component.reason === 'packagePaths') return 'plugins.packagePathsPending';
   if (component.reason === 'rootSkill') return 'plugins.rootSkillPending';
@@ -49,6 +51,11 @@ function discardAbandonedPreview(token: string) {
 }
 
 // Confirmed inventory writes outlive the page that submitted them.
+const listRequests = new Map<string, string>();
+useAuthStore.subscribe((state, previous) => {
+  if (state.user?.sessionId !== previous.user?.sessionId) listRequests.clear();
+});
+
 const publications = new Map<string, Promise<void>>();
 const usePendingLifecycleSync = create<ReadonlyMap<string, symbol>>(() => new Map());
 
@@ -219,7 +226,6 @@ function InstalledPlugins({ session }: { session: string }) {
     const components = await InstalledComponents(installation.id, installation.digest);
     if (mounted.current) setDetails({ installation, components: components ?? [] });
   };
-  const listRequests = useRef(new Map<string,string>());
   const [createdList, setCreatedList] = useState('');
   const changeComponent = async (component: plugins.Component, preserve = false) => {
     if (!details || busy || error === 'plugins.syncPendingStale') return;
@@ -228,12 +234,13 @@ function InstalledPlugins({ session }: { session: string }) {
     const { installation } = details;
     try {
       if (component.kind === 'tasklistTemplate') {
-        const key = JSON.stringify([installation.id, installation.digest, component.key]);
-        const request = listRequests.current.get(key) ?? crypto.randomUUID();
-        listRequests.current.set(key, request);
+        const key = JSON.stringify([session, installation.id, installation.digest, component.key]);
+        setCreatedList('');
+        const request = listRequests.get(key) ?? crypto.randomUUID();
+        listRequests.set(key, request);
         await CreateListFromTemplate(installation.id, installation.digest, component.key, request);
-        listRequests.current.delete(key);
         if (mounted.current) {
+          if (listRequests.get(key) === request) listRequests.delete(key);
           setCreatedList(component.name);
           announce(t('plugins.createdList', { name: component.name }));
         }
@@ -269,7 +276,8 @@ function InstalledPlugins({ session }: { session: string }) {
           await refreshDetails(installation);
           if (mounted.current) setError('plugins.syncPending');
         } catch { if (mounted.current) setError('plugins.syncPendingStale'); }
-      } else setError(String(cause).includes('PLUGIN_COMPONENT_EDITED') ? 'plugins.edited' : 'plugins.componentError');
+      } else if (String(cause).includes('PLUGIN_LIST_CAPACITY')) setError('plugins.listCapacity');
+      else setError(installationError(cause, 'plugins.componentError'));
     }
     finally { if (mounted.current) setBusy(false); }
   };
@@ -407,7 +415,7 @@ function InstalledPlugins({ session }: { session: string }) {
         </> : component.kind === 'mcp' && !component.reason ? <>
           <Button disabled={busy || details.installation.disabled || error === 'plugins.syncPendingStale'} onClick={() => void changeComponent(component)}>{t(component.active ? 'plugins.removeServer' : 'plugins.registerServer', { name: component.name })}</Button>
           {component.active && <Button disabled={busy || error === 'plugins.syncPendingStale'} onClick={() => void changeComponent(component, true)}>{t('plugins.keepServer', { name: component.name })}</Button>}
-        </> : <p>{t(componentRequirement(component) ?? 'plugins.unavailable')}</p>}
+        </> : <p>{t(componentRequirement(component) ?? 'plugins.unavailable', { path: component.entry })}</p>}
       </li>)}</ul>}
     </Modal>}
     {preview && <DecisionDialog isOpen title={t('plugins.preview', { name: preview.name })}
@@ -427,7 +435,7 @@ function InstalledPlugins({ session }: { session: string }) {
         {preview.authentication && <><dt>{t('plugins.authentication')}</dt><dd>{preview.authentication}</dd></>}
         <dt>SHA-256</dt><dd>{preview.digest}</dd>
       </dl>
-      {(preview.components ?? []).length > 0 && <ul aria-label={t('plugins.components')}>{preview.components.map(component => <li key={component.key}>{component.name} · {t(component.kind === 'skill' ? 'plugins.skill' : component.kind === 'mcp' ? 'plugins.mcp' : component.kind === 'tasklistTemplate' ? 'plugins.tasklistTemplate' : 'plugins.invalid')}{component.requestsShell && <span> · {t('plugins.commandPolicy')}</span>}{component.kind === 'mcp' && <p>{mcpConnectionLabel(component)}</p>}{componentRequirement(component) && <p>{t(componentRequirement(component)!)}</p>}</li>)}</ul>}
+      {(preview.components ?? []).length > 0 && <ul aria-label={t('plugins.components')}>{preview.components.map(component => <li key={component.key}>{component.name} · {t(component.kind === 'skill' ? 'plugins.skill' : component.kind === 'mcp' ? 'plugins.mcp' : component.kind === 'tasklistTemplate' ? 'plugins.tasklistTemplate' : 'plugins.invalid')}{component.requestsShell && <span> · {t('plugins.commandPolicy')}</span>}{component.kind === 'mcp' && <p>{mcpConnectionLabel(component)}</p>}{componentRequirement(component) && <p>{t(componentRequirement(component)!, { path: component.entry })}</p>}</li>)}</ul>}
       {(preview.diagnostics ?? []).length > 0 && <details>
         <summary>{t('plugins.warnings', { count: preview.diagnostics.length })}</summary>
         <ul>{preview.diagnostics.map(warning => {

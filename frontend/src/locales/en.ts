@@ -153,6 +153,9 @@ notSaved: 'The decision applies only to this operation: it could not be remember
     plugins: {
       packagePathsPending: 'The skill uses paths supplied by the Claude Code runtime.',
       rootSkillPending: 'Single-skill packages with SKILL.md at the root are not supported yet.',
+      missingTemplate: 'The template file {{path}} is missing.',
+      invalidTemplate: 'Check the JSON and workflow or task definitions in {{path}}.',
+      listCapacity: 'You have reached the task list limit. Delete a list before creating another.',
       manifestPending: 'The manifest declares configuration that this adapter cannot apply yet.',
       commandPolicy: 'Commands in this skill use the usual command approval rules.',
       category: 'Category',

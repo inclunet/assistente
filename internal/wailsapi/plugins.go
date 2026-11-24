@@ -339,10 +339,13 @@ func (api *Plugins) ChangeInstallation(id, digest, action string) error {
 
 func (api *Plugins) CreateListFromTemplate(id, digest, key, request string) (string, error) {
 	var listID string
-	err := api.withRepositorySession(func(ctx context.Context, inventory *plugins.Inventory, _ func() (string, error), admit commandsecurity.Admission) error {
+	err := api.mutateComponent(func(ctx context.Context, inventory *plugins.Inventory, admit commandsecurity.Admission) error {
 		var err error
 		listID, err = inventory.CreateListFromTemplate(ctx, id, digest, key, request, admit)
 		return err
 	})
+	if errors.Is(err, database.ErrTaskListCapacity) {
+		return "", errors.New("PLUGIN_LIST_CAPACITY")
+	}
 	return listID, err
 }

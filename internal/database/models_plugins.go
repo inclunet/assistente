@@ -32,6 +32,16 @@ type PluginSkillActivation struct {
 	Definition     string `gorm:"not null" json:"-"`
 }
 
+// PluginListReceipt records an accepted request independently of the created list.
+type PluginListReceipt struct {
+	InstallationID string             `gorm:"primaryKey"`
+	Digest         string             `gorm:"primaryKey"`
+	ComponentKey   string             `gorm:"primaryKey"`
+	RequestID      string             `gorm:"primaryKey"`
+	ListID         string             `gorm:"not null"`
+	Installation   PluginInstallation `gorm:"foreignKey:InstallationID;constraint:OnDelete:CASCADE"`
+}
+
 type PluginMCPBinding struct {
 	InstallationID string `gorm:"primaryKey"`
 	ComponentKey   string `gorm:"primaryKey"`

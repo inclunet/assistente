@@ -232,6 +232,7 @@ func InitPath(path string) error {
 		&PluginRevision{},
 		&PluginSkillActivation{},
 		&PluginMCPBinding{},
+		&PluginListReceipt{},
 		&AuthorizationRule{},
 		&AuthorizationImport{},
 		&AuthorizationPolicy{},
