@@ -3,6 +3,7 @@ package pluginpackage
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -37,5 +38,41 @@ func TestSnapshotBudgets(t *testing.T) {
 				t.Fatalf("snapshot=%v err=%v", snapshot, err)
 			}
 		})
+	}
+}
+
+func TestSnapshotManifestSpellingAndGitMetadata(t *testing.T) {
+	dir := t.TempDir()
+	raw := []byte(`{"name":"test","$schema":"` + ManifestSchema + `"}`)
+	write := func(name string) {
+		t.Helper()
+		if err := os.WriteFile(filepath.Join(dir, name), raw, 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("Plugin.json")
+	if err := os.Mkdir(filepath.Join(dir, ".GIT"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	write(".GIT/config")
+	if _, err := os.Stat(filepath.Join(dir, "plugin.json")); os.IsNotExist(err) {
+		write("plugin.json")
+		if _, err := InspectLocal(dir); err == nil {
+			t.Fatal("accepted two root manifest entries")
+		}
+		if err := os.Remove(filepath.Join(dir, "Plugin.json")); err != nil {
+			t.Fatal(err)
+		}
+	}
+	n := int64(len(raw))
+	got, err := inspectLocal(dir, 2, 0, n, n)
+	if err != nil || len(got.Files) != 1 || string(got.Files["plugin.json"]) != string(raw) {
+		t.Fatalf("snapshot = %+v, err = %v", got, err)
+	}
+	if runtime.GOOS == "windows" && filepath.VolumeName(dir) != "" && dir[1] == ':' {
+		extended, err := InspectLocal(`\\?\` + dir)
+		if err != nil || extended.Origin != got.Origin || extended.Digest != got.Digest {
+			t.Fatalf("extended path snapshot = %+v, err = %v, want origin %q", extended, err, got.Origin)
+		}
 	}
 }

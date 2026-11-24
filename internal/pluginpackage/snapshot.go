@@ -47,6 +47,7 @@ func inspectLocal(dir string, entryLimit, depthLimit int, fileLimit, byteLimit i
 		return nil, err
 	}
 	if runtime.GOOS == "windows" {
+		origin = ordinaryWindowsPath(origin)
 		volume := filepath.VolumeName(origin)
 		if strings.HasPrefix(volume, `\\`) && !strings.HasPrefix(volume, `\\?\`) {
 			origin = strings.ToLower(volume) + origin[len(volume):]
@@ -69,6 +70,7 @@ func inspectLocal(dir string, entryLimit, depthLimit int, fileLimit, byteLimit i
 	snapshot.Files["plugin.json"] = manifest
 	remaining := byteLimit - int64(len(manifest))
 	entriesLeft := entryLimit
+	foundManifest := false
 	var collect func(string, int) error
 	collect = func(dir string, depth int) error {
 		if depth > depthLimit {
@@ -90,7 +92,14 @@ func inspectLocal(dir string, entryLimit, depthLimit int, fileLimit, byteLimit i
 					return fmt.Errorf("package exceeds entry limit")
 				}
 				name := path.Join(dir, entry.Name())
-				if entry.Name() == ".git" || name == "plugin.json" {
+				if strings.EqualFold(name, "plugin.json") {
+					if foundManifest {
+						return fmt.Errorf("ambiguous plugin.json entries")
+					}
+					foundManifest = true
+					continue
+				}
+				if strings.EqualFold(entry.Name(), ".git") {
 					continue
 				}
 				if !fs.ValidPath(name) {
@@ -118,6 +127,9 @@ func inspectLocal(dir string, entryLimit, depthLimit int, fileLimit, byteLimit i
 	if err := collect(".", 0); err != nil {
 		return nil, err
 	}
+	if !foundManifest {
+		return nil, fmt.Errorf("plugin.json disappeared during inspection: %w", fs.ErrNotExist)
+	}
 	names := make([]string, 0, len(snapshot.Files))
 	for name := range snapshot.Files {
 		names = append(names, name)
@@ -133,4 +145,34 @@ func inspectLocal(dir string, entryLimit, depthLimit int, fileLimit, byteLimit i
 	}
 	snapshot.Digest = hex.EncodeToString(h.Sum(nil))
 	return snapshot, nil
+}
+
+// Prefer the ordinary spelling only when it names the same existing directory.
+// Some extended Windows paths (for example names ending in a dot) need their prefix.
+func ordinaryWindowsPath(origin string) string {
+	const extended = `\\?\`
+	if !strings.HasPrefix(origin, extended) {
+		return origin
+	}
+	name := strings.TrimPrefix(origin, extended)
+	switch {
+	case len(name) >= 4 && strings.EqualFold(name[:4], `UNC\`):
+		name = `\\` + name[4:]
+	case len(name) >= 3 && name[1] == ':' && name[2] == '\\':
+	default:
+		return origin
+	}
+	ordinary, err := filepath.EvalSymlinks(name)
+	if err != nil {
+		return origin
+	}
+	current, err := os.Stat(origin)
+	if err != nil {
+		return origin
+	}
+	other, err := os.Stat(ordinary)
+	if err != nil || !os.SameFile(current, other) {
+		return origin
+	}
+	return ordinary
 }

@@ -67,6 +67,8 @@ recusa, expansão de argumentos no texto e reconstrução do prompt sem repetir 
 
 O leitor local de `internal/pluginpackage` reconhece o manifesto Agent Plugins 1.0.0 e limita a leitura à raiz do pacote e ao orçamento de bytes. Em `extensions`, preserva os valores JSON brutos de cada chave. Se o campo estiver presente e não for um objeto, emite um diagnóstico e ignora o campo.
 
+A captura guarda uma única entrada `plugin.json`. Em volumes que aceitam variações de caixa, a grafia encontrada pode diferir do nome consultado. Duas entradas de raiz que só diferem na caixa desse nome tornam o manifesto ambíguo. A captura omite metadados `.git` em qualquer caixa.
+
 O inventário interno persiste por conta a origem local e as revisões do pacote no SQLite. A publicação exige o digest da prévia e a revisão anteriormente instalada. O teste `TestLocalInventoryPublishesReviewedRevisionPerAccount` cobre isolamento, repetição e rollback entre a revisão e o apontador da instalação. A descoberta de componentes, a ativação nos serviços de skills e MCP e a recuperação do runtime permanecem pendentes.
 
 1. Contrato de pacote, instalação local, identidade, inventário no banco, recuperação e primeira instalação de skill e MCP.
