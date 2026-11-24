@@ -381,8 +381,8 @@ function InstalledPlugins({ session }: { session: string }) {
         <strong>{component.name}</strong> · {t(component.kind === 'skill' ? 'plugins.skill' : component.kind === 'mcp' ? 'plugins.mcp' : 'plugins.invalid')}
         {component.editedServer && <p>{t('plugins.editedServer', { name: component.editedServer })}</p>}
         {component.kind === 'mcp' && <p>{mcpConnectionLabel(component)}</p>}
+        {component.kind === 'skill' && component.requestsShell && <p>{t('plugins.commandPolicy')}</p>}
         {component.kind === 'skill' && !component.reason ? <>
-          {component.requestsShell && <p>{t('plugins.commandPolicy')}</p>}
           {component.active && <code> /{component.slug}</code>}
           <Button disabled={busy || details.installation.disabled || error === 'plugins.syncPendingStale'} onClick={() => void changeComponent(component)}>{t(component.active ? 'plugins.deactivate' : 'plugins.activate', { name: component.name })}</Button>
         </> : component.kind === 'mcp' && !component.reason ? <>
