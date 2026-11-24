@@ -24,7 +24,9 @@ func mcpTransport(raw json.RawMessage, vendor bool) (string, bool) {
 			return "", false
 		}
 	case "sse", "streamable-http":
-		if endpoint, _ := fields["url"].(string); !(validMCPEndpoint(endpoint) || vendor && strings.Contains(endpoint, "${")) {
+		endpoint, _ := fields["url"].(string)
+		templated := vendor && strings.Contains(endpoint, "${")
+		if !templated && !validMCPEndpoint(endpoint) {
 			return "", false
 		}
 	default:
