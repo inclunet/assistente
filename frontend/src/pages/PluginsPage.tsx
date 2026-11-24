@@ -10,6 +10,12 @@ import { Toolbar } from '../components/ui/Toolbar';
 import { useAnnouncer } from '../hooks/useAnnouncer';
 import { useAuthStore } from '../store/authStore';
 
+// Cleanup can outlive the session that owned the preview. The backend still
+// checks the owner and the exact token for every discard.
+function discardAbandonedPreview(token: string) {
+  void DiscardPreview(token).catch(() => console.warn('Unable to discard an abandoned plugin preview'));
+}
+
 export default function PluginsPage() {
   const session = useAuthStore(state => state.user?.sessionId);
   return session ? <InstalledPlugins key={session} /> : null;
@@ -27,6 +33,7 @@ function InstalledPlugins() {
     if (error) announce(t(error), 'assertive');
   }, [error, announce, t]);
   const mounted = useRef(false);
+  const openToken = useRef<string | null>(null);
   const chooseButton = useRef<HTMLButtonElement>(null);
   const restoreFocus = useRef(false);
   useEffect(() => {
@@ -43,15 +50,25 @@ function InstalledPlugins() {
     mounted.current = true;
     void refresh().catch(() => { if (mounted.current) setError('plugins.listError'); })
       .finally(() => { if (mounted.current) setBusy(false); });
-    return () => { mounted.current = false; };
+    return () => {
+      mounted.current = false;
+      if (openToken.current) discardAbandonedPreview(openToken.current);
+      openToken.current = null;
+    };
   }, [refresh]);
   const inspect = async () => {
     setBusy(true);
     setError('');
     try {
       const next = await PreviewLocal();
-      if (mounted.current && next) setPreview(next);
-      else restoreFocus.current = true;
+      if (!mounted.current) {
+        if (next) discardAbandonedPreview(next.token);
+        return;
+      }
+      if (next) {
+        openToken.current = next.token;
+        setPreview(next);
+      } else restoreFocus.current = true;
     } catch {
       restoreFocus.current = true;
       if (mounted.current) setError('plugins.inspectError');
@@ -65,6 +82,7 @@ function InstalledPlugins() {
     setBusy(true);
     try {
       await DiscardPreview(preview.token);
+      openToken.current = null;
     } catch {
       if (mounted.current) setError('plugins.discardError');
       return;
@@ -81,6 +99,7 @@ function InstalledPlugins() {
     if (!preview || busy || sameRevision) return;
     setBusy(true);
     try {
+      openToken.current = null;
       await InstallReviewed(preview.token);
       if (!mounted.current) return;
       announce(t('plugins.installedNotice', { name: preview.name }));

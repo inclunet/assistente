@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { axe } from 'vitest-axe';
 import PluginsPage from './PluginsPage';
@@ -111,5 +111,29 @@ describe('PluginsPage', () => {
     expect(mocks.discard).toHaveBeenCalledWith('reviewed');
     expect(choose).toHaveFocus();
     expect(screen.queryByRole('button', { name: 'plugins.install' })).toBeNull();
+  });
+
+  it.each(['open', 'pending', 'installing'])('discards only an abandoned preview on unmount (%s)', async phase => {
+    const user = userEvent.setup();
+    const result = { token: 'old-page', name: 'demo', files: [], diagnostics: [] };
+    let finishPreview!: (value: typeof result) => void;
+    mocks.preview.mockImplementationOnce(() => new Promise(resolve => { finishPreview = resolve; }));
+    let finishInstall!: () => void;
+    if (phase === 'installing') mocks.install.mockImplementationOnce(() => new Promise<void>(resolve => { finishInstall = resolve; }));
+    const { unmount } = render(<PluginsPage />);
+    const choose = await screen.findByRole('button', { name: 'plugins.choose' });
+    await waitFor(() => expect(choose).toBeEnabled());
+    await user.click(choose);
+    if (phase !== 'pending') await act(async () => finishPreview(result));
+    if (phase === 'installing') await user.click(await screen.findByRole('button', { name: 'plugins.install' }));
+    unmount();
+    if (phase === 'pending') await act(async () => finishPreview(result));
+    if (phase === 'installing') {
+      await act(async () => finishInstall());
+      expect(mocks.discard).not.toHaveBeenCalled();
+    } else {
+      expect(mocks.discard.mock.calls).toEqual([['old-page']]);
+      expect(mocks.install).not.toHaveBeenCalled();
+    }
   });
 });
