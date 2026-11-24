@@ -305,15 +305,19 @@ func (m *Manager) markServerToolsUnavailable(slug, reason string) {
 		}
 		ctx = database.WithUserID(context.Background(), ownerUserID)
 	}
-	m.markServerToolsUnavailableByID(ctx, serverID, reason)
+	m.markServerToolsUnavailableByID(ctx, serverID, reason, false)
 }
 
-func (m *Manager) markServerToolsUnavailableByID(ctx context.Context, serverID, reason string) {
+func (m *Manager) markServerToolsUnavailableByID(ctx context.Context, serverID, reason string, retiring bool) {
 	catalog := m.toolCatalog()
 	if catalog == nil {
 		return
 	}
 	if _, err := catalog.MarkServerToolsUnavailable(ctx, serverID, nil, reason); err != nil {
+		// A remoção no banco já desanexou as ferramentas na mesma transação.
+		if retiring && errors.Is(err, gorm.ErrRecordNotFound) {
+			return
+		}
 		if benignCtxCancel(ctx, err) {
 			logging.Debugf(context.Background(), "mcp.manager", "[MCP:%s] marcação de tools indisponíveis cancelada (shutdown): %v", serverID, err)
 		} else {
@@ -1626,7 +1630,7 @@ func (m *Manager) disconnectWithRecoveryForAttemptAndOwner(slug string, legacyOn
 		m.markServerToolsUnavailable(slug, "server disconnected")
 	} else {
 		// A descoberta por slug pode encontrar a identidade substituta.
-		m.markServerToolsUnavailableByID(database.WithUserID(context.Background(), retireConfig.UserID), retireConfig.ID, "server disconnected")
+		m.markServerToolsUnavailableByID(database.WithUserID(context.Background(), retireConfig.UserID), retireConfig.ID, "server disconnected", true)
 	}
 	logging.Infof(context.Background(), "mcp.manager", "[MCP] Servidor '%s' desconectado", slug)
 

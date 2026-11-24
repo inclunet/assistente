@@ -147,9 +147,9 @@ func TestPackagedMCPLifecycle(t *testing.T) {
 	if err := store.RemoveMCP(alice, row.ID, row.Digest, key, true, allow); err != nil {
 		t.Fatal(err)
 	}
-	independent, err := runtime.GetConfig(slug)
-	if err != nil || independent.URL != "https://example.org/edited" || independent.Name != "Edited" {
-		t.Fatalf("runtime after preserving independent server: %+v, %v", independent, err)
+	independent := runtime.List()
+	if len(independent) != 1 || independent[0].Slug != slug || independent[0].URL != "https://example.org/edited" || independent[0].Name != "Edited" {
+		t.Fatalf("runtime after preserving independent server: %+v", independent)
 	}
 
 	managed := register()

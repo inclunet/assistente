@@ -1,8 +1,11 @@
 package mcp
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"gorm.io/gorm"
+	"log/slog"
 	"strings"
 	"testing"
 	"time"
@@ -194,5 +197,29 @@ func TestPackagedReloadPreservesConcurrentEditOfSameServer(t *testing.T) {
 	}
 	if got := m.servers[slug]; got == nil || got.Config.URL != newerURL {
 		t.Fatalf("concurrent edit lost: %+v", got)
+	}
+}
+
+type missingRegistrationCatalog struct{ recordingUnavailableCatalog }
+
+func (*missingRegistrationCatalog) MarkServerToolsUnavailable(context.Context, string, []string, string) (int, error) {
+	return 0, gorm.ErrRecordNotFound
+}
+
+func TestPackagedRetirementAlreadyDetachedCatalog(t *testing.T) {
+	var logs bytes.Buffer
+	previous := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&logs, nil)))
+	t.Cleanup(func() { slog.SetDefault(previous) })
+	m := NewManager(nil, nil, nil)
+	m.SetCatalog(&missingRegistrationCatalog{})
+	ctx := database.WithUserID(context.Background(), "owner")
+	m.markServerToolsUnavailableByID(ctx, "removed", "server disconnected", true)
+	if logs.Len() != 0 {
+		t.Fatalf("unexpected diagnostic after removal: %s", logs.String())
+	}
+	m.markServerToolsUnavailableByID(ctx, "live", "server disconnected", false)
+	if !strings.Contains(logs.String(), "level=ERROR") {
+		t.Fatalf("missing diagnostic for live registration: %s", logs.String())
 	}
 }
