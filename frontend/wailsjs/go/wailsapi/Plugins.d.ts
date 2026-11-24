@@ -4,7 +4,7 @@ import {database} from '../models';
 import {plugins} from '../models';
 import {wailsapi} from '../models';
 
-export function AddLocalRepository():Promise<void>;
+export function AddLocalRepository():Promise<boolean>;
 
 export function ChangeInstallation(arg1:string,arg2:string,arg3:string):Promise<void>;
 

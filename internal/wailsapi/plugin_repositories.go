@@ -43,8 +43,9 @@ func (api *Plugins) ListRepositories() ([]plugins.Repository, error) {
 	}
 	return rows, nil
 }
-func (api *Plugins) AddLocalRepository() error {
-	return api.withRepositorySession(func(ctx context.Context, i *plugins.Inventory, choose func() (string, error), admit commandsecurity.Admission) error {
+func (api *Plugins) AddLocalRepository() (bool, error) {
+	var selected bool
+	err := api.withRepositorySession(func(ctx context.Context, i *plugins.Inventory, choose func() (string, error), admit commandsecurity.Admission) error {
 		dir, err := choose()
 		if err != nil || dir == "" {
 			return err
@@ -52,8 +53,10 @@ func (api *Plugins) AddLocalRepository() error {
 		if err := admit.Check(); err != nil {
 			return err
 		}
+		selected = true
 		return i.SaveRepository(ctx, dir, "", "", admit)
 	})
+	return selected && err == nil, err
 }
 func (api *Plugins) RefreshRepository(id, revision string) error {
 	return api.withRepositorySession(func(ctx context.Context, i *plugins.Inventory, _ func() (string, error), admit commandsecurity.Admission) error {

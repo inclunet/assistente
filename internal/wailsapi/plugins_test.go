@@ -270,7 +270,7 @@ func TestLocalCatalogSurvivesFailedRefreshAndRemoval(t *testing.T) {
 	api := NewPlugins()
 	admission := commandsecurity.Admission(func(_ *gorm.DB, fn func() error) error { return fn() })
 	AttachPlugins(api, stubSession{ctx: user}, inventory, func() (string, error) { return directory, nil }, func(context.Context) (commandsecurity.Admission, error) { return admission, nil }, nil)
-	if err := api.AddLocalRepository(); err != nil {
+	if added, err := api.AddLocalRepository(); err != nil || !added {
 		t.Fatal(err)
 	}
 	repos, err := api.ListRepositories()

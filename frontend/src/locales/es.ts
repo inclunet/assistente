@@ -152,6 +152,10 @@ notSaved: 'La decisión vale solo para esta operación: no se pudo recordar. Ser
     plugins: {
       category: 'Categoría',
       authentication: 'Autenticación',
+      prevPage: 'Página anterior',
+      nextPage: 'Página siguiente',
+      pageOf: 'Página {{page}} de {{total}}',
+      catalogAuthOnUse: 'La autenticación en el primer uso aún no está disponible para los servidores MCP de este paquete.',
       catalogAuthError: 'La tienda exige autenticación al instalar. Este paquete declara un servidor MCP que requiere configuración en el destino.',
       catalog: 'Catálogo',
       repositories: 'Repositorios',

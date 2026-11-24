@@ -153,6 +153,10 @@ notSaved: 'A decisão vale somente para esta operação: não foi possível lemb
     plugins: {
       category: 'Categoria',
       authentication: 'Autenticação',
+      prevPage: 'Página anterior',
+      nextPage: 'Próxima página',
+      pageOf: 'Página {{page}} de {{total}}',
+      catalogAuthOnUse: 'A autenticação de servidores MCP no primeiro uso ainda não está disponível para este pacote.',
       catalogAuthError: 'A loja exige autenticação na instalação. Este pacote declara um servidor MCP que requer configuração no destino.',
       catalog: 'Catálogo',
       repositories: 'Repositórios',

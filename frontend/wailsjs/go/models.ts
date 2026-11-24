@@ -8039,6 +8039,7 @@ export namespace oauthflow {
 export namespace plugincatalog {
 	
 	export class Entry {
+	    products?: string[];
 	    category?: string;
 	    authentication?: string;
 	    installation?: string;
@@ -8057,6 +8058,7 @@ export namespace plugincatalog {
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.products = source["products"];
 	        this.category = source["category"];
 	        this.authentication = source["authentication"];
 	        this.installation = source["installation"];

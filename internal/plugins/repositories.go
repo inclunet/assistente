@@ -174,9 +174,12 @@ func (i *Inventory) InspectRepositoryEntry(ctx context.Context, id, revision str
 			if snap.Manifest.Name != entry.Name {
 				return nil, ErrPackageChanged
 			}
-			if entry.Authentication == "ON_INSTALL" {
+			if entry.Authentication != "" {
 				for _, component := range DiscoverComponents(snap) {
 					if component.Kind == "mcp" {
+						if entry.Authentication == "ON_USE" {
+							return nil, errors.New("PLUGIN_AUTH_ON_USE")
+						}
 						return nil, errors.New("PLUGIN_AUTH_ON_INSTALL")
 					}
 				}

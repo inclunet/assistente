@@ -350,17 +350,17 @@ function InstalledPlugins({ session }: { session: string }) {
     }
   };
   return <section className="plugins-page" aria-label={t('menu.plugins')}>
+    <Toolbar left={<h1 className="page-toolbar__title">{t('menu.plugins')}</h1>}
+      right={<><Button ref={chooseButton} onClick={() => void inspect()} disabled={busy}>{t('plugins.choose')}</Button>{!details && !preview && syncAction}</>} />
     <Tabs value={section} onValueChange={setSection}>
       <TabList ariaLabel={t('menu.plugins')}>{['installed','catalog','repositories'].map(value => <Tab value={value} key={value}>{t('plugins.' + value)}</Tab>)}</TabList>
       <TabPanel value="installed">{section === 'installed' && <>
-    <Toolbar left={<h1 className="page-toolbar__title">{t('menu.plugins')}</h1>}
-      right={<><Button ref={chooseButton} onClick={() => void inspect()} disabled={busy}>{t('plugins.choose')}</Button>{!details && !preview && syncAction}</>} />
     <h2>{t('plugins.installed')}</h2>
     {items && items.length > 0 ? <DataGrid items={items} onActivate={row => void openDetails(row)} getItemId={row => row.id} label={t('plugins.installed')}
       columns={[{ key: 'name', label: t('plugins.name') }, { key: 'version', label: t('plugins.version') }, { key: 'origin', label: t('plugins.origin') }]} />
       : items && !busy && !error && !listError && <p>{t('plugins.empty')}</p>}
       </>}</TabPanel>
-      {['catalog','repositories'].map(value => <TabPanel key={value} value={value}>{section === value && <PluginRepositories key={value} catalog={value === 'catalog'} onPreview={(selection, opener) => { catalogOpener.current = opener; openToken.current = selection.token; setError(''); setPreview(selection); }} />}</TabPanel>)}
+      {['catalog','repositories'].map(value => <TabPanel key={value} value={value}>{section === value && <PluginRepositories key={value} session={session} parentBusy={busy} catalog={value === 'catalog'} onPreview={(selection, opener) => { catalogOpener.current = opener; openToken.current = selection.token; setError(''); setPreview(selection); }} />}</TabPanel>)}
     </Tabs>
     {!preview && !details && error && <p>{t(error)}</p>}
     {listErrorText && <p>{listErrorText}</p>}
