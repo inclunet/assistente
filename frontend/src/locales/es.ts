@@ -150,7 +150,7 @@ notSaved: 'La decisión vale solo para esta operación: no se pudo recordar. Ser
     },
 
     plugins: {
-      rootSkillPending: 'El adaptador aún no admite paquetes Cursor con SKILL.md en la raíz.',
+      rootSkillPending: 'El adaptador aún no admite paquetes con SKILL.md en la raíz.',
       manifestPending: 'El manifiesto declara configuraciones aún no compatibles con este adaptador.',
       commandPolicy: 'Los comandos de esta skill siguen las reglas habituales de confirmación.',
       category: 'Categoría',

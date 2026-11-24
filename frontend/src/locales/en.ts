@@ -151,7 +151,7 @@ notSaved: 'The decision applies only to this operation: it could not be remember
     },
 
     plugins: {
-      rootSkillPending: 'Single-skill Cursor packages with SKILL.md at the root are not supported yet.',
+      rootSkillPending: 'Single-skill packages with SKILL.md at the root are not supported yet.',
       manifestPending: 'The manifest declares configuration that this adapter cannot apply yet.',
       commandPolicy: 'Commands in this skill use the usual command approval rules.',
       category: 'Category',

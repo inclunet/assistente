@@ -116,3 +116,11 @@ func TestLoadSkillRejectsNonModelInvocableSkill(t *testing.T) {
 		t.Fatal("skill com disable-model-invocation deveria ser rejeitada")
 	}
 }
+
+func TestLoadedClaudeSkillExplainsLiteralCommands(t *testing.T) {
+	skill := skills.Skill{Source: "plugin", PackageFormat: "claude-code", Content: "Read !`echo note`."}
+	text := formatLoadedSkill(skill, "")
+	if !strings.Contains(text, skill.Content) || !strings.Contains(text, "base or slash invocation") {
+		t.Fatal(text)
+	}
+}

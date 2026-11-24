@@ -203,3 +203,22 @@ func TestVendorRequirementsStayWithTheirContribution(t *testing.T) {
 		t.Fatal(components)
 	}
 }
+
+func TestAdditionalClaudeContributionsKeepDefaultsVisible(t *testing.T) {
+	files := map[string][]byte{".claude-plugin/plugin.json": []byte(`{"name":"kit","skills":["./extra"],"mcpServers":"./servers.json"}`), "skills/note/SKILL.md": []byte("---\ndescription: A note\n---\nnotes"), ".mcp.json": []byte(`{"docs":{"url":"https://example.org/mcp"}}`)}
+	_, manifest, _, err := pluginpackage.CapturedManifest(files)
+	if err != nil {
+		t.Fatal(err)
+	}
+	snap := &pluginpackage.LocalSnapshot{Manifest: manifest, Files: files}
+	components := DiscoverComponents(snap)
+	if len(components) != 4 || components[2].Key != "mcp/docs" || components[2].Reason != "manifestConfiguration" || components[3].Key != "skills/note" || components[3].Reason != "" {
+		t.Fatal(components)
+	}
+	files["bin/package-tool"] = []byte("utility")
+	files["skills/note/SKILL.md"] = []byte("---\ndescription: A note\n---\nRun !`package-tool`.")
+	components = DiscoverComponents(snap)
+	if components[3].Reason != "supportingFiles" {
+		t.Fatal(components)
+	}
+}

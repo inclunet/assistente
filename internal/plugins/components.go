@@ -32,6 +32,7 @@ type Component struct {
 // Empty directories have no entries in a snapshot and cannot be distinguished from absent paths.
 func DiscoverComponents(snapshot *pluginpackage.LocalSnapshot) []Component {
 	var components []Component
+	claude := snapshot.Manifest.Format == pluginpackage.ClaudeCode
 	var requiresManifestSupport, customSkills, customMCP bool
 	for _, key := range snapshot.Manifest.Unmapped {
 		kind := ""
@@ -48,13 +49,16 @@ func DiscoverComponents(snapshot *pluginpackage.LocalSnapshot) []Component {
 		}
 		components = append(components, Component{Key: "manifest/" + key, Name: key, Kind: kind, Entry: key, Reason: "manifestConfiguration"})
 	}
-	var hasSkillFiles bool
+	var hasSkillFiles, hasExecutables bool
 	supplemental := map[string]bool{}
 	if _, ok := snapshot.Files["skills"]; ok {
 		components = append(components, Component{Key: "skills", Kind: "invalidSkill", Entry: "skills", Name: "skills"})
 	}
 	for entry := range snapshot.Files {
 		parts := strings.Split(entry, "/")
+		if parts[0] == "bin" && len(parts) > 1 {
+			hasExecutables = true
+		}
 		if parts[0] == "skills" {
 			hasSkillFiles = true
 		}
@@ -66,12 +70,12 @@ func DiscoverComponents(snapshot *pluginpackage.LocalSnapshot) []Component {
 			supplemental[parts[1]] = true
 		}
 	}
-	if _, exists := snapshot.Files["SKILL.md"]; exists && snapshot.Manifest.Format == pluginpackage.Cursor && !hasSkillFiles && !snapshot.Manifest.DeclaresSkills {
+	if _, exists := snapshot.Files["SKILL.md"]; exists && (claude || snapshot.Manifest.Format == pluginpackage.Cursor) && !hasSkillFiles && !snapshot.Manifest.DeclaresSkills {
 		components = append(components, Component{Key: "SKILL.md", Entry: "SKILL.md", Name: snapshot.Manifest.Name, Kind: "skill", Reason: "rootSkill"})
 	}
 	for entry, raw := range snapshot.Files {
 		parts := strings.Split(entry, "/")
-		if customSkills || len(parts) != 3 || parts[0] != "skills" || parts[2] != "SKILL.md" {
+		if (customSkills && !claude) || len(parts) != 3 || parts[0] != "skills" || parts[2] != "SKILL.md" {
 			continue
 		}
 		name := parts[1]
@@ -89,7 +93,7 @@ func DiscoverComponents(snapshot *pluginpackage.LocalSnapshot) []Component {
 			component.Reason = "shellCommands"
 		} else if snapshot.Manifest.Format != pluginpackage.ClaudeCode && skills.ContainsShellCommands(body) {
 			component.Reason = "shellCommands"
-		} else if supplemental[name] {
+		} else if supplemental[name] || (claude && hasExecutables && skills.ContainsClaudeCommand(body)) {
 			component.Reason = "supportingFiles"
 		} else {
 			component.Reason = requirement
@@ -97,7 +101,7 @@ func DiscoverComponents(snapshot *pluginpackage.LocalSnapshot) []Component {
 		}
 		components = append(components, component)
 	}
-	if filename, servers, exists := mcpEntries(snapshot); exists && !customMCP {
+	if filename, servers, exists := mcpEntries(snapshot); exists && (!customMCP || claude) {
 		if servers == nil {
 			components = append(components, Component{Key: filename, Kind: "invalidMcp", Entry: filename, Name: filename})
 		} else {
@@ -111,6 +115,10 @@ func DiscoverComponents(snapshot *pluginpackage.LocalSnapshot) []Component {
 					cfg, reason := portableMCP(value)
 					component.Reason = reason
 					component.Endpoint = cfg.URL
+					// Claude merges additional declarations after the default file.
+					if customMCP && reason == "" {
+						component.Reason = "manifestConfiguration"
+					}
 					if reason == "invalid" {
 						component.Kind = "invalidMcp"
 					}

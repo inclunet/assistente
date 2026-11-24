@@ -151,7 +151,7 @@ notSaved: 'A decisão vale somente para esta operação: não foi possível lemb
     },
 
     plugins: {
-      rootSkillPending: 'O adaptador ainda não ativa pacotes Cursor com SKILL.md na raiz.',
+      rootSkillPending: 'O adaptador ainda não ativa pacotes com SKILL.md na raiz.',
       manifestPending: 'O manifesto declara configurações que este adaptador ainda não aplica.',
       commandPolicy: 'Os comandos desta skill seguem as regras de autorização de comandos do Assistente.',
       category: 'Categoria',
