@@ -83,6 +83,24 @@ describe('PluginRepositories', () => {
     expect(mocks.remove).toHaveBeenCalledWith('two', 'reviewed');
   });
 
+  it.each([true, false])('restores focus after removing the last repository (reload succeeds: %s)', async success => {
+    let removed!: () => void;
+    let finishRead!: () => void;
+    mocks.list.mockReset().mockResolvedValueOnce([repo]).mockImplementationOnce(() => new Promise((resolve, reject) => {
+      finishRead = () => success ? resolve([]) : reject(new Error('offline'));
+    }));
+    mocks.remove.mockImplementationOnce(() => new Promise<void>(resolve => { removed = resolve; }));
+    mocks.confirm.mockResolvedValueOnce(true);
+    const user = userEvent.setup();
+    render(<PluginRepositories session="last" catalog={false} onPreview={vi.fn()} />);
+    (await screen.findByRole('gridcell', { name: 'folder' })).focus();
+    await user.keyboard('{ArrowRight}{ArrowRight}{ArrowRight}{Enter}');
+    await act(async () => removed());
+    expect(screen.queryByRole('gridcell', { name: 'folder' })).toBeNull();
+    await act(async () => finishRead());
+    expect(screen.getByRole('button', { name: 'plugins.addRepo' })).toHaveFocus();
+  });
+
   it('paginates the grid while searching all entries', async () => {
     const entries = Array.from({ length: 51 }, (_, index) => ({ name: 'sample-' + index }));
     mocks.list.mockResolvedValue([{ ...repo, indices: [{ ...repo.indices[0], entries }] }]);

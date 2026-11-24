@@ -30,6 +30,12 @@ export default function PluginRepositories({ session, catalog, parentBusy, onPre
   const [error, setError] = useState('');
   const mounted = useRef(false);
   const addButton = useRef<HTMLButtonElement>(null);
+  const focusAfterRemoval = useRef(false);
+  useEffect(() => {
+    if (busy || !focusAfterRemoval.current) return;
+    focusAfterRemoval.current = false;
+    if (document.activeElement === document.body) addButton.current?.focus();
+  }, [busy]);
   const refresh = async () => {
     const result = await ListRepositories();
     if (mounted.current) setRepositories(result ?? []);
@@ -71,7 +77,10 @@ export default function PluginRepositories({ session, catalog, parentBusy, onPre
       } finally {
         if (pendingWrites.get(session) === pending) pendingWrites.delete(session);
       }
-      if (action === 'remove' && repo) setRepositories(rows => rows.filter(row => row.id !== repo.id));
+      if (action === 'remove' && repo) {
+        focusAfterRemoval.current = repositories.length === 1;
+        setRepositories(rows => rows.filter(row => row.id !== repo.id));
+      }
       await refresh();
       if (mounted.current) announce(t('plugins.repoUpdated'));
     } catch { if (mounted.current) setError('plugins.repositoryReadError'); }
