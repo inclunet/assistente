@@ -14,6 +14,10 @@ export function ChangeInstallation(arg1, arg2, arg3) {
   return window['go']['wailsapi']['Plugins']['ChangeInstallation'](arg1, arg2, arg3);
 }
 
+export function CreateListFromTemplate(arg1, arg2, arg3, arg4) {
+  return window['go']['wailsapi']['Plugins']['CreateListFromTemplate'](arg1, arg2, arg3, arg4);
+}
+
 export function DiscardPreview(arg1) {
   return window['go']['wailsapi']['Plugins']['DiscardPreview'](arg1);
 }

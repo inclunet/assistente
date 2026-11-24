@@ -20,6 +20,7 @@ var ErrPackageChanged = errors.New("o pacote mudou desde a prévia")
 var ErrInstallationChanged = errors.New("a instalação mudou desde a prévia")
 
 type Inventory struct {
+	listCreated func(context.Context, *database.TaskList, commandsecurity.Admission)
 	watchRemote func(context.Context) (context.Context, func(), error)
 	queries     *repositoryQueries
 	remote      RemoteClient

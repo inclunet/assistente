@@ -31,7 +31,7 @@ type Component struct {
 // DiscoverComponents identifies components using the files retained in the revision.
 // Empty directories have no entries in a snapshot and cannot be distinguished from absent paths.
 func DiscoverComponents(snapshot *pluginpackage.LocalSnapshot) []Component {
-	var components []Component
+	components := taskListComponents(snapshot)
 	claude := snapshot.Manifest.Format == pluginpackage.ClaudeCode
 	var requiresManifestSupport, customSkills, customMCP bool
 	for _, key := range snapshot.Manifest.Unmapped {

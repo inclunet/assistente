@@ -2,7 +2,7 @@ import { repositoryError } from './pluginRepositoryError';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { create } from 'zustand';
 import { useTranslation } from 'react-i18next';
-import { ChangeInstallation, DiscardPreview, InstalledComponents, InstallReviewed, ListInstalled, PreviewLocal, RegisterMCP, RemoveMCP, SetSkillActive, SyncMCP } from '@wailsjs/go/wailsapi/Plugins';
+import { CreateListFromTemplate, ChangeInstallation, DiscardPreview, InstalledComponents, InstallReviewed, ListInstalled, PreviewLocal, RegisterMCP, RemoveMCP, SetSkillActive, SyncMCP } from '@wailsjs/go/wailsapi/Plugins';
 import type { database, plugins, wailsapi } from '@wailsjs/go/models';
 import { Button } from '../components/ui/Button';
 import { DataGrid } from '../components/ui/DataGrid';
@@ -26,12 +26,14 @@ function mcpConnectionLabel(component: plugins.Component) {
 function componentRequirement(component: plugins.Component) {
   if (component.reason === 'shellCommands') return 'plugins.shellPending';
   if (component.reason === 'supportingFiles') return 'plugins.filesPending';
+  if (component.reason === 'missingTemplate') return 'plugins.missingTemplate';
+  if (component.reason === 'invalidTemplate') return 'plugins.invalidTemplate';
   if (component.reason === 'manifestConfiguration') return 'plugins.manifestPending';
   if (component.reason === 'packagePaths') return 'plugins.packagePathsPending';
   if (component.reason === 'rootSkill') return 'plugins.rootSkillPending';
   if (component.reason === 'frontmatter') return 'plugins.fieldsPending';
   if (component.reason === 'configuration') return 'plugins.mcpConfigRequired';
-  if (component.kind === 'mcp' && !component.reason) return undefined;
+  if ((component.kind === 'mcp' || component.kind === 'tasklistTemplate') && !component.reason) return undefined;
   return component.kind === 'skill' ? undefined : 'plugins.unavailable';
 }
 
@@ -49,6 +51,11 @@ function discardAbandonedPreview(token: string) {
 }
 
 // Confirmed inventory writes outlive the page that submitted them.
+const listRequests = new Map<string, string>();
+useAuthStore.subscribe((state, previous) => {
+  if (state.user?.sessionId !== previous.user?.sessionId) listRequests.clear();
+});
+
 const publications = new Map<string, Promise<void>>();
 const usePendingLifecycleSync = create<ReadonlyMap<string, symbol>>(() => new Map());
 
@@ -205,6 +212,7 @@ function InstalledPlugins({ session }: { session: string }) {
   };
   const openDetails = async (installation: InstallationRow) => {
     if (busy) return;
+    setCreatedList('');
     detailsOpener.current = document.activeElement instanceof HTMLElement ? document.activeElement.closest<HTMLElement>('[role="gridcell"]') : null;
     setBusy(true);
     setError('');
@@ -218,12 +226,26 @@ function InstalledPlugins({ session }: { session: string }) {
     const components = await InstalledComponents(installation.id, installation.digest);
     if (mounted.current) setDetails({ installation, components: components ?? [] });
   };
+  const [createdList, setCreatedList] = useState('');
   const changeComponent = async (component: plugins.Component, preserve = false) => {
     if (!details || busy || error === 'plugins.syncPendingStale') return;
     setBusy(true);
     setError('');
     const { installation } = details;
     try {
+      if (component.kind === 'tasklistTemplate') {
+        const key = JSON.stringify([session, installation.id, installation.digest, component.key]);
+        setCreatedList('');
+        const request = listRequests.get(key) ?? crypto.randomUUID();
+        listRequests.set(key, request);
+        await CreateListFromTemplate(installation.id, installation.digest, component.key, request);
+        if (mounted.current) {
+          if (listRequests.get(key) === request) listRequests.delete(key);
+          setCreatedList(component.name);
+          announce(t('plugins.createdList', { name: component.name }));
+        }
+        return;
+      }
       if (component.kind === 'mcp') {
         if (component.active) {
           const accepted = await confirm({ title: t(preserve ? 'plugins.keepServer' : 'plugins.removeServer', { name: component.name }), message: t(preserve ? 'plugins.keepConfirm' : 'plugins.removeConfirm', { name: component.name }), confirmText: t(preserve ? 'plugins.keepServer' : 'plugins.removeServer', { name: component.name }), cancelText: t('common.cancel') });
@@ -254,7 +276,8 @@ function InstalledPlugins({ session }: { session: string }) {
           await refreshDetails(installation);
           if (mounted.current) setError('plugins.syncPending');
         } catch { if (mounted.current) setError('plugins.syncPendingStale'); }
-      } else setError(String(cause).includes('PLUGIN_COMPONENT_EDITED') ? 'plugins.edited' : 'plugins.componentError');
+      } else if (String(cause).includes('PLUGIN_LIST_CAPACITY')) setError('plugins.listCapacity');
+      else setError(installationError(cause, 'plugins.componentError'));
     }
     finally { if (mounted.current) setBusy(false); }
   };
@@ -377,19 +400,22 @@ function InstalledPlugins({ session }: { session: string }) {
         {t(details.installation.disabled ? 'plugins.enable' : 'plugins.disable', { name: details.installation.name })}
       </Button>
       <Button disabled={busy || error === 'plugins.syncPendingStale'} onClick={event => void changeInstallation('uninstall', event.currentTarget)}>{t('plugins.uninstall', { name: details.installation.name })}</Button>
+      {createdList && <p>{t('plugins.createdList', { name: createdList })}</p>}
       <h2>{t('plugins.components')}</h2>
       {details.components.length === 0 ? <p>{t('plugins.noComponents')}</p> : <ul>{details.components.map(component => <li key={component.key}>
-        <strong>{component.name}</strong> · {t(component.kind === 'skill' ? 'plugins.skill' : component.kind === 'mcp' ? 'plugins.mcp' : 'plugins.invalid')}
+        <strong>{component.name}</strong> · {t(component.kind === 'skill' ? 'plugins.skill' : component.kind === 'mcp' ? 'plugins.mcp' : component.kind === 'tasklistTemplate' ? 'plugins.tasklistTemplate' : 'plugins.invalid')}
         {component.editedServer && <p>{t('plugins.editedServer', { name: component.editedServer })}</p>}
         {component.kind === 'mcp' && <p>{mcpConnectionLabel(component)}</p>}
         {component.kind === 'skill' && component.requestsShell && <p>{t('plugins.commandPolicy')}</p>}
-        {component.kind === 'skill' && !component.reason ? <>
+        {component.kind === 'tasklistTemplate' && !component.reason ?
+          <Button disabled={busy || details.installation.disabled || error === 'plugins.syncPendingStale'} onClick={() => void changeComponent(component)}>{t('plugins.createList', { name: component.name })}</Button>
+          : component.kind === 'skill' && !component.reason ? <>
           {component.active && <code> /{component.slug}</code>}
           <Button disabled={busy || details.installation.disabled || error === 'plugins.syncPendingStale'} onClick={() => void changeComponent(component)}>{t(component.active ? 'plugins.deactivate' : 'plugins.activate', { name: component.name })}</Button>
         </> : component.kind === 'mcp' && !component.reason ? <>
           <Button disabled={busy || details.installation.disabled || error === 'plugins.syncPendingStale'} onClick={() => void changeComponent(component)}>{t(component.active ? 'plugins.removeServer' : 'plugins.registerServer', { name: component.name })}</Button>
           {component.active && <Button disabled={busy || error === 'plugins.syncPendingStale'} onClick={() => void changeComponent(component, true)}>{t('plugins.keepServer', { name: component.name })}</Button>}
-        </> : <p>{t(componentRequirement(component) ?? 'plugins.unavailable')}</p>}
+        </> : <p>{t(componentRequirement(component) ?? 'plugins.unavailable', { path: component.entry })}</p>}
       </li>)}</ul>}
     </Modal>}
     {preview && <DecisionDialog isOpen title={t('plugins.preview', { name: preview.name })}
@@ -409,7 +435,7 @@ function InstalledPlugins({ session }: { session: string }) {
         {preview.authentication && <><dt>{t('plugins.authentication')}</dt><dd>{preview.authentication}</dd></>}
         <dt>SHA-256</dt><dd>{preview.digest}</dd>
       </dl>
-      {(preview.components ?? []).length > 0 && <ul aria-label={t('plugins.components')}>{preview.components.map(component => <li key={component.key}>{component.name} · {t(component.kind === 'skill' ? 'plugins.skill' : component.kind === 'mcp' ? 'plugins.mcp' : 'plugins.invalid')}{component.requestsShell && <span> · {t('plugins.commandPolicy')}</span>}{component.kind === 'mcp' && <p>{mcpConnectionLabel(component)}</p>}{componentRequirement(component) && <p>{t(componentRequirement(component)!)}</p>}</li>)}</ul>}
+      {(preview.components ?? []).length > 0 && <ul aria-label={t('plugins.components')}>{preview.components.map(component => <li key={component.key}>{component.name} · {t(component.kind === 'skill' ? 'plugins.skill' : component.kind === 'mcp' ? 'plugins.mcp' : component.kind === 'tasklistTemplate' ? 'plugins.tasklistTemplate' : 'plugins.invalid')}{component.requestsShell && <span> · {t('plugins.commandPolicy')}</span>}{component.kind === 'mcp' && <p>{mcpConnectionLabel(component)}</p>}{componentRequirement(component) && <p>{t(componentRequirement(component)!, { path: component.entry })}</p>}</li>)}</ul>}
       {(preview.diagnostics ?? []).length > 0 && <details>
         <summary>{t('plugins.warnings', { count: preview.diagnostics.length })}</summary>
         <ul>{preview.diagnostics.map(warning => {

@@ -8,6 +8,7 @@ import (
 
 	"assistente/internal/database"
 	"assistente/internal/eventctx"
+	"gorm.io/gorm"
 )
 
 type recordedEvent struct {
@@ -610,5 +611,18 @@ func TestCreateTaskNoteEmitsNoteAdded(t *testing.T) {
 	}
 	if p["note_id"] != "new-note" {
 		t.Fatalf("note_id = %v, want new-note", p["note_id"])
+	}
+}
+
+func TestTemplateCreationAfterSessionChangeDoesNotNotifyAnotherDesktop(t *testing.T) {
+	emitter := &recordingEmitter{}
+	sink := &fakeSink{listening: map[string]bool{"tasklist.list.created": true}}
+	s := NewService(ServiceConfig{Store: &fakeStore{}, Emitter: emitter, DomainEvents: sink})
+	list := &database.TaskList{Title: "Template", UserID: "owner"}
+	list.ID = "fresh-list"
+	ctx := database.WithUserID(context.Background(), "owner")
+	s.NotifyTemplateListCreated(ctx, list, func(*gorm.DB, func() error) error { return errors.New("ended") })
+	if len(emitter.events) != 0 || len(sink.events) != 1 || sink.events[0].name != "tasklist.list.created" {
+		t.Fatal(emitter.events, sink.events)
 	}
 }

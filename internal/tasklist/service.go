@@ -1,6 +1,7 @@
 package tasklist
 
 import (
+	"assistente/internal/commandsecurity"
 	"assistente/internal/database"
 	"context"
 	"errors"
@@ -100,11 +101,22 @@ func (s *Service) CreateTaskList(ctx context.Context, title, description string,
 		}
 		full = tl
 	}
-	s.emitter.Emit("taskList:created", full)
-	if s.wantsDomain("tasklist.list.created") {
-		s.publishDomain(ctx, "tasklist.list.created", listPayload(full))
-	}
+	s.emitCommandMutation(ctx, CommandMutationCreate, "", full)
 	return full, nil
+}
+
+func (s *Service) NotifyTemplateListCreated(ctx context.Context, list *database.TaskList, admit commandsecurity.Admission) {
+	// UI events are global in Wails. Deliver only to the same authenticated session.
+	_ = admit(nil, func() error {
+		if s.emitter != nil {
+			s.emitter.Emit("taskList:created", list)
+		}
+		return nil
+	})
+	// Domain events carry their owning account and may perform database I/O.
+	if s.wantsDomain("tasklist.list.created") {
+		s.publishDomain(ctx, "tasklist.list.created", listPayload(list))
+	}
 }
 
 func (s *Service) GetTaskList(ctx context.Context, id string) (*database.TaskList, error) {
@@ -242,12 +254,7 @@ func (s *Service) CloneTaskList(ctx context.Context, id string, newTitle string)
 		}
 		full = tl
 	}
-	s.emitter.Emit("taskList:created", full)
-	if s.wantsDomain("tasklist.list.cloned") {
-		payload := listPayload(full)
-		payload["source_task_list_id"] = id
-		s.publishDomain(ctx, "tasklist.list.cloned", payload)
-	}
+	s.emitCommandMutation(ctx, CommandMutationClone, id, full)
 	return full, nil
 }
 
