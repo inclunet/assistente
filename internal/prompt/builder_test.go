@@ -768,7 +768,7 @@ func TestApplySkillToolScope_AllowlistPreservaCatalogoProtegido_PromptEDefsCoere
 	profile := &profiles.Profile{} // catalog-first (EnabledTools nil)
 	b := &prompt.Builder{Tools: reg}
 
-	base := b.BuildTemplateData(profile, llm.ChatParams{}, "conv-1")
+	base := b.BuildTemplateData(t.Context(), profile, llm.ChatParams{}, "conv-1")
 	if !base.ToolCallingEnabled || len(base.EnabledTools) != 1 || base.EnabledTools[0] != tools.ToolCatalogName {
 		t.Fatalf("esperava catalog-first sem escopo de skill, got %+v", base)
 	}
@@ -778,7 +778,7 @@ func TestApplySkillToolScope_AllowlistPreservaCatalogoProtegido_PromptEDefsCoere
 
 	// Skill allowlist que NÃO inclui tool_catalog: por ser base protegido, ele
 	// permanece preloaded e o prompt segue instruindo o catálogo.
-	scoped := b.ApplySkillToolScope(base, []string{"read_file", "memory"}, nil)
+	scoped := b.ApplySkillToolScope(t.Context(), base, []string{"read_file", "memory"}, nil)
 	if !scoped.ToolCallingEnabled {
 		t.Fatalf("tool_catalog protegido deveria manter as tools iniciais: %+v", scoped)
 	}
@@ -812,8 +812,8 @@ func TestApplySkillToolScope_DenylistCatalog_DropsProtocol(t *testing.T) {
 	profile := &profiles.Profile{}
 	b := &prompt.Builder{Tools: reg}
 
-	base := b.BuildTemplateData(profile, llm.ChatParams{}, "conv-1")
-	scoped := b.ApplySkillToolScope(base, nil, []string{tools.ToolCatalogName})
+	base := b.BuildTemplateData(t.Context(), profile, llm.ChatParams{}, "conv-1")
+	scoped := b.ApplySkillToolScope(t.Context(), base, nil, []string{tools.ToolCatalogName})
 	if scoped.ToolCallingEnabled {
 		t.Fatalf("denylist de tool_catalog deveria esvaziar a seleção catalog-first: %+v", scoped)
 	}
@@ -829,8 +829,8 @@ func TestApplySkillToolScope_AllowingCatalog_KeepsProtocol(t *testing.T) {
 	profile := &profiles.Profile{}
 	b := &prompt.Builder{Tools: reg}
 
-	base := b.BuildTemplateData(profile, llm.ChatParams{}, "conv-1")
-	scoped := b.ApplySkillToolScope(base, []string{tools.ToolCatalogName, "read_file"}, nil)
+	base := b.BuildTemplateData(t.Context(), profile, llm.ChatParams{}, "conv-1")
+	scoped := b.ApplySkillToolScope(t.Context(), base, []string{tools.ToolCatalogName, "read_file"}, nil)
 	if len(scoped.EnabledTools) != 1 || scoped.EnabledTools[0] != tools.ToolCatalogName {
 		t.Fatalf("allowlist com tool_catalog deve preservar o catálogo preloaded: %+v", scoped)
 	}
@@ -845,8 +845,8 @@ func TestApplySkillToolScope_NoScope_IsNoOp(t *testing.T) {
 	profile := &profiles.Profile{}
 	b := &prompt.Builder{Tools: reg}
 
-	base := b.BuildTemplateData(profile, llm.ChatParams{}, "conv-1")
-	scoped := b.ApplySkillToolScope(base, nil, nil)
+	base := b.BuildTemplateData(t.Context(), profile, llm.ChatParams{}, "conv-1")
+	scoped := b.ApplySkillToolScope(t.Context(), base, nil, nil)
 	if scoped.ToolCallingEnabled != base.ToolCallingEnabled || len(scoped.EnabledTools) != len(base.EnabledTools) {
 		t.Fatalf("sem escopo de skill, ApplySkillToolScope deve ser no-op: base=%+v scoped=%+v", base, scoped)
 	}
@@ -1019,7 +1019,7 @@ func TestBuildSkillsSection_SupplementaryFiles_Listed(t *testing.T) {
 
 func TestBuildTemplateData_NilProfile_NoToolCalling(t *testing.T) {
 	b := &prompt.Builder{}
-	data := b.BuildTemplateData(nil, llm.ChatParams{ProfileSlug: "default"}, "42")
+	data := b.BuildTemplateData(t.Context(), nil, llm.ChatParams{ProfileSlug: "default"}, "42")
 	if data.ToolCallingEnabled {
 		t.Error("ToolCallingEnabled should be false")
 	}
@@ -1040,7 +1040,7 @@ func TestBuildTemplateData_WithWorkspace_FillsTabInfo(t *testing.T) {
 		},
 	}
 	b := &prompt.Builder{Workspace: &mockWorkspaceReader{ws: ws}}
-	data := b.BuildTemplateData(nil, llm.ChatParams{ProfileSlug: "dev"}, "1")
+	data := b.BuildTemplateData(t.Context(), nil, llm.ChatParams{ProfileSlug: "dev"}, "1")
 	if data.WorkspaceName != "Meu Workspace" {
 		t.Errorf("WorkspaceName: got %q", data.WorkspaceName)
 	}
@@ -1060,7 +1060,7 @@ func TestBuildTemplateData_WithWorkspace_FillsTabInfo(t *testing.T) {
 
 func TestBuildTemplateData_WorkspaceNil_NoTabInfo(t *testing.T) {
 	b := &prompt.Builder{Workspace: &mockWorkspaceReader{ws: nil}}
-	data := b.BuildTemplateData(nil, llm.ChatParams{ProfileSlug: "dev"}, "1")
+	data := b.BuildTemplateData(t.Context(), nil, llm.ChatParams{ProfileSlug: "dev"}, "1")
 	if data.TabCount != 0 {
 		t.Errorf("TabCount should be 0, got %d", data.TabCount)
 	}
@@ -1077,7 +1077,7 @@ func TestBuildTemplateData_WithSurfacePayload(t *testing.T) {
 		},
 	}
 	b := &prompt.Builder{Workspace: &mockWorkspaceReader{ws: ws}}
-	data := b.BuildTemplateData(nil, llm.ChatParams{
+	data := b.BuildTemplateData(t.Context(), nil, llm.ChatParams{
 		ProfileSlug:      "editor-texto",
 		TabType:          "editor",
 		SurfaceStateJSON: `{"filePath":"/tmp/readme.md","draftId":"draft-1"}`,
@@ -1113,7 +1113,7 @@ func TestBuildTemplateData_WithSurfacePayload(t *testing.T) {
 
 func TestBuildTemplateData_ReadsProjectIDFromSurfaceMetadata(t *testing.T) {
 	b := &prompt.Builder{}
-	data := b.BuildTemplateData(nil, llm.ChatParams{
+	data := b.BuildTemplateData(t.Context(), nil, llm.ChatParams{
 		TabType: "editor",
 		SurfaceContextJSON: `{
 			"surfaceType":"editor",
@@ -1130,7 +1130,7 @@ func TestBuildTemplateData_ReadsProjectIDFromSurfaceMetadata(t *testing.T) {
 
 func TestBuildTemplateData_DiscardsIncompleteSurfaceContext(t *testing.T) {
 	b := &prompt.Builder{}
-	data := b.BuildTemplateData(nil, llm.ChatParams{
+	data := b.BuildTemplateData(t.Context(), nil, llm.ChatParams{
 		TabType:            "editor",
 		SurfaceContextJSON: `{"selectedText":"hello","projectId":"projeto-legado"}`,
 	}, "7")
@@ -1178,7 +1178,7 @@ func TestBuildTemplateData_DoesNotReuseActiveTabStateWhenSurfaceTypeDiffers(t *t
 		},
 	}
 	b := &prompt.Builder{Workspace: &mockWorkspaceReader{ws: ws}}
-	data := b.BuildTemplateData(nil, llm.ChatParams{
+	data := b.BuildTemplateData(t.Context(), nil, llm.ChatParams{
 		ProfileSlug: "terminal",
 		TabType:     "terminal",
 	}, "7")
@@ -1230,14 +1230,14 @@ func TestComputeEnabledToolNames_DisableTools_ReturnsNil(t *testing.T) {
 	profile := &profiles.Profile{}
 	profile.Chat.DisableTools = true
 	b := &prompt.Builder{Tools: reg}
-	if names := b.ComputeEnabledToolNames(profile); names != nil {
+	if names := b.ComputeEnabledToolNames(t.Context(), profile); names != nil {
 		t.Errorf("Expected nil, got %v", names)
 	}
 }
 
 func TestComputeEnabledToolNames_NilRegistry_ReturnsNil(t *testing.T) {
 	b := &prompt.Builder{}
-	if names := b.ComputeEnabledToolNames(nil); names != nil {
+	if names := b.ComputeEnabledToolNames(t.Context(), nil); names != nil {
 		t.Errorf("Expected nil, got %v", names)
 	}
 }
@@ -1247,7 +1247,7 @@ func TestComputeEnabledToolNames_NoProfileFailsClosed(t *testing.T) {
 	_ = reg.Register(&fakeTool{name: "read_file"})
 	_ = reg.Register(&fakeTool{name: "write_file"})
 	b := &prompt.Builder{Tools: reg}
-	names := b.ComputeEnabledToolNames(nil)
+	names := b.ComputeEnabledToolNames(t.Context(), nil)
 	if len(names) != 0 {
 		t.Errorf("perfil ausente não deve expor tools, got %v", names)
 	}
@@ -1261,12 +1261,12 @@ func TestComputeEnabledToolNames_ProfileNilToolsUsesCatalogFirst(t *testing.T) {
 	profile := &profiles.Profile{}
 	b := &prompt.Builder{Tools: reg}
 
-	names := b.ComputeEnabledToolNames(profile)
+	names := b.ComputeEnabledToolNames(t.Context(), profile)
 	if len(names) != 1 || names[0] != tools.ToolCatalogName {
 		t.Fatalf("Expected only tool catalog for dynamic selection, got %v", names)
 	}
 
-	data := b.BuildTemplateData(profile, llm.ChatParams{}, "conv-1")
+	data := b.BuildTemplateData(t.Context(), profile, llm.ChatParams{}, "conv-1")
 	if !data.ToolCallingEnabled || data.EnabledToolCount != 1 || data.EnabledTools[0] != tools.ToolCatalogName {
 		t.Fatalf("TemplateData tools not aligned with initial definitions: %+v", data)
 	}
@@ -1287,7 +1287,7 @@ func TestComputeEnabledToolNames_AddsLoadSkillForModelOnDemandSkills(t *testing.
 		}},
 	}
 
-	names := b.ComputeEnabledToolNames(profile)
+	names := b.ComputeEnabledToolNames(t.Context(), profile)
 	if len(names) != 2 || names[0] != tools.ToolCatalogName || names[1] != tools.LoadSkillName {
 		t.Fatalf("Expected tool_catalog + load_skill, got %v", names)
 	}
@@ -1300,11 +1300,11 @@ func TestComputeEnabledToolNames_ProfileNilToolsFailsClosedWhenCatalogMissing(t 
 	profile := &profiles.Profile{}
 	b := &prompt.Builder{Tools: reg}
 
-	names := b.ComputeEnabledToolNames(profile)
+	names := b.ComputeEnabledToolNames(t.Context(), profile)
 	if len(names) != 0 {
 		t.Fatalf("Expected no implicit tools without catalog, got %v", names)
 	}
-	data := b.BuildTemplateData(profile, llm.ChatParams{}, "conv-1")
+	data := b.BuildTemplateData(t.Context(), profile, llm.ChatParams{}, "conv-1")
 	if !data.ImplicitToolSelectionUnavailable {
 		t.Fatalf("TemplateData deve preservar o motivo tipado da seleção: %+v", data)
 	}
@@ -1364,7 +1364,7 @@ func TestBuildTemplateData_OmitsFailClosedStatusForIntentionalSelections(t *test
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			data := tc.builder.BuildTemplateData(tc.profile, llm.ChatParams{}, "conv-1")
+			data := tc.builder.BuildTemplateData(t.Context(), tc.profile, llm.ChatParams{}, "conv-1")
 			if data.ImplicitToolSelectionUnavailable {
 				t.Fatalf("status não deveria aparecer: %+v", data)
 			}
@@ -1386,7 +1386,7 @@ func TestComputeEnabledToolNames_RuntimeToolDoesNotOpenLegacyProfileWithoutCatal
 		}},
 	}
 
-	if names := b.ComputeEnabledToolNames(profile); len(names) != 0 {
+	if names := b.ComputeEnabledToolNames(t.Context(), profile); len(names) != 0 {
 		t.Fatalf("runtime tool não deve abrir perfil legado sem catálogo, got %v", names)
 	}
 }
@@ -1399,7 +1399,7 @@ func TestComputeEnabledToolNames_ProfileFilter_OnlySelected(t *testing.T) {
 	profile := &profiles.Profile{}
 	profile.Chat.EnabledTools = []string{"read_file", "bash"}
 	b := &prompt.Builder{Tools: reg}
-	names := b.ComputeEnabledToolNames(profile)
+	names := b.ComputeEnabledToolNames(t.Context(), profile)
 	if len(names) != 2 {
 		t.Errorf("Expected 2 tools, got %v", names)
 	}
@@ -1422,11 +1422,11 @@ func TestComputeEnabledToolNames_UsesTriStateToolPolicy(t *testing.T) {
 	}
 	b := &prompt.Builder{Tools: reg}
 
-	names := b.ComputeEnabledToolNames(profile)
+	names := b.ComputeEnabledToolNames(t.Context(), profile)
 	if len(names) != 1 || names[0] != tools.ToolCatalogName {
 		t.Fatalf("TemplateData deve refletir policy tri-state/catalog-first, got %v", names)
 	}
-	data := b.BuildTemplateData(profile, llm.ChatParams{}, "conv-1")
+	data := b.BuildTemplateData(t.Context(), profile, llm.ChatParams{}, "conv-1")
 	if !data.ToolCallingEnabled || data.EnabledToolCount != 1 || data.EnabledTools[0] != tools.ToolCatalogName {
 		t.Fatalf("TemplateData desalinhado com tool_policy: %+v", data)
 	}
@@ -1445,7 +1445,7 @@ func (f *fakeTool) Execute(_ context.Context, _ json.RawMessage) (tools.ToolResu
 func TestBuildTemplateData_TypedNilWorkspaceManager(t *testing.T) {
 	var mgr *workspace.Manager
 	b := &prompt.Builder{Workspace: mgr}
-	data := b.BuildTemplateData(nil, llm.ChatParams{}, "1")
+	data := b.BuildTemplateData(t.Context(), nil, llm.ChatParams{}, "1")
 	if data.WorkspaceName != "" || data.TabCount != 0 {
 		t.Fatalf("esperava dados de workspace vazios com manager typed-nil, obteve %+v", data)
 	}

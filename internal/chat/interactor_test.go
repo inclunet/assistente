@@ -225,7 +225,7 @@ func (b *capturingPromptBuilder) BuildWithContextBlocks(messages []llm.Message, 
 	return messages
 }
 
-func (b *capturingPromptBuilder) ApplySkillToolScope(data TemplateData, skillAllowed, skillDenied []string) TemplateData {
+func (b *capturingPromptBuilder) ApplySkillToolScope(ctx context.Context, data TemplateData, skillAllowed, skillDenied []string) TemplateData {
 	if len(skillAllowed) == 0 && len(skillDenied) == 0 {
 		return data
 	}
@@ -266,7 +266,7 @@ func (b *capturingPromptBuilder) ApplySkillToolScope(data TemplateData, skillAll
 	return data
 }
 
-func (b *capturingPromptBuilder) BuildTemplateData(_ *profiles.Profile, params llm.ChatParams, conversationID string) TemplateData {
+func (b *capturingPromptBuilder) BuildTemplateData(_ context.Context, _ *profiles.Profile, params llm.ChatParams, conversationID string) TemplateData {
 	data := TemplateData{
 		ConversationID:     conversationID,
 		EnabledTools:       append([]string(nil), b.baseEnabledTools...),

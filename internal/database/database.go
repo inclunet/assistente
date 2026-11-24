@@ -230,6 +230,7 @@ func InitPath(path string) error {
 	if err := db.AutoMigrate(
 		&PluginInstallation{},
 		&PluginRevision{},
+		&PluginSkillActivation{},
 		&AuthorizationRule{},
 		&AuthorizationImport{},
 		&AuthorizationPolicy{},

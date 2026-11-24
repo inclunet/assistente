@@ -61,8 +61,8 @@ type TemplateData = chat.TemplateData
 type TabInfo = chat.TabInfo
 
 // BuildTemplateData monta o TemplateData a partir do perfil ativo e do workspace.
-func (b *Builder) BuildTemplateData(activeProfile *profiles.Profile, params llm.ChatParams, conversationID string) TemplateData {
-	enabledToolNames, implicitToolSelectionUnavailable := b.resolveToolSelection(activeProfile)
+func (b *Builder) BuildTemplateData(ctx context.Context, activeProfile *profiles.Profile, params llm.ChatParams, conversationID string) TemplateData {
+	enabledToolNames, implicitToolSelectionUnavailable := b.resolveToolSelection(ctx, activeProfile)
 	data := TemplateData{
 		Profile:                          activeProfile,
 		ProfileSlug:                      params.ProfileSlug,
@@ -375,8 +375,8 @@ func buildTurnContextBlock(turnContext []string) string {
 }
 
 // ComputeEnabledToolNames retorna a lista de nomes de tools habilitadas pelo perfil.
-func (b *Builder) ComputeEnabledToolNames(activeProfile *profiles.Profile) []string {
-	names, _ := b.resolveToolSelection(activeProfile)
+func (b *Builder) ComputeEnabledToolNames(ctx context.Context, activeProfile *profiles.Profile) []string {
+	names, _ := b.resolveToolSelection(ctx, activeProfile)
 	return names
 }
 
@@ -388,11 +388,11 @@ func (b *Builder) ComputeEnabledToolNames(activeProfile *profiles.Profile) []str
 // enquanto o escopo do skill já removeu essa tool (e as demais preloaded) das
 // definitions, divergindo prompt↔defs. Usa a MESMA fonte de verdade do gate do
 // executor (tools.ExecutionContext.AllowedTools/DeniedTools). No-op sem escopo.
-func (b *Builder) ApplySkillToolScope(data TemplateData, skillAllowed, skillDenied []string) TemplateData {
+func (b *Builder) ApplySkillToolScope(ctx context.Context, data TemplateData, skillAllowed, skillDenied []string) TemplateData {
 	if len(skillAllowed) == 0 && len(skillDenied) == 0 {
 		return data
 	}
-	names, unavailable := b.resolveToolSelectionWithSkillScope(data.Profile, skillAllowed, skillDenied)
+	names, unavailable := b.resolveToolSelectionWithSkillScope(ctx, data.Profile, skillAllowed, skillDenied)
 	data.EnabledTools = names
 	data.EnabledToolCount = len(names)
 	data.ToolCallingEnabled = len(names) > 0
@@ -400,8 +400,8 @@ func (b *Builder) ApplySkillToolScope(data TemplateData, skillAllowed, skillDeni
 	return data
 }
 
-func (b *Builder) resolveToolSelection(activeProfile *profiles.Profile) ([]string, bool) {
-	return b.resolveToolSelectionWithSkillScope(activeProfile, nil, nil)
+func (b *Builder) resolveToolSelection(ctx context.Context, activeProfile *profiles.Profile) ([]string, bool) {
+	return b.resolveToolSelectionWithSkillScope(ctx, activeProfile, nil, nil)
 }
 
 // resolveToolSelectionWithSkillScope resolve os nomes de tools habilitadas do
@@ -409,13 +409,13 @@ func (b *Builder) resolveToolSelection(activeProfile *profiles.Profile) ([]strin
 // turno, reusando a MESMA fonte de verdade do gate do executor e da montagem das
 // tool definitions (chat.ProfileToolConfig.SkillAllowedTools/SkillDeniedTools).
 // Assim o system prompt anuncia/instrui exatamente as tools disponíveis no turno.
-func (b *Builder) resolveToolSelectionWithSkillScope(activeProfile *profiles.Profile, skillAllowed, skillDenied []string) ([]string, bool) {
+func (b *Builder) resolveToolSelectionWithSkillScope(ctx context.Context, activeProfile *profiles.Profile, skillAllowed, skillDenied []string) ([]string, bool) {
 	if activeProfile == nil || b.Tools == nil {
 		return nil, false
 	}
 
 	var runtimeTools []string
-	if b.modelOnDemandSkillAvailable(activeProfile) {
+	if b.modelOnDemandSkillAvailable(ctx, activeProfile) {
 		runtimeTools = append(runtimeTools, tools.LoadSkillName)
 	}
 	effective := chat.NewToolSelectionPolicy(b.Tools).ResolveEffectiveToolPolicy(chat.ProfileToolConfig{
@@ -440,11 +440,11 @@ func (b *Builder) resolveToolSelectionWithSkillScope(activeProfile *profiles.Pro
 	return names, unavailable
 }
 
-func (b *Builder) modelOnDemandSkillAvailable(activeProfile *profiles.Profile) bool {
+func (b *Builder) modelOnDemandSkillAvailable(ctx context.Context, activeProfile *profiles.Profile) bool {
 	if b.Skills == nil {
 		return false
 	}
-	allSkills, err := b.Skills.GetAllSkillsFull()
+	allSkills, err := skills.ListForContext(ctx, b.Skills)
 	if err != nil {
 		logging.Errorf(context.Background(), "prompt.builder", "[prompt] Erro ao carregar política de skills para runtime tools: %v", err)
 		return false

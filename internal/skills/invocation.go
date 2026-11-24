@@ -59,7 +59,11 @@ func ParseSlashCommand(content string) (slug string, args string, ok bool) {
 	slug = strings.ToLower(parts[0])
 
 	// Valida que o slug parece um nome de skill (letras minúsculas, números, hifens)
-	for _, ch := range slug {
+	name := strings.TrimPrefix(slug, PluginPrefix)
+	if name == "" {
+		return "", "", false
+	}
+	for _, ch := range name {
 		if (ch < 'a' || ch > 'z') && (ch < '0' || ch > '9') && ch != '-' {
 			return "", "", false
 		}
@@ -79,7 +83,14 @@ func InvokeContext(ctx context.Context, userContent string, mgr InvokerManager, 
 		return nil, false, nil
 	}
 
-	skill, err := mgr.Get(slug)
+	var err error
+	skill := policy.PluginSkill(slug)
+	if skill == nil && strings.HasPrefix(slug, PluginPrefix) {
+		return nil, true, fmt.Errorf("skill de plugin indisponível")
+	}
+	if skill == nil {
+		skill, err = mgr.Get(slug)
+	}
 	if err != nil {
 		logging.Errorf(context.Background(), "skills.invocation", "[Skills] Skill /%s não encontrado: %v", slug, err)
 		return nil, false, nil
@@ -108,7 +119,7 @@ func InvokeContext(ctx context.Context, userContent string, mgr InvokerManager, 
 		if err != nil {
 			return nil, true, err
 		}
-		files, err := invocationFiles(mgr, slug, skill.Path)
+		files, err := invocationFiles(mgr, skill)
 		if err != nil {
 			warnSupportingFiles(ctx, slug, err, false)
 			if len(doc.commands) > 0 {
@@ -152,7 +163,11 @@ func InvokeContext(ctx context.Context, userContent string, mgr InvokerManager, 
 	return result, true, nil
 }
 
-func invocationFiles(mgr InvokerManager, slug, manifestPath string) ([]string, error) {
+func invocationFiles(mgr InvokerManager, skill *Skill) ([]string, error) {
+	if skill.Source == "plugin" {
+		return nil, nil
+	}
+	slug, manifestPath := skill.Slug, skill.Path
 	if source, ok := mgr.(supportingFileLister); ok && manifestPath != "" {
 		return source.listSupportingFiles(manifestPath)
 	}
@@ -187,4 +202,15 @@ func invocationFrame(skill *Skill, supplementary []string) (string, string) {
 	sb.WriteString("</invoked_skill>")
 
 	return before, sb.String()
+}
+
+func (p SelectionPolicy) PluginSkill(slug string) *Skill {
+	for _, group := range [][]Skill{p.Base, p.OnDemand, p.Disabled} {
+		for n := range group {
+			if group[n].Source == "plugin" && group[n].Slug == slug {
+				return &group[n]
+			}
+		}
+	}
+	return nil
 }

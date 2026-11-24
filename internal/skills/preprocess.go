@@ -256,7 +256,7 @@ func planCommandLines(ctx context.Context, skill *Skill, content string, base bo
 		trimmed := strings.TrimSpace(line)
 		literal := fenced[offset]
 		offset += len(line) + 1
-		if literal || len(trimmed) < 2 || trimmed[0] != '!' || strings.HasPrefix(trimmed, "![") {
+		if literal || !potentialCommand(trimmed) {
 			if expand != nil {
 				lines[idx] = expand(line)
 			}
@@ -421,4 +421,24 @@ func evaluateSkillCommand(cmd string, policy *allowlist.Allowlist) (allowed bool
 		return false, "não permitido pela política de comandos"
 	}
 	return false, strings.Join(result.Reasons, "; ")
+}
+
+func potentialCommand(trimmed string) bool {
+	return len(trimmed) >= 2 && trimmed[0] == '!' && !strings.HasPrefix(trimmed, "![")
+}
+
+// ContainsShellCommands identifies potential directives outside literal Markdown.
+func ContainsShellCommands(content string) bool {
+	if !strings.Contains(content, "!") {
+		return false
+	}
+	literal, _ := codeLineStarts(content)
+	offset := 0
+	for line := range strings.SplitSeq(content, "\n") {
+		if !literal[offset] && potentialCommand(strings.TrimSpace(line)) {
+			return true
+		}
+		offset += len(line) + 1
+	}
+	return false
 }

@@ -1,6 +1,7 @@
 package controllers
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
@@ -105,11 +106,11 @@ func (c *SkillsController) DeleteSkill(slug string) error {
 	return nil
 }
 
-func (c *SkillsController) GetUserInvocableSkillsForProfile(profileSlug string) ([]skills.SkillInfo, error) {
+func (c *SkillsController) GetUserInvocableSkillsForProfile(ctx context.Context, profileSlug string) ([]skills.SkillInfo, error) {
 	if err := c.guard(); err != nil {
 		return nil, err
 	}
-	allSkills, err := c.skillMgr.GetAllSkillsFull()
+	allSkills, err := skills.ListForContext(ctx, c.skillMgr)
 	if err != nil {
 		return nil, err
 	}
@@ -148,4 +149,19 @@ func (c *SkillsController) GetSkillSearchPaths() []string {
 		return []string{}
 	}
 	return c.skillMgr.GetSearchPaths()
+}
+
+func (c *SkillsController) SelectableSkills(ctx context.Context) ([]skills.SkillInfo, error) {
+	if err := c.guard(); err != nil {
+		return nil, err
+	}
+	all, err := skills.ListForContext(ctx, c.skillMgr)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]skills.SkillInfo, 0, len(all))
+	for _, s := range all {
+		result = append(result, skills.SkillInfo{SkillMetadata: s.SkillMetadata, Slug: s.Slug, Source: s.Source, AutoLoad: s.IsAutoLoad()})
+	}
+	return result, nil
 }

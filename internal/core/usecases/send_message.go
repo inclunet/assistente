@@ -491,13 +491,13 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 		conversationSummary = rmsg.ConversationSummary
 		userContent = userMsg.Content
 		if !agentDrivenTurn {
-			if err := uc.chatInteractor.ValidateSkillInvocation(activeProfile, userContent, req.ConversationID, surfaceOrigin); err != nil {
+			if err := uc.chatInteractor.ValidateSkillInvocation(ctx, activeProfile, userContent, req.ConversationID, surfaceOrigin); err != nil {
 				return "", err
 			}
 		}
 	} else {
 		if !agentDrivenTurn {
-			if err := uc.chatInteractor.ValidateSkillInvocation(activeProfile, userContent, req.ConversationID, surfaceOrigin); err != nil {
+			if err := uc.chatInteractor.ValidateSkillInvocation(ctx, activeProfile, userContent, req.ConversationID, surfaceOrigin); err != nil {
 				return "", err
 			}
 		}

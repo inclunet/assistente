@@ -117,7 +117,7 @@ func (s *Skills) GetUserInvocableSkillsForProfile(profileSlug string) ([]skills.
 		return nil, err
 	}
 	return WithUser(session, func(ctx context.Context) ([]skills.SkillInfo, error) {
-		return ctrl.GetUserInvocableSkillsForProfile(profileSlug)
+		return ctrl.GetUserInvocableSkillsForProfile(ctx, profileSlug)
 	})
 }
 
@@ -130,4 +130,12 @@ func (s *Skills) GetSkillSearchPaths() ([]string, error) {
 	return WithUser(session, func(ctx context.Context) ([]string, error) {
 		return ctrl.GetSkillSearchPaths(), nil
 	})
+}
+
+func (s *Skills) GetSelectableSkills() ([]skills.SkillInfo, error) {
+	session, ctrl, err := s.deps()
+	if err != nil {
+		return nil, err
+	}
+	return WithUser(session, ctrl.SelectableSkills)
 }

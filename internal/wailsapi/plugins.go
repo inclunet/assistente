@@ -15,14 +15,15 @@ import (
 )
 
 type PluginPreview struct {
-	Token          string   `json:"token"`
-	Name           string   `json:"name"`
-	Version        string   `json:"version"`
-	Origin         string   `json:"origin"`
-	Digest         string   `json:"digest"`
-	PreviousDigest string   `json:"previousDigest"`
-	Files          []string `json:"files"`
-	Diagnostics    []string `json:"diagnostics"`
+	Components     []plugins.Component `json:"components"`
+	Token          string              `json:"token"`
+	Name           string              `json:"name"`
+	Version        string              `json:"version"`
+	Origin         string              `json:"origin"`
+	Digest         string              `json:"digest"`
+	PreviousDigest string              `json:"previousDigest"`
+	Files          []string            `json:"files"`
+	Diagnostics    []string            `json:"diagnostics"`
 }
 
 type pluginSelection struct {
@@ -39,16 +40,27 @@ type Plugins struct {
 	capture           func(context.Context) (commandsecurity.Admission, error)
 	selection         *pluginSelection
 	previewGeneration uint64
+	skillsChanged     func()
 }
 
 func NewPlugins() *Plugins { return &Plugins{} }
 
-func AttachPlugins(api *Plugins, session Session, inventory *plugins.Inventory, choose func() (string, error), capture func(context.Context) (commandsecurity.Admission, error)) {
+func AttachPlugins(api *Plugins, session Session, inventory *plugins.Inventory, choose func() (string, error), capture func(context.Context) (commandsecurity.Admission, error), skillsChanged func()) {
 	api.mu.Lock()
 	defer api.mu.Unlock()
 	api.session, api.inventory, api.choose, api.capture = session, inventory, choose, capture
+	api.skillsChanged = skillsChanged
 	api.selection = nil
 	api.previewGeneration++
+}
+
+func (api *Plugins) notifySkillsChanged() {
+	api.mu.Lock()
+	notify := api.skillsChanged
+	api.mu.Unlock()
+	if notify != nil {
+		notify()
+	}
 }
 
 func (api *Plugins) wired() (Session, *plugins.Inventory, func() (string, error), func(context.Context) (commandsecurity.Admission, error), error) {
@@ -134,7 +146,7 @@ func (api *Plugins) PreviewLocal() (*PluginPreview, error) {
 		if err != nil {
 			return nil, err
 		}
-		p := PluginPreview{Name: snap.Manifest.Name, Version: snap.Manifest.Version, Origin: snap.Origin, Digest: snap.Digest, Diagnostics: snap.Warnings}
+		p := PluginPreview{Name: snap.Manifest.Name, Version: snap.Manifest.Version, Origin: snap.Origin, Digest: snap.Digest, Diagnostics: snap.Warnings, Components: plugins.DiscoverComponents(snap)}
 		for _, row := range list {
 			if row.Origin == p.Origin && row.Name == p.Name {
 				p.PreviousDigest = row.Digest
@@ -185,7 +197,11 @@ func (api *Plugins) InstallReviewed(token string) (database.PluginInstallation, 
 			return database.PluginInstallation{}, err
 		}
 		p := selection.preview
-		return inventory.InstallReviewed(ctx, p.Origin, p.Digest, p.PreviousDigest, selection.validate)
+		row, err := inventory.InstallReviewed(ctx, p.Origin, p.Digest, p.PreviousDigest, selection.validate)
+		if err == nil && p.PreviousDigest != "" && p.PreviousDigest != p.Digest {
+			api.notifySkillsChanged()
+		}
+		return row, err
 	})
 }
 
@@ -207,5 +223,47 @@ func (api *Plugins) DiscardPreview(token string) error {
 		}
 		return struct{}{}, nil
 	})
+	return err
+}
+
+func (api *Plugins) InstalledComponents(id, digest string) ([]plugins.Component, error) {
+	session, inventory, _, capture, err := api.wired()
+	if err != nil {
+		return nil, err
+	}
+	return WithUser(session, func(ctx context.Context) ([]plugins.Component, error) {
+		admit, err := capture(ctx)
+		if err != nil {
+			return nil, err
+		}
+		rows, err := inventory.InstalledComponents(ctx, id, digest)
+		if err != nil {
+			return nil, err
+		}
+		if err := admit.Check(); err != nil {
+			return nil, err
+		}
+		return rows, nil
+	})
+}
+
+func (api *Plugins) SetSkillActive(id, digest, key string, active bool) error {
+	session, inventory, _, capture, err := api.wired()
+	if err != nil {
+		return err
+	}
+	_, err = WithUser(session, func(ctx context.Context) (struct{}, error) {
+		admit, err := capture(ctx)
+		if err != nil {
+			return struct{}{}, err
+		}
+		if admit == nil {
+			return struct{}{}, database.ErrUserScopeRequired
+		}
+		return struct{}{}, inventory.SetSkillActive(ctx, id, digest, key, active, admit)
+	})
+	if err == nil {
+		api.notifySkillsChanged()
+	}
 	return err
 }

@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { EventsOn } from '@wailsjs/runtime/runtime';
 import { GetAllowlists } from '@wailsjs/go/wailsapi/Allowlists';
 import { GetContextProviders } from '@wailsjs/go/wailsapi/Profiles';
-import { GetSkills } from '@wailsjs/go/wailsapi/Skills';
+import { GetSelectableSkills } from '@wailsjs/go/wailsapi/Skills';
 import { GetAvailableTools } from '@wailsjs/go/wailsapi/Tools';
 import type { apidto, allowlist, contextprovider, skills } from '../../wailsjs/go/models';
 
@@ -24,45 +24,55 @@ function fulfilledOrEmpty<T>(result: PromiseSettledResult<T[]>): T[] {
  * - Skills disponíveis
  * - Allowlists disponíveis
  *
- * Também escuta eventos MCP para atualizar ferramentas dinamicamente.
+ * Atualiza ferramentas MCP e skills selecionáveis enquanto o editor estiver aberto.
  */
 export function useProfileDependencies(): ProfileDependencies {
   const [tools, setTools] = useState<apidto.ToolInfo[]>([]);
   const [skills, setSkills] = useState<skills.SkillInfo[]>([]);
   const [allowlists, setAllowlists] = useState<allowlist.AllowlistInfo[]>([]);
   const [contextProviders, setContextProviders] = useState<contextprovider.ProviderMetadata[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loadingDependencies, setLoadingDependencies] = useState(true);
+  const [loadingSkills, setLoadingSkills] = useState(true);
 
   useEffect(() => {
-    const loadDependencies = async () => {
-      setLoading(true);
+    let mounted = true;
+    let skillsRequest = 0;
+    const loadSkills = async () => {
+      const request = ++skillsRequest;
+      let selectable: skills.SkillInfo[];
       try {
-        const [toolsData, allowlistsData, skillsData, contextProvidersData] = await Promise.allSettled([
-          GetAvailableTools(),
-          GetAllowlists(),
-          GetSkills(),
-          GetContextProviders(),
-        ]);
-        setTools(fulfilledOrEmpty(toolsData));
-        setAllowlists(fulfilledOrEmpty(allowlistsData));
-        setSkills(fulfilledOrEmpty(skillsData));
-        setContextProviders(fulfilledOrEmpty(contextProvidersData));
-      } finally {
-        setLoading(false);
+        selectable = (await GetSelectableSkills()) || [];
+      } catch {
+        selectable = [];
+      }
+      if (mounted && request === skillsRequest) {
+        setSkills(selectable);
+        setLoadingSkills(false);
       }
     };
 
-    loadDependencies();
+    const unsubSkills = EventsOn('plugins:skills_changed', loadSkills);
+    void loadSkills();
 
-    // Escuta mudanças nas tools MCP para atualizar a lista de ferramentas
+    void Promise.allSettled([GetAvailableTools(), GetAllowlists(), GetContextProviders()])
+      .then(([toolsData, allowlistsData, providersData]) => {
+        if (!mounted) return;
+        setTools(fulfilledOrEmpty(toolsData));
+        setAllowlists(fulfilledOrEmpty(allowlistsData));
+        setContextProviders(fulfilledOrEmpty(providersData));
+        setLoadingDependencies(false);
+      });
+
     const unsubMCP = EventsOn('mcp:tools_changed', () => {
       GetAvailableTools().then(setTools).catch(() => {});
     });
 
     return () => {
+      mounted = false;
+      unsubSkills();
       unsubMCP();
     };
   }, []);
 
-  return { tools, skills, allowlists, contextProviders, loading };
+  return { tools, skills, allowlists, contextProviders, loading: loadingDependencies || loadingSkills };
 }

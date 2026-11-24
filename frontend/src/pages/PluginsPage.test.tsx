@@ -4,8 +4,8 @@ import userEvent from '@testing-library/user-event';
 import { axe } from 'vitest-axe';
 import PluginsPage from './PluginsPage';
 
-const mocks = vi.hoisted(() => ({ list: vi.fn(), preview: vi.fn(), install: vi.fn(), discard: vi.fn(), announce: vi.fn(), announceRequest: vi.fn() }));
-vi.mock('@wailsjs/go/wailsapi/Plugins', () => ({ DiscardPreview: mocks.discard, ListInstalled: mocks.list, PreviewLocal: mocks.preview, InstallReviewed: mocks.install }));
+const mocks = vi.hoisted(() => ({ list: vi.fn(), components: vi.fn(), toggle: vi.fn(), preview: vi.fn(), install: vi.fn(), discard: vi.fn(), announce: vi.fn(), announceRequest: vi.fn() }));
+vi.mock('@wailsjs/go/wailsapi/Plugins', () => ({ InstalledComponents: mocks.components, SetSkillActive: mocks.toggle, DiscardPreview: mocks.discard, ListInstalled: mocks.list, PreviewLocal: mocks.preview, InstallReviewed: mocks.install }));
 vi.mock('../store/authStore', async importOriginal => {
   const actual = await importOriginal<typeof import('../store/authStore')>();
   return { ...actual, useAuthStore: Object.assign(() => 'session', actual.useAuthStore) };
@@ -84,6 +84,38 @@ describe('PluginsPage', () => {
       expect(choose).toHaveFocus();
     }, { timeout: 2500 });
     expect(mocks.install).not.toHaveBeenCalled();
+  });
+
+  it('informa que a alteração foi salva quando a atualização dos detalhes falha', async () => {
+    const user = userEvent.setup();
+    mocks.list.mockResolvedValue([{ id: 'one', name: 'Demo', origin: 'folder', version: 'v1', digest: 'sha' }]);
+    const note = { name: 'note', key: 'skills/note', kind: 'skill', active: false };
+    mocks.components.mockResolvedValueOnce([note]).mockRejectedValueOnce(new Error('offline'));
+    render(<PluginsPage />);
+    const cell = await screen.findByRole('gridcell', { name: /Demo/ });
+    cell.focus();
+    await user.keyboard('{Enter}');
+    await user.click(await screen.findByRole('button', { name: 'plugins.activate' }));
+    expect(await screen.findByText('plugins.componentReloadError')).toBeVisible();
+    expect(screen.queryByRole('button', { name: 'plugins.activate' })).toBeNull();
+    expect(mocks.toggle).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(cell).toHaveFocus());
+  });
+
+  it('opens installed components with Enter and applies the selected revision', async () => {
+    const user = userEvent.setup();
+    mocks.list.mockResolvedValue([{ id: 'one', name: 'Demo', origin: 'folder', version: 'v1', digest: 'sha' }]);
+    const note = { name: 'note', key: 'skills/note', kind: 'skill', active: false };
+    mocks.components.mockResolvedValueOnce([note]).mockResolvedValueOnce([{ ...note, active: true, slug: 'note-local' }]);
+    render(<PluginsPage />);
+    const cell = await screen.findByRole('gridcell', { name: /Demo/ });
+    cell.focus();
+    await user.keyboard('{Enter}');
+    await user.click(await screen.findByRole('button', { name: 'plugins.activate' }));
+    expect(mocks.toggle).toHaveBeenCalledWith('one', 'sha', 'skills/note', true);
+    expect(await screen.findByText('/note-local')).toBeInTheDocument();
+    await user.keyboard('{Escape}');
+    await waitFor(() => expect(cell).toHaveFocus());
   });
 
   it.each(['cancel', 'readError'])('restores keyboard focus after picker result %s', async result => {

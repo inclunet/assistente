@@ -39,7 +39,7 @@ func (a *App) wireAllowlist() {
 
 func (a *App) wirePlugins() {
 	if a.pluginsAPI != nil && a.dialogPort != nil {
-		wailsapi.AttachPlugins(a.pluginsAPI, wailsSession{app: a}, plugins.NewInventory(database.DB()), a.dialogPort.OpenDirectoryDialog, a.captureDialogAdmission)
+		wailsapi.AttachPlugins(a.pluginsAPI, wailsSession{app: a}, plugins.NewInventory(database.DB()), a.dialogPort.OpenDirectoryDialog, a.captureDialogAdmission, func() { a.emitter.Emit("plugins:skills_changed", nil) })
 	}
 }
 

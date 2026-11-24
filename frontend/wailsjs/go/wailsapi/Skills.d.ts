@@ -9,6 +9,8 @@ export function DeleteSkill(arg1:string):Promise<void>;
 
 export function DuplicateSkill(arg1:string):Promise<string>;
 
+export function GetSelectableSkills():Promise<Array<skills.SkillInfo>>;
+
 export function GetSkill(arg1:string):Promise<skills.Skill>;
 
 export function GetSkillSearchPaths():Promise<Array<string>>;

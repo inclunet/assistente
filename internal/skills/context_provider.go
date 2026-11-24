@@ -134,14 +134,14 @@ func (p *ContextProvider) Build(ctx context.Context, req contextprovider.BuildRe
 	}
 	turn, _ := ctx.Value(commandTurnKey{}).(*commandTurn)
 	if turn == nil {
-		skills, err := p.source.GetAllSkillsFull()
+		skills, err := ListForContext(ctx, p.source)
 		if err != nil {
 			return nil, err
 		}
 		return p.build(ctx, req, skills)
 	}
 	if turn.prepared == nil {
-		skills, err := p.source.GetAllSkillsFull()
+		skills, err := ListForContext(ctx, p.source)
 		turn.prepared = &preparedSkillContext{
 			skills: snapshotPromptSkills(skills), err: err,
 			files: make(map[string][]string), outputs: make(map[string]map[int]string),
@@ -152,6 +152,9 @@ func (p *ContextProvider) Build(ctx context.Context, req contextprovider.BuildRe
 			prepared.paths = make(map[string]string)
 		}
 		for _, skill := range prepared.skills {
+			if skill.Source == "plugin" {
+				continue
+			}
 			if prepared.filesAt != nil && skill.Path != "" {
 				// O manager já resolveu a precedência de origem para este slug.
 				prepared.paths[skill.Slug] = skill.Path
@@ -301,7 +304,7 @@ func buildBaseSkillBlock(ctx context.Context, baseSkills []Skill, source Context
 		}
 		writeSkillHeading(&heading, *skill)
 		files.WriteByte('\n')
-		if err := writeSupportingFiles(&files, source, skill.Slug, "Supporting files (use read_file to access when needed):", "- `", "`"); err != nil {
+		if err := writeSupportingFiles(&files, source, *skill, "Supporting files (use read_file to access when needed):", "- `", "`"); err != nil {
 			filesComplete = false
 			warnSupportingFiles(ctx, skill.Slug, err, true)
 		}
@@ -397,7 +400,7 @@ func buildAvailableSkillsBlock(ctx context.Context, availableSkills []Skill, sou
 		sb.WriteString("`\n")
 		// Arquivos são opcionais no catálogo: seu envelope tem reserva fixa e
 		// usa só o saldo da base. A preparação repete uma listagem que falhou.
-		if err := writeSupportingFiles(&sb, source, skill.Slug, "  Supporting files:", "    - `", "`"); err != nil {
+		if err := writeSupportingFiles(&sb, source, skill, "  Supporting files:", "    - `", "`"); err != nil {
 			warnSupportingFiles(ctx, skill.Slug, err, true)
 		}
 	}
@@ -430,8 +433,11 @@ func warnSupportingFiles(ctx context.Context, slug string, err error, promptBuil
 	logging.Logger(ctx, "skills").WarnContext(ctx, "Listagem de arquivos de apoio indisponível", "skill", slug, "reason", reason)
 }
 
-func writeSupportingFiles(sb *strings.Builder, source ContextProviderSource, slug string, heading string, prefix string, suffix string) error {
-	supplementary, err := source.GetSkillFiles(slug)
+func writeSupportingFiles(sb *strings.Builder, source ContextProviderSource, skill Skill, heading string, prefix string, suffix string) error {
+	if skill.Source == "plugin" {
+		return nil
+	}
+	supplementary, err := source.GetSkillFiles(skill.Slug)
 	if err != nil {
 		return err
 	}

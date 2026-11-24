@@ -14,6 +14,10 @@ export function DuplicateSkill(arg1) {
   return window['go']['wailsapi']['Skills']['DuplicateSkill'](arg1);
 }
 
+export function GetSelectableSkills() {
+  return window['go']['wailsapi']['Skills']['GetSelectableSkills']();
+}
+
 export function GetSkill(arg1) {
   return window['go']['wailsapi']['Skills']['GetSkill'](arg1);
 }

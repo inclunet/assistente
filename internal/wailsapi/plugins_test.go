@@ -30,7 +30,7 @@ func TestPluginPreviewUsesSelectedDirectoryAndSession(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = conn.Close() })
-	if err := db.AutoMigrate(&database.PluginInstallation{}, &database.PluginRevision{}); err != nil {
+	if err := db.AutoMigrate(&database.PluginInstallation{}, &database.PluginRevision{}, &database.PluginSkillActivation{}); err != nil {
 		t.Fatal(err)
 	}
 	inventory := plugins.NewInventory(db)
@@ -39,6 +39,7 @@ func TestPluginPreviewUsesSelectedDirectoryAndSession(t *testing.T) {
 	missing := errors.New("stale")
 	ctx := database.WithUserID(context.Background(), "owner")
 	session := stubSession{ctx: ctx}
+	var notifications int
 	AttachPlugins(api, session, inventory, func() (string, error) { return dir, nil }, func(context.Context) (commandsecurity.Admission, error) {
 		return func(_ *gorm.DB, handoff func() error) error {
 			if !active {
@@ -46,7 +47,7 @@ func TestPluginPreviewUsesSelectedDirectoryAndSession(t *testing.T) {
 			}
 			return handoff()
 		}, nil
-	})
+	}, func() { notifications++ })
 	var pickerCalls atomic.Int32
 	api.choose = func() (string, error) {
 		pickerCalls.Add(1)
@@ -135,5 +136,31 @@ func TestPluginPreviewUsesSelectedDirectoryAndSession(t *testing.T) {
 	rows, err = api.ListInstalled()
 	if err != nil || len(rows) != 1 || rows[0].Digest != p.Digest {
 		t.Fatal(rows, err)
+	}
+	if notifications != 0 {
+		t.Fatalf("unexpected catalog event before any activation: %d", notifications)
+	}
+	skillDir := filepath.Join(dir, "skills", "note")
+	if err := os.MkdirAll(skillDir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte("---\nname: note\ndescription: Instruções\n---\nTexto"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	updated, err := api.PreviewLocal()
+	if err != nil {
+		t.Fatal(err)
+	}
+	installed, err := api.InstallReviewed(updated.Token)
+	if err != nil || notifications != 1 {
+		t.Fatal(err, notifications)
+	}
+	if err := api.SetSkillActive(installed.ID, p.Digest, "skills/note", true); err == nil || notifications != 1 {
+		t.Fatal(err, notifications)
+	}
+	for index, enable := range []bool{true, false} {
+		if err := api.SetSkillActive(installed.ID, installed.Digest, "skills/note", enable); err != nil || notifications != index+2 {
+			t.Fatal(err, notifications)
+		}
 	}
 }
