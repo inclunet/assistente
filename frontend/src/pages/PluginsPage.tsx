@@ -222,7 +222,15 @@ function InstalledPlugins({ session }: { session: string }) {
         return;
       }
       if (mounted.current) announce(t('plugins.synchronized'));
-    } catch { if (mounted.current && error !== 'plugins.syncPendingStale') setError('plugins.syncFailed'); }
+    } catch {
+      if (!mounted.current) return;
+      if (!details && listError) {
+        setError('');
+        setListError('plugins.syncFailedStale');
+      } else if (error !== 'plugins.syncPendingStale') {
+        setError('plugins.syncFailed');
+      }
+    }
     finally { if (mounted.current) setBusy(false); }
   };
   const syncAction = <Button disabled={busy} onClick={() => void syncMCP()}>{t('plugins.retrySync')}</Button>;

@@ -157,6 +157,7 @@ notSaved: 'La decisión vale solo para esta operación: no se pudo recordar. Ser
       affectedServers: 'Servidores MCP afectados',
       affectedServersNotice: 'La actualización elimina los servidores MCP vinculados y cierra sus conexiones. Para conservar un servidor, cancela y elige conservarlo como independiente en los detalles del plugin antes de actualizar.',
       syncReloadError: 'Servidores MCP sincronizados. No se pudieron volver a cargar los datos de los plugins. Inténtalo de nuevo.',
+      syncFailedStale: 'No se pudieron sincronizar los servidores MCP. La lista de plugins sigue desactualizada. Inténtalo de nuevo.',
       syncFailed: 'No se pudieron sincronizar los servidores MCP. Inténtalo de nuevo.',
       retrySync: 'Sincronizar servidores MCP',
       synchronized: 'Servidores MCP sincronizados.',

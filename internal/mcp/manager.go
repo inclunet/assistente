@@ -465,7 +465,8 @@ func (m *Manager) LoadConfigs() error {
 		logging.Infof(context.Background(), "mcp.manager", "[MCP] LoadConfigs aguardando usuário autenticado: %v", err)
 		return nil
 	}
-	return m.reconcileConfigsLocked(ctx, repo, false)
+	_, err := m.reconcileConfigsLocked(ctx, repo, false)
+	return err
 }
 
 // AutoConnectAll conecta sequencialmente a todos os servidores
@@ -3154,9 +3155,9 @@ func (m *Manager) ReloadPackagedConfigs(ctx context.Context) error {
 		m.configReloadMu.Unlock()
 		return errors.New("repository MCP indisponível")
 	}
-	err := m.reconcileConfigsLocked(ctx, repo, true)
+	published, err := m.reconcileConfigsLocked(ctx, repo, true)
 	m.configReloadMu.Unlock()
-	if err == nil {
+	if published {
 		m.emit("mcp:config_changed", map[string]string{})
 	}
 	return err
@@ -3164,10 +3165,10 @@ func (m *Manager) ReloadPackagedConfigs(ctx context.Context) error {
 
 // O carregamento completo também retira servidores da conta anterior. O
 // incremental só alcança servidores de pacotes da conta da chamada.
-func (m *Manager) reconcileConfigsLocked(ctx context.Context, repo Repository, packagesOnly bool) error {
+func (m *Manager) reconcileConfigsLocked(ctx context.Context, repo Repository, packagesOnly bool) (bool, error) {
 	owner, err := database.RequireUserID(ctx)
 	if err != nil {
-		return err
+		return false, err
 	}
 	sessionID, _ := userctx.SessionIDFromContext(ctx)
 	checkScope := func() error {
@@ -3183,7 +3184,7 @@ func (m *Manager) reconcileConfigsLocked(ctx context.Context, repo Repository, p
 		return nil
 	}
 	if err := checkScope(); err != nil {
-		return err
+		return false, err
 	}
 	// Compare a identidade observada antes da leitura com a do banco. Uma
 	// edição nativa concorrente publica sua própria configuração no runtime.
@@ -3197,12 +3198,12 @@ func (m *Manager) reconcileConfigsLocked(ctx context.Context, repo Repository, p
 	m.mu.RUnlock()
 	configs, err := repo.ListServers(ctx)
 	if err != nil {
-		return err
+		return false, err
 	}
 	// A sessão pode mudar enquanto o repositório lê a configuração. Descarte a
 	// fotografia antiga antes de alterar o mapa usado pela próxima conta.
 	if err := checkScope(); err != nil {
-		return err
+		return false, err
 	}
 	pending := make(map[string]ServerConfig)
 	for _, cfg := range configs {
@@ -3215,6 +3216,7 @@ func (m *Manager) reconcileConfigsLocked(ctx context.Context, repo Repository, p
 			}
 		}
 	}
+	var cleanupErrs []error
 	retiredAny := false
 	for slug, original := range before {
 		if cfg, ok := pending[slug]; ok && reflect.DeepEqual(persistedLegacyConfig(cfg), original) {
@@ -3223,7 +3225,7 @@ func (m *Manager) reconcileConfigsLocked(ctx context.Context, repo Repository, p
 		}
 		retired, err := m.disconnectWithRecoveryForAttemptAndOwner(slug, false, true, 0, nil, nil, &original)
 		if err != nil {
-			return err
+			cleanupErrs = append(cleanupErrs, fmt.Errorf("retirar servidor MCP %q: %w", slug, err))
 		}
 		if !retired {
 			// A identidade observada já foi substituída por outra operação.
@@ -3234,10 +3236,11 @@ func (m *Manager) reconcileConfigsLocked(ctx context.Context, repo Repository, p
 			pending[slug] = ServerConfig{}
 		}
 	}
+	cleanupErr := errors.Join(cleanupErrs...)
 	if retiredAny {
 		latest, err := repo.ListServers(ctx)
 		if err != nil {
-			return err
+			return false, errors.Join(cleanupErr, err)
 		}
 		current := make(map[string]ServerConfig)
 		for _, cfg := range latest {
@@ -3248,7 +3251,7 @@ func (m *Manager) reconcileConfigsLocked(ctx context.Context, repo Repository, p
 		pending = current
 	}
 	if err := checkScope(); err != nil {
-		return err
+		return false, errors.Join(cleanupErr, err)
 	}
 	m.mu.Lock()
 	for slug, cfg := range pending {
@@ -3258,5 +3261,5 @@ func (m *Manager) reconcileConfigsLocked(ctx context.Context, repo Repository, p
 		}
 	}
 	m.mu.Unlock()
-	return nil
+	return true, cleanupErr
 }

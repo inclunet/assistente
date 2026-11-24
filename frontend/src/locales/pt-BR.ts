@@ -158,6 +158,7 @@ notSaved: 'A decisão vale somente para esta operação: não foi possível lemb
       affectedServers: 'Servidores MCP afetados',
       affectedServersNotice: 'A atualização remove os servidores MCP vinculados e encerra suas conexões. Para manter um servidor, cancele e escolha mantê-lo como independente nos detalhes do plugin antes de atualizar.',
       syncReloadError: 'Servidores MCP sincronizados. Não foi possível recarregar os dados dos plugins. Tente novamente.',
+      syncFailedStale: 'Falha ao sincronizar os servidores MCP. A lista de plugins continua desatualizada. Tente novamente.',
       syncFailed: 'Não foi possível sincronizar os servidores MCP. Tente novamente.',
       retrySync: 'Sincronizar servidores MCP',
       synchronized: 'Servidores MCP sincronizados.',

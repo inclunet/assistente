@@ -204,11 +204,20 @@ describe('PluginsPage', () => {
     expect(await screen.findByText('plugins.syncReloadError')).toBeVisible();
     expect(screen.queryByText('plugins.empty')).toBeNull();
     expect(mocks.announce.mock.calls).toEqual([['plugins.syncReloadError', 'assertive']]);
+    mocks.sync.mockRejectedValueOnce(new Error('offline'));
+    mocks.announce.mockClear();
+    await user.click(sync);
+    expect(await screen.findByText('plugins.syncFailedStale')).toBeVisible();
+    expect(screen.queryByText('plugins.syncReloadError')).toBeNull();
+    expect(screen.queryByText('plugins.empty')).toBeNull();
+    expect(mocks.announce.mock.calls).toEqual([['plugins.syncFailedStale', 'assertive']]);
+    expect(mocks.list).toHaveBeenCalledTimes(2);
     await user.click(sync);
     await waitFor(() => expect(mocks.announce).toHaveBeenCalledWith('plugins.synchronized'));
     expect(screen.queryByText('plugins.syncReloadError')).toBeNull();
     expect(screen.getByText('plugins.empty')).toBeVisible();
-    expect(mocks.sync).toHaveBeenCalledTimes(2);
+    expect(screen.queryByText('plugins.syncFailedStale')).toBeNull();
+    expect(mocks.sync).toHaveBeenCalledTimes(3);
     expect(mocks.list).toHaveBeenCalledTimes(3);
   });
 

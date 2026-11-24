@@ -158,6 +158,7 @@ notSaved: 'The decision applies only to this operation: it could not be remember
       affectedServers: 'Affected MCP servers',
       affectedServersNotice: 'Updating removes linked MCP servers and disconnects them. To keep a server, cancel and choose to keep it as an independent server in the plugin details before updating.',
       syncReloadError: 'MCP servers synchronized. Could not reload plugin data. Try again.',
+      syncFailedStale: 'Could not synchronize MCP servers. The plugin list is still out of date. Try again.',
       syncFailed: 'Could not synchronize MCP servers. Try again.',
       retrySync: 'Synchronize MCP servers',
       synchronized: 'MCP servers synchronized.',

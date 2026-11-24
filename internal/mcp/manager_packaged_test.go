@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	"gorm.io/gorm"
 	"log/slog"
 	"strings"
 	"testing"
@@ -12,6 +11,8 @@ import (
 
 	"assistente/internal/database"
 	"assistente/internal/userctx"
+	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
+	"gorm.io/gorm"
 )
 
 type packagedListRepo struct {
@@ -262,5 +263,60 @@ func TestLoadConfigsRetiresOnlyChangedConnections(t *testing.T) {
 		if (m.connections[cfg.Slug] != nil) != preserved || (active[cfg.Slug].Err() == nil) != preserved || (status.Status == StatusConnected) != preserved {
 			t.Errorf("%s: connection=%v, context=%v, status=%v", cfg.Slug, m.connections[cfg.Slug] != nil, active[cfg.Slug].Err(), status.Status)
 		}
+	}
+}
+
+func TestPackagedReloadPublishesOtherChangesAfterSessionCleanupFailure(t *testing.T) {
+	ctx := database.WithUserID(context.Background(), "alice")
+	var publications int
+	m := NewManager(nil, nil, func(event string, _ any) {
+		if event == "mcp:config_changed" {
+			publications++
+		}
+	})
+	t.Cleanup(m.CloseAll)
+	m.SetAuthContextProvider(func() context.Context { return ctx })
+	factory := newInMemoryMCPFactory(t, ctx)
+	t.Cleanup(factory.close)
+	wantErr := errors.New("session ended with a transport failure")
+	for _, slug := range []string{"plugin-first", "plugin-second"} {
+		cfg := ServerConfig{ID: slug, Slug: slug, UserID: "alice", Enabled: true}
+		m.servers[slug] = &ServerStatus{ID: slug, Slug: slug, Config: cfg, Status: StatusConnected}
+		conn := &serverConnection{}
+		if slug == "plugin-first" {
+			transport, err := factory.transport(ctx, slug, cfg)
+			if err != nil {
+				t.Fatal(err)
+			}
+			client := mcpsdk.NewClient(&mcpsdk.Implementation{Name: "test", Version: "1"}, nil)
+			conn.session, err = client.Connect(ctx, transport, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			// O watcher já entregou a falha da sessão ao cleanup da conexão.
+			done := make(chan error, 1)
+			done <- wantErr
+			close(done)
+			conn.sessionDone = done
+		}
+		m.connections[slug] = conn
+	}
+	const added = "plugin-new"
+	m.SetRepository(packagedListRepo{list: func(context.Context) ([]ServerConfig, error) {
+		return []ServerConfig{{ID: added, Slug: added, UserID: "alice"}}, nil
+	}})
+	if err := m.ReloadPackagedConfigs(ctx); !errors.Is(err, wantErr) || !strings.Contains(err.Error(), "plugin-first") {
+		t.Fatalf("cleanup diagnosis: %v", err)
+	}
+	if len(m.servers) != 1 || m.servers[added] == nil || len(m.connections) != 0 || publications != 1 {
+		t.Fatalf("servers=%v connections=%v publications=%d", m.servers, m.connections, publications)
+	}
+
+	published := m.servers[added]
+	if err := m.ReloadPackagedConfigs(ctx); err != nil {
+		t.Fatalf("repeat reload: %v", err)
+	}
+	if m.servers[added] != published || len(m.servers) != 1 || publications != 2 {
+		t.Fatalf("retry did not preserve the new server: servers=%v publications=%d", m.servers, publications)
 	}
 }
