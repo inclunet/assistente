@@ -166,6 +166,42 @@ func withSQLiteImmediateTransaction(ctx context.Context, db *gorm.DB, operation 
 // de qualquer leitura de validação. É exportado para repositories de outros
 // pacotes que persistem dados ligados ao histórico.
 func WithSQLiteImmediateTransaction(ctx context.Context, db *gorm.DB, operation string, fn func(*gorm.DB) error) error {
+	return withSQLiteCommit(ctx, db, operation, fn, func(tx *gorm.DB) error { return tx.Exec("COMMIT").Error })
+}
+
+// WithSQLiteAdmittedCommit mantém a aquisição do writer e a preparação fora
+// da seção admitida. A admissão pode recusar o commit e provocar rollback.
+func WithSQLiteAdmittedCommit(ctx context.Context, db *gorm.DB, operation string, fn func(*gorm.DB) error, admit func(*gorm.DB, func() error) error) error {
+	if admit == nil {
+		return errors.New("missing commit admission")
+	}
+	root, err := db.DB()
+	if err != nil {
+		return err
+	}
+	return withSQLiteCommit(ctx, db, operation, fn, func(tx *gorm.DB) error {
+		// The session service checks the pool identity and queries this same connection.
+		tx.Statement.ConnPool = &sqliteImmediateConnPool{ConnPool: tx.Statement.ConnPool, root: root}
+		var called bool
+		var commitErr error
+		err := admit(tx, func() error {
+			if !called {
+				called = true
+				commitErr = tx.Exec("COMMIT").Error
+			}
+			return commitErr
+		})
+		if called {
+			return commitErr
+		}
+		if err == nil {
+			return errors.New("admission returned without committing")
+		}
+		return err
+	})
+}
+
+func withSQLiteCommit(ctx context.Context, db *gorm.DB, operation string, fn, commit func(*gorm.DB) error) error {
 	return WithSQLiteBusyRetry(ctx, operation, func() error {
 		return db.WithContext(ctx).Connection(func(tx *gorm.DB) error {
 			// BEGIN/COMMIT são controlados explicitamente abaixo; impedir que
@@ -190,7 +226,7 @@ func WithSQLiteImmediateTransaction(ctx context.Context, db *gorm.DB, operation 
 			if err := fn(tx); err != nil {
 				return err
 			}
-			if err := tx.Exec("COMMIT").Error; err != nil {
+			if err := commit(tx); err != nil {
 				return err
 			}
 			committed = true

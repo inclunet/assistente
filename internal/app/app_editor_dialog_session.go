@@ -6,7 +6,9 @@ import (
 	"time"
 
 	"assistente/internal/auth"
+	"assistente/internal/commandsecurity"
 	"assistente/internal/database"
+	"gorm.io/gorm"
 )
 
 var errEditorDialogSessionStale = errors.New("sessão do diálogo do editor ficou obsoleta")
@@ -15,6 +17,14 @@ var errEditorDialogSessionStale = errors.New("sessão do diálogo do editor fico
 // diálogo nativo. A validação devolvida não mantém authMu nem o gate durante
 // o diálogo; a mesma validação é usada antes e depois dele.
 func (a *App) captureEditorDialogSession(ctx context.Context) (func() error, error) {
+	admit, err := a.captureDialogAdmission(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return admit.Check, nil
+}
+
+func (a *App) captureDialogAdmission(ctx context.Context) (commandsecurity.Admission, error) {
 	if a == nil {
 		return nil, database.ErrUserScopeRequired
 	}
@@ -43,7 +53,7 @@ func (a *App) captureEditorDialogSession(ctx context.Context) (func() error, err
 		return nil, err
 	}
 
-	validate := func() error {
+	admit := commandsecurity.Admission(func(tx *gorm.DB, handoff func() error) error {
 		validationCtx, cancel := context.WithTimeout(a.appContext(), 5*time.Second)
 		defer cancel()
 		return epochs.Admit(validationCtx, snapshot, func(ctx context.Context) error {
@@ -60,7 +70,13 @@ func (a *App) captureEditorDialogSession(ctx context.Context) (func() error, err
 				return database.ErrUserScopeRequired
 			}
 			principal := auth.LocalSessionPrincipal{UserID: snapshot.UserID, SessionID: snapshot.SessionID}
-			validated, err := sessions.RevalidateLocalSession(ctx, principal)
+			var validated auth.LocalSessionPrincipal
+			var err error
+			if tx == nil {
+				validated, err = sessions.RevalidateLocalSession(ctx, principal)
+			} else {
+				validated, err = sessions.RevalidateLocalSessionTx(ctx, tx, principal)
+			}
 			if err != nil {
 				return err
 			}
@@ -68,10 +84,10 @@ func (a *App) captureEditorDialogSession(ctx context.Context) (func() error, err
 				return errEditorDialogSessionStale
 			}
 			return nil
-		}, func() error { return nil })
-	}
-	if err := validate(); err != nil {
+		}, handoff)
+	})
+	if err := admit.Check(); err != nil {
 		return nil, err
 	}
-	return validate, nil
+	return admit, nil
 }

@@ -283,7 +283,8 @@ type App struct {
 
 	// skillsAPI é o bind Wails do domínio skills (AEP-0088). Criado em main e
 	// wired após NewSkillsController.
-	skillsAPI *wailsapi.Skills
+	skillsAPI  *wailsapi.Skills
+	pluginsAPI *wailsapi.Plugins
 
 	// toolsAPI é o bind Wails do domínio tools (AEP-0088). Criado em main e
 	// wired após NewToolsController.
@@ -503,8 +504,12 @@ func SetAllowlistsAPI(a *App, api *wailsapi.Allowlists) {
 	a.allowlistsAPI = api
 }
 
+// SetPluginsAPI liga o domínio de plugins antes de iniciar o Wails.
+func SetPluginsAPI(a *App, api *wailsapi.Plugins) { a.pluginsAPI = api }
+
 // SetSkillsAPI registra o bind Wails de skills antes do Run (main.go).
 // Função de pacote (não método) para não entrar na superfície Bind do Wails.
+
 func SetSkillsAPI(a *App, api *wailsapi.Skills) {
 	if a == nil {
 		return
@@ -1295,6 +1300,7 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 	a.wireJobs()
 	a.wireTokens()
 	a.wireSkills()
+	a.wirePlugins()
 	a.wireAllowlist()
 	a.wireTools()
 	a.wireCommandCatalog()
