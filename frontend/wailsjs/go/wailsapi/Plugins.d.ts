@@ -22,4 +22,4 @@ export function RemoveMCP(arg1:string,arg2:string,arg3:string,arg4:boolean):Prom
 
 export function SetSkillActive(arg1:string,arg2:string,arg3:string,arg4:boolean):Promise<void>;
 
-export function SyncMCP():Promise<void>;
+export function SyncMCP(arg1:string):Promise<void>;

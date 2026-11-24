@@ -369,7 +369,7 @@ describe('PluginsPage', () => {
     screen.getByRole('gridcell', { name: /Demo/ }).focus();
     await user.keyboard('{Enter}');
     await user.click(await screen.findByRole('button', { name: 'plugins.enable' }));
-    await waitFor(() => expect(mocks.sync).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(mocks.sync).toHaveBeenCalledWith('session'));
     await waitFor(() => expect(screen.queryByText('plugins.syncPending')).toBeNull());
   });
 

@@ -63,7 +63,7 @@ async function publish(session: string, operation: Promise<unknown>, lifecycle =
     // Finish an earlier removal before treating its warning as resolved.
     if (outstandingSync && usePendingLifecycleSync.getState().get(session) === outstandingSync) {
       try {
-        await reconcileMCP(session, SyncMCP());
+        await reconcileMCP(session, SyncMCP(session));
       } catch {
         throw new Error('PLUGIN_MCP_SYNC_PENDING');
       }
@@ -253,7 +253,7 @@ function InstalledPlugins({ session }: { session: string }) {
     if (busy) return;
     setBusy(true);
     try {
-      await reconcileMCP(session, SyncMCP());
+      await reconcileMCP(session, SyncMCP(session));
       if (!mounted.current) return;
       setError('');
       if (details) {

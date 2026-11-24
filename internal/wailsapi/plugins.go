@@ -11,6 +11,7 @@ import (
 	"assistente/internal/database"
 	"assistente/internal/pluginpackage"
 	"assistente/internal/plugins"
+	"assistente/internal/userctx"
 	"github.com/google/uuid"
 )
 
@@ -307,8 +308,11 @@ func (api *Plugins) RemoveMCP(id, digest, key string, preserve bool) error {
 	})
 }
 
-func (api *Plugins) SyncMCP() error {
+func (api *Plugins) SyncMCP(expectedSession string) error {
 	return api.mutateComponent(func(ctx context.Context, i *plugins.Inventory, admit commandsecurity.Admission) error {
+		if session, ok := userctx.SessionIDFromContext(ctx); !ok || session != expectedSession {
+			return database.ErrUserScopeRequired
+		}
 		return i.SyncMCP(ctx, admit)
 	})
 }
