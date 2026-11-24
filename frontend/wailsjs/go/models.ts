@@ -8110,6 +8110,7 @@ export namespace plugincatalog {
 export namespace plugins {
 	
 	export class Component {
+	    editedServer?: string;
 	    endpoint?: string;
 	    active: boolean;
 	    slug?: string;
@@ -8126,6 +8127,7 @@ export namespace plugins {
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.editedServer = source["editedServer"];
 	        this.endpoint = source["endpoint"];
 	        this.active = source["active"];
 	        this.slug = source["slug"];
@@ -10160,6 +10162,8 @@ export namespace wailsapi {
 	}
 	export class PluginPreview {
 	    authentication?: string;
+	    editedMcpServers?: string[];
+	    affectedMcpServers?: string[];
 	    components: plugins.Component[];
 	    token: string;
 	    name: string;
@@ -10177,6 +10181,8 @@ export namespace wailsapi {
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.authentication = source["authentication"];
+	        this.editedMcpServers = source["editedMcpServers"];
+	        this.affectedMcpServers = source["affectedMcpServers"];
 	        this.components = this.convertValues(source["components"], plugins.Component);
 	        this.token = source["token"];
 	        this.name = source["name"];

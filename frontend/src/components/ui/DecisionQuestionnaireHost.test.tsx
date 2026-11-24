@@ -92,6 +92,13 @@ describe('isDecisionQuestionnaire', () => {
 });
 
 describe('DecisionQuestionnaireHost', () => {
+  it('mostra o template de shell literalmente na região de leitura do desktop', () => {
+    const source = '  example {{ secret "token" }}  ';
+    const data = { ...shellDecision(), body: source, bodyLabel: { fallback: 'Template original do comando' } };
+    render(<DecisionQuestionnaireHost data={data} onAction={vi.fn()} onCancel={vi.fn()} />);
+    expect(screen.getByText('example {{ secret "token" }}').textContent).toBe(source);
+  });
+
   it('não renderiza quando o payload não é decisão', () => {
     const { container } = render(
       <DecisionQuestionnaireHost

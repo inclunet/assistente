@@ -83,6 +83,23 @@ func (testToolWindow) Execute(_ context.Context, _ json.RawMessage) (tools.ToolR
 	}, nil
 }
 
+type testToolNull struct{ testToolOK }
+
+func (testToolNull) Execute(context.Context, json.RawMessage) (tools.ToolResult, error) {
+	return tools.ToolResult{Content: " null\n", Metadata: map[string]any{"source": "manual"}}, nil
+}
+
+func TestManagerDryRunPreservesNullOutputWithMetadata(t *testing.T) {
+	registry := tools.NewRegistry()
+	tool := testToolNull{}
+	registry.MustRegister(tool)
+	manager := mustNewManager(t, ManagerConfig{ToolRegistry: registry})
+	result, err := manager.TestToolDryRunContext(t.Context(), TestToolRequest{ToolName: tool.Name()})
+	if err != nil || result == nil || !result.Success || result.Output["content"] != " null\n" || result.Output["_meta_source"] != "manual" {
+		t.Fatalf("resultado=%+v erro=%v", result, err)
+	}
+}
+
 func TestManagerDryRunFallbackRejectsIncompleteWindow(t *testing.T) {
 	registry := tools.NewRegistry()
 	registry.MustRegister(testToolWindow{})

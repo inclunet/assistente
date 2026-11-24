@@ -67,13 +67,14 @@ func (api *Plugins) RemoveRepository(id, revision string) error {
 }
 
 func (api *Plugins) PreviewRepositoryEntry(id, revision, format, name string) (*PluginPreview, error) {
+	generation := api.beginPreview()
 	var preview *PluginPreview
 	err := api.withRepositorySession(func(ctx context.Context, i *plugins.Inventory, _ func() (string, error), admit commandsecurity.Admission) error {
 		owner, err := database.RequireUserID(ctx)
 		if err != nil {
 			return err
 		}
-		preview, err = api.preparePreview(ctx, i, owner, admit, func(active context.Context) (*pluginpackage.LocalSnapshot, error) {
+		preview, err = api.preparePreview(ctx, i, owner, generation, admit, func(active context.Context) (*pluginpackage.LocalSnapshot, error) {
 			return i.InspectRepositoryEntry(active, id, revision, plugincatalog.Format(format), name)
 		})
 		return err
