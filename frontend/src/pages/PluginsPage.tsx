@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { create } from 'zustand';
 import { useTranslation } from 'react-i18next';
-import { DiscardPreview, InstalledComponents, InstallReviewed, ListInstalled, PreviewLocal, RegisterMCP, RemoveMCP, SetSkillActive, SyncMCP } from '@wailsjs/go/wailsapi/Plugins';
+import { ChangeInstallation, DiscardPreview, InstalledComponents, InstallReviewed, ListInstalled, PreviewLocal, RegisterMCP, RemoveMCP, SetSkillActive, SyncMCP } from '@wailsjs/go/wailsapi/Plugins';
 import type { database, plugins, wailsapi } from '@wailsjs/go/models';
 import { Button } from '../components/ui/Button';
 import { DataGrid } from '../components/ui/DataGrid';
@@ -12,6 +13,8 @@ import { useConfirm } from '../hooks/useConfirm';
 import { useAnnouncer } from '../hooks/useAnnouncer';
 import { logger } from '../utils/logger';
 import { useAuthStore } from '../store/authStore';
+
+type InstallationRow = Pick<database.PluginInstallation, 'id' | 'origin' | 'name' | 'version' | 'digest' | 'disabled'>;
 
 function mcpConnectionLabel(component: plugins.Component) {
   return [component.transport, component.endpoint].filter(Boolean).join(' · ');
@@ -26,11 +29,11 @@ function componentRequirement(component: plugins.Component) {
   return component.kind === 'skill' ? undefined : 'plugins.unavailable';
 }
 
-function installationError(cause: unknown) {
+function installationError(cause: unknown, fallback = 'plugins.installError') {
   const message = String(cause);
   if (message.includes('PLUGIN_MCP_SYNC_PENDING')) return 'plugins.syncPending';
   if (message.includes('PLUGIN_COMPONENT_EDITED')) return 'plugins.edited';
-  return 'plugins.installError';
+  return fallback;
 }
 
 // Cleanup can outlive the session that owned the preview. The backend still
@@ -39,9 +42,46 @@ function discardAbandonedPreview(token: string) {
   void DiscardPreview(token).catch(() => logger.warn('Unable to discard an abandoned plugin preview'));
 }
 
-// A confirmed install continues across navigation. A new page for the same
-// session waits for publication before reading the inventory.
-const pendingInstalls = new Map<string, Promise<database.PluginInstallation>>();
+// Confirmed inventory writes outlive the page that submitted them.
+const publications = new Map<string, Promise<void>>();
+const usePendingLifecycleSync = create<ReadonlyMap<string, symbol>>(() => new Map());
+
+async function reconcileMCP(session: string, operation: Promise<void>) {
+  const pending = usePendingLifecycleSync.getState().get(session);
+  await operation;
+  if (pending && usePendingLifecycleSync.getState().get(session) === pending) {
+    const next = new Map(usePendingLifecycleSync.getState());
+    next.delete(session);
+    usePendingLifecycleSync.setState(next, true);
+  }
+}
+
+async function publish(session: string, operation: Promise<unknown>, lifecycle = false) {
+  const outstandingSync = usePendingLifecycleSync.getState().get(session);
+  const pending = operation.then(async () => {
+    // The write may skip reconciliation when it does not affect a linked server.
+    // Finish an earlier removal before treating its warning as resolved.
+    if (outstandingSync && usePendingLifecycleSync.getState().get(session) === outstandingSync) {
+      try {
+        await reconcileMCP(session, SyncMCP(session));
+      } catch {
+        throw new Error('PLUGIN_MCP_SYNC_PENDING');
+      }
+    }
+  }).catch(cause => {
+    const message = installationError(cause, lifecycle ? 'plugins.componentError' : 'plugins.installError');
+    if (lifecycle && message === 'plugins.syncPending') {
+      usePendingLifecycleSync.setState(current => new Map(current).set(session, Symbol()), true);
+    }
+    throw message;
+  });
+  publications.set(session, pending);
+  try {
+    await pending;
+  } finally {
+    if (publications.get(session) === pending) publications.delete(session);
+  }
+}
 
 export default function PluginsPage() {
   const session = useAuthStore(state => state.user?.sessionId);
@@ -53,11 +93,13 @@ function InstalledPlugins({ session }: { session: string }) {
   useGridPageLandmarks({ pageClass: 'plugins-page' });
   const { announce } = useAnnouncer();
   const confirm = useConfirm();
-  const [items, setItems] = useState<database.PluginInstallation[] | null>(null);
+  const [items, setItems] = useState<InstallationRow[] | null>(null);
   const [preview, setPreview] = useState<wailsapi.PluginPreview | null>(null);
-  const [details, setDetails] = useState<{ installation: database.PluginInstallation; components: plugins.Component[] } | null>(null);
+  const [details, setDetails] = useState<{ installation: InstallationRow; components: plugins.Component[] } | null>(null);
   const [listError, setListError] = useState('');
-  const [error, setError] = useState('');
+  const [operationError, setError] = useState('');
+  const pendingSync = usePendingLifecycleSync(state => state.has(session));
+  const error = operationError || (pendingSync ? 'plugins.syncPending' : '');
   const [busy, setBusy] = useState(true);
   useEffect(() => {
     if (error) announce(t(error), 'assertive');
@@ -68,10 +110,13 @@ function InstalledPlugins({ session }: { session: string }) {
     if (listErrorText) announce(listErrorText, 'assertive');
   }, [listErrorText, announce]);
   const mounted = useRef(false);
+  const lifecycleOpener = useRef<HTMLButtonElement | null>(null);
   const openToken = useRef<string | null>(null);
   const chooseButton = useRef<HTMLButtonElement>(null);
   const restoreFocus = useRef(false);
   useEffect(() => {
+    if (!busy && details && lifecycleOpener.current?.isConnected) lifecycleOpener.current.focus();
+    if (!busy) lifecycleOpener.current = null;
     if (!details && !preview && !busy && detailsOpener.current) {
       const opener = detailsOpener.current;
       detailsOpener.current = null;
@@ -83,12 +128,12 @@ function InstalledPlugins({ session }: { session: string }) {
     }
   }, [preview, details, busy]);
   const refresh = useCallback(async (failureMessage = 'plugins.listError') => {
-    const pending = pendingInstalls.get(session);
+    const pending = publications.get(session);
     if (pending) {
       try {
         await pending;
       } catch (cause) {
-        if (mounted.current) setError(installationError(cause));
+        if (mounted.current && !(cause === 'plugins.syncPending' && usePendingLifecycleSync.getState().has(session))) setError(String(cause));
       }
     }
     if (!mounted.current) return false;
@@ -149,7 +194,7 @@ function InstalledPlugins({ session }: { session: string }) {
       setPreview(null);
     }
   };
-  const openDetails = async (installation: database.PluginInstallation) => {
+  const openDetails = async (installation: InstallationRow) => {
     if (busy) return;
     detailsOpener.current = document.activeElement instanceof HTMLElement ? document.activeElement.closest<HTMLElement>('[role="gridcell"]') : null;
     setBusy(true);
@@ -160,7 +205,7 @@ function InstalledPlugins({ session }: { session: string }) {
     } catch { if (mounted.current) setError('plugins.listError'); }
     finally { if (mounted.current) setBusy(false); }
   };
-  const refreshDetails = async (installation: database.PluginInstallation) => {
+  const refreshDetails = async (installation: InstallationRow) => {
     const components = await InstalledComponents(installation.id, installation.digest);
     if (mounted.current) setDetails({ installation, components: components ?? [] });
   };
@@ -174,9 +219,9 @@ function InstalledPlugins({ session }: { session: string }) {
         if (component.active) {
           const accepted = await confirm({ title: t(preserve ? 'plugins.keepServer' : 'plugins.removeServer', { name: component.name }), message: t(preserve ? 'plugins.keepConfirm' : 'plugins.removeConfirm', { name: component.name }), confirmText: t(preserve ? 'plugins.keepServer' : 'plugins.removeServer', { name: component.name }), cancelText: t('common.cancel') });
           if (!accepted || !mounted.current) return;
-          await RemoveMCP(installation.id, installation.digest, component.key, preserve);
+          await reconcileMCP(session, RemoveMCP(installation.id, installation.digest, component.key, preserve));
         } else {
-          await RegisterMCP(installation.id, installation.digest, component.key);
+          await reconcileMCP(session, RegisterMCP(installation.id, installation.digest, component.key));
         }
       } else {
         await SetSkillActive(installation.id, installation.digest, component.key, !component.active);
@@ -208,7 +253,7 @@ function InstalledPlugins({ session }: { session: string }) {
     if (busy) return;
     setBusy(true);
     try {
-      await SyncMCP();
+      await reconcileMCP(session, SyncMCP(session));
       if (!mounted.current) return;
       setError('');
       if (details) {
@@ -234,6 +279,46 @@ function InstalledPlugins({ session }: { session: string }) {
     finally { if (mounted.current) setBusy(false); }
   };
   const syncAction = <Button disabled={busy} onClick={() => void syncMCP()}>{t('plugins.retrySync')}</Button>;
+  const changeInstallation = async (action: 'enable' | 'disable' | 'uninstall', opener: HTMLButtonElement) => {
+    if (busy || !details || error === 'plugins.syncPendingStale') return;
+    setBusy(true);
+    setError('');
+    const { installation } = details;
+    lifecycleOpener.current = opener;
+    try {
+      const accepted = await confirm({
+        title: t('plugins.' + action, { name: installation.name }),
+        message: [t('plugins.' + action + 'Confirm'), t('plugins.origin') + ': ' + installation.origin].join('\n'),
+        confirmText: t('plugins.' + action, { name: installation.name }),
+        cancelText: t('common.cancel'),
+      });
+      if (!accepted || !mounted.current) return;
+      let syncPending = false;
+      try {
+        await publish(session, ChangeInstallation(installation.id, installation.digest, action), true);
+      } catch (cause) {
+        if (cause !== 'plugins.syncPending') throw cause;
+        syncPending = true;
+      }
+      if (!mounted.current) return;
+      setItems(rows => rows === null ? null : action === 'uninstall'
+        ? rows.filter(row => row.id !== installation.id)
+        : rows.map(row => row.id === installation.id ? { ...row, disabled: action === 'disable' } : row));
+      setDetails(null);
+      if (!syncPending) announce(t('plugins.' + action + 'Done', { name: installation.name }));
+      await refresh();
+    } catch (cause) {
+      if (!mounted.current) return;
+      if (cause === 'plugins.edited') {
+        try {
+          await refreshDetails(installation);
+          if (mounted.current) setError('plugins.editedLifecycle');
+        } catch {
+          if (mounted.current) { setDetails(null); setError('plugins.listError'); }
+        }
+      } else setError('plugins.componentError');
+    } finally { if (mounted.current) setBusy(false); }
+  };
   const sameRevision = Boolean(preview && preview.previousDigest === preview.digest);
   const editedServers = preview?.editedMcpServers ?? [];
   const previewDescription = editedServers.length ? 'plugins.editedUpdate'
@@ -246,19 +331,13 @@ function InstalledPlugins({ session }: { session: string }) {
     setBusy(true);
     try {
       openToken.current = null;
-      const pending = InstallReviewed(preview.token);
-      pendingInstalls.set(session, pending);
-      try {
-        await pending;
-      } finally {
-        if (pendingInstalls.get(session) === pending) pendingInstalls.delete(session);
-      }
+      await publish(session, InstallReviewed(preview.token));
       if (!mounted.current) return;
       announce(t('plugins.installedNotice', { name: preview.name }));
       await refresh();
     } catch (cause) {
       if (!mounted.current) return;
-      const failure = installationError(cause);
+      const failure = String(cause);
       setError(failure);
       if (failure === 'plugins.syncPending') await refresh();
     } finally {
@@ -277,15 +356,22 @@ function InstalledPlugins({ session }: { session: string }) {
     {details && <Modal isOpen title={details.installation.name} onClose={() => setDetails(null)} allowClose={!busy} readingMode>
       {error && <p>{t(error)}</p>}
       {syncAction}
+      <p>{t('plugins.origin')}: {details.installation.origin}</p>
+      {details.installation.disabled && <p>{t('plugins.disabledNotice')}</p>}
+      <Button disabled={busy || error === 'plugins.syncPendingStale'} onClick={event => void changeInstallation(details.installation.disabled ? 'enable' : 'disable', event.currentTarget)}>
+        {t(details.installation.disabled ? 'plugins.enable' : 'plugins.disable', { name: details.installation.name })}
+      </Button>
+      <Button disabled={busy || error === 'plugins.syncPendingStale'} onClick={event => void changeInstallation('uninstall', event.currentTarget)}>{t('plugins.uninstall', { name: details.installation.name })}</Button>
       <h2>{t('plugins.components')}</h2>
       {details.components.length === 0 ? <p>{t('plugins.noComponents')}</p> : <ul>{details.components.map(component => <li key={component.key}>
         <strong>{component.name}</strong> · {t(component.kind === 'skill' ? 'plugins.skill' : component.kind === 'mcp' ? 'plugins.mcp' : 'plugins.invalid')}
+        {component.editedServer && <p>{t('plugins.editedServer', { name: component.editedServer })}</p>}
         {component.kind === 'mcp' && <p>{mcpConnectionLabel(component)}</p>}
         {component.kind === 'skill' && !component.reason ? <>
           {component.active && <code> /{component.slug}</code>}
-          <Button disabled={busy || error === 'plugins.syncPendingStale'} onClick={() => void changeComponent(component)}>{t(component.active ? 'plugins.deactivate' : 'plugins.activate', { name: component.name })}</Button>
+          <Button disabled={busy || details.installation.disabled || error === 'plugins.syncPendingStale'} onClick={() => void changeComponent(component)}>{t(component.active ? 'plugins.deactivate' : 'plugins.activate', { name: component.name })}</Button>
         </> : component.kind === 'mcp' && !component.reason ? <>
-          <Button disabled={busy || error === 'plugins.syncPendingStale'} onClick={() => void changeComponent(component)}>{t(component.active ? 'plugins.removeServer' : 'plugins.registerServer', { name: component.name })}</Button>
+          <Button disabled={busy || details.installation.disabled || error === 'plugins.syncPendingStale'} onClick={() => void changeComponent(component)}>{t(component.active ? 'plugins.removeServer' : 'plugins.registerServer', { name: component.name })}</Button>
           {component.active && <Button disabled={busy || error === 'plugins.syncPendingStale'} onClick={() => void changeComponent(component, true)}>{t('plugins.keepServer', { name: component.name })}</Button>}
         </> : <p>{t(componentRequirement(component) ?? 'plugins.unavailable')}</p>}
       </li>)}</ul>}

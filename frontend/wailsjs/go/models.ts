@@ -5628,6 +5628,7 @@ export namespace database {
 	    createdAt: any;
 	    // Go type: time
 	    updatedAt: any;
+	    disabled: boolean;
 	    origin: string;
 	    name: string;
 	    digest: string;
@@ -5642,6 +5643,7 @@ export namespace database {
 	        this.id = source["id"];
 	        this.createdAt = this.convertValues(source["createdAt"], null);
 	        this.updatedAt = this.convertValues(source["updatedAt"], null);
+	        this.disabled = source["disabled"];
 	        this.origin = source["origin"];
 	        this.name = source["name"];
 	        this.digest = source["digest"];
@@ -8035,6 +8037,7 @@ export namespace oauthflow {
 export namespace plugins {
 	
 	export class Component {
+	    editedServer?: string;
 	    endpoint?: string;
 	    active: boolean;
 	    slug?: string;
@@ -8051,6 +8054,7 @@ export namespace plugins {
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.editedServer = source["editedServer"];
 	        this.endpoint = source["endpoint"];
 	        this.active = source["active"];
 	        this.slug = source["slug"];

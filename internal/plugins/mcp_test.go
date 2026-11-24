@@ -141,6 +141,13 @@ func TestPackagedMCPLifecycle(t *testing.T) {
 	if len(bound) != 1 || !bound[0].Edited || bound[0].Name != "Edited" {
 		t.Fatalf("edited registration: %+v", bound)
 	}
+	components, err = store.InstalledComponents(alice, row.ID, snap.Digest)
+	if err != nil || len(components) != 1 || components[0].EditedServer != "Edited" {
+		t.Fatal(components, err)
+	}
+	if err := store.ChangeInstallation(alice, row.ID, row.Digest, "disable", allow); !errors.Is(err, ErrComponentEdited) {
+		t.Fatal(err)
+	}
 	if _, err := store.InstallReviewed(alice, pkg, upgrade.Digest, snap.Digest, bound, allow); !errors.Is(err, ErrComponentEdited) {
 		t.Fatal(err)
 	}

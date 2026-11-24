@@ -32,3 +32,11 @@ Na prévia e nos detalhes do plugin, confira o endereço e o transporte. Quando 
 Nos detalhes do plugin, você pode remover o servidor ou mantê-lo como servidor independente. A prévia da atualização identifica os servidores afetados e aponta os editados. Ao atualizar o plugin, servidores vinculados cuja configuração continua igual são removidos. Se você editou um deles, mantenha-o como independente antes de repetir a atualização para preservar sua configuração.
 
 Se a alteração for salva e a sincronização com o gerenciador MCP falhar, use a opção de sincronizar novamente. O cadastro ou a remoção já foi gravado. Se o gerenciador sincronizar e a leitura da lista ou dos detalhes falhar, a tela informa que os dados exibidos precisam ser recarregados.
+
+## Desativar ou desinstalar
+
+Abra os detalhes do plugin e escolha **Desativar** para encerrar as ativações de skills e remover os servidores MCP vinculados. O seletor de skills de um perfil aberto reflete a remoção das ativações. O pacote e suas revisões ficam na conta. Depois de **Habilitar**, ative individualmente os componentes que deseja voltar a usar.
+
+Escolha **Desinstalar** para remover também as revisões armazenadas. Confira o nome e a origem na confirmação. Os detalhes identificam os servidores editados pelo nome atual. Se um servidor vinculado tiver sido editado, escolha **Manter como servidor independente** nos detalhes e repita a operação. A pasta original do pacote e os servidores independentes são preservados.
+
+Se a sincronização MCP ficar pendente após desativar ou desinstalar, o aviso reaparece ao voltar à página na mesma sessão. Use a opção de sincronizar para concluir a remoção dos servidores do gerenciador.

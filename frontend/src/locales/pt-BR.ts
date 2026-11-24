@@ -151,6 +151,18 @@ notSaved: 'A decisão vale somente para esta operação: não foi possível lemb
     },
 
     plugins: {
+      disable: 'Desativar {{name}}',
+      editedServer: 'Servidor editado: {{name}}',
+      editedLifecycle: 'Mantenha os servidores identificados como editados como independentes e repita a operação.',
+      disableConfirm: 'Desativar o plugin e remover as ativações e os servidores MCP vinculados? A revisão instalada será preservada.',
+      disableDone: 'Plugin {{name}} desativado.',
+      enable: 'Habilitar {{name}}',
+      enableConfirm: 'Permitir novas ativações neste plugin? Escolha depois os componentes desejados.',
+      enableDone: 'Plugin {{name}} habilitado.',
+      uninstall: 'Desinstalar {{name}}',
+      uninstallConfirm: 'Remover este plugin, seu histórico de revisões e os componentes vinculados desta conta?',
+      uninstallDone: 'Plugin {{name}} desinstalado.',
+      disabledNotice: 'Plugin desativado nesta conta.',
       syncPendingStale: 'Alterações salvas. A tela não conseguiu recarregar os dados. Sincronize os servidores MCP para tentar novamente.',
       syncPending: 'Alterações salvas. Sincronize os servidores MCP para aplicá-las nesta sessão.',
       disconnectUpdate: 'Atualizar remove os servidores MCP vinculados e encerra suas conexões. Confira a lista de servidores afetados.',

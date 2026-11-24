@@ -13,6 +13,7 @@ import (
 	"assistente/internal/pluginpackage"
 	"assistente/internal/plugins"
 	"assistente/internal/sqlite"
+	"assistente/internal/userctx"
 	"gorm.io/gorm"
 )
 
@@ -39,7 +40,7 @@ func TestPluginPreviewUsesSelectedDirectoryAndSession(t *testing.T) {
 	active := true
 	missing := errors.New("stale")
 	ctx := database.WithUserID(context.Background(), "owner")
-	session := stubSession{ctx: ctx}
+	session := stubSession{ctx: userctx.WithSessionID(ctx, "session")}
 	var notifications int
 	AttachPlugins(api, session, inventory, func() (string, error) { return dir, nil }, func(context.Context) (commandsecurity.Admission, error) {
 		return func(_ *gorm.DB, handoff func() error) error {
@@ -49,6 +50,16 @@ func TestPluginPreviewUsesSelectedDirectoryAndSession(t *testing.T) {
 			return handoff()
 		}, nil
 	}, func() { notifications++ })
+	syncErr = errors.New("runtime unavailable")
+	for _, wrongSession := range []string{"", "previous"} {
+		if err := api.SyncMCP(wrongSession); !errors.Is(err, database.ErrUserScopeRequired) {
+			t.Fatalf("unexpected sync in another session: %v", err)
+		}
+	}
+	if err := api.SyncMCP("session"); !errors.Is(err, syncErr) {
+		t.Fatal(err)
+	}
+	syncErr = nil
 	var pickerCalls atomic.Int32
 	api.choose = func() (string, error) {
 		pickerCalls.Add(1)
@@ -208,4 +219,21 @@ func TestPluginPreviewUsesSelectedDirectoryAndSession(t *testing.T) {
 		t.Fatal(err, notifications)
 	}
 
+	syncErr = nil
+	if err := api.ChangeInstallation(installed.ID, p.Digest, "disable"); err == nil || notifications != 4 {
+		t.Fatal(err, notifications)
+	}
+	if err := api.ChangeInstallation(installed.ID, revised.Digest, "disable"); err != nil || notifications != 5 {
+		t.Fatal(err, notifications)
+	}
+	if err := api.ChangeInstallation(installed.ID, revised.Digest, "enable"); err != nil || notifications != 5 {
+		t.Fatal(err, notifications)
+	}
+	if err := api.RegisterMCP(installed.ID, revised.Digest, "mcp/sample"); err != nil {
+		t.Fatal(err)
+	}
+	syncErr = errors.New("runtime offline")
+	if err := api.ChangeInstallation(installed.ID, revised.Digest, "uninstall"); !errors.Is(err, plugins.ErrMCPSyncPending) || notifications != 6 {
+		t.Fatal(err, notifications)
+	}
 }

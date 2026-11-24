@@ -150,6 +150,18 @@ notSaved: 'La decisión vale solo para esta operación: no se pudo recordar. Ser
     },
 
     plugins: {
+      disable: 'Desactivar {{name}}',
+      editedServer: 'Servidor editado: {{name}}',
+      editedLifecycle: 'Conserva como independientes los servidores marcados como editados y repite la operación.',
+      disableConfirm: '¿Desactivar el plugin y eliminar sus activaciones y servidores MCP vinculados? Se conservará la revisión instalada.',
+      disableDone: 'Plugin {{name}} desactivado.',
+      enable: 'Habilitar {{name}}',
+      enableConfirm: '¿Permitir nuevas activaciones para este plugin? Después podrás elegir los componentes.',
+      enableDone: 'Plugin {{name}} habilitado.',
+      uninstall: 'Desinstalar {{name}}',
+      uninstallConfirm: '¿Eliminar de esta cuenta el plugin, su historial de revisiones y sus componentes vinculados?',
+      uninstallDone: 'Plugin {{name}} desinstalado.',
+      disabledNotice: 'Plugin desactivado en esta cuenta.',
       syncPendingStale: 'Cambios guardados. No se pudo actualizar la vista. Sincroniza los servidores MCP para reintentar.',
       syncPending: 'Cambios guardados. Sincroniza los servidores MCP para aplicarlos en esta sesión.',
       disconnectUpdate: 'Actualizar elimina los servidores MCP vinculados y cierra sus conexiones. Revisa la lista de servidores afectados.',

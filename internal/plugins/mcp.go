@@ -60,8 +60,8 @@ func portableMCP(raw json.RawMessage) (mcp.ServerConfig, string) {
 
 // BoundMCPServer identifies the native registration affected by an update.
 type BoundMCPServer struct {
-	ID, Name, ComponentKey string
-	Edited                 bool
+	ID, Name, Slug, ComponentKey string
+	Edited                       bool
 }
 
 func (i *Inventory) BoundMCPServers(ctx context.Context, id, digest string) ([]BoundMCPServer, error) {
@@ -94,7 +94,7 @@ func boundMCPServers(ctx context.Context, db *gorm.DB, owner, id, digest string)
 		if err != nil {
 			return nil, err
 		}
-		servers = append(servers, BoundMCPServer{ID: cfg.ID, Name: cfg.Name, ComponentKey: row.ComponentKey, Edited: digest != row.ConfigDigest})
+		servers = append(servers, BoundMCPServer{ID: cfg.ID, Name: cfg.Name, Slug: cfg.Slug, ComponentKey: row.ComponentKey, Edited: digest != row.ConfigDigest})
 	}
 	return servers, nil
 }
@@ -143,6 +143,9 @@ func (i *Inventory) RegisterMCP(ctx context.Context, id, digest, key string, adm
 		var install database.PluginInstallation
 		if err := tx.Where("user_id=? AND id=? AND digest=?", owner, id, digest).Take(&install).Error; err != nil {
 			return err
+		}
+		if install.Disabled {
+			return ErrInstallationDisabled
 		}
 		var binding database.PluginMCPBinding
 		err := tx.Where("installation_id=? AND component_key=?", id, key).Take(&binding).Error

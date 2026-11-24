@@ -75,6 +75,8 @@ A descoberta local identifica skills e servidores MCP. Skills de instrução com
 
 Servidores SSE e Streamable HTTP compatíveis podem ser registrados na conta. A conexão é uma ação separada no gerenciador MCP. A decisão de atualizar lista os servidores afetados e identifica edições locais. A transação confere as identidades revisadas antes de remover os vínculos. A prévia exibe o endereço sem a query quando uma configuração adicional impede o registro. O teste `TestPackagedMCPLifecycle` cobre isolamento, registro repetido, preservação de edições locais e limpeza na atualização. Permanecem pendentes os transportes com execução local, os campos adicionais de configuração MCP, os arquivos auxiliares e as declarações adicionais de skills.
 
+A desativação revoga as ativações de skills e MCP da conta e mantém os arquivos instalados. A desinstalação remove também as revisões do inventário. Ambas as operações invalidam o catálogo do editor de perfis após o commit, inclusive se a sincronização MCP ficar pendente. Edições locais pedem desvínculo explícito e a habilitação posterior exige novas ativações. O teste `TestInstalledSkillActivationAndSlashIsolation` cobre a revogação, a habilitação e a remoção por revisão.
+
 1. Contrato de pacote, instalação local, identidade, inventário no banco, recuperação e primeira instalação de skill e MCP.
 2. Tela Plugins, repositórios e adaptadores de catálogos e pacotes, com fixtures por formato e versão.
 3. Agentes, comandos, regras e hooks, com testes comportamentais por componente e diagnósticos de suporte parcial.
