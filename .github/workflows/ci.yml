@@ -123,7 +123,7 @@ jobs:
 
       - name: Install system dependencies
         timeout-minutes: 10
-        run: bash .github/scripts/instalar-pacotes-apt.sh libgtk-3-dev libx11-dev xvfb
+        run: bash .github/scripts/instalar-pacotes-apt.sh libgtk-3-dev libx11-dev xvfb zsh
 
       - uses: actions/setup-go@v5
         with:
@@ -541,7 +541,7 @@ jobs:
           retention-days: 7
 
   windows-installer:
-    name: Instalador Windows e PATH do usuário
+    name: Terminal, instalador Windows e PATH do usuário
     needs: scripts
     runs-on: windows-latest
     steps:
@@ -562,6 +562,14 @@ jobs:
         with:
           go-version-file: go.mod
           cache: false
+      - name: Testar terminal e Windows PowerShell 5.1
+        shell: pwsh
+        run: |
+          $version = & powershell.exe -NoProfile -NonInteractive -Command '$PSVersionTable.PSVersion.ToString()'
+          if ($LASTEXITCODE -ne 0 -or ([version]$version).Major -ne 5 -or ([version]$version).Minor -ne 1) {
+            throw "Windows PowerShell 5.1 indisponível: $version"
+          }
+          go test -v ./internal/terminal/... -count=1 -timeout 20m
       - name: Testar registro isolado e comando interno
         shell: pwsh
         run: |

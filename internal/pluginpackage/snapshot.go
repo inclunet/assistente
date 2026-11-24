@@ -10,7 +10,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
-	"runtime"
+
 	"sort"
 	"strings"
 )
@@ -42,22 +42,12 @@ func inspectLocal(dir string, entryLimit, depthLimit int, fileLimit, byteLimit i
 	if err != nil {
 		return nil, err
 	}
-	origin, err := filepath.EvalSymlinks(absolute)
-	if err != nil {
-		return nil, err
-	}
-	if runtime.GOOS == "windows" {
-		volume := filepath.VolumeName(origin)
-		if strings.HasPrefix(volume, `\\`) && !strings.HasPrefix(volume, `\\?\`) {
-			origin = strings.ToLower(volume) + origin[len(volume):]
-		}
-	}
-	root, err := os.OpenRoot(origin)
+	root, err := os.OpenRoot(absolute)
 	if err != nil {
 		return nil, err
 	}
 	defer func() { _ = root.Close() }()
-	snapshot := &LocalSnapshot{Origin: origin, Files: make(map[string][]byte)}
+	snapshot := &LocalSnapshot{Files: make(map[string][]byte)}
 	manifest, err := ReadFile(root, "plugin.json", min(int64(1<<20), byteLimit, fileLimit))
 	if err != nil {
 		return nil, err
@@ -69,6 +59,7 @@ func inspectLocal(dir string, entryLimit, depthLimit int, fileLimit, byteLimit i
 	snapshot.Files["plugin.json"] = manifest
 	remaining := byteLimit - int64(len(manifest))
 	entriesLeft := entryLimit
+	foundManifest := false
 	var collect func(string, int) error
 	collect = func(dir string, depth int) error {
 		if depth > depthLimit {
@@ -79,6 +70,23 @@ func inspectLocal(dir string, entryLimit, depthLimit int, fileLimit, byteLimit i
 			return err
 		}
 		defer func() { _ = opened.Close() }()
+		if depth == 0 {
+			snapshot.Origin, err = packageOrigin(opened, absolute)
+			if err != nil {
+				return err
+			}
+			current, err := opened.Stat()
+			if err != nil {
+				return err
+			}
+			location, err := os.Stat(snapshot.Origin)
+			if err != nil {
+				return err
+			}
+			if !os.SameFile(current, location) {
+				return fmt.Errorf("package directory changed during inspection")
+			}
+		}
 		for {
 			entries, err := opened.ReadDir(64)
 			if err != nil && err != io.EOF {
@@ -90,7 +98,14 @@ func inspectLocal(dir string, entryLimit, depthLimit int, fileLimit, byteLimit i
 					return fmt.Errorf("package exceeds entry limit")
 				}
 				name := path.Join(dir, entry.Name())
-				if entry.Name() == ".git" || name == "plugin.json" {
+				if strings.EqualFold(name, "plugin.json") {
+					if foundManifest {
+						return fmt.Errorf("ambiguous plugin.json entries")
+					}
+					foundManifest = true
+					continue
+				}
+				if strings.EqualFold(entry.Name(), ".git") {
 					continue
 				}
 				if !fs.ValidPath(name) {
@@ -117,6 +132,9 @@ func inspectLocal(dir string, entryLimit, depthLimit int, fileLimit, byteLimit i
 	}
 	if err := collect(".", 0); err != nil {
 		return nil, err
+	}
+	if !foundManifest {
+		return nil, fmt.Errorf("plugin.json disappeared during inspection: %w", fs.ErrNotExist)
 	}
 	names := make([]string, 0, len(snapshot.Files))
 	for name := range snapshot.Files {

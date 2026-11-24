@@ -2,10 +2,13 @@ package pluginpackage
 
 import (
 	"errors"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+	"testing/iotest"
 )
 
 func TestPackageFileBoundary(t *testing.T) {
@@ -44,4 +47,36 @@ func TestPackageFileBoundary(t *testing.T) {
 			t.Fatal("read outside package")
 		}
 	})
+}
+
+// appendAfterEOF models a regular file that grows after its first observed EOF.
+type appendAfterEOF struct {
+	io.Reader
+}
+
+func (r *appendAfterEOF) Read(p []byte) (int, error) {
+	n, err := r.Reader.Read(p)
+	if err == io.EOF {
+		r.Reader = strings.NewReader("!")
+	}
+	return n, err
+}
+
+func TestReadLimitedAfterGrowth(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		limit   int64
+		wantErr error
+	}{
+		{"below limit", 4, nil},
+		{"at limit", 2, ErrTooLarge},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			reader := &appendAfterEOF{iotest.DataErrReader(strings.NewReader("{}"))}
+			data, err := readLimited(reader, tc.limit)
+			if !errors.Is(err, tc.wantErr) || (err == nil && string(data) != "{}") {
+				t.Fatalf("readLimited = %q, %v", data, err)
+			}
+		})
+	}
 }

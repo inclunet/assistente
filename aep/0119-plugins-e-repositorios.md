@@ -63,14 +63,74 @@ Entrada própria no menu principal, no mesmo nível de Jobs. **Instalados** abre
 Preparação da fase 1: a execução de comandos embutidos em skills pelo chat
 usa a autorização de shell do AEP-0117 e o executor de invocações do turno.
 Testes de regressão em `internal/skills/command_turn_test.go` exercitam
-recusa, argumentos como texto e reconstrução do prompt sem repetir a execução. O caso POSIX de `TestSkillCommandInAdmittedTurn` usa o terminal real com saída sem quebra de linha.
-O leitor local em `internal/pluginpackage` reconhece o manifesto Agent Plugins 1.0.0, limita a leitura de arquivos à raiz e ao tamanho autorizado e registra campos desconhecidos. Os testes `TestReadManifest` e `TestPackageFileBoundary` cobrem a leitura sem execução. O inventário interno persiste por conta a origem local e as revisões imutáveis do pacote no SQLite. A publicação exige o digest da prévia e a revisão anteriormente instalada. O teste `TestLocalInventoryPublishesReviewedRevisionPerAccount` cobre isolamento, repetição e rollback entre a revisão e o apontador da instalação. A página Plugins abre pelo menu principal e oferece listagem, seleção de pasta por diálogo nativo e prévia com digest antes de instalar a revisão inativa. A descoberta local identifica skills e servidores MCP. Skills de instrução compatíveis podem ser ativadas por revisão e conta, usadas por barra ou seleção do modelo conforme a política do perfil e desativadas. A projeção do runtime usa o inventário persistido e a troca de revisão invalida ativações anteriores. `TestInstalledSkillActivationAndSlashIsolation` prova a invocação, o recorte por conta e a suspensão após atualização. A ativação de servidores MCP, os arquivos auxiliares e as declarações adicionais de skills permanecem pendentes.
+recusa, expansão de argumentos no texto e reconstrução do prompt sem repetir a execução. O caso POSIX de `TestSkillCommandInAdmittedTurn` usa o terminal real com saída sem quebra de linha.
+
+O leitor local de `internal/pluginpackage` reconhece o manifesto Agent Plugins 1.0.0 e limita a leitura à raiz do pacote e ao orçamento de bytes. Em `extensions`, preserva os valores JSON brutos de cada chave. Se o campo estiver presente e não for um objeto, emite um diagnóstico e ignora o campo.
+
+A captura guarda uma única entrada `plugin.json`. Em volumes que aceitam variações de caixa, a grafia encontrada pode diferir do nome consultado. Duas entradas de raiz que só diferem na caixa desse nome tornam o manifesto ambíguo. A captura omite metadados `.git` em qualquer caixa.
+
+O inventário interno persiste por conta a origem local e as revisões do pacote no SQLite. A publicação exige o digest da prévia e a revisão anteriormente instalada. O teste `TestLocalInventoryPublishesReviewedRevisionPerAccount` cobre isolamento, repetição e rollback entre a revisão e o apontador da instalação. A página Plugins abre pelo menu principal e oferece listagem, seleção de pasta por diálogo nativo e prévia com digest antes de instalar a revisão inativa. Sair da página descarta a prévia ainda aberta. O teste `TestPluginInstallWithSingleConnection` verifica que a sessão é revalidada na conexão da publicação.
+
+A descoberta local identifica skills e servidores MCP. Skills de instrução compatíveis podem ser ativadas por revisão e conta, usadas por barra ou seleção do modelo conforme a política do perfil e desativadas. O catálogo do editor de perfis é recarregado após mudanças de ativação ou revisão. A projeção do runtime usa o inventário persistido e a troca de revisão invalida ativações anteriores. `TestInstalledSkillActivationAndSlashIsolation` prova a invocação, o recorte por conta e a suspensão após atualização. A ativação de servidores MCP, os arquivos auxiliares e as declarações adicionais de skills permanecem pendentes.
 
 1. Contrato de pacote, instalação local, identidade, inventário no banco, recuperação e primeira instalação de skill e MCP.
 2. Tela Plugins, repositórios e adaptadores de catálogos e pacotes, com fixtures por formato e versão.
 3. Agentes, comandos, regras e hooks, com testes comportamentais por componente e diagnósticos de suporte parcial.
 4. Extensões próprias e portabilidade de definições, incluindo dependências, atualização e preservação dos dados de trabalho.
 5. Builder e validação do pacote produzido em outra conta. Documentar cada entrega visível em `docs/content` e registrar evidências neste AEP e no índice.
+
+#### Orçamento do contexto
+
+Antes da autorização, a base reserva espaço para títulos, instruções, arquivos de apoio e resultados. Sem espaço, conserva o texto que couber e omite as execuções. A barra também reserva as instruções expandidas e uma parcela por comando. A preparação da base ocorre uma vez por tentativa, antes da barra. Ao reconstruir o prompt, o provedor aplica a seleção e o orçamento do pedido final. A tentativa conserva a saída validada de cada comando admitido, respeitando o limite por comando. Cada montagem aplica seu próprio corte: um orçamento maior pode recuperar texto abreviado na prévia, sem iniciar comandos adicionais. Os avisos de listagem indisponível e de elemento HTML aberto são independentes. Cada um é registrado uma vez por skill e tentativa de execução. A prévia da base sem turno ativo suprime ambos. O teste `TestPreparedBaseAppliesFinalSelectionAndBudget` cobre a seleção e o orçamento. O teste `TestSlashBudgetPreservesInstructionsAroundOutput` cobre a preservação das instruções.
+
+O aviso de incompatibilidade de permissões exige que a política da skill vete o comando ou a ferramenta. A prévia e a reconstrução após falta de orçamento preservam as instruções sem atribuir a omissão a permissões, conforme `TestPreparedBaseCannotStartSkippedCommandWhenBudgetGrows`.
+
+#### Argumentos de comandos
+
+Fora de blocos de código, a diretiva pode ser explícita ou começar por um programa declarado. Argumentos interpolados aceitam palavras iniciadas por letra, número, ponto ou sublinhado. Hífen e barra são permitidos no interior. Opções fixas pertencem à skill. A validação também alcança os canais externos e recusa segmentos de diretório pai na entrada ou nos operandos compostos. Em prosa, os argumentos permanecem texto.
+
+#### Classificação das falhas
+
+Uma recusa expressa da pessoa usa `shell_command_refused`. Um veto da política usa `shell_policy_vetoed`, inclusive quando a política muda durante a confirmação. Ambos interrompem o turno. Fechar o diálogo pela ação de cancelar conta como negativa pontual.
+
+Na falta de confirmação, o código é `shell_confirmation_unavailable`. Um argumento `working_directory` inválido recebe um diagnóstico de entrada que permite corrigir a chamada. Falhas de política, resolução do diretório do projeto ou consulta às concessões usam `shell_prerequisite_unavailable`, inclusive na releitura após uma aprovação. O diagnóstico registra a categoria da causa e o ID da chamada. Nesses casos, a base omite a linha e sua saída parcial, e a barra encerra a invocação.
+
+No desktop e nos canais externos, o aceite da resposta é arbitrado conforme o
+[AEP-0091](0091-dialogos-de-decisao-unificados.md). O adaptador valida a ação oferecida
+e publica a recusa antes de o transporte confirmar o aceite. A aprovação ainda exige revalidação.
+Se o diálogo expirar sem resposta, a confirmação fica indisponível. Se o mensageiro devolver erro de envio depois de o dono responder, uma recusa registrada conserva seu efeito. Uma aprovação nessa situação não permite o despacho. `TestBaseSkillChannelRefusalAtExecutorDeadline` cobre as duas ordens entre a negativa e o prazo, a resposta de terceiro e a ausência de despacho durante a preparação da skill base. Nos canais, a apresentação literal abrange tanto o comando quanto o diretório público usado na decisão.
+
+O executor conserva o prazo do chamador. Após uma aprovação revalidada, uma interrupção
+é classificada como cancelamento ou timeout da operação. Se o prazo terminar entre a
+decisão e o envio, a tentativa termina sem abrir outra confirmação.
+
+O agente e os jobs podem repetir uma falha transitória de criação da sessão quando a
+política já permite a execução, a falha é comprovadamente transitória e o terminal
+atesta que o comando não foi enviado. O executor exige o atestado explícito em
+`ToolFailure.NotDispatched`; `Retryable` isolado não prova segurança após aprovação.
+Falhas ao criar o terminal retornam diagnóstico público por categoria, sem expor
+caminhos do executável ou erro bruto no resultado e no ledger. A projeção pública
+dos motivos de política não altera os motivos usados na avaliação privada.
+Lotação de limite positivo, `EAGAIN` e `EBUSY` são transitórios; limite zero e
+causas desconhecidas não autorizam repetição automática. Um `terminal_id` existente
+ocupado não é criação de sessão e continua exigindo uma nova chamada explícita.
+Após uma confirmação pontual ou um possível despacho, a repetição exige uma nova chamada
+explícita, que reavalia a política e as concessões vigentes.
+
+Em jobs, uma falha ao mapear a saída encerra a tentativa mesmo se a ferramenta já tiver
+terminado com sucesso. O registro da invocação conserva o resultado da ferramenta.
+
+`TestRunCommandValidatesExistingWorkDirBeforeAuthorization` verifica a distinção entre raiz indisponível e destino inválido nas execuções efêmera e persistente, inclusive quando a chamada omite o diretório. `TestRunCommandRevalidatesDefaultRootAfterConsent` verifica a substituição da raiz por um arquivo durante a confirmação. `TestExplicitTerminalConfirmationUsesSessionCWD` cobre o uso de uma sessão existente após a remoção da raiz do projeto.
+
+- `TestPolicyUnavailableAfterApproval` cobre a releitura da política.
+- `TestShellAuthorizerPublishesBeforeDecisionLog` cobre o prazo entre aprovação e despacho.
+- `TestJobDoesNotReplayAuthorizedShellCommand` verifica um único despacho e um único registro, mesmo quando o job permite novas tentativas.
+- `TestJobDoesNotReplayShellAfterOutputSecretFailure` cobre a falha no mapeamento da saída após a conclusão do comando.
+- `TestShellResponseAcceptedBeforeExecutorDeadline` cobre recusa, cancelamento, aprovação, ação inválida, opção não oferecida e resposta tardia.
+
+Os testes `TestBaseSkillOperationalErrorsOmitOnlyCommandLine`, `TestBaseRefusalPrecedesSlashCommand` e `TestSkillCommandInAdmittedTurn` cobrem essas decisões.
+
+O executor de skills usa o protocolo de comandos do [AEP-0089](0089-terminais-como-recursos-efemeros.md), inclusive o status de retorno e a saída incremental. O planejamento preserva exemplos em blocos de código Markdown e HTML pré-formatado. `TestUnclosedPreWarnsOncePerSkillAndAttempt` verifica que um exemplo `<pre>` sem fechamento permanece literal até o fim e gera um aviso com o slug, sem expor o texto.
 
 ## Riscos
 

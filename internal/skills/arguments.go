@@ -5,44 +5,19 @@ import (
 	"strings"
 )
 
-// SubstituteArguments substitui variáveis de argumento no conteúdo de um skill.
-// Compatível com a spec oficial do Claude Code:
-//   - $ARGUMENTS → string completa de argumentos
-//   - $ARGUMENTS[N] → argumento posicional 0-based (bracket syntax)
-//   - $N → shorthand para $ARGUMENTS[N] (0-based: $0 = primeiro arg)
-//   - ${CLAUDE_SESSION_ID} → ID da sessão corrente
-//
-// Se $ARGUMENTS NÃO está presente no conteúdo, os argumentos são appendados como "ARGUMENTS: <value>".
-//
-// vars: variáveis de sessão adicionais (ex: {"CLAUDE_SESSION_ID": "123"}).
-//
-// Argumentos entre aspas (simples ou duplas) são tratados como um único argumento.
-// Exemplo: `/fix-issue 42 "my description"` → $0=42, $1=my description, $ARGUMENTS=42 "my description"
-func SubstituteArguments(content string, rawArgs string, vars ...map[string]string) string {
-	if content == "" {
-		return ""
+func argumentFallback(content, args string) string {
+	if content != "" && args != "" && !containsPlainArguments(content) {
+		return "\n\nARGUMENTS: " + args
 	}
-
-	// Detecta se $ARGUMENTS (plain, não bracket) existe no conteúdo
-	// Para o fallback: se NÃO existe e há args, appenda "ARGUMENTS: <value>"
-	hasArgumentsPlaceholder := containsPlainArguments(content)
-
-	// Faz parse dos argumentos posicionais (respeitando aspas)
-	args := parseArgs(rawArgs)
-
-	expand := argumentExpander(rawArgs, args, vars...)
-	result := expand(content)
-	// 5. Fallback: se $ARGUMENTS não estava no conteúdo original e há args, appenda
-	if !hasArgumentsPlaceholder && rawArgs != "" {
-		result = result + "\n\nARGUMENTS: " + rawArgs
-	}
-
-	return result
+	return ""
 }
 
 // argumentExpander applies substitutions to a single piece of skill-authored text.
 func argumentExpander(rawArgs string, args []string, vars ...map[string]string) func(string) string {
 	return func(content string) string {
+		if !strings.Contains(content, "$") {
+			return content
+		}
 		result := content
 		// 1. Substitui $ARGUMENTS[N] PRIMEIRO (bracket syntax, 0-based, mais específico)
 		for i := len(args) - 1; i >= 0; i-- {

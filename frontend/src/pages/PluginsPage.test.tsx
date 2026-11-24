@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { axe } from 'vitest-axe';
 import PluginsPage from './PluginsPage';
@@ -10,12 +10,12 @@ vi.mock('../store/authStore', async importOriginal => {
   const actual = await importOriginal<typeof import('../store/authStore')>();
   return { ...actual, useAuthStore: Object.assign(() => 'session', actual.useAuthStore) };
 });
-vi.mock('../hooks/useAnnouncer', () => ({ useAnnouncer: () => ({ announce: mocks.announce, announceRequest: mocks.announceRequest }) }));
+vi.mock('../hooks/useAnnouncer', () => ({ announce: mocks.announce, useAnnouncer: () => ({ announce: mocks.announce, announceRequest: mocks.announceRequest }) }));
 vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
 
 describe('PluginsPage', () => {
   beforeEach(() => {
-    vi.clearAllMocks();
+    vi.resetAllMocks();
     mocks.list.mockResolvedValue([]);
     mocks.preview.mockResolvedValue({ token: 'reviewed', name: 'demo', origin: 'local', digest: '123', files: ['plugin.json'], diagnostics: [] });
     mocks.install.mockResolvedValue({});
@@ -127,5 +127,84 @@ describe('PluginsPage', () => {
     expect(mocks.discard).toHaveBeenCalledWith('reviewed');
     expect(choose).toHaveFocus();
     expect(screen.queryByRole('button', { name: 'plugins.install' })).toBeNull();
+  });
+
+  it.each(['open', 'pending', 'installing'])('discards only an abandoned preview on unmount (%s)', async phase => {
+    const user = userEvent.setup();
+    const result = { token: 'old-page', name: 'demo', digest: 'new', files: [], diagnostics: [] };
+    let finishPreview!: (value: typeof result) => void;
+    mocks.preview.mockImplementationOnce(() => new Promise(resolve => { finishPreview = resolve; }));
+    let finishInstall!: () => void;
+    if (phase === 'installing') mocks.install.mockImplementationOnce(() => new Promise<void>(resolve => { finishInstall = resolve; }));
+    const { unmount } = render(<PluginsPage />);
+    const choose = await screen.findByRole('button', { name: 'plugins.choose' });
+    await waitFor(() => expect(choose).toBeEnabled());
+    await user.click(choose);
+    if (phase !== 'pending') await act(async () => finishPreview(result));
+    if (phase === 'installing') await user.click(await screen.findByRole('button', { name: 'plugins.install' }));
+    const listsBeforeUnmount = mocks.list.mock.calls.length;
+    if (phase === 'installing') expect(mocks.install).toHaveBeenCalledWith('old-page');
+    unmount();
+    if (phase === 'pending') await act(async () => finishPreview(result));
+    if (phase === 'installing') {
+      mocks.list.mockResolvedValueOnce([{ id: 'installed', name: 'done', version: '1', origin: 'local' }]);
+      render(<PluginsPage />);
+      expect(mocks.list).toHaveBeenCalledTimes(listsBeforeUnmount);
+      await act(async () => finishInstall());
+      expect(await screen.findByText('done')).toBeInTheDocument();
+      expect(mocks.discard).not.toHaveBeenCalled();
+    } else {
+      expect(mocks.discard.mock.calls).toEqual([['old-page']]);
+      expect(mocks.install).not.toHaveBeenCalled();
+    }
+  });
+
+  it('clears a discard error after installation and explains distinct manifest warnings', async () => {
+    const user = userEvent.setup();
+    mocks.preview.mockResolvedValueOnce({ token: 'warning', name: 'demo', digest: 'new', files: [], diagnostics: ['unknown manifest field: other', 'invalid extensions object'] });
+    mocks.discard.mockRejectedValueOnce(new Error('offline'));
+    render(<PluginsPage />);
+    const choose = await screen.findByRole('button', { name: 'plugins.choose' });
+    await waitFor(() => expect(choose).toBeEnabled());
+    await user.click(choose);
+    await user.click(await screen.findByText('plugins.warnings'));
+    expect(screen.getByText('plugins.unknownField')).toBeVisible();
+    expect(screen.getByText('plugins.invalidExtensions')).toBeVisible();
+    await user.click(screen.getByRole('button', {name:'common.cancel'}));
+    expect(await screen.findByText('plugins.discardError')).toBeVisible();
+    await waitFor(async () => {
+      await user.click(screen.getByRole('button', {name:'plugins.install'}));
+      expect(mocks.install).toHaveBeenCalledTimes(1);
+    }, {timeout: 2500});
+    await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull());
+    expect(screen.queryByText('plugins.discardError')).toBeNull();
+  });
+
+  it('keeps list failures distinct from an empty inventory after cancelling the picker', async () => {
+    mocks.list.mockRejectedValue(new Error('offline'));
+    mocks.preview.mockResolvedValueOnce(null);
+    const user = userEvent.setup();
+    render(<PluginsPage />);
+    await screen.findByText('plugins.listError');
+    await user.click(screen.getByRole('button', { name: 'plugins.choose' }));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'plugins.choose' })).toBeEnabled());
+    expect(screen.getByText('plugins.listError')).toBeVisible();
+    expect(screen.queryByText('plugins.empty')).toBeNull();
+  });
+
+  it('reports failure to a new page that waited for the installation', async () => {
+    const user = userEvent.setup();
+    let fail!: () => void;
+    mocks.install.mockImplementationOnce(() => new Promise((_, reject) => { fail = () => reject(new Error('offline')); }));
+    const { unmount } = render(<PluginsPage />);
+    const choose = screen.getByRole('button', { name: 'plugins.choose' });
+    await waitFor(() => expect(choose).toBeEnabled());
+    await user.click(choose);
+    await user.click(await screen.findByRole('button', { name: 'plugins.install' }));
+    unmount();
+    render(<PluginsPage />);
+    await act(async () => fail());
+    expect(await screen.findByText('plugins.installError')).toBeVisible();
+    expect(screen.getByRole('button', { name: 'plugins.choose' })).toBeEnabled();
   });
 });

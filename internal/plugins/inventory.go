@@ -34,7 +34,7 @@ func (i *Inventory) List(ctx context.Context) ([]database.PluginInstallation, er
 // previously installed digest. The complete captured revision and its pointer
 // commit together. Repeating an already published installation is idempotent.
 func (i *Inventory) InstallLocal(ctx context.Context, reviewedOrigin, reviewedDigest, previousDigest string) (database.PluginInstallation, error) {
-	return i.InstallReviewed(ctx, reviewedOrigin, reviewedDigest, previousDigest, func(publish func() error) error {
+	return i.InstallReviewed(ctx, reviewedOrigin, reviewedDigest, previousDigest, func(_ *gorm.DB, publish func() error) error {
 		if err := ctx.Err(); err != nil {
 			return err
 		}

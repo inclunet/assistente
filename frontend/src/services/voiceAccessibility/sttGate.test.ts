@@ -45,6 +45,15 @@ describe('sttGate', () => {
     expect(cancel).toHaveBeenCalled();
   });
 
+  it('finaliza a captura identificada apenas pela sessão de terminal', () => {
+    const cancel = vi.fn();
+    requestSTTStart({ origin: { terminalSessionId: 's' }, cancel });
+    finishSTTSession({ terminalSessionId: 's' });
+    unregisterResolver = registerVoiceAccessibilityActiveResolver(() => false);
+    cancelInactiveSTTSession();
+    expect(cancel).not.toHaveBeenCalled();
+  });
+
   it('finaliza somente a sessão correspondente', () => {
     const cancel = vi.fn();
 

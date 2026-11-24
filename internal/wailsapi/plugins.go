@@ -33,21 +33,34 @@ type pluginSelection struct {
 }
 
 type Plugins struct {
-	mu        sync.Mutex
-	session   Session
-	inventory *plugins.Inventory
-	choose    func() (string, error)
-	capture   func(context.Context) (commandsecurity.Admission, error)
-	selection *pluginSelection
+	mu                sync.Mutex
+	session           Session
+	inventory         *plugins.Inventory
+	choose            func() (string, error)
+	capture           func(context.Context) (commandsecurity.Admission, error)
+	selection         *pluginSelection
+	previewGeneration uint64
+	skillsChanged     func()
 }
 
 func NewPlugins() *Plugins { return &Plugins{} }
 
-func AttachPlugins(api *Plugins, session Session, inventory *plugins.Inventory, choose func() (string, error), capture func(context.Context) (commandsecurity.Admission, error)) {
+func AttachPlugins(api *Plugins, session Session, inventory *plugins.Inventory, choose func() (string, error), capture func(context.Context) (commandsecurity.Admission, error), skillsChanged func()) {
 	api.mu.Lock()
 	defer api.mu.Unlock()
 	api.session, api.inventory, api.choose, api.capture = session, inventory, choose, capture
+	api.skillsChanged = skillsChanged
 	api.selection = nil
+	api.previewGeneration++
+}
+
+func (api *Plugins) notifySkillsChanged() {
+	api.mu.Lock()
+	notify := api.skillsChanged
+	api.mu.Unlock()
+	if notify != nil {
+		notify()
+	}
 }
 
 func (api *Plugins) wired() (Session, *plugins.Inventory, func() (string, error), func(context.Context) (commandsecurity.Admission, error), error) {
@@ -83,7 +96,19 @@ func (api *Plugins) ListInstalled() ([]database.PluginInstallation, error) {
 	})
 }
 
+var errPreviewSuperseded = errors.New("plugin preview superseded")
+
+func (api *Plugins) previewIsCurrent(generation uint64) bool {
+	api.mu.Lock()
+	defer api.mu.Unlock()
+	return api.previewGeneration == generation
+}
+
 func (api *Plugins) PreviewLocal() (*PluginPreview, error) {
+	api.mu.Lock()
+	api.previewGeneration++
+	generation := api.previewGeneration
+	api.mu.Unlock()
 	session, inventory, choose, capture, err := api.wired()
 	if err != nil {
 		return nil, err
@@ -100,7 +125,13 @@ func (api *Plugins) PreviewLocal() (*PluginPreview, error) {
 		if err != nil {
 			return nil, err
 		}
+		if !api.previewIsCurrent(generation) {
+			return nil, errPreviewSuperseded
+		}
 		dir, err := choose()
+		if !api.previewIsCurrent(generation) {
+			return nil, errPreviewSuperseded
+		}
 		if err != nil || dir == "" {
 			return nil, err
 		}
@@ -136,6 +167,9 @@ func (api *Plugins) PreviewLocal() (*PluginPreview, error) {
 		if err := validate.Check(); err != nil {
 			return nil, err
 		}
+		if generation != api.previewGeneration {
+			return nil, errPreviewSuperseded
+		}
 		api.selection = &pluginSelection{preview: p, owner: owner, validate: validate}
 		return &p, nil
 	})
@@ -163,7 +197,11 @@ func (api *Plugins) InstallReviewed(token string) (database.PluginInstallation, 
 			return database.PluginInstallation{}, err
 		}
 		p := selection.preview
-		return inventory.InstallReviewed(ctx, p.Origin, p.Digest, p.PreviousDigest, selection.validate)
+		row, err := inventory.InstallReviewed(ctx, p.Origin, p.Digest, p.PreviousDigest, selection.validate)
+		if err == nil && p.PreviousDigest != "" && p.PreviousDigest != p.Digest {
+			api.notifySkillsChanged()
+		}
+		return row, err
 	})
 }
 
@@ -222,7 +260,10 @@ func (api *Plugins) SetSkillActive(id, digest, key string, active bool) error {
 		if admit == nil {
 			return struct{}{}, database.ErrUserScopeRequired
 		}
-		return struct{}{}, admit(func() error { return inventory.SetSkillActive(ctx, id, digest, key, active) })
+		return struct{}{}, inventory.SetSkillActive(ctx, id, digest, key, active, admit)
 	})
+	if err == nil {
+		api.notifySkillsChanged()
+	}
 	return err
 }

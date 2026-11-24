@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"sync/atomic"
 	"testing"
 
 	"assistente/internal/commandsecurity"
@@ -38,14 +39,64 @@ func TestPluginPreviewUsesSelectedDirectoryAndSession(t *testing.T) {
 	missing := errors.New("stale")
 	ctx := database.WithUserID(context.Background(), "owner")
 	session := stubSession{ctx: ctx}
+	var notifications int
 	AttachPlugins(api, session, inventory, func() (string, error) { return dir, nil }, func(context.Context) (commandsecurity.Admission, error) {
-		return func(handoff func() error) error {
+		return func(_ *gorm.DB, handoff func() error) error {
 			if !active {
 				return missing
 			}
 			return handoff()
 		}, nil
-	})
+	}, func() { notifications++ })
+	var pickerCalls atomic.Int32
+	api.choose = func() (string, error) {
+		pickerCalls.Add(1)
+		return dir, nil
+	}
+	// Hold the old admission until the next page has received its own preview.
+	var first atomic.Bool
+	entered, release := make(chan struct{}), make(chan struct{})
+	capture := api.capture
+	api.capture = func(ctx context.Context) (commandsecurity.Admission, error) {
+		if !first.Swap(true) {
+			close(entered)
+			<-release
+		}
+		return capture(ctx)
+	}
+	old := make(chan error, 1)
+	go func() { _, err := api.PreviewLocal(); old <- err }()
+	<-entered
+	current, err := api.PreviewLocal()
+	close(release)
+	if oldErr := <-old; !errors.Is(oldErr, errPreviewSuperseded) || err != nil || pickerCalls.Load() != 1 {
+		t.Fatalf("old error %v, current error %v, picker calls %d", oldErr, err, pickerCalls.Load())
+	}
+	api.mu.Lock()
+	currentSelection := api.selection
+	api.mu.Unlock()
+	if currentSelection == nil || currentSelection.preview.Token != current.Token {
+		t.Fatal("late preview replaced the current selection")
+	}
+	// A picker that was already open when superseded must not inspect its result.
+	pickerEntered, pickerRelease := make(chan struct{}), make(chan struct{})
+	first.Store(false)
+	api.capture = capture
+	api.choose = func() (string, error) {
+		if !first.Swap(true) {
+			close(pickerEntered)
+			<-pickerRelease
+			return filepath.Join(dir, "removed"), nil
+		}
+		return dir, nil
+	}
+	go func() { _, err := api.PreviewLocal(); old <- err }()
+	<-pickerEntered
+	_, err = api.PreviewLocal()
+	close(pickerRelease)
+	if oldErr := <-old; !errors.Is(oldErr, errPreviewSuperseded) || err != nil {
+		t.Fatalf("superseded picker: %v, current: %v", oldErr, err)
+	}
 	preview, err := api.PreviewLocal()
 	if err != nil || preview.Name != "local" || len(preview.Files) != 1 {
 		t.Fatal(preview, err)
@@ -85,5 +136,31 @@ func TestPluginPreviewUsesSelectedDirectoryAndSession(t *testing.T) {
 	rows, err = api.ListInstalled()
 	if err != nil || len(rows) != 1 || rows[0].Digest != p.Digest {
 		t.Fatal(rows, err)
+	}
+	if notifications != 0 {
+		t.Fatalf("unexpected catalog event before any activation: %d", notifications)
+	}
+	skillDir := filepath.Join(dir, "skills", "note")
+	if err := os.MkdirAll(skillDir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte("---\nname: note\ndescription: Instruções\n---\nTexto"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	updated, err := api.PreviewLocal()
+	if err != nil {
+		t.Fatal(err)
+	}
+	installed, err := api.InstallReviewed(updated.Token)
+	if err != nil || notifications != 1 {
+		t.Fatal(err, notifications)
+	}
+	if err := api.SetSkillActive(installed.ID, p.Digest, "skills/note", true); err == nil || notifications != 1 {
+		t.Fatal(err, notifications)
+	}
+	for index, enable := range []bool{true, false} {
+		if err := api.SetSkillActive(installed.ID, installed.Digest, "skills/note", enable); err != nil || notifications != index+2 {
+			t.Fatal(err, notifications)
+		}
 	}
 }

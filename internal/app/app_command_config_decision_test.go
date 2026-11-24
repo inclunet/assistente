@@ -55,14 +55,11 @@ func exerciseCommandBindingDecisions(t *testing.T, app *App, db *gorm.DB, store 
 			if scenario == "policy_revoked" {
 				revoked = true
 			}
-			if scenario == "locked" || scenario == "locked_wait" {
-				// Deve ser possível adquirir gate enquanto a decisão está aberta.
+			if scenario == "locked_wait" {
 				if err := state.SetOSSessionState(ctx, true, true); err != nil {
 					t.Fatal(err)
 				}
-				if scenario == "locked_wait" {
-					return
-				} // Sem resposta da UI.
+				return // O bloqueio encerra a espera sem resposta da UI.
 			}
 			action := commanddecision.ApplyAction
 			if scenario == "denied" {
@@ -70,6 +67,13 @@ func exerciseCommandBindingDecisions(t *testing.T, app *App, db *gorm.DB, store 
 			}
 			if err := manager.Respond(payload["id"].(string), map[string]any{questionnaire.AnswerActionID: action}, false); err != nil {
 				t.Fatal(err)
+			}
+			if scenario == "locked" {
+				// O diálogo ainda está aberto no emissor, mas a resposta já foi
+				// aceita. A revalidação deve impedir a escrita após o bloqueio.
+				if err := state.SetOSSessionState(ctx, true, true); err != nil {
+					t.Fatal(err)
+				}
 			}
 		})
 		receipts, err := commanddecision.New(db, &commandDecisionPresenter{manager: manager}, time.Now)

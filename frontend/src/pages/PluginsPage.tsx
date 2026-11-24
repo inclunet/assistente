@@ -9,6 +9,7 @@ import { DecisionDialog } from '../components/ui/DecisionDialog';
 import { useGridPageLandmarks } from '../hooks/useGridPageLandmarks';
 import { Toolbar } from '../components/ui/Toolbar';
 import { useAnnouncer } from '../hooks/useAnnouncer';
+import { logger } from '../utils/logger';
 import { useAuthStore } from '../store/authStore';
 
 function componentRequirement(component: plugins.Component) {
@@ -18,25 +19,40 @@ function componentRequirement(component: plugins.Component) {
   return component.kind === 'skill' ? undefined : 'plugins.unavailable';
 }
 
-export default function PluginsPage() {
-  const session = useAuthStore(state => state.user?.sessionId);
-  return session ? <InstalledPlugins key={session} /> : null;
+// Cleanup can outlive the session that owned the preview. The backend still
+// checks the owner and the exact token for every discard.
+function discardAbandonedPreview(token: string) {
+  void DiscardPreview(token).catch(() => logger.warn('Unable to discard an abandoned plugin preview'));
 }
 
-function InstalledPlugins() {
+// A confirmed install continues across navigation. A new page for the same
+// session waits for publication before reading the inventory.
+const pendingInstalls = new Map<string, Promise<database.PluginInstallation>>();
+
+export default function PluginsPage() {
+  const session = useAuthStore(state => state.user?.sessionId);
+  return session ? <InstalledPlugins key={session} session={session} /> : null;
+}
+
+function InstalledPlugins({ session }: { session: string }) {
   const { t } = useTranslation();
   useGridPageLandmarks({ pageClass: 'plugins-page' });
   const { announce } = useAnnouncer();
-  const [items, setItems] = useState<database.PluginInstallation[]>([]);
+  const [items, setItems] = useState<database.PluginInstallation[] | null>(null);
   const [preview, setPreview] = useState<wailsapi.PluginPreview | null>(null);
   const [details, setDetails] = useState<{ installation: database.PluginInstallation; components: plugins.Component[] } | null>(null);
+  const [listFailed, setListFailed] = useState(false);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(true);
   useEffect(() => {
     if (error) announce(t(error), 'assertive');
   }, [error, announce, t]);
   const detailsOpener = useRef<HTMLElement | null>(null);
+  useEffect(() => {
+    if (listFailed) announce(t('plugins.listError'), 'assertive');
+  }, [listFailed, announce, t]);
   const mounted = useRef(false);
+  const openToken = useRef<string | null>(null);
   const chooseButton = useRef<HTMLButtonElement>(null);
   const restoreFocus = useRef(false);
   useEffect(() => {
@@ -51,22 +67,45 @@ function InstalledPlugins() {
     }
   }, [preview, details, busy]);
   const refresh = useCallback(async () => {
-    const rows = await ListInstalled();
-    if (mounted.current) setItems(rows ?? []);
-  }, []);
+    const pending = pendingInstalls.get(session);
+    if (pending) {
+      try {
+        await pending;
+      } catch {
+        if (mounted.current) setError('plugins.installError');
+      }
+    }
+    if (!mounted.current) return;
+    try {
+      const rows = await ListInstalled();
+      if (mounted.current) { setItems(rows ?? []); setListFailed(false); }
+    } catch {
+      if (mounted.current) setListFailed(true);
+    }
+  }, [session]);
   useEffect(() => {
     mounted.current = true;
-    void refresh().catch(() => { if (mounted.current) setError('plugins.listError'); })
+    void refresh()
       .finally(() => { if (mounted.current) setBusy(false); });
-    return () => { mounted.current = false; };
+    return () => {
+      mounted.current = false;
+      if (openToken.current) discardAbandonedPreview(openToken.current);
+      openToken.current = null;
+    };
   }, [refresh]);
   const inspect = async () => {
     setBusy(true);
     setError('');
     try {
       const next = await PreviewLocal();
-      if (mounted.current && next) setPreview(next);
-      else restoreFocus.current = true;
+      if (!mounted.current) {
+        if (next) discardAbandonedPreview(next.token);
+        return;
+      }
+      if (next) {
+        openToken.current = next.token;
+        setPreview(next);
+      } else restoreFocus.current = true;
     } catch {
       restoreFocus.current = true;
       if (mounted.current) setError('plugins.inspectError');
@@ -80,6 +119,7 @@ function InstalledPlugins() {
     setBusy(true);
     try {
       await DiscardPreview(preview.token);
+      openToken.current = null;
     } catch {
       if (mounted.current) setError('plugins.discardError');
       return;
@@ -120,12 +160,20 @@ function InstalledPlugins() {
   const sameRevision = Boolean(preview && preview.previousDigest === preview.digest);
   const install = async () => {
     if (!preview || busy || sameRevision) return;
+    setError('');
     setBusy(true);
     try {
-      await InstallReviewed(preview.token);
+      openToken.current = null;
+      const pending = InstallReviewed(preview.token);
+      pendingInstalls.set(session, pending);
+      try {
+        await pending;
+      } finally {
+        if (pendingInstalls.get(session) === pending) pendingInstalls.delete(session);
+      }
       if (!mounted.current) return;
       announce(t('plugins.installedNotice', { name: preview.name }));
-      try { await refresh(); } catch { if (mounted.current) setError('plugins.listError'); }
+      await refresh();
     } catch {
       if (mounted.current) setError('plugins.installError');
     } finally {
@@ -137,9 +185,10 @@ function InstalledPlugins() {
       right={<Button ref={chooseButton} onClick={() => void inspect()} disabled={busy}>{t('plugins.choose')}</Button>} />
     <h2>{t('plugins.installed')}</h2>
     {!preview && !details && error && <p>{t(error)}</p>}
-    {items.length > 0 ? <DataGrid items={items} onActivate={row => void openDetails(row)} getItemId={row => row.id} label={t('plugins.installed')}
+    {listFailed && <p>{t('plugins.listError')}</p>}
+    {items && items.length > 0 ? <DataGrid items={items} onActivate={row => void openDetails(row)} getItemId={row => row.id} label={t('plugins.installed')}
       columns={[{ key: 'name', label: t('plugins.name') }, { key: 'version', label: t('plugins.version') }, { key: 'origin', label: t('plugins.origin') }]} />
-      : !busy && !error && <p>{t('plugins.empty')}</p>}
+      : items && !busy && !error && !listFailed && <p>{t('plugins.empty')}</p>}
     {details && <Modal isOpen title={details.installation.name} onClose={() => setDetails(null)} allowClose={!busy} readingMode>
       {error && <p>{t(error)}</p>}
       <h2>{t('plugins.components')}</h2>
@@ -169,7 +218,16 @@ function InstalledPlugins() {
       </dl>
       {preview.previousDigest && <p>{t(sameRevision ? 'plugins.current' : 'plugins.updateNotice')}</p>}
       {(preview.components ?? []).length > 0 && <ul aria-label={t('plugins.components')}>{preview.components.map(component => <li key={component.key}>{component.name} · {t(component.kind === 'skill' ? 'plugins.skill' : component.kind === 'mcp' ? 'plugins.mcp' : 'plugins.invalid')}{componentRequirement(component) && <p>{t(componentRequirement(component)!)}</p>}</li>)}</ul>}
-      {(preview.diagnostics ?? []).length > 0 && <p>{t('plugins.warnings', { count: preview.diagnostics.length })}</p>}
+      {(preview.diagnostics ?? []).length > 0 && <details>
+        <summary>{t('plugins.warnings', { count: preview.diagnostics.length })}</summary>
+        <ul>{preview.diagnostics.map(warning => {
+          const prefix = 'unknown manifest field: ';
+          const message = warning.startsWith(prefix)
+            ? t('plugins.unknownField', { field: warning.slice(prefix.length) })
+            : warning === 'invalid extensions object' ? t('plugins.invalidExtensions') : t('plugins.unsupportedMetadata');
+          return <li key={warning}>{message}</li>;
+        })}</ul>
+      </details>}
       <details><summary>{t('plugins.files', { count: preview.files.length })}</summary><ul>{preview.files.map(path => <li key={path}>{path}</li>)}</ul></details>
       </> }]} />}
   </section>;
