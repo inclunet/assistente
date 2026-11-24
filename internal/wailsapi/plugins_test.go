@@ -1,6 +1,7 @@
 package wailsapi
 
 import (
+	"assistente/internal/plugincatalog"
 	"context"
 	"errors"
 	"os"
@@ -235,5 +236,86 @@ func TestPluginPreviewUsesSelectedDirectoryAndSession(t *testing.T) {
 	syncErr = errors.New("runtime offline")
 	if err := api.ChangeInstallation(installed.ID, revised.Digest, "uninstall"); !errors.Is(err, plugins.ErrMCPSyncPending) || notifications != 6 {
 		t.Fatal(err, notifications)
+	}
+}
+
+func TestLocalCatalogSurvivesFailedRefreshAndRemoval(t *testing.T) {
+	directory := t.TempDir()
+	write := func(name, data string) {
+		t.Helper()
+		target := filepath.Join(directory, name)
+		if err := os.MkdirAll(filepath.Dir(target), 0700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(target, []byte(data), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write(".claude-plugin/marketplace.json", `{"name":"demo","owner":{"name":"publisher"},"plugins":[{"name":"sample","source":"./plugins/sample"}]}`)
+	write("plugins/sample/plugin.json", `{"$schema":"`+pluginpackage.ManifestSchema+`","name":"sample"}`)
+	db, err := gorm.Open(sqlite.Open(filepath.Join(t.TempDir(), "repositories.db")), &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sqlDB, err := db.DB()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = sqlDB.Close() })
+	if err := db.AutoMigrate(&database.PluginRepository{}, &database.PluginInstallation{}, &database.PluginRevision{}); err != nil {
+		t.Fatal(err)
+	}
+	inventory := plugins.NewInventory(db)
+	user := database.WithUserID(context.Background(), "alice")
+	api := NewPlugins()
+	admission := commandsecurity.Admission(func(_ *gorm.DB, fn func() error) error { return fn() })
+	AttachPlugins(api, stubSession{ctx: user}, inventory, func() (string, error) { return directory, nil }, func(context.Context) (commandsecurity.Admission, error) { return admission, nil }, nil)
+	if added, err := api.AddLocalRepository(); err != nil || !added {
+		t.Fatal(err)
+	}
+	repos, err := api.ListRepositories()
+	if err != nil || len(repos) != 1 {
+		t.Fatal(repos, err)
+	}
+	repo := repos[0]
+	if foreign, err := inventory.Repositories(database.WithUserID(context.Background(), "bob")); err != nil || len(foreign) != 0 {
+		t.Fatal(foreign, err)
+	}
+	preview, err := api.PreviewRepositoryEntry(repo.ID, repo.Revision, string(plugincatalog.Claude), "sample")
+	if err != nil {
+		t.Fatal(err)
+	}
+	row, err := api.InstallReviewed(preview.Token)
+	if err != nil || row.DiscoveryRepositoryID != repo.ID {
+		t.Fatal(row, err)
+	}
+	write(".claude-plugin/marketplace.json", "invalid")
+	if err := api.RefreshRepository(repo.ID, repo.Revision); err == nil {
+		t.Fatal("replaced cache with invalid index")
+	}
+	repos, err = api.ListRepositories()
+	if err != nil || len(repos) != 1 || repos[0].Revision != repo.Revision {
+		t.Fatal(repos, err)
+	}
+	// Simulate removal after the anchored read and before the publication's writer lock.
+	_, err = inventory.InstallSource(user, preview.Origin, preview.Digest, preview.Digest, nil, admission, func() (*pluginpackage.LocalSnapshot, error) {
+		snap, err := inventory.InspectRepositoryEntry(user, repo.ID, repo.Revision, plugincatalog.Claude, "sample")
+		if err != nil {
+			return nil, err
+		}
+		if err := api.RemoveRepository(repo.ID, repo.Revision); err != nil {
+			t.Fatal(err)
+		}
+		return snap, nil
+	})
+	if err == nil {
+		t.Fatal("publication ignored removed repository")
+	}
+	if err := api.RefreshRepository(repo.ID, repo.Revision); err == nil {
+		t.Fatal("recreated removed repository")
+	}
+	rows, err := api.ListInstalled()
+	if err != nil || len(rows) != 1 || rows[0].ID != row.ID {
+		t.Fatal(rows, err)
 	}
 }

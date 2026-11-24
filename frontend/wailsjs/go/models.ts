@@ -5623,6 +5623,7 @@ export namespace database {
 		}
 	}
 	export class PluginInstallation {
+	    discoveryRepositoryId?: string;
 	    id: string;
 	    // Go type: time
 	    createdAt: any;
@@ -5640,6 +5641,7 @@ export namespace database {
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.discoveryRepositoryId = source["discoveryRepositoryId"];
 	        this.id = source["id"];
 	        this.createdAt = this.convertValues(source["createdAt"], null);
 	        this.updatedAt = this.convertValues(source["updatedAt"], null);
@@ -8034,6 +8036,79 @@ export namespace oauthflow {
 
 }
 
+export namespace plugincatalog {
+	
+	export class Entry {
+	    products?: string[];
+	    category?: string;
+	    authentication?: string;
+	    installation?: string;
+	    name: string;
+	    description?: string;
+	    version?: string;
+	    author?: string;
+	    license?: string;
+	    path?: string;
+	    sourceKind: string;
+	    diagnostic?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new Entry(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.products = source["products"];
+	        this.category = source["category"];
+	        this.authentication = source["authentication"];
+	        this.installation = source["installation"];
+	        this.name = source["name"];
+	        this.description = source["description"];
+	        this.version = source["version"];
+	        this.author = source["author"];
+	        this.license = source["license"];
+	        this.path = source["path"];
+	        this.sourceKind = source["sourceKind"];
+	        this.diagnostic = source["diagnostic"];
+	    }
+	}
+	export class Index {
+	    format: string;
+	    name: string;
+	    entries: Entry[];
+	
+	    static createFrom(source: any = {}) {
+	        return new Index(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.format = source["format"];
+	        this.name = source["name"];
+	        this.entries = this.convertValues(source["entries"], Entry);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+
+}
+
 export namespace plugins {
 	
 	export class Component {
@@ -8065,6 +8140,45 @@ export namespace plugins {
 	        this.reason = source["reason"];
 	        this.transport = source["transport"];
 	    }
+	}
+	export class Repository {
+	    id: string;
+	    origin: string;
+	    revision: string;
+	    // Go type: time
+	    updated: any;
+	    indices: plugincatalog.Index[];
+	
+	    static createFrom(source: any = {}) {
+	        return new Repository(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.origin = source["origin"];
+	        this.revision = source["revision"];
+	        this.updated = this.convertValues(source["updated"], null);
+	        this.indices = this.convertValues(source["indices"], plugincatalog.Index);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
 	}
 
 }
@@ -10049,6 +10163,7 @@ export namespace wailsapi {
 		}
 	}
 	export class PluginPreview {
+	    authentication?: string;
 	    editedMcpServers?: string[];
 	    affectedMcpServers?: string[];
 	    components: plugins.Component[];
@@ -10067,6 +10182,7 @@ export namespace wailsapi {
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.authentication = source["authentication"];
 	        this.editedMcpServers = source["editedMcpServers"];
 	        this.affectedMcpServers = source["affectedMcpServers"];
 	        this.components = this.convertValues(source["components"], plugins.Component);

@@ -17,11 +17,14 @@ import (
 
 // LocalSnapshot contains exactly the bytes inspected for this revision.
 type LocalSnapshot struct {
-	Origin   string
-	Manifest Manifest
-	Warnings []string
-	Digest   string
-	Files    map[string][]byte
+	DiscoveryAuthentication     string
+	DiscoveryRepositoryRevision string
+	DiscoveryRepositoryID       string
+	Origin                      string
+	Manifest                    Manifest
+	Warnings                    []string
+	Digest                      string
+	Files                       map[string][]byte
 }
 
 const (
@@ -47,6 +50,41 @@ func inspectLocal(dir string, entryLimit, depthLimit int, fileLimit, byteLimit i
 		return nil, err
 	}
 	defer func() { _ = root.Close() }()
+	return inspectOpened(root, absolute, entryLimit, depthLimit, fileLimit, byteLimit)
+}
+
+// InspectRepositoryPackage anchors both the package root and its members in
+// the selected marketplace. Reopening an unchecked joined path would allow a
+// concurrent directory replacement between preview and installation.
+func InspectRepositoryPackage(directory, expectedRoot, relative string) (*LocalSnapshot, error) {
+	if !fs.ValidPath(relative) || relative == "." {
+		return nil, fs.ErrInvalid
+	}
+	local, err := filepath.Localize(relative)
+	if err != nil {
+		return nil, err
+	}
+	repo, err := os.OpenRoot(directory)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = repo.Close() }()
+	identity, err := RootIdentity(repo)
+	if err != nil {
+		return nil, err
+	}
+	if identity != expectedRoot {
+		return nil, fs.ErrInvalid
+	}
+	root, err := repo.OpenRoot(local)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = root.Close() }()
+	return inspectOpened(root, filepath.Join(directory, local), maxEntries, maxDepth, maxFileBytes, maxPackageBytes)
+}
+
+func inspectOpened(root *os.Root, absolute string, entryLimit, depthLimit int, fileLimit, byteLimit int64) (*LocalSnapshot, error) {
 	snapshot := &LocalSnapshot{Files: make(map[string][]byte)}
 	manifest, err := ReadFile(root, "plugin.json", min(int64(1<<20), byteLimit, fileLimit))
 	if err != nil {
@@ -151,4 +189,13 @@ func inspectLocal(dir string, entryLimit, depthLimit int, fileLimit, byteLimit i
 	}
 	snapshot.Digest = hex.EncodeToString(h.Sum(nil))
 	return snapshot, nil
+}
+
+func RootIdentity(root *os.Root) (string, error) {
+	file, err := root.Open(".")
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = file.Close() }()
+	return directoryID(file)
 }

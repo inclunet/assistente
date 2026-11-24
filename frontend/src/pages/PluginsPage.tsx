@@ -6,6 +6,8 @@ import type { database, plugins, wailsapi } from '@wailsjs/go/models';
 import { Button } from '../components/ui/Button';
 import { DataGrid } from '../components/ui/DataGrid';
 import { Modal } from '../components/ui/Modal';
+import PluginRepositories from './PluginRepositories';
+import { Tabs, Tab, TabList, TabPanel } from '../components/ui/tabs/Tabs';
 import { DecisionDialog } from '../components/ui/DecisionDialog';
 import { useGridPageLandmarks } from '../hooks/useGridPageLandmarks';
 import { Toolbar } from '../components/ui/Toolbar';
@@ -93,6 +95,8 @@ function InstalledPlugins({ session }: { session: string }) {
   useGridPageLandmarks({ pageClass: 'plugins-page' });
   const { announce } = useAnnouncer();
   const confirm = useConfirm();
+  const [section, setSection] = useState('installed');
+  const catalogOpener = useRef<HTMLElement | null>(null);
   const [items, setItems] = useState<InstallationRow[] | null>(null);
   const [preview, setPreview] = useState<wailsapi.PluginPreview | null>(null);
   const [details, setDetails] = useState<{ installation: InstallationRow; components: plugins.Component[] } | null>(null);
@@ -124,7 +128,8 @@ function InstalledPlugins({ session }: { session: string }) {
     }
     if (!preview && !busy && restoreFocus.current) {
       restoreFocus.current = false;
-      chooseButton.current?.focus();
+      if (catalogOpener.current?.isConnected) catalogOpener.current.focus(); else chooseButton.current?.focus();
+      catalogOpener.current = null;
     }
   }, [preview, details, busy]);
   const refresh = useCallback(async (failureMessage = 'plugins.listError') => {
@@ -345,14 +350,20 @@ function InstalledPlugins({ session }: { session: string }) {
     }
   };
   return <section className="plugins-page" aria-label={t('menu.plugins')}>
-    <Toolbar left={<h1 className="page-toolbar__title">{t('menu.plugins')}</h1>}
+    <Toolbar ariaLabel={t('menu.plugins')} left={<h1 className="page-toolbar__title">{t('menu.plugins')}</h1>}
       right={<><Button ref={chooseButton} onClick={() => void inspect()} disabled={busy}>{t('plugins.choose')}</Button>{!details && !preview && syncAction}</>} />
+    <Tabs value={section} onValueChange={setSection}>
+      <TabList ariaLabel={t('menu.plugins')}>{['installed','catalog','repositories'].map(value => <Tab value={value} key={value}>{t('plugins.' + value)}</Tab>)}</TabList>
+      <TabPanel value="installed">{section === 'installed' && <>
     <h2>{t('plugins.installed')}</h2>
-    {!preview && !details && error && <p>{t(error)}</p>}
-    {listErrorText && <p>{listErrorText}</p>}
     {items && items.length > 0 ? <DataGrid items={items} onActivate={row => void openDetails(row)} getItemId={row => row.id} label={t('plugins.installed')}
       columns={[{ key: 'name', label: t('plugins.name') }, { key: 'version', label: t('plugins.version') }, { key: 'origin', label: t('plugins.origin') }]} />
       : items && !busy && !error && !listError && <p>{t('plugins.empty')}</p>}
+      </>}</TabPanel>
+      {['catalog','repositories'].map(value => <TabPanel key={value} value={value}>{section === value && <PluginRepositories key={value} session={session} parentBusy={busy} catalog={value === 'catalog'} onPreview={(selection, opener) => { catalogOpener.current = opener; openToken.current = selection.token; setError(''); setPreview(selection); }} />}</TabPanel>)}
+    </Tabs>
+    {!preview && !details && error && <p>{t(error)}</p>}
+    {listErrorText && <p>{listErrorText}</p>}
     {details && <Modal isOpen title={details.installation.name} onClose={() => setDetails(null)} allowClose={!busy} readingMode>
       {error && <p>{t(error)}</p>}
       {syncAction}
@@ -390,6 +401,7 @@ function InstalledPlugins({ session }: { session: string }) {
         <dt>{t('plugins.origin')}</dt><dd>{preview.origin}</dd>
         {preview.version && <><dt>{t('plugins.version')}</dt><dd>{preview.version}</dd></>}
         {preview.previousDigest && <><dt>{t('plugins.previous')}</dt><dd>{preview.previousDigest}</dd></>}
+        {preview.authentication && <><dt>{t('plugins.authentication')}</dt><dd>{preview.authentication}</dd></>}
         <dt>SHA-256</dt><dd>{preview.digest}</dd>
       </dl>
       {(preview.components ?? []).length > 0 && <ul aria-label={t('plugins.components')}>{preview.components.map(component => <li key={component.key}>{component.name} · {t(component.kind === 'skill' ? 'plugins.skill' : component.kind === 'mcp' ? 'plugins.mcp' : 'plugins.invalid')}{component.kind === 'mcp' && <p>{mcpConnectionLabel(component)}</p>}{componentRequirement(component) && <p>{t(componentRequirement(component)!)}</p>}</li>)}</ul>}

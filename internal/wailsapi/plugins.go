@@ -16,6 +16,7 @@ import (
 )
 
 type PluginPreview struct {
+	Authentication     string              `json:"authentication,omitempty"`
 	EditedMCPServers   []string            `json:"editedMcpServers,omitempty"`
 	AffectedMCPServers []string            `json:"affectedMcpServers,omitempty"`
 	Components         []plugins.Component `json:"components"`
@@ -30,6 +31,7 @@ type PluginPreview struct {
 }
 
 type pluginSelection struct {
+	inspect  func(context.Context) (*pluginpackage.LocalSnapshot, error)
 	affected []plugins.BoundMCPServer
 	preview  PluginPreview
 	owner    string
@@ -108,11 +110,15 @@ func (api *Plugins) previewIsCurrent(generation uint64) bool {
 	return api.previewGeneration == generation
 }
 
-func (api *Plugins) PreviewLocal() (*PluginPreview, error) {
+func (api *Plugins) beginPreview() uint64 {
 	api.mu.Lock()
 	api.previewGeneration++
-	generation := api.previewGeneration
-	api.mu.Unlock()
+	defer api.mu.Unlock()
+	return api.previewGeneration
+}
+
+func (api *Plugins) PreviewLocal() (*PluginPreview, error) {
+	generation := api.beginPreview()
 	session, inventory, choose, capture, err := api.wired()
 	if err != nil {
 		return nil, err
@@ -142,59 +148,63 @@ func (api *Plugins) PreviewLocal() (*PluginPreview, error) {
 		if err := validate.Check(); err != nil {
 			return nil, err
 		}
-		snap, err := pluginpackage.InspectLocal(dir)
-		if err != nil {
-			return nil, err
-		}
-		list, err := inventory.List(ctx)
-		if err != nil {
-			return nil, err
-		}
-		p := PluginPreview{Name: snap.Manifest.Name, Version: snap.Manifest.Version, Origin: snap.Origin, Digest: snap.Digest, Diagnostics: snap.Warnings, Components: plugins.DiscoverComponents(snap)}
-		var affected []plugins.BoundMCPServer
-		for _, row := range list {
-			if row.Origin == p.Origin && row.Name == p.Name {
-				p.PreviousDigest = row.Digest
-				if row.Digest != p.Digest {
-					affected, err = inventory.BoundMCPServers(ctx, row.ID, row.Digest)
-					if err != nil {
-						return nil, err
-					}
-					for _, server := range affected {
-						if server.Edited {
-							label := strings.TrimPrefix(server.ComponentKey, "mcp/")
-							if label != server.Name {
-								label += " (" + server.Name + ")"
-							}
-							p.EditedMCPServers = append(p.EditedMCPServers, label)
-						} else {
-							p.AffectedMCPServers = append(p.AffectedMCPServers, server.Name)
+		return api.preparePreview(ctx, inventory, owner, generation, validate, func(context.Context) (*pluginpackage.LocalSnapshot, error) { return pluginpackage.InspectLocal(dir) })
+	})
+}
+
+func (api *Plugins) preparePreview(ctx context.Context, inventory *plugins.Inventory, owner string, generation uint64, validate commandsecurity.Admission, inspect func(context.Context) (*pluginpackage.LocalSnapshot, error)) (*PluginPreview, error) {
+	snap, err := inspect(ctx)
+	if err != nil {
+		return nil, err
+	}
+	list, err := inventory.List(ctx)
+	if err != nil {
+		return nil, err
+	}
+	p := PluginPreview{Authentication: snap.DiscoveryAuthentication, Name: snap.Manifest.Name, Version: snap.Manifest.Version, Origin: snap.Origin, Digest: snap.Digest, Diagnostics: snap.Warnings, Components: plugins.DiscoverComponents(snap)}
+	var affected []plugins.BoundMCPServer
+	for _, row := range list {
+		if row.Origin == p.Origin && row.Name == p.Name {
+			p.PreviousDigest = row.Digest
+			if row.Digest != p.Digest {
+				affected, err = inventory.BoundMCPServers(ctx, row.ID, row.Digest)
+				if err != nil {
+					return nil, err
+				}
+				for _, server := range affected {
+					if server.Edited {
+						label := strings.TrimPrefix(server.ComponentKey, "mcp/")
+						if label != server.Name {
+							label += " (" + server.Name + ")"
 						}
+						p.EditedMCPServers = append(p.EditedMCPServers, label)
+					} else {
+						p.AffectedMCPServers = append(p.AffectedMCPServers, server.Name)
 					}
 				}
-				break
 			}
+			break
 		}
-		for path := range snap.Files {
-			p.Files = append(p.Files, path)
-		}
-		sort.Strings(p.Files)
-		token, err := uuid.NewRandom()
-		if err != nil {
-			return nil, err
-		}
-		p.Token = token.String()
-		api.mu.Lock()
-		defer api.mu.Unlock()
-		if err := validate.Check(); err != nil {
-			return nil, err
-		}
-		if generation != api.previewGeneration {
-			return nil, errPreviewSuperseded
-		}
-		api.selection = &pluginSelection{affected: affected, preview: p, owner: owner, validate: validate}
-		return &p, nil
-	})
+	}
+	for path := range snap.Files {
+		p.Files = append(p.Files, path)
+	}
+	sort.Strings(p.Files)
+	token, err := uuid.NewRandom()
+	if err != nil {
+		return nil, err
+	}
+	p.Token = token.String()
+	api.mu.Lock()
+	defer api.mu.Unlock()
+	if err := validate.Check(); err != nil {
+		return nil, err
+	}
+	if generation != api.previewGeneration {
+		return nil, errPreviewSuperseded
+	}
+	api.selection = &pluginSelection{inspect: inspect, affected: affected, preview: p, owner: owner, validate: validate}
+	return &p, nil
 }
 
 func (api *Plugins) InstallReviewed(token string) (database.PluginInstallation, error) {
@@ -219,7 +229,7 @@ func (api *Plugins) InstallReviewed(token string) (database.PluginInstallation, 
 			return database.PluginInstallation{}, err
 		}
 		p := selection.preview
-		row, err := inventory.InstallReviewed(ctx, p.Origin, p.Digest, p.PreviousDigest, selection.affected, selection.validate)
+		row, err := inventory.InstallSource(ctx, p.Origin, p.Digest, p.PreviousDigest, selection.affected, selection.validate, func() (*pluginpackage.LocalSnapshot, error) { return selection.inspect(ctx) })
 		if (err == nil || errors.Is(err, plugins.ErrMCPSyncPending)) && p.PreviousDigest != "" && p.PreviousDigest != p.Digest {
 			api.notifySkillsChanged()
 		}

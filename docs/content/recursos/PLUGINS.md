@@ -40,3 +40,11 @@ Abra os detalhes do plugin e escolha **Desativar** para encerrar as ativações 
 Escolha **Desinstalar** para remover também as revisões armazenadas. Confira o nome e a origem na confirmação. Os detalhes identificam os servidores editados pelo nome atual. Se um servidor vinculado tiver sido editado, escolha **Manter como servidor independente** nos detalhes e repita a operação. A pasta original do pacote e os servidores independentes são preservados.
 
 Se a sincronização MCP ficar pendente após desativar ou desinstalar, o aviso reaparece ao voltar à página na mesma sessão. Use a opção de sincronizar para concluir a remoção dos servidores do gerenciador.
+
+## Consultar uma loja local
+
+Em **Plugins → Repositórios**, escolha **Adicionar pasta de repositório** e selecione a pasta raiz da loja. O Assistente reconhece índices locais de Claude Code, Cursor e Codex. Na aba **Catálogo**, pesquise pelo nome, autor ou origem. Selecione uma linha e pressione Enter para conferir a prévia. Nesta etapa, a instalação pelo catálogo aceita pacotes Agent Plugins 1.0.0 em subpastas do repositório.
+
+Na grade de **Repositórios**, use as setas para escolher a loja e percorrer suas ações. A grade informa a data do último índice salvo. Escolha **Atualizar** para reler a pasta. Se ela estiver indisponível, você pode pesquisar a cópia do índice armazenada na conta. Para examinar ou instalar um pacote, sua pasta precisa estar acessível. **Remover repositório** retira a loja do catálogo e preserva as instalações feitas a partir dela.
+
+A pesquisa abrange todas as entradas, e a grade exibe até 50 por página. Na loja Claude, um caminho com `./` parte da raiz; nomes simples usam o `metadata.pluginRoot`. Uma entrada na própria raiz continua visível para consulta. Restrições de produto do Codex ficam indicadas como política da loja. Pacotes de instruções admitem autenticação no primeiro uso; quando há exigência de autenticação para um servidor MCP, a prévia informa a limitação do adaptador.
