@@ -107,9 +107,6 @@ func remoteURL(raw string) (*url.URL, error) {
 	} else if strings.HasSuffix(u.Host, ":") {
 		return nil, errors.New("PLUGIN_REPOSITORY_URL")
 	}
-	if isASCIIHost(u.Host) && !strings.Contains(u.Host, "%") {
-		u.Host = strings.ToLower(u.Host)
-	}
 	return u, nil
 }
 

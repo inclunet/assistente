@@ -4,6 +4,7 @@ import (
 	"archive/zip"
 	"bytes"
 	"encoding/binary"
+	"slices"
 	"testing"
 )
 
@@ -65,16 +66,9 @@ func TestDirectoryCandidateUniqueness(t *testing.T) {
 		{"invalid selected directory", []bool{false, true}, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			var found bool
-			var err error
-			for _, valid := range tc.candidates {
-				found, err = acceptDirectoryCandidate(found, valid)
-				if err != nil {
-					break
-				}
-			}
-			if (found && err == nil) != tc.accept {
-				t.Fatalf("found=%v err=%v", found, err)
+			err := uniqueDirectory(slices.Values(tc.candidates))
+			if (err == nil) != tc.accept {
+				t.Fatalf("expected acceptance %v, error=%v", tc.accept, err)
 			}
 		})
 	}

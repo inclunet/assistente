@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"iter"
 	"path"
 	"strings"
 )
@@ -21,43 +22,40 @@ type Archive struct {
 // Bound the central directory before archive/zip allocates one File per entry.
 // The supported size and entry limits fit the single-disk classic ZIP format.
 func validateDirectory(data []byte) error {
-	const endSize = 22
-	found := false
-	for end := len(data) - endSize; end >= max(0, len(data)-endSize-65535); end-- {
-		record := data[end:]
-		if string(record[:4]) != "PK\x05\x06" || int(binary.LittleEndian.Uint16(record[20:])) != len(record)-endSize {
-			continue
+	return uniqueDirectory(func(yield func(bool) bool) {
+		const endSize = 22
+		first := true
+		for end := len(data) - endSize; end >= max(0, len(data)-endSize-65535); end-- {
+			record := data[end:]
+			if string(record[:4]) != "PK\x05\x06" || int(binary.LittleEndian.Uint16(record[20:])) != len(record)-endSize {
+				continue
+			}
+			// archive/zip can select a later signature with a shorter comment.
+			if first && len(record) >= endSize+4 && bytes.Contains(record[4:len(record)-endSize+4], []byte("PK\x05\x06")) {
+				yield(false)
+				return
+			}
+			first = false
+			if !yield(validDirectoryAt(data, end, record)) {
+				return
+			}
 		}
-		// archive/zip can select a later signature with a shorter comment.
-		// Compare its candidate to ours before trusting the selected directory.
-		if !found && len(record) >= endSize+4 && bytes.Contains(record[4:len(record)-endSize+4], []byte("PK\x05\x06")) {
-			return fs.ErrInvalid
-		}
-		var err error
-		found, err = acceptDirectoryCandidate(found, validDirectoryAt(data, end, record))
-		if err != nil {
-			return err
-		}
-	}
-	if found {
-		return nil
-	}
-	return fs.ErrInvalid
+	})
 }
 
-// Scan in reverse, starting at the directory selected by archive/zip.
-// Earlier incidental signatures are harmless; another valid directory is ambiguous.
-func acceptDirectoryCandidate(found, valid bool) (bool, error) {
-	if !valid {
-		if found {
-			return true, nil
+// The last record must be valid. Scan earlier candidates to establish uniqueness.
+func uniqueDirectory(candidates iter.Seq[bool]) error {
+	found := false
+	for valid := range candidates {
+		if !found && !valid || found && valid {
+			return fs.ErrInvalid
 		}
-		return false, fs.ErrInvalid
+		found = true
 	}
-	if found {
-		return false, fs.ErrInvalid
+	if !found {
+		return fs.ErrInvalid
 	}
-	return true, nil
+	return nil
 }
 
 func validDirectoryAt(data []byte, end int, record []byte) bool {

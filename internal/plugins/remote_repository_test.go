@@ -324,6 +324,10 @@ func TestRemoteStoreNetworkAndCredentialChoice(t *testing.T) {
 }
 
 func TestRepositoryInternationalAuthority(t *testing.T) {
+	mixed, err := remoteURL("https://Store.Example:0443")
+	if err != nil || mixed.Host != "Store.Example:0443" || addressHost(mixed, true) != "store.example" {
+		t.Fatal(mixed, err)
+	}
 	unicodeHost, err := remoteURL("https://İ.example")
 	if err != nil {
 		t.Fatal(err)
