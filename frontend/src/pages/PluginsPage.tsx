@@ -8,20 +8,25 @@ import { DecisionDialog } from '../components/ui/DecisionDialog';
 import { useGridPageLandmarks } from '../hooks/useGridPageLandmarks';
 import { Toolbar } from '../components/ui/Toolbar';
 import { useAnnouncer } from '../hooks/useAnnouncer';
+import { logger } from '../utils/logger';
 import { useAuthStore } from '../store/authStore';
 
 // Cleanup can outlive the session that owned the preview. The backend still
 // checks the owner and the exact token for every discard.
 function discardAbandonedPreview(token: string) {
-  void DiscardPreview(token).catch(() => console.warn('Unable to discard an abandoned plugin preview'));
+  void DiscardPreview(token).catch(() => logger.warn('Unable to discard an abandoned plugin preview'));
 }
+
+// A confirmed install continues across navigation. A new page for the same
+// session waits for publication before reading the inventory.
+const pendingInstalls = new Map<string, Promise<database.PluginInstallation>>();
 
 export default function PluginsPage() {
   const session = useAuthStore(state => state.user?.sessionId);
-  return session ? <InstalledPlugins key={session} /> : null;
+  return session ? <InstalledPlugins key={session} session={session} /> : null;
 }
 
-function InstalledPlugins() {
+function InstalledPlugins({ session }: { session: string }) {
   const { t } = useTranslation();
   useGridPageLandmarks({ pageClass: 'plugins-page' });
   const { announce } = useAnnouncer();
@@ -43,9 +48,12 @@ function InstalledPlugins() {
     }
   }, [preview, busy]);
   const refresh = useCallback(async () => {
+    const pending = pendingInstalls.get(session);
+    if (pending) await pending.catch(() => undefined);
+    if (!mounted.current) return;
     const rows = await ListInstalled();
     if (mounted.current) setItems(rows ?? []);
-  }, []);
+  }, [session]);
   useEffect(() => {
     mounted.current = true;
     void refresh().catch(() => { if (mounted.current) setError('plugins.listError'); })
@@ -97,10 +105,17 @@ function InstalledPlugins() {
   const sameRevision = Boolean(preview && preview.previousDigest === preview.digest);
   const install = async () => {
     if (!preview || busy || sameRevision) return;
+    setError('');
     setBusy(true);
     try {
       openToken.current = null;
-      await InstallReviewed(preview.token);
+      const pending = InstallReviewed(preview.token);
+      pendingInstalls.set(session, pending);
+      try {
+        await pending;
+      } finally {
+        if (pendingInstalls.get(session) === pending) pendingInstalls.delete(session);
+      }
       if (!mounted.current) return;
       announce(t('plugins.installedNotice', { name: preview.name }));
       try { await refresh(); } catch { if (mounted.current) setError('plugins.listError'); }
@@ -135,7 +150,16 @@ function InstalledPlugins() {
         <dt>SHA-256</dt><dd>{preview.digest}</dd>
       </dl>
       {preview.previousDigest && <p>{t(sameRevision ? 'plugins.current' : 'plugins.updateNotice')}</p>}
-      {(preview.diagnostics ?? []).length > 0 && <p>{t('plugins.warnings', { count: preview.diagnostics.length })}</p>}
+      {(preview.diagnostics ?? []).length > 0 && <details>
+        <summary>{t('plugins.warnings', { count: preview.diagnostics.length })}</summary>
+        <ul>{preview.diagnostics.map(warning => {
+          const prefix = 'unknown manifest field: ';
+          const message = warning.startsWith(prefix)
+            ? t('plugins.unknownField', { field: warning.slice(prefix.length) })
+            : warning === 'invalid extensions object' ? t('plugins.invalidExtensions') : t('plugins.unsupportedMetadata');
+          return <li key={warning}>{message}</li>;
+        })}</ul>
+      </details>}
       <details><summary>{t('plugins.files', { count: preview.files.length })}</summary><ul>{preview.files.map(path => <li key={path}>{path}</li>)}</ul></details>
       </> }]} />}
   </section>;

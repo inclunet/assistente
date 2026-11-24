@@ -129,11 +129,36 @@ describe('PluginsPage', () => {
     unmount();
     if (phase === 'pending') await act(async () => finishPreview(result));
     if (phase === 'installing') {
+      mocks.list.mockResolvedValueOnce([{ id: 'installed', name: 'done', version: '1', origin: 'local' }]);
+      render(<PluginsPage />);
+      expect(mocks.list).toHaveBeenCalledTimes(1);
       await act(async () => finishInstall());
+      expect(await screen.findByText('done')).toBeInTheDocument();
       expect(mocks.discard).not.toHaveBeenCalled();
     } else {
       expect(mocks.discard.mock.calls).toEqual([['old-page']]);
       expect(mocks.install).not.toHaveBeenCalled();
     }
+  });
+
+  it('clears a discard error after installation and explains distinct manifest warnings', async () => {
+    const user = userEvent.setup();
+    mocks.preview.mockResolvedValueOnce({ token: 'warning', name: 'demo', files: [], diagnostics: ['unknown manifest field: other', 'invalid extensions object'] });
+    mocks.discard.mockRejectedValueOnce(new Error('offline'));
+    render(<PluginsPage />);
+    const choose = await screen.findByRole('button', { name: 'plugins.choose' });
+    await waitFor(() => expect(choose).toBeEnabled());
+    await user.click(choose);
+    await user.click(await screen.findByText('plugins.warnings'));
+    expect(screen.getByText('plugins.unknownField')).toBeVisible();
+    expect(screen.getByText('plugins.invalidExtensions')).toBeVisible();
+    await user.click(screen.getByRole('button', {name:'common.cancel'}));
+    expect(await screen.findByText('plugins.discardError')).toBeVisible();
+    await waitFor(async () => {
+      await user.click(screen.getByRole('button', {name:'plugins.install'}));
+      expect(mocks.install).toHaveBeenCalledTimes(1);
+    }, {timeout: 2500});
+    await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull());
+    expect(screen.queryByText('plugins.discardError')).toBeNull();
   });
 });
