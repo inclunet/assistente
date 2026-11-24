@@ -31,14 +31,22 @@ describe('TerminalEntry', () => {
     expect(screen.getByText('terminal.entry.command')).toBeInTheDocument();
   });
 
-  it('renderiza saida com exit code', () => {
+  it.each(['', 'x'])('preserva o emoji no limite do rótulo acessível (excedente: "%s")', tail => {
+    const prefix = 'a'.repeat(499) + '🌍';
+    const entry = new terminal.HistoryEntry({ id: 'id', command: prefix + tail, source: 'user' });
+    render(<TerminalCommandNode entry={entry} />);
+    const label = screen.getByRole('listitem').getAttribute('aria-label');
+    expect(label?.endsWith(prefix + (tail ? '… terminal.entry.truncated' : ''))).toBe(true);
+  });
+
+  it.each([1, -999])('renderiza saída com código final %s', exitCode => {
     render(
       <TerminalOutputNode
         entry={new terminal.HistoryEntry({
           id: '1',
           command: 'ls',
           output: 'ok',
-          exitCode: 1,
+          exitCode,
           startedAt: new Date().toISOString(),
           endedAt: new Date().toISOString(),
           source: 'user',
@@ -47,7 +55,7 @@ describe('TerminalEntry', () => {
     );
 
     expect(screen.getByText('ok')).toBeInTheDocument();
-    expect(screen.getByText('terminal.entry.exit 1')).toBeInTheDocument();
+    expect(screen.getByText(`terminal.entry.exit ${exitCode}`)).toBeInTheDocument();
   });
 
   it('permite leitura livre do conteúdo do comando', () => {

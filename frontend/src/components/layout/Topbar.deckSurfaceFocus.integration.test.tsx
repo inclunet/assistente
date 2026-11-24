@@ -66,8 +66,8 @@ vi.mock('../../store/workspaceStore', () => {
 vi.mock('../../store/shortcutsHelpStore', () => ({ useShortcutsHelpStore: (selector: (value: { isOpen: boolean; open: () => void; close: () => void }) => unknown) => selector({ isOpen: false, open: vi.fn(), close: vi.fn() }) }));
 vi.mock('../../store/uiStore', () => ({ useUIStore: (selector: (value: { addToast: () => void }) => unknown) => selector({ addToast: vi.fn() }) }));
 vi.mock('../../store/terminalStore', () => ({
-  useTerminalStore: Object.assign((selector?: (value: unknown) => unknown) => selector ? selector({ sessions: [], historyBySession: {}, activeEntryBySession: {} }) : {}, {
-    getState: () => ({ sessions: [], historyBySession: {}, activeEntryBySession: {} }), subscribe: () => () => undefined,
+  useTerminalStore: Object.assign((selector?: (value: unknown) => unknown) => selector ? selector({ sessions: [], historyBySession: {}, manualEntryBySession: {}, activeEntryBySession: {} }) : {}, {
+    getState: () => ({ sessions: [], historyBySession: {}, manualEntryBySession: {}, activeEntryBySession: {} }), subscribe: () => () => undefined,
   }),
 }));
 vi.mock('../../hooks/useAnnouncer', () => ({ useAnnouncer: () => ({ announce: state.announce }) }));

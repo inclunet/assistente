@@ -42,12 +42,19 @@ func ReadFile(root *os.Root, name string, limit int64) ([]byte, error) {
 	if info.Size() > limit {
 		return nil, ErrTooLarge
 	}
+	return readLimited(file, limit)
+}
+
+func readLimited(file io.Reader, limit int64) ([]byte, error) {
 	data, err := io.ReadAll(io.LimitReader(file, limit))
 	if err != nil {
 		return nil, err
 	}
+	if int64(len(data)) < limit {
+		return data, nil
+	}
 	var extra [1]byte
-	if n, err := file.Read(extra[:]); n != 0 {
+	if n, err := io.ReadFull(file, extra[:]); n != 0 {
 		return nil, ErrTooLarge
 	} else if err != io.EOF {
 		return nil, err

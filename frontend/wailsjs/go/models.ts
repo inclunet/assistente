@@ -10047,6 +10047,8 @@ export namespace wailsapi {
 		}
 	}
 	export class PluginPreview {
+	    editedMcpServers?: string[];
+	    affectedMcpServers?: string[];
 	    components: plugins.Component[];
 	    token: string;
 	    name: string;
@@ -10063,6 +10065,8 @@ export namespace wailsapi {
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.editedMcpServers = source["editedMcpServers"];
+	        this.affectedMcpServers = source["affectedMcpServers"];
 	        this.components = this.convertValues(source["components"], plugins.Component);
 	        this.token = source["token"];
 	        this.name = source["name"];

@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"strings"
 
+	"assistente/internal/commandsecurity"
 	"assistente/internal/database"
 	"assistente/internal/pluginpackage"
 	"assistente/internal/skills"
@@ -69,7 +70,10 @@ func (i *Inventory) InstalledComponents(ctx context.Context, id, digest string) 
 	return components, nil
 }
 
-func (i *Inventory) SetSkillActive(ctx context.Context, id, digest, key string, active bool) error {
+func (i *Inventory) SetSkillActive(ctx context.Context, id, digest, key string, active bool, admit commandsecurity.Admission) error {
+	if admit == nil {
+		return database.ErrUserScopeRequired
+	}
 	owner, err := database.RequireUserID(ctx)
 	if err != nil {
 		return err
@@ -96,7 +100,7 @@ func (i *Inventory) SetSkillActive(ctx context.Context, id, digest, key string, 
 			return ErrComponentUnavailable
 		}
 	}
-	return database.WithSQLiteImmediateTransaction(ctx, i.db, "plugins.skill.activation", func(tx *gorm.DB) error {
+	return database.WithSQLiteAdmittedCommit(ctx, i.db, "plugins.skill.activation", func(tx *gorm.DB) error {
 		var installation database.PluginInstallation
 		if err := tx.Where("user_id = ? AND id = ? AND digest = ?", owner, id, digest).Take(&installation).Error; err != nil {
 			return err
@@ -108,7 +112,7 @@ func (i *Inventory) SetSkillActive(ctx context.Context, id, digest, key string, 
 			return tx.Where("installation_id = ? AND component_key = ?", id, key).Delete(&database.PluginSkillActivation{}).Error
 		}
 		return tx.Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "installation_id"}, {Name: "component_key"}}, DoUpdates: clause.AssignmentColumns([]string{"digest", "slug", "definition"})}).Create(&activation).Error
-	})
+	}, admit)
 }
 
 func (i *Inventory) ActiveSkills(ctx context.Context) ([]skills.Skill, error) {

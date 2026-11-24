@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"fmt"
 
 	"assistente/internal/questionnaire"
@@ -21,8 +22,49 @@ const (
 	decisionDeny  = "deny"
 )
 
+func askShellConfirmation(ctx context.Context, router *questionnaire.Router, surface questionnaire.Surface, req shelltrust.PromptRequest) (shelltrust.PromptDecision, error) {
+	payload, actions := shellConfirmationPayload(req)
+	if receipt := shelltrust.ConfirmationReceipt(ctx); receipt != nil {
+		payload = payload.WithAcceptGuard(func(resp questionnaire.Response) bool {
+			choice, err := actions.Parse(resp)
+			return receipt.TryAccept(err == nil && choice.Effect == "deny" && choice.Scope == "once")
+		})
+	}
+	resp, err := router.Ask(ctx, surface, payload)
+	if err != nil {
+		return shelltrust.PromptDecision{}, err
+	}
+	choice, err := actions.Parse(resp)
+	return shelltrust.PromptDecision{Approve: choice.Effect == "allow", Scope: choice.Scope}, err
+}
+
 // shellConfirmationPayload monta a confirmação de execução de comando (AEP-0091).
-func shellConfirmationPayload(req shelltrust.PromptRequest) questionnaire.RequestPayload {
+func shellConfirmationPayload(req shelltrust.PromptRequest) (questionnaire.RequestPayload, questionnaire.AuthorizationActions) {
+	actions := questionnaire.AuthorizationActions{Scopes: req.AvailableScopes}
+	if req.ProtectedCommand {
+		description := questionnaire.Keyed("app.questionnaire.shell.protectedPrompt", "Este comando de job usa um valor protegido. Os detalhes ficam ocultos. Permitir uma única execução no shell?")
+		if req.LiteralPrefix != "" {
+			description = questionnaire.KeyedWith("app.questionnaire.shell.protectedPrefixPrompt", map[string]any{"prefix": req.LiteralPrefix},
+				fmt.Sprintf("O comando de job começa com %s e usa um valor protegido. Os demais detalhes ficam ocultos. Permitir uma única execução no shell?", req.LiteralPrefix))
+		}
+		var bodyLabel questionnaire.Text
+		var body string
+		if req.PublicTemplate != "" && req.LiteralPrefix != "" {
+			body = req.PublicTemplate
+			description = questionnaire.KeyedWith("app.questionnaire.shell.protectedTemplatePrompt", map[string]any{"prefix": req.LiteralPrefix},
+				fmt.Sprintf("O comando de job começa com %s. O template mostra a referência ao cofre. Permitir uma única execução no shell?", req.LiteralPrefix))
+			bodyLabel = questionnaire.Keyed("app.questionnaire.shell.templateLabel", "Template original do comando")
+		}
+		var hint questionnaire.Text
+		if req.PersistentTerminal {
+			hint = questionnaire.Keyed("app.questionnaire.shell.protectedPersistentHint", "Terminal persistente. O diretório atual pode ter mudado.")
+		}
+		return questionnaire.RequestPayload{
+			Hint: hint, Body: body, BodyLabel: bodyLabel,
+			Kind: questionnaire.KindDecision, Title: questionnaire.Keyed("app.questionnaire.shell.title", "Confirmar execução de comando"),
+			Description: description, AllowCancel: true, Actions: actions.Actions(),
+		}, actions
+	}
 	hint := questionnaire.KeyedWith(
 		"app.questionnaire.shell.workDir",
 		map[string]any{"workDir": req.Directory},
@@ -54,8 +96,8 @@ func shellConfirmationPayload(req shelltrust.PromptRequest) questionnaire.Reques
 			"Comando solicitado",
 		),
 		AllowCancel: true,
-		Actions:     (questionnaire.AuthorizationActions{Scopes: req.AvailableScopes}).Actions(),
-	}
+		Actions:     actions.Actions(),
+	}, actions
 }
 
 // httpConfirmationPayload monta a confirmação de operação HTTP mutável (AEP-0091).

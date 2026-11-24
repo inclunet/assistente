@@ -410,12 +410,7 @@ func (a *App) initToolRegistry() {
 		Policy:            getAllowlistFn,
 		PersistentAllowed: func(ctx context.Context) bool { return surfaceForOperation(ctx).AllowsPersistentAuthorization() },
 		Prompt: func(ctx context.Context, req shelltrust.PromptRequest) (shelltrust.PromptDecision, error) {
-			response, err := a.questionnaireRouter().Ask(ctx, surfaceForOperation(ctx), shellConfirmationPayload(req))
-			if err != nil {
-				return shelltrust.PromptDecision{}, err
-			}
-			choice, err := (questionnaire.AuthorizationActions{Scopes: req.AvailableScopes}).Parse(response)
-			return shelltrust.PromptDecision{Approve: choice.Effect == "allow", Scope: choice.Scope}, err
+			return askShellConfirmation(ctx, a.questionnaireRouter(), surfaceForOperation(ctx), req)
 		},
 	}
 	confirmFn := shellAuthorizer.Authorize

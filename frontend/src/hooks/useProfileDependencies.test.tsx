@@ -1,6 +1,6 @@
 /** @vitest-environment jsdom */
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { renderHook, waitFor } from '@testing-library/react';
+import { act, renderHook, waitFor } from '@testing-library/react';
 
 import { useProfileDependencies } from './useProfileDependencies';
 
@@ -9,7 +9,7 @@ const getAllowlistsMock = vi.fn();
 const getSkillsMock = vi.fn();
 const getContextProvidersMock = vi.fn();
 
-let eventsHandler: (() => void) | null = null;
+const handlers = new Map<string, () => void>();
 const unsubscribeMock = vi.fn();
 
 vi.mock('@wailsjs/go/wailsapi/Tools', () => ({
@@ -29,9 +29,12 @@ vi.mock('@wailsjs/go/wailsapi/Skills', () => ({
 }));
 
 vi.mock('@wailsjs/runtime/runtime', () => ({
-  EventsOn: (_event: string, handler: () => void) => {
-    eventsHandler = handler;
-    return unsubscribeMock;
+  EventsOn: (event: string, handler: () => void) => {
+    handlers.set(event, handler);
+    return () => {
+      handlers.delete(event);
+      unsubscribeMock(event);
+    };
   },
 }));
 
@@ -45,7 +48,7 @@ describe('useProfileDependencies', () => {
     getAllowlistsMock.mockResolvedValue([{ slug: 'al-1', name: 'Allowlist 1', ruleCount: 2 }]);
     getSkillsMock.mockResolvedValue([{ slug: 'skill-1', name: 'Skill 1', description: '' }]);
     getContextProvidersMock.mockResolvedValue([{ name: 'memory', display_name: 'Memory' }]);
-    eventsHandler = null;
+    handlers.clear();
     unsubscribeMock.mockClear();
   });
 
@@ -88,16 +91,45 @@ describe('useProfileDependencies', () => {
 
     getAvailableToolsMock.mockResolvedValueOnce([{ name: 'Tool 2' }]);
 
-    eventsHandler?.();
+    handlers.get('mcp:tools_changed')?.();
 
     await waitFor(() => {
       expect(result.current.tools[0]?.name).toBe('Tool 2');
     });
   });
 
+  it('atualiza a seleção do editor aberto ao ativar e desativar uma skill de plugin', async () => {
+    const { result } = renderHook(() => useProfileDependencies());
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    const local = result.current.skills[0];
+    const plugin = { slug: 'plugin:nota', name: 'Nota' };
+
+    getSkillsMock.mockResolvedValueOnce([local, plugin]);
+    await act(async () => handlers.get('plugins:skills_changed')?.());
+    expect(result.current.skills).toEqual([local, plugin]);
+
+    getSkillsMock.mockResolvedValueOnce([local]);
+    await act(async () => handlers.get('plugins:skills_changed')?.());
+    expect(result.current.skills).toEqual([local]);
+  });
+
+  it('ignora a listagem inicial quando ela termina após uma atualização', async () => {
+    let resolveInitial!: (skills: unknown[]) => void;
+    getSkillsMock.mockReturnValueOnce(new Promise(resolve => { resolveInitial = resolve; }));
+    const { result } = renderHook(() => useProfileDependencies());
+
+    getSkillsMock.mockResolvedValueOnce([]);
+    await act(async () => handlers.get('plugins:skills_changed')?.());
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    await act(async () => resolveInitial([{ slug: 'plugin:desativada' }]));
+    expect(result.current.skills).toEqual([]);
+  });
+
   it('desinscreve ao desmontar', () => {
     const { unmount } = renderHook(() => useProfileDependencies());
     unmount();
-    expect(unsubscribeMock).toHaveBeenCalledTimes(1);
+    expect(unsubscribeMock).toHaveBeenCalledWith('mcp:tools_changed');
+    expect(unsubscribeMock).toHaveBeenCalledWith('plugins:skills_changed');
+    expect(handlers.size).toBe(0);
   });
 });

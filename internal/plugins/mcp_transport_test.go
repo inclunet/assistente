@@ -30,3 +30,18 @@ func TestDiscoverRejectsMCPEnvelopeAndKeepsIndependentSkill(t *testing.T) {
 		}
 	}
 }
+
+func TestPreviewMCPWithPendingConfiguration(t *testing.T) {
+	const endpoint = "https://example.org/path%2Fsegment"
+	for _, declaration := range []string{
+		`{"type":"sse","url":"` + endpoint + `?token=private"}`,
+		`{"type":"sse","url":"` + endpoint + `?"}`,
+		`{"type":"streamable-http","url":"` + endpoint + `","headers":{"Authorization":"private"}}`,
+	} {
+		snap := &pluginpackage.LocalSnapshot{Files: map[string][]byte{"mcp.json": []byte(`{"$schema":"https://agent-plugins.org/schemas/1.0.0/mcp.schema.json","mcpServers":{"demo":` + declaration + `}}`)}}
+		got := DiscoverComponents(snap)
+		if len(got) != 1 || got[0].Endpoint != endpoint || got[0].Reason != "configuration" || got[0].Kind != "mcp" {
+			t.Fatal(got)
+		}
+	}
+}
