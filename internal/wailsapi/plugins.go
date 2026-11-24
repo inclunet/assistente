@@ -84,6 +84,14 @@ func (api *Plugins) ListInstalled() ([]database.PluginInstallation, error) {
 	})
 }
 
+var errPreviewSuperseded = errors.New("plugin preview superseded")
+
+func (api *Plugins) previewIsCurrent(generation uint64) bool {
+	api.mu.Lock()
+	defer api.mu.Unlock()
+	return api.previewGeneration == generation
+}
+
 func (api *Plugins) PreviewLocal() (*PluginPreview, error) {
 	api.mu.Lock()
 	api.previewGeneration++
@@ -105,7 +113,13 @@ func (api *Plugins) PreviewLocal() (*PluginPreview, error) {
 		if err != nil {
 			return nil, err
 		}
+		if !api.previewIsCurrent(generation) {
+			return nil, errPreviewSuperseded
+		}
 		dir, err := choose()
+		if !api.previewIsCurrent(generation) {
+			return nil, errPreviewSuperseded
+		}
 		if err != nil || dir == "" {
 			return nil, err
 		}
@@ -142,7 +156,7 @@ func (api *Plugins) PreviewLocal() (*PluginPreview, error) {
 			return nil, err
 		}
 		if generation != api.previewGeneration {
-			return nil, errors.New("plugin preview superseded")
+			return nil, errPreviewSuperseded
 		}
 		api.selection = &pluginSelection{preview: p, owner: owner, validate: validate}
 		return &p, nil

@@ -47,6 +47,11 @@ func TestPluginPreviewUsesSelectedDirectoryAndSession(t *testing.T) {
 			return handoff()
 		}, nil
 	})
+	var pickerCalls atomic.Int32
+	api.choose = func() (string, error) {
+		pickerCalls.Add(1)
+		return dir, nil
+	}
 	// Hold the old admission until the next page has received its own preview.
 	var first atomic.Bool
 	entered, release := make(chan struct{}), make(chan struct{})
@@ -63,14 +68,33 @@ func TestPluginPreviewUsesSelectedDirectoryAndSession(t *testing.T) {
 	<-entered
 	current, err := api.PreviewLocal()
 	close(release)
-	if oldErr := <-old; oldErr == nil || err != nil {
-		t.Fatalf("old error %v, current error %v", oldErr, err)
+	if oldErr := <-old; !errors.Is(oldErr, errPreviewSuperseded) || err != nil || pickerCalls.Load() != 1 {
+		t.Fatalf("old error %v, current error %v, picker calls %d", oldErr, err, pickerCalls.Load())
 	}
 	api.mu.Lock()
 	currentSelection := api.selection
 	api.mu.Unlock()
 	if currentSelection == nil || currentSelection.preview.Token != current.Token {
 		t.Fatal("late preview replaced the current selection")
+	}
+	// A picker that was already open when superseded must not inspect its result.
+	pickerEntered, pickerRelease := make(chan struct{}), make(chan struct{})
+	first.Store(false)
+	api.capture = capture
+	api.choose = func() (string, error) {
+		if !first.Swap(true) {
+			close(pickerEntered)
+			<-pickerRelease
+			return filepath.Join(dir, "removed"), nil
+		}
+		return dir, nil
+	}
+	go func() { _, err := api.PreviewLocal(); old <- err }()
+	<-pickerEntered
+	_, err = api.PreviewLocal()
+	close(pickerRelease)
+	if oldErr := <-old; !errors.Is(oldErr, errPreviewSuperseded) || err != nil {
+		t.Fatalf("superseded picker: %v, current: %v", oldErr, err)
 	}
 	preview, err := api.PreviewLocal()
 	if err != nil || preview.Name != "local" || len(preview.Files) != 1 {
