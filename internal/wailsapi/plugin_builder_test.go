@@ -68,6 +68,10 @@ func TestBuilderSaveRechecksRevisionAndSessionBeforePublishing(t *testing.T) {
 	if saved, err := api.SaveBuilder(req, current.Digest); err != nil || saved {
 		t.Fatal(saved, err)
 	}
+	AttachPluginSaveDialog(api, func(ports.SaveFileOptions) (string, error) { return filepath.Join(dir, "absent", "output.zip"), nil })
+	if saved, err := api.SaveBuilder(req, current.Digest); saved || !errors.Is(err, errBuilderDestination) {
+		t.Fatal(saved, err)
+	}
 	target := filepath.Join(dir, "review.zip")
 	if err := os.WriteFile(target, []byte("previous"), 0600); err != nil {
 		t.Fatal(err)

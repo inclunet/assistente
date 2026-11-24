@@ -50,7 +50,18 @@ export default function PluginBuilder() {
         const next = await PreviewBuilder(request);
         if (mounted.current) { setPreview(next); setStatus('plugins.builderReady'); }
       }
-    } catch { if (mounted.current) { setPreview(null); setStatus('plugins.builderError'); } }
+     } catch (cause) {
+      if (!mounted.current) return;
+      const message = String(cause);
+      if (message.includes('PLUGIN_BUILDER_DESTINATION')) {
+        setStatus('plugins.builderDestination');
+      } else {
+        setPreview(null);
+        if (message.includes('PLUGIN_BUILDER_CHANGED')) setStatus('plugins.builderChanged');
+        else if (message.includes('PLUGIN_BUILDER_KEY')) setStatus('plugins.builderInvalidKey');
+        else setStatus('plugins.builderError');
+      }
+    }
     finally { if (mounted.current) setBusy(false); }
   };
   return <form onSubmit={event => {event.preventDefault(); void run();}}>

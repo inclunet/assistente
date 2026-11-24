@@ -13,7 +13,7 @@ describe('PluginBuilder', () => {
   it('requires a fresh preview when the selection changes and saves the reviewed package',async () => {
     mock.list.mockResolvedValue([{id:'source',title:'Release',slug:'release'}]);
     mock.preview.mockResolvedValue({name:'release-kit',digest:'digest',files:['plugin.json'],contents:{'plugin.json':'Release template content'},components:[]});
-    mock.save.mockResolvedValue(true);
+    mock.save.mockRejectedValueOnce('PLUGIN_BUILDER_DESTINATION').mockResolvedValue(true);
     const user=userEvent.setup();
     render(<PluginBuilder />);
     const name=screen.getByRole('textbox',{name:'plugins.packageName'});
@@ -28,7 +28,13 @@ describe('PluginBuilder', () => {
     expect(screen.queryByRole('button',{name:'plugins.builderSave'})).toBeNull();
     await user.click(screen.getByRole('button',{name:'plugins.builderReview'}));
     await user.click(await screen.findByRole('button',{name:'plugins.builderSave'}));
+    await screen.findByText('plugins.builderDestination');
+    await user.click(screen.getByRole('button',{name:'plugins.builderSave'}));
     await screen.findByText('plugins.builderSaved');
+    mock.save.mockRejectedValueOnce('PLUGIN_BUILDER_CHANGED');
+    await user.click(screen.getByRole('button',{name:'plugins.builderSave'}));
+    await screen.findByText('plugins.builderChanged');
+    expect(screen.queryByRole('button',{name:'plugins.builderSave'})).toBeNull();
     expect(mock.save).toHaveBeenCalledWith(expect.objectContaining({name:'release-kit',tasklists:[expect.objectContaining({id:'source',includeTasks:true})]}),'digest');
   });
 });

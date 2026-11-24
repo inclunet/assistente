@@ -12,6 +12,8 @@ import (
 	"assistente/internal/plugins"
 )
 
+var errBuilderDestination = errors.New("PLUGIN_BUILDER_DESTINATION")
+
 type BuilderPreview struct {
 	Contents   map[string]string   `json:"contents"`
 	Name       string              `json:"name"`
@@ -56,7 +58,7 @@ func (api *Plugins) SaveBuilder(request plugins.BuilderRequest, expectedDigest s
 			return err
 		}
 		if expectedDigest == "" || snap.Digest != expectedDigest {
-			return plugins.ErrPackageChanged
+			return errors.Join(plugins.ErrPackageChanged, errors.New("PLUGIN_BUILDER_CHANGED"))
 		}
 		api.mu.Lock()
 		saveDialog := api.savePackage
@@ -68,15 +70,18 @@ func (api *Plugins) SaveBuilder(request plugins.BuilderRequest, expectedDigest s
 			return err
 		}
 		file, err := saveDialog(ports.SaveFileOptions{DefaultFilename: snap.Manifest.Name + ".zip", Filters: []ports.FileFilter{{DisplayName: "ZIP", Pattern: "*.zip"}}})
-		if err != nil || file == "" {
-			return err
+		if err != nil {
+			return errBuilderDestination
+		}
+		if file == "" {
+			return nil
 		}
 		if err := admit.Check(); err != nil {
 			return err
 		}
 		tmp, err := os.CreateTemp(filepath.Dir(file), ".assistente-plugin-*.tmp")
 		if err != nil {
-			return err
+			return errBuilderDestination
 		}
 		defer func() { _ = os.Remove(tmp.Name()) }()
 		_, err = tmp.Write(data)
@@ -84,13 +89,15 @@ func (api *Plugins) SaveBuilder(request plugins.BuilderRequest, expectedDigest s
 			err = tmp.Sync()
 		}
 		closeErr := tmp.Close()
-		if err != nil {
-			return err
+		if err != nil || closeErr != nil {
+			return errBuilderDestination
 		}
-		if closeErr != nil {
-			return closeErr
-		}
-		err = admit(nil, func() error { return os.Rename(tmp.Name(), file) })
+		err = admit(nil, func() error {
+			if err := os.Rename(tmp.Name(), file); err != nil {
+				return errBuilderDestination
+			}
+			return nil
+		})
 		saved = err == nil
 		return err
 	})
