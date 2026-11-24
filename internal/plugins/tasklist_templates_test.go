@@ -19,7 +19,7 @@ import (
 )
 
 func TestTemplateListSurvivesUpdateAndUninstall(t *testing.T) {
-	db, err := gorm.Open(sqlite.Open(filepath.Join(t.TempDir(), "templates.db")), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open(database.SQLiteDSN(filepath.Join(t.TempDir(), "templates.db"))), &gorm.Config{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -83,7 +83,7 @@ func TestTemplateListSurvivesUpdateAndUninstall(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := db.Delete(&database.TaskList{}, "id=?", deletedID).Error; err != nil {
+	if err := db.Select("Tasks", "Workflow").Delete(&database.TaskList{UUIDModel: database.UUIDModel{ID: deletedID}}).Error; err != nil {
 		t.Fatal(err)
 	}
 	if replay, err := create(ctx); err != nil || replay != deletedID {
@@ -138,6 +138,10 @@ func TestTemplateListSurvivesUpdateAndUninstall(t *testing.T) {
 	}
 	if _, err := create(ctx); err == nil {
 		t.Fatal("removed template remained available")
+	}
+	var receipts int64
+	if err := db.Model(&database.PluginListReceipt{}).Where("installation_id=?", row.ID).Count(&receipts).Error; err != nil || receipts != 0 {
+		t.Fatal("receipts after uninstall", receipts, err)
 	}
 	var saved database.Task
 	if err := db.Where("id=?", task.ID).Take(&saved).Error; err != nil || saved.StatusID != 2 {

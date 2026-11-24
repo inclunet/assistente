@@ -169,7 +169,7 @@ notSaved: 'The decision applies only to this operation: it could not be remember
       repositories: 'Repositories',
       tasklistTemplate: 'Task list template',
       createList: 'Create a list from {{name}}',
-      createdList: 'Created {{name}}. Open it in Task lists.',
+      createdList: 'A list was created from the {{name}} template.',
       archiveURL: 'HTTPS address of the marketplace ZIP file',
       archiveCredential: 'Use the account credential saved for this host and port',
       addRemoteRepo: 'Add marketplace by URL',

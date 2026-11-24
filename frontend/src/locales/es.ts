@@ -168,7 +168,7 @@ notSaved: 'La decisión vale solo para esta operación: no se pudo recordar. Ser
       repositories: 'Repositorios',
       tasklistTemplate: 'Plantilla de lista de tareas',
       createList: 'Crear una lista a partir de {{name}}',
-      createdList: 'Se creó {{name}}. Está disponible en Listas de tareas.',
+      createdList: 'Se creó una lista a partir del modelo {{name}}.',
       archiveURL: 'Dirección HTTPS del archivo ZIP de la tienda',
       archiveCredential: 'Usar la credencial de la cuenta guardada para este host y puerto',
       addRemoteRepo: 'Agregar tienda por URL',

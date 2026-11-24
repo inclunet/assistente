@@ -169,7 +169,7 @@ notSaved: 'A decisão vale somente para esta operação: não foi possível lemb
       repositories: 'Repositórios',
       tasklistTemplate: 'Modelo de lista de tarefas',
       createList: 'Criar lista a partir de {{name}}',
-      createdList: 'Lista {{name}} criada. Ela está disponível em Listas de tarefas.',
+      createdList: 'Lista criada a partir do modelo {{name}}.',
       archiveURL: 'Endereço HTTPS do arquivo ZIP da loja',
       archiveCredential: 'Usar a credencial da conta cadastrada para este host e porta',
       addRemoteRepo: 'Adicionar loja por URL',
