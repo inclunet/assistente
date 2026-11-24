@@ -4,7 +4,7 @@ import (
 	httpclient "assistente/internal/tools/http"
 	"context"
 	"net"
-	"strings"
+
 	"testing"
 	"time"
 
@@ -86,11 +86,11 @@ func TestRepositoryNetworkDecisionUsesDesktopWithoutConversation(t *testing.T) {
 
 func TestNetworkDecisionIdentifiesRememberedPorts(t *testing.T) {
 	req := nettrust.PromptRequest{Port: "443", AvailableScopes: allAuthorizationScopesForTest()}
-	if !strings.Contains(networkConfirmationPayload(req).Body, "remembered_ports: 80, 443") {
+	if networkConfirmationPayload(req).Description.Params["ports"] != "80, 443" {
 		t.Fatal("missing remembered port scope")
 	}
 	req.PortExplicit = true
-	if strings.Contains(networkConfirmationPayload(req).Body, "80") {
+	if networkConfirmationPayload(req).Description.Params["ports"] != "443" {
 		t.Fatal("explicit port widened in presentation")
 	}
 }

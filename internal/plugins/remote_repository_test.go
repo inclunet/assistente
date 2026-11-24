@@ -323,6 +323,15 @@ func TestRemoteStoreNetworkAndCredentialChoice(t *testing.T) {
 	}
 }
 
+func TestRepositoryInternationalAuthority(t *testing.T) {
+	for _, raw := range []string{"https://bücher.example:0443", "https://xn--bcher-kva.example/"} {
+		u, err := remoteURL(raw)
+		if err != nil || addressHost(u, true) != "xn--bcher-kva.example" {
+			t.Fatal(raw, err)
+		}
+	}
+}
+
 func TestRepositoryIPv6Authority(t *testing.T) {
 	for _, raw := range []string{"https://[2001:0db8:0:0:0:0:0:1]:0443", "https://[2001:db8::1]/"} {
 		u, err := remoteURL(raw)

@@ -5110,6 +5110,7 @@ notSaved: 'A decisão vale somente para esta operação: não foi possível lemb
           cancel: 'Negar',
           detailsPrompt: 'Detalhes do destino',
           bodyLabel: 'Detalhes do destino',
+          descriptionRememberedPorts: 'O destino está em uma rede interna ou privada ({{category}}). Se lembrar a autorização, ela valerá para estas portas do host: {{ports}}.',
           skillHostMatch: 'Este destino casa com {{pattern}}, declarado pelo skill como host esperado. Isso não dispensa a sua autorização.',
           scopePrompt: 'Por quanto tempo autorizar este host?',
           reasonPrompt: 'Observação (opcional)',

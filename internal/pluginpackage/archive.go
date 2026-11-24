@@ -28,35 +28,18 @@ func validateDirectory(data []byte) error {
 		if string(record[:4]) != "PK\x05\x06" || int(binary.LittleEndian.Uint16(record[20:])) != len(record)-endSize {
 			continue
 		}
-		// archive/zip also accepts EOCD candidates with a shorter comment.
-		// An embedded signature must never select a different directory.
-		if found || len(record) >= endSize+4 && bytes.Contains(record[4:len(record)-endSize+4], []byte("PK\x05\x06")) {
+		// archive/zip can select a later signature with a shorter comment.
+		// Compare its candidate to ours before trusting the selected directory.
+		if !found && len(record) >= endSize+4 && bytes.Contains(record[4:len(record)-endSize+4], []byte("PK\x05\x06")) {
 			return fs.ErrInvalid
 		}
-		count := int(binary.LittleEndian.Uint16(record[10:]))
-		if count > 16384 || binary.LittleEndian.Uint32(record[4:]) != 0 || int(binary.LittleEndian.Uint16(record[8:])) != count {
+		if !validDirectoryAt(data, end, record) {
+			if found {
+				continue // incidental signature in ordinary file data
+			}
 			return fs.ErrInvalid
 		}
-		offset := int64(binary.LittleEndian.Uint32(record[16:]))
-		size := int64(binary.LittleEndian.Uint32(record[12:]))
-		if offset+size != int64(end) {
-			return fs.ErrInvalid
-		}
-		dir := data[offset:end]
-		for n := 0; n < count; n++ {
-			if len(dir) < 46 || string(dir[:4]) != "PK\x01\x02" {
-				return fs.ErrInvalid
-			}
-			length := 46
-			for _, start := range []int{28, 30, 32} {
-				length += int(binary.LittleEndian.Uint16(dir[start:]))
-			}
-			if length > len(dir) {
-				return fs.ErrInvalid
-			}
-			dir = dir[length:]
-		}
-		if len(dir) != 0 {
+		if found {
 			return fs.ErrInvalid
 		}
 		found = true
@@ -65,6 +48,33 @@ func validateDirectory(data []byte) error {
 		return nil
 	}
 	return fs.ErrInvalid
+}
+
+func validDirectoryAt(data []byte, end int, record []byte) bool {
+	count := int(binary.LittleEndian.Uint16(record[10:]))
+	if count > 16384 || binary.LittleEndian.Uint32(record[4:]) != 0 || int(binary.LittleEndian.Uint16(record[8:])) != count {
+		return false
+	}
+	offset := int64(binary.LittleEndian.Uint32(record[16:]))
+	size := int64(binary.LittleEndian.Uint32(record[12:]))
+	if offset+size != int64(end) {
+		return false
+	}
+	dir := data[offset:end]
+	for n := 0; n < count; n++ {
+		if len(dir) < 46 || string(dir[:4]) != "PK\x01\x02" {
+			return false
+		}
+		length := 46
+		for _, start := range []int{28, 30, 32} {
+			length += int(binary.LittleEndian.Uint16(dir[start:]))
+		}
+		if length > len(dir) {
+			return false
+		}
+		dir = dir[length:]
+	}
+	return len(dir) == 0
 }
 
 func OpenArchive(data []byte) (*Archive, error) {

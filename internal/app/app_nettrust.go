@@ -30,9 +30,6 @@ func networkConfirmationPayload(req nettrust.PromptRequest) questionnaire.Reques
 	fmt.Fprintf(&details, "host: %s\n", req.Host)
 	if req.Port != "" {
 		fmt.Fprintf(&details, "port: %s\n", req.Port)
-		if !req.PortExplicit && len(req.AvailableScopes) > 1 {
-			fmt.Fprintln(&details, "remembered_ports: 80, 443")
-		}
 	}
 	if len(req.IPs) > 0 {
 		fmt.Fprintf(&details, "ips: %s\n", strings.Join(req.IPs, ", "))
@@ -56,19 +53,29 @@ func networkConfirmationPayload(req nettrust.PromptRequest) questionnaire.Reques
 		)
 	}
 
+	description := questionnaire.KeyedWith(
+		"app.questionnaire.network.description",
+		map[string]any{"category": req.Category},
+		fmt.Sprintf("O assistente tentou acessar um host que resolve para um endereço interno/privado (%s). Autorize apenas se você confia neste destino.", req.Category),
+	)
+	if len(req.AvailableScopes) > 1 && req.Port != "" {
+		ports := req.Port
+		if !req.PortExplicit {
+			ports = "80, 443"
+		}
+		description = questionnaire.KeyedWith("app.questionnaire.network.descriptionRememberedPorts",
+			map[string]any{"category": req.Category, "ports": ports},
+			fmt.Sprintf("O destino está em uma rede interna ou privada (%s). Se lembrar a autorização, ela valerá para estas portas do host: %s.", req.Category, ports))
+	}
 	return questionnaire.RequestPayload{
 		Kind: questionnaire.KindDecision,
 		Title: questionnaire.Keyed(
 			"app.questionnaire.network.title",
 			"Autorizar acesso a host bloqueado (anti-SSRF)",
 		),
-		Description: questionnaire.KeyedWith(
-			"app.questionnaire.network.description",
-			map[string]any{"category": req.Category},
-			fmt.Sprintf("O assistente tentou acessar um host que resolve para um endereço interno/privado (%s). Autorize apenas se você confia neste destino.", req.Category),
-		),
-		Hint: skillHostHint,
-		Body: details.String(),
+		Description: description,
+		Hint:        skillHostHint,
+		Body:        details.String(),
 		BodyLabel: questionnaire.Keyed(
 			"app.questionnaire.network.bodyLabel",
 			"Detalhes do destino",

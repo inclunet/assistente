@@ -5108,6 +5108,7 @@ notSaved: 'The decision applies only to this operation: it could not be remember
           cancel: 'Deny',
           detailsPrompt: 'Destination details',
           bodyLabel: 'Destination details',
+          descriptionRememberedPorts: 'The destination is on a private or internal network ({{category}}). If you remember this authorization, it will apply to these host ports: {{ports}}.',
           skillHostMatch: 'This destination matches {{pattern}}, declared by the skill as an expected host. That does not waive your authorization.',
           scopePrompt: 'For how long should this host be authorized?',
           reasonPrompt: 'Note (optional)',

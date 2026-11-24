@@ -5112,6 +5112,7 @@ notSaved: 'La decisión vale solo para esta operación: no se pudo recordar. Ser
           cancel: 'Denegar',
           detailsPrompt: 'Detalles del destino',
           bodyLabel: 'Detalles del destino',
+          descriptionRememberedPorts: 'El destino está en una red interna o privada ({{category}}). Si guardas la autorización, se aplicará a estos puertos del host: {{ports}}.',
           skillHostMatch: 'Este destino coincide con {{pattern}}, declarado por el skill como host esperado. Eso no sustituye su autorización.',
           scopePrompt: '¿Por cuánto tiempo autorizar este host?',
           reasonPrompt: 'Observación (opcional)',

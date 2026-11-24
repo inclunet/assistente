@@ -19,6 +19,7 @@ import (
 	"assistente/internal/plugincatalog"
 	"assistente/internal/pluginpackage"
 	httpclient "assistente/internal/tools/http"
+	"golang.org/x/net/idna"
 )
 
 // RemoteClient receives the exact authority selected for this repository.
@@ -56,6 +57,12 @@ func addressHost(u *url.URL, omitDefault bool) string {
 	name := strings.ToLower(u.Hostname())
 	if addr, err := netip.ParseAddr(u.Hostname()); err == nil && addr.Is6() {
 		name = "[" + addr.String() + "]"
+	} else if !isASCIIHost(name) {
+		ascii, err := idna.Lookup.ToASCII(name)
+		if err != nil {
+			return ""
+		}
+		name = ascii
 	}
 	port := u.Port()
 	if port == "" {
@@ -75,9 +82,16 @@ func (i *Inventory) WithRemoteClient(create RemoteClient, watch func(context.Con
 	return &copy
 }
 
+func isASCIIHost(host string) bool {
+	return strings.IndexFunc(host, func(r rune) bool { return r > 127 }) < 0
+}
+
 func remoteURL(raw string) (*url.URL, error) {
 	u, err := url.Parse(strings.TrimSpace(raw))
 	if err != nil || u.Scheme != "https" || u.Hostname() == "" || u.User != nil || u.Opaque != "" || u.RawQuery != "" || u.ForceQuery || u.Fragment != "" {
+		return nil, errors.New("PLUGIN_REPOSITORY_URL")
+	}
+	if addressHost(u, true) == "" {
 		return nil, errors.New("PLUGIN_REPOSITORY_URL")
 	}
 	if u.Path == "" {
