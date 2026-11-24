@@ -98,6 +98,8 @@ type channelQuestion struct {
 	chatID    string
 	form      channelForm
 	answer    chan questionnaire.Response
+	waitCtx   context.Context
+	accept    func(questionnaire.Response) bool
 }
 
 // AskOnChannel manda a pergunta para a conversa do canal e espera a resposta
@@ -127,9 +129,11 @@ func (q *ChannelQuestions) AskOnChannel(ctx context.Context, surface questionnai
 		// O destino de saída pode não ser o contato: no Slack a conversa é com
 		// a pessoa e a mensagem vai para o canal dela. Quem responde continua
 		// sendo só o contato.
-		chatID: channels.GetReplyChatID(surface.Channel, surface.ContactID),
-		form:   form,
-		answer: make(chan questionnaire.Response, 1),
+		chatID:  channels.GetReplyChatID(surface.Channel, surface.ContactID),
+		form:    form,
+		answer:  make(chan questionnaire.Response, 1),
+		waitCtx: ctx,
+		accept:  payload.TryAcceptResponse,
 	}
 	if !q.register(question) {
 		return questionnaire.Response{}, ErrChannelQuestionBusy
@@ -205,8 +209,13 @@ func (q *ChannelQuestions) TryAnswer(ctx context.Context, conversationID, contac
 	// desistindo por prazo estourado encontra a decisão já no canal em vez de
 	// concluir que ninguém respondeu. O canal tem espaço para uma resposta e só
 	// uma pode chegar aqui, então o envio não bloqueia.
+	resp := questionnaire.Response{Answers: map[string]any{question.form.questionID: value}}
+	if question.waitCtx.Err() != nil || !question.accept(resp) {
+		q.mu.Unlock()
+		return AnswerIgnored
+	}
 	delete(q.pending, question.conversationID)
-	question.answer <- questionnaire.Response{Answers: map[string]any{question.form.questionID: value}}
+	question.answer <- resp
 	q.mu.Unlock()
 
 	logging.Infof(ctx, channelQuestionComponent,

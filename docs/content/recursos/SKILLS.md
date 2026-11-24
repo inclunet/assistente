@@ -30,7 +30,7 @@ Use um ponto de exclamação seguido de um comando entre crases para declarar um
 
 O comando precisa estar no escopo da skill e o perfil precisa permitir a ferramenta de shell. O Assistente consulta a política do comando no contexto da conversa. Quando é preciso decidir, o diálogo de shell mostra o comando, o diretório e as opções de duração disponíveis. Nos canais, se o comando ou o diretório exibido tiver uma marca invisível de formatação, a pergunta a mostra como uma sequência de escape para que a pessoa possa identificar o alvo. Ao aprovar, a política vigente é consultada novamente. Se ela passou a vetar o comando, o turno termina e o comando fica sem execução. Recusar, cancelar ou encontrar uma negativa vigente interrompe o turno antes do envio ao modelo.
 
-No desktop, se o aplicativo aceitar **Negar** ou **Cancelar** antes do prazo, a recusa interrompe o turno mesmo que o diálogo demore a fechar. Se o prazo do diálogo expirar sem resposta, a skill base omite a linha e a invocação por barra termina. Uma aprovação lembrada segue o mesmo escopo das demais execuções de shell.
+No desktop, **Negar** ou **Cancelar** interrompe o turno se o aplicativo aceitar a resposta antes do prazo. Nos canais, a mesma regra vale quando o dono da conversa escolhe a opção numerada **Negar**, mesmo que o processamento da resposta termine depois do prazo. Se o prazo do diálogo expirar sem resposta, a skill base omite a linha e a invocação por barra termina. Uma aprovação lembrada segue o mesmo escopo das demais execuções de shell.
 
 Em **Skills**: grid com nome/descrição/modo (Auto/Manual) e origem; crie, edite, duplique ou remova skills. `Ctrl+N` cria um skill quando essa aba de Configurações está ativa.
 
