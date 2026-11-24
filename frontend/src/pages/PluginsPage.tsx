@@ -13,6 +13,10 @@ import { useAnnouncer } from '../hooks/useAnnouncer';
 import { logger } from '../utils/logger';
 import { useAuthStore } from '../store/authStore';
 
+function mcpConnectionLabel(component: plugins.Component) {
+  return [component.transport, component.endpoint].filter(Boolean).join(' · ');
+}
+
 function componentRequirement(component: plugins.Component) {
   if (component.reason === 'shellCommands') return 'plugins.shellPending';
   if (component.reason === 'supportingFiles') return 'plugins.filesPending';
@@ -213,13 +217,14 @@ function InstalledPlugins({ session }: { session: string }) {
       await SyncMCP();
       try { await refreshAfterSync(); } catch { if (mounted.current) setError('plugins.syncPendingStale'); return; }
       if (mounted.current) { setError(''); announce(t('plugins.synchronized')); }
-    } catch { if (mounted.current && error !== 'plugins.syncPendingStale') setError('plugins.syncPending'); }
+    } catch { if (mounted.current && error !== 'plugins.syncPendingStale') setError('plugins.syncFailed'); }
     finally { if (mounted.current) setBusy(false); }
   };
-  const retrySync = (error === 'plugins.syncPending' || error === 'plugins.syncPendingStale') && <Button disabled={busy} onClick={() => void syncMCP()}>{t('plugins.retrySync')}</Button>;
+  const syncAction = <Button disabled={busy} onClick={() => void syncMCP()}>{t('plugins.retrySync')}</Button>;
   const sameRevision = Boolean(preview && preview.previousDigest === preview.digest);
+  const editedServers = preview?.editedMcpServers ?? [];
   const install = async () => {
-    if (!preview || busy || sameRevision) return;
+    if (!preview || busy || sameRevision || editedServers.length > 0) return;
     setError('');
     setBusy(true);
     try {
@@ -245,19 +250,20 @@ function InstalledPlugins({ session }: { session: string }) {
   };
   return <section className="plugins-page" aria-label={t('menu.plugins')}>
     <Toolbar left={<h1 className="page-toolbar__title">{t('menu.plugins')}</h1>}
-      right={<Button ref={chooseButton} onClick={() => void inspect()} disabled={busy}>{t('plugins.choose')}</Button>} />
+      right={<><Button ref={chooseButton} onClick={() => void inspect()} disabled={busy}>{t('plugins.choose')}</Button>{!details && !preview && syncAction}</>} />
     <h2>{t('plugins.installed')}</h2>
-    {!preview && !details && error && <><p>{t(error)}</p>{retrySync}</>}
+    {!preview && !details && error && <p>{t(error)}</p>}
     {listFailed && <p>{t('plugins.listError')}</p>}
     {items && items.length > 0 ? <DataGrid items={items} onActivate={row => void openDetails(row)} getItemId={row => row.id} label={t('plugins.installed')}
       columns={[{ key: 'name', label: t('plugins.name') }, { key: 'version', label: t('plugins.version') }, { key: 'origin', label: t('plugins.origin') }]} />
       : items && !busy && !error && !listFailed && <p>{t('plugins.empty')}</p>}
     {details && <Modal isOpen title={details.installation.name} onClose={() => setDetails(null)} allowClose={!busy} readingMode>
-      {error && <><p>{t(error)}</p>{retrySync}</>}
+      {error && <p>{t(error)}</p>}
+      {syncAction}
       <h2>{t('plugins.components')}</h2>
       {details.components.length === 0 ? <p>{t('plugins.noComponents')}</p> : <ul>{details.components.map(component => <li key={component.key}>
         <strong>{component.name}</strong> · {t(component.kind === 'skill' ? 'plugins.skill' : component.kind === 'mcp' ? 'plugins.mcp' : 'plugins.invalid')}
-        {component.kind === 'mcp' && <p>{[component.transport, component.endpoint].filter(Boolean).join(' · ')}</p>}
+        {component.kind === 'mcp' && <p>{mcpConnectionLabel(component)}</p>}
         {component.kind === 'skill' && !component.reason ? <>
           {component.active && <code> /{component.slug}</code>}
           <Button disabled={busy || error === 'plugins.syncPendingStale'} onClick={() => void changeComponent(component)}>{t(component.active ? 'plugins.deactivate' : 'plugins.activate', { name: component.name })}</Button>
@@ -270,7 +276,7 @@ function InstalledPlugins({ session }: { session: string }) {
     {preview && <DecisionDialog isOpen title={t('plugins.preview', { name: preview.name })}
       description={t('plugins.inactive')} allowClose={!busy} size="lg"
       actions={[
-        { id: 'install', label: t(preview.previousDigest ? 'plugins.update' : 'plugins.install'), primary: true, polarity: 'affirmative', disabled: busy || sameRevision },
+        { id: 'install', label: t(preview.previousDigest ? 'plugins.update' : 'plugins.install'), primary: true, polarity: 'affirmative', disabled: busy || sameRevision || editedServers.length > 0 },
         { id: 'cancel', label: t('common.cancel'), disabled: busy },
       ]}
       onAction={id => { if (id === 'install') void install(); else void discard(); }}
@@ -284,7 +290,7 @@ function InstalledPlugins({ session }: { session: string }) {
         <dt>SHA-256</dt><dd>{preview.digest}</dd>
       </dl>
       {preview.previousDigest && <p>{t(sameRevision ? 'plugins.current' : 'plugins.updateNotice')}</p>}
-      {(preview.components ?? []).length > 0 && <ul aria-label={t('plugins.components')}>{preview.components.map(component => <li key={component.key}>{component.name} · {t(component.kind === 'skill' ? 'plugins.skill' : component.kind === 'mcp' ? 'plugins.mcp' : 'plugins.invalid')}{component.endpoint && <span> · {component.endpoint}</span>}{componentRequirement(component) && <p>{t(componentRequirement(component)!)}</p>}</li>)}</ul>}
+      {(preview.components ?? []).length > 0 && <ul aria-label={t('plugins.components')}>{preview.components.map(component => <li key={component.key}>{component.name} · {t(component.kind === 'skill' ? 'plugins.skill' : component.kind === 'mcp' ? 'plugins.mcp' : 'plugins.invalid')}{component.kind === 'mcp' && <p>{mcpConnectionLabel(component)}</p>}{componentRequirement(component) && <p>{t(componentRequirement(component)!)}</p>}</li>)}</ul>}
       {(preview.diagnostics ?? []).length > 0 && <details>
         <summary>{t('plugins.warnings', { count: preview.diagnostics.length })}</summary>
         <ul>{preview.diagnostics.map(warning => {
@@ -296,6 +302,16 @@ function InstalledPlugins({ session }: { session: string }) {
         })}</ul>
       </details>}
       <details><summary>{t('plugins.files', { count: preview.files.length })}</summary><ul>{preview.files.map(path => <li key={path}>{path}</li>)}</ul></details>
-      </> }]} />}
+      </> }, ...(preview.affectedMcpServers?.length ? [{
+        id: 'affected-mcp', label: t('plugins.affectedServers'), content: <>
+          <p>{t('plugins.affectedServersNotice')}</p>
+          <ul>{preview.affectedMcpServers.map(name => <li key={name}>{name}</li>)}</ul>
+        </>,
+      }] : []), ...(editedServers.length ? [{
+        id: 'edited-mcp', label: t('plugins.editedServers'), content: <>
+          <p>{t('plugins.editedServersNotice')}</p>
+          <ul>{editedServers.map(name => <li key={name}>{name}</li>)}</ul>
+        </>,
+      }] : [])]} />}
   </section>;
 }

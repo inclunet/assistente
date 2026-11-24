@@ -4,7 +4,7 @@ package mcp
 // nil-versus-empty collection representations produced by JSON round-trips.
 func persistedLegacyConfig(cfg ServerConfig) ServerConfig {
 	row, _ := serverConfigToModel(cfg) // maps/slices contain only strings
-	result, _ := serverModelToConfig(row)
+	result, _ := ConfigFromServerRecord(row)
 	if len(result.Env) == 0 {
 		result.Env = nil
 	}

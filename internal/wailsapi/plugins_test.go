@@ -177,6 +177,22 @@ func TestPluginPreviewUsesSelectedDirectoryAndSession(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if len(revised.AffectedMCPServers) != 1 || revised.AffectedMCPServers[0] != "sample" {
+		t.Fatalf("missing impact: %+v", revised)
+	}
+	if err := api.RemoveMCP(installed.ID, installed.Digest, "mcp/sample", true); err != nil {
+		t.Fatal(err)
+	}
+	if err := api.RegisterMCP(installed.ID, installed.Digest, "mcp/sample"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := api.InstallReviewed(revised.Token); !errors.Is(err, plugins.ErrInstallationChanged) {
+		t.Fatalf("changed identity: %v", err)
+	}
+	revised, err = api.PreviewLocal()
+	if err != nil {
+		t.Fatal(err)
+	}
 	syncErr = errors.New("runtime offline")
 	if _, err := api.InstallReviewed(revised.Token); !errors.Is(err, plugins.ErrMCPSyncPending) || notifications != 4 {
 		t.Fatal(err, notifications)

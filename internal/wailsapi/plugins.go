@@ -15,18 +15,21 @@ import (
 )
 
 type PluginPreview struct {
-	Components     []plugins.Component `json:"components"`
-	Token          string              `json:"token"`
-	Name           string              `json:"name"`
-	Version        string              `json:"version"`
-	Origin         string              `json:"origin"`
-	Digest         string              `json:"digest"`
-	PreviousDigest string              `json:"previousDigest"`
-	Files          []string            `json:"files"`
-	Diagnostics    []string            `json:"diagnostics"`
+	EditedMCPServers   []string            `json:"editedMcpServers,omitempty"`
+	AffectedMCPServers []string            `json:"affectedMcpServers,omitempty"`
+	Components         []plugins.Component `json:"components"`
+	Token              string              `json:"token"`
+	Name               string              `json:"name"`
+	Version            string              `json:"version"`
+	Origin             string              `json:"origin"`
+	Digest             string              `json:"digest"`
+	PreviousDigest     string              `json:"previousDigest"`
+	Files              []string            `json:"files"`
+	Diagnostics        []string            `json:"diagnostics"`
 }
 
 type pluginSelection struct {
+	affected []plugins.BoundMCPServer
 	preview  PluginPreview
 	owner    string
 	validate commandsecurity.Admission
@@ -147,9 +150,23 @@ func (api *Plugins) PreviewLocal() (*PluginPreview, error) {
 			return nil, err
 		}
 		p := PluginPreview{Name: snap.Manifest.Name, Version: snap.Manifest.Version, Origin: snap.Origin, Digest: snap.Digest, Diagnostics: snap.Warnings, Components: plugins.DiscoverComponents(snap)}
+		var affected []plugins.BoundMCPServer
 		for _, row := range list {
 			if row.Origin == p.Origin && row.Name == p.Name {
 				p.PreviousDigest = row.Digest
+				if row.Digest != p.Digest {
+					affected, err = inventory.BoundMCPServers(ctx, row.ID, row.Digest)
+					if err != nil {
+						return nil, err
+					}
+					for _, server := range affected {
+						if server.Edited {
+							p.EditedMCPServers = append(p.EditedMCPServers, server.Name)
+						} else {
+							p.AffectedMCPServers = append(p.AffectedMCPServers, server.Name)
+						}
+					}
+				}
 				break
 			}
 		}
@@ -170,7 +187,7 @@ func (api *Plugins) PreviewLocal() (*PluginPreview, error) {
 		if generation != api.previewGeneration {
 			return nil, errPreviewSuperseded
 		}
-		api.selection = &pluginSelection{preview: p, owner: owner, validate: validate}
+		api.selection = &pluginSelection{affected: affected, preview: p, owner: owner, validate: validate}
 		return &p, nil
 	})
 }
@@ -197,7 +214,7 @@ func (api *Plugins) InstallReviewed(token string) (database.PluginInstallation, 
 			return database.PluginInstallation{}, err
 		}
 		p := selection.preview
-		row, err := inventory.InstallReviewed(ctx, p.Origin, p.Digest, p.PreviousDigest, selection.validate)
+		row, err := inventory.InstallReviewed(ctx, p.Origin, p.Digest, p.PreviousDigest, selection.affected, selection.validate)
 		if (err == nil || errors.Is(err, plugins.ErrMCPSyncPending)) && p.PreviousDigest != "" && p.PreviousDigest != p.Digest {
 			api.notifySkillsChanged()
 		}

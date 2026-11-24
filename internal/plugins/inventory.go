@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"slices"
 	"time"
 
 	"assistente/internal/commandsecurity"
@@ -54,7 +55,7 @@ func (i *Inventory) List(ctx context.Context) ([]database.PluginInstallation, er
 // previously installed digest. The complete captured revision and its pointer
 // commit together. Repeating an already published installation is idempotent.
 func (i *Inventory) InstallLocal(ctx context.Context, reviewedOrigin, reviewedDigest, previousDigest string) (database.PluginInstallation, error) {
-	return i.InstallReviewed(ctx, reviewedOrigin, reviewedDigest, previousDigest, func(_ *gorm.DB, publish func() error) error {
+	return i.InstallReviewed(ctx, reviewedOrigin, reviewedDigest, previousDigest, nil, func(_ *gorm.DB, publish func() error) error {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
@@ -62,7 +63,7 @@ func (i *Inventory) InstallLocal(ctx context.Context, reviewedOrigin, reviewedDi
 	})
 }
 
-func (i *Inventory) InstallReviewed(ctx context.Context, reviewedOrigin, reviewedDigest, previousDigest string, admit commandsecurity.Admission) (database.PluginInstallation, error) {
+func (i *Inventory) InstallReviewed(ctx context.Context, reviewedOrigin, reviewedDigest, previousDigest string, reviewedServers []BoundMCPServer, admit commandsecurity.Admission) (database.PluginInstallation, error) {
 	owner, err := database.RequireUserID(ctx)
 	if err != nil {
 		return database.PluginInstallation{}, err
@@ -107,6 +108,13 @@ func (i *Inventory) InstallReviewed(ctx context.Context, reviewedOrigin, reviewe
 		case installed.Digest != previousDigest:
 			return ErrInstallationChanged
 		default:
+			actual, err := boundMCPServers(publishCtx, tx, owner, installed.ID, previousDigest)
+			if err != nil {
+				return err
+			}
+			if !slices.Equal(actual, reviewedServers) {
+				return ErrInstallationChanged
+			}
 			update := tx.Model(&installed).Where("user_id = ? AND digest = ?", owner, previousDigest).Updates(map[string]any{"digest": snapshot.Digest, "version": snapshot.Manifest.Version})
 			if update.Error != nil {
 				return update.Error

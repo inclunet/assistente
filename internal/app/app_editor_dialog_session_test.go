@@ -135,13 +135,13 @@ func TestPluginInstallWithSingleConnection(t *testing.T) {
 		t.Fatal(err)
 	}
 	inventory := plugins.NewInventory(db)
-	if _, err := inventory.InstallReviewed(ctx, snapshot.Origin, snapshot.Digest, "", admit); err != nil {
+	if _, err := inventory.InstallReviewed(ctx, snapshot.Origin, snapshot.Digest, "", nil, admit); err != nil {
 		t.Fatalf("commit with one connection: %v", err)
 	}
 	if err := db.Model(&database.Session{}).Where("id = ?", editorDialogTestSession).Update("revoked_at", time.Now()).Error; err != nil {
 		t.Fatal(err)
 	}
-	if _, err := inventory.InstallReviewed(ctx, snapshot.Origin, snapshot.Digest, snapshot.Digest, admit); err == nil {
+	if _, err := inventory.InstallReviewed(ctx, snapshot.Origin, snapshot.Digest, snapshot.Digest, nil, admit); err == nil {
 		t.Fatal("published with a revoked session")
 	}
 }

@@ -1473,11 +1473,11 @@ func (m *Manager) disconnectWithManagedOwner(ctx context.Context, slug string, o
 	return err
 }
 
-func (m *Manager) disconnectWithRecoveryForAttemptAndOwner(slug string, legacyOnly, cancelRecovery bool, retryAttemptID uint64, managedOwner *managedAttempt, managedOwnerCtx context.Context, expectedServerID string) (bool, error) {
+func (m *Manager) disconnectWithRecoveryForAttemptAndOwner(slug string, legacyOnly, cancelRecovery bool, retryAttemptID uint64, managedOwner *managedAttempt, managedOwnerCtx context.Context, retireServerID string) (bool, error) {
 	m.mu.Lock()
-	if expectedServerID != "" {
+	if retireServerID != "" {
 		current := m.servers[slug]
-		if current == nil || current.ID != expectedServerID {
+		if current == nil || current.ID != retireServerID {
 			m.mu.Unlock()
 			return false, nil
 		}
@@ -1513,7 +1513,7 @@ func (m *Manager) disconnectWithRecoveryForAttemptAndOwner(slug string, legacyOn
 		} else {
 			<-cleanupDone
 		}
-		return m.disconnectWithRecoveryForAttemptAndOwner(slug, legacyOnly, cancelRecovery, retryAttemptID, managedOwner, managedOwnerCtx, expectedServerID)
+		return m.disconnectWithRecoveryForAttemptAndOwner(slug, legacyOnly, cancelRecovery, retryAttemptID, managedOwner, managedOwnerCtx, retireServerID)
 	}
 	if retryAttemptID != 0 {
 		status := m.servers[slug]
@@ -1551,6 +1551,11 @@ func (m *Manager) disconnectWithRecoveryForAttemptAndOwner(slug string, legacyOn
 	}
 	if managed != nil && managed != managedOwner {
 		managed.cancel()
+	}
+	// A retirada do pacote impede novas reservas antes de liberar o lock.
+	// O cleanup continua dono da conexão e da tentativa já capturadas.
+	if retireServerID != "" {
+		delete(m.servers, slug)
 	}
 	if !ok && attempt == nil && managed == nil && reconnect == nil {
 		status := m.servers[slug]
@@ -3202,9 +3207,8 @@ func (m *Manager) ReloadPackagedConfigs(ctx context.Context) error {
 	if repo == nil {
 		return errors.New("repository MCP indisponível")
 	}
-	// Snapshot runtime identities before reading the database. A native edit
-	// publishes its own config. This operation only adds missing registrations
-	// or retires an obsolete instance, and never replaces a live config.
+	// Compare a identidade observada antes da leitura com a do banco. Uma
+	// edição nativa concorrente publica sua própria configuração no runtime.
 	before := map[string]string{}
 	m.mu.RLock()
 	for slug, status := range m.servers {
@@ -3222,32 +3226,37 @@ func (m *Manager) ReloadPackagedConfigs(ctx context.Context) error {
 	if err := checkScope(); err != nil {
 		return err
 	}
-	m.mu.Lock()
+	pending := make(map[string]ServerConfig)
 	for _, cfg := range configs {
-		if !strings.HasPrefix(cfg.Slug, "plugin-") {
+		if strings.HasPrefix(cfg.Slug, "plugin-") {
+			pending[cfg.Slug] = cfg
+		}
+	}
+	for slug, expectedID := range before {
+		if cfg, ok := pending[slug]; ok && cfg.ID == expectedID {
+			delete(pending, slug)
 			continue
 		}
-		if before[cfg.Slug] == "" && m.servers[cfg.Slug] == nil {
-			cfg.applyDefaults(cfg.Slug)
-			m.servers[cfg.Slug] = &ServerStatus{ID: cfg.ID, Slug: cfg.Slug, Config: cfg, Status: StatusDisconnected, Roots: m.roots, Tools: []MCPToolInfo{}}
-		}
-		delete(before, cfg.Slug)
-	}
-	m.mu.Unlock()
-	for slug, expectedID := range before {
 		retired, err := m.disconnectWithRecoveryForAttemptAndOwner(slug, false, true, 0, nil, nil, expectedID)
 		if err != nil {
 			return err
 		}
 		if !retired {
-			continue
+			// A identidade observada já foi substituída por outra operação.
+			delete(pending, slug)
 		}
-		m.mu.Lock()
-		if current := m.servers[slug]; current != nil && current.ID == expectedID {
-			delete(m.servers, slug)
-		}
-		m.mu.Unlock()
 	}
+	if err := checkScope(); err != nil {
+		return err
+	}
+	m.mu.Lock()
+	for slug, cfg := range pending {
+		if m.servers[slug] == nil {
+			cfg.applyDefaults(slug)
+			m.servers[slug] = &ServerStatus{ID: cfg.ID, Slug: slug, Config: cfg, Status: StatusDisconnected, Roots: m.roots, Tools: []MCPToolInfo{}}
+		}
+	}
+	m.mu.Unlock()
 	m.emit("mcp:config_changed", map[string]string{})
 	return nil
 }

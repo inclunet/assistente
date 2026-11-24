@@ -40,6 +40,10 @@ func (a *App) wireAllowlist() {
 func (a *App) wirePlugins() {
 	if a.pluginsAPI != nil && a.dialogPort != nil {
 		wailsapi.AttachPlugins(a.pluginsAPI, wailsSession{app: a}, plugins.NewInventory(database.DB()).WithMCPSync(func(ctx context.Context) error {
+			// Serialize runtime publication with login/logout; ReloadPackagedConfigs
+			// verifies the captured account and session after acquiring this lock.
+			a.authSessionMu.Lock()
+			defer a.authSessionMu.Unlock()
 			if a.mcpMgr == nil {
 				return fmt.Errorf("gerenciador MCP indisponível")
 			}

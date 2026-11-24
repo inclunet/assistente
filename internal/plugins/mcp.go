@@ -58,6 +58,47 @@ func portableMCP(raw json.RawMessage) (mcp.ServerConfig, string) {
 	return mcp.ServerConfig{URL: address, Transport: transport, AuthType: mcp.AuthNone, Enabled: true, AutoConnect: false}, ""
 }
 
+// BoundMCPServer identifies the native registration affected by an update.
+type BoundMCPServer struct {
+	ID, Name string
+	Edited   bool
+}
+
+func (i *Inventory) BoundMCPServers(ctx context.Context, id, digest string) ([]BoundMCPServer, error) {
+	owner, err := database.RequireUserID(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return boundMCPServers(ctx, i.db, owner, id, digest)
+}
+
+func boundMCPServers(ctx context.Context, db *gorm.DB, owner, id, digest string) ([]BoundMCPServer, error) {
+	var rows []struct {
+		database.MCPServer `gorm:"embedded"`
+		ConfigDigest       string
+	}
+	err := db.WithContext(ctx).Table("plugin_mcp_bindings AS b").Select("s.*, b.config_digest").
+		Joins("JOIN plugin_installations p ON p.id = b.installation_id AND p.digest = b.digest").
+		Joins("JOIN mcp_servers s ON s.id = b.server_id AND s.user_id = p.user_id").
+		Where("p.id = ? AND p.user_id = ? AND p.digest = ?", id, owner, digest).Order("s.name, s.id").Scan(&rows).Error
+	if err != nil {
+		return nil, err
+	}
+	servers := make([]BoundMCPServer, 0, len(rows))
+	for _, row := range rows {
+		cfg, err := mcp.ConfigFromServerRecord(row.MCPServer)
+		if err != nil {
+			return nil, err
+		}
+		digest, err := mcpConfigDigest(&cfg)
+		if err != nil {
+			return nil, err
+		}
+		servers = append(servers, BoundMCPServer{ID: cfg.ID, Name: cfg.Name, Edited: digest != row.ConfigDigest})
+	}
+	return servers, nil
+}
+
 func mcpConfigDigest(cfg *mcp.ServerConfig) (string, error) {
 	raw, err := json.Marshal(cfg)
 	if err != nil {

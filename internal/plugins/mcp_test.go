@@ -134,7 +134,14 @@ func TestPackagedMCPLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.InstallLocal(alice, pkg, upgrade.Digest, snap.Digest); !errors.Is(err, ErrComponentEdited) {
+	bound, err := store.BoundMCPServers(alice, row.ID, snap.Digest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(bound) != 1 || !bound[0].Edited || bound[0].Name != "Edited" {
+		t.Fatalf("edited registration: %+v", bound)
+	}
+	if _, err := store.InstallReviewed(alice, pkg, upgrade.Digest, snap.Digest, bound, allow); !errors.Is(err, ErrComponentEdited) {
 		t.Fatal(err)
 	}
 	if err := store.RemoveMCP(alice, row.ID, row.Digest, key, true, allow); err != nil {
@@ -144,7 +151,11 @@ func TestPackagedMCPLifecycle(t *testing.T) {
 	if managed == slug {
 		t.Fatal("replaced independent server")
 	}
-	if _, err := store.InstallLocal(alice, pkg, upgrade.Digest, snap.Digest); err != nil {
+	bound, err = store.BoundMCPServers(alice, row.ID, snap.Digest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.InstallReviewed(alice, pkg, upgrade.Digest, snap.Digest, bound, allow); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := repo.GetServer(alice, managed); !errors.Is(err, gorm.ErrRecordNotFound) {

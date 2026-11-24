@@ -143,7 +143,7 @@ describe('PluginsPage', () => {
     render(<PluginsPage />);
     const cell = await screen.findByRole('gridcell', { name: /Demo/ });
     await user.click(screen.getByRole('button', { name: 'plugins.choose' }));
-    expect(await screen.findByText(endpoint, { exact: false })).toBeVisible();
+    expect(await screen.findByText('sse · ' + endpoint)).toBeVisible();
     expect(screen.getByText('plugins.mcpConfigRequired')).toBeVisible();
     await user.click(screen.getByRole('button', { name: 'common.cancel' }));
     cell.focus();
@@ -152,6 +152,61 @@ describe('PluginsPage', () => {
     expect(screen.getByText('plugins.mcpConfigRequired')).toBeVisible();
     expect(screen.queryByRole('button', { name: /plugins.registerServer/ })).toBeNull();
     expect(mocks.register).not.toHaveBeenCalled();
+  });
+
+  it('identifica os servidores afetados e explica a desconexão antes de confirmar a atualização', async () => {
+    const user = userEvent.setup();
+    mocks.preview.mockResolvedValueOnce({ token: 'reviewed', name: 'demo', digest: 'new', previousDigest: 'old', files: [], affectedMcpServers: ['build', 'docs'] });
+    render(<PluginsPage />);
+    const choose = screen.getByRole('button', { name: 'plugins.choose' });
+    await waitFor(() => expect(choose).toBeEnabled());
+    await user.click(choose);
+    expect(await screen.findByText('plugins.affectedServersNotice')).toBeVisible();
+    expect(screen.getByText('build')).toBeVisible();
+    expect(screen.getByText('docs')).toBeVisible();
+    expect(mocks.install).not.toHaveBeenCalled();
+  });
+
+  it('impede atualizar enquanto a prévia indica um servidor editado e permite reabrir a pasta', async () => {
+    const user = userEvent.setup();
+    const preview = { token: 'reviewed', name: 'demo', digest: 'new', previousDigest: 'old', files: [] };
+    mocks.preview.mockResolvedValueOnce({ ...preview, editedMcpServers: ['custom'] }).mockResolvedValueOnce(preview);
+    render(<PluginsPage />);
+    const choose = screen.getByRole('button', { name: 'plugins.choose' });
+    await waitFor(() => expect(choose).toBeEnabled());
+    await user.click(choose);
+    expect(await screen.findByText('plugins.editedServersNotice')).toBeVisible();
+    expect(screen.getByText('custom')).toBeVisible();
+    const update = screen.getByRole('button', { name: 'plugins.update' });
+    expect(update).toBeDisabled();
+    await user.click(update);
+    expect(mocks.install).not.toHaveBeenCalled();
+    await user.click(screen.getByRole('button', { name: 'common.cancel' }));
+    await waitFor(() => expect(choose).toHaveFocus());
+    await user.click(choose);
+    expect(await screen.findByRole('button', { name: 'plugins.update' })).toBeEnabled();
+  });
+
+  it('permite sincronizar após sair da página com um registro já salvo', async () => {
+    const user = userEvent.setup();
+    const row = { id: 'one', name: 'Demo', digest: 'sha' };
+    const component = { kind: 'mcp', key: 'mcp/search', name: 'search', endpoint: 'https://example.org' };
+    mocks.list.mockResolvedValue([row]);
+    mocks.components.mockResolvedValueOnce([component]).mockResolvedValue([{ ...component, active: true }]);
+    mocks.register.mockRejectedValueOnce(new Error('PLUGIN_MCP_SYNC_PENDING'));
+    const page = render(<PluginsPage />);
+    (await screen.findByRole('gridcell', { name: /Demo/ })).focus();
+    await user.keyboard('{Enter}');
+    await user.click(await screen.findByRole('button', { name: 'plugins.registerServer search' }));
+    expect(await screen.findByText('plugins.syncPending')).toBeVisible();
+    page.unmount();
+    render(<PluginsPage />);
+    const sync = screen.getByRole('button', { name: 'plugins.retrySync' });
+    await waitFor(() => expect(sync).toBeEnabled());
+    await user.click(sync);
+    await waitFor(() => expect(mocks.announce).toHaveBeenCalledWith('plugins.synchronized'));
+    expect(mocks.register).toHaveBeenCalledOnce();
+    expect(mocks.sync).toHaveBeenCalledOnce();
   });
 
   it('registers an MCP and preserves the native configuration only after confirmation', async () => {
