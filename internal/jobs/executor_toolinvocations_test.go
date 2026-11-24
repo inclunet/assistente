@@ -4,12 +4,22 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"maps"
+	"os"
+	"path/filepath"
+	"reflect"
+	"runtime"
 	"strings"
 	"testing"
+	"time"
 
+	"assistente/internal/allowlist"
 	"assistente/internal/database"
+	"assistente/internal/terminal"
 	"assistente/internal/toolinvocations"
 	"assistente/internal/tools"
+	"assistente/internal/tools/shell"
 
 	"assistente/internal/sqlite"
 	"gorm.io/gorm"
@@ -156,6 +166,318 @@ func TestJobExecutor_RecordsToolInvocationForRun(t *testing.T) {
 	}
 	if invocations[0].DryRun {
 		t.Fatalf("expected dry_run=false for real job run, got true")
+	}
+}
+
+type shellDispatchProbe struct {
+	shell.SessionManager
+	command    terminal.CommandText
+	directory  string
+	calls      int
+	startupErr error
+	dispatches int
+	entry      *terminal.HistoryEntry
+}
+
+func (p *shellDispatchProbe) RunEphemeral(_ context.Context, directory terminal.WorkingDirectory, command terminal.CommandText, _ time.Duration, _ string) (*terminal.HistoryEntry, error) {
+	p.directory = directory.Path
+	p.command = command
+	p.calls++
+	if p.calls == 1 && p.startupErr != nil {
+		return nil, errors.Join(terminal.ErrSessionStart, p.startupErr)
+	}
+	p.dispatches++
+	if p.entry != nil {
+		return p.entry, nil
+	}
+	return nil, errors.New("resultado do comando indisponível após o despacho")
+}
+
+func TestJobRetriesOnlyPolicyApprovedShellStartFailure(t *testing.T) {
+	for _, byPolicy := range []bool{false, true} {
+		t.Run(fmt.Sprintf("politica=%t", byPolicy), func(t *testing.T) {
+			probe := &shellDispatchProbe{startupErr: terminal.ErrSessionCapacity, entry: &terminal.HistoryEntry{Output: "ok"}}
+			al := &allowlist.Allowlist{DefaultAction: "confirm"}
+			if byPolicy {
+				al.AutoApprove = []string{"echo"}
+			}
+			prompts, policies := 0, 0
+			confirm := func(context.Context, string, string) (bool, error) {
+				prompts++
+				return true, nil
+			}
+			policy := func(context.Context) (*allowlist.Allowlist, error) {
+				policies++
+				return al, nil
+			}
+			tool := shell.NewRunCommand(probe, confirm, policy, t.TempDir())
+			executor, repo, ctx := invocationBackedExecutor(t, tool)
+			job := &Job{ID: "shell-start", Tool: tool.Name(), Inputs: map[string]any{"command": "echo ok"}, ErrorPolicy: ErrorPolicy{Strategy: ErrorRetry, MaxRetries: 2, RetryDelay: "1ms"}}
+			run := executor.Execute(ctx, job, &TriggerContext{Type: TriggerManual})
+			record, err := repo.List(ctx, toolinvocations.Filter{OriginID: run.RunID})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if byPolicy {
+				if run.Status != RunStatusCompleted || run.RetryCount != 1 || probe.calls != 2 || probe.dispatches != 1 || policies != 2 || prompts != 0 || len(record) != 2 {
+					t.Fatalf("run=%+v tentativas=%d despachos=%d políticas=%d diálogos=%d invocações=%+v", run, probe.calls, probe.dispatches, policies, prompts, record)
+				}
+			} else if run.Status != RunStatusFailed || run.RetryCount != 0 || probe.calls != 1 || probe.dispatches != 0 || policies != 1 || prompts != 1 || len(record) != 1 {
+				t.Fatalf("run=%+v tentativas=%d despachos=%d políticas=%d diálogos=%d invocações=%+v", run, probe.calls, probe.dispatches, policies, prompts, record)
+			}
+			failures := 0
+			for _, item := range record {
+				if item.ErrorCode == shell.FailureSessionStart {
+					failures++
+					if !item.RetryabilityKnown || item.Retryable != byPolicy {
+						t.Fatalf("falha de criação=%+v", item)
+					}
+				}
+			}
+			if failures != 1 {
+				t.Fatalf("invocações=%+v", record)
+			}
+		})
+	}
+}
+
+func TestJobDoesNotReplayAuthorizedShellCommand(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		autoApprove []string
+		wantPrompts int
+	}{
+		{"aprovação pontual", nil, 1},
+		{"liberação pela política", []string{"echo"}, 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			prompts := 0
+			terminal := new(shellDispatchProbe)
+			tool := shell.NewRunCommand(terminal, func(context.Context, string, string) (bool, error) {
+				prompts++
+				return true, nil
+			}, func(context.Context) (*allowlist.Allowlist, error) {
+				return &allowlist.Allowlist{AutoApprove: tc.autoApprove, DefaultAction: "confirm"}, nil
+			}, t.TempDir())
+			executor, repo, ctx := invocationBackedExecutor(t, tool)
+			job := &Job{
+				ID: "shell-retry", Tool: tool.Name(), Inputs: map[string]any{"command": "echo ok"},
+				ErrorPolicy: ErrorPolicy{Strategy: ErrorRetry, MaxRetries: 2, RetryDelay: "1ms"},
+			}
+			run := executor.Execute(ctx, job, &TriggerContext{Type: TriggerManual})
+			if run.Status != "failed" || run.RetryCount != 0 || terminal.calls != 1 || prompts != tc.wantPrompts {
+				t.Fatalf("status=%s retries=%d despachos=%d diálogos=%d", run.Status, run.RetryCount, terminal.calls, prompts)
+			}
+			record, err := repo.List(ctx, toolinvocations.Filter{OriginID: run.RunID})
+			if err != nil || len(record) != 1 || !record[0].RetryabilityKnown || record[0].Retryable {
+				t.Fatalf("invocações=%+v erro=%v", record, err)
+			}
+		})
+	}
+}
+
+func TestInvalidShellDirectoryKeepsHostPathOutOfTechnicalHistory(t *testing.T) {
+	const hostOnly = "local-project-private-name"
+	root := filepath.Join(t.TempDir(), hostOnly)
+	if err := os.Mkdir(root, 0700); err != nil {
+		t.Fatal(err)
+	}
+	const requested = "broken-directory"
+	if err := os.Symlink(filepath.Join(root, "missing"), filepath.Join(root, requested)); err != nil {
+		if runtime.GOOS == "windows" {
+			t.Skipf("symlink indisponível: %v", err)
+		}
+		t.Fatal(err)
+	}
+	probe := &shellDispatchProbe{}
+	tool := shell.NewRunCommand(probe, nil, nil, root)
+	executor, repo, ctx := invocationBackedExecutor(t, tool)
+	job := &Job{ID: "invalid-shell-directory", Tool: tool.Name(), Inputs: map[string]any{"command": "example", "working_directory": requested}}
+	run := executor.Execute(ctx, job, &TriggerContext{Type: TriggerManual})
+	if run.Status != RunStatusFailed || probe.calls != 0 {
+		t.Fatalf("status=%s despachos=%d", run.Status, probe.calls)
+	}
+	records, err := repo.List(ctx, toolinvocations.Filter{OriginID: run.RunID})
+	if err != nil || len(records) != 1 {
+		t.Fatalf("registros=%d erro=%v", len(records), err)
+	}
+	record := records[0]
+	for _, message := range []string{run.Error, record.ErrorMessage, string(record.Output)} {
+		if !strings.Contains(message, "working_directory inválido") || strings.Contains(message, hostOnly) || strings.Contains(message, requested) {
+			t.Fatalf("diagnóstico persistido=%q", message)
+		}
+	}
+}
+
+func TestJobDoesNotReplayShellAfterOutputSecretFailure(t *testing.T) {
+	probe := &shellDispatchProbe{entry: &terminal.HistoryEntry{Output: "ok"}}
+	prompts := 0
+	tool := shell.NewRunCommand(probe, func(context.Context, string, string) (bool, error) {
+		prompts++
+		return true, nil
+	}, nil, t.TempDir())
+	executor, repo, ctx := invocationBackedExecutor(t, tool)
+	job := &Job{
+		ID: "shell-output-secret", Tool: tool.Name(), Inputs: map[string]any{"command": "echo ok"},
+		Output:      OutputConfig{Map: map[string]string{"value": `{{ secret "output" }}`}},
+		ErrorPolicy: ErrorPolicy{Strategy: ErrorRetry, MaxRetries: 2, RetryDelay: "1ms"},
+	}
+	run := executor.Execute(ctx, job, &TriggerContext{Type: TriggerManual})
+	if run.Status != RunStatusFailed || run.RetryCount != 0 || probe.calls != 1 || prompts != 1 ||
+		!strings.Contains(run.Error, "resolve output map") || !strings.Contains(run.Error, "no secret store configured") {
+		t.Fatalf("despachos=%d confirmações=%d run=%+v", probe.calls, prompts, run)
+	}
+	record, err := repo.List(ctx, toolinvocations.Filter{OriginID: run.RunID})
+	if err != nil || len(record) != 1 || record[0].Status != toolinvocations.StatusSucceeded {
+		t.Fatalf("invocações=%+v erro=%v", record, err)
+	}
+}
+
+func TestJobDoesNotReplayOtherToolAfterOutputSecretFailure(t *testing.T) {
+	tool := &scriptedTool{results: []tools.ToolResult{{Content: "efeito concluído"}}}
+	executor, repo, ctx := invocationBackedExecutor(t, tool)
+	job := &Job{
+		ID: "output-secret", Tool: tool.Name(),
+		Output:      OutputConfig{Map: map[string]string{"value": `{{ secret "output" }}`}},
+		ErrorPolicy: ErrorPolicy{Strategy: ErrorRetry, MaxRetries: 2, RetryDelay: "1ms"},
+	}
+	run := executor.Execute(ctx, job, &TriggerContext{Type: TriggerManual})
+	if run.Status != RunStatusFailed || run.RetryCount != 0 || tool.calls != 1 ||
+		!strings.Contains(run.Error, "resolve output map") || !strings.Contains(run.Error, "no secret store configured") {
+		t.Fatalf("chamadas=%d run=%+v", tool.calls, run)
+	}
+	invocations, err := repo.List(ctx, toolinvocations.Filter{OriginID: run.RunID})
+	if err != nil || len(invocations) != 1 || invocations[0].Status != toolinvocations.StatusSucceeded {
+		t.Fatalf("invocações=%+v erro=%v", invocations, err)
+	}
+}
+
+func TestToolOutputAcrossJobDryRunAndHistory(t *testing.T) {
+	tool := &scriptedTool{}
+	executor, repo, ctx := invocationBackedExecutor(t, tool)
+	manager := mustNewManager(t, ManagerConfig{ToolRegistry: executor.toolRegistry, ToolInvocations: executor.toolInvocations})
+	for _, tc := range []struct {
+		name, content string
+		want          map[string]any
+	}{
+		{"objeto", `{"a":2,"_meta_source":"payload"}`, map[string]any{"a": float64(2)}},
+		{"array", `[1,null,{"x":false}]`, map[string]any{"content": []any{float64(1), nil, map[string]any{"x": false}}}},
+		{"null", " null\n", map[string]any{"content": " null\n"}},
+		{"número", " 12.0 ", map[string]any{"content": " 12.0 "}},
+		{"booleano", "false", map[string]any{"content": "false"}},
+		{"string", `"texto"`, map[string]any{"content": `"texto"`}},
+		{"texto", "texto comum", map[string]any{"content": "texto comum"}},
+		{"vazio", "", map[string]any{}},
+		{"branco", " \t\n", map[string]any{"content": " \t\n"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			tool.results = []tools.ToolResult{{Content: tc.content, Metadata: map[string]any{"source": "tool"}}}
+			want := maps.Clone(tc.want)
+			want["_meta_source"] = "tool"
+			run := executor.Execute(ctx, &Job{ID: "output-shape", Tool: tool.Name()}, &TriggerContext{Type: TriggerManual})
+			if run.Status != RunStatusCompleted || !reflect.DeepEqual(run.Output, want) {
+				t.Fatalf("execução: status=%s saída=%#v erro=%s", run.Status, run.Output, run.Error)
+			}
+			dry, err := manager.TestToolDryRunContext(ctx, TestToolRequest{ToolName: tool.Name()})
+			if err != nil || dry == nil || !dry.Success || !reflect.DeepEqual(dry.Output, want) {
+				t.Fatalf("dry run=%+v erro=%v", dry, err)
+			}
+			invocations, err := repo.List(ctx, toolinvocations.Filter{OriginID: run.RunID})
+			if err != nil || len(invocations) != 1 {
+				t.Fatalf("invocações=%+v erro=%v", invocations, err)
+			}
+			wantHistory := want
+			if tc.name == "branco" {
+				wantHistory = map[string]any{"_meta_source": "tool"}
+			}
+			if got := invocationOutput(string(invocations[0].Output)); !reflect.DeepEqual(got, wantHistory) {
+				t.Fatalf("histórico=%#v esperado=%#v", got, wantHistory)
+			}
+		})
+	}
+}
+
+func TestJobShellNullOutputPreservesMetadata(t *testing.T) {
+	probe := &shellDispatchProbe{entry: &terminal.HistoryEntry{Output: "null"}}
+	tool := shell.NewRunCommand(probe, func(context.Context, string, string) (bool, error) {
+		return true, nil
+	}, nil, t.TempDir())
+	executor, _, ctx := invocationBackedExecutor(t, tool)
+	job := &Job{ID: "shell-null", Tool: tool.Name(), Inputs: map[string]any{"command": "echo null"}}
+	run := executor.Execute(ctx, job, &TriggerContext{Type: TriggerManual})
+	if run.Status != RunStatusCompleted || run.Output["content"] != "null" || run.Output["_meta_command"] != "echo null" || probe.calls != 1 {
+		t.Fatalf("despachos=%d run=%+v", probe.calls, run)
+	}
+}
+
+func TestJobShellRedactsSecretCommandMetadata(t *testing.T) {
+	const template = `example {{ secret "token" }}`
+	const token = "valor-sintetico-3417"
+	for _, tc := range []struct {
+		name, secretKey, expectedCommand string
+		inputs                           map[string]any
+	}{
+		{"canonical", "command", "example " + token, map[string]any{"command": template}},
+		{"capitalized", "Command", "example " + token, map[string]any{"Command": template}},
+		{"uppercase", "COMMAND", "example " + token, map[string]any{"COMMAND": template}},
+		// O marshal ordena as chaves, e o shell usa a última variante. Em public_last,
+		// o comando público é executado, mas a presença de outra variante sensível
+		// torna conservadora a projeção de command nos metadados.
+		{"public_last", "COMMAND", "example public", map[string]any{"COMMAND": template, "command": "example public"}},
+		{"secret_last", "Command", "example " + token, map[string]any{"COMMAND": "example public", "Command": template}},
+	} {
+		for _, route := range []string{"job", "dry-run"} {
+			t.Run(tc.name+"/"+route, func(t *testing.T) {
+				checkSecretCommandMetadata(t, route, tc.inputs, tc.secretKey, tc.expectedCommand, token)
+			})
+		}
+	}
+}
+
+func checkSecretCommandMetadata(t *testing.T, route string, inputs map[string]any, secretKey, expectedCommand, token string) {
+	t.Helper()
+	probe := &shellDispatchProbe{entry: &terminal.HistoryEntry{Output: "ok"}}
+	tool := shell.NewRunCommand(probe, func(context.Context, string, string) (bool, error) { return true, nil }, nil, t.TempDir())
+	executor, repo, ctx := invocationBackedExecutor(t, tool)
+	executor.secretStore = secretStoreFunc(func(context.Context, string) (string, error) { return token, nil })
+	var output map[string]any
+	if route == "job" {
+		run := executor.Execute(ctx, &Job{ID: "secret-shell", Tool: tool.Name(), Inputs: inputs}, &TriggerContext{Type: TriggerManual})
+		if run.Status != RunStatusCompleted || run.ResolvedInputs[secretKey] != redactedValue {
+			t.Fatal("execução ou redação dos argumentos falhou")
+		}
+		output = run.Output
+	} else {
+		manager := mustNewManager(t, ManagerConfig{ToolRegistry: executor.toolRegistry, ToolInvocations: executor.toolInvocations, SecretStore: executor.secretStore})
+		result, err := manager.TestToolDryRunContext(ctx, TestToolRequest{ToolName: tool.Name(), Inputs: inputs, AllowUnsafe: true})
+		if err != nil || result == nil || !result.Success {
+			t.Fatal("dry-run falhou")
+		}
+		output = result.Output
+	}
+	if probe.calls != 1 || probe.command.Raw != expectedCommand || probe.command.Display != redactedValue {
+		t.Fatal("comando resolvido não chegou à execução")
+	}
+	records, err := repo.List(ctx, toolinvocations.Filter{Limit: 10})
+	if err != nil || len(records) != 1 {
+		t.Fatalf("invocações=%d, erro=%v", len(records), err)
+	}
+	record := records[0]
+	snapshot, err := json.Marshal(record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(snapshot), token) {
+		t.Fatal("token encontrado no ledger")
+	}
+	for _, result := range []map[string]any{output, invocationOutput(string(record.Output))} {
+		if result["_meta_command"] != redactedValue || result["_meta_exitCode"] == nil || result["content"] != "ok" {
+			t.Fatal("projeção de comando ou metadados incorretos")
+		}
+	}
+	public := executor.Execute(ctx, &Job{ID: "public-shell", Tool: tool.Name(), Inputs: map[string]any{"command": "example public"}}, &TriggerContext{Type: TriggerManual})
+	if public.Status != RunStatusCompleted || public.Output["_meta_command"] != "example public" {
+		t.Fatal("redação interferiu na próxima invocação")
 	}
 }
 
@@ -502,4 +824,76 @@ func invocationBackedExecutor(t *testing.T, tool tools.Tool) (*JobExecutor, *too
 		EventBus:        NewEventBus(),
 		CircuitBreaker:  NewCircuitBreaker(),
 	}), repo, database.WithUserID(context.Background(), "user-jobs")
+}
+
+func TestJobRetryComLotacaoRealDoTerminal(t *testing.T) {
+	for _, limit := range []int{0, 1} {
+		t.Run(fmt.Sprintf("limite=%d", limit), func(t *testing.T) {
+			cfg := terminal.DefaultManagerConfig()
+			cfg.MaxSessions = limit
+			dir := t.TempDir()
+			manager := terminal.NewManager(cfg, nil)
+			t.Cleanup(manager.CloseAll)
+			var occupied *terminal.Session
+			if limit > 0 {
+				var err error
+				occupied, err = manager.Create("ocupado", dir)
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
+			reads := 0
+			policy := func(context.Context) (*allowlist.Allowlist, error) {
+				reads++
+				if reads == 2 && occupied != nil {
+					if err := manager.Close(occupied.ID()); err != nil {
+						t.Error(err)
+					}
+				}
+				return &allowlist.Allowlist{AutoApprove: []string{"echo"}, DefaultAction: "confirm"}, nil
+			}
+			tool := shell.NewRunCommand(manager, nil, policy, dir)
+			executor, repo, ctx := invocationBackedExecutor(t, tool)
+			job := &Job{ID: "shell-capacity", Tool: tool.Name(), Inputs: map[string]any{"command": "echo ok", "persistent": true}, ErrorPolicy: ErrorPolicy{Strategy: ErrorRetry, MaxRetries: 2, RetryDelay: "1ms"}}
+			run := executor.Execute(ctx, job, &TriggerContext{Type: TriggerManual})
+			records, err := repo.List(ctx, toolinvocations.Filter{OriginID: run.RunID})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if limit == 0 {
+				if run.Status != RunStatusFailed || run.RetryCount != 0 || reads != 1 || len(records) != 1 || records[0].Retryable {
+					t.Fatalf("run=%+v leituras=%d registros=%+v", run, reads, records)
+				}
+			} else if run.Status != RunStatusCompleted || run.RetryCount != 1 || reads != 2 || len(records) != 2 {
+				t.Fatalf("run=%+v leituras=%d registros=%+v", run, reads, records)
+			}
+		})
+	}
+}
+
+func TestJobNaoPersisteCaminhoPrivadoDeShellAusente(t *testing.T) {
+	dir := t.TempDir()
+	cfg := terminal.DefaultManagerConfig()
+	cfg.DefaultShell = filepath.Join(dir, "shell-privado-sintetico")
+	manager := terminal.NewManager(cfg, nil)
+	tool := shell.NewRunCommand(manager, nil, func(context.Context) (*allowlist.Allowlist, error) {
+		return &allowlist.Allowlist{AutoApprove: []string{"echo"}, DefaultAction: "confirm"}, nil
+	}, dir)
+	executor, repo, ctx := invocationBackedExecutor(t, tool)
+	job := &Job{ID: "shell-private", Tool: tool.Name(), Inputs: map[string]any{"command": "echo ok"}, ErrorPolicy: ErrorPolicy{Strategy: ErrorRetry, MaxRetries: 2, RetryDelay: "1ms"}}
+	run := executor.Execute(ctx, job, &TriggerContext{Type: TriggerManual})
+	records, err := repo.List(ctx, toolinvocations.Filter{OriginID: run.RunID})
+	if err != nil || len(records) != 1 {
+		t.Fatalf("registros=%+v erro=%v", records, err)
+	}
+	data, err := json.Marshal(struct {
+		Run     any
+		Records any
+	}{run, records})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if run.Status != RunStatusFailed || run.RetryCount != 0 || records[0].ErrorCode != shell.FailureSessionStart || records[0].Retryable || strings.Contains(string(data), "shell-privado-sintetico") || !strings.Contains(string(data), "Executável do terminal não encontrado") {
+		t.Fatalf("vazamento ou diagnóstico inválido: %s", data)
+	}
 }

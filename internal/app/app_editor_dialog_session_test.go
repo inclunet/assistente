@@ -3,12 +3,16 @@ package app
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
 	"assistente/internal/auth"
 	"assistente/internal/commandsecurity"
 	"assistente/internal/database"
+	"assistente/internal/pluginpackage"
+	"assistente/internal/plugins"
 )
 
 const (
@@ -106,5 +110,38 @@ func TestCaptureEditorDialogSessionRejeitaRevogacaoDoEpoch(t *testing.T) {
 	}
 	if err := validate(); !errors.Is(err, commandsecurity.ErrStaleEpoch) {
 		t.Fatalf("epoch revogado aceito: %v", err)
+	}
+}
+
+func TestPluginInstallWithSingleConnection(t *testing.T) {
+	a := editorDialogSessionApp(t)
+	db := database.DB()
+	pool, err := db.DB()
+	if err != nil {
+		t.Fatal(err)
+	}
+	pool.SetMaxOpenConns(1)
+	ctx := database.WithUserID(t.Context(), editorDialogTestUser)
+	admit, err := a.captureDialogAdmission(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "plugin.json"), []byte(`{"$schema":"`+pluginpackage.ManifestSchema+`","name":"single"}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := pluginpackage.InspectLocal(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	inventory := plugins.NewInventory(db)
+	if _, err := inventory.InstallReviewed(ctx, snapshot.Origin, snapshot.Digest, "", admit); err != nil {
+		t.Fatalf("commit with one connection: %v", err)
+	}
+	if err := db.Model(&database.Session{}).Where("id = ?", editorDialogTestSession).Update("revoked_at", time.Now()).Error; err != nil {
+		t.Fatal(err)
+	}
+	if _, err := inventory.InstallReviewed(ctx, snapshot.Origin, snapshot.Digest, snapshot.Digest, admit); err == nil {
+		t.Fatal("published with a revoked session")
 	}
 }

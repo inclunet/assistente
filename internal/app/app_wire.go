@@ -44,7 +44,7 @@ func (a *App) wirePlugins() {
 				return fmt.Errorf("gerenciador MCP indisponível")
 			}
 			return a.mcpMgr.ReloadPackagedConfigs(ctx)
-		}), a.dialogPort.OpenDirectoryDialog, a.captureDialogAdmission)
+		}), a.dialogPort.OpenDirectoryDialog, a.captureDialogAdmission, func() { a.emitter.Emit("plugins:skills_changed", nil) })
 	}
 }
 

@@ -9,3 +9,16 @@ export function formatDuration(ms: number): string {
   const sec = Math.floor((ms % 60000) / 1000);
   return `${min}m ${sec}s`;
 }
+
+/** Limita por pontos de código Unicode. Um grafema pode conter vários pontos de código. */
+export function codePointPrefix(text: string, limit: number): string {
+  if (limit <= 0) return '';
+  if (text.length <= limit) return text;
+  let end = 0;
+  let count = 0;
+  for (const character of text) {
+    end += character.length;
+    if (++count >= limit) break;
+  }
+  return text.slice(0, end);
+}

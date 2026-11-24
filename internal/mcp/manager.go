@@ -25,6 +25,7 @@ import (
 	"assistente/internal/portability"
 	"assistente/internal/toolcatalog"
 	"assistente/internal/tools"
+	"assistente/internal/userctx"
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	"gorm.io/gorm"
@@ -3179,15 +3180,24 @@ func (m *Manager) ReloadPackagedConfigs(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	current, err := database.RequireUserID(m.credentialContext())
-	if err != nil {
-		return err
-	}
-	if current != owner {
-		return database.ErrUserScopeRequired
-	}
 	m.configReloadMu.Lock()
 	defer m.configReloadMu.Unlock()
+	sessionID, _ := userctx.SessionIDFromContext(ctx)
+	checkScope := func() error {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		current := m.credentialContext()
+		currentOwner, _ := userctx.UserIDFromContext(current)
+		currentSession, _ := userctx.SessionIDFromContext(current)
+		if currentOwner != owner || currentSession != sessionID {
+			return database.ErrUserScopeRequired
+		}
+		return nil
+	}
+	if err := checkScope(); err != nil {
+		return err
+	}
 	repo := m.repository()
 	if repo == nil {
 		return errors.New("repository MCP indisponível")
@@ -3205,6 +3215,11 @@ func (m *Manager) ReloadPackagedConfigs(ctx context.Context) error {
 	m.mu.RUnlock()
 	configs, err := repo.ListServers(ctx)
 	if err != nil {
+		return err
+	}
+	// A sessão pode mudar enquanto o repositório lê a configuração. Descarte a
+	// fotografia antiga antes de alterar o mapa usado pela próxima conta.
+	if err := checkScope(); err != nil {
 		return err
 	}
 	m.mu.Lock()

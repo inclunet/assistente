@@ -28,7 +28,10 @@ func NewInventory(db *gorm.DB) *Inventory { return &Inventory{db: db} }
 func (i *Inventory) WithMCPSync(sync func(context.Context) error) *Inventory {
 	return &Inventory{db: i.db, syncMCP: sync}
 }
-func (i *Inventory) SyncMCP(ctx context.Context) error {
+func (i *Inventory) SyncMCP(ctx context.Context, admit commandsecurity.Admission) error {
+	if err := admit.Check(); err != nil {
+		return errors.Join(ErrMCPSyncPending, err)
+	}
 	if i.syncMCP != nil {
 		if err := i.syncMCP(ctx); err != nil {
 			return errors.Join(ErrMCPSyncPending, err)
@@ -51,7 +54,7 @@ func (i *Inventory) List(ctx context.Context) ([]database.PluginInstallation, er
 // previously installed digest. The complete captured revision and its pointer
 // commit together. Repeating an already published installation is idempotent.
 func (i *Inventory) InstallLocal(ctx context.Context, reviewedOrigin, reviewedDigest, previousDigest string) (database.PluginInstallation, error) {
-	return i.InstallReviewed(ctx, reviewedOrigin, reviewedDigest, previousDigest, func(publish func() error) error {
+	return i.InstallReviewed(ctx, reviewedOrigin, reviewedDigest, previousDigest, func(_ *gorm.DB, publish func() error) error {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
@@ -130,9 +133,7 @@ func (i *Inventory) InstallReviewed(ctx context.Context, reviewedOrigin, reviewe
 		return database.PluginInstallation{}, err
 	}
 	if mcpChanged {
-		if err := admit(func() error { return i.SyncMCP(ctx) }); err != nil {
-			return installed, errors.Join(ErrMCPSyncPending, err)
-		}
+		return installed, i.SyncMCP(ctx, admit)
 	}
 	return installed, nil
 }

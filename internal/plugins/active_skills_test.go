@@ -44,6 +44,9 @@ func TestInstalledSkillActivationAndSlashIsolation(t *testing.T) {
 			settings = "allowed-tools: Read\n"
 		}
 		raw := "---\nname: " + name + "\ndescription: Example instruction skill\n" + settings + "---\nReviewed instructions."
+		if name == "note" {
+			raw += "\n![diagrama](fig.png)\n\n~~~text\n!exemplo\n~~~"
+		}
 		if name == "with-shell" {
 			raw += "\n!echo checked"
 		}
@@ -61,16 +64,24 @@ func TestInstalledSkillActivationAndSlashIsolation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := store.SetSkillActive(bob, row.ID, row.Digest, "skills/note", true); err == nil {
+	allow := func(_ *gorm.DB, commit func() error) error { return commit() }
+	deny := func(_ *gorm.DB, _ func() error) error { return database.ErrUserScopeRequired }
+	if err := store.SetSkillActive(alice, row.ID, row.Digest, "skills/note", true, deny); err != database.ErrUserScopeRequired {
+		t.Fatal(err)
+	}
+	if rows, err := store.ActiveSkills(alice); err != nil || len(rows) != 0 {
+		t.Fatal(rows, err)
+	}
+	if err := store.SetSkillActive(bob, row.ID, row.Digest, "skills/note", true, allow); err == nil {
 		t.Fatal("foreign activation")
 	}
-	if err := store.SetSkillActive(alice, row.ID, row.Digest, "skills/with-shell", true); err == nil {
+	if err := store.SetSkillActive(alice, row.ID, row.Digest, "skills/with-shell", true, allow); err == nil {
 		t.Fatal("activated inline shell as plain instructions")
 	}
-	if err := store.SetSkillActive(alice, row.ID, row.Digest, "skills/restricted", true); err == nil {
+	if err := store.SetSkillActive(alice, row.ID, row.Digest, "skills/restricted", true, allow); err == nil {
 		t.Fatal("ignored a tool restriction")
 	}
-	if err := store.SetSkillActive(alice, row.ID, row.Digest, "skills/note", true); err != nil {
+	if err := store.SetSkillActive(alice, row.ID, row.Digest, "skills/note", true, allow); err != nil {
 		t.Fatal(err)
 	}
 	manager := skills.NewManagerWithInstalledSkills(store.ActiveSkills)
@@ -91,13 +102,13 @@ func TestInstalledSkillActivationAndSlashIsolation(t *testing.T) {
 	if err != nil || len(foreign) != 0 {
 		t.Fatal(foreign, err)
 	}
-	if err := store.SetSkillActive(alice, row.ID, row.Digest, "skills/note", false); err != nil {
+	if err := store.SetSkillActive(alice, row.ID, row.Digest, "skills/note", false, allow); err != nil {
 		t.Fatal(err)
 	}
 	if active, err := store.ActiveSkills(alice); err != nil || len(active) != 0 {
 		t.Fatal(active, err)
 	}
-	if err := store.SetSkillActive(alice, row.ID, row.Digest, "skills/note", true); err != nil {
+	if err := store.SetSkillActive(alice, row.ID, row.Digest, "skills/note", true, allow); err != nil {
 		t.Fatal(err)
 	}
 	if err := root.WriteFile("README.md", []byte("change"), 0600); err != nil {

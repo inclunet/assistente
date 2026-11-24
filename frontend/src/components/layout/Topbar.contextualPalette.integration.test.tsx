@@ -19,7 +19,7 @@ const state = vi.hoisted(() => ({
   events: new Map<string, (payload?: unknown) => void>(),
   auth: { isAuthenticated: true, user: { userId: 'user-a', sessionId: 'session-a' } },
   workspace: { workspace: { id: 'workspace-a', defaultProfile: 'focused', activeTabId: 'tab-a', tabs: [{ id: 'tab-a', type: 'chat' }] }, workspaces: [], reconcileActiveSelection: vi.fn(async () => true) },
-  terminal: { sessions: [{ id: 'pty-a', state: 'running' }], historyBySession: { 'pty-a': [{ id: 'command-a', output: '', endedAt: '' }] }, activeEntryBySession: { 'pty-a': 'command-a' }, loadSessions: vi.fn(async () => undefined) },
+  terminal: { sessions: [{ id: 'pty-a', state: 'running' }], historyBySession: { 'pty-a': [{ id: 'command-a', output: '', endedAt: '' }] }, manualEntryBySession: {}, activeEntryBySession: { 'pty-a': 'command-a' }, loadSessions: vi.fn(async () => undefined) },
 }));
 vi.mock('../../lib/commandGlobalOwnershipWails', () => ({ acquireGlobalCommandOwnership: () => ({ isReady: () => true, owns: () => false, dispose: () => {}, ready: Promise.resolve() }) }));
 vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key, i18n: { language: 'pt-BR' } }) }));
