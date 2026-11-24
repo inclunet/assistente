@@ -47,15 +47,16 @@ func TestPluginPreviewUsesSelectedDirectoryAndSession(t *testing.T) {
 			return handoff()
 		}, nil
 	})
-	// Hold the old picker until the next page has received its own preview.
+	// Hold the old admission until the next page has received its own preview.
 	var first atomic.Bool
 	entered, release := make(chan struct{}), make(chan struct{})
-	api.choose = func() (string, error) {
+	capture := api.capture
+	api.capture = func(ctx context.Context) (commandsecurity.Admission, error) {
 		if !first.Swap(true) {
 			close(entered)
 			<-release
 		}
-		return dir, nil
+		return capture(ctx)
 	}
 	old := make(chan error, 1)
 	go func() { _, err := api.PreviewLocal(); old <- err }()

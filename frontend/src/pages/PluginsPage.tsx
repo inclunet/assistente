@@ -30,13 +30,17 @@ function InstalledPlugins({ session }: { session: string }) {
   const { t } = useTranslation();
   useGridPageLandmarks({ pageClass: 'plugins-page' });
   const { announce } = useAnnouncer();
-  const [items, setItems] = useState<database.PluginInstallation[]>([]);
+  const [items, setItems] = useState<database.PluginInstallation[] | null>(null);
   const [preview, setPreview] = useState<wailsapi.PluginPreview | null>(null);
+  const [listFailed, setListFailed] = useState(false);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(true);
   useEffect(() => {
     if (error) announce(t(error), 'assertive');
   }, [error, announce, t]);
+  useEffect(() => {
+    if (listFailed) announce(t('plugins.listError'), 'assertive');
+  }, [listFailed, announce, t]);
   const mounted = useRef(false);
   const openToken = useRef<string | null>(null);
   const chooseButton = useRef<HTMLButtonElement>(null);
@@ -49,14 +53,24 @@ function InstalledPlugins({ session }: { session: string }) {
   }, [preview, busy]);
   const refresh = useCallback(async () => {
     const pending = pendingInstalls.get(session);
-    if (pending) await pending.catch(() => undefined);
+    if (pending) {
+      try {
+        await pending;
+      } catch {
+        if (mounted.current) setError('plugins.installError');
+      }
+    }
     if (!mounted.current) return;
-    const rows = await ListInstalled();
-    if (mounted.current) setItems(rows ?? []);
+    try {
+      const rows = await ListInstalled();
+      if (mounted.current) { setItems(rows ?? []); setListFailed(false); }
+    } catch {
+      if (mounted.current) setListFailed(true);
+    }
   }, [session]);
   useEffect(() => {
     mounted.current = true;
-    void refresh().catch(() => { if (mounted.current) setError('plugins.listError'); })
+    void refresh()
       .finally(() => { if (mounted.current) setBusy(false); });
     return () => {
       mounted.current = false;
@@ -118,7 +132,7 @@ function InstalledPlugins({ session }: { session: string }) {
       }
       if (!mounted.current) return;
       announce(t('plugins.installedNotice', { name: preview.name }));
-      try { await refresh(); } catch { if (mounted.current) setError('plugins.listError'); }
+      await refresh();
     } catch {
       if (mounted.current) setError('plugins.installError');
     } finally {
@@ -130,9 +144,10 @@ function InstalledPlugins({ session }: { session: string }) {
       right={<Button ref={chooseButton} onClick={() => void inspect()} disabled={busy}>{t('plugins.choose')}</Button>} />
     <h2>{t('plugins.installed')}</h2>
     {!preview && error && <p>{t(error)}</p>}
-    {items.length > 0 ? <DataGrid items={items} getItemId={row => row.id} label={t('plugins.installed')}
+    {listFailed && <p>{t('plugins.listError')}</p>}
+    {items && items.length > 0 ? <DataGrid items={items} getItemId={row => row.id} label={t('plugins.installed')}
       columns={[{ key: 'name', label: t('plugins.name') }, { key: 'version', label: t('plugins.version') }, { key: 'origin', label: t('plugins.origin') }]} />
-      : !busy && !error && <p>{t('plugins.empty')}</p>}
+      : items && !busy && !error && !listFailed && <p>{t('plugins.empty')}</p>}
     {preview && <DecisionDialog isOpen title={t('plugins.preview', { name: preview.name })}
       description={t('plugins.inactive')} allowClose={!busy} size="lg"
       actions={[

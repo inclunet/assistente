@@ -13,6 +13,6 @@ Abra **Plugins** pelo menu principal para consultar os pacotes instalados na sua
 2. Confira a origem e os arquivos incluídos na prévia. O identificador SHA-256 corresponde aos nomes e ao conteúdo dos arquivos capturados. Ele permite conferir a revisão instalada.
 3. Escolha **Instalar revisão** para guardar uma cópia na conta atual ou **Cancelar** para fechar a prévia.
 
-Se sair da página antes de confirmar, abra a pasta novamente para instalar. Uma instalação já confirmada continua ao sair da página.
+Se sair da página antes de confirmar, abra a pasta novamente para instalar. Uma instalação já confirmada continua ao sair da página. Se você voltar enquanto ela estiver em andamento, a página aguarda o resultado e atualiza a lista. Expanda os avisos do manifesto para conferir os campos ignorados.
 
 Se os arquivos mudarem depois da prévia, abra a pasta novamente para examinar a nova revisão. Para atualizar um pacote, selecione a mesma pasta. A prévia mostra o digest instalado e o novo digest. Escolha **Atualizar revisão** para confirmar. Se ambos forem iguais, a tela informa que essa revisão já está instalada. Nesta etapa os componentes ficam inativos.

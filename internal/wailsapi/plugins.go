@@ -85,6 +85,10 @@ func (api *Plugins) ListInstalled() ([]database.PluginInstallation, error) {
 }
 
 func (api *Plugins) PreviewLocal() (*PluginPreview, error) {
+	api.mu.Lock()
+	api.previewGeneration++
+	generation := api.previewGeneration
+	api.mu.Unlock()
 	session, inventory, choose, capture, err := api.wired()
 	if err != nil {
 		return nil, err
@@ -101,10 +105,6 @@ func (api *Plugins) PreviewLocal() (*PluginPreview, error) {
 		if err != nil {
 			return nil, err
 		}
-		api.mu.Lock()
-		api.previewGeneration++
-		generation := api.previewGeneration
-		api.mu.Unlock()
 		dir, err := choose()
 		if err != nil || dir == "" {
 			return nil, err
