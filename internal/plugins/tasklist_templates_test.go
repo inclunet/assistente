@@ -61,7 +61,7 @@ func TestTemplateListSurvivesUpdateAndUninstall(t *testing.T) {
 		return row
 	}
 	row := install("")
-	admit := commandsecurity.Admission(func(fn func() error) error { return fn() })
+	admit := commandsecurity.Admission(func(_ *gorm.DB, fn func() error) error { return fn() })
 	request := uuid.NewString()
 	create := func(ctx context.Context) (string, error) {
 		return store.CreateListFromTemplate(ctx, row.ID, row.Digest, "tasklists/release", request, admit)

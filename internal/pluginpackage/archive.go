@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"iter"
 	"path"
 	"strings"
 )
@@ -21,46 +22,67 @@ type Archive struct {
 // Bound the central directory before archive/zip allocates one File per entry.
 // The supported size and entry limits fit the single-disk classic ZIP format.
 func validateDirectory(data []byte) error {
-	const endSize = 22
-	for end := len(data) - endSize; end >= max(0, len(data)-endSize-65535); end-- {
-		record := data[end:]
-		if string(record[:4]) != "PK\x05\x06" || int(binary.LittleEndian.Uint16(record[20:])) != len(record)-endSize {
-			continue
-		}
-		// archive/zip also accepts EOCD candidates with a shorter comment.
-		// An embedded signature must never select a different directory.
-		if bytes.Contains(record[4:], []byte("PK\x05\x06")) {
-			return fs.ErrInvalid
-		}
-		count := int(binary.LittleEndian.Uint16(record[10:]))
-		if count > 16384 || binary.LittleEndian.Uint32(record[4:]) != 0 || int(binary.LittleEndian.Uint16(record[8:])) != count {
-			return fs.ErrInvalid
-		}
-		offset := int64(binary.LittleEndian.Uint32(record[16:]))
-		size := int64(binary.LittleEndian.Uint32(record[12:]))
-		if offset+size != int64(end) {
-			return fs.ErrInvalid
-		}
-		dir := data[offset:end]
-		for n := 0; n < count; n++ {
-			if len(dir) < 46 || string(dir[:4]) != "PK\x01\x02" {
-				return fs.ErrInvalid
+	return uniqueDirectory(func(yield func(bool) bool) {
+		const endSize = 22
+		first := true
+		for end := len(data) - endSize; end >= max(0, len(data)-endSize-65535); end-- {
+			record := data[end:]
+			if string(record[:4]) != "PK\x05\x06" || int(binary.LittleEndian.Uint16(record[20:])) != len(record)-endSize {
+				continue
 			}
-			length := 46
-			for _, start := range []int{28, 30, 32} {
-				length += int(binary.LittleEndian.Uint16(dir[start:]))
+			// archive/zip can select a later signature with a shorter comment.
+			if first && len(record) >= endSize+4 && bytes.Contains(record[4:len(record)-endSize+4], []byte("PK\x05\x06")) {
+				yield(false)
+				return
 			}
-			if length > len(dir) {
-				return fs.ErrInvalid
+			first = false
+			if !yield(validDirectoryAt(data, end, record)) {
+				return
 			}
-			dir = dir[length:]
 		}
-		if len(dir) != 0 {
+	})
+}
+
+// The last record must be valid. Scan earlier candidates to establish uniqueness.
+func uniqueDirectory(candidates iter.Seq[bool]) error {
+	found := false
+	for valid := range candidates {
+		if !found && !valid || found && valid {
 			return fs.ErrInvalid
 		}
-		return nil
+		found = true
 	}
-	return fs.ErrInvalid
+	if !found {
+		return fs.ErrInvalid
+	}
+	return nil
+}
+
+func validDirectoryAt(data []byte, end int, record []byte) bool {
+	count := int(binary.LittleEndian.Uint16(record[10:]))
+	if count > 16384 || binary.LittleEndian.Uint32(record[4:]) != 0 || int(binary.LittleEndian.Uint16(record[8:])) != count {
+		return false
+	}
+	offset := int64(binary.LittleEndian.Uint32(record[16:]))
+	size := int64(binary.LittleEndian.Uint32(record[12:]))
+	if offset+size != int64(end) {
+		return false
+	}
+	dir := data[offset:end]
+	for n := 0; n < count; n++ {
+		if len(dir) < 46 || string(dir[:4]) != "PK\x01\x02" {
+			return false
+		}
+		length := 46
+		for _, start := range []int{28, 30, 32} {
+			length += int(binary.LittleEndian.Uint16(dir[start:]))
+		}
+		if length > len(dir) {
+			return false
+		}
+		dir = dir[length:]
+	}
+	return len(dir) == 0
 }
 
 func OpenArchive(data []byte) (*Archive, error) {
@@ -140,11 +162,15 @@ func (a *Archive) Read(name string, limit int64) ([]byte, error) {
 	return data, nil
 }
 
+func (a *Archive) Has(name string) bool {
+	return a.files[name] != nil
+}
+
 func (a *Archive) Wrapper() string {
 	var prefix string
 	for name := range a.files {
 		dir, _, ok := strings.Cut(name, "/")
-		if !ok || strings.HasPrefix(dir, ".") {
+		if !ok {
 			return ""
 		}
 		if prefix != "" && prefix != dir+"/" {
@@ -159,18 +185,19 @@ func (a *Archive) Package(origin, dir string) (*LocalSnapshot, error) {
 	snap := &LocalSnapshot{Origin: origin, Files: make(map[string][]byte)}
 	prefix := strings.TrimSuffix(dir, "/") + "/"
 	var total int64
+files:
 	for name := range a.files {
 		rel, ok := strings.CutPrefix(name, prefix)
 		if !ok {
 			continue
 		}
-		if len(snap.Files) >= maxEntries || strings.Count(rel, "/") > maxDepth {
-			return nil, fs.ErrInvalid
-		}
 		for _, part := range strings.Split(rel, "/") {
 			if strings.EqualFold(part, ".git") {
-				return nil, fs.ErrInvalid
+				continue files
 			}
+		}
+		if len(snap.Files) >= maxEntries || strings.Count(rel, "/") > maxDepth {
+			return nil, fs.ErrInvalid
 		}
 		data, err := a.Read(path.Join(dir, rel), min(maxFileBytes, maxPackageBytes-total))
 		if err != nil {
@@ -179,5 +206,5 @@ func (a *Archive) Package(origin, dir string) (*LocalSnapshot, error) {
 		total += int64(len(data))
 		snap.Files[rel] = data
 	}
-	return finishSnapshot(snap)
+	return finishSnapshot(snap, "")
 }

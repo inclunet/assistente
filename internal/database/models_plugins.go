@@ -42,8 +42,9 @@ type PluginMCPBinding struct {
 }
 
 type PluginRepository struct {
-	CredentialRef string `json:"-"`
-	RootID        string `gorm:"not null" json:"-"`
+	ExplicitHTTPSPort bool   `json:"-"`
+	CredentialRef     string `json:"-"`
+	RootID            string `gorm:"not null" json:"-"`
 	UUIDModel
 	UserID   string `gorm:"not null;uniqueIndex:plugin_repository_owner,priority:1" json:"-"`
 	Origin   string `gorm:"not null;uniqueIndex:plugin_repository_owner,priority:2" json:"origin"`
