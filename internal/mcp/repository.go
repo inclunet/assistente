@@ -56,7 +56,7 @@ func (r *DBRepository) ListServers(ctx context.Context) ([]ServerConfig, error) 
 	}
 	result := make([]ServerConfig, 0, len(rows))
 	for _, row := range rows {
-		cfg, err := serverModelToConfig(row)
+		cfg, err := ConfigFromServerRecord(row)
 		if err != nil {
 			return nil, err
 		}
@@ -76,7 +76,7 @@ func (r *DBRepository) GetServer(ctx context.Context, slug string) (*ServerConfi
 	if err != nil {
 		return nil, err
 	}
-	cfg, err := serverModelToConfig(row)
+	cfg, err := ConfigFromServerRecord(row)
 	if err != nil {
 		return nil, err
 	}
@@ -94,7 +94,7 @@ func (r *DBRepository) GetServerByID(ctx context.Context, id string) (*ServerCon
 	if err != nil {
 		return nil, err
 	}
-	cfg, err := serverModelToConfig(row)
+	cfg, err := ConfigFromServerRecord(row)
 	if err != nil {
 		return nil, err
 	}
@@ -181,27 +181,29 @@ func (r *DBRepository) DeleteServer(ctx context.Context, slug string) error {
 	if _, err := database.RequireUserID(ctx); err != nil {
 		return err
 	}
-	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		var row database.MCPServer
-		if err := database.ScopeByUser(ctx, tx, "user_id").Where("slug = ?", strings.TrimSpace(slug)).First(&row).Error; err != nil {
-			return err
-		}
-		if err := credentials.CheckLegacyOAuthMutation(ctx, tx, row.UserID, row.Slug); err != nil {
-			return err
-		}
-		now := r.now()
-		// Desanexa as tools do catálogo (lógica de tool_catalog vive em
-		// internal/toolcatalog), dentro desta transação para manter atomicidade
-		// com a remoção do servidor.
-		reason := fmt.Sprintf("MCP server %q was deleted", row.Slug)
-		if err := toolcatalog.DetachServerTools(tx, row.ID, row.UserID, reason, now); err != nil {
-			return err
-		}
-		if err := tx.Where("server_id = ?", row.ID).Delete(&database.MCPServerLog{}).Error; err != nil {
-			return err
-		}
-		return tx.Delete(&row).Error
-	})
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error { return deleteServerInTransaction(ctx, tx, slug, r.now()) })
+}
+
+func deleteServerInTransaction(ctx context.Context, tx *gorm.DB, slug string, now time.Time) error {
+	var row database.MCPServer
+	if err := database.ScopeByUser(ctx, tx, "user_id").Where("slug = ?", strings.TrimSpace(slug)).First(&row).Error; err != nil {
+		return err
+	}
+	if err := credentials.CheckLegacyOAuthMutation(ctx, tx, row.UserID, row.Slug); err != nil {
+		return err
+	}
+
+	// Desanexa as tools do catálogo (lógica de tool_catalog vive em
+	// internal/toolcatalog), dentro desta transação para manter atomicidade
+	// com a remoção do servidor.
+	reason := fmt.Sprintf("MCP server %q was deleted", row.Slug)
+	if err := toolcatalog.DetachServerTools(tx, row.ID, row.UserID, reason, now); err != nil {
+		return err
+	}
+	if err := tx.Where("server_id = ?", row.ID).Delete(&database.MCPServerLog{}).Error; err != nil {
+		return err
+	}
+	return tx.Delete(&row).Error
 }
 
 func (r *DBRepository) DuplicateServer(ctx context.Context, slug, newSlug string) (*ServerConfig, error) {
@@ -350,7 +352,8 @@ func serverConfigToModel(cfg ServerConfig) (database.MCPServer, error) {
 	}, nil
 }
 
-func serverModelToConfig(row database.MCPServer) (ServerConfig, error) {
+// ConfigFromServerRecord reconstructs the native configuration from a stored server.
+func ConfigFromServerRecord(row database.MCPServer) (ServerConfig, error) {
 	var args []string
 	if err := unmarshalJSONString(row.Args, &args); err != nil {
 		return ServerConfig{}, err
@@ -435,4 +438,42 @@ func validateServerSlug(slug string) error {
 		return fmt.Errorf("slug do servidor MCP 'native' é reservado")
 	}
 	return nil
+}
+
+// CreatePackagedServer creates a fresh native identity in the caller's
+// installation transaction. Another component or a personal server with the
+// same slug must never be overwritten.
+func CreatePackagedServer(ctx context.Context, tx *gorm.DB, cfg ServerConfig) (string, error) {
+	owner, err := database.RequireUserID(ctx)
+	if err != nil {
+		return "", err
+	}
+	if err := validateServerSlug(cfg.Slug); err != nil {
+		return "", err
+	}
+	if err := credentials.CheckLegacyOAuthMutation(ctx, tx, owner, cfg.Slug); err != nil {
+		return "", err
+	}
+	cfg.UserID = owner
+	cfg.applyDefaults(cfg.Slug)
+	row, err := serverConfigToModel(cfg)
+	if err != nil {
+		return "", err
+	}
+	if err := createServerPreservingFlags(tx, &row); err != nil {
+		return "", err
+	}
+	return row.ID, nil
+}
+
+func DeletePackagedServer(ctx context.Context, tx *gorm.DB, id, slug string) error {
+	owner, err := database.RequireUserID(ctx)
+	if err != nil {
+		return err
+	}
+	var row database.MCPServer
+	if err := tx.Select("id").Where("id=? AND user_id=? AND slug=?", id, owner, slug).Take(&row).Error; err != nil {
+		return err
+	}
+	return deleteServerInTransaction(ctx, tx, slug, time.Now().UTC())
 }

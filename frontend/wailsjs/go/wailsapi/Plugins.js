@@ -22,6 +22,18 @@ export function PreviewLocal() {
   return window['go']['wailsapi']['Plugins']['PreviewLocal']();
 }
 
+export function RegisterMCP(arg1, arg2, arg3) {
+  return window['go']['wailsapi']['Plugins']['RegisterMCP'](arg1, arg2, arg3);
+}
+
+export function RemoveMCP(arg1, arg2, arg3, arg4) {
+  return window['go']['wailsapi']['Plugins']['RemoveMCP'](arg1, arg2, arg3, arg4);
+}
+
 export function SetSkillActive(arg1, arg2, arg3, arg4) {
   return window['go']['wailsapi']['Plugins']['SetSkillActive'](arg1, arg2, arg3, arg4);
+}
+
+export function SyncMCP() {
+  return window['go']['wailsapi']['Plugins']['SyncMCP']();
 }

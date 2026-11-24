@@ -27,7 +27,7 @@ func TestLocalInventoryPublishesReviewedRevisionPerAccount(t *testing.T) {
 	if err := db.Exec("PRAGMA journal_mode=WAL").Error; err != nil {
 		t.Fatal(err)
 	}
-	if err := db.AutoMigrate(&database.PluginInstallation{}, &database.PluginRevision{}, &database.PluginSkillActivation{}); err != nil {
+	if err := db.AutoMigrate(&database.PluginInstallation{}, &database.PluginRevision{}, &database.PluginSkillActivation{}, &database.PluginMCPBinding{}, &database.MCPServer{}); err != nil {
 		t.Fatal(err)
 	}
 	store := NewInventory(db)
@@ -102,7 +102,7 @@ func TestLocalInventoryPublishesReviewedRevisionPerAccount(t *testing.T) {
 		t.Fatal(err)
 	}
 	denied := errors.New("sessão revogada antes do commit")
-	if _, err := store.InstallReviewed(alice, seed.Origin, update.Digest, seed.Digest, func(*gorm.DB, func() error) error { return denied }); !errors.Is(err, denied) {
+	if _, err := store.InstallReviewed(alice, seed.Origin, update.Digest, seed.Digest, nil, func(*gorm.DB, func() error) error { return denied }); !errors.Is(err, denied) {
 		t.Fatal(err)
 	}
 	rows, err = store.List(alice)

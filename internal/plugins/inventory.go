@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"slices"
 	"time"
 
 	"assistente/internal/commandsecurity"
@@ -13,12 +14,32 @@ import (
 	"gorm.io/gorm/clause"
 )
 
+var ErrMCPSyncPending = errors.New("PLUGIN_MCP_SYNC_PENDING")
+
 var ErrPackageChanged = errors.New("o pacote mudou desde a prévia")
 var ErrInstallationChanged = errors.New("a instalação mudou desde a prévia")
 
-type Inventory struct{ db *gorm.DB }
+type Inventory struct {
+	db      *gorm.DB
+	syncMCP func(context.Context) error
+}
 
 func NewInventory(db *gorm.DB) *Inventory { return &Inventory{db: db} }
+
+func (i *Inventory) WithMCPSync(sync func(context.Context) error) *Inventory {
+	return &Inventory{db: i.db, syncMCP: sync}
+}
+func (i *Inventory) SyncMCP(ctx context.Context, admit commandsecurity.Admission) error {
+	if err := admit.Check(); err != nil {
+		return errors.Join(ErrMCPSyncPending, err)
+	}
+	if i.syncMCP != nil {
+		if err := i.syncMCP(ctx); err != nil {
+			return errors.Join(ErrMCPSyncPending, err)
+		}
+	}
+	return nil
+}
 
 func (i *Inventory) List(ctx context.Context) ([]database.PluginInstallation, error) {
 	owner, err := database.RequireUserID(ctx)
@@ -34,7 +55,7 @@ func (i *Inventory) List(ctx context.Context) ([]database.PluginInstallation, er
 // previously installed digest. The complete captured revision and its pointer
 // commit together. Repeating an already published installation is idempotent.
 func (i *Inventory) InstallLocal(ctx context.Context, reviewedOrigin, reviewedDigest, previousDigest string) (database.PluginInstallation, error) {
-	return i.InstallReviewed(ctx, reviewedOrigin, reviewedDigest, previousDigest, func(_ *gorm.DB, publish func() error) error {
+	return i.InstallReviewed(ctx, reviewedOrigin, reviewedDigest, previousDigest, nil, func(_ *gorm.DB, publish func() error) error {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
@@ -42,7 +63,7 @@ func (i *Inventory) InstallLocal(ctx context.Context, reviewedOrigin, reviewedDi
 	})
 }
 
-func (i *Inventory) InstallReviewed(ctx context.Context, reviewedOrigin, reviewedDigest, previousDigest string, admit commandsecurity.Admission) (database.PluginInstallation, error) {
+func (i *Inventory) InstallReviewed(ctx context.Context, reviewedOrigin, reviewedDigest, previousDigest string, reviewedServers []BoundMCPServer, admit commandsecurity.Admission) (database.PluginInstallation, error) {
 	owner, err := database.RequireUserID(ctx)
 	if err != nil {
 		return database.PluginInstallation{}, err
@@ -62,6 +83,7 @@ func (i *Inventory) InstallReviewed(ctx context.Context, reviewedOrigin, reviewe
 	if admit == nil {
 		return database.PluginInstallation{}, database.ErrUserScopeRequired
 	}
+	mcpChanged := false
 	publishCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	err = database.WithSQLiteAdmittedCommit(publishCtx, i.db, "plugins.install", func(tx *gorm.DB) error {
@@ -86,12 +108,27 @@ func (i *Inventory) InstallReviewed(ctx context.Context, reviewedOrigin, reviewe
 		case installed.Digest != previousDigest:
 			return ErrInstallationChanged
 		default:
+			actual, err := boundMCPServers(publishCtx, tx, owner, installed.ID, previousDigest)
+			if err != nil {
+				return err
+			}
+			if !slices.Equal(actual, reviewedServers) {
+				return ErrInstallationChanged
+			}
 			update := tx.Model(&installed).Where("user_id = ? AND digest = ?", owner, previousDigest).Updates(map[string]any{"digest": snapshot.Digest, "version": snapshot.Manifest.Version})
 			if update.Error != nil {
 				return update.Error
 			}
 			if update.RowsAffected != 1 {
 				return ErrInstallationChanged
+			}
+			var count int64
+			if err := tx.Model(&database.PluginMCPBinding{}).Where("installation_id=?", installed.ID).Count(&count).Error; err != nil {
+				return err
+			}
+			mcpChanged = count > 0
+			if err := removeMCPBindings(publishCtx, tx, installed.ID, "", false); err != nil {
+				return err
 			}
 			if err := tx.Where("installation_id = ?", installed.ID).Delete(&database.PluginSkillActivation{}).Error; err != nil {
 				return err
@@ -102,6 +139,9 @@ func (i *Inventory) InstallReviewed(ctx context.Context, reviewedOrigin, reviewe
 	}, admit)
 	if err != nil {
 		return database.PluginInstallation{}, err
+	}
+	if mcpChanged {
+		return installed, i.SyncMCP(ctx, admit)
 	}
 	return installed, nil
 }

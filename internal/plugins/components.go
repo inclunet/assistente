@@ -16,6 +16,7 @@ import (
 // Component identifies a contribution within a revision; runtime keys are
 // allocated separately, so the same skill name can occur in several packages.
 type Component struct {
+	Endpoint  string `json:"endpoint,omitempty"`
 	Active    bool   `json:"active"`
 	Slug      string `json:"slug,omitempty"`
 	Key       string `json:"key"`
@@ -80,6 +81,12 @@ func DiscoverComponents(snapshot *pluginpackage.LocalSnapshot) []Component {
 					component.Kind = "invalidMcp"
 				} else {
 					component.Transport = transport
+					cfg, reason := portableMCP(value)
+					component.Reason = reason
+					component.Endpoint = cfg.URL
+					if reason == "invalid" {
+						component.Kind = "invalidMcp"
+					}
 				}
 				components = append(components, component)
 			}

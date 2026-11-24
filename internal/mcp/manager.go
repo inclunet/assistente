@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"reflect"
 	"sort"
 	"strings"
 	"sync"
@@ -25,6 +26,7 @@ import (
 	"assistente/internal/portability"
 	"assistente/internal/toolcatalog"
 	"assistente/internal/tools"
+	"assistente/internal/userctx"
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	"gorm.io/gorm"
@@ -110,6 +112,7 @@ type reconnectAttempt struct {
 // Manager gerencia servidores MCP: configuração, conexão, discovery de tools.
 // Thread-safe para uso concorrente.
 type Manager struct {
+	configReloadMu         sync.Mutex      // serializes snapshots read by configuration reloads
 	retiringLegacy         map[string]bool // blocks Connect until legacy cleanup effects finish
 	snapshotRoot           string          // optional test root; production stays outside exported config
 	managedAttempts        map[string]*managedAttempt
@@ -282,10 +285,6 @@ func (m *Manager) GetLogs(slug string, limit int) ([]MCPServerLog, error) {
 }
 
 func (m *Manager) markServerToolsUnavailable(slug, reason string) {
-	catalog := m.toolCatalog()
-	if catalog == nil {
-		return
-	}
 	m.mu.RLock()
 	status := m.servers[slug]
 	serverID := ""
@@ -306,11 +305,23 @@ func (m *Manager) markServerToolsUnavailable(slug, reason string) {
 		}
 		ctx = database.WithUserID(context.Background(), ownerUserID)
 	}
+	m.markServerToolsUnavailableByID(ctx, serverID, reason, false)
+}
+
+func (m *Manager) markServerToolsUnavailableByID(ctx context.Context, serverID, reason string, retiring bool) {
+	catalog := m.toolCatalog()
+	if catalog == nil {
+		return
+	}
 	if _, err := catalog.MarkServerToolsUnavailable(ctx, serverID, nil, reason); err != nil {
+		// A remoção no banco já desanexou as ferramentas na mesma transação.
+		if retiring && errors.Is(err, gorm.ErrRecordNotFound) {
+			return
+		}
 		if benignCtxCancel(ctx, err) {
-			logging.Debugf(context.Background(), "mcp.manager", "[MCP:%s] marcação de tools indisponíveis cancelada (shutdown): %v", slug, err)
+			logging.Debugf(context.Background(), "mcp.manager", "[MCP:%s] marcação de tools indisponíveis cancelada (shutdown): %v", serverID, err)
 		} else {
-			logging.Errorf(context.Background(), "mcp.manager", "[MCP:%s] erro ao marcar tools indisponíveis no catálogo: %v", slug, err)
+			logging.Errorf(context.Background(), "mcp.manager", "[MCP:%s] erro ao marcar tools indisponíveis no catálogo: %v", serverID, err)
 		}
 	}
 }
@@ -443,6 +454,8 @@ func (m *Manager) GetWorkspaceRoots() []Root {
 // servidores OAuth perdiam a credencial em memória, caíam no fallback
 // "sem token", abriam o navegador para reauth — N janelas em paralelo.
 func (m *Manager) LoadConfigs() error {
+	m.configReloadMu.Lock()
+	defer m.configReloadMu.Unlock()
 	repo := m.repository()
 	if repo == nil {
 		return fmt.Errorf("repository MCP não configurado")
@@ -452,56 +465,8 @@ func (m *Manager) LoadConfigs() error {
 		logging.Infof(context.Background(), "mcp.manager", "[MCP] LoadConfigs aguardando usuário autenticado: %v", err)
 		return nil
 	}
-	configs, err := repo.ListServers(ctx)
-	if err != nil {
-		return err
-	}
-	roots := m.GetWorkspaceRoots()
-	configBySlug := make(map[string]ServerConfig, len(configs))
-	for _, cfg := range configs {
-		cfg.applyDefaults(cfg.Slug)
-		configBySlug[cfg.Slug] = cfg
-		logging.Infof(context.Background(), "mcp.manager", "[MCP] Servidor carregado do DB: %s (%s, transport=%s, enabled=%v, auto_connect=%v)",
-			cfg.Slug, cfg.Name, cfg.Transport, cfg.Enabled, cfg.AutoConnect)
-	}
-
-	m.mu.RLock()
-	removed := make([]string, 0)
-	for slug := range m.servers {
-		if _, ok := configBySlug[slug]; !ok {
-			removed = append(removed, slug)
-		}
-	}
-	m.mu.RUnlock()
-	for _, slug := range removed {
-		if err := m.Disconnect(slug); err != nil {
-			logging.Errorf(context.Background(), "mcp.manager", "[MCP] erro ao desconectar servidor removido '%s' durante LoadConfigs: %v", slug, err)
-		}
-	}
-
-	next := make(map[string]*ServerStatus, len(configBySlug))
-	m.mu.Lock()
-	for slug, cfg := range configBySlug {
-		if existing, ok := m.servers[slug]; ok {
-			existing.ID = cfg.ID
-			existing.Slug = slug
-			existing.Config = cfg
-			existing.Roots = roots
-			next[slug] = existing
-			continue
-		}
-		next[slug] = &ServerStatus{
-			ID:     cfg.ID,
-			Slug:   slug,
-			Config: cfg,
-			Status: StatusDisconnected,
-			Tools:  []MCPToolInfo{},
-			Roots:  roots,
-		}
-	}
-	m.servers = next
-	m.mu.Unlock()
-	return nil
+	_, err := m.reconcileConfigsLocked(ctx, repo, false)
+	return err
 }
 
 // AutoConnectAll conecta sequencialmente a todos os servidores
@@ -1456,21 +1421,28 @@ func (m *Manager) disconnectWithRecovery(slug string, legacyOnly, cancelRecovery
 }
 
 func (m *Manager) disconnectWithRecoveryForAttempt(slug string, legacyOnly, cancelRecovery bool, retryAttemptID uint64) (bool, error) {
-	return m.disconnectWithRecoveryForAttemptAndOwner(slug, legacyOnly, cancelRecovery, retryAttemptID, nil, nil)
+	return m.disconnectWithRecoveryForAttemptAndOwner(slug, legacyOnly, cancelRecovery, retryAttemptID, nil, nil, nil)
 }
 
 func (m *Manager) disconnectWithManagedOwner(ctx context.Context, slug string, owner *managedAttempt) error {
 	retryAttemptID := owner.reconnectAttemptID
 	cancelRecovery := retryAttemptID == 0
-	disconnected, err := m.disconnectWithRecoveryForAttemptAndOwner(slug, false, cancelRecovery, retryAttemptID, owner, ctx)
+	disconnected, err := m.disconnectWithRecoveryForAttemptAndOwner(slug, false, cancelRecovery, retryAttemptID, owner, ctx, nil)
 	if err == nil && !disconnected && retryAttemptID != 0 {
 		return oauthflow.ErrConflict
 	}
 	return err
 }
 
-func (m *Manager) disconnectWithRecoveryForAttemptAndOwner(slug string, legacyOnly, cancelRecovery bool, retryAttemptID uint64, managedOwner *managedAttempt, managedOwnerCtx context.Context) (bool, error) {
+func (m *Manager) disconnectWithRecoveryForAttemptAndOwner(slug string, legacyOnly, cancelRecovery bool, retryAttemptID uint64, managedOwner *managedAttempt, managedOwnerCtx context.Context, retireConfig *ServerConfig) (bool, error) {
 	m.mu.Lock()
+	if retireConfig != nil {
+		current := m.servers[slug]
+		if current == nil || current.ID != retireConfig.ID || !reflect.DeepEqual(persistedLegacyConfig(current.Config), *retireConfig) {
+			m.mu.Unlock()
+			return false, nil
+		}
+	}
 	if managedOwner != nil {
 		if managedOwnerCtx == nil {
 			m.mu.Unlock()
@@ -1502,7 +1474,7 @@ func (m *Manager) disconnectWithRecoveryForAttemptAndOwner(slug string, legacyOn
 		} else {
 			<-cleanupDone
 		}
-		return m.disconnectWithRecoveryForAttemptAndOwner(slug, legacyOnly, cancelRecovery, retryAttemptID, managedOwner, managedOwnerCtx)
+		return m.disconnectWithRecoveryForAttemptAndOwner(slug, legacyOnly, cancelRecovery, retryAttemptID, managedOwner, managedOwnerCtx, retireConfig)
 	}
 	if retryAttemptID != 0 {
 		status := m.servers[slug]
@@ -1540,6 +1512,11 @@ func (m *Manager) disconnectWithRecoveryForAttemptAndOwner(slug string, legacyOn
 	}
 	if managed != nil && managed != managedOwner {
 		managed.cancel()
+	}
+	// A retirada do pacote impede novas reservas antes de liberar o lock.
+	// O cleanup continua dono da conexão e da tentativa já capturadas.
+	if retireConfig != nil {
+		delete(m.servers, slug)
 	}
 	if !ok && attempt == nil && managed == nil && reconnect == nil {
 		status := m.servers[slug]
@@ -1601,12 +1578,19 @@ func (m *Manager) disconnectWithRecoveryForAttemptAndOwner(slug string, legacyOn
 		<-managed.done
 	}
 
-	m.markServerToolsUnavailable(slug, "server disconnected")
+	if retireConfig == nil {
+		m.markServerToolsUnavailable(slug, "server disconnected")
+	} else {
+		// A descoberta por slug pode encontrar a identidade substituta.
+		m.markServerToolsUnavailableByID(database.WithUserID(context.Background(), retireConfig.UserID), retireConfig.ID, "server disconnected", true)
+	}
 	logging.Infof(context.Background(), "mcp.manager", "[MCP] Servidor '%s' desconectado", slug)
 
 	m.emit("mcp:server_disconnected", map[string]string{"slug": slug})
 	m.emit("mcp:tools_changed", nil)
-	m.logEvent(slug, "disconnected", "Servidor MCP desconectado", nil)
+	if retireConfig == nil {
+		m.logEvent(slug, "disconnected", "Servidor MCP desconectado", nil)
+	}
 
 	m.mu.Lock()
 	delete(m.disconnectCleanups, slug)
@@ -3160,4 +3144,122 @@ func sortMCPPromptInfos(infos []MCPPromptInfo) {
 			return infos[i].Arguments[a].Name < infos[i].Arguments[b].Name
 		})
 	}
+}
+
+// ReloadPackagedConfigs reconciles the native registry after the package
+// transaction commits. Startup already calls LoadConfigs after login.
+func (m *Manager) ReloadPackagedConfigs(ctx context.Context) error {
+	m.configReloadMu.Lock()
+	repo := m.repository()
+	if repo == nil {
+		m.configReloadMu.Unlock()
+		return errors.New("repository MCP indisponível")
+	}
+	published, err := m.reconcileConfigsLocked(ctx, repo, true)
+	m.configReloadMu.Unlock()
+	if published {
+		m.emit("mcp:config_changed", map[string]string{})
+	}
+	return err
+}
+
+// O carregamento completo também retira servidores da conta anterior. O
+// incremental só alcança servidores de pacotes da conta da chamada.
+func (m *Manager) reconcileConfigsLocked(ctx context.Context, repo Repository, packagesOnly bool) (bool, error) {
+	owner, err := database.RequireUserID(ctx)
+	if err != nil {
+		return false, err
+	}
+	sessionID, _ := userctx.SessionIDFromContext(ctx)
+	checkScope := func() error {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		current := m.credentialContext()
+		currentOwner, _ := userctx.UserIDFromContext(current)
+		currentSession, _ := userctx.SessionIDFromContext(current)
+		if currentOwner != owner || currentSession != sessionID {
+			return database.ErrUserScopeRequired
+		}
+		return nil
+	}
+	if err := checkScope(); err != nil {
+		return false, err
+	}
+	// Compare a identidade observada antes da leitura com a do banco. Uma
+	// edição nativa concorrente publica sua própria configuração no runtime.
+	before := map[string]ServerConfig{}
+	m.mu.RLock()
+	for slug, status := range m.servers {
+		if !packagesOnly || (strings.HasPrefix(slug, "plugin-") && status.Config.UserID == owner) {
+			before[slug] = persistedLegacyConfig(status.Config)
+		}
+	}
+	m.mu.RUnlock()
+	configs, err := repo.ListServers(ctx)
+	if err != nil {
+		return false, err
+	}
+	// A sessão pode mudar enquanto o repositório lê a configuração. Descarte a
+	// fotografia antiga antes de alterar o mapa usado pela próxima conta.
+	if err := checkScope(); err != nil {
+		return false, err
+	}
+	pending := make(map[string]ServerConfig)
+	for _, cfg := range configs {
+		if !packagesOnly || strings.HasPrefix(cfg.Slug, "plugin-") {
+			cfg.applyDefaults(cfg.Slug)
+			pending[cfg.Slug] = cfg
+			if !packagesOnly {
+				logging.Infof(context.Background(), "mcp.manager", "[MCP] Servidor carregado do DB: %s (%s, transport=%s, enabled=%v, auto_connect=%v)",
+					cfg.Slug, cfg.Name, cfg.Transport, cfg.Enabled, cfg.AutoConnect)
+			}
+		}
+	}
+	var cleanupErrs []error
+	retiredAny := false
+	for slug, original := range before {
+		if cfg, ok := pending[slug]; ok && reflect.DeepEqual(persistedLegacyConfig(cfg), original) {
+			delete(pending, slug)
+			continue
+		}
+		retired, err := m.disconnectWithRecoveryForAttemptAndOwner(slug, false, true, 0, nil, nil, &original)
+		if err != nil {
+			cleanupErrs = append(cleanupErrs, fmt.Errorf("retirar servidor MCP %q: %w", slug, err))
+		}
+		if !retired {
+			// A identidade observada já foi substituída por outra operação.
+			delete(pending, slug)
+		} else {
+			retiredAny = true
+			// A CLI pode recriar esse slug enquanto a conexão anterior encerra.
+			pending[slug] = ServerConfig{}
+		}
+	}
+	cleanupErr := errors.Join(cleanupErrs...)
+	if retiredAny {
+		latest, err := repo.ListServers(ctx)
+		if err != nil {
+			return false, errors.Join(cleanupErr, err)
+		}
+		current := make(map[string]ServerConfig)
+		for _, cfg := range latest {
+			if _, candidate := pending[cfg.Slug]; candidate {
+				current[cfg.Slug] = cfg
+			}
+		}
+		pending = current
+	}
+	if err := checkScope(); err != nil {
+		return false, errors.Join(cleanupErr, err)
+	}
+	m.mu.Lock()
+	for slug, cfg := range pending {
+		if m.servers[slug] == nil {
+			cfg.applyDefaults(slug)
+			m.servers[slug] = &ServerStatus{ID: cfg.ID, Slug: slug, Config: cfg, Status: StatusDisconnected, Roots: m.roots, Tools: []MCPToolInfo{}}
+		}
+	}
+	m.mu.Unlock()
+	return true, cleanupErr
 }

@@ -8035,6 +8035,7 @@ export namespace oauthflow {
 export namespace plugins {
 	
 	export class Component {
+	    endpoint?: string;
 	    active: boolean;
 	    slug?: string;
 	    key: string;
@@ -8050,6 +8051,7 @@ export namespace plugins {
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.endpoint = source["endpoint"];
 	        this.active = source["active"];
 	        this.slug = source["slug"];
 	        this.key = source["key"];
@@ -10043,6 +10045,8 @@ export namespace wailsapi {
 		}
 	}
 	export class PluginPreview {
+	    editedMcpServers?: string[];
+	    affectedMcpServers?: string[];
 	    components: plugins.Component[];
 	    token: string;
 	    name: string;
@@ -10059,6 +10063,8 @@ export namespace wailsapi {
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.editedMcpServers = source["editedMcpServers"];
+	        this.affectedMcpServers = source["affectedMcpServers"];
 	        this.components = this.convertValues(source["components"], plugins.Component);
 	        this.token = source["token"];
 	        this.name = source["name"];

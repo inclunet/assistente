@@ -30,10 +30,11 @@ func TestPluginPreviewUsesSelectedDirectoryAndSession(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = conn.Close() })
-	if err := db.AutoMigrate(&database.PluginInstallation{}, &database.PluginRevision{}, &database.PluginSkillActivation{}); err != nil {
+	if err := db.AutoMigrate(&database.PluginInstallation{}, &database.PluginRevision{}, &database.PluginSkillActivation{}, &database.PluginMCPBinding{}, &database.MCPServer{}, &database.MCPServerLog{}, &database.ToolCatalog{}); err != nil {
 		t.Fatal(err)
 	}
-	inventory := plugins.NewInventory(db)
+	var syncErr error
+	inventory := plugins.NewInventory(db).WithMCPSync(func(context.Context) error { return syncErr })
 	api := NewPlugins()
 	active := true
 	missing := errors.New("stale")
@@ -147,6 +148,9 @@ func TestPluginPreviewUsesSelectedDirectoryAndSession(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte("---\nname: note\ndescription: Instruções\n---\nTexto"), 0600); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.WriteFile(filepath.Join(dir, "mcp.json"), []byte(`{"$schema":"https://agent-plugins.org/schemas/1.0.0/mcp.schema.json","mcpServers":{"sample":{"type":"sse","url":"https://example.org/mcp"}}}`), 0600); err != nil {
+		t.Fatal(err)
+	}
 	updated, err := api.PreviewLocal()
 	if err != nil {
 		t.Fatal(err)
@@ -163,4 +167,45 @@ func TestPluginPreviewUsesSelectedDirectoryAndSession(t *testing.T) {
 			t.Fatal(err, notifications)
 		}
 	}
+	if err := api.RegisterMCP(installed.ID, installed.Digest, "mcp/sample"); err != nil || notifications != 3 {
+		t.Fatal(err, notifications)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "README.md"), []byte("updated"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Model(&database.MCPServer{}).Where("name = ?", "sample").Update("name", "Renamed").Error; err != nil {
+		t.Fatal(err)
+	}
+	edited, err := api.PreviewLocal()
+	if err != nil || len(edited.EditedMCPServers) != 1 || edited.EditedMCPServers[0] != "sample (Renamed)" {
+		t.Fatal(edited, err)
+	}
+	if err := db.Model(&database.MCPServer{}).Where("name = ?", "Renamed").Update("name", "sample").Error; err != nil {
+		t.Fatal(err)
+	}
+	revised, err := api.PreviewLocal()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(revised.AffectedMCPServers) != 1 || revised.AffectedMCPServers[0] != "sample" {
+		t.Fatalf("missing impact: %+v", revised)
+	}
+	if err := api.RemoveMCP(installed.ID, installed.Digest, "mcp/sample", true); err != nil {
+		t.Fatal(err)
+	}
+	if err := api.RegisterMCP(installed.ID, installed.Digest, "mcp/sample"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := api.InstallReviewed(revised.Token); !errors.Is(err, plugins.ErrInstallationChanged) {
+		t.Fatalf("changed identity: %v", err)
+	}
+	revised, err = api.PreviewLocal()
+	if err != nil {
+		t.Fatal(err)
+	}
+	syncErr = errors.New("runtime offline")
+	if _, err := api.InstallReviewed(revised.Token); !errors.Is(err, plugins.ErrMCPSyncPending) || notifications != 4 {
+		t.Fatal(err, notifications)
+	}
+
 }

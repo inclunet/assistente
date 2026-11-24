@@ -23,7 +23,7 @@ func TestInstalledSkillActivationAndSlashIsolation(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = sqlDB.Close() })
-	if err := db.AutoMigrate(&database.PluginInstallation{}, &database.PluginRevision{}, &database.PluginSkillActivation{}); err != nil {
+	if err := db.AutoMigrate(&database.PluginInstallation{}, &database.PluginRevision{}, &database.PluginSkillActivation{}, &database.PluginMCPBinding{}, &database.MCPServer{}); err != nil {
 		t.Fatal(err)
 	}
 	root, err := os.OpenRoot(t.TempDir())

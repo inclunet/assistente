@@ -55,6 +55,13 @@ func (i *Inventory) InstalledComponents(ctx context.Context, id, digest string) 
 	for _, row := range active {
 		slugs[row.ComponentKey] = row.Slug
 	}
+	var bound []database.PluginMCPBinding
+	if err := i.db.WithContext(ctx).Model(&database.PluginMCPBinding{}).Select("plugin_mcp_bindings.component_key, plugin_mcp_bindings.slug").Joins("JOIN plugin_installations p ON p.id=plugin_mcp_bindings.installation_id AND p.digest=plugin_mcp_bindings.digest").Joins("JOIN mcp_servers s ON s.id=plugin_mcp_bindings.server_id AND s.user_id=p.user_id").Where("p.id=? AND p.user_id=? AND p.digest=?", id, owner, digest).Find(&bound).Error; err != nil {
+		return nil, err
+	}
+	for _, row := range bound {
+		slugs[row.ComponentKey] = row.Slug
+	}
 	for n := range components {
 		slug, ok := slugs[components[n].Key]
 		components[n].Active = ok

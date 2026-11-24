@@ -24,3 +24,11 @@ Na grade de plugins instalados, selecione o pacote e pressione Enter. Os detalhe
 A revisão preserva os arquivos do pacote. Pastas vazias, inclusive uma pasta chamada `mcp.json`, ficam fora da prévia e do diagnóstico de componentes.
 
 A interface indica quando arquivos auxiliares ou campos de configuração exigem suporte adicional. O reconhecimento de um servidor MCP na prévia ainda não inicia uma conexão.
+
+## Registrar um servidor MCP
+
+Na prévia e nos detalhes do plugin, confira o endereço e o transporte. Quando a URL contém parâmetros de consulta ou o servidor exige configuração adicional, a tela mostra o endereço sem esses parâmetros e indica por que o registro está indisponível. Para servidores SSE ou Streamable HTTP compatíveis, escolha **Adicionar aos servidores MCP**. O servidor aparece na configuração de MCP da conta, onde você pode conectá-lo. O registro deixa a conexão automática desativada.
+
+Nos detalhes do plugin, você pode remover o servidor ou mantê-lo como servidor independente. A prévia da atualização identifica os servidores afetados e aponta os editados. Ao atualizar o plugin, servidores vinculados cuja configuração continua igual são removidos. Se você editou um deles, mantenha-o como independente antes de repetir a atualização para preservar sua configuração.
+
+Se a alteração for salva e a sincronização com o gerenciador MCP falhar, use a opção de sincronizar novamente. O cadastro ou a remoção já foi gravado. Se o gerenciador sincronizar e a leitura da lista ou dos detalhes falhar, a tela informa que os dados exibidos precisam ser recarregados.

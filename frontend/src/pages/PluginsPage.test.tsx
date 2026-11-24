@@ -4,14 +4,15 @@ import userEvent from '@testing-library/user-event';
 import { axe } from 'vitest-axe';
 import PluginsPage from './PluginsPage';
 
-const mocks = vi.hoisted(() => ({ list: vi.fn(), components: vi.fn(), toggle: vi.fn(), preview: vi.fn(), install: vi.fn(), discard: vi.fn(), announce: vi.fn(), announceRequest: vi.fn() }));
-vi.mock('@wailsjs/go/wailsapi/Plugins', () => ({ InstalledComponents: mocks.components, SetSkillActive: mocks.toggle, DiscardPreview: mocks.discard, ListInstalled: mocks.list, PreviewLocal: mocks.preview, InstallReviewed: mocks.install }));
+const mocks = vi.hoisted(() => ({ sync: vi.fn(), register: vi.fn(), remove: vi.fn(), confirm: vi.fn(), list: vi.fn(), components: vi.fn(), toggle: vi.fn(), preview: vi.fn(), install: vi.fn(), discard: vi.fn(), announce: vi.fn(), announceRequest: vi.fn() }));
+vi.mock('@wailsjs/go/wailsapi/Plugins', () => ({ SyncMCP: mocks.sync, RegisterMCP: mocks.register, RemoveMCP: mocks.remove, InstalledComponents: mocks.components, SetSkillActive: mocks.toggle, DiscardPreview: mocks.discard, ListInstalled: mocks.list, PreviewLocal: mocks.preview, InstallReviewed: mocks.install }));
+vi.mock('../hooks/useConfirm', () => ({ useConfirm: () => mocks.confirm }));
 vi.mock('../store/authStore', async importOriginal => {
   const actual = await importOriginal<typeof import('../store/authStore')>();
   return { ...actual, useAuthStore: Object.assign(() => 'session', actual.useAuthStore) };
 });
 vi.mock('../hooks/useAnnouncer', () => ({ announce: mocks.announce, useAnnouncer: () => ({ announce: mocks.announce, announceRequest: mocks.announceRequest }) }));
-vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
+vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string, options?: {name?: string}) => ['plugins.registerServer','plugins.keepServer','plugins.removeServer'].includes(key) ? key + ' ' + options?.name : key }) }));
 
 describe('PluginsPage', () => {
   beforeEach(() => {
@@ -132,6 +133,157 @@ describe('PluginsPage', () => {
     expect(screen.queryByRole('alertdialog')).toBeNull();
   });
 
+  it('mostra o endereço disponível na prévia e nos detalhes de um MCP que exige configuração', async () => {
+    const user = userEvent.setup();
+    const endpoint = 'https://example.org/search';
+    const server = { kind: 'mcp', key: 'mcp/search', name: 'search', reason: 'configuration', transport: 'sse', endpoint };
+    mocks.preview.mockResolvedValueOnce({ token: 'reviewed', name: 'demo', files: [], components: [server] });
+    mocks.list.mockResolvedValue([{ id: 'one', name: 'Demo', digest: 'sha' }]);
+    mocks.components.mockResolvedValue([server]);
+    render(<PluginsPage />);
+    const cell = await screen.findByRole('gridcell', { name: /Demo/ });
+    await user.click(screen.getByRole('button', { name: 'plugins.choose' }));
+    expect(await screen.findByText('sse · ' + endpoint)).toBeVisible();
+    expect(screen.getByText('plugins.mcpConfigRequired')).toBeVisible();
+    await user.click(screen.getByRole('button', { name: 'common.cancel' }));
+    cell.focus();
+    await user.keyboard('{Enter}');
+    expect(await screen.findByText('sse · ' + endpoint)).toBeVisible();
+    expect(screen.getByText('plugins.mcpConfigRequired')).toBeVisible();
+    expect(screen.queryByRole('button', { name: /plugins.registerServer/ })).toBeNull();
+    expect(mocks.register).not.toHaveBeenCalled();
+  });
+
+  it('identifica os servidores afetados e explica a desconexão antes de confirmar a atualização', async () => {
+    const user = userEvent.setup();
+    mocks.preview.mockResolvedValueOnce({ token: 'reviewed', name: 'demo', digest: 'new', previousDigest: 'old', files: [], affectedMcpServers: ['build', 'docs'] });
+    render(<PluginsPage />);
+    const choose = screen.getByRole('button', { name: 'plugins.choose' });
+    await waitFor(() => expect(choose).toBeEnabled());
+    await user.click(choose);
+    expect(await screen.findByText('plugins.affectedServersNotice')).toBeVisible();
+    expect(mocks.announceRequest).toHaveBeenCalledWith(expect.objectContaining({
+      message: expect.stringContaining('plugins.disconnectUpdate'), announcePriority: 'assertive',
+    }));
+    expect(screen.getByText('build')).toBeVisible();
+    expect(screen.getByText('docs')).toBeVisible();
+    expect(mocks.install).not.toHaveBeenCalled();
+  });
+
+  it('impede atualizar enquanto a prévia indica um servidor editado e permite reabrir a pasta', async () => {
+    const user = userEvent.setup();
+    const preview = { token: 'reviewed', name: 'demo', digest: 'new', previousDigest: 'old', files: [] };
+    mocks.preview.mockResolvedValueOnce({ ...preview, editedMcpServers: ['custom'] }).mockResolvedValueOnce(preview);
+    render(<PluginsPage />);
+    const choose = screen.getByRole('button', { name: 'plugins.choose' });
+    await waitFor(() => expect(choose).toBeEnabled());
+    await user.click(choose);
+    expect(await screen.findByText('plugins.editedServersNotice')).toBeVisible();
+    expect(mocks.announceRequest).toHaveBeenCalledWith(expect.objectContaining({
+      message: expect.stringContaining('plugins.editedUpdate'), announcePriority: 'assertive',
+    }));
+    expect(screen.getByText('custom')).toBeVisible();
+    const update = screen.getByRole('button', { name: 'plugins.update' });
+    expect(update).toBeDisabled();
+    await user.click(update);
+    expect(mocks.install).not.toHaveBeenCalled();
+    await user.click(screen.getByRole('button', { name: 'common.cancel' }));
+    await waitFor(() => expect(choose).toHaveFocus());
+    await user.click(choose);
+    expect(await screen.findByRole('button', { name: 'plugins.update' })).toBeEnabled();
+  });
+
+  it('anuncia uma vez a sincronização confirmada com falha na recarga da lista', async () => {
+    const user = userEvent.setup();
+    mocks.list.mockResolvedValueOnce([]).mockRejectedValueOnce(new Error('read')).mockResolvedValueOnce([]);
+    render(<PluginsPage />);
+    const sync = screen.getByRole('button', { name: 'plugins.retrySync' });
+    await waitFor(() => expect(sync).toBeEnabled());
+    mocks.announce.mockClear();
+    await user.click(sync);
+    expect(await screen.findByText('plugins.syncReloadError')).toBeVisible();
+    expect(screen.queryByText('plugins.empty')).toBeNull();
+    expect(mocks.announce.mock.calls).toEqual([['plugins.syncReloadError', 'assertive']]);
+    mocks.sync.mockRejectedValueOnce(new Error('offline'));
+    mocks.announce.mockClear();
+    await user.click(sync);
+    expect(await screen.findByText('plugins.syncFailedStale')).toBeVisible();
+    expect(screen.queryByText('plugins.syncReloadError')).toBeNull();
+    expect(screen.queryByText('plugins.empty')).toBeNull();
+    expect(mocks.announce.mock.calls).toEqual([['plugins.syncFailedStale', 'assertive']]);
+    expect(mocks.list).toHaveBeenCalledTimes(2);
+    await user.click(sync);
+    await waitFor(() => expect(mocks.announce).toHaveBeenCalledWith('plugins.synchronized'));
+    expect(screen.queryByText('plugins.syncReloadError')).toBeNull();
+    expect(screen.getByText('plugins.empty')).toBeVisible();
+    expect(screen.queryByText('plugins.syncFailedStale')).toBeNull();
+    expect(mocks.sync).toHaveBeenCalledTimes(3);
+    expect(mocks.list).toHaveBeenCalledTimes(3);
+  });
+
+  it('permite sincronizar após sair da página com um registro já salvo', async () => {
+    const user = userEvent.setup();
+    const row = { id: 'one', name: 'Demo', digest: 'sha' };
+    const component = { kind: 'mcp', key: 'mcp/search', name: 'search', endpoint: 'https://example.org' };
+    mocks.list.mockResolvedValue([row]);
+    mocks.components.mockResolvedValueOnce([component]).mockResolvedValue([{ ...component, active: true }]);
+    mocks.register.mockRejectedValueOnce(new Error('PLUGIN_MCP_SYNC_PENDING'));
+    const page = render(<PluginsPage />);
+    (await screen.findByRole('gridcell', { name: /Demo/ })).focus();
+    await user.keyboard('{Enter}');
+    await user.click(await screen.findByRole('button', { name: 'plugins.registerServer search' }));
+    expect(await screen.findByText('plugins.syncPending')).toBeVisible();
+    page.unmount();
+    render(<PluginsPage />);
+    const sync = screen.getByRole('button', { name: 'plugins.retrySync' });
+    await waitFor(() => expect(sync).toBeEnabled());
+    await user.click(sync);
+    await waitFor(() => expect(mocks.announce).toHaveBeenCalledWith('plugins.synchronized'));
+    expect(mocks.register).toHaveBeenCalledOnce();
+    expect(mocks.sync).toHaveBeenCalledOnce();
+  });
+
+  it('registers an MCP and preserves the native configuration only after confirmation', async () => {
+    const user = userEvent.setup();
+    mocks.list.mockResolvedValue([{ id: 'one', name: 'Demo', digest: 'sha' }]);
+    const server = { kind: 'mcp', key: 'mcp/search', name: 'search', endpoint: 'https://example.org/mcp' };
+    const other = { ...server, key: 'mcp/other', name: 'other' };
+    mocks.components.mockResolvedValueOnce([server, other]).mockResolvedValue([{ ...server, active: true, slug: 'plugin-search' }, other]);
+    mocks.confirm.mockResolvedValueOnce(false).mockResolvedValueOnce(true);
+    render(<PluginsPage />);
+    (await screen.findByRole('gridcell', { name: /Demo/ })).focus();
+    await user.keyboard('{Enter}');
+    await user.click(await screen.findByRole('button', { name: 'plugins.registerServer search' }));
+    expect(mocks.register).toHaveBeenCalledWith('one', 'sha', 'mcp/search');
+    const keep = await screen.findByRole('button', { name: 'plugins.keepServer search' });
+    await user.click(keep);
+    expect(mocks.remove).not.toHaveBeenCalled();
+    await user.click(keep);
+    expect(mocks.remove).toHaveBeenCalledWith('one', 'sha', 'mcp/search', true);
+  });
+
+  it('recovers the persisted registration when both synchronization and the first refresh fail', async () => {
+    const user = userEvent.setup();
+    mocks.list.mockResolvedValue([{ id: 'one', name: 'Demo', digest: 'sha' }]);
+    const server = { kind: 'mcp', key: 'mcp/search', name: 'search', endpoint: 'https://example.org/mcp' };
+    mocks.components.mockResolvedValueOnce([server]).mockRejectedValueOnce(new Error('read')).mockResolvedValueOnce([{ ...server, active: true }]);
+    mocks.register.mockRejectedValueOnce(new Error('PLUGIN_MCP_SYNC_PENDING'));
+    render(<PluginsPage />);
+    (await screen.findByRole('gridcell', { name: /Demo/ })).focus();
+    await user.keyboard('{Enter}');
+    await user.click(await screen.findByRole('button', { name: 'plugins.registerServer search' }));
+    expect(await screen.findByText('plugins.syncPendingStale')).toBeInTheDocument();
+    const retry = screen.getByRole('button', { name: 'plugins.retrySync' });
+    mocks.sync.mockRejectedValueOnce(new Error('offline'));
+    await user.click(retry);
+    await waitFor(() => expect(retry).toBeEnabled());
+    expect(screen.getByRole('button', { name: 'plugins.registerServer search' })).toBeDisabled();
+    await user.click(retry);
+    expect(await screen.findByRole('button', { name: 'plugins.keepServer search' })).toBeInTheDocument();
+    expect(mocks.sync).toHaveBeenCalledTimes(2);
+    expect(mocks.register).toHaveBeenCalledOnce();
+  });
+
   it('closes the preview without installing', async () => {
     const user = userEvent.setup();
     render(<PluginsPage />);
@@ -208,10 +360,13 @@ describe('PluginsPage', () => {
     expect(screen.queryByText('plugins.empty')).toBeNull();
   });
 
-  it('reports failure to a new page that waited for the installation', async () => {
+  it.each([
+    ['offline', 'plugins.installError'],
+    ['PLUGIN_MCP_SYNC_PENDING', 'plugins.syncPending'],
+  ])('reports %s to a new page that waited for the installation', async (cause, message) => {
     const user = userEvent.setup();
     let fail!: () => void;
-    mocks.install.mockImplementationOnce(() => new Promise((_, reject) => { fail = () => reject(new Error('offline')); }));
+    mocks.install.mockImplementationOnce(() => new Promise((_, reject) => { fail = () => reject(new Error(cause)); }));
     const { unmount } = render(<PluginsPage />);
     const choose = screen.getByRole('button', { name: 'plugins.choose' });
     await waitFor(() => expect(choose).toBeEnabled());
@@ -220,7 +375,8 @@ describe('PluginsPage', () => {
     unmount();
     render(<PluginsPage />);
     await act(async () => fail());
-    expect(await screen.findByText('plugins.installError')).toBeVisible();
+    expect(await screen.findByText(message)).toBeVisible();
+    if (cause === 'PLUGIN_MCP_SYNC_PENDING') expect(screen.getByRole('button', { name: 'plugins.retrySync' })).toBeEnabled();
     expect(screen.getByRole('button', { name: 'plugins.choose' })).toBeEnabled();
   });
 });
