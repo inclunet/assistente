@@ -363,10 +363,13 @@ func (m *Manager) resolvePattern(ctx context.Context, pattern string, cacheComma
 			continue
 		}
 		if dc.Pattern == pattern {
-			// OAuth entries describe a grant or OAuth client, not a credential
-			// that can be attached directly to an arbitrary HTTP request.
-			if requireHTTP && dc.Auth.Type == "oauth2" {
-				return nil, ErrCredentialResolution
+			// Reject incompatible entries before resolving a command or keychain source.
+			if requireHTTP {
+				switch dc.Auth.Type {
+				case "bearer", "basic", "custom":
+				default:
+					return nil, ErrCredentialResolution
+				}
 			}
 			auth, err := m.decryptAuth(dc.Auth)
 			if err != nil {
