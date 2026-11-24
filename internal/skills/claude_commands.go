@@ -71,23 +71,27 @@ func planPluginCommands(ctx context.Context, skill *Skill, content string, base 
 var claudeDirectoryReference = regexp.MustCompile(`\$\{?CLAUDE_(?:PLUGIN_ROOT|PLUGIN_DATA|SKILL_DIR|PROJECT_DIR)\b`)
 var claudeMarkdownDirectory = regexp.MustCompile(`\$\{CLAUDE_(?:PLUGIN_ROOT|PLUGIN_DATA|SKILL_DIR|PROJECT_DIR)\}`)
 
-// ClaudeRuntimeRequirement identifies paths and command blocks that need the vendor runtime.
-func ClaudeRuntimeRequirement(content string) string {
+// ClaudeCommandRequirements reports a shell request independently of any runtime
+// dependency that prevents activating the skill.
+func ClaudeCommandRequirements(content string) (requestsShell bool, reason string) {
 	if claudeMarkdownDirectory.MatchString(content) {
-		return "packagePaths"
+		reason = "packagePaths"
 	}
 	if !strings.Contains(content, "!") {
-		return ""
+		return false, reason
 	}
-	reason := ""
 	inspectSkillMarkdown(content, func(start, end int) {
+		requestsShell = true
 		if claudeDirectoryReference.MatchString(content[start+2 : end-1]) {
 			reason = "packagePaths"
 		}
 	}, func(info string) {
-		if strings.TrimSpace(info) == "!" && reason == "" {
-			reason = "shellCommands"
+		if strings.TrimSpace(info) == "!" {
+			requestsShell = true
+			if reason == "" {
+				reason = "shellCommands"
+			}
 		}
 	})
-	return reason
+	return requestsShell, reason
 }

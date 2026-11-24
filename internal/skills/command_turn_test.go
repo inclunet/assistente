@@ -930,7 +930,7 @@ func TestClaudeCommandRequirementsIgnoreDocumentation(t *testing.T) {
 		{"```!\necho example\n```", true},
 		{"Run !`pwd ${CLAUDE_SKILL_DIR}`", true},
 	} {
-		if got := ClaudeRuntimeRequirement(tc.text); (got != "") != tc.requires {
+		if _, got := ClaudeCommandRequirements(tc.text); (got != "") != tc.requires {
 			t.Errorf("%q: got %v", tc.text, got)
 		}
 	}

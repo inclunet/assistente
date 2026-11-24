@@ -85,9 +85,10 @@ func DiscoverComponents(snapshot *pluginpackage.LocalSnapshot) []Component {
 			meta.Name = name
 		}
 		requirement, valid := pluginSkillFrontmatter(string(raw))
+		var requestsShell bool
 		var runtimeRequirement string
 		if claude {
-			runtimeRequirement = skills.ClaudeRuntimeRequirement(body)
+			requestsShell, runtimeRequirement = skills.ClaudeCommandRequirements(body)
 		}
 		if !valid || err != nil || meta.Name != name || strings.TrimSpace(meta.Description) == "" || utf8.RuneCountInString(meta.Description) > 1024 {
 			component.Kind = "invalidSkill"
@@ -97,12 +98,12 @@ func DiscoverComponents(snapshot *pluginpackage.LocalSnapshot) []Component {
 			component.Reason = runtimeRequirement
 		} else if snapshot.Manifest.Format != pluginpackage.ClaudeCode && skills.ContainsShellCommands(body) {
 			component.Reason = "shellCommands"
-		} else if supplemental[name] || (claude && hasExecutables && skills.ContainsClaudeCommand(body)) {
+		} else if supplemental[name] || (claude && hasExecutables && requestsShell) {
 			component.Reason = "supportingFiles"
 		} else {
 			component.Reason = requirement
-			component.RequestsShell = snapshot.Manifest.Format == pluginpackage.ClaudeCode && skills.ContainsClaudeCommand(body)
 		}
+		component.RequestsShell = component.Kind == "skill" && requestsShell
 		components = append(components, component)
 	}
 	if filename, servers, exists := mcpEntries(snapshot); exists && (!customMCP || claude) {

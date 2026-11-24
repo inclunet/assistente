@@ -218,7 +218,18 @@ func TestAdditionalClaudeContributionsKeepDefaultsVisible(t *testing.T) {
 	files["bin/package-tool"] = []byte("utility")
 	files["skills/note/SKILL.md"] = []byte("---\ndescription: A note\n---\nRun !`package-tool`.")
 	components = DiscoverComponents(snap)
-	if components[3].Reason != "supportingFiles" {
+	if components[3].Reason != "supportingFiles" || !components[3].RequestsShell {
 		t.Fatal(components)
+	}
+}
+
+func TestSupportingFilesPreserveClaudeShellNotice(t *testing.T) {
+	snap := &pluginpackage.LocalSnapshot{Manifest: pluginpackage.Manifest{Format: pluginpackage.ClaudeCode}, Files: map[string][]byte{
+		"skills/note/SKILL.md":     []byte("---\ndescription: Note\n---\nRead !`echo note`."),
+		"skills/note/reference.md": []byte("material"),
+	}}
+	got := DiscoverComponents(snap)
+	if len(got) != 1 || got[0].Reason != "supportingFiles" || !got[0].RequestsShell {
+		t.Fatal(got)
 	}
 }
