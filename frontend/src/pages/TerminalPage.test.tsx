@@ -1,9 +1,11 @@
-import type { ReactNode } from 'react';
-import { describe, expect, it, vi, beforeEach } from 'vitest';
+import type { ReactNode, Ref } from 'react';
+import { describe, expect, it, vi, afterEach, beforeEach } from 'vitest';
 import { act, createEvent, fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { WorkspacePanelProvider } from '../components/workspace/WorkspacePanelContext';
+import ptBR from '../locales/pt-BR';
+import type { WorkspaceTab } from '../store/workspaceStore';
 import {
   canFocusWorkspacePanelImmediately,
   getWorkspacePanelImmediateFocusHandler,
@@ -26,10 +28,8 @@ const storeMocks = vi.hoisted(() => ({
 
 const terminalPageMocks = vi.hoisted(() => ({
   registeredAdapter: null as unknown,
-  slashMenuEnabled: undefined as boolean | undefined,
   surfaceGetter: null as (() => unknown) | null,
   modalOpen: false,
-  onSend: null as ((message: string) => Promise<boolean | void>) | null,
 }));
 
 const workspaceMocks = vi.hoisted(() => ({
@@ -43,9 +43,9 @@ const workspaceMocks = vi.hoisted(() => ({
 
 const storeState = vi.hoisted(() => ({
   sessions: [{ id: 'term-1', name: 'Terminal 1', cwd: '/tmp', state: 'running', shell: 'sh' }],
-  historyBySession: { 'term-1': [] as Array<{ id: string; command: string; output: string; exitCode?: number }> },
-  activeEntryBySession: { 'term-1': null as string | null },
+  historyBySession: { 'term-1': [] as Array<{ id: string; command: string; output: string; exitCode?: number; source?: string }> },
   isLoadingSessions: false,
+  sessionListFailed: false,
   loadingHistoryBySession: {},
   loadSessions: storeMocks.loadSessions,
   createSession: storeMocks.createSession,
@@ -60,12 +60,19 @@ vi.mock('react-i18next', () => ({
     t: (key: string) =>
       ({
         'terminal.pageTitle': 'Terminal',
+        'terminal.chatModal.truncatedHistory': ptBR.translation.terminal.chatModal.truncatedHistory,
+        'terminal.chatModal.blankInput': ptBR.translation.terminal.chatModal.blankInput,
+        'terminal.entry.sessionOutput': ptBR.translation.terminal.entry.sessionOutput,
         'terminal.buttons.stop': 'Parar',
         'terminal.buttons.new': 'Novo',
         'terminal.buttons.terminate': 'Encerrar terminal',
-        'terminal.placeholders.creating': 'Criando terminal...',
+        'terminal.placeholders.unbound': ptBR.translation.terminal.placeholders.unbound,
+        'terminal.placeholders.unavailable': ptBR.translation.terminal.placeholders.unavailable,
+        'terminal.placeholders.loading': ptBR.translation.terminal.placeholders.loading,
+        'terminal.placeholders.ended': ptBR.translation.terminal.placeholders.ended,
         'terminal.placeholders.command': 'Digite um comando',
         'terminal.aria.toolbar': 'Barra de ferramentas do terminal',
+        'chat.messageLabel': 'chat-input',
       } as Record<string, string>)[key] ?? key,
   }),
 }));
@@ -91,33 +98,6 @@ vi.mock('../components/terminal/TerminalHistory', async () => {
         ))}
       </div>
     )),
-  };
-});
-
-vi.mock('../components/chat/ChatInput', async () => {
-  const React = await import('react');
-  return {
-    ChatInput: React.forwardRef<HTMLTextAreaElement, {
-      placeholder: string;
-      slashMenuEnabled?: boolean;
-      onSend: (message: string) => Promise<boolean | void>;
-      onArrowUp?: () => boolean;
-    }>(({ placeholder, slashMenuEnabled, onSend, onArrowUp }, ref) => {
-      terminalPageMocks.slashMenuEnabled = slashMenuEnabled;
-      terminalPageMocks.onSend = onSend;
-      return (
-        <textarea
-          ref={ref}
-          aria-label="chat-input"
-          placeholder={placeholder}
-          onKeyDown={(event) => {
-            if (event.key === 'Enter') onSend(event.currentTarget.value);
-            if (event.key === 'ArrowUp' && event.currentTarget.selectionStart === 0 &&
-                event.currentTarget.selectionEnd === 0 && onArrowUp?.()) event.preventDefault();
-          }}
-        />
-      );
-    }),
   };
 });
 
@@ -183,11 +163,11 @@ vi.mock('../hooks/useRegisterWorkspaceChatAdapter', () => ({
 }));
 
 vi.mock('../components/ui/Toolbar', () => ({
-  Toolbar: ({ left, right, actions = [] }: { left?: ReactNode; right?: ReactNode; actions?: Array<{ key: string; label: string; disabled?: boolean; onClick: () => void }> }) => (
+  Toolbar: ({ left, right, actions = [] }: { left?: ReactNode; right?: ReactNode; actions?: Array<{ key: string; label: string; disabled?: boolean; buttonRef?: Ref<HTMLButtonElement>; onClick: () => void }> }) => (
     <div>
       {left}
       {actions.map((action) => (
-        <button key={action.key} disabled={action.disabled} onClick={action.onClick}>{action.label}</button>
+        <button key={action.key} ref={action.buttonRef} disabled={action.disabled} onClick={action.onClick}>{action.label}</button>
       ))}
       {right}
     </div>
@@ -208,32 +188,35 @@ const terminalTab = {
   state: { sessionId: 'term-1' },
 };
 
-function renderTerminalPage() {
-  return render(
+function terminalPageView(tab: WorkspaceTab = terminalTab) {
+  return (
     <MemoryRouter initialEntries={['/terminal']}>
-      <WorkspacePanelProvider value={{ tab: terminalTab, isActive: true }}>
+      <WorkspacePanelProvider value={{ tab, isActive: true }}>
         <TerminalPage />
       </WorkspacePanelProvider>
-    </MemoryRouter>,
+    </MemoryRouter>
   );
 }
 
+function renderTerminalPage() {
+  return render(terminalPageView());
+}
+
 describe('TerminalPage', () => {
+  afterEach(() => vi.restoreAllMocks());
   beforeEach(() => {
-    vi.restoreAllMocks();
     storeMocks.loadSessions.mockReset();
     storeMocks.createSession.mockReset();
     storeMocks.closeSession.mockReset();
-    storeMocks.sendInput.mockReset();
+    storeState.sessionListFailed = false;
+    storeMocks.sendInput.mockReset().mockResolvedValue(true);
     workspaceMocks.updateTab.mockReset();
     terminalPageMocks.registeredAdapter = null;
-    terminalPageMocks.slashMenuEnabled = undefined;
     terminalPageMocks.surfaceGetter = null;
     terminalPageMocks.modalOpen = false;
     vi.spyOn(document, 'hasFocus').mockReturnValue(true);
-    terminalPageMocks.onSend = null;
     storeState.historyBySession = { 'term-1': [] };
-    storeState.activeEntryBySession = { 'term-1': null };
+    storeState.isLoadingSessions = false;
     storeState.sessions = [{ id: 'term-1', name: 'Terminal 1', cwd: '/tmp', state: 'running', shell: 'sh' }];
     workspaceMocks.workspace.activeTabId = 'terminal-tab';
     workspaceMocks.workspace.tabs[0].state = { sessionId: 'term-1' };
@@ -262,6 +245,26 @@ describe('TerminalPage', () => {
     expect(screen.getByRole('heading', { name: 'Terminal 1' })).toBeInTheDocument();
   });
 
+  it.each([
+    { editorFocused: true, otherSession: true },
+    { editorFocused: true, otherSession: false },
+    { editorFocused: false, otherSession: true },
+  ])('ao encerrar a sessão preserva o contexto de foco $editorFocused com segunda sessão $otherSession', ({ editorFocused, otherSession }) => {
+    const { rerender } = renderTerminalPage();
+    const input = screen.getByLabelText('chat-input');
+    const otherButton = screen.getByRole('button', { name: 'Novo' });
+    if (editorFocused) input.focus();
+    else otherButton.focus();
+
+    storeState.sessions = otherSession ? [{ ...storeState.sessions[0], id: 'term-2' }] : [];
+    rerender(terminalPageView());
+
+    expect(input).toHaveAttribute('readonly');
+    expect(editorFocused && otherSession
+      ? screen.getByRole('button', { name: /terminal.picker.label/ })
+      : otherButton).toHaveFocus();
+  });
+
   it('getter da surface rejeita retarget da mesma aba sem rerender ou notify', () => {
     renderTerminalPage();
     expect(terminalPageMocks.surfaceGetter).not.toBeNull();
@@ -281,6 +284,117 @@ describe('TerminalPage', () => {
     expect(terminalPageMocks.surfaceGetter?.()).toBeNull();
   });
 
+  it.each([true, false])('reconcilia o envio após o encerramento da sessão (aceito: %s)', async accepted => {
+    let settle!: (accepted: boolean) => void;
+    storeMocks.sendInput.mockReturnValueOnce(new Promise<boolean>(resolve => { settle = resolve; }));
+    const { rerender } = renderTerminalPage();
+    const input = screen.getByRole('textbox');
+    fireEvent.change(input, { target: { value: 'exit' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    storeState.sessions = [];
+    rerender(terminalPageView());
+    expect(input).toHaveAttribute('readonly');
+    expect(input).toHaveValue('exit');
+    expect(input).toHaveAccessibleDescription(ptBR.translation.terminal.placeholders.ended);
+    expect(screen.getByText(ptBR.translation.terminal.placeholders.ended)).toBeVisible();
+    await act(async () => { settle(accepted); });
+    expect(input).toHaveValue(accepted ? '' : 'exit');
+    storeState.sessions = [{ id: 'term-2', name: 'Outro', cwd: '/', state: 'idle', shell: 'sh' }];
+    rerender(terminalPageView({ ...terminalTab, state: { sessionId: 'term-2' } }));
+    expect(input).not.toHaveAttribute('readonly');
+    expect(input).not.toHaveAttribute('aria-describedby');
+    if (accepted) {
+      fireEvent.keyDown(input, { key: 'Enter' });
+      expect(storeMocks.sendInput).toHaveBeenCalledTimes(1);
+    } else expect(input).toHaveValue('exit');
+  });
+
+  it('o aceite antigo preserva texto idêntico redigitado em outra sessão', async () => {
+    let accept!: (value: boolean) => void;
+    storeMocks.sendInput.mockReturnValueOnce(new Promise<boolean>(resolve => { accept = resolve; }));
+    const { rerender } = renderTerminalPage();
+    const input = screen.getByRole('textbox');
+    fireEvent.change(input, { target: { value: 'exit' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    storeState.sessions = [];
+    rerender(terminalPageView());
+    storeState.sessions = [{ id: 'term-2', name: 'Outro', cwd: '/', state: 'idle', shell: 'sh' }];
+    rerender(terminalPageView({ ...terminalTab, state: { sessionId: 'term-2' } }));
+    fireEvent.change(input, { target: { value: '' } });
+    fireEvent.change(input, { target: { value: 'exit' } });
+    await act(async () => { accept(true); });
+    expect(input).toHaveValue('exit');
+  });
+
+  it('o foco agendado pelo envio não volta ao editor após o encerramento', async () => {
+    const { rerender } = renderTerminalPage();
+    const input = screen.getByRole('textbox');
+    const frames: FrameRequestCallback[] = [];
+    vi.spyOn(window, 'requestAnimationFrame').mockImplementation(callback => frames.push(callback));
+    input.focus();
+    fireEvent.change(input, { target: { value: 'exit' } });
+    await act(async () => { fireEvent.keyDown(input, { key: 'Enter' }); });
+    expect(storeMocks.sendInput).toHaveBeenCalledWith('term-1', 'exit');
+    expect(frames.length).toBeGreaterThan(0);
+    storeState.sessions = [];
+    rerender(terminalPageView());
+    const createButton = screen.getByRole('button', { name: 'Novo' });
+    expect(createButton).toHaveFocus();
+    act(() => { frames.forEach(callback => callback(0)); });
+    expect(createButton).toHaveFocus();
+  });
+
+  it('distingue listagem pendente, sessão encerrada e aba sem vínculo', () => {
+    storeState.sessions = [];
+    storeState.isLoadingSessions = true;
+    const { rerender } = renderTerminalPage();
+    const editor = screen.getByRole('textbox');
+    const labels = ptBR.translation.terminal.placeholders;
+    expect(editor).not.toHaveAttribute('placeholder');
+    expect(screen.getByText(labels.loading)).toBeVisible();
+    expect(editor).toHaveAccessibleDescription(labels.loading);
+    storeState.isLoadingSessions = false;
+    rerender(terminalPageView());
+    expect(editor).toHaveAccessibleDescription(labels.ended);
+    storeState.sessionListFailed = true;
+    rerender(terminalPageView());
+    expect(editor).toHaveAccessibleDescription(labels.unavailable);
+    rerender(terminalPageView({ ...terminalTab, state: undefined }));
+    expect(editor).toHaveAccessibleDescription(labels.unbound);
+  });
+
+  it.each(['removida', 'oculta'])('recupera o foco quando a origem fica %s durante a listagem', async mode => {
+    const live = storeState.sessions;
+    storeState.sessions = [];
+    storeState.isLoadingSessions = true;
+    const panel = document.createElement('div');
+    const origin = document.createElement('button');
+    panel.append(origin);
+    document.body.append(panel);
+    try {
+      origin.focus();
+      const { rerender } = renderTerminalPage();
+      act(() => { expect(requestWorkspacePanelFocus('terminal-tab')).toBe(true); });
+      if (mode === 'removida') panel.remove();
+      else { panel.hidden = true; origin.blur(); }
+      expect(document.activeElement).toBe(document.body);
+      storeState.sessions = live;
+      storeState.isLoadingSessions = false;
+      rerender(terminalPageView());
+      await act(async () => { await new Promise(requestAnimationFrame); });
+      expect(screen.getByRole('textbox')).toHaveFocus();
+    } finally { panel.remove(); }
+  });
+
+  it('mantém o comando que o terminal recusou', async () => {
+    storeMocks.sendInput.mockResolvedValue(false);
+    renderTerminalPage();
+    const input = screen.getByRole('textbox');
+    fireEvent.change(input, { target: { value: 'pwd' } });
+    await act(async () => { fireEvent.keyDown(input, { key: 'Enter' }); });
+    expect(input).toHaveValue('pwd');
+  });
+
   it('registra handler de foco de painel e foca o input ao ser solicitado', async () => {
     renderTerminalPage();
     const input = screen.getByLabelText('chat-input') as HTMLTextAreaElement;
@@ -292,7 +406,55 @@ describe('TerminalPage', () => {
       requestWorkspacePanelFocus('terminal-tab');
     });
 
-    await vi.waitFor(() => expect(input).toHaveFocus());
+    await act(async () => { await new Promise(requestAnimationFrame); });
+    expect(input).toHaveFocus();
+  });
+
+  it.each([
+    { registry: false, moved: false },
+    { registry: true, moved: false },
+    { registry: false, moved: true },
+    { registry: true, moved: true },
+  ])('espera a listagem e respeita navegação durante a hidratação (registro $registry, foco movido $moved)', async ({ registry, moved }) => {
+    const live = storeState.sessions;
+    storeState.sessions = [];
+    storeState.isLoadingSessions = true;
+    const origin = document.activeElement;
+    const { rerender } = renderTerminalPage();
+    if (registry) act(() => { expect(requestWorkspacePanelFocus('terminal-tab')).toBe(true); });
+    await act(async () => { await new Promise(requestAnimationFrame); });
+    expect(document.activeElement).toBe(origin);
+    const other = screen.getByRole('button', { name: 'Novo' });
+    if (moved) act(() => other.focus());
+    storeState.sessions = live;
+    storeState.isLoadingSessions = false;
+    rerender(terminalPageView());
+    await act(async () => { await new Promise(requestAnimationFrame); });
+    expect(moved ? other : screen.getByRole('textbox')).toHaveFocus();
+  });
+
+  it.each([true, false])('uma aba sem vínculo atende o pedido de foco mesmo com listagem pendente (há sessões: %s)', async (hasSessions) => {
+    if (!hasSessions) storeState.sessions = [];
+    storeState.isLoadingSessions = true;
+    render(terminalPageView({ ...terminalTab, state: undefined }));
+    act(() => { expect(requestWorkspacePanelFocus('terminal-tab')).toBe(true); });
+    await act(async () => { await new Promise(requestAnimationFrame); });
+    expect(screen.getByRole('button', {
+      name: hasSessions ? /terminal.picker.label/ : 'Novo',
+    })).toHaveFocus();
+  });
+
+  it('oferece criar um terminal se a listagem termina sem localizar o vínculo', async () => {
+    storeState.isLoadingSessions = true;
+    storeState.sessions = [];
+    const { rerender } = renderTerminalPage();
+    const createButton = screen.getByRole('button', { name: 'Novo' });
+    await act(async () => { await new Promise(requestAnimationFrame); });
+    expect(createButton).not.toHaveFocus();
+    storeState.isLoadingSessions = false;
+    rerender(terminalPageView());
+    await act(async () => { await new Promise(requestAnimationFrame); });
+    expect(createButton).toHaveFocus();
   });
 
   it('abre o picker real pelo comando de apresentação', async () => {
@@ -552,25 +714,54 @@ describe('TerminalPage', () => {
     window.removeEventListener(TERMINAL_OPERATION_EVENT, request);
   });
 
-  it('desabilita o menu slash e envia "/" como texto normal ao shell', () => {
+  it('desabilita o menu slash e envia "/" como texto normal ao shell', async () => {
     renderTerminalPage();
 
     const input = screen.getByLabelText('chat-input');
     fireEvent.change(input, { target: { value: '/' } });
-    fireEvent.keyDown(input, { key: 'Enter' });
-
-    expect(terminalPageMocks.slashMenuEnabled).toBe(false);
+    expect(input).toHaveRole('textbox');
+    await act(async () => { fireEvent.keyDown(input, { key: 'Enter' }); });
     expect(storeMocks.sendInput).toHaveBeenCalledWith('term-1', '/');
+  });
+
+  it('aceita colagem de texto e impede que mídia gere um Enter no PTY', async () => {
+    const user = userEvent.setup();
+    renderTerminalPage();
+    const input = screen.getByRole('textbox');
+    expect(screen.queryByRole('button', { name: 'chat.attachFile' })).toBeNull();
+    expect(screen.queryByLabelText('chat.selectFiles')).toBeNull();
+    const file = new File(['img'], 'foto.png', { type: 'image/png' });
+    const getAsFile = vi.fn(() => file);
+    const dragData = { files: [file], types: ['Files'] };
+    fireEvent.dragEnter(input, { dataTransfer: dragData });
+    expect(screen.getByTestId('chat-input')).not.toHaveClass('dragging');
+    const drop = createEvent.drop(input, { dataTransfer: dragData });
+    fireEvent(input, drop);
+    expect(drop.defaultPrevented).toBe(true);
+    const paste = createEvent.paste(input, { clipboardData: { items: [{ type: file.type, getAsFile }] } });
+    fireEvent(input, paste);
+    expect(getAsFile).not.toHaveBeenCalled();
+    expect(paste.defaultPrevented).toBe(false);
+    await user.click(input);
+    await user.keyboard('{Enter}');
+    expect(storeMocks.sendInput).not.toHaveBeenCalled();
+    await user.paste('pwd');
+    expect(input).toHaveValue('pwd');
+    await user.keyboard('{Enter}');
+    expect(storeMocks.sendInput).toHaveBeenCalledExactlyOnceWith('term-1', 'pwd');
   });
 
   it('retorna aceitação explícita para o ChatInput limpar o comando enviado', async () => {
     renderTerminalPage();
 
-    await expect(terminalPageMocks.onSend?.('pwd')).resolves.toBe(true);
+    const input = screen.getByRole('textbox');
+    fireEvent.change(input, { target: { value: 'pwd' } });
+    await act(async () => { fireEvent.keyDown(input, { key: 'Enter' }); });
+    expect(input).toHaveValue('');
     expect(storeMocks.sendInput).toHaveBeenCalledWith('term-1', 'pwd');
   });
 
-  it('usa o mesmo histórico no preview e no envio do chat', async () => {
+  it.each(['comandos', 'sessão', 'diagnóstico', 'blocos intercalados', 'entrada em branco'])('usa o mesmo histórico na prévia e no envio do chat (%s)', async scenario => {
     storeState.historyBySession = {
       'term-1': Array.from({ length: 45 }, (_, index) => {
         const entryNumber = index + 1;
@@ -583,6 +774,30 @@ describe('TerminalPage', () => {
       }),
     };
 
+    if (scenario === 'entrada em branco') {
+      storeState.historyBySession['term-1'] = [
+        { id: 'vazia', command: ' ', source: 'user-raw', output: '' },
+        { id: 'enter', command: '\n', source: 'user-raw', output: 'Opção padrão aceita\n' },
+        { id: 'bloco', command: '', source: 'session-output', output: 'prompt> ' },
+      ];
+    }
+    if (scenario === 'blocos intercalados') {
+      storeState.historyBySession['term-1'] = [
+        { id: 'antes', command: '', source: 'session-output', output: '&'.repeat(395) },
+        { id: 'teste', command: 'conferir', output: 'ERRO: modulo ausente', exitCode: 1 },
+        { id: 'depois', command: '', source: 'session-output', output: '&'.repeat(395) + '\n---\n$ literal' },
+      ];
+    }
+    if (scenario === 'diagnóstico') {
+      storeState.historyBySession['term-1'] = [{
+        id: 'erro', command: 'npm test', output: '✅ aprovado\n'.repeat(300) + 'ERRO: módulo ausente', exitCode: 1,
+      }];
+    }
+    if (scenario === 'sessão') {
+      storeState.historyBySession['term-1'] = storeState.historyBySession['term-1'].flatMap((entry, i) => [
+        entry, { id: `bloco-${i + 1}`, command: '', source: 'session-output', output: `prompt-${i + 1}> ` },
+      ]);
+    }
     renderTerminalPage();
 
     const adapter = terminalPageMocks.registeredAdapter as {
@@ -605,9 +820,40 @@ describe('TerminalPage', () => {
     expect(surfaceContext.surfaceId).toBe('terminal-tab');
     expect(surfaceContext.snapshotVersion).toMatch(/^terminal:terminal-tab:/);
     expect(surfaceContext.content.recentOutput).toBe(prepared.contextDisplay);
+    if (scenario === 'entrada em branco') {
+      expect(surfaceContext.content.truncated).toBe(false);
+      expect(prepared.contextDisplay).toBe('[Entrada em branco]\nOpção padrão aceita\n---\n[Saída da sessão]\nprompt> ');
+      expect(surfaceContext.content.recentOutputItems).toEqual([
+        { kind: 'command', header: '[Entrada em branco]', output: 'Opção padrão aceita' },
+        { kind: 'session', header: '[Saída da sessão]', output: 'prompt> ' },
+      ]);
+      return;
+    }
+    if (scenario === 'blocos intercalados') {
+      expect(surfaceContext.content.truncated).toBe(false);
+      expect(surfaceContext.content.recentOutputItems).toEqual([
+        { kind: 'session', header: '[Saída da sessão]', output: '&'.repeat(395) },
+        { kind: 'command', header: '$ conferir', output: 'ERRO: modulo ausente' },
+        { kind: 'session', header: '[Saída da sessão]', output: '&'.repeat(395) + '\n---\n$ literal' },
+      ]);
+      return;
+    }
+    expect(surfaceContext.content.truncated).toBe(true);
+    if (scenario === 'diagnóstico') {
+      expect(prepared.contextDisplay).toMatch(/^… histórico truncado\n\$ npm test\n…/);
+      expect(prepared.contextDisplay).toMatch(/\nERRO: módulo ausente$/);
+      return;
+    }
     expect(surfaceContext.content.recentOutput).toContain('cmd-6');
     expect(surfaceContext.content.recentOutput).toContain('cmd-45');
     expect(surfaceContext.content.recentOutput).not.toContain('cmd-5');
-    expect(surfaceContext.content.truncated).toBe(true);
+    if (scenario === 'sessão') {
+      expect(prepared.contextDisplay).toContain('out-45\n---\n[Saída da sessão]\nprompt-45> ');
+      expect(prepared.contextDisplay).not.toContain('prompt-6> ');
+      expect(prepared.contextDisplay).toMatch(/^… histórico truncado/);
+      expect(Array.from(prepared.contextDisplay).length).toBeLessThanOrEqual(900);
+      expect(prepared.contextDisplay).not.toContain('prompt-5> ');
+      expect(surfaceContext.metadata.lastExitCode).toBe(0);
+    }
   });
 });
