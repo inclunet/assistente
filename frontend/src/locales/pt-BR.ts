@@ -153,6 +153,8 @@ notSaved: 'A decisão vale somente para esta operação: não foi possível lemb
     plugins: {
       syncPendingStale: 'Alterações salvas. A tela não conseguiu recarregar os dados. Sincronize os servidores MCP para tentar novamente.',
       syncPending: 'Alterações salvas. Sincronize os servidores MCP para aplicá-las nesta sessão.',
+      disconnectUpdate: 'Atualizar remove os servidores MCP vinculados e encerra suas conexões. Confira a lista de servidores afetados.',
+      editedUpdate: 'A atualização está bloqueada por edições locais em servidores MCP. Cancele para preservar os servidores indicados nos detalhes do plugin.',
       affectedServers: 'Servidores MCP afetados',
       affectedServersNotice: 'A atualização remove os servidores MCP vinculados e encerra suas conexões. Para manter um servidor, cancele e escolha mantê-lo como independente nos detalhes do plugin antes de atualizar.',
       syncFailed: 'Não foi possível sincronizar os servidores MCP. Tente novamente.',

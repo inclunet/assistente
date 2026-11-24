@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"reflect"
 	"sort"
 	"strings"
 	"sync"
@@ -284,10 +285,6 @@ func (m *Manager) GetLogs(slug string, limit int) ([]MCPServerLog, error) {
 }
 
 func (m *Manager) markServerToolsUnavailable(slug, reason string) {
-	catalog := m.toolCatalog()
-	if catalog == nil {
-		return
-	}
 	m.mu.RLock()
 	status := m.servers[slug]
 	serverID := ""
@@ -308,11 +305,19 @@ func (m *Manager) markServerToolsUnavailable(slug, reason string) {
 		}
 		ctx = database.WithUserID(context.Background(), ownerUserID)
 	}
+	m.markServerToolsUnavailableByID(ctx, serverID, reason)
+}
+
+func (m *Manager) markServerToolsUnavailableByID(ctx context.Context, serverID, reason string) {
+	catalog := m.toolCatalog()
+	if catalog == nil {
+		return
+	}
 	if _, err := catalog.MarkServerToolsUnavailable(ctx, serverID, nil, reason); err != nil {
 		if benignCtxCancel(ctx, err) {
-			logging.Debugf(context.Background(), "mcp.manager", "[MCP:%s] marcação de tools indisponíveis cancelada (shutdown): %v", slug, err)
+			logging.Debugf(context.Background(), "mcp.manager", "[MCP:%s] marcação de tools indisponíveis cancelada (shutdown): %v", serverID, err)
 		} else {
-			logging.Errorf(context.Background(), "mcp.manager", "[MCP:%s] erro ao marcar tools indisponíveis no catálogo: %v", slug, err)
+			logging.Errorf(context.Background(), "mcp.manager", "[MCP:%s] erro ao marcar tools indisponíveis no catálogo: %v", serverID, err)
 		}
 	}
 }
@@ -1460,24 +1465,24 @@ func (m *Manager) disconnectWithRecovery(slug string, legacyOnly, cancelRecovery
 }
 
 func (m *Manager) disconnectWithRecoveryForAttempt(slug string, legacyOnly, cancelRecovery bool, retryAttemptID uint64) (bool, error) {
-	return m.disconnectWithRecoveryForAttemptAndOwner(slug, legacyOnly, cancelRecovery, retryAttemptID, nil, nil, "")
+	return m.disconnectWithRecoveryForAttemptAndOwner(slug, legacyOnly, cancelRecovery, retryAttemptID, nil, nil, nil)
 }
 
 func (m *Manager) disconnectWithManagedOwner(ctx context.Context, slug string, owner *managedAttempt) error {
 	retryAttemptID := owner.reconnectAttemptID
 	cancelRecovery := retryAttemptID == 0
-	disconnected, err := m.disconnectWithRecoveryForAttemptAndOwner(slug, false, cancelRecovery, retryAttemptID, owner, ctx, "")
+	disconnected, err := m.disconnectWithRecoveryForAttemptAndOwner(slug, false, cancelRecovery, retryAttemptID, owner, ctx, nil)
 	if err == nil && !disconnected && retryAttemptID != 0 {
 		return oauthflow.ErrConflict
 	}
 	return err
 }
 
-func (m *Manager) disconnectWithRecoveryForAttemptAndOwner(slug string, legacyOnly, cancelRecovery bool, retryAttemptID uint64, managedOwner *managedAttempt, managedOwnerCtx context.Context, retireServerID string) (bool, error) {
+func (m *Manager) disconnectWithRecoveryForAttemptAndOwner(slug string, legacyOnly, cancelRecovery bool, retryAttemptID uint64, managedOwner *managedAttempt, managedOwnerCtx context.Context, retireConfig *ServerConfig) (bool, error) {
 	m.mu.Lock()
-	if retireServerID != "" {
+	if retireConfig != nil {
 		current := m.servers[slug]
-		if current == nil || current.ID != retireServerID {
+		if current == nil || current.ID != retireConfig.ID || !reflect.DeepEqual(persistedLegacyConfig(current.Config), *retireConfig) {
 			m.mu.Unlock()
 			return false, nil
 		}
@@ -1513,7 +1518,7 @@ func (m *Manager) disconnectWithRecoveryForAttemptAndOwner(slug string, legacyOn
 		} else {
 			<-cleanupDone
 		}
-		return m.disconnectWithRecoveryForAttemptAndOwner(slug, legacyOnly, cancelRecovery, retryAttemptID, managedOwner, managedOwnerCtx, retireServerID)
+		return m.disconnectWithRecoveryForAttemptAndOwner(slug, legacyOnly, cancelRecovery, retryAttemptID, managedOwner, managedOwnerCtx, retireConfig)
 	}
 	if retryAttemptID != 0 {
 		status := m.servers[slug]
@@ -1554,7 +1559,7 @@ func (m *Manager) disconnectWithRecoveryForAttemptAndOwner(slug string, legacyOn
 	}
 	// A retirada do pacote impede novas reservas antes de liberar o lock.
 	// O cleanup continua dono da conexão e da tentativa já capturadas.
-	if retireServerID != "" {
+	if retireConfig != nil {
 		delete(m.servers, slug)
 	}
 	if !ok && attempt == nil && managed == nil && reconnect == nil {
@@ -1617,12 +1622,19 @@ func (m *Manager) disconnectWithRecoveryForAttemptAndOwner(slug string, legacyOn
 		<-managed.done
 	}
 
-	m.markServerToolsUnavailable(slug, "server disconnected")
+	if retireConfig == nil {
+		m.markServerToolsUnavailable(slug, "server disconnected")
+	} else {
+		// A descoberta por slug pode encontrar a identidade substituta.
+		m.markServerToolsUnavailableByID(database.WithUserID(context.Background(), retireConfig.UserID), retireConfig.ID, "server disconnected")
+	}
 	logging.Infof(context.Background(), "mcp.manager", "[MCP] Servidor '%s' desconectado", slug)
 
 	m.emit("mcp:server_disconnected", map[string]string{"slug": slug})
 	m.emit("mcp:tools_changed", nil)
-	m.logEvent(slug, "disconnected", "Servidor MCP desconectado", nil)
+	if retireConfig == nil {
+		m.logEvent(slug, "disconnected", "Servidor MCP desconectado", nil)
+	}
 
 	m.mu.Lock()
 	delete(m.disconnectCleanups, slug)
@@ -3209,11 +3221,11 @@ func (m *Manager) ReloadPackagedConfigs(ctx context.Context) error {
 	}
 	// Compare a identidade observada antes da leitura com a do banco. Uma
 	// edição nativa concorrente publica sua própria configuração no runtime.
-	before := map[string]string{}
+	before := map[string]ServerConfig{}
 	m.mu.RLock()
 	for slug, status := range m.servers {
 		if strings.HasPrefix(slug, "plugin-") && status.Config.UserID == owner {
-			before[slug] = status.ID
+			before[slug] = persistedLegacyConfig(status.Config)
 		}
 	}
 	m.mu.RUnlock()
@@ -3229,22 +3241,41 @@ func (m *Manager) ReloadPackagedConfigs(ctx context.Context) error {
 	pending := make(map[string]ServerConfig)
 	for _, cfg := range configs {
 		if strings.HasPrefix(cfg.Slug, "plugin-") {
+			cfg.applyDefaults(cfg.Slug)
 			pending[cfg.Slug] = cfg
 		}
 	}
-	for slug, expectedID := range before {
-		if cfg, ok := pending[slug]; ok && cfg.ID == expectedID {
+	retiredAny := false
+	for slug, original := range before {
+		if cfg, ok := pending[slug]; ok && reflect.DeepEqual(persistedLegacyConfig(cfg), original) {
 			delete(pending, slug)
 			continue
 		}
-		retired, err := m.disconnectWithRecoveryForAttemptAndOwner(slug, false, true, 0, nil, nil, expectedID)
+		retired, err := m.disconnectWithRecoveryForAttemptAndOwner(slug, false, true, 0, nil, nil, &original)
 		if err != nil {
 			return err
 		}
 		if !retired {
 			// A identidade observada já foi substituída por outra operação.
 			delete(pending, slug)
+		} else {
+			retiredAny = true
+			// A CLI pode recriar esse slug enquanto a conexão anterior encerra.
+			pending[slug] = ServerConfig{}
 		}
+	}
+	if retiredAny && len(pending) > 0 {
+		latest, err := repo.ListServers(ctx)
+		if err != nil {
+			return err
+		}
+		current := make(map[string]ServerConfig)
+		for _, cfg := range latest {
+			if _, candidate := pending[cfg.Slug]; candidate {
+				current[cfg.Slug] = cfg
+			}
+		}
+		pending = current
 	}
 	if err := checkScope(); err != nil {
 		return err

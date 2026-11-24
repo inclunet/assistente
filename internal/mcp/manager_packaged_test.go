@@ -14,6 +14,12 @@ import (
 type packagedListRepo struct {
 	Repository
 	list func(context.Context) ([]ServerConfig, error)
+	log  func(*MCPServerLog)
+}
+
+func (r packagedListRepo) LogEvent(_ context.Context, entry *MCPServerLog) error {
+	r.log(entry)
+	return nil
 }
 
 func (r packagedListRepo) ListServers(ctx context.Context) ([]ServerConfig, error) {
@@ -69,11 +75,12 @@ func TestPackagedRetirementBlocksWaitingConnect(t *testing.T) {
 	})
 	t.Cleanup(m.CloseAll)
 	m.SetAuthContextProvider(func() context.Context { return alice })
-	m.servers[slug] = &ServerStatus{ID: id, Slug: slug, Status: StatusConnected, Config: ServerConfig{UserID: "alice", Slug: slug, Enabled: true}}
+	m.servers[slug] = &ServerStatus{ID: id, Slug: slug, Status: StatusConnected, Config: ServerConfig{ID: id, UserID: "alice", Slug: slug, Enabled: true}}
 	m.connections[slug] = &serverConnection{}
+	original := persistedLegacyConfig(m.servers[slug].Config)
 	retired := make(chan error, 1)
 	go func() {
-		_, err := m.disconnectWithRecoveryForAttemptAndOwner(slug, false, true, 0, nil, nil, id)
+		_, err := m.disconnectWithRecoveryForAttemptAndOwner(slug, false, true, 0, nil, nil, &original)
 		retired <- err
 	}()
 	<-inCleanup
@@ -131,5 +138,61 @@ func TestPackagedReloadReconcilesReusedSlugByServerID(t *testing.T) {
 				t.Fatalf("expected identity %s with its own endpoint; got %+v", tc.wantID, got)
 			}
 		})
+	}
+}
+
+func TestPackagedReloadDiscardsReplacementDeletedDuringCleanup(t *testing.T) {
+	const slug = "plugin-shared"
+	alice := database.WithUserID(context.Background(), "alice")
+	replacementExists := true
+	m := NewManager(nil, nil, func(event string, _ any) {
+		if event == "mcp:server_disconnected" {
+			replacementExists = false
+		}
+	})
+	t.Cleanup(m.CloseAll)
+	m.SetAuthContextProvider(func() context.Context { return alice })
+	a := ServerConfig{Slug: slug, ID: "A", UserID: "alice", Enabled: true}
+	m.servers[slug] = &ServerStatus{ID: a.ID, Slug: slug, Config: a, Status: StatusConnected}
+	m.connections[slug] = &serverConnection{}
+	m.SetRepository(packagedListRepo{
+		list: func(context.Context) ([]ServerConfig, error) {
+			if replacementExists {
+				return []ServerConfig{{Slug: slug, ID: "B", UserID: "alice"}}, nil
+			}
+			return nil, nil
+		},
+		log: func(entry *MCPServerLog) { t.Errorf("retirement attributed an event by slug: %+v", entry) },
+	})
+	if err := m.ReloadPackagedConfigs(alice); err != nil {
+		t.Fatal(err)
+	}
+	if replacementExists || len(m.servers) != 0 {
+		t.Fatalf("replacement resurrected: %+v", m.servers)
+	}
+}
+
+func TestPackagedReloadPreservesConcurrentEditOfSameServer(t *testing.T) {
+	const slug = "plugin-edited"
+	alice := database.WithUserID(context.Background(), "alice")
+	m := NewManager(nil, nil, nil)
+	t.Cleanup(m.CloseAll)
+	m.SetAuthContextProvider(func() context.Context { return alice })
+	original := ServerConfig{Slug: slug, ID: "A", UserID: "alice", URL: "https://example.org/original"}
+	m.servers[slug] = &ServerStatus{ID: original.ID, Slug: slug, Config: original, Status: StatusDisconnected}
+	const newerURL = "https://example.org/current"
+	m.SetRepository(packagedListRepo{list: func(context.Context) ([]ServerConfig, error) {
+		stale := original
+		stale.URL = "https://example.org/stale"
+		m.mu.Lock()
+		m.servers[slug].Config.URL = newerURL
+		m.mu.Unlock()
+		return []ServerConfig{stale}, nil
+	}})
+	if err := m.ReloadPackagedConfigs(alice); err != nil {
+		t.Fatal(err)
+	}
+	if got := m.servers[slug]; got == nil || got.Config.URL != newerURL {
+		t.Fatalf("concurrent edit lost: %+v", got)
 	}
 }

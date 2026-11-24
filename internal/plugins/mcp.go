@@ -60,8 +60,8 @@ func portableMCP(raw json.RawMessage) (mcp.ServerConfig, string) {
 
 // BoundMCPServer identifies the native registration affected by an update.
 type BoundMCPServer struct {
-	ID, Name string
-	Edited   bool
+	ID, Name, ComponentKey string
+	Edited                 bool
 }
 
 func (i *Inventory) BoundMCPServers(ctx context.Context, id, digest string) ([]BoundMCPServer, error) {
@@ -74,10 +74,10 @@ func (i *Inventory) BoundMCPServers(ctx context.Context, id, digest string) ([]B
 
 func boundMCPServers(ctx context.Context, db *gorm.DB, owner, id, digest string) ([]BoundMCPServer, error) {
 	var rows []struct {
-		database.MCPServer `gorm:"embedded"`
-		ConfigDigest       string
+		database.MCPServer         `gorm:"embedded"`
+		ConfigDigest, ComponentKey string
 	}
-	err := db.WithContext(ctx).Table("plugin_mcp_bindings AS b").Select("s.*, b.config_digest").
+	err := db.WithContext(ctx).Table("plugin_mcp_bindings AS b").Select("s.*, b.config_digest, b.component_key").
 		Joins("JOIN plugin_installations p ON p.id = b.installation_id AND p.digest = b.digest").
 		Joins("JOIN mcp_servers s ON s.id = b.server_id AND s.user_id = p.user_id").
 		Where("p.id = ? AND p.user_id = ? AND p.digest = ?", id, owner, digest).Order("s.name, s.id").Scan(&rows).Error
@@ -94,7 +94,7 @@ func boundMCPServers(ctx context.Context, db *gorm.DB, owner, id, digest string)
 		if err != nil {
 			return nil, err
 		}
-		servers = append(servers, BoundMCPServer{ID: cfg.ID, Name: cfg.Name, Edited: digest != row.ConfigDigest})
+		servers = append(servers, BoundMCPServer{ID: cfg.ID, Name: cfg.Name, ComponentKey: row.ComponentKey, Edited: digest != row.ConfigDigest})
 	}
 	return servers, nil
 }

@@ -223,6 +223,10 @@ function InstalledPlugins({ session }: { session: string }) {
   const syncAction = <Button disabled={busy} onClick={() => void syncMCP()}>{t('plugins.retrySync')}</Button>;
   const sameRevision = Boolean(preview && preview.previousDigest === preview.digest);
   const editedServers = preview?.editedMcpServers ?? [];
+  const previewDescription = editedServers.length ? 'plugins.editedUpdate'
+    : preview?.affectedMcpServers?.length ? 'plugins.disconnectUpdate'
+    : sameRevision ? 'plugins.current'
+    : preview?.previousDigest ? 'plugins.updateNotice' : 'plugins.inactive';
   const install = async () => {
     if (!preview || busy || sameRevision || editedServers.length > 0) return;
     setError('');
@@ -274,7 +278,7 @@ function InstalledPlugins({ session }: { session: string }) {
       </li>)}</ul>}
     </Modal>}
     {preview && <DecisionDialog isOpen title={t('plugins.preview', { name: preview.name })}
-      description={t('plugins.inactive')} allowClose={!busy} size="lg"
+      description={t(previewDescription)} allowClose={!busy} size="lg"
       actions={[
         { id: 'install', label: t(preview.previousDigest ? 'plugins.update' : 'plugins.install'), primary: true, polarity: 'affirmative', disabled: busy || sameRevision || editedServers.length > 0 },
         { id: 'cancel', label: t('common.cancel'), disabled: busy },
@@ -289,7 +293,6 @@ function InstalledPlugins({ session }: { session: string }) {
         {preview.previousDigest && <><dt>{t('plugins.previous')}</dt><dd>{preview.previousDigest}</dd></>}
         <dt>SHA-256</dt><dd>{preview.digest}</dd>
       </dl>
-      {preview.previousDigest && <p>{t(sameRevision ? 'plugins.current' : 'plugins.updateNotice')}</p>}
       {(preview.components ?? []).length > 0 && <ul aria-label={t('plugins.components')}>{preview.components.map(component => <li key={component.key}>{component.name} · {t(component.kind === 'skill' ? 'plugins.skill' : component.kind === 'mcp' ? 'plugins.mcp' : 'plugins.invalid')}{component.kind === 'mcp' && <p>{mcpConnectionLabel(component)}</p>}{componentRequirement(component) && <p>{t(componentRequirement(component)!)}</p>}</li>)}</ul>}
       {(preview.diagnostics ?? []).length > 0 && <details>
         <summary>{t('plugins.warnings', { count: preview.diagnostics.length })}</summary>

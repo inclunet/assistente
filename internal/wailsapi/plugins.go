@@ -161,7 +161,11 @@ func (api *Plugins) PreviewLocal() (*PluginPreview, error) {
 					}
 					for _, server := range affected {
 						if server.Edited {
-							p.EditedMCPServers = append(p.EditedMCPServers, server.Name)
+							label := strings.TrimPrefix(server.ComponentKey, "mcp/")
+							if label != server.Name {
+								label += " (" + server.Name + ")"
+							}
+							p.EditedMCPServers = append(p.EditedMCPServers, label)
 						} else {
 							p.AffectedMCPServers = append(p.AffectedMCPServers, server.Name)
 						}

@@ -173,6 +173,16 @@ func TestPluginPreviewUsesSelectedDirectoryAndSession(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "README.md"), []byte("updated"), 0600); err != nil {
 		t.Fatal(err)
 	}
+	if err := db.Model(&database.MCPServer{}).Where("name = ?", "sample").Update("name", "Renamed").Error; err != nil {
+		t.Fatal(err)
+	}
+	edited, err := api.PreviewLocal()
+	if err != nil || len(edited.EditedMCPServers) != 1 || edited.EditedMCPServers[0] != "sample (Renamed)" {
+		t.Fatal(edited, err)
+	}
+	if err := db.Model(&database.MCPServer{}).Where("name = ?", "Renamed").Update("name", "sample").Error; err != nil {
+		t.Fatal(err)
+	}
 	revised, err := api.PreviewLocal()
 	if err != nil {
 		t.Fatal(err)

@@ -162,6 +162,9 @@ describe('PluginsPage', () => {
     await waitFor(() => expect(choose).toBeEnabled());
     await user.click(choose);
     expect(await screen.findByText('plugins.affectedServersNotice')).toBeVisible();
+    expect(mocks.announceRequest).toHaveBeenCalledWith(expect.objectContaining({
+      message: expect.stringContaining('plugins.disconnectUpdate'), announcePriority: 'assertive',
+    }));
     expect(screen.getByText('build')).toBeVisible();
     expect(screen.getByText('docs')).toBeVisible();
     expect(mocks.install).not.toHaveBeenCalled();
@@ -176,6 +179,9 @@ describe('PluginsPage', () => {
     await waitFor(() => expect(choose).toBeEnabled());
     await user.click(choose);
     expect(await screen.findByText('plugins.editedServersNotice')).toBeVisible();
+    expect(mocks.announceRequest).toHaveBeenCalledWith(expect.objectContaining({
+      message: expect.stringContaining('plugins.editedUpdate'), announcePriority: 'assertive',
+    }));
     expect(screen.getByText('custom')).toBeVisible();
     const update = screen.getByRole('button', { name: 'plugins.update' });
     expect(update).toBeDisabled();

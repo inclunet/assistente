@@ -152,6 +152,8 @@ notSaved: 'La decisión vale solo para esta operación: no se pudo recordar. Ser
     plugins: {
       syncPendingStale: 'Cambios guardados. No se pudo actualizar la vista. Sincroniza los servidores MCP para reintentar.',
       syncPending: 'Cambios guardados. Sincroniza los servidores MCP para aplicarlos en esta sesión.',
+      disconnectUpdate: 'Actualizar elimina los servidores MCP vinculados y cierra sus conexiones. Revisa la lista de servidores afectados.',
+      editedUpdate: 'Los cambios locales en servidores MCP bloquean la actualización. Cancela para conservar los servidores indicados en los detalles del plugin.',
       affectedServers: 'Servidores MCP afectados',
       affectedServersNotice: 'La actualización elimina los servidores MCP vinculados y cierra sus conexiones. Para conservar un servidor, cancela y elige conservarlo como independiente en los detalles del plugin antes de actualizar.',
       syncFailed: 'No se pudieron sincronizar los servidores MCP. Inténtalo de nuevo.',

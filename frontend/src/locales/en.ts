@@ -153,6 +153,8 @@ notSaved: 'The decision applies only to this operation: it could not be remember
     plugins: {
       syncPendingStale: 'Changes saved. The view could not refresh. Synchronize the MCP servers to retry.',
       syncPending: 'Changes saved. Synchronize the MCP servers to apply them to this session.',
+      disconnectUpdate: 'Updating removes linked MCP servers and disconnects them. Review the affected servers.',
+      editedUpdate: 'Local changes to MCP servers block this update. Cancel to keep the listed servers in the plugin details.',
       affectedServers: 'Affected MCP servers',
       affectedServersNotice: 'Updating removes linked MCP servers and disconnects them. To keep a server, cancel and choose to keep it as an independent server in the plugin details before updating.',
       syncFailed: 'Could not synchronize MCP servers. Try again.',

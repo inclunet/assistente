@@ -126,7 +126,7 @@ func TestPackagedMCPLifecycle(t *testing.T) {
 		t.Fatal(components, err)
 	}
 	slug = register()
-	if err := db.Model(&database.MCPServer{}).Where("slug=?", slug).Update("name", "Edited").Error; err != nil {
+	if err := db.Model(&database.MCPServer{}).Where("slug=?", slug).Updates(map[string]any{"name": "Edited", "url": "https://example.org/edited"}).Error; err != nil {
 		t.Fatal(err)
 	}
 	write("README.md", "upgrade")
@@ -147,6 +147,11 @@ func TestPackagedMCPLifecycle(t *testing.T) {
 	if err := store.RemoveMCP(alice, row.ID, row.Digest, key, true, allow); err != nil {
 		t.Fatal(err)
 	}
+	independent, err := runtime.GetConfig(slug)
+	if err != nil || independent.URL != "https://example.org/edited" || independent.Name != "Edited" {
+		t.Fatalf("runtime after preserving independent server: %+v, %v", independent, err)
+	}
+
 	managed := register()
 	if managed == slug {
 		t.Fatal("replaced independent server")
