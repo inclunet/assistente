@@ -119,7 +119,7 @@ func (t *CredentialTransport) RoundTrip(req *http.Request) (*http.Response, erro
 	if !t.RequireCredential && strings.HasPrefix(t.CredPattern, "oauth:") {
 		return t.roundTripOAuth(req)
 	}
-	auth, err := t.CredMgr.getByPatternWithContext(req.Context(), t.CredPattern, !t.DisableCommandCache)
+	auth, err := t.CredMgr.resolvePattern(req.Context(), t.CredPattern, !t.DisableCommandCache, t.RequireCredential)
 	if err != nil {
 		if t.AuthMode == AuthOptional {
 			// AuthOptional + erro de resolução: tratamos como "sem
@@ -168,7 +168,7 @@ func (t *CredentialTransport) RoundTrip(req *http.Request) (*http.Response, erro
 	if req.Body != nil && req.Body != http.NoBody && req.GetBody == nil {
 		return response, nil
 	}
-	fresh, err := t.CredMgr.getByPatternWithContext(req.Context(), t.CredPattern, !t.DisableCommandCache)
+	fresh, err := t.CredMgr.resolvePattern(req.Context(), t.CredPattern, !t.DisableCommandCache, t.RequireCredential)
 	if err != nil {
 		_ = response.Body.Close()
 		return nil, fmt.Errorf("%w: %w", ErrCredentialResolution, err)

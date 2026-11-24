@@ -339,6 +339,10 @@ func (m *Manager) GetByPatternWithContext(ctx context.Context, pattern string) (
 
 // O cache é opt-in do transport que observa rejeições de autenticação.
 func (m *Manager) getByPatternWithContext(ctx context.Context, pattern string, cacheCommand bool) (*AuthConfig, error) {
+	return m.resolvePattern(ctx, pattern, cacheCommand, false)
+}
+
+func (m *Manager) resolvePattern(ctx context.Context, pattern string, cacheCommand, requireHTTP bool) (*AuthConfig, error) {
 	m.mu.RLock()
 	locked := true
 	defer func() {
@@ -359,6 +363,11 @@ func (m *Manager) getByPatternWithContext(ctx context.Context, pattern string, c
 			continue
 		}
 		if dc.Pattern == pattern {
+			// OAuth entries describe a grant or OAuth client, not a credential
+			// that can be attached directly to an arbitrary HTTP request.
+			if requireHTTP && dc.Auth.Type == "oauth2" {
+				return nil, ErrCredentialResolution
+			}
 			auth, err := m.decryptAuth(dc.Auth)
 			if err != nil {
 				scope := userID

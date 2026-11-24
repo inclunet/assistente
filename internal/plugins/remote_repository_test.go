@@ -110,6 +110,12 @@ func TestRemoteStoreRetainsReviewedArchiveAndVaultOrigin(t *testing.T) {
 	if err := store.SaveRemoteRepository(ctx, server.URL+"/archive.zip", true, admit); err == nil || requests.Load() != 0 {
 		t.Fatal("foreign credential or anonymous fallback was used", err)
 	}
+	if err := manager.RegisterPatternWithContext(ctx, u.Host, &credentials.AuthConfig{Type: "oauth2", Source: "static", ClientID: "fixture"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SaveRemoteRepository(ctx, server.URL+"/archive.zip", true, admit); err == nil || err.Error() != "PLUGIN_REPOSITORY_CREDENTIAL" || requests.Load() != 0 {
+		t.Fatal("incompatible vault entry reached the repository", err)
+	}
 	if err := manager.RegisterPatternWithContext(ctx, u.Host, credential); err != nil {
 		t.Fatal(err)
 	}
@@ -222,7 +228,7 @@ func TestRemoteStoreDefaultPortPersistsAcrossOperations(t *testing.T) {
 	ctx := database.WithUserID(context.Background(), "owner")
 	admit := commandsecurity.Admission(func(_ *gorm.DB, fn func() error) error { return fn() })
 	store := makeInventory()
-	for _, address := range []string{"https://store.example:443", "https://store.example/"} {
+	for _, address := range []string{"https://store.example:0443", "https://store.example:443", "https://store.example/"} {
 		if err := store.SaveRemoteRepository(ctx, address, false, admit); err != nil {
 			t.Fatal(err)
 		}
@@ -235,7 +241,7 @@ func TestRemoteStoreDefaultPortPersistsAcrossOperations(t *testing.T) {
 	if err := store.SaveRepository(ctx, "", rows[0].ID, rows[0].Revision, admit); err != nil {
 		t.Fatal(err)
 	}
-	if !slices.Equal(ports, []string{"443", "", "443"}) {
+	if !slices.Equal(ports, []string{"443", "443", "", "443"}) {
 		t.Fatalf("dispatched ports = %q", ports)
 	}
 }

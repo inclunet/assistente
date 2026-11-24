@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -29,7 +30,7 @@ func RepositoryHTTPClient(manager *credentials.Manager, reference string, author
 		Timeout:    45 * time.Second,
 		Authorizer: authorizer,
 		CheckRedirect: func(next *http.Request, via []*http.Request) error {
-			if len(via) == 0 || next.URL.Scheme != "https" || next.URL.User != nil || canonicalHost(next.URL) != canonicalHost(via[0].URL) {
+			if len(via) == 0 || next.URL.Scheme != "https" || next.URL.User != nil || addressHost(next.URL, true) != addressHost(via[0].URL, true) {
 				return http.ErrUseLastResponse
 			}
 			return guardRedirect(next, via)
@@ -48,9 +49,20 @@ func RepositoryHTTPClient(manager *credentials.Manager, reference string, author
 	return client
 }
 
-func canonicalHost(u *url.URL) string {
+// addressHost normalizes the representation of a validated HTTPS authority.
+// The transfer retains an explicit default port for network consent.
+func addressHost(u *url.URL, omitDefault bool) string {
 	host := strings.ToLower(u.Host)
-	return strings.TrimSuffix(host, ":443")
+	port := u.Port()
+	if port == "" {
+		return host
+	}
+	name := strings.TrimSuffix(host, ":"+port)
+	number := strings.TrimLeft(port, "0")
+	if omitDefault && number == "443" {
+		return name
+	}
+	return name + ":" + number
 }
 
 func (i *Inventory) WithRemoteClient(create RemoteClient, watch func(context.Context) (context.Context, func(), error)) *Inventory {
@@ -68,6 +80,14 @@ func remoteURL(raw string) (*url.URL, error) {
 	if u.Path == "" {
 		u.Path = "/"
 	}
+	if port := u.Port(); port != "" {
+		n, err := strconv.ParseUint(port, 10, 16)
+		if err != nil || n == 0 {
+			return nil, errors.New("PLUGIN_REPOSITORY_URL")
+		}
+	} else if strings.HasSuffix(u.Host, ":") {
+		return nil, errors.New("PLUGIN_REPOSITORY_URL")
+	}
 	u.Host = strings.ToLower(u.Host)
 	return u, nil
 }
@@ -77,7 +97,7 @@ func (i *Inventory) download(ctx context.Context, origin, reference string) (*pl
 		return nil, "", err
 	}
 	u, err := remoteURL(origin)
-	if err != nil || (reference != "" && canonicalHost(&url.URL{Host: reference}) != canonicalHost(u)) || i.remote == nil {
+	if err != nil || (reference != "" && addressHost(&url.URL{Host: reference}, true) != addressHost(u, true)) || i.remote == nil {
 		return nil, "", errors.New("PLUGIN_REPOSITORY_URL")
 	}
 	if i.watchRemote != nil {
@@ -133,6 +153,7 @@ func (i *Inventory) SaveRemoteRepository(ctx context.Context, raw string, authen
 	if authenticated {
 		ref = u.Host
 	}
+	u.Host = addressHost(u, false)
 	return i.saveRemote(ctx, u.String(), ref, "", "", admit)
 }
 
@@ -175,7 +196,7 @@ func (i *Inventory) saveRemote(ctx context.Context, origin, ref, id, expected st
 		return err
 	}
 	explicitHTTPSPort := u.Port() == "443"
-	u.Host = canonicalHost(u)
+	u.Host = addressHost(u, true)
 	return i.publishRepository(ctx, owner, u.String(), digest, ref, explicitHTTPSPort, id, expected, indices, admit)
 }
 

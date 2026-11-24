@@ -22,6 +22,7 @@ type Archive struct {
 // The supported size and entry limits fit the single-disk classic ZIP format.
 func validateDirectory(data []byte) error {
 	const endSize = 22
+	found := false
 	for end := len(data) - endSize; end >= max(0, len(data)-endSize-65535); end-- {
 		record := data[end:]
 		if string(record[:4]) != "PK\x05\x06" || int(binary.LittleEndian.Uint16(record[20:])) != len(record)-endSize {
@@ -29,7 +30,7 @@ func validateDirectory(data []byte) error {
 		}
 		// archive/zip also accepts EOCD candidates with a shorter comment.
 		// An embedded signature must never select a different directory.
-		if bytes.Contains(record[4:], []byte("PK\x05\x06")) {
+		if found || bytes.Contains(record[4:], []byte("PK\x05\x06")) {
 			return fs.ErrInvalid
 		}
 		count := int(binary.LittleEndian.Uint16(record[10:]))
@@ -58,6 +59,9 @@ func validateDirectory(data []byte) error {
 		if len(dir) != 0 {
 			return fs.ErrInvalid
 		}
+		found = true
+	}
+	if found {
 		return nil
 	}
 	return fs.ErrInvalid
