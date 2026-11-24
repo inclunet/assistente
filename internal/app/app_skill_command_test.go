@@ -182,12 +182,15 @@ func (channelConsentBaseSkill) GetSkillFiles(string) ([]string, error) { return 
 
 func TestBaseSkillChannelRefusalAtExecutorDeadline(t *testing.T) {
 	for _, tc := range []struct {
-		name               string
-		denyBeforeDeadline bool
-		wantCode           string
+		name                string
+		answerBeforeRelease string
+		sendFailed          bool
+		wantCode            string
 	}{
-		{"negativa antes do prazo", true, shell.FailureCommandRefused},
-		{"prazo antes da negativa", false, shell.FailureConfirmationUnavailable},
+		{"negativa antes do prazo", "2", false, shell.FailureCommandRefused},
+		{"prazo antes da negativa", "", false, shell.FailureConfirmationUnavailable},
+		{"negativa antes de erro de envio", "2", true, shell.FailureCommandRefused},
+		{"aprovação antes de erro de envio", "1", true, shell.FailureConfirmationUnavailable},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			dir := t.TempDir()
@@ -205,6 +208,9 @@ func TestBaseSkillChannelRefusalAtExecutorDeadline(t *testing.T) {
 					}
 					close(opened)
 					<-release // A resposta pode chegar antes de o transporte confirmar o envio da pergunta.
+					if tc.sendFailed {
+						return errors.New("falha ao confirmar o envio ao canal")
+					}
 					return nil
 				}})
 				questions := gateway.ChannelQuestions()
@@ -234,20 +240,27 @@ func TestBaseSkillChannelRefusalAtExecutorDeadline(t *testing.T) {
 				case <-done:
 					t.Fatalf("preparação terminou sem confirmação: %v %v", blocks, buildErr)
 				}
-				answer := func(owner string) messaging.AnswerResult {
-					return questions.TryAnswer(t.Context(), inv.ConversationID, owner, "2")
+				askedAt := time.Now()
+				answer := func(owner, value string) messaging.AnswerResult {
+					return questions.TryAnswer(t.Context(), inv.ConversationID, owner, value)
 				}
-				if answer("terceiro") != messaging.AnswerIgnored {
+				if answer("terceiro", "2") != messaging.AnswerIgnored {
 					t.Fatal("resposta do terceiro aceita")
 				}
-				if tc.denyBeforeDeadline && answer("dono") != messaging.AnswerDelivered {
-					t.Fatal("negativa do dono perdida")
+				if tc.answerBeforeRelease != "" && answer("dono", tc.answerBeforeRelease) != messaging.AnswerDelivered {
+					t.Fatal("resposta do dono perdida")
 				}
-				<-done // O relógio virtual vence com o transporte ainda bloqueado.
-				if !tc.denyBeforeDeadline && answer("dono") != messaging.AnswerIgnored {
+				if tc.sendFailed {
+					resume()
+				} // Falha de transporte com o contexto ainda ativo.
+				<-done
+				if tc.sendFailed && time.Since(askedAt) >= cfg.ToolTimeout {
+					t.Fatal("o teste de falha no envio atingiu o prazo do executor")
+				}
+				if tc.answerBeforeRelease == "" && answer("dono", "2") != messaging.AnswerIgnored {
 					t.Fatal("negativa tardia aceita")
 				}
-				if tc.denyBeforeDeadline {
+				if tc.wantCode == shell.FailureCommandRefused {
 					if !errors.Is(buildErr, contextprovider.ErrCommandRefused) || len(blocks) != 0 || !errors.Is(skills.CommandTurnError(turn), contextprovider.ErrCommandRefused) {
 						t.Fatalf("turno não interrompido: %v %v", blocks, buildErr)
 					}

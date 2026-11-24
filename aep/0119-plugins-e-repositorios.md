@@ -91,7 +91,7 @@ Na falta de confirmação, o código é `shell_confirmation_unavailable`. Um arg
 No desktop e nos canais externos, o aceite da resposta é arbitrado conforme o
 [AEP-0091](0091-dialogos-de-decisao-unificados.md). O adaptador valida a ação oferecida
 e publica a recusa antes de o transporte confirmar o aceite. A aprovação ainda exige revalidação.
-Se o diálogo expirar sem resposta, a confirmação fica indisponível. `TestBaseSkillChannelRefusalAtExecutorDeadline` cobre as duas ordens entre a negativa e o prazo, a resposta de terceiro e a ausência de despacho durante a preparação da skill base. Nos canais, a apresentação literal abrange tanto o comando quanto o diretório público usado na decisão.
+Se o diálogo expirar sem resposta, a confirmação fica indisponível. Se o mensageiro devolver erro de envio depois de o dono responder, uma recusa registrada conserva seu efeito. Uma aprovação nessa situação não permite o despacho. `TestBaseSkillChannelRefusalAtExecutorDeadline` cobre as duas ordens entre a negativa e o prazo, a resposta de terceiro e a ausência de despacho durante a preparação da skill base. Nos canais, a apresentação literal abrange tanto o comando quanto o diretório público usado na decisão.
 
 O executor conserva o prazo do chamador. Após uma aprovação revalidada, uma interrupção
 é classificada como cancelamento ou timeout da operação. Se o prazo terminar entre a

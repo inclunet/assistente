@@ -460,6 +460,10 @@ func (e *Executor) finishExecution(ctx, toolCtx context.Context, call ToolCall, 
 	}
 	if confirmation != nil && confirmation.receipt != nil && confirmation.receipt.Close() {
 		confirmation = &confirmationState{status: confirmationRefused, result: confirmation.refusal}
+		// A negativa já foi aceita, mesmo que o transporte devolva erro antes do
+		// prazo. Use o resultado da recusa registrada; o callback pode ter visto
+		// apenas a falha de entrega.
+		result = nil
 	}
 	toolName := call.Function.Name
 	// O callback pode terminar antes de o select observar o cancelamento.
