@@ -79,3 +79,45 @@ func TestFalhaDeConsultaECancelamentoNaoAutorizam(t *testing.T) {
 		})
 	}
 }
+
+func TestRecusaUnicaSobreviveIndisponibilidadeDaPolitica(t *testing.T) {
+	for _, domain := range []string{"shell", "network", "filesystem"} {
+		t.Run(domain, func(t *testing.T) { checkOnceDenial(t, domain) })
+	}
+}
+
+func TestACPRecusaUnicaSobreviveIndisponibilidadeDaPolitica(t *testing.T) {
+	checkOnceDenial(t, "acp")
+}
+
+func checkOnceDenial(t *testing.T, domain string) {
+	t.Helper()
+	for _, scenario := range []string{"politica-indisponivel", "contexto-encerrado"} {
+		for _, scope := range []authorization.Scope{"", authorization.ScopeOnce} {
+			t.Run(scenario+"/scope-"+string(scope), func(t *testing.T) {
+				request := authorization.Request{Domain: domain, Operation: "operation", Resource: "resource"}
+				reads := 0
+				ctx, cancel := context.WithCancel(authorizationfixture.Context())
+				defer cancel()
+				got, err := authorization.Resolve(ctx, request, authorization.Flow[string]{
+					Evaluate: func(context.Context) (authorization.Decision, error) {
+						reads++
+						if reads > 1 {
+							return authorization.Decision{}, errors.New("indisponível")
+						}
+						return authorization.Decision{Effect: "ask"}, nil
+					},
+					Ask: func(context.Context) (authorization.Consent[string], error) {
+						if scenario == "contexto-encerrado" {
+							cancel()
+						}
+						return authorization.Consent[string]{Effect: "deny", Scope: scope}, nil
+					},
+				})
+				if err != nil || got.Effect != "deny" || got.Scope != authorization.ScopeOnce || reads != 1 {
+					t.Fatalf("decisão=%+v leituras=%d erro=%v", got, reads, err)
+				}
+			})
+		}
+	}
+}

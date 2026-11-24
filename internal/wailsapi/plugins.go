@@ -12,46 +12,63 @@ import (
 	"assistente/internal/database"
 	"assistente/internal/pluginpackage"
 	"assistente/internal/plugins"
+	"assistente/internal/userctx"
 	"github.com/google/uuid"
 )
 
 type PluginPreview struct {
-	Authentication string              `json:"authentication,omitempty"`
-	Components     []plugins.Component `json:"components"`
-	Token          string              `json:"token"`
-	Name           string              `json:"name"`
-	Version        string              `json:"version"`
-	Origin         string              `json:"origin"`
-	Digest         string              `json:"digest"`
-	PreviousDigest string              `json:"previousDigest"`
-	Files          []string            `json:"files"`
-	Diagnostics    []string            `json:"diagnostics"`
+	Authentication     string              `json:"authentication,omitempty"`
+	EditedMCPServers   []string            `json:"editedMcpServers,omitempty"`
+	AffectedMCPServers []string            `json:"affectedMcpServers,omitempty"`
+	Components         []plugins.Component `json:"components"`
+	Token              string              `json:"token"`
+	Name               string              `json:"name"`
+	Version            string              `json:"version"`
+	Origin             string              `json:"origin"`
+	Digest             string              `json:"digest"`
+	PreviousDigest     string              `json:"previousDigest"`
+	Files              []string            `json:"files"`
+	Diagnostics        []string            `json:"diagnostics"`
 }
 
 type pluginSelection struct {
 	inspect  func(context.Context) (*pluginpackage.LocalSnapshot, error)
+	affected []plugins.BoundMCPServer
 	preview  PluginPreview
 	owner    string
 	validate commandsecurity.Admission
 }
 
 type Plugins struct {
-	savePackage func(ports.SaveFileOptions) (string, error)
-	mu          sync.Mutex
-	session     Session
-	inventory   *plugins.Inventory
-	choose      func() (string, error)
-	capture     func(context.Context) (commandsecurity.Admission, error)
-	selection   *pluginSelection
+	savePackage       func(ports.SaveFileOptions) (string, error)
+	mu                sync.Mutex
+	session           Session
+	inventory         *plugins.Inventory
+	choose            func() (string, error)
+	capture           func(context.Context) (commandsecurity.Admission, error)
+	selection         *pluginSelection
+	previewGeneration uint64
+	skillsChanged     func()
 }
 
 func NewPlugins() *Plugins { return &Plugins{} }
 
-func AttachPlugins(api *Plugins, session Session, inventory *plugins.Inventory, choose func() (string, error), capture func(context.Context) (commandsecurity.Admission, error)) {
+func AttachPlugins(api *Plugins, session Session, inventory *plugins.Inventory, choose func() (string, error), capture func(context.Context) (commandsecurity.Admission, error), skillsChanged func()) {
 	api.mu.Lock()
 	defer api.mu.Unlock()
 	api.session, api.inventory, api.choose, api.capture = session, inventory, choose, capture
+	api.skillsChanged = skillsChanged
 	api.selection = nil
+	api.previewGeneration++
+}
+
+func (api *Plugins) notifySkillsChanged() {
+	api.mu.Lock()
+	notify := api.skillsChanged
+	api.mu.Unlock()
+	if notify != nil {
+		notify()
+	}
 }
 
 func (api *Plugins) wired() (Session, *plugins.Inventory, func() (string, error), func(context.Context) (commandsecurity.Admission, error), error) {
@@ -87,7 +104,23 @@ func (api *Plugins) ListInstalled() ([]database.PluginInstallation, error) {
 	})
 }
 
+var errPreviewSuperseded = errors.New("plugin preview superseded")
+
+func (api *Plugins) previewIsCurrent(generation uint64) bool {
+	api.mu.Lock()
+	defer api.mu.Unlock()
+	return api.previewGeneration == generation
+}
+
+func (api *Plugins) beginPreview() uint64 {
+	api.mu.Lock()
+	api.previewGeneration++
+	defer api.mu.Unlock()
+	return api.previewGeneration
+}
+
 func (api *Plugins) PreviewLocal() (*PluginPreview, error) {
+	generation := api.beginPreview()
 	session, inventory, choose, capture, err := api.wired()
 	if err != nil {
 		return nil, err
@@ -104,18 +137,24 @@ func (api *Plugins) PreviewLocal() (*PluginPreview, error) {
 		if err != nil {
 			return nil, err
 		}
+		if !api.previewIsCurrent(generation) {
+			return nil, errPreviewSuperseded
+		}
 		dir, err := choose()
+		if !api.previewIsCurrent(generation) {
+			return nil, errPreviewSuperseded
+		}
 		if err != nil || dir == "" {
 			return nil, err
 		}
 		if err := validate.Check(); err != nil {
 			return nil, err
 		}
-		return api.preparePreview(ctx, inventory, owner, validate, func(context.Context) (*pluginpackage.LocalSnapshot, error) { return pluginpackage.InspectLocal(dir) })
+		return api.preparePreview(ctx, inventory, owner, generation, validate, func(context.Context) (*pluginpackage.LocalSnapshot, error) { return pluginpackage.InspectLocal(dir) })
 	})
 }
 
-func (api *Plugins) preparePreview(ctx context.Context, inventory *plugins.Inventory, owner string, validate commandsecurity.Admission, inspect func(context.Context) (*pluginpackage.LocalSnapshot, error)) (*PluginPreview, error) {
+func (api *Plugins) preparePreview(ctx context.Context, inventory *plugins.Inventory, owner string, generation uint64, validate commandsecurity.Admission, inspect func(context.Context) (*pluginpackage.LocalSnapshot, error)) (*PluginPreview, error) {
 	snap, err := inspect(ctx)
 	if err != nil {
 		return nil, err
@@ -125,9 +164,27 @@ func (api *Plugins) preparePreview(ctx context.Context, inventory *plugins.Inven
 		return nil, err
 	}
 	p := PluginPreview{Authentication: snap.DiscoveryAuthentication, Name: snap.Manifest.Name, Version: snap.Manifest.Version, Origin: snap.Origin, Digest: snap.Digest, Diagnostics: snap.Warnings, Components: plugins.DiscoverComponents(snap)}
+	var affected []plugins.BoundMCPServer
 	for _, row := range list {
 		if row.Origin == p.Origin && row.Name == p.Name {
 			p.PreviousDigest = row.Digest
+			if row.Digest != p.Digest {
+				affected, err = inventory.BoundMCPServers(ctx, row.ID, row.Digest)
+				if err != nil {
+					return nil, err
+				}
+				for _, server := range affected {
+					if server.Edited {
+						label := strings.TrimPrefix(server.ComponentKey, "mcp/")
+						if label != server.Name {
+							label += " (" + server.Name + ")"
+						}
+						p.EditedMCPServers = append(p.EditedMCPServers, label)
+					} else {
+						p.AffectedMCPServers = append(p.AffectedMCPServers, server.Name)
+					}
+				}
+			}
 			break
 		}
 	}
@@ -145,7 +202,10 @@ func (api *Plugins) preparePreview(ctx context.Context, inventory *plugins.Inven
 	if err := validate.Check(); err != nil {
 		return nil, err
 	}
-	api.selection = &pluginSelection{preview: p, owner: owner, validate: validate, inspect: inspect}
+	if generation != api.previewGeneration {
+		return nil, errPreviewSuperseded
+	}
+	api.selection = &pluginSelection{inspect: inspect, affected: affected, preview: p, owner: owner, validate: validate}
 	return &p, nil
 }
 
@@ -171,7 +231,11 @@ func (api *Plugins) InstallReviewed(token string) (database.PluginInstallation, 
 			return database.PluginInstallation{}, err
 		}
 		p := selection.preview
-		return inventory.InstallSource(ctx, p.Origin, p.Digest, p.PreviousDigest, selection.validate, func() (*pluginpackage.LocalSnapshot, error) { return selection.inspect(ctx) })
+		row, err := inventory.InstallSource(ctx, p.Origin, p.Digest, p.PreviousDigest, selection.affected, selection.validate, func() (*pluginpackage.LocalSnapshot, error) { return selection.inspect(ctx) })
+		if (err == nil || errors.Is(err, plugins.ErrMCPSyncPending)) && p.PreviousDigest != "" && p.PreviousDigest != p.Digest {
+			api.notifySkillsChanged()
+		}
+		return row, err
 	})
 }
 
@@ -217,7 +281,7 @@ func (api *Plugins) InstalledComponents(id, digest string) ([]plugins.Component,
 	})
 }
 
-func (api *Plugins) mutateComponent(apply func(context.Context, *plugins.Inventory) error) error {
+func (api *Plugins) mutateComponent(apply func(context.Context, *plugins.Inventory, commandsecurity.Admission) error) error {
 	session, inventory, _, capture, err := api.wired()
 	if err != nil {
 		return err
@@ -230,51 +294,60 @@ func (api *Plugins) mutateComponent(apply func(context.Context, *plugins.Invento
 		if admit == nil {
 			return struct{}{}, database.ErrUserScopeRequired
 		}
-		return struct{}{}, admit(func() error { return apply(ctx, inventory) })
+		return struct{}{}, apply(ctx, inventory, admit)
 	})
 	return err
 }
 
 func (api *Plugins) SetSkillActive(id, digest, key string, active bool) error {
-	return api.mutateComponent(func(ctx context.Context, i *plugins.Inventory) error {
-		return i.SetSkillActive(ctx, id, digest, key, active)
+	err := api.mutateComponent(func(ctx context.Context, i *plugins.Inventory, admit commandsecurity.Admission) error {
+		return i.SetSkillActive(ctx, id, digest, key, active, admit)
 	})
+	if err == nil {
+		api.notifySkillsChanged()
+	}
+	return err
 }
 
 func (api *Plugins) RegisterMCP(id, digest, key string) error {
-	return api.mutateComponent(func(ctx context.Context, i *plugins.Inventory) error { return i.RegisterMCP(ctx, id, digest, key) })
+	return api.mutateComponent(func(ctx context.Context, i *plugins.Inventory, admit commandsecurity.Admission) error {
+		return i.RegisterMCP(ctx, id, digest, key, admit)
+	})
 }
 func (api *Plugins) RemoveMCP(id, digest, key string, preserve bool) error {
-	return api.mutateComponent(func(ctx context.Context, i *plugins.Inventory) error {
-		return i.RemoveMCP(ctx, id, digest, key, preserve)
+	return api.mutateComponent(func(ctx context.Context, i *plugins.Inventory, admit commandsecurity.Admission) error {
+		return i.RemoveMCP(ctx, id, digest, key, preserve, admit)
 	})
 }
 
-func (api *Plugins) SyncMCP() error {
-	return api.mutateComponent(func(ctx context.Context, i *plugins.Inventory) error { return i.SyncMCP(ctx) })
+func (api *Plugins) SyncMCP(expectedSession string) error {
+	return api.mutateComponent(func(ctx context.Context, i *plugins.Inventory, admit commandsecurity.Admission) error {
+		if session, ok := userctx.SessionIDFromContext(ctx); !ok || session != expectedSession {
+			return database.ErrUserScopeRequired
+		}
+		return i.SyncMCP(ctx, admit)
+	})
 }
 
 func (api *Plugins) ChangeInstallation(id, digest, action string) error {
-	session, inventory, _, capture, err := api.wired()
-	if err != nil {
-		return err
-	}
-	_, err = WithUser(session, func(ctx context.Context) (struct{}, error) {
-		admit, err := capture(ctx)
-		if err != nil {
-			return struct{}{}, err
-		}
-		return struct{}{}, inventory.ChangeInstallation(ctx, id, digest, action, admit)
+	err := api.mutateComponent(func(ctx context.Context, i *plugins.Inventory, admit commandsecurity.Admission) error {
+		return i.ChangeInstallation(ctx, id, digest, action, admit)
 	})
+	if (action == "disable" || action == "uninstall") && (err == nil || errors.Is(err, plugins.ErrMCPSyncPending)) {
+		api.notifySkillsChanged()
+	}
 	return err
 }
 
 func (api *Plugins) CreateListFromTemplate(id, digest, key, request string) (string, error) {
 	var listID string
-	err := api.withRepositorySession(func(ctx context.Context, inventory *plugins.Inventory, _ func() (string, error), admit commandsecurity.Admission) error {
+	err := api.mutateComponent(func(ctx context.Context, inventory *plugins.Inventory, admit commandsecurity.Admission) error {
 		var err error
 		listID, err = inventory.CreateListFromTemplate(ctx, id, digest, key, request, admit)
 		return err
 	})
+	if errors.Is(err, database.ErrTaskListCapacity) {
+		return "", errors.New("PLUGIN_LIST_CAPACITY")
+	}
 	return listID, err
 }

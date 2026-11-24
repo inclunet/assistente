@@ -13,8 +13,15 @@ interface STTStartRequest {
 
 let activeSession: STTSession | null = null;
 
+function isTerminalSessionOnly(origin: VoiceAccessibilityOrigin): boolean {
+  return Boolean(origin.terminalSessionId) && !origin.tabId && !origin.surfaceId && !origin.sessionKey;
+}
+
 function isSameOrigin(a?: VoiceAccessibilityOrigin, b?: VoiceAccessibilityOrigin): boolean {
   if (!a || !b) return a === b;
+  if (isTerminalSessionOnly(a) && isTerminalSessionOnly(b)) {
+    return a.terminalSessionId === b.terminalSessionId;
+  }
   return Boolean(
     (a.tabId && a.tabId === b.tabId)
     || (a.surfaceId && a.surfaceId === b.surfaceId)

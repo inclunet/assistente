@@ -35,6 +35,12 @@ type SkillInfo = skills.SkillInfo;
 const DEFAULT_SKILL_VERSION = '1.0.0';
 const SEMVER_PATTERN = /^\d+\.\d+\.\d+$/;
 
+interface SkillToolPolicy {
+  allowed?: string[];
+  denied?: string[];
+  bashCommands?: { allowed?: string[]; denied?: string[] };
+}
+
 interface SkillRow {
   id: string;
   slug: string;
@@ -47,6 +53,7 @@ interface SkillRow {
   // Campos para edição (só preenchidos após loadItem)
   content?: string;
   toolsString?: string;
+  toolPolicy?: SkillToolPolicy;
   [key: string]: unknown;
 }
 
@@ -58,6 +65,23 @@ interface SkillFormData {
   disableModelInvocation?: boolean;
   content?: string;
   toolsString?: string;
+  toolPolicy?: SkillToolPolicy;
+}
+
+function buildSkillRequest(data: SkillFormData) {
+  const allowed = (data.toolsString || '').split(',').map(name => name.trim()).filter(Boolean);
+  const request = apidto.SkillCreateRequest.createFrom({
+    name: data.name.trim(),
+    version: data.version.trim(),
+    description: data.description.trim(),
+    disableModelInvocation: !data.auto,
+    content: data.content || '',
+  });
+  if (data.toolPolicy || allowed.length) {
+    // O binding Wails v2 não tem construtor para tools aninhado. O IPC recebe a política como JSON.
+    request.tools = { ...data.toolPolicy, allowed };
+  }
+  return request;
 }
 
 export default function SkillsPage() {
@@ -106,33 +130,12 @@ export default function SkillsPage() {
           source: skill.source,
           tools: getAllowedTools(skill.tools as { allowed?: string[] } | undefined),
           content: skill.content,
+          toolPolicy: skill.tools as SkillToolPolicy | undefined,
           toolsString: getAllowedTools(skill.tools as { allowed?: string[] } | undefined).join(', '),
         };
       },
-      createItem: async (data) => {
-        const toolsList = (data.toolsString || '').split(',').map(s => s.trim()).filter(Boolean);
-        const req = apidto.SkillCreateRequest.createFrom({
-          name: data.name.trim(),
-          version: data.version.trim(),
-          description: data.description.trim(),
-          disableModelInvocation: !data.auto,
-          tools: toolsList.length > 0 ? { allowed: toolsList } : undefined,
-          content: data.content || '',
-        });
-        return await CreateSkill(req);
-      },
-      updateItem: async (id, data) => {
-        const toolsList = (data.toolsString || '').split(',').map(s => s.trim()).filter(Boolean);
-        const req = apidto.SkillCreateRequest.createFrom({
-          name: data.name.trim(),
-          version: data.version.trim(),
-          description: data.description.trim(),
-          disableModelInvocation: !data.auto,
-          tools: toolsList.length > 0 ? { allowed: toolsList } : undefined,
-          content: data.content || '',
-        });
-        await UpdateSkill(id as string, req);
-      },
+      createItem: data => CreateSkill(buildSkillRequest(data)),
+      updateItem: (id, data) => UpdateSkill(id as string, buildSkillRequest(data)),
       deleteItem: async (id) => {
         await DeleteSkill(id as string);
       },
@@ -417,6 +420,8 @@ export default function SkillsPage() {
             />
 
             <SkillToolsSection
+              declaresShellPrograms={Boolean(crud.editingItem.toolPolicy?.bashCommands?.allowed?.length)}
+              deniesShell={crud.editingItem.toolPolicy?.denied?.includes('run_command')}
               toolsString={crud.editingItem.toolsString || ''}
               onToolsChange={(toolsString) => crud.updateField('toolsString', toolsString)}
             />

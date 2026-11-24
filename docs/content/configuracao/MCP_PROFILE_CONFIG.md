@@ -16,6 +16,8 @@ Para inspecionar credenciais existentes sem alterá-las, consulte o
 
 ## Como Funciona
 
+Ao recarregar os cadastros do banco, o gerenciador mantém as conexões cuja configuração continua igual. Se um cadastro for removido, substituído ou editado pela CLI, a recarga encerra a conexão anterior. Um cadastro novo ou alterado aparece desconectado até a próxima conexão.
+
 ### Dois caminhos de consumo
 
 | Caminho | Quando | Como |

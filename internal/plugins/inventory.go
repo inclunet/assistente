@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"slices"
 	"time"
 
 	"assistente/internal/commandsecurity"
@@ -20,19 +21,24 @@ var ErrInstallationChanged = errors.New("a instalação mudou desde a prévia")
 
 type Inventory struct {
 	listCreated func(context.Context, *database.TaskList, commandsecurity.Admission)
+	watchRemote func(context.Context) (context.Context, func(), error)
+	queries     *repositoryQueries
 	remote      RemoteClient
 	db          *gorm.DB
 	syncMCP     func(context.Context) error
 }
 
-func NewInventory(db *gorm.DB) *Inventory { return &Inventory{db: db} }
+func NewInventory(db *gorm.DB) *Inventory { return &Inventory{db: db, queries: &repositoryQueries{}} }
 
 func (i *Inventory) WithMCPSync(sync func(context.Context) error) *Inventory {
 	copy := *i
 	copy.syncMCP = sync
 	return &copy
 }
-func (i *Inventory) SyncMCP(ctx context.Context) error {
+func (i *Inventory) SyncMCP(ctx context.Context, admit commandsecurity.Admission) error {
+	if err := admit.Check(); err != nil {
+		return errors.Join(ErrMCPSyncPending, err)
+	}
 	if i.syncMCP != nil {
 		if err := i.syncMCP(ctx); err != nil {
 			return errors.Join(ErrMCPSyncPending, err)
@@ -55,7 +61,7 @@ func (i *Inventory) List(ctx context.Context) ([]database.PluginInstallation, er
 // previously installed digest. The complete captured revision and its pointer
 // commit together. Repeating an already published installation is idempotent.
 func (i *Inventory) InstallLocal(ctx context.Context, reviewedOrigin, reviewedDigest, previousDigest string) (database.PluginInstallation, error) {
-	return i.InstallReviewed(ctx, reviewedOrigin, reviewedDigest, previousDigest, func(publish func() error) error {
+	return i.InstallReviewed(ctx, reviewedOrigin, reviewedDigest, previousDigest, nil, func(_ *gorm.DB, publish func() error) error {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
@@ -63,11 +69,11 @@ func (i *Inventory) InstallLocal(ctx context.Context, reviewedOrigin, reviewedDi
 	})
 }
 
-func (i *Inventory) InstallReviewed(ctx context.Context, reviewedOrigin, reviewedDigest, previousDigest string, admit commandsecurity.Admission) (database.PluginInstallation, error) {
-	return i.InstallSource(ctx, reviewedOrigin, reviewedDigest, previousDigest, admit, func() (*pluginpackage.LocalSnapshot, error) { return pluginpackage.InspectLocal(reviewedOrigin) })
+func (i *Inventory) InstallReviewed(ctx context.Context, reviewedOrigin, reviewedDigest, previousDigest string, reviewedServers []BoundMCPServer, admit commandsecurity.Admission) (database.PluginInstallation, error) {
+	return i.InstallSource(ctx, reviewedOrigin, reviewedDigest, previousDigest, reviewedServers, admit, func() (*pluginpackage.LocalSnapshot, error) { return pluginpackage.InspectLocal(reviewedOrigin) })
 }
 
-func (i *Inventory) InstallSource(ctx context.Context, reviewedOrigin, reviewedDigest, previousDigest string, admit commandsecurity.Admission, inspect func() (*pluginpackage.LocalSnapshot, error)) (database.PluginInstallation, error) {
+func (i *Inventory) InstallSource(ctx context.Context, reviewedOrigin, reviewedDigest, previousDigest string, reviewedServers []BoundMCPServer, admit commandsecurity.Admission, inspect func() (*pluginpackage.LocalSnapshot, error)) (database.PluginInstallation, error) {
 	owner, err := database.RequireUserID(ctx)
 	if err != nil {
 		return database.PluginInstallation{}, err
@@ -119,6 +125,13 @@ func (i *Inventory) InstallSource(ctx context.Context, reviewedOrigin, reviewedD
 		case installed.Digest != previousDigest:
 			return ErrInstallationChanged
 		default:
+			actual, err := boundMCPServers(publishCtx, tx, owner, installed.ID, previousDigest)
+			if err != nil {
+				return err
+			}
+			if !slices.Equal(actual, reviewedServers) {
+				return ErrInstallationChanged
+			}
 			update := tx.Model(&installed).Where("user_id = ? AND digest = ?", owner, previousDigest).Updates(map[string]any{"digest": snapshot.Digest, "version": snapshot.Manifest.Version})
 			if update.Error != nil {
 				return update.Error
@@ -145,9 +158,7 @@ func (i *Inventory) InstallSource(ctx context.Context, reviewedOrigin, reviewedD
 		return database.PluginInstallation{}, err
 	}
 	if mcpChanged {
-		if err := admit(func() error { return i.SyncMCP(ctx) }); err != nil {
-			return installed, errors.Join(ErrMCPSyncPending, err)
-		}
+		return installed, i.SyncMCP(ctx, admit)
 	}
 	return installed, nil
 }

@@ -24,7 +24,7 @@ func (m *Manager) ReconnectOAuthSnapshot(ctx context.Context, snapshotID, authMe
 	newGrant := false
 	err = m.credMgr.ReconnectLegacyOAuth(ctx, dir, snapshotID, authMethod,
 		func(row database.MCPServer, client *credentials.AuthConfig, id string) (oauthflow.Record, error) {
-			cfg, err := serverModelToConfig(row)
+			cfg, err := ConfigFromServerRecord(row)
 			if err != nil {
 				return oauthflow.Record{}, err
 			}
@@ -59,7 +59,7 @@ func (m *Manager) ReconnectOAuthSnapshot(ctx context.Context, snapshotID, authMe
 			_, err = oauthflow.NewConfigured(r, m.authorizeOAuthNetwork)
 			return r, err
 		}, func(flowCtx context.Context, store oauthflow.Store, r oauthflow.Record, row database.MCPServer) error {
-			cfg, err := serverModelToConfig(row)
+			cfg, err := ConfigFromServerRecord(row)
 			if err != nil {
 				return err
 			}
@@ -80,7 +80,7 @@ func (m *Manager) ReconnectOAuthSnapshot(ctx context.Context, snapshotID, authMe
 			if r.State != "connected" || r.Tokens.Access == "" || !strings.EqualFold(r.Tokens.Type, "Bearer") {
 				return row, oauthflow.ErrReauthorize
 			}
-			cfg, err := serverModelToConfig(row)
+			cfg, err := ConfigFromServerRecord(row)
 			if err != nil {
 				return row, err
 			}
@@ -91,7 +91,7 @@ func (m *Manager) ReconnectOAuthSnapshot(ctx context.Context, snapshotID, authMe
 			projected.LastConnectedAt, projected.LastDiscoveredAt, projected.LastError = row.LastConnectedAt, row.LastDiscoveredAt, row.LastError
 			return projected, err
 		}, func(row database.MCPServer) {
-			cfg, err := serverModelToConfig(row)
+			cfg, err := ConfigFromServerRecord(row)
 			if err == nil {
 				slug = cfg.Slug
 				publishedConfig = cfg
@@ -123,7 +123,7 @@ func (m *Manager) ConvertOAuthClientSnapshot(ctx context.Context, snapshotID, au
 	}
 	var slug string
 	err = m.credMgr.ConvertLegacyClientCredentials(ctx, dir, snapshotID, authMethod, func(row database.MCPServer, client *credentials.AuthConfig, id string) (oauthflow.Record, database.MCPServer, error) {
-		cfg, err := serverModelToConfig(row)
+		cfg, err := ConfigFromServerRecord(row)
 		if err != nil {
 			return oauthflow.Record{}, row, err
 		}
@@ -149,7 +149,7 @@ func (m *Manager) ConvertOAuthClientSnapshot(ctx context.Context, snapshotID, au
 		projected.LastConnectedAt, projected.LastDiscoveredAt, projected.LastError = row.LastConnectedAt, row.LastDiscoveredAt, row.LastError
 		return record, projected, err
 	}, func(row database.MCPServer, _ bool) {
-		cfg, err := serverModelToConfig(row)
+		cfg, err := ConfigFromServerRecord(row)
 		if err == nil {
 			slug = cfg.Slug
 			m.publishManagedOAuth(cfg)
