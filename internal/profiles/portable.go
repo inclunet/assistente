@@ -67,7 +67,7 @@ func (m *Manager) readPortableFile(dir, filename string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer root.Close()
+	defer func() { _ = root.Close() }()
 	raw, err := pluginpackage.ReadFile(root, filename, 1<<20)
 	if err != nil {
 		return nil, err
