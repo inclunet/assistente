@@ -177,7 +177,7 @@ notSaved: 'The decision applies only to this operation: it could not be remember
       invalidLocalJson: 'Enter valid JSON before saving.',
       localInputJson: 'Enter a JSON value. Use double quotes for text.',
       missingJobInput: 'Set a value for {{name}} before enabling the job.',
-      builderJobError: 'Job {{name}} uses options that the package cannot preserve yet. Check its pipeline, trigger conditions, simulation, events, mappings and failure policy.',
+      builderJobError: 'Job {{name}} is unavailable for export. Check that it still exists and its options are supported. Check its pipeline, trigger conditions, simulation, events, mappings and failure policy.',
       builderJobInputs: 'The package includes the tool, supported triggers and input names. Set their values in the destination account before enabling the job.',
       jobRate: 'Maximum runs per hour: {{limit}}',
       jobDefaultRate: 'Destination default hourly limit',
