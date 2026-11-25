@@ -169,7 +169,7 @@ func pluginSkillFrontmatter(raw string) (string, bool) {
 	requirement := ""
 	for key, value := range fields {
 		switch key {
-		case "name", "description", "license":
+		case "name", "description", "license", "version":
 			if _, ok := value.(string); !ok {
 				return "", false
 			}

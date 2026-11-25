@@ -3,9 +3,13 @@ import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { axe } from 'vitest-axe';
 import PluginsPage from './PluginsPage';
+import { useWorkspaceStore } from '../store/workspaceStore';
+import { useAuthStore } from '../store/authStore';
+import * as navigation from '../lib/commandLandmarkNavigation';
 
 const mocks = vi.hoisted(() => ({ createList: vi.fn(), repos: vi.fn(), catalogPreview: vi.fn(), lifecycle: vi.fn(), sync: vi.fn(), register: vi.fn(), remove: vi.fn(), confirm: vi.fn(), list: vi.fn(), components: vi.fn(), toggle: vi.fn(), preview: vi.fn(), install: vi.fn(), discard: vi.fn(), announce: vi.fn(), announceRequest: vi.fn() }));
-vi.mock('@wailsjs/go/wailsapi/Plugins', () => ({ CreateListFromTemplate: mocks.createList, ListRepositories: mocks.repos, PreviewRepositoryEntry: mocks.catalogPreview, ChangeInstallation: mocks.lifecycle, SyncMCP: mocks.sync, RegisterMCP: mocks.register, RemoveMCP: mocks.remove, InstalledComponents: mocks.components, SetSkillActive: mocks.toggle, DiscardPreview: mocks.discard, ListInstalled: mocks.list, PreviewLocal: mocks.preview, InstallReviewed: mocks.install }));
+vi.mock('@wailsjs/go/wailsapi/Tasklist', () => ({GetAllTaskLists: async () => []}));
+vi.mock('@wailsjs/go/wailsapi/Plugins', () => ({ BuilderSkillNames: async () => ({names:[],partial:false}), CreateListFromTemplate: mocks.createList, ListRepositories: mocks.repos, PreviewRepositoryEntry: mocks.catalogPreview, ChangeInstallation: mocks.lifecycle, SyncMCP: mocks.sync, RegisterMCP: mocks.register, RemoveMCP: mocks.remove, InstalledComponents: mocks.components, SetSkillActive: mocks.toggle, DiscardPreview: mocks.discard, ListInstalled: mocks.list, PreviewLocal: mocks.preview, InstallReviewed: mocks.install }));
 vi.mock('../hooks/useConfirm', () => ({ useConfirm: () => mocks.confirm }));
 vi.mock('../store/authStore', async importOriginal => {
   const actual = await importOriginal<typeof import('../store/authStore')>();
@@ -22,6 +26,35 @@ describe('PluginsPage', () => {
     mocks.preview.mockResolvedValue({ token: 'reviewed', name: 'demo', origin: 'local', digest: '123', files: ['plugin.json'], diagnostics: [] });
     mocks.install.mockResolvedValue({});
     mocks.discard.mockResolvedValue(undefined);
+  });
+
+  it('registers a focus target only while the builder form is available', async () => {
+    const auth = useAuthStore.getState();
+    const ws = useWorkspaceStore.getState().workspace;
+    useAuthStore.setState({isAuthenticated:true, user:{userId:'owner',sessionId:'session',role:'admin'}});
+    useWorkspaceStore.setState({workspace:{id:"workspace",name:"Workspace",activeTabId:"tab",tabs:[{id:"tab",type:"editor",title:"Editor",position:0}]}});
+    const focused = vi.spyOn(document,'hasFocus').mockReturnValue(true);
+    try {
+      const user = userEvent.setup();
+      render(<><div className="topbar"><button>Topbar</button></div><PluginsPage /></>);
+      const next = () => {
+        const lease = navigation.captureLandmarkNavigationTarget(() => window.location.pathname);
+        try { expect(lease?.open('navigation.landmark.next')).toBe(true); }
+        finally { lease?.dispose(); }
+      };
+      await user.click(await screen.findByRole('tab', {name:'plugins.builder'}));
+      const name = await screen.findByRole('textbox', {name:'plugins.packageName'});
+      await waitFor(() => expect(name).toBeEnabled());
+      screen.getByRole('button',{name:'plugins.choose'}).focus();
+      next();
+      expect(name).toHaveFocus();
+      next();
+      expect(screen.getByRole('button',{name:'Topbar'})).toHaveFocus();
+      next();
+      expect(screen.getByRole('button',{name:'plugins.choose'})).toHaveFocus();
+      await user.click(screen.getByRole('tab', {name:'plugins.installed'}));
+      expect(name.isConnected).toBe(false);
+    } finally { focused.mockRestore(); useAuthStore.setState(auth, true); useWorkspaceStore.setState({workspace:ws}); }
   });
 
   it('opens a preview from the keyboard and installs only after confirmation', async () => {

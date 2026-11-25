@@ -5,6 +5,7 @@ import (
 	"assistente/internal/logging"
 	"assistente/internal/slug"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -49,14 +50,30 @@ func NewManager() *Manager {
 // Formato: skills/{slug}/SKILL.md
 // Skills com o mesmo slug: o de maior prioridade (workdir > home > exe) prevalece.
 func (m *Manager) discoverAll() []discoveredSkill {
+	items, _ := m.discoverNative()
+	return items
+}
+
+// Legacy consumers use available definitions even when one root fails. The
+// builder reports incomplete discovery before offering its selection.
+func (m *Manager) discoverNative() ([]discoveredSkill, error) {
+	var discoveryErr error
 	searchPaths := m.resolver.GetSearchPaths()
 	resolved := map[string]discoveredSkill{} // slug -> discoveredSkill
 
 	// Itera na ordem de prioridade crescente — o último encontrado sobrescreve
 	for _, dir := range searchPaths {
+		info, err := os.Stat(dir)
+		if err == nil && !info.IsDir() {
+			discoveryErr = fmt.Errorf("skill root is not a directory")
+			continue
+		}
 		entries, err := os.ReadDir(dir)
 		if err != nil {
-			continue // Diretório não existe — tudo bem
+			if !errors.Is(err, os.ErrNotExist) {
+				discoveryErr = err
+			}
+			continue
 		}
 
 		source := configdir.SourceForPath(dir)
@@ -74,6 +91,8 @@ func (m *Manager) discoverAll() []discoveredSkill {
 					path:   skillPath,
 					source: source,
 				}
+			} else if !errors.Is(err, os.ErrNotExist) {
+				discoveryErr = err
 			}
 		}
 	}
@@ -82,7 +101,7 @@ func (m *Manager) discoverAll() []discoveredSkill {
 	for _, ds := range resolved {
 		result = append(result, ds)
 	}
-	return result
+	return result, discoveryErr
 }
 
 // loadSkill carrega e faz parse de um skill descoberto.

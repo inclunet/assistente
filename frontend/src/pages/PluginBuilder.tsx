@@ -1,6 +1,6 @@
-import { useEffect, useRef, useState } from 'react';
+import { type Ref, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { PreviewBuilder, SaveBuilder } from '@wailsjs/go/wailsapi/Plugins';
+import { BuilderSkillNames, PreviewBuilder, SaveBuilder } from '@wailsjs/go/wailsapi/Plugins';
 import { GetAllTaskLists } from '@wailsjs/go/wailsapi/Tasklist';
 import { plugins, type database, type wailsapi } from '@wailsjs/go/models';
 import { useAnnouncer } from '../hooks/useAnnouncer';
@@ -8,25 +8,34 @@ import { Button } from '../components/ui/Button';
 import { Checkbox } from '../components/ui/Checkbox';
 import { Input } from '../components/ui/Input';
 
-export default function PluginBuilder() {
+export default function PluginBuilder({ formRef }: { formRef?: Ref<HTMLFormElement> }) {
   const { t } = useTranslation();
   const { announce } = useAnnouncer();
   const [lists, setLists] = useState<database.TaskList[]>([]);
+  const [skillNames, setSkillNames] = useState<string[]>([]);
+  const [skillSelection, setSkillSelection] = useState<string[]>([]);
   const [name, setName] = useState('');
   const [version, setVersion] = useState('');
   const [selected, setSelected] = useState<Record<string, plugins.BuilderTaskList>>({});
   const [preview, setPreview] = useState<wailsapi.BuilderPreview | null>(null);
+  const [failedSkill, setFailedSkill] = useState('');
+  const [sourcesIncomplete, setSourcesIncomplete] = useState(false);
   const [status, setStatus] = useState('');
   const [busy, setBusy] = useState(true);
   const mounted = useRef(false);
   useEffect(() => {
     mounted.current = true;
-    void GetAllTaskLists().then(items => { if (mounted.current) setLists(items ?? []); })
-      .catch(() => { if (mounted.current) setStatus('plugins.builderError'); })
-      .finally(() => { if (mounted.current) setBusy(false); });
+    void Promise.allSettled([GetAllTaskLists(), BuilderSkillNames()]).then(([items, names]) => {
+      if (!mounted.current) return;
+      if (items.status === 'fulfilled') setLists(items.value ?? []);
+      if (names.status === 'fulfilled') setSkillNames(names.value.names ?? []);
+      setSourcesIncomplete(items.status === 'rejected' || names.status === 'rejected' || names.value.partial);
+      setBusy(false);
+    });
     return () => { mounted.current = false; };
   }, []);
-  useEffect(() => { if (status) announce(t(status)); }, [status, t, announce]);
+  useEffect(() => { if (sourcesIncomplete) announce(t('plugins.builderSourcesError')); }, [sourcesIncomplete, announce, t]);
+  useEffect(() => { if (status) announce(t(status, {name: failedSkill})); }, [status, failedSkill, t, announce]);
   const invalidate = () => { setPreview(null); setStatus(''); };
   const change = (id: string, item?: plugins.BuilderTaskList) => {
     invalidate();
@@ -41,7 +50,7 @@ export default function PluginBuilder() {
     if (busy) return;
     setBusy(true);
     setStatus('');
-    const request = new plugins.BuilderRequest({name, version, tasklists: Object.values(selected)});
+    const request = new plugins.BuilderRequest({name, version, skills:skillSelection, tasklists: Object.values(selected)});
     try {
       if (preview) {
         const saved = await SaveBuilder(request, preview.digest);
@@ -59,6 +68,11 @@ export default function PluginBuilder() {
         setPreview(null);
         if (message.includes('PLUGIN_BUILDER_CHANGED')) setStatus('plugins.builderChanged');
         else if (message.includes('PLUGIN_BUILDER_KEY')) setStatus('plugins.builderInvalidKey');
+        else if (message.includes('PLUGIN_BUILDER_SKILL_UNAVAILABLE')) {
+          const key = /PLUGIN_BUILDER_SKILL_UNAVAILABLE:([a-z0-9-]+)/.exec(message)?.[1];
+          setFailedSkill(key ?? '');
+          setStatus(key ? 'plugins.builderNamedSkillError' : 'plugins.builderSkillError');
+        }
         else setStatus('plugins.builderError');
       }
     }
@@ -70,10 +84,18 @@ export default function PluginBuilder() {
     if (titles.has(list.title)) duplicates.add(list.title);
     titles.add(list.title);
   }
-  return <form onSubmit={event => {event.preventDefault(); void run();}}>
+  return <form ref={formRef} onSubmit={event => {event.preventDefault(); void run();}}>
     <h2>{t('plugins.builder')}</h2>
+    {sourcesIncomplete && <p>{t('plugins.builderSourcesError')}</p>}
     <Input label={t('plugins.packageName')} value={name} required disabled={busy} onChange={event => {invalidate(); setName(event.target.value);}} />
     <Input label={t('plugins.version')} value={version} disabled={busy} onChange={event => {invalidate(); setVersion(event.target.value);}} />
+    <fieldset disabled={busy}>
+      <legend>{t('plugins.builderSkills')}</legend>
+      {skillNames.map(slug => <Checkbox key={slug} label={slug} checked={skillSelection.includes(slug)} onChange={event => {
+        invalidate();
+        setSkillSelection(previous => event.target.checked ? [...previous, slug] : previous.filter(value => value !== slug));
+      }} />)}
+    </fieldset>
     <fieldset disabled={busy}>
       <legend>{t('plugins.builderLists')}</legend>
       {lists.map((list, index) => {
@@ -95,7 +117,7 @@ export default function PluginBuilder() {
       <p>{preview.name}</p><p>SHA-256 · {preview.digest}</p>
       <ul>{preview.files.map(file => <li key={file}><details><summary>{file}</summary><pre>{preview.contents[file]}</pre></details></li>)}</ul>
     </section>}
-    <Button type="submit" disabled={busy || Object.keys(selected).length === 0}>{t(preview ? 'plugins.builderSave' : 'plugins.builderReview')}</Button>
-    {status && <p>{t(status)}</p>}
+    <Button type="submit" disabled={busy || (Object.keys(selected).length === 0 && skillSelection.length === 0)}>{t(preview ? 'plugins.builderSave' : 'plugins.builderReview')}</Button>
+    {status && <p>{t(status, {name: failedSkill})}</p>}
   </form>;
 }

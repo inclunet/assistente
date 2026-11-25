@@ -2,10 +2,12 @@ package plugins
 
 import (
 	"archive/zip"
+	"assistente/internal/skills"
 	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"path"
 	"sort"
 	"strings"
@@ -23,6 +25,7 @@ type BuilderTaskList struct {
 }
 
 type BuilderRequest struct {
+	Skills    []string          `json:"skills,omitempty"`
 	Name      string            `json:"name"`
 	Version   string            `json:"version"`
 	TaskLists []BuilderTaskList `json:"tasklists"`
@@ -38,16 +41,73 @@ func reservedDevice(name string) bool {
 	return len(base) == 4 && (base[:3] == "COM" || base[:3] == "LPT") && base[3] >= '1' && base[3] <= '9'
 }
 
+func (i *Inventory) WithSkillDefinitions(discover func() (skills.PortableDefinitions, error)) *Inventory {
+	copy := *i
+	copy.skillDefinitions = discover
+	return &copy
+}
+
+type BuilderSkillCatalog struct {
+	Names   []string `json:"names"`
+	Partial bool     `json:"partial"`
+}
+
+func (i *Inventory) BuilderSkillNames() BuilderSkillCatalog {
+	catalog := BuilderSkillCatalog{Names: []string{}}
+	if i.skillDefinitions != nil {
+		definitions, err := i.skillDefinitions()
+		catalog.Partial = err != nil
+		for key := range definitions {
+			if validBuilderSkill(key) {
+				catalog.Names = append(catalog.Names, key)
+			}
+		}
+		sort.Strings(catalog.Names)
+	}
+	return catalog
+}
+
+func validBuilderSkill(key string) bool {
+	return portableSkillName.MatchString(key) && len(key) <= 64 && !reservedDevice(key)
+}
+
 func (i *Inventory) BuildPackage(ctx context.Context, request BuilderRequest) ([]byte, *pluginpackage.LocalSnapshot, error) {
 	if _, err := database.RequireUserID(ctx); err != nil {
 		return nil, nil, err
 	}
-	if len(request.TaskLists) == 0 || len(request.TaskLists) > 100 || strings.TrimSpace(request.Name) == "" || reservedDevice(request.Name) {
+	if len(request.TaskLists)+len(request.Skills) == 0 || len(request.TaskLists)+len(request.Skills) > 100 || strings.TrimSpace(request.Name) == "" || reservedDevice(request.Name) {
 		return nil, nil, errors.New("PLUGIN_BUILDER_SELECTION")
 	}
 	files := map[string][]byte{}
 	extension := nativeResources{Version: 1}
 	total := 0
+	var definitions skills.PortableDefinitions
+	if len(request.Skills) > 0 && i.skillDefinitions != nil {
+		// An unrelated root can fail while the selected names are available.
+		definitions, _ = i.skillDefinitions()
+	}
+	for _, key := range request.Skills {
+		if !validBuilderSkill(key) {
+			return nil, nil, errors.New("PLUGIN_BUILDER_SKILL_UNAVAILABLE")
+		}
+		file := path.Join("skills", key, "SKILL.md")
+		if _, exists := files[file]; exists {
+			return nil, nil, errors.New("PLUGIN_BUILDER_KEY")
+		}
+		read := definitions[key]
+		if read == nil {
+			return nil, nil, fmt.Errorf("PLUGIN_BUILDER_SKILL_UNAVAILABLE:%s", key)
+		}
+		raw, err := read()
+		if err != nil {
+			return nil, nil, fmt.Errorf("PLUGIN_BUILDER_SKILL_UNAVAILABLE:%s", key)
+		}
+		total += len(raw)
+		if total > 31<<20 {
+			return nil, nil, errors.New("PLUGIN_BUILDER_SIZE")
+		}
+		files[file] = raw
+	}
 	err := i.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		for _, item := range request.TaskLists {
 			if !portableSkillName.MatchString(item.Key) || len(item.Key) > 64 || reservedDevice(item.Key) {
@@ -81,7 +141,10 @@ func (i *Inventory) BuildPackage(ctx context.Context, request BuilderRequest) ([
 		return nil, nil, err
 	}
 	sort.Strings(extension.TaskLists)
-	manifest := map[string]any{"$schema": pluginpackage.ManifestSchema, "name": request.Name, "extensions": map[string]nativeResources{nativeExtension: extension}}
+	manifest := map[string]any{"$schema": pluginpackage.ManifestSchema, "name": request.Name}
+	if len(extension.TaskLists) > 0 {
+		manifest["extensions"] = map[string]nativeResources{nativeExtension: extension}
+	}
 	if request.Version != "" {
 		manifest["version"] = request.Version
 	}
@@ -118,7 +181,10 @@ func (i *Inventory) BuildPackage(ctx context.Context, request BuilderRequest) ([
 		return nil, nil, err
 	}
 	for _, c := range DiscoverComponents(snapshot) {
-		if c.Reason != "" {
+		if (c.Kind == "skill" && c.Reason != "") || c.Kind == "invalidSkill" {
+			return nil, nil, fmt.Errorf("PLUGIN_BUILDER_SKILL_UNAVAILABLE:%s", strings.TrimPrefix(c.Key, "skills/"))
+		}
+		if c.Reason != "" || (c.Kind != "tasklistTemplate" && c.Kind != "skill") {
 			return nil, nil, ErrComponentUnavailable
 		}
 	}
