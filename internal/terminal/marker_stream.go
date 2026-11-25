@@ -75,7 +75,7 @@ func (t *parsedTerminalText) feed(chunk string) {
 				// O ConPTY pode redesenhar a última célula do marcador de início.
 				// Nesse caso descarte a célula repetida e mantenha o delimitador.
 				beforeBreak := t.data[:len(t.data)-1]
-				if !bytes.HasSuffix(beforeBreak, []byte(t.marker.startTag)) {
+				if t.marker.probeInterrupt != nil || !bytes.HasSuffix(beforeBreak, []byte(t.marker.startTag)) {
 					t.data = beforeBreak
 				}
 				t.row = len(t.data)
@@ -334,7 +334,13 @@ func (s *markerStream) progress() (delta []byte, result parseResult) {
 	previous := s.scanned
 	s.scanned = len(data)
 	if !s.started {
-		needle := []byte(s.marker.startTag + "\n")
+		delimiter := "\n"
+		if s.marker.probeInterrupt != nil {
+			// A consulta não tem corpo: as duas marcas formam uma única
+			// resposta visível, mesmo quando o ConPTY omite a quebra de linha.
+			delimiter = s.marker.endTag
+		}
+		needle := []byte(s.marker.startTag + delimiter)
 		from := max(0, previous-len(needle))
 		for from < len(data) {
 			n := bytes.Index(data[from:], needle)
@@ -344,6 +350,9 @@ func (s *markerStream) progress() (delta []byte, result parseResult) {
 			at := from + n
 			if s.marker.conPTY || at == 0 || data[at-1] == '\n' {
 				s.start = at + len(needle)
+				if s.marker.probeInterrupt != nil {
+					s.start -= len(delimiter)
+				}
 				s.sent = s.start
 				s.started = true
 				break
@@ -351,7 +360,7 @@ func (s *markerStream) progress() (delta []byte, result parseResult) {
 			from = at + 1
 		}
 		if !s.started {
-			if s.marker.conPTY {
+			if s.marker.conPTY && s.marker.probeInterrupt == nil {
 				return s.joinedFrame()
 			}
 			return

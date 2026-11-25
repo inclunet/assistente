@@ -324,11 +324,12 @@ Pendente ou parcial:
   quando o corpo não produz texto visível. O leitor reconhece as duas marcas
   da mesma execução nesse caso, preserva espaços do corpo e aguarda o status
   terminado. `TestConPTYFooterWithoutStartLineBreak` cobre cortes entre leituras.
+  A consulta emite as duas marcas e o status em uma única escrita do PowerShell.
   O diagnóstico de prazo distingue consulta e comando e o progresso do leitor
   antes e depois da drenagem, sem incluir a saída.
   No Windows PowerShell 5.1 com ConPTY e PSReadLine, a linha recuperada pela
   seta para `Write-Output 'gerenciado-revisao-1120'` passou de 6.330 para
-  1.036 bytes. A consulta anterior registrou 411 bytes (1.447 no total, sem
+  1.036 bytes. A consulta anterior registrou 380 bytes (1.416 no total, sem
   terminadores). `TestPowerShellNativeHistory` verifica os dois estilos de
   persistência, a entrada manual, a execução sem o módulo e no shell filho.
   `BenchmarkPowerShellSessionStartup` mede até o primeiro prompt e até o

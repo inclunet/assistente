@@ -161,7 +161,7 @@ func powerShellLibraryPresent(key string) string {
 // A consulta não carrega o corpo autorizado. Use enquadramento distinto para
 // a execução, que recebe o corpo uma única vez em ambos os modos.
 func (m *CommandMarker) powerShellProbe(key string) string {
-	return fmt.Sprintf("Write-Host ([string][char]24 + [Environment]::NewLine + '%s' + '%s'); Write-Host ([string][char]24 + '%s' + '%s' + [int](!(%s)) + '!')",
+	return fmt.Sprintf("Write-Host ([string][char]24 + [Environment]::NewLine + '%s' + '%s' + '%s' + '%s' + [int](!(%s)) + '!')",
 		markerStart, m.id+markerSuffix, markerEnd, m.id+markerSuffix, powerShellLibraryPresent(key))
 }
 
