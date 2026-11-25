@@ -641,7 +641,7 @@ func TestPowerShellProbeRequiresFooterAfterProcessExit(t *testing.T) {
 		t.Errorf("saída da consulta entregue como comando: %q", output)
 	}}
 	s.beginMarkerCapture(marker)
-	s.recordOutput(marker.startTag + "\ntexto residual")
+	s.recordOutput(marker.startTag + marker.endTag + "0")
 	output, code, err := s.waitForMarker(t.Context(), marker, "cmd")
 	if err == nil || code != -1 || output != "" {
 		t.Fatalf("consulta sem rodapé: output=%q code=%d err=%v", output, code, err)

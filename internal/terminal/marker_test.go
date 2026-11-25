@@ -931,8 +931,9 @@ func BenchmarkMarkerStreamScale(b *testing.B) {
 
 func TestPowerShellProbeIgnoresUnframedReply(t *testing.T) {
 	m := newCommandMarkerForShell("powershell")
+	m.probeInterrupt = make(chan struct{})
 	for _, code := range []int{0, 1} {
-		wire := m.endTag + "!\n" + m.startTag + "\n" + m.endTag + strconv.Itoa(code) + "!"
+		wire := m.endTag + "!\n" + m.startTag + m.endTag + strconv.Itoa(code) + "!"
 		for split := 0; split < len(wire); split++ {
 			stream := newMarkerStream(m)
 			stream.append(wire[:split])
