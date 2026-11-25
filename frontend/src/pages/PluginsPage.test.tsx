@@ -9,14 +9,14 @@ import * as navigation from '../lib/commandLandmarkNavigation';
 
 const mocks = vi.hoisted(() => ({ prepareJob: vi.fn(), syncJobs: vi.fn().mockResolvedValue(undefined), profile: vi.fn(), createList: vi.fn(), repos: vi.fn(), catalogPreview: vi.fn(), lifecycle: vi.fn(), sync: vi.fn(), register: vi.fn(), remove: vi.fn(), confirm: vi.fn(), list: vi.fn(), components: vi.fn(), toggle: vi.fn(), preview: vi.fn(), install: vi.fn(), discard: vi.fn(), announce: vi.fn(), announceRequest: vi.fn() }));
 vi.mock('@wailsjs/go/wailsapi/Tasklist', () => ({GetAllTaskLists: async () => []}));
-vi.mock('@wailsjs/go/wailsapi/Plugins', () => ({ BuilderProfileNames: async () => ({names:[],partial:false}), BuilderSkillNames: async () => ({names:[],partial:false}), CreateListFromTemplate: mocks.createList, ListRepositories: mocks.repos, PreviewRepositoryEntry: mocks.catalogPreview, ChangeInstallation: mocks.lifecycle, PrepareJob: mocks.prepareJob, SyncPendingJobs: mocks.syncJobs, SyncMCP: mocks.sync, RegisterMCP: mocks.register, RemoveMCP: mocks.remove, InstalledComponents: mocks.components, SetProfileActive: mocks.profile, SetSkillActive: mocks.toggle, DiscardPreview: mocks.discard, ListInstalled: mocks.list, PreviewLocal: mocks.preview, InstallReviewed: mocks.install }));
+vi.mock('@wailsjs/go/wailsapi/Plugins', () => ({ BuilderJobNames: async () => [], BuilderProfileNames: async () => ({names:[],partial:false}), BuilderSkillNames: async () => ({names:[],partial:false}), CreateListFromTemplate: mocks.createList, ListRepositories: mocks.repos, PreviewRepositoryEntry: mocks.catalogPreview, ChangeInstallation: mocks.lifecycle, PrepareJob: mocks.prepareJob, SyncPendingJobs: mocks.syncJobs, SyncMCP: mocks.sync, RegisterMCP: mocks.register, RemoveMCP: mocks.remove, InstalledComponents: mocks.components, SetProfileActive: mocks.profile, SetSkillActive: mocks.toggle, DiscardPreview: mocks.discard, ListInstalled: mocks.list, PreviewLocal: mocks.preview, InstallReviewed: mocks.install }));
 vi.mock('../hooks/useConfirm', () => ({ useConfirm: () => mocks.confirm }));
 vi.mock('../store/authStore', async importOriginal => {
   const actual = await importOriginal<typeof import('../store/authStore')>();
   return { ...actual, useAuthStore: Object.assign(() => 'session', actual.useAuthStore) };
 });
 vi.mock('../hooks/useAnnouncer', () => ({ announce: mocks.announce, useAnnouncer: () => ({ announce: mocks.announce, announceRequest: mocks.announceRequest }) }));
-vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string, options?: {name?: string}) => ['plugins.registerServer','plugins.keepServer','plugins.removeServer'].includes(key) ? key + ' ' + options?.name : key }) }));
+vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string, options?: {name?: string; limit?: number}) => key === 'plugins.jobRate' ? key + ' ' + options?.limit : ['plugins.registerServer','plugins.keepServer','plugins.removeServer'].includes(key) ? key + ' ' + options?.name : key }) }));
 
 describe('PluginsPage', () => {
   beforeEach(() => {
@@ -524,7 +524,7 @@ describe('PluginsPage', () => {
 
   it('shows the requested job tool and triggers without running or enabling it', async () => {
     mocks.preview.mockResolvedValue({token:'reviewed', name:'kit', digest:'sha', files:[], diagnostics:[], components:[
-      {kind:'job', key:'jobs/reminder', name:'Reminder', tool:'notify', jobTriggers:['interval']},
+      {kind:'job', key:'jobs/reminder', name:'Reminder', tool:'notify', jobTriggers:[{type:'interval', every:'45m'}, {type:'cron', expression:'TZ=UTC 0 9 * * *'}], jobMaxRunsPerHour:4},
     ]});
     const user=userEvent.setup();
     render(<PluginsPage />);
@@ -533,7 +533,9 @@ describe('PluginsPage', () => {
     await user.click(choose);
     await screen.findByText(/Reminder/);
     expect(screen.getByText(/plugins.jobTool/)).toBeVisible();
-    expect(screen.getByText(/plugins.jobTrigger.interval/)).toBeVisible();
+    expect(screen.getByText(/plugins.jobTrigger.interval 45m/)).toBeVisible();
+    expect(screen.getByText(/plugins.jobTrigger.cron TZ=UTC 0 9/)).toBeVisible();
+    expect(screen.getByText(/plugins.jobRate 4/)).toBeVisible();
     expect(screen.queryByRole('button', {name:'plugins.activate'})).toBeNull();
   });
 

@@ -251,7 +251,11 @@ export function SchemaForm({ schema, values, onChange, templateMode = false, tem
     }));
   }, [schema]);
 
-  const extra = configuredFields.filter(field => Object.prototype.hasOwnProperty.call(localDrafts, field) || !Object.prototype.hasOwnProperty.call(schema?.properties ?? {}, field));
+  const extra = configuredFields.filter(field =>
+    Object.prototype.hasOwnProperty.call(localDrafts, field) ||
+    !Object.prototype.hasOwnProperty.call(schema?.properties ?? {}, field) ||
+    (values[field] != null && typeof values[field] === 'object')
+  );
   if (fields.length === 0 && extra.length === 0) {
     return (
       <div className="schema-form__empty">

@@ -179,6 +179,8 @@ notSaved: 'The decision applies only to this operation: it could not be remember
       missingJobInput: 'Set a value for {{name}} before enabling the job.',
       builderJobError: 'Job {{name}} uses options that the package cannot preserve yet. Check its pipeline, trigger conditions, simulation, events, mappings and failure policy.',
       builderJobInputs: 'The package includes the tool, supported triggers and input names. Set their values in the destination account before enabling the job.',
+      jobRate: 'Maximum runs per hour: {{limit}}',
+      jobDefaultRate: 'Destination default hourly limit',
       jobInputs: 'Inputs to configure at the destination: {{fields}}',
       builderProfiles: 'Conversation profiles',
       builderProfileFields: 'The package includes the name, description, temperature, top-p and token limit. The installed profile uses the default provider with tools and skills disabled.',

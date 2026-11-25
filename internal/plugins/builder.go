@@ -6,10 +6,12 @@ import (
 	"assistente/internal/skills"
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"path"
+	"slices"
 	"sort"
 	"strings"
 
@@ -81,6 +83,32 @@ func validBuilderSkill(key string) bool {
 	return portableSkillName.MatchString(key) && len(key) <= 64 && !reservedDevice(key)
 }
 
+// Keep existing portable slugs, even when one is also a generated key.
+func builderJobKeys(slugs []string) map[string]string {
+	keys := make(map[string]string, len(slugs))
+	used := make(map[string]bool, len(slugs))
+	for _, slug := range slugs {
+		if validBuilderSkill(slug) {
+			keys[slug] = slug
+			used[slug] = true
+		}
+	}
+	for _, slug := range slices.Sorted(slices.Values(slugs)) {
+		if _, ok := keys[slug]; ok {
+			continue
+		}
+		digest := sha256.Sum256([]byte(slug))
+		base := fmt.Sprintf("job-%x", digest[:16])
+		key := base
+		for suffix := 2; used[key]; suffix++ {
+			key = fmt.Sprintf("%s-%d", base, suffix)
+		}
+		keys[slug] = key
+		used[key] = true
+	}
+	return keys
+}
+
 func (i *Inventory) BuildPackage(ctx context.Context, request BuilderRequest) ([]byte, *pluginpackage.LocalSnapshot, error) {
 	if _, err := database.RequireUserID(ctx); err != nil {
 		return nil, nil, err
@@ -148,24 +176,23 @@ func (i *Inventory) BuildPackage(ctx context.Context, request BuilderRequest) ([
 		files[file] = raw
 	}
 	err := i.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		for _, key := range request.Jobs {
-			if !portableSkillName.MatchString(key) || len(key) > 64 || reservedDevice(key) {
-				return errors.New("PLUGIN_BUILDER_JOB_UNAVAILABLE: " + key)
-			}
+		jobKeys := builderJobKeys(request.Jobs)
+		for _, slug := range request.Jobs {
+			key := jobKeys[slug]
 			file := path.Join(nativeExtension, "jobs", key+".json")
 			if _, exists := files[file]; exists {
 				return errors.New("PLUGIN_BUILDER_KEY")
 			}
-			job, err := jobs.NewDBRepository(tx).GetJob(ctx, key)
-			if errors.Is(err, gorm.ErrRecordNotFound) {
-				return errors.New("PLUGIN_BUILDER_JOB_UNAVAILABLE: " + key)
+			job, err := jobs.NewDBRepository(tx).GetJob(ctx, slug)
+			if errors.Is(err, gorm.ErrRecordNotFound) || (err == nil && job.ID != slug) {
+				return errors.New("PLUGIN_BUILDER_JOB_UNAVAILABLE: " + slug)
 			}
 			if err != nil {
 				return err
 			}
 			raw, err := jobs.ExportPortableJob(job)
 			if err != nil {
-				return errors.New("PLUGIN_BUILDER_JOB_UNAVAILABLE: " + key)
+				return errors.New("PLUGIN_BUILDER_JOB_UNAVAILABLE: " + slug)
 			}
 			total += len(raw)
 			if total > 31<<20 {
