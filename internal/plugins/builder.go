@@ -2,6 +2,7 @@ package plugins
 
 import (
 	"archive/zip"
+	"assistente/internal/profiles"
 	"assistente/internal/skills"
 	"bytes"
 	"context"
@@ -42,10 +43,9 @@ func reservedDevice(name string) bool {
 	return len(base) == 4 && (base[:3] == "COM" || base[:3] == "LPT") && base[3] >= '1' && base[3] <= '9'
 }
 
-func (i *Inventory) WithProfileDefinition(read func(string) ([]byte, error), names func() ([]string, error)) *Inventory {
+func (i *Inventory) WithProfileDefinitions(discover func() (profiles.PortableDefinitions, error)) *Inventory {
 	copy := *i
-	copy.profileDefinition = read
-	copy.profileNames = names
+	copy.profileDefinitions = discover
 	return &copy
 }
 
@@ -55,13 +55,13 @@ func (i *Inventory) WithSkillDefinitions(discover func() (skills.PortableDefinit
 	return &copy
 }
 
-type BuilderSkillCatalog struct {
+type BuilderResourceCatalog struct {
 	Names   []string `json:"names"`
 	Partial bool     `json:"partial"`
 }
 
-func (i *Inventory) BuilderSkillNames() BuilderSkillCatalog {
-	catalog := BuilderSkillCatalog{Names: []string{}}
+func (i *Inventory) BuilderSkillNames() BuilderResourceCatalog {
+	catalog := BuilderResourceCatalog{Names: []string{}}
 	if i.skillDefinitions != nil {
 		definitions, err := i.skillDefinitions()
 		catalog.Partial = err != nil
@@ -90,15 +90,19 @@ func (i *Inventory) BuildPackage(ctx context.Context, request BuilderRequest) ([
 	files := map[string][]byte{}
 	extension := nativeResources{Version: 1}
 	total := 0
+	var profileFiles profiles.PortableDefinitions
+	if len(request.Profiles) > 0 && i.profileDefinitions != nil {
+		profileFiles, _ = i.profileDefinitions()
+	}
 	for _, key := range request.Profiles {
-		if !portableSkillName.MatchString(key) || len(key) > 64 || reservedDevice(key) || i.profileDefinition == nil {
+		if !portableSkillName.MatchString(key) || len(key) > 64 || reservedDevice(key) || profileFiles[key] == nil {
 			return nil, nil, errors.New("PLUGIN_BUILDER_KEY")
 		}
 		file := path.Join(nativeExtension, "profiles", key+".json")
 		if _, exists := files[file]; exists {
 			return nil, nil, errors.New("PLUGIN_BUILDER_KEY")
 		}
-		raw, err := i.profileDefinition(key)
+		raw, err := profileFiles[key]()
 		if err != nil {
 			return nil, nil, err
 		}
@@ -220,19 +224,17 @@ func (i *Inventory) BuildPackage(ctx context.Context, request BuilderRequest) ([
 	return output.Bytes(), snapshot, nil
 }
 
-func (i *Inventory) BuilderProfileNames() ([]string, error) {
-	if i.profileNames == nil {
-		return nil, nil
-	}
-	names, err := i.profileNames()
-	if err != nil {
-		return nil, err
-	}
-	keys := make([]string, 0, len(names))
-	for _, key := range names {
-		if portableSkillName.MatchString(key) && len(key) <= 64 && !reservedDevice(key) {
-			keys = append(keys, key)
+func (i *Inventory) BuilderProfileNames() BuilderResourceCatalog {
+	catalog := BuilderResourceCatalog{Names: []string{}}
+	if i.profileDefinitions != nil {
+		files, err := i.profileDefinitions()
+		catalog.Partial = err != nil
+		for key := range files {
+			if validBuilderSkill(key) {
+				catalog.Names = append(catalog.Names, key)
+			}
 		}
+		sort.Strings(catalog.Names)
 	}
-	return keys, nil
+	return catalog
 }

@@ -3,10 +3,10 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import PluginBuilder from './PluginBuilder';
 
-const mock = vi.hoisted(() => ({list:vi.fn(),skills:vi.fn(async()=>({names:['notes'],partial:false})),preview:vi.fn(),save:vi.fn(),announce:vi.fn()}));
+const mock = vi.hoisted(() => ({list:vi.fn(),profiles:vi.fn(async()=>({names:['writer'],partial:false})),skills:vi.fn(async()=>({names:['notes'],partial:false})),preview:vi.fn(),save:vi.fn(),announce:vi.fn()}));
 
 vi.mock('@wailsjs/go/wailsapi/Tasklist', () => ({GetAllTaskLists:mock.list}));
-vi.mock('@wailsjs/go/wailsapi/Plugins', () => ({BuilderProfileNames:vi.fn(async()=>['writer']),BuilderSkillNames:mock.skills,PreviewBuilder:mock.preview,SaveBuilder:mock.save}));
+vi.mock('@wailsjs/go/wailsapi/Plugins', () => ({BuilderProfileNames:mock.profiles,BuilderSkillNames:mock.skills,PreviewBuilder:mock.preview,SaveBuilder:mock.save}));
 vi.mock('../hooks/useAnnouncer', () => ({useAnnouncer:()=>({announce:mock.announce})}));
 vi.mock('react-i18next', () => ({useTranslation:()=>({t:(key:string, args?: {name?: string, position?: number})=>key === 'plugins.builderListPosition' ? args?.name + ' #' + args?.position : key === 'plugins.builderNamedSkillError' ? key + ': ' + args?.name : key})}));
 
@@ -18,6 +18,17 @@ describe('PluginBuilder', () => {
     render(<PluginBuilder />);
     await screen.findByText('plugins.builderSourcesError');
     const skill = screen.getByRole('checkbox',{name:'notes'});
+    await user.click(skill);
+    expect(skill).toBeChecked();
+    expect(screen.getByText('plugins.builderSourcesError')).toBeVisible();
+  });
+  it('keeps profiles selectable alongside a partial-discovery warning', async () => {
+    mock.list.mockResolvedValue([]);
+    mock.profiles.mockResolvedValueOnce({names:['writer'],partial:true});
+    const user = userEvent.setup();
+    render(<PluginBuilder />);
+    await screen.findByText('plugins.builderSourcesError');
+    const skill = screen.getByRole('checkbox',{name:'writer'});
     await user.click(skill);
     expect(skill).toBeChecked();
     expect(screen.getByText('plugins.builderSourcesError')).toBeVisible();

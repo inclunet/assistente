@@ -60,7 +60,7 @@ func (a *App) wirePlugins() {
 			return a.mcpMgr.ReloadPackagedConfigs(ctx)
 		}).WithRemoteClient(func(ref string) *httpclient.Client {
 			return plugins.RepositoryHTTPClient(a.credMgr, ref, authorizer)
-		}, a.watchRepositorySession).WithProfileDefinition(a.profileManager.PortableDefinition, a.profileManager.BuilderSlugs).WithSkillDefinitions(a.skillMgr.DiscoverPortableDefinitions).WithListCreated(a.taskSvc.NotifyTemplateListCreated), a.dialogPort.OpenDirectoryDialog, a.captureDialogAdmission, func() { a.emitter.Emit("plugins:skills_changed", nil) })
+		}, a.watchRepositorySession).WithProfileDefinitions(a.profileManager.DiscoverPortableDefinitions).WithSkillDefinitions(a.skillMgr.DiscoverPortableDefinitions).WithListCreated(a.taskSvc.NotifyTemplateListCreated), a.dialogPort.OpenDirectoryDialog, a.captureDialogAdmission, func() { a.emitter.Emit("plugins:skills_changed", nil) })
 	}
 }
 

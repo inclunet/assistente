@@ -10,6 +10,7 @@ import (
 	"assistente/internal/commandsecurity"
 	"assistente/internal/database"
 	"assistente/internal/pluginpackage"
+	"assistente/internal/profiles"
 	"assistente/internal/skills"
 	"assistente/internal/sqlite"
 	"github.com/google/uuid"
@@ -89,12 +90,9 @@ func TestBuilderExportsOnlySelectedDefinitionsToAnotherAccount(t *testing.T) {
 	req.TaskLists[0].IncludeTasks = true
 	req.Skills = []string{"notes"}
 	req.Profiles = []string{"writer"}
-	store = store.WithProfileDefinition(func(key string) ([]byte, error) {
-		if key != "writer" {
-			return nil, os.ErrNotExist
-		}
-		return []byte(`{"name":"Writer","maxTokens":350}`), nil
-	}, nil)
+	store = store.WithProfileDefinitions(func() (profiles.PortableDefinitions, error) {
+		return profiles.PortableDefinitions{"writer": func() ([]byte, error) { return []byte(`{"name":"Writer","maxTokens":350}`), nil }}, nil
+	})
 	_, single, err := store.BuildPackage(ctx, BuilderRequest{Name: "writer", Profiles: []string{"writer"}})
 	if err != nil {
 		t.Fatal(err)

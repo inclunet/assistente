@@ -30,9 +30,9 @@ export default function PluginBuilder({ formRef }: { formRef?: Ref<HTMLFormEleme
     void Promise.allSettled([GetAllTaskLists(), BuilderSkillNames(), BuilderProfileNames()]).then(([items, names, profileList]) => {
       if (!mounted.current) return;
       if (items.status === 'fulfilled') setLists(items.value ?? []);
-      if (profileList.status === 'fulfilled') setProfileOptions(profileList.value ?? []);
+      if (profileList.status === 'fulfilled') setProfileOptions(profileList.value.names ?? []);
       if (names.status === 'fulfilled') setSkillNames(names.value.names ?? []);
-      setSourcesIncomplete(profileList.status === 'rejected' || items.status === 'rejected' || names.status === 'rejected' || names.value.partial);
+      setSourcesIncomplete(profileList.status === 'rejected' || profileList.value.partial || items.status === 'rejected' || names.status === 'rejected' || names.value.partial);
       setBusy(false);
     });
     return () => { mounted.current = false; };

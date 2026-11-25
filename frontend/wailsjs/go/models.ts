@@ -8165,12 +8165,12 @@ export namespace plugins {
 		    return a;
 		}
 	}
-	export class BuilderSkillCatalog {
+	export class BuilderResourceCatalog {
 	    names: string[];
 	    partial: boolean;
 	
 	    static createFrom(source: any = {}) {
-	        return new BuilderSkillCatalog(source);
+	        return new BuilderResourceCatalog(source);
 	    }
 	
 	    constructor(source: any = {}) {
