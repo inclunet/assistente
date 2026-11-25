@@ -1537,7 +1537,7 @@ describe('ChatToolbar menu de perfil', () => {
   });
 
   it('omite a edição de perfil de plugin no menu de teclado', async () => {
-    mockPanelTabRef.current = { id: 'tab-chat', title: 'Chat', type: 'chat', profileOverride: { slug: 'plugin--writer' } };
+    mockPanelTabRef.current = { id: 'tab-chat', title: 'Chat', type: 'chat', profileOverride: { slug: 'plugin--12345678-1234-4234-8234-123456789abc' } };
     renderToolbar();
     fireEvent.keyDown(screen.getByTestId('profile-picker-container'), {key: 'F10', shiftKey: true});
     await waitFor(() => expect(openAtPointMock).toHaveBeenCalled());

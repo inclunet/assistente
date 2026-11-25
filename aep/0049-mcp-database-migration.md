@@ -13,6 +13,8 @@ Migrar a configuração de servidores MCP de arquivos JSON individuais no disco 
 
 Credenciais OAuth/bearer/basic continuam no `credentials.Manager` existente (nunca no banco de configs). O file watcher é removido. O banco passa a ser a fonte persistida para servidores MCP, catálogo de tools e metadados de seleção; o registry em memória passa a ser uma projeção runtime usada para execução. Importação e exportação de MCP servers são integradas ao sistema `internal/portability` da AEP-0047, incluindo export canônico em `resources.mcpServers` e export compatível `mcpServers` para outros clientes MCP.
 
+Na recarga geral, o runtime compara a identidade e a configuração persistida de cada servidor com a conexão existente. Preserva conexões inalteradas e encerra a conexão anterior antes de publicar uma configuração substituta. A sincronização de plugins do AEP-0119 aplica a mesma regra ao subconjunto da conta.
+
 A AEP-0063 passa a consumir `tool_catalog` como fonte canônica para registrar execuções em `tool_invocations`. O catálogo não deve duplicar histórico de execução; ele identifica a tool, enquanto `tool_invocations` registra chamadas efêmeras feitas por chat, jobs, dry-run ou sistema.
 
 ## Motivação

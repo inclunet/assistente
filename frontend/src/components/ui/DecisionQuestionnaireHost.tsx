@@ -78,8 +78,8 @@ export function DecisionQuestionnaireHost({
         autoFocus: q.autoFocus,
       }));
     }
-    const plain = data?.body?.trim();
-    if (!plain) return [];
+    const plain = data?.body;
+    if (!plain?.trim()) return [];
     return [
       {
         id: 'body',

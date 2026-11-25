@@ -35,7 +35,7 @@ func nativeComponents(snap *pluginpackage.LocalSnapshot) []Component {
 	var def nativeResources
 	decoder := json.NewDecoder(strings.NewReader(string(raw)))
 	decoder.DisallowUnknownFields()
-	if decoder.Decode(&def) != nil || def.Version != 1 {
+	if decoder.Decode(&def) != nil || def.Version != 1 || len(def.TaskLists)+len(def.Profiles)+len(def.Jobs) > 2048 {
 		return []Component{{Kind: "invalidNative", Key: nativeExtension, Name: nativeExtension, Reason: "manifestConfiguration"}}
 	}
 	var result []Component
@@ -47,9 +47,12 @@ func nativeComponents(snap *pluginpackage.LocalSnapshot) []Component {
 		seen[name] = true
 		entry := path.Join(nativeExtension, "tasklists", name+".json")
 		c := Component{Key: "tasklists/" + name, Kind: "tasklistTemplate", Name: name, Entry: entry}
-		definition, err := portability.ReadTaskListTemplate(snap.Files[entry])
-		if err != nil {
-			c.Reason = "manifestConfiguration"
+		raw, found := snap.Files[entry]
+		definition, err := portability.ReadTaskListTemplate(raw)
+		if !found {
+			c.Reason = "missingTemplate"
+		} else if err != nil {
+			c.Reason = "invalidTemplate"
 		} else {
 			c.Name = definition.Title
 		}
@@ -105,7 +108,8 @@ func (i *Inventory) CreateListFromTemplate(ctx context.Context, id, digest, key,
 	if err != nil {
 		return "", err
 	}
-	if _, err := uuid.Parse(request); err != nil || admit == nil {
+	requestID, err := uuid.Parse(request)
+	if err != nil || admit == nil {
 		return "", ErrComponentUnavailable
 	}
 	snap, err := i.installedSnapshot(ctx, id, digest)
@@ -125,7 +129,7 @@ func (i *Inventory) CreateListFromTemplate(ctx context.Context, id, digest, key,
 	if definition == nil {
 		return "", ErrComponentUnavailable
 	}
-	listID := uuid.NewSHA1(uuid.NameSpaceOID, []byte(strings.Join([]string{"plugin-tasklist", owner, id, digest, key, request}, "\x00"))).String()
+	var listID string
 	publish, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	var created *database.TaskList
@@ -135,15 +139,25 @@ func (i *Inventory) CreateListFromTemplate(ctx context.Context, id, digest, key,
 		if err := tx.Where("id=? AND user_id=? AND digest=? AND disabled=?", id, owner, digest, false).Take(&installed).Error; err != nil {
 			return err
 		}
-		var current database.TaskList
-		err := tx.Select("id").Where("id=? AND user_id=?", listID, owner).Take(&current).Error
+		receipt := database.PluginListReceipt{InstallationID: id, Digest: digest, ComponentKey: key, RequestID: requestID.String()}
+		err := tx.Where(&receipt).Take(&receipt).Error
 		if err == nil {
+			listID = receipt.ListID
 			return nil
 		}
 		if !errors.Is(err, gorm.ErrRecordNotFound) {
 			return err
 		}
 		if err := database.CheckTaskListCapacity(ctx, tx); err != nil {
+			return err
+		}
+		fresh, err := uuid.NewV7()
+		if err != nil {
+			return err
+		}
+		listID = fresh.String()
+		receipt.ListID = listID
+		if err := tx.Create(&receipt).Error; err != nil {
 			return err
 		}
 		if err := definition.Instantiate(ctx, tx, listID); err != nil {

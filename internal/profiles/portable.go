@@ -7,10 +7,10 @@ import (
 	"errors"
 	"io"
 	"io/fs"
-	"maps"
+
 	"os"
 	"path/filepath"
-	"slices"
+
 	"strings"
 	"unicode/utf8"
 )
@@ -54,36 +54,25 @@ func ReadPortableDefinition(raw []byte) (*Profile, error) {
 	return p, nil
 }
 
-// PortableDefinition exports only the conversation preferences shown in the builder preview.
-func (m *Manager) PortableDefinition(slug string) ([]byte, error) {
-	if slug == "" || Slugify(slug) != slug || IsPluginProfile(slug) {
-		return nil, errors.New("invalid portable profile slug")
-	}
+// PortableDefinitions indexes readable native profiles by their exact, portable filename.
+type PortableDefinitions map[string]func() ([]byte, error)
+
+func (m *Manager) readPortableFile(dir, filename string) ([]byte, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	if err := m.ensurePortableSnapshotLocked(); err != nil {
 		return nil, err
 	}
-	paths := m.resolver.GetSearchPaths()
-	for _, dir := range slices.Backward(paths) {
-		root, err := openProfileDirectory(dir)
-		if errors.Is(err, fs.ErrNotExist) {
-			continue
-		}
-		if err != nil {
-			return nil, err
-		}
-		raw, err := pluginpackage.ReadFile(root, slug+".json", 1<<20)
-		_ = root.Close()
-		if errors.Is(err, fs.ErrNotExist) {
-			continue
-		}
-		if err != nil {
-			return nil, err
-		}
-		return encodePortableProfile(raw)
+	root, err := openProfileDirectory(dir)
+	if err != nil {
+		return nil, err
 	}
-	return nil, fs.ErrNotExist
+	defer func() { _ = root.Close() }()
+	raw, err := pluginpackage.ReadFile(root, filename, 1<<20)
+	if err != nil {
+		return nil, err
+	}
+	return encodePortableProfile(raw)
 }
 
 // The native search path ends in .assistente/profiles. Open both directories
@@ -143,35 +132,39 @@ func encodePortableProfile(data []byte) ([]byte, error) {
 	return raw, nil
 }
 
-// BuilderSlugs lists native profile filenames without opening their contents.
-func (m *Manager) BuilderSlugs() ([]string, error) {
+// DiscoverPortableDefinitions resolves exact filenames in native search priority order.
+func (m *Manager) DiscoverPortableDefinitions() (PortableDefinitions, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	if err := m.ensurePortableSnapshotLocked(); err != nil {
 		return nil, err
 	}
-	names := map[string]bool{}
+	definitions := PortableDefinitions{}
+	var partial error
 	for _, dir := range m.resolver.GetSearchPaths() {
 		root, err := openProfileDirectory(dir)
 		if errors.Is(err, fs.ErrNotExist) {
 			continue
 		}
 		if err != nil {
-			return nil, err
+			partial = errors.Join(partial, err)
+			continue
 		}
 		entries, err := fs.ReadDir(root.FS(), ".")
 		_ = root.Close()
 		if err != nil {
-			return nil, err
+			partial = errors.Join(partial, err)
+			continue
 		}
 		for _, entry := range entries {
 			name, ok := strings.CutSuffix(entry.Name(), ".json")
 			if ok && entry.Type().IsRegular() && Slugify(name) == name && !IsPluginProfile(name) {
-				names[name] = true
+				filename := entry.Name()
+				definitions[name] = func() ([]byte, error) { return m.readPortableFile(dir, filename) }
 			}
 		}
 	}
-	return slices.Sorted(maps.Keys(names)), nil
+	return definitions, partial
 }
 
 // Native profile mutations recover their journal through the manager. A builder

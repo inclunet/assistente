@@ -32,7 +32,7 @@ const workspace = { id: 'workspace-a', name: 'Workspace', activeTabId: 'terminal
   tabs: [{ id: 'terminal-a', type: 'terminal', state: { sessionId: 'pty-a' } }] };
 const terminal = { sessions: [{ id: 'pty-a', state: 'running' }],
   historyBySession: { 'pty-a': [{ id: 'command-a', output: '', endedAt: '' }] },
-  activeEntryBySession: { 'pty-a': 'command-a' } };
+  manualEntryBySession: {}, activeEntryBySession: { 'pty-a': 'command-a' } };
 const listeners = new Set<() => void>();
 const reservation = { ticket: 'ticket-a', invocationId: 'invocation-a', commandId: 'terminal.command.interrupt' };
 const handoff = { ...reservation, handoffId: 'handoff-a' };
@@ -193,6 +193,10 @@ it.each([
   expect(state.take).toHaveBeenCalledExactlyOnceWith('ticket-a');
   expect(state.commit).toHaveBeenCalledExactlyOnceWith('ticket-a', 'handoff-a');
   expect(state.prepare).not.toHaveBeenCalled();
+  if (commandId === TERMINAL_SESSION_CLOSE_COMMAND) {
+    await waitFor(() => expect(state.reconcile).toHaveBeenCalled());
+    expect(state.announce.mock.calls).toEqual(source === 'palette' ? [['commandPalette.results']] : []);
+  }
   if (source === 'key') {
     expect(state.beginKey).toHaveBeenCalledTimes(1);
     expect(state.begin).not.toHaveBeenCalled();

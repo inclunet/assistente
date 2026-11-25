@@ -133,7 +133,7 @@ func TestClientConversionAtomicIdempotentAndRestart(t *testing.T) {
 			if err != nil || record.Client.Secret != "secret" || record.Tokens.Access != "" || record.Client.AuthMethod != method {
 				t.Fatal("wrong record", err)
 			}
-			managed, err := serverModelToConfig(row)
+			managed, err := ConfigFromServerRecord(row)
 			if err != nil {
 				t.Fatal(err)
 			}

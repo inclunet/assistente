@@ -553,3 +553,22 @@ func TestCommandCacheReloadPreservesOnlyIdenticalStoredEntry(t *testing.T) {
 		t.Fatal("recarga alterada preservou cache antigo")
 	}
 }
+
+func TestRequiredHTTPCredentialSkipsIncompatibleCommandSource(t *testing.T) {
+	f := newCommandCacheFixture(t)
+	config := *f.config
+	config.Type = "secret"
+	if err := f.m.RegisterPatternWithContext(f.ctx, "cache.example", &config); err != nil {
+		t.Fatal(err)
+	}
+	client := NewHTTPClientWithAuthMode(f.m, "cache.example", AuthRequired, time.Second)
+	client.Transport.(*CredentialTransport).RequireCredential = true
+	req, err := http.NewRequestWithContext(f.ctx, http.MethodGet, "https://cache.example", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = client.Do(req)
+	if !errors.Is(err, ErrCredentialResolution) || f.count() != 0 {
+		t.Fatalf("helper calls=%d err=%v", f.count(), err)
+	}
+}

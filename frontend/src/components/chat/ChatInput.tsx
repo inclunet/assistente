@@ -1,5 +1,5 @@
 import { logger } from '../../utils/logger';
-import React, { useState, useRef, KeyboardEvent, useEffect, forwardRef, useCallback, useImperativeHandle, useId, useMemo } from 'react';
+import React, { useState, useLayoutEffect, useRef, KeyboardEvent, useEffect, forwardRef, useCallback, useImperativeHandle, useId, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { PaperClipOutlined, CheckCircleOutlined } from '@ant-design/icons';
 import { Button } from '../ui/Button';
@@ -9,10 +9,18 @@ import { SlashCommandMenu, getSlashOptionId } from './SlashCommandMenu';
 import { buildSlashItems, filterSlashItems, type SlashItem } from './slashItems';
 import { MediaFile, processMediaFiles } from '../../services/mediaService';
 import { useAnnouncer } from '../../hooks/useAnnouncer';
+import type { VoiceAccessibilityOrigin } from '../../services/voiceAccessibility/types';
 import { DIMENSIONS } from '../../constants/chat';
 import { GetUserInvocableSkillsForProfile } from '@wailsjs/go/wailsapi/Skills';
 import type { apidto, skills } from '../../../wailsjs/go/models';
 import './ChatInput.css';
+
+const noAttachments: MediaFile[] = [];
+
+function mediaFilesMatch(current: MediaFile[], snapshot: MediaFile[]): boolean {
+  return current.length === snapshot.length
+    && current.every((file, index) => file.id === snapshot[index].id);
+}
 
 export interface ChatInputProps {
   onSend: (message: string, mediaFiles?: MediaFile[], options?: { voice?: boolean }) => boolean | void | Promise<boolean | void>;
@@ -21,6 +29,9 @@ export interface ChatInputProps {
   onCancelStreaming?: () => void;
   isStreaming?: boolean;
   disabled?: boolean;
+  /** Permite selecionar o texto sem editar o rascunho. */
+  editorReadOnly?: boolean;
+  announcementOrigin?: VoiceAccessibilityOrigin;
   placeholder?: string;
   maxFiles?: number;
   /** Devolve true quando o handoff para a lista de mensagens foi realizado. */
@@ -49,6 +60,8 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
     onCancelStreaming,
     isStreaming = false,
     disabled = false,
+    editorReadOnly = false,
+    announcementOrigin,
     placeholder,
     maxFiles = 5,
     onArrowUp,
@@ -64,13 +77,30 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
   ref
 ) => {
   const { t } = useTranslation();
-  const { announce } = useAnnouncer();
+  const { announce, announceRequest } = useAnnouncer();
   const [localMessage, setLocalMessage] = useState('');
   const [localMediaFiles, setLocalMediaFiles] = useState<MediaFile[]>([]);
   const [isDragging, setIsDragging] = useState(false);
-  const [isProcessing, setIsProcessing] = useState(false);
+  const [pendingAttachments, setPendingAttachments] = useState(0);
+  const attachmentsEnabled = maxFiles > 0;
+  const isProcessing = pendingAttachments > 0;
+  const attachmentGeneration = useRef(0);
+  useLayoutEffect(() => {
+    if (editorReadOnly || !attachmentsEnabled) setIsDragging(false);
+    return () => { attachmentGeneration.current++; };
+  }, [editorReadOnly, attachmentsEnabled]);
+  useLayoutEffect(() => {
+    if (!isProcessing || (attachmentsEnabled && !editorReadOnly)) return;
+    setPendingAttachments(0);
+    if (!attachmentsEnabled) return;
+    announceRequest({
+      message: t('chat.pendingAttachmentsCanceled'), origin: announcementOrigin,
+      eventType: 'progress', waitsForReading: true,
+    });
+  }, [editorReadOnly, isProcessing, attachmentsEnabled, announceRequest, announcementOrigin, t]);
   const internalTextareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const readOnlyHintId = useId();
   const slashMenuId = `${useId().replace(/[^a-zA-Z0-9_-]/g, '')}-slash-listbox`;
 
   // Slash command state
@@ -87,8 +117,10 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
   const handleMessageChange = isMessageControlled ? onMessageChange : undefined;
   const handleMediaFilesChange = isMediaFilesControlled ? onMediaFilesChange : undefined;
   const message = isMessageControlled ? controlledMessage : localMessage;
-  const mediaFiles = isMediaFilesControlled ? controlledMediaFiles : localMediaFiles;
+  const mediaFiles = attachmentsEnabled ? (isMediaFilesControlled ? controlledMediaFiles : localMediaFiles) : noAttachments;
   const messageRef = useRef(message);
+  const textRevision = useRef(0);
+  const mediaRevision = useRef(0);
   const sendInFlightRef = useRef(false);
   const [isSendPending, setIsSendPending] = useState(false);
   // Só indicamos "rascunho salvo" quando o estado é persistido pela superfície
@@ -100,11 +132,13 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
   const showDraftSaved = hasControlledTextDraft || hasControlledMediaDraft;
   const mediaFilesRef = useRef<MediaFile[]>(mediaFiles);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
+    if (messageRef.current !== message) textRevision.current++;
     messageRef.current = message;
   }, [message]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
+    if (!mediaFilesMatch(mediaFilesRef.current, mediaFiles)) mediaRevision.current++;
     mediaFilesRef.current = mediaFiles;
   }, [mediaFiles]);
 
@@ -120,6 +154,7 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
   }, [showDraftSaved, announce, t]);
 
   const setMessage = useCallback((nextMessage: string) => {
+    if (messageRef.current !== nextMessage) textRevision.current++;
     messageRef.current = nextMessage;
     if (handleMessageChange) {
       handleMessageChange(nextMessage);
@@ -128,6 +163,7 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
     setLocalMessage(nextMessage);
   }, [handleMessageChange]);
   const setMediaFiles = useCallback((nextMediaFiles: MediaFile[]) => {
+    if (!mediaFilesMatch(mediaFilesRef.current, nextMediaFiles)) mediaRevision.current++;
     mediaFilesRef.current = nextMediaFiles;
     if (handleMediaFilesChange) {
       handleMediaFilesChange(nextMediaFiles);
@@ -165,26 +201,21 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
     }
   }, [announce, t]);
 
-  const mediaFilesMatch = (current: MediaFile[], snapshot: MediaFile[]): boolean => (
-    current.length === snapshot.length
-    && current.every((mediaFile, index) => mediaFile === snapshot[index] || mediaFile.id === snapshot[index]?.id)
-  );
-
   const submitMessage = useCallback((
     rawMessage: string,
     draftMediaFiles: MediaFile[],
     options: { preserveMessage?: boolean; voice?: boolean } = {},
   ) => {
     const trimmedMessage = rawMessage.trim();
-    if ((!trimmedMessage && draftMediaFiles.length === 0) || disabled || isProcessing || sendInFlightRef.current) {
+    if ((!trimmedMessage && draftMediaFiles.length === 0) || disabled || editorReadOnly || isProcessing || sendInFlightRef.current) {
       return;
     }
 
     sendInFlightRef.current = true;
     setIsSendPending(true);
     const sentMediaFiles = draftMediaFiles.length > 0 ? draftMediaFiles : undefined;
-    const pendingDraftMessage = rawMessage;
-    const pendingDraftMediaFiles = [...draftMediaFiles];
+    const sentTextRevision = textRevision.current;
+    const sentMediaRevision = mediaRevision.current;
 
     // O snapshot continua visível até a aceitação explícita. Assim uma
     // rejeição síncrona/assíncrona nunca perde texto ou anexos e, se a pessoa
@@ -208,11 +239,12 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
     const settle = (accepted: boolean | void) => {
       // `true` é a admissão explícita. Com clearOnSend=false, a superfície
       // persistida mantém o rascunho até o pipeline AEP limpá-lo após o sucesso.
-      if (accepted === true && clearOnSend) {
-        if (!options.preserveMessage && messageRef.current === pendingDraftMessage) {
+      // Depois da desmontagem, o aceite não deve chamar os setters do editor anterior.
+      if (accepted === true && clearOnSend && textareaRef.current) {
+        if (!options.preserveMessage && textRevision.current === sentTextRevision && messageRef.current === rawMessage) {
           setMessage('');
         }
-        if (mediaFilesMatch(mediaFilesRef.current, pendingDraftMediaFiles)) {
+        if (attachmentsEnabled && mediaRevision.current === sentMediaRevision && mediaFilesMatch(mediaFilesRef.current, draftMediaFiles)) {
           setMediaFiles([]);
         }
       }
@@ -226,9 +258,12 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
 
     if (textareaRef.current) {
       textareaRef.current.style.height = 'auto';
-      requestAnimationFrame(() => textareaRef.current?.focus());
+      requestAnimationFrame(() => {
+        const input = textareaRef.current;
+        if (input && !input.readOnly) input.focus();
+      });
     }
-  }, [clearOnSend, closeSlashMenu, disabled, isProcessing, onSend, setMediaFiles, setMessage, textareaRef]);
+  }, [attachmentsEnabled, clearOnSend, closeSlashMenu, disabled, editorReadOnly, isProcessing, onSend, setMediaFiles, setMessage, textareaRef]);
 
   // Handler para transcrição de voz
   const handleVoiceTranscription = (text: string) => {
@@ -247,7 +282,7 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
     () => filterSlashItems(slashItems, slashFilter),
     [slashItems, slashFilter],
   );
-  const isSlashMenuOpen = showSlashMenu && slashItems.length > 0;
+  const isSlashMenuOpen = !editorReadOnly && showSlashMenu && slashItems.length > 0;
   const activeSlashIndex = filteredSlashItems.length > 0
     ? Math.min(slashSelectedIndex, filteredSlashItems.length - 1)
     : 0;
@@ -335,13 +370,15 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
 
   const handleFileSelect = async (files: File[]) => {
     const currentMediaFiles = mediaFilesRef.current;
-    if (files.length === 0 || currentMediaFiles.length >= maxFiles) return;
+    const generation = attachmentGeneration.current;
+    if (editorReadOnly || files.length === 0 || currentMediaFiles.length >= maxFiles) return;
     
-    setIsProcessing(true);
+    setPendingAttachments(count => count + 1);
     try {
       const remainingSlots = maxFiles - currentMediaFiles.length;
       const filesToProcess = files.slice(0, remainingSlots);
       const processed = await processMediaFiles(filesToProcess);
+      if (generation !== attachmentGeneration.current) return;
       const latestMediaFiles = mediaFilesRef.current;
       const latestRemainingSlots = maxFiles - latestMediaFiles.length;
       if (latestRemainingSlots <= 0) return;
@@ -349,7 +386,7 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
     } catch (error) {
       logger.error('Erro ao processar arquivos:', error);
     } finally {
-      setIsProcessing(false);
+      if (generation === attachmentGeneration.current) setPendingAttachments(count => count - 1);
     }
   };
 
@@ -371,7 +408,7 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
   const handleDragEnter = (e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    setIsDragging(true);
+    if (attachmentsEnabled && !editorReadOnly) setIsDragging(true);
   };
 
   const handleDragOver = (e: React.DragEvent) => {
@@ -392,12 +429,14 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
     e.stopPropagation();
     setIsDragging(false);
     
+    if (!attachmentsEnabled || editorReadOnly) return;
     const files = Array.from(e.dataTransfer.files);
     handleFileSelect(files);
   };
 
   // Paste handler para imagens
   const handlePaste = async (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    if (!attachmentsEnabled || editorReadOnly) return;
     const items = Array.from(e.clipboardData.items);
     const imageItems = items.filter(item => item.type.startsWith('image/'));
     
@@ -521,41 +560,51 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
         />
       )}
 
-      <MediaPreview media={mediaFiles} onRemove={handleRemoveMedia} />
+      {attachmentsEnabled && <MediaPreview media={mediaFiles} onRemove={editorReadOnly ? undefined : handleRemoveMedia} />}
+
+      {editorReadOnly && placeholder && (
+        <span id={readOnlyHintId} className="chat-input__hint">{placeholder}</span>
+      )}
 
       <div className="chat-input__container">
-        <input
-          ref={fileInputRef}
-          type="file"
-          multiple
-          accept="image/*,audio/*,video/*,application/pdf,.doc,.docx,.txt,.md,.csv,.xlsx"
-          onChange={handleFileInputChange}
-          style={{ display: 'none' }}
-          aria-label={t('chat.selectFiles')}
-        />
-        
-        <button
-          type="button"
-          className="chat-input__attach-button"
-          onClick={() => fileInputRef.current?.click()}
-          disabled={disabled || mediaFiles.length >= maxFiles}
-          aria-label={t('chat.attachFile')}
-          title={t('chat.attachFile')}
-        >
-          <PaperClipOutlined aria-hidden="true" />
-        </button>
+        {attachmentsEnabled && (
+          <>
+            <input
+              ref={fileInputRef}
+              type="file"
+              disabled={editorReadOnly}
+              multiple
+              accept="image/*,audio/*,video/*,application/pdf,.doc,.docx,.txt,.md,.csv,.xlsx"
+              onChange={handleFileInputChange}
+              style={{ display: 'none' }}
+              aria-label={t('chat.selectFiles')}
+            />
+            <button
+              type="button"
+              className="chat-input__attach-button"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={disabled || editorReadOnly || mediaFiles.length >= maxFiles}
+              aria-label={t('chat.attachFile')}
+              title={t('chat.attachFile')}
+            >
+              <PaperClipOutlined aria-hidden="true" />
+            </button>
+          </>
+        )}
 
         <textarea
           ref={textareaRef}
           className="chat-input__textarea"
           value={message}
+          readOnly={editorReadOnly}
+          aria-describedby={editorReadOnly && placeholder ? readOnlyHintId : undefined}
           onChange={(e) => {
             setMessage(e.target.value);
             updateSlashMenu(e.target.value);
           }}
           onKeyDown={handleKeyDown}
           onPaste={handlePaste}
-          placeholder={placeholder || t('chat.placeholder')}
+          placeholder={editorReadOnly ? undefined : placeholder || t('chat.placeholder')}
           rows={1}
           aria-label={t('chat.messageLabel')}
           role={slashMenuEnabled ? 'combobox' : undefined}
@@ -580,14 +629,14 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
         ) : voiceEnabled && !message.trim() && mediaFiles.length === 0 ? (
           <VoiceButton
             onTranscription={handleVoiceTranscription}
-            disabled={disabled}
+            disabled={disabled || editorReadOnly}
             className="chat-input__voice-button"
             textareaRef={textareaRef}
           />
         ) : (
           <Button
             onClick={handleSend}
-            disabled={disabled || (!message.trim() && mediaFiles.length === 0) || isProcessing || isSendPending}
+            disabled={disabled || editorReadOnly || (!message.trim() && mediaFiles.length === 0) || isProcessing || isSendPending}
             variant="primary"
             size="md"
             className="chat-input__button"

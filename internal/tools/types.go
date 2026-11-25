@@ -96,6 +96,10 @@ type ToolFailure struct {
 	Code      string    `json:"code"`
 	Kind      ErrorKind `json:"kind"`
 	Retryable bool      `json:"retryable"`
+	// NotDispatched atesta que a operação ainda não foi enviada ao destino.
+	// Após aprovação por política, retry exige este atestado e falha transitória.
+	// Vale só para a chamada local. Uma resposta recebida via JSON não pode fornecê-lo.
+	NotDispatched bool `json:"-"`
 }
 
 // ResultAnnotations carrega informações que alteram a interpretação do

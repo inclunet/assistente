@@ -1,10 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import PluginRepositories from './PluginRepositories';
 
-const mocks = vi.hoisted(() => ({ addRemote: vi.fn(), list: vi.fn(), preview: vi.fn(), refresh: vi.fn(), remove: vi.fn(), confirm: vi.fn(), announce: vi.fn() }));
-vi.mock('@wailsjs/go/wailsapi/Plugins', () => ({ AddRemoteRepository: mocks.addRemote, ListRepositories: mocks.list, RefreshRepository: mocks.refresh, PreviewRepositoryEntry: mocks.preview, RemoveRepository: mocks.remove }));
+const mocks = vi.hoisted(() => ({ add: vi.fn(), addRemote: vi.fn(), list: vi.fn(), preview: vi.fn(), refresh: vi.fn(), remove: vi.fn(), confirm: vi.fn(), announce: vi.fn() }));
+vi.mock('@wailsjs/go/wailsapi/Plugins', () => ({ AddLocalRepository: mocks.add, AddRemoteRepository: mocks.addRemote, ListRepositories: mocks.list, RefreshRepository: mocks.refresh, PreviewRepositoryEntry: mocks.preview, RemoveRepository: mocks.remove }));
 vi.mock('../hooks/useAnnouncer', () => ({ useAnnouncer: () => ({ announce: mocks.announce }) }));
 vi.mock('../hooks/useConfirm', () => ({ useConfirm: () => mocks.confirm }));
 vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key, i18n: { language: 'en' } }) }));
@@ -19,7 +19,7 @@ describe('PluginRepositories', () => {
     mocks.preview.mockResolvedValue({ token: 'once' });
     const onPreview = vi.fn();
     const user = userEvent.setup();
-    render(<PluginRepositories catalog onPreview={onPreview} />);
+    render(<PluginRepositories session="test" catalog onPreview={onPreview} />);
     expect(await screen.findByText('second')).toBeInTheDocument();
     await user.type(screen.getByLabelText('plugins.searchCatalog'), 'alice');
     expect(screen.queryByText('second')).toBeNull();
@@ -35,7 +35,7 @@ describe('PluginRepositories', () => {
     mocks.refresh.mockRejectedValue(new Error('offline'));
     mocks.confirm.mockResolvedValue(false);
     const user = userEvent.setup();
-    render(<PluginRepositories catalog={false} onPreview={vi.fn()} />);
+    render(<PluginRepositories session="test" catalog={false} onPreview={vi.fn()} />);
     await user.click(await screen.findByRole('button', { name: 'plugins.refreshRepo' }));
     expect(await screen.findByText('plugins.repositoryReadError')).toBeInTheDocument();
     expect(screen.getByText('folder')).toBeInTheDocument();
@@ -46,7 +46,8 @@ describe('PluginRepositories', () => {
   it('scopes the vault choice to the address in the form', async () => {
     mocks.list.mockResolvedValue([]);
     const user = userEvent.setup();
-    render(<PluginRepositories catalog={false} onPreview={vi.fn()} />);
+    render(<PluginRepositories session="test" catalog={false} onPreview={vi.fn()} />);
+    mocks.addRemote.mockResolvedValue(undefined);
     const address = screen.getByRole('textbox', {name:'plugins.archiveURL'});
     await waitFor(() => expect(address).toBeEnabled());
     await user.type(address, 'https://first.example/store.zip');
@@ -58,5 +59,81 @@ describe('PluginRepositories', () => {
     await user.click(credential);
     await user.click(screen.getByRole('button', {name: 'plugins.addRemoteRepo'}));
     expect(mocks.addRemote).toHaveBeenCalledWith('https://second.example/store.zip', true);
+    await waitFor(() => expect(mocks.announce).toHaveBeenCalledWith('plugins.repoUpdated'));
+    expect(address).toHaveValue('');
+  });
+
+  it('does not announce a publication after the folder picker is cancelled', async () => {
+    mocks.announce.mockClear();
+    mocks.list.mockResolvedValue([]);
+    mocks.add.mockResolvedValue(false);
+    render(<PluginRepositories session="cancel" catalog={false} onPreview={vi.fn()} />);
+    const add = screen.getByRole('button', { name: 'plugins.addRepo' });
+    await waitFor(() => expect(add).toBeEnabled());
+    await userEvent.click(add);
+    expect(mocks.add).toHaveBeenCalled();
+    expect(mocks.announce).not.toHaveBeenCalled();
+  });
+
+  it('waits for a repository update when reopening the catalog', async () => {
+    let finish!: () => void;
+    mocks.refresh.mockImplementationOnce(() => new Promise<void>(resolve => { finish = resolve; }));
+    mocks.list.mockReset().mockResolvedValueOnce([repo]).mockResolvedValue([]);
+    const page = render(<PluginRepositories session="navigation" catalog={false} onPreview={vi.fn()} />);
+    await userEvent.click(await screen.findByRole('button', { name: 'plugins.refreshRepo' }));
+    page.unmount();
+    render(<PluginRepositories session="navigation" catalog onPreview={vi.fn()} />);
+    expect(mocks.list).toHaveBeenCalledTimes(1);
+    await act(async () => finish());
+    expect(await screen.findByText('plugins.catalogEmpty')).toBeVisible();
+    expect(mocks.list).toHaveBeenCalledTimes(2);
+  });
+
+  it('navigates between repository rows and confirms removal for the focused row', async () => {
+    mocks.list.mockResolvedValue([repo, { ...repo, id: 'two', origin: 'second folder' }]);
+    mocks.confirm.mockResolvedValueOnce(true);
+    mocks.remove.mockResolvedValue(undefined);
+    const user = userEvent.setup();
+    render(<PluginRepositories session="keyboard" catalog={false} onPreview={vi.fn()} />);
+    const first = await screen.findByRole('gridcell', { name: 'folder' });
+    expect(screen.getByRole('toolbar', { name: 'plugins.repositories' })).toBeVisible();
+    first.focus();
+    await user.keyboard('{ArrowDown}{ArrowRight}{ArrowRight}{ArrowRight}{Enter}');
+    expect(mocks.remove).toHaveBeenCalledWith('two', 'reviewed');
+  });
+
+  it.each([true, false])('restores focus after removing the last repository (reload succeeds: %s)', async success => {
+    let removed!: () => void;
+    let finishRead!: () => void;
+    mocks.list.mockReset().mockResolvedValueOnce([repo]).mockImplementationOnce(() => new Promise((resolve, reject) => {
+      finishRead = () => success ? resolve([]) : reject(new Error('offline'));
+    }));
+    mocks.remove.mockImplementationOnce(() => new Promise<void>(resolve => { removed = resolve; }));
+    mocks.confirm.mockResolvedValueOnce(true);
+    const user = userEvent.setup();
+    render(<PluginRepositories session="last" catalog={false} onPreview={vi.fn()} />);
+    (await screen.findByRole('gridcell', { name: 'folder' })).focus();
+    await user.keyboard('{ArrowRight}{ArrowRight}{ArrowRight}{Enter}');
+    await act(async () => removed());
+    expect(screen.queryByRole('gridcell', { name: 'folder' })).toBeNull();
+    await act(async () => finishRead());
+    expect(screen.getByRole('button', { name: 'plugins.addRepo' })).toHaveFocus();
+  });
+
+  it('paginates the grid while searching all entries', async () => {
+    const entries = Array.from({ length: 51 }, (_, index) => ({ name: 'sample-' + index }));
+    mocks.list.mockResolvedValue([{ ...repo, indices: [{ ...repo.indices[0], entries }] }]);
+    render(<PluginRepositories session="pages" catalog onPreview={vi.fn()} />);
+    const next = await screen.findByRole('button', { name: 'plugins.nextPage' });
+    expect(screen.queryByText('sample-50')).toBeNull();
+    next.focus();
+    await userEvent.keyboard('{Enter}');
+    expect(next).toHaveFocus();
+    expect(next).toHaveAttribute('aria-disabled', 'true');
+    expect(mocks.announce).toHaveBeenCalledWith('plugins.pageOf');
+    expect(screen.getByText('sample-50')).toBeVisible();
+    await userEvent.type(screen.getByLabelText('plugins.searchCatalog'), 'sample-2');
+    expect(screen.getByText('sample-2')).toBeVisible();
+    expect(screen.queryByRole('button', { name: 'plugins.nextPage' })).toBeNull();
   });
 });

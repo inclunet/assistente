@@ -352,7 +352,7 @@ func (s mcpRuntimeOAuthStore) CompareAndSwap(ctx context.Context, r oauthflow.Re
 		if err := tx.Where("id = ? AND user_id = ? AND slug = ?", s.cfg.ID, s.cfg.UserID, s.cfg.Slug).First(&row).Error; err != nil {
 			return oauthflow.ErrConflict
 		}
-		current, err := serverModelToConfig(row)
+		current, err := ConfigFromServerRecord(row)
 		if err != nil || validateMCPAuthorization(current, r) != nil {
 			return oauthflow.ErrConflict
 		}
