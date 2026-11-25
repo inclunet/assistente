@@ -95,16 +95,20 @@ func (i *Inventory) BuildPackage(ctx context.Context, request BuilderRequest) ([
 		profileFiles, _ = i.profileDefinitions()
 	}
 	for _, key := range request.Profiles {
-		if !portableSkillName.MatchString(key) || len(key) > 64 || reservedDevice(key) || profileFiles[key] == nil {
+		if !validBuilderSkill(key) {
 			return nil, nil, errors.New("PLUGIN_BUILDER_KEY")
 		}
 		file := path.Join(nativeExtension, "profiles", key+".json")
 		if _, exists := files[file]; exists {
 			return nil, nil, errors.New("PLUGIN_BUILDER_KEY")
 		}
-		raw, err := profileFiles[key]()
+		read := profileFiles[key]
+		if read == nil {
+			return nil, nil, fmt.Errorf("PLUGIN_BUILDER_PROFILE_UNAVAILABLE:%s", key)
+		}
+		raw, err := read()
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, fmt.Errorf("PLUGIN_BUILDER_PROFILE_UNAVAILABLE:%s", key)
 		}
 		total += len(raw)
 		if total > 31<<20 {

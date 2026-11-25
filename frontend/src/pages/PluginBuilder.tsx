@@ -20,7 +20,7 @@ export default function PluginBuilder({ formRef }: { formRef?: Ref<HTMLFormEleme
   const [version, setVersion] = useState('');
   const [selected, setSelected] = useState<Record<string, plugins.BuilderTaskList>>({});
   const [preview, setPreview] = useState<wailsapi.BuilderPreview | null>(null);
-  const [failedSkill, setFailedSkill] = useState('');
+  const [failedResource, setFailedResource] = useState('');
   const [sourcesIncomplete, setSourcesIncomplete] = useState(false);
   const [status, setStatus] = useState('');
   const [busy, setBusy] = useState(true);
@@ -38,7 +38,7 @@ export default function PluginBuilder({ formRef }: { formRef?: Ref<HTMLFormEleme
     return () => { mounted.current = false; };
   }, []);
   useEffect(() => { if (sourcesIncomplete) announce(t('plugins.builderSourcesError')); }, [sourcesIncomplete, announce, t]);
-  useEffect(() => { if (status) announce(t(status, {name: failedSkill})); }, [status, failedSkill, t, announce]);
+  useEffect(() => { if (status) announce(t(status, {name: failedResource})); }, [status, failedResource, t, announce]);
   const invalidate = () => { setPreview(null); setStatus(''); };
   const change = (id: string, item?: plugins.BuilderTaskList) => {
     invalidate();
@@ -71,9 +71,13 @@ export default function PluginBuilder({ formRef }: { formRef?: Ref<HTMLFormEleme
         setPreview(null);
         if (message.includes('PLUGIN_BUILDER_CHANGED')) setStatus('plugins.builderChanged');
         else if (message.includes('PLUGIN_BUILDER_KEY')) setStatus('plugins.builderInvalidKey');
+        else if (message.includes('PLUGIN_BUILDER_PROFILE_UNAVAILABLE:')) {
+          setFailedResource(/PLUGIN_BUILDER_PROFILE_UNAVAILABLE:([a-z0-9-]+)/.exec(message)?.[1] ?? '');
+          setStatus('plugins.builderNamedProfileError');
+        }
         else if (message.includes('PLUGIN_BUILDER_SKILL_UNAVAILABLE')) {
           const key = /PLUGIN_BUILDER_SKILL_UNAVAILABLE:([a-z0-9-]+)/.exec(message)?.[1];
-          setFailedSkill(key ?? '');
+          setFailedResource(key ?? '');
           setStatus(key ? 'plugins.builderNamedSkillError' : 'plugins.builderSkillError');
         }
         else setStatus('plugins.builderError');
@@ -130,6 +134,6 @@ export default function PluginBuilder({ formRef }: { formRef?: Ref<HTMLFormEleme
       <ul>{preview.files.map(file => <li key={file}><details><summary>{file}</summary><pre>{preview.contents[file]}</pre></details></li>)}</ul>
     </section>}
     <Button type="submit" disabled={busy || (Object.keys(selected).length === 0 && skillSelection.length === 0 && profileSelection.length === 0)}>{t(preview ? 'plugins.builderSave' : 'plugins.builderReview')}</Button>
-    {status && <p>{t(status, {name: failedSkill})}</p>}
+    {status && <p>{t(status, {name: failedResource})}</p>}
   </form>;
 }

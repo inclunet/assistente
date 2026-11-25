@@ -8,7 +8,7 @@ const mock = vi.hoisted(() => ({list:vi.fn(),profiles:vi.fn(async()=>({names:['w
 vi.mock('@wailsjs/go/wailsapi/Tasklist', () => ({GetAllTaskLists:mock.list}));
 vi.mock('@wailsjs/go/wailsapi/Plugins', () => ({BuilderProfileNames:mock.profiles,BuilderSkillNames:mock.skills,PreviewBuilder:mock.preview,SaveBuilder:mock.save}));
 vi.mock('../hooks/useAnnouncer', () => ({useAnnouncer:()=>({announce:mock.announce})}));
-vi.mock('react-i18next', () => ({useTranslation:()=>({t:(key:string, args?: {name?: string, position?: number})=>key === 'plugins.builderListPosition' ? args?.name + ' #' + args?.position : key === 'plugins.builderNamedSkillError' ? key + ': ' + args?.name : key})}));
+vi.mock('react-i18next', () => ({useTranslation:()=>({t:(key:string, args?: {name?: string, position?: number})=>key === 'plugins.builderListPosition' ? args?.name + ' #' + args?.position : (key === 'plugins.builderNamedSkillError' || key === 'plugins.builderNamedProfileError') ? key + ': ' + args?.name : key})}));
 
 describe('PluginBuilder', () => {
   it('keeps skills selectable alongside a partial-discovery warning', async () => {
@@ -50,6 +50,19 @@ describe('PluginBuilder', () => {
     await user.click(await screen.findByRole('checkbox', {name:'notes'}));
     await user.click(screen.getByRole('button', {name:'plugins.builderReview'}));
     expect(await screen.findByText('plugins.builderNamedSkillError: notes')).toBeVisible();
+    mock.preview.mockClear();
+  });
+  it('identifies the selected profile that prevented preview', async () => {
+    mock.list.mockResolvedValue([]);
+    mock.preview.mockRejectedValueOnce('PLUGIN_BUILDER_PROFILE_UNAVAILABLE:writer');
+    const user = userEvent.setup();
+    render(<PluginBuilder />);
+    const name = screen.getByRole('textbox', {name:'plugins.packageName'});
+    await waitFor(() => expect(name).toBeEnabled());
+    await user.type(name, 'writer');
+    await user.click(await screen.findByRole('checkbox', {name:'writer'}));
+    await user.click(screen.getByRole('button', {name:'plugins.builderReview'}));
+    expect(await screen.findByText('plugins.builderNamedProfileError: writer')).toBeVisible();
     mock.preview.mockClear();
   });
   it('requires a fresh preview when the selection changes and saves the reviewed package',async () => {
