@@ -49,7 +49,7 @@ func TestTemplateListSurvivesUpdateAndUninstall(t *testing.T) {
 		}
 	}
 	write("plugin.json", `{"$schema":"`+pluginpackage.ManifestSchema+`","name":"planner","extensions":{"br.com.inclunet.assistente":{"version":2,"tasklists":["release"]}}}`)
-	const template = `{"title":"Release","workflow":{"statuses":[{"id":1,"label":"Open"},{"id":2,"label":"Done"}],"initialStatusId":1,"allowedTransitions":{"1":[2]}},"tasks":[{"title":"Check"}]}`
+	const template = `{"slug":"release","title":"Release","workflow":{"statuses":[{"id":1,"label":"Open"},{"id":2,"label":"Done"}],"initialStatusId":1,"allowedTransitions":{"1":[2]}},"tasks":[{"title":"Check"}]}`
 	write(nativeExtension+"/tasklists/release.json", template)
 	ctx := database.WithUserID(context.Background(), "reader")
 	install := func(previous string) database.PluginInstallation {
@@ -82,6 +82,12 @@ func TestTemplateListSurvivesUpdateAndUninstall(t *testing.T) {
 	deletedID, err := create(ctx)
 	if err != nil {
 		t.Fatal(err)
+	}
+	for id, want := range map[string]string{listID: "release", deletedID: "release-2"} {
+		var list database.TaskList
+		if err := db.First(&list, "id = ?", id).Error; err != nil || list.Slug != want {
+			t.Fatalf("lista %s: slug %q, esperado %q, erro %v", id, list.Slug, want, err)
+		}
 	}
 	if err := db.Select("Tasks", "Workflow").Delete(&database.TaskList{UUIDModel: database.UUIDModel{ID: deletedID}}).Error; err != nil {
 		t.Fatal(err)

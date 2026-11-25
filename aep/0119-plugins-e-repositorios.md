@@ -52,7 +52,7 @@ Desabilitar impede novos disparos do pacote. Na remoção, suspender ativações
 
 Reusar o AEP-0047 para selecionar, validar, exportar e aplicar definições. O envelope genérico já transporta servidores MCP e tasklists. Os seletores de jobs, perfis e skills presentes no pedido de exportação ainda precisam de cobertura efetiva no envelope. Camadas de comandos mantêm a importação exclusiva com confirmação por escopo. O instalador coordena essas etapas respeitando seus contratos e a recuperação da instalação.
 
-O builder identifica dependências e exibe a composição antes de gerar o pacote. Exporta modelos de tasklist com estrutura e estados, permitindo escolher tarefas iniciais como parte do modelo. Exclui progresso pessoal, notas de trabalho, histórico, concessões e credenciais, inclusive valores sensíveis em argumentos e variáveis de ambiente. Dependências locais viram requisitos de configuração. Validar o resultado pela mesma leitura de pacote usada na instalação. Gerar um pacote permite revisá-lo antes de uma publicação separada. O desenho do editor fica para a fase do builder.
+O builder identifica dependências e exibe a composição antes de gerar o pacote. Exporta modelos de tasklist com estrutura e estados, permitindo escolher tarefas iniciais como parte do modelo. Exclui progresso pessoal, notas de trabalho, histórico, concessões e credenciais armazenadas. O builder preserva argumentos literais dos jobs. Cabe ao autor remover segredos que digitou nesses argumentos antes de publicar. Dependências locais viram requisitos de configuração. Validar o resultado pela mesma leitura de pacote usada na instalação. Gerar um pacote permite revisá-lo antes de uma publicação separada. O desenho do editor fica para a fase do builder.
 
 ### Tela Plugins
 

@@ -691,6 +691,8 @@ func (r *DBRepository) SaveJob(ctx context.Context, job *Job) error {
 			pinnedID := ""
 			if existing.ID != "" && existing.ToolName == strings.TrimSpace(job.Tool) {
 				pinnedID = existing.ToolCatalogID
+			} else if existing.ID != "" {
+				selection.ToolOrigin = ""
 			}
 			toolCatalogID, err := r.toolCatalogIDForNameTx(ctx, tx, userID, &selection, pinnedID)
 			if err != nil {

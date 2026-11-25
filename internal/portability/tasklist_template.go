@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"slices"
+	"strconv"
 	"strings"
 
 	"assistente/internal/database"
@@ -72,10 +74,21 @@ func ReadTaskListTemplate(raw []byte) (*TaskListExport, error) {
 // InstantiateTemplate writes an independent list with fresh identifiers through the
 // same transaction and workflow validation used by the portability importer.
 func (t TaskListExport) InstantiateTemplate(ctx context.Context, tx *gorm.DB, id string) error {
-	if _, err := database.RequireUserID(ctx); err != nil {
+	userID, err := database.RequireUserID(ctx)
+	if err != nil {
 		return err
 	}
 	out := TaskListExport{ID: id, Slug: t.Slug, Title: t.Title, Description: t.Description, PreferredViewMode: t.PreferredViewMode, ValidationPolicy: t.ValidationPolicy, Workflow: t.Workflow}
+	if out.Slug != "" {
+		var occupied []string
+		if err := tx.WithContext(ctx).Model(&database.TaskList{}).Where("user_id = ? AND slug <> ''", userID).Pluck("slug", &occupied).Error; err != nil {
+			return err
+		}
+		for copyNumber := 2; slices.Contains(occupied, out.Slug); copyNumber++ {
+			suffix := "-" + strconv.Itoa(copyNumber)
+			out.Slug = t.Slug[:min(len(t.Slug), 63-len(suffix))] + suffix
+		}
+	}
 	workflowID, err := uuid.NewV7()
 	if err != nil {
 		return err
