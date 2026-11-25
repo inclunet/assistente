@@ -570,6 +570,8 @@ jobs:
             throw "Windows PowerShell 5.1 indisponível: $version"
           }
           go test -v ./internal/terminal/... -count=1 -timeout 20m
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          go test -v ./internal/terminal -run '^TestPowerShell(ReturnInPersistentSession|FinalPipelineAndConditionalReturnThroughPTY)$' -count=12 -timeout 30m
       - name: Testar registro isolado e comando interno
         shell: pwsh
         run: |
