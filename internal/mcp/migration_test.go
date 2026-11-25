@@ -66,11 +66,12 @@ func TestLoadConfigsPreservesExistingRuntimeState(t *testing.T) {
 	m := NewManager(nil, nil, nil)
 	m.SetRepository(repo)
 	m.SetAuthContextProvider(func() context.Context { return userA })
-	m.servers["github"] = &ServerStatus{
-		Slug:   "github",
-		Status: StatusConnected,
-		Tools:  []MCPToolInfo{{Name: "search", FullName: "mcp_github__search"}},
+	// O runtime conectado conserva a identidade e a configuração que carregou.
+	if err := m.LoadConfigs(); err != nil {
+		t.Fatal(err)
 	}
+	m.servers["github"].Status = StatusConnected
+	m.servers["github"].Tools = []MCPToolInfo{{Name: "search", FullName: "mcp_github__search"}}
 
 	if err := m.LoadConfigs(); err != nil {
 		t.Fatalf("LoadConfigs: %v", err)

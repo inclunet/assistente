@@ -9,13 +9,12 @@
 import { useEffect, useRef, useCallback, forwardRef, useImperativeHandle, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { HistoryEntry } from '../../store/terminalStore';
+import { sessionOutputSource } from '../../lib/terminalHistory';
 import { TerminalCommandNode, TerminalOutputNode } from './TerminalEntry';
-import { announce } from '../../hooks/useAnnouncer';
 import './TerminalHistory.css';
 
 interface TerminalHistoryProps {
   entries: HistoryEntry[];
-  runningCommandId: string | null;
   isLoading?: boolean;
   /** Chamado quando ArrowDown no último nó — foco volta ao input */
   onReachEnd?: () => void;
@@ -29,10 +28,11 @@ interface FlatNode {
   type: 'command' | 'output';
   /** Entry original */
   entry: HistoryEntry;
+  sessionBlocks?: HistoryEntry[];
 }
 
 export const TerminalHistory = forwardRef<HTMLDivElement, TerminalHistoryProps>(
-  function TerminalHistory({ entries, runningCommandId: _runningCommandId, isLoading, onReachEnd }, ref) {
+  function TerminalHistory({ entries, isLoading, onReachEnd }, ref) {
     const { t } = useTranslation();
     const containerRef = useRef<HTMLDivElement>(null);
     const bottomRef = useRef<HTMLDivElement>(null);
@@ -45,14 +45,16 @@ export const TerminalHistory = forwardRef<HTMLDivElement, TerminalHistoryProps>(
     const flatNodes = useMemo<FlatNode[]>(() => {
       const nodes: FlatNode[] = [];
       for (const entry of entries) {
-        // Sempre adiciona nó de comando
-        nodes.push({
-          nodeId: `cmd-${entry.id}`,
-          type: 'command',
-          entry,
-        });
-        // Adiciona nó de saída se tem output ou está em execução (raw/marker)
-        if (entry.output || entry.exitCode === -999) {
+        const previous = nodes[nodes.length - 1];
+        if (entry.source === sessionOutputSource && previous) {
+          (previous.sessionBlocks ??= []).push(entry);
+          continue;
+        }
+        if (entry.source !== sessionOutputSource) {
+          nodes.push({ nodeId: `cmd-${entry.id}`, type: 'command', entry });
+        }
+        // O status de falha também é legível quando o comando não produz saída.
+        if (entry.output || entry.exitCode !== 0) {
           nodes.push({
             nodeId: `out-${entry.id}`,
             type: 'output',
@@ -64,8 +66,8 @@ export const TerminalHistory = forwardRef<HTMLDivElement, TerminalHistoryProps>(
     }, [entries]);
 
     // Auto-scroll para o final quando novo conteúdo chega
-    const lastNode = flatNodes[flatNodes.length - 1];
-    const scrollKey = lastNode ? `${lastNode.nodeId}-${lastNode.entry.output?.length ?? 0}` : '';
+    const lastEntry = entries[entries.length - 1];
+    const scrollKey = lastEntry ? `${lastEntry.id}-${lastEntry.output?.length ?? 0}` : '';
 
     useEffect(() => {
       if (bottomRef.current && containerRef.current) {
@@ -76,18 +78,6 @@ export const TerminalHistory = forwardRef<HTMLDivElement, TerminalHistoryProps>(
         }
       }
     }, [scrollKey]);
-
-    // Anuncia novo comando quando aparece
-    const prevEntryCount = useRef(entries.length);
-    useEffect(() => {
-      if (entries.length > prevEntryCount.current) {
-        const lastEntry = entries[entries.length - 1];
-        if (lastEntry) {
-          announce(`${t('terminal.history.commandPrefix')} ${lastEntry.command}`);
-        }
-      }
-      prevEntryCount.current = entries.length;
-    }, [entries, t]);
 
     /** Registra/remove ref de nó */
     const setNodeRef = useCallback((nodeId: string, el: HTMLDivElement | null) => {
@@ -136,6 +126,7 @@ export const TerminalHistory = forwardRef<HTMLDivElement, TerminalHistoryProps>(
       <div className="terminal-history" ref={containerRef} role="list" aria-label={t('terminal.history.label')}>
         {flatNodes.map((node, index) => {
           const navProps = {
+            sessionBlocks: node.sessionBlocks,
             onNavigatePrev: index > 0 ? () => focusNode(index - 1) : undefined,
             onNavigateNext: index < flatNodes.length - 1 ? () => focusNode(index + 1) : onReachEnd,
             onNavigateFirst: () => focusNode(0),

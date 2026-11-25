@@ -5,6 +5,7 @@ import (
 	"assistente/internal/logging"
 	"assistente/internal/slug"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -49,14 +50,30 @@ func NewManager() *Manager {
 // Formato: skills/{slug}/SKILL.md
 // Skills com o mesmo slug: o de maior prioridade (workdir > home > exe) prevalece.
 func (m *Manager) discoverAll() []discoveredSkill {
+	items, _ := m.discoverNative()
+	return items
+}
+
+// Legacy consumers use available definitions even when one root fails. The
+// builder reports incomplete discovery before offering its selection.
+func (m *Manager) discoverNative() ([]discoveredSkill, error) {
+	var discoveryErr error
 	searchPaths := m.resolver.GetSearchPaths()
 	resolved := map[string]discoveredSkill{} // slug -> discoveredSkill
 
 	// Itera na ordem de prioridade crescente — o último encontrado sobrescreve
 	for _, dir := range searchPaths {
+		info, err := os.Stat(dir)
+		if err == nil && !info.IsDir() {
+			discoveryErr = fmt.Errorf("skill root is not a directory")
+			continue
+		}
 		entries, err := os.ReadDir(dir)
 		if err != nil {
-			continue // Diretório não existe — tudo bem
+			if !errors.Is(err, os.ErrNotExist) {
+				discoveryErr = err
+			}
+			continue
 		}
 
 		source := configdir.SourceForPath(dir)
@@ -74,6 +91,8 @@ func (m *Manager) discoverAll() []discoveredSkill {
 					path:   skillPath,
 					source: source,
 				}
+			} else if !errors.Is(err, os.ErrNotExist) {
+				discoveryErr = err
 			}
 		}
 	}
@@ -82,7 +101,7 @@ func (m *Manager) discoverAll() []discoveredSkill {
 	for _, ds := range resolved {
 		result = append(result, ds)
 	}
-	return result
+	return result, discoveryErr
 }
 
 // loadSkill carrega e faz parse de um skill descoberto.
@@ -360,32 +379,43 @@ func (m *Manager) GetSkillFiles(slug string) ([]string, error) {
 			continue
 		}
 
-		skillDir := filepath.Dir(ds.path)
-		var files []string
+		return m.listSupportingFiles(ds.path)
+	}
+	return nil, fmt.Errorf("skill %q: %w", slug, os.ErrNotExist)
+}
 
-		err := filepath.Walk(skillDir, func(path string, info os.FileInfo, err error) error {
-			if err != nil {
-				return nil // ignora erros de leitura
-			}
-			if info.IsDir() {
-				return nil
-			}
-			// Ignora o próprio SKILL.md
-			if filepath.Base(path) == skillFile {
-				return nil
-			}
-			files = append(files, path)
-			return nil
-		})
+// Os gerenciadores de manifestos locais podem listar os arquivos da origem
+// já selecionada sem resolver novamente a precedência do slug.
+type supportingFileLister interface {
+	listSupportingFiles(skillPath string) ([]string, error)
+}
+
+func (*Manager) listSupportingFiles(skillPath string) ([]string, error) {
+	return collectSupportingFiles(filepath.Dir(skillPath), filepath.Walk)
+}
+
+func collectSupportingFiles(skillDir string, walk func(string, filepath.WalkFunc) error) ([]string, error) {
+	var files []string
+	err := walk(skillDir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
-			return nil, fmt.Errorf("failed to list skill files: %w", err)
+			return err
 		}
-
-		sort.Strings(files)
-		return files, nil
+		if info.IsDir() {
+			return nil
+		}
+		// Ignora o próprio SKILL.md
+		if filepath.Base(path) == skillFile {
+			return nil
+		}
+		files = append(files, path)
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to list skill files: %w", err)
 	}
 
-	return nil, fmt.Errorf("skill not found: %s", slug)
+	sort.Strings(files)
+	return files, nil
 }
 
 // FilterByNames filtra uma lista de skills pelos identificadores fornecidos.

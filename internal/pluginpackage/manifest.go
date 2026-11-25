@@ -21,17 +21,18 @@ type Author struct {
 }
 
 type Manifest struct {
-	Format      string
-	Unmapped    []string
-	Name        string
-	Version     string
-	Description string
-	Author      Author
-	Homepage    string
-	Repository  string
-	License     string
-	Keywords    []string
-	Extensions  map[string]json.RawMessage
+	DeclaresSkills bool `json:"-"`
+	Format         string
+	Unmapped       []string
+	Name           string
+	Version        string
+	Description    string
+	Author         Author
+	Homepage       string
+	Repository     string
+	License        string
+	Keywords       []string
+	Extensions     map[string]json.RawMessage
 }
 
 // ReadManifest interprets only the local 1.0.0 schema. It never retrieves

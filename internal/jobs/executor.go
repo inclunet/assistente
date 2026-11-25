@@ -711,59 +711,32 @@ func (e *JobExecutor) executeSingle(ctx context.Context, job *Job, trigCtx *Trig
 		)
 	}
 
+	ctx = withRedactedShellMetadata(ctx, job.Inputs, resolvedInputs)
 	execution := e.executeTool(ctx, job, rl, argsJSON, persistedArgsJSON)
 	if execution.Error != nil || execution.Result.IsError {
 		return nil, newAttemptFailure(ctx, execution)
 	}
-	result := execution.Result
-
-	// Parse o resultado para map[string]any
-	output := make(map[string]any)
-	if result.Content != "" {
-		if err := json.Unmarshal([]byte(result.Content), &output); err != nil {
-			// Conteudo nao e JSON object — tenta como array
-			var arr []any
-			if arrErr := json.Unmarshal([]byte(result.Content), &arr); arrErr == nil {
-				output["content"] = arr
-				logger.Debug("tool output parsed as array", slog.Int("elements", len(arr)))
-			} else {
-				output["content"] = result.Content
-				logger.Debug("tool output stored as raw string", slog.Int("content_length", len(result.Content)))
-			}
-		} else if logger.Enabled(ctx, slog.LevelDebug) {
-			keys := make([]string, 0, len(output))
-			for k := range output {
-				keys = append(keys, k)
-			}
-			logger.Debug("tool output parsed as object", slog.Any("keys", keys))
-		}
+	var debug *slog.Logger
+	if logger.Enabled(ctx, slog.LevelDebug) {
+		debug = logger
 	}
-	if result.Metadata != nil {
-		for k, v := range result.Metadata {
-			output["_meta_"+k] = v
-		}
-	}
+	output := jobToolOutput(execution.Result, debug)
 
 	// Aplica output map (transformacoes)
 	if len(job.Output.Map) > 0 {
 		tmplCtx.Output = output
 		mapped, err := ResolveOutputMap(job.Output.Map, tmplCtx)
 		if err != nil {
+			// A ferramenta já terminou. Repetir a tentativa repetiria também
+			// seu efeito, inclusive quando o erro ocorre ao consultar o cofre.
+			mapErr := fmt.Errorf("resolve output map: %w", err)
 			if errors.Is(err, context.Canceled) {
-				return nil, permanentAttemptFailure(
-					fmt.Errorf("resolve output map: %w", err),
-					tools.ErrorKindCancelled,
-					"cancelled",
-				)
+				return nil, permanentAttemptFailure(mapErr, tools.ErrorKindCancelled, "cancelled")
 			}
-			if !isSecretResolutionError(err) {
-				return nil, permanentAttemptFailure(
-					fmt.Errorf("resolve output map: %w", err),
-					tools.ErrorKindConfiguration,
-					"invalid_output_map",
-				)
+			if isSecretResolutionError(err) {
+				return nil, permanentAttemptFailure(mapErr, tools.ErrorKindUnavailable, "output_secret_unavailable")
 			}
-			return nil, fmt.Errorf("resolve output map: %w", err)
+			return nil, permanentAttemptFailure(mapErr, tools.ErrorKindConfiguration, "invalid_output_map")
 		}
 		return mapped, nil
 	}

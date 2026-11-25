@@ -57,7 +57,7 @@ func (s *Session) captureCloseSnapshot() (CloseSnapshot, error) {
 		sessionVersion:    s.sessionVersion,
 		commandGeneration: s.commandGeneration,
 		commandPending:    s.commandPending,
-		commandID:         s.managedCommandID,
+		commandID:         s.lastDispatchedID,
 		state:             s.state,
 	}}, nil
 }
@@ -67,6 +67,6 @@ func (s *Session) matchesCloseSnapshot(token *closeSnapshotToken) bool {
 		s.sessionVersion == token.sessionVersion &&
 		s.commandGeneration == token.commandGeneration &&
 		s.commandPending == token.commandPending &&
-		s.managedCommandID == token.commandID && s.state == token.state &&
+		s.lastDispatchedID == token.commandID && s.state == token.state &&
 		(s.state == StateIdle || s.state == StateRunning)
 }

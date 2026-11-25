@@ -7,6 +7,8 @@ export interface UseGridPageLandmarksOptions {
   pageClass: string;
   /** Extra landmarks inserted after toolbar and before the grid. */
   extraLandmarks?: Landmark[];
+  /** Primary content target when the active panel contains a form instead of a grid. */
+  contentLandmark?: Landmark;
 }
 
 /**
@@ -14,7 +16,7 @@ export interface UseGridPageLandmarksOptions {
  *
  * Zones: toolbar → (extra) → grid.
  */
-export function useGridPageLandmarks({ pageClass, extraLandmarks }: UseGridPageLandmarksOptions) {
+export function useGridPageLandmarks({ pageClass, extraLandmarks, contentLandmark }: UseGridPageLandmarksOptions) {
   const { t } = useTranslation();
   const parentOwns = useHasParentLandmarks();
 
@@ -56,7 +58,7 @@ export function useGridPageLandmarks({ pageClass, extraLandmarks }: UseGridPageL
       base.push(...extraLandmarks);
     }
 
-    base.push({
+    base.push(contentLandmark ?? {
       id: 'grid',
       label: t('landmarks.grid'),
       focus: () => {
@@ -75,7 +77,7 @@ export function useGridPageLandmarks({ pageClass, extraLandmarks }: UseGridPageL
     });
 
     return base;
-  }, [pageClass, extraLandmarks, t]);
+  }, [pageClass, extraLandmarks, contentLandmark, t]);
 
-  useLandmarkNavigation({ landmarks, defaultLandmarkId: 'grid', enabled: !parentOwns });
+  useLandmarkNavigation({ landmarks, defaultLandmarkId: contentLandmark?.id ?? 'grid', enabled: !parentOwns });
 }

@@ -53,7 +53,8 @@ func TestEphemeralAcceptsExistingJunction(t *testing.T) {
 			if err != nil || !strings.EqualFold(resolved, expected) {
 				t.Fatalf("destino físico: %q, esperado %q: %v", resolved, expected, err)
 			}
-			entry, err := NewManager(config, nil).RunEphemeral(ctx, path, "(Get-Location).Path", 10*time.Second, "test")
+			const rawCommand = "(Get-Location).Path"
+			entry, err := NewManager(config, nil).RunEphemeral(ctx, WorkingDirectory{Path: path}, CommandText{Raw: rawCommand, Display: rawCommand}, 10*time.Second, "test")
 			if err != nil || entry.ExitCode != 0 || !strings.Contains(entry.Output, expected) {
 				t.Fatalf("junction legítima recusada: %+v %v", entry, err)
 			}

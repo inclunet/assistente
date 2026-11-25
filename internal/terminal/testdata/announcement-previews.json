@@ -1,0 +1,7 @@
+[
+  {"name": "espaços Unicode nas pontas", "prefixLength": 0, "text": "\ufeff\u00a0ok\u2029", "want": "ok", "truncated": false},
+  {"name": "NEL continua sendo texto", "prefixLength": 0, "text": "\u0085ok\u0085", "want": "\u0085ok\u0085", "truncated": false},
+  {"name": "emoji na posição 300 seguido só de espaços", "prefixLength": 299, "text": "🌍\u2028\ufeff", "want": "🌍", "truncated": false},
+  {"name": "texto depois de espaço não separável", "prefixLength": 299, "text": "🌍\u00a0x", "want": "🌍", "truncated": true},
+  {"name": "NEL além da posição 300", "prefixLength": 300, "text": "\u0085", "want": "", "truncated": true}
+]

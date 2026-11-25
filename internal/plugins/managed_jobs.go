@@ -15,7 +15,7 @@ import (
 
 var ErrJobSyncPending = errors.New("PLUGIN_JOB_SYNC_PENDING")
 
-func (i *Inventory) WithJobRefresh(refresh func(context.Context, string) error) *Inventory {
+func (i *Inventory) WithJobRefresh(refresh func(context.Context, string, commandsecurity.Admission) error) *Inventory {
 	copy := *i
 	copy.refreshJob = refresh
 	return &copy
@@ -74,7 +74,7 @@ func (i *Inventory) PrepareJob(ctx context.Context, id, digest, key string, admi
 	if err != nil {
 		return "", err
 	}
-	if err := admit(func() error { return i.syncPendingJob(ctx, slug) }); err != nil {
+	if err := i.syncPendingJob(ctx, slug, admit); err != nil {
 		return slug, errors.Join(ErrJobSyncPending, err)
 	}
 	return slug, nil
@@ -96,7 +96,7 @@ func (i *Inventory) CopyJob(ctx context.Context, installationID, slug, request, 
 	if err != nil {
 		return "", err
 	}
-	if err := admit(func() error { return i.syncPendingJob(ctx, copied) }); err != nil {
+	if err := i.syncPendingJob(ctx, copied, admit); err != nil {
 		return copied, errors.Join(ErrJobSyncPending, err)
 	}
 	return copied, nil
@@ -119,7 +119,7 @@ func revokeJobs(tx *gorm.DB, owner, id string) ([]string, error) {
 }
 
 // SyncPendingJobs retries committed changes, including jobs whose installation was removed.
-func (i *Inventory) SyncPendingJobs(ctx context.Context) error {
+func (i *Inventory) SyncPendingJobs(ctx context.Context, admit commandsecurity.Admission) error {
 	owner, err := database.RequireUserID(ctx)
 	if err != nil {
 		return err
@@ -130,14 +130,14 @@ func (i *Inventory) SyncPendingJobs(ctx context.Context) error {
 	}
 	var failures []error
 	for _, slug := range slugs {
-		if err := i.syncPendingJob(ctx, slug); err != nil {
+		if err := i.syncPendingJob(ctx, slug, admit); err != nil {
 			failures = append(failures, err)
 		}
 	}
 	return errors.Join(failures...)
 }
 
-func (i *Inventory) syncPendingJob(ctx context.Context, slug string) error {
+func (i *Inventory) syncPendingJob(ctx context.Context, slug string, admit commandsecurity.Admission) error {
 	owner, err := database.RequireUserID(ctx)
 	if err != nil {
 		return err
@@ -153,7 +153,7 @@ func (i *Inventory) syncPendingJob(ctx context.Context, slug string) error {
 	if i.refreshJob == nil {
 		return ErrJobSyncPending
 	}
-	if err := i.refreshJob(ctx, slug); err != nil {
+	if err := i.refreshJob(ctx, slug, admit); err != nil {
 		return errors.Join(ErrJobSyncPending, err)
 	}
 	return i.db.WithContext(ctx).Model(&database.Job{}).Where("id=? AND user_id=? AND plugin_digest=?", job.ID, owner, job.PluginDigest).UpdateColumn("plugin_refresh_pending", false).Error
@@ -166,12 +166,12 @@ func (i *Inventory) refreshRuntime(ctx context.Context, slugs []string, syncMCP 
 			failures = append(failures, ErrJobSyncPending)
 			break
 		}
-		if err := admit(func() error { return i.syncPendingJob(ctx, slug) }); err != nil {
+		if err := i.syncPendingJob(ctx, slug, admit); err != nil {
 			failures = append(failures, errors.Join(ErrJobSyncPending, err))
 		}
 	}
 	if syncMCP {
-		if err := admit(func() error { return i.SyncMCP(ctx) }); err != nil {
+		if err := i.SyncMCP(ctx, admit); err != nil {
 			failures = append(failures, errors.Join(ErrMCPSyncPending, err))
 		}
 	}

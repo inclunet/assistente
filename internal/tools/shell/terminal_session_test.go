@@ -2,9 +2,11 @@ package shell
 
 import (
 	"assistente/internal/terminal"
+	"assistente/internal/tools"
 	"context"
 	"encoding/json"
 	"errors"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -19,12 +21,12 @@ type fakeTerminalSessionManager struct {
 }
 
 func (f *fakeTerminalSessionManager) List() []terminal.SessionInfo { return f.sessions }
-func (f *fakeTerminalSessionManager) CreateInfo(name, workDir string) (terminal.SessionInfo, error) {
-	f.createdName, f.createdDir = name, workDir
+func (f *fakeTerminalSessionManager) CreateToolSession(name string, workDir terminal.WorkingDirectory) (terminal.SessionInfo, error) {
+	f.createdName, f.createdDir = name, workDir.Path
 	if f.err != nil {
 		return terminal.SessionInfo{}, f.err
 	}
-	return terminal.SessionInfo{ID: "term-1", Name: name, CWD: workDir, State: "idle"}, nil
+	return terminal.SessionInfo{ID: "term-1", Name: name, CWD: workDir.Display(), State: "idle"}, nil
 }
 func (f *fakeTerminalSessionManager) Interrupt(id string) error {
 	f.interruptedID = id
@@ -157,5 +159,43 @@ func TestTerminalSessionReportsManagerError(t *testing.T) {
 	}
 	if !result.IsError {
 		t.Fatalf("esperava erro, recebeu %#v", result)
+	}
+}
+
+func TestCriacaoComDiretorioPadraoAusente(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "projeto-removido")
+	manager := terminal.NewManager(terminal.DefaultManagerConfig(), nil)
+	result, err := NewTerminalSession(manager, dir).Execute(t.Context(), json.RawMessage(`{"action":"create"}`))
+	if err != nil || !result.IsError || result.Content != "Diretório indisponível ao iniciar a sessão de terminal." ||
+		result.Failure == nil || result.Failure.Retryable || strings.Contains(result.Content, dir) {
+		t.Fatalf("resultado=%#v err=%v", result, err)
+	}
+}
+
+func TestTerminalSessionCreateNaoExpoeCaminhoDoShell(t *testing.T) {
+	dir := t.TempDir()
+	cfg := terminal.DefaultManagerConfig()
+	cfg.DefaultShell = filepath.Join(dir, "shell-privado-sintetico")
+	manager := terminal.NewManager(cfg, nil)
+	got, err := NewTerminalSession(manager, dir).Execute(t.Context(), json.RawMessage(`{"action":"create"}`))
+	if err != nil || !got.IsError || got.Content != "Executável do terminal não encontrado." || strings.Contains(got.Content, "shell-privado-sintetico") || got.Failure == nil || got.Failure.Code != FailureSessionStart || got.Failure.Kind != tools.ErrorKindUnavailable || got.Failure.Retryable {
+		t.Fatalf("resultado=%+v err=%v", got, err)
+	}
+}
+
+func TestTerminalSessionCreatePreservaCategoriaDeLotacao(t *testing.T) {
+	manager := &fakeTerminalSessionManager{err: terminal.ErrSessionCapacity}
+	got, err := NewTerminalSession(manager, t.TempDir()).Execute(t.Context(), json.RawMessage(`{"action":"create"}`))
+	if err != nil || !got.IsError || got.Content != "Recurso do terminal temporariamente indisponível." || got.Failure == nil || got.Failure.Code != FailureSessionStart || !got.Failure.Retryable {
+		t.Fatalf("resultado=%+v err=%v", got, err)
+	}
+}
+
+func TestTerminalSessionCreateComSessoesDesabilitadas(t *testing.T) {
+	cfg := terminal.DefaultManagerConfig()
+	cfg.MaxSessions = 0
+	got, err := NewTerminalSession(terminal.NewManager(cfg, nil), t.TempDir()).Execute(t.Context(), json.RawMessage(`{"action":"create"}`))
+	if err != nil || got.Failure == nil || got.Failure.Retryable || !strings.Contains(got.Content, "desabilitadas pela configur") {
+		t.Fatalf("resultado=%+v err=%v", got, err)
 	}
 }

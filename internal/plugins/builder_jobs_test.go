@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"assistente/internal/commandsecurity"
 	"assistente/internal/database"
 	"assistente/internal/jobs"
 	"assistente/internal/pluginpackage"
@@ -15,7 +16,7 @@ func TestBuilderTransfersJobDefinitionAcrossAccounts(t *testing.T) {
 	db := managedJobTestDB(t)
 	source := database.WithUserID(t.Context(), "source")
 	destination := database.WithUserID(t.Context(), "destination")
-	store := NewInventory(db).WithJobRefresh(func(context.Context, string) error { return nil })
+	store := NewInventory(db).WithJobRefresh(func(context.Context, string, commandsecurity.Admission) error { return nil })
 	repo := jobs.NewDBRepository(db)
 	const private = "private-value-for-source-only"
 	original := &jobs.Job{ID: "reminder", Name: "Monthly review", Tool: "notify", Enabled: true, Inputs: map[string]any{"text": private, "options": map[string]any{"token": private}}, Triggers: []jobs.Trigger{{Type: jobs.TriggerManual}}}
@@ -27,8 +28,8 @@ func TestBuilderTransfersJobDefinitionAcrossAccounts(t *testing.T) {
 		t.Fatal(names, err)
 	}
 	req := BuilderRequest{Name: "review-kit", Jobs: []string{original.ID}}
-	if _, _, err := store.BuildPackage(destination, req); err == nil {
-		t.Fatal("exportou job de outra conta")
+	if _, _, err := store.BuildPackage(destination, req); err == nil || err.Error() != "PLUGIN_BUILDER_JOB_UNAVAILABLE: reminder" {
+		t.Fatalf("job indisponível na conta de destino: %v", err)
 	}
 	data, snap, err := store.BuildPackage(source, req)
 	if err != nil {

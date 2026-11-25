@@ -1,4 +1,4 @@
-import { useEffect, useRef, useCallback, useMemo, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useCallback, useMemo, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import { MessageOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
@@ -31,14 +31,8 @@ import {
 import { useWorkspaceCommandSurface } from '../components/workspace/useWorkspaceCommandSurface';
 import { usePagePresentationCommands, type PagePresentationCommandID } from '../lib/commandPagePresentation';
 import { useCommandShortcutHint } from '../lib/commandShortcutHints';
+import { terminalChatHistory, sessionOutputSource } from '../lib/terminalHistory';
 import './TerminalPage.css';
-
-const TERMINAL_CHAT_HISTORY_LIMIT = 40;
-
-type TerminalHistoryEntry = {
-  command?: string;
-  output?: string;
-};
 
 function subscribeTerminalSession(
   sessionId: string | null | undefined,
@@ -66,17 +60,6 @@ function subscribeTerminalSession(
   });
 }
 
-function formatTerminalHistoryForChat(history: TerminalHistoryEntry[]) {
-  return history
-    .map((e) => {
-      const cmd = String(e.command || '').trim();
-      const out = String(e.output || '').trimEnd();
-      return [`$ ${cmd}`, out].filter(Boolean).join('\n');
-    })
-    .filter(Boolean)
-    .join('\n---\n');
-}
-
 interface TerminalPageProps {
   sessionId?: string;
 }
@@ -95,6 +78,7 @@ export default function TerminalPage({ sessionId: explicitSessionId }: TerminalP
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const pageRootRef = useRef<HTMLDivElement>(null);
   const terminalPickerTriggerRef = useRef<HTMLButtonElement>(null);
+  const newTerminalButtonRef = useRef<HTMLButtonElement>(null);
   const currentSessionIdRef = useRef(currentSessionId);
   currentSessionIdRef.current = currentSessionId;
   const historyContainerRef = useRef<HTMLDivElement>(null);
@@ -103,13 +87,17 @@ export default function TerminalPage({ sessionId: explicitSessionId }: TerminalP
 
   const {
     sessions,
+    isLoadingSessions,
+    sessionListFailed,
     historyBySession,
-    activeEntryBySession = {},
     loadingHistoryBySession,
     loadSessions,
     sendInput,
     setupEventListeners,
   } = useTerminalStore();
+  const activeSession = currentSessionId ? sessions.find(s => s.id === currentSessionId) : undefined;
+  const sessionIsLive = Boolean(activeSession);
+  const [focusRequest, setFocusRequest] = useState<{ sessionId?: string; origin: Element | null } | null>(null);
 
   useEffect(() => {
     const cleanup = setupEventListeners();
@@ -117,15 +105,20 @@ export default function TerminalPage({ sessionId: explicitSessionId }: TerminalP
   }, [setupEventListeners]);
 
   useEffect(() => {
-    if (isActive && currentSessionId && inputRef.current) {
+    if (!isActive || !currentSessionId || isModalOpen() || useWorkspaceChatModalStore.getState().isOpen) {
+      setFocusRequest(null);
+    } else if (inputRef.current && !inputRef.current.readOnly) {
+      setFocusRequest(null);
       inputRef.current.focus();
+    } else {
+      setFocusRequest({ sessionId: currentSessionId, origin: document.activeElement });
     }
   }, [currentSessionId, isActive]);
 
   // Foco de painel unificado: o WorkspaceLayout roteia o foco da aba ativa via
   // workspacePanelFocusRegistry (troca por atalho, fechar aba, F6, retorno de
-  // modal). O handler apenas marca um pedido; um efeito foca o input assim que
-  // a sessão está pronta — mesmo padrão de editor/tasklist.
+  // modal). Durante a listagem, o pedido permanece associado à aba e à posição
+  // do foco. Se a pessoa navegar, a resposta tardia não a tira do novo controle.
   const isPanelActiveRef = useRef(isActive);
   isPanelActiveRef.current = isActive;
   const canFocusWorkspacePanelImmediately = useCallback(() => {
@@ -136,11 +129,9 @@ export default function TerminalPage({ sessionId: explicitSessionId }: TerminalP
     ) return false;
     const sessionId = currentSessionIdRef.current;
     const input = inputRef.current;
-    if (!sessionId || !input || !input.isConnected || input.disabled) return false;
+    if (!sessionId || !input || !input.isConnected || input.readOnly) return false;
     return useTerminalStore.getState().sessions.some((session) => session.id === sessionId);
   }, []);
-  const [panelFocusNonce, setPanelFocusNonce] = useState(0);
-  const consumedPanelFocusNonceRef = useRef(0);
 
   useEffect(() => {
     const tabId = panelTab.id;
@@ -150,7 +141,7 @@ export default function TerminalPage({ sessionId: explicitSessionId }: TerminalP
         || isModalOpen()
         || useWorkspaceChatModalStore.getState().isOpen
       ) return false;
-      setPanelFocusNonce((nonce) => nonce + 1);
+      setFocusRequest({ sessionId: currentSessionIdRef.current, origin: document.activeElement });
       return true;
     }, () => {
       if (!canFocusWorkspacePanelImmediately()) return false;
@@ -162,35 +153,29 @@ export default function TerminalPage({ sessionId: explicitSessionId }: TerminalP
   }, [canFocusWorkspacePanelImmediately, panelTab.id]);
 
   useEffect(() => {
-    if (
-      panelFocusNonce === 0
-      || consumedPanelFocusNonceRef.current === panelFocusNonce
-      || !isActive
-      || isModalOpen()
-      || !currentSessionId
-    ) {
-      return;
-    }
-    const nonce = panelFocusNonce;
-    const raf = requestAnimationFrame(() => {
-      if (consumedPanelFocusNonceRef.current === nonce) return;
-      if (!isPanelActiveRef.current || isModalOpen()) return;
-      // Não roubar o foco quando ele já está num nó do histórico (o usuário
-      // está navegando a saída anterior); o roteamento de painel não pode
-      // sobrepor essa posição intencional.
-      const active = document.activeElement as HTMLElement | null;
-      if (active && active !== inputRef.current && active.closest('.terminal-node')) {
-        consumedPanelFocusNonceRef.current = nonce;
+    if (!isActive || !focusRequest || focusRequest.sessionId !== currentSessionId) return;
+    const cancel = () => setFocusRequest(null);
+    const originLostFocus = () => document.activeElement === document.body && focusRequest.origin &&
+      (!focusRequest.origin.isConnected || focusRequest.origin.closest('[hidden], [inert]'));
+    const onFocusIn = () => { if (!originLostFocus()) cancel(); };
+    document.addEventListener('focusin', onFocusIn);
+    const waitingForSession = currentSessionId && !sessionIsLive && isLoadingSessions;
+    const frame = waitingForSession ? undefined : requestAnimationFrame(() => {
+      if (!isPanelActiveRef.current || isModalOpen() || useWorkspaceChatModalStore.getState().isOpen ||
+          (!originLostFocus() && (document.activeElement !== focusRequest.origin || focusRequest.origin?.closest('.terminal-node')))) {
+        cancel();
         return;
       }
-      const input = inputRef.current;
-      if (input) {
-        input.focus();
-        consumedPanelFocusNonceRef.current = nonce;
-      }
+      const target = sessionIsLive ? inputRef.current : terminalPickerTriggerRef.current ?? newTerminalButtonRef.current;
+      document.removeEventListener('focusin', onFocusIn);
+      cancel();
+      target?.focus();
     });
-    return () => cancelAnimationFrame(raf);
-  }, [panelFocusNonce, isActive, currentSessionId]);
+    return () => {
+      document.removeEventListener('focusin', onFocusIn);
+      if (frame !== undefined) cancelAnimationFrame(frame);
+    };
+  }, [focusRequest, isActive, currentSessionId, sessionIsLive, isLoadingSessions]);
 
   const terminalOperationInstanceId = `terminal-operation:${panelTab.id}`;
 
@@ -222,11 +207,15 @@ export default function TerminalPage({ sessionId: explicitSessionId }: TerminalP
     return () => window.removeEventListener('keydown', handleKeyDown, true);
   }, [currentSessionId, isActive, terminalOperationInstanceId]);
 
-  const activeSession = currentSessionId ? sessions.find(s => s.id === currentSessionId) : undefined;
+  useLayoutEffect(() => {
+    const input = inputRef.current;
+    if (!input) return;
+    if (!sessionIsLive && isActive && document.activeElement === input &&
+        !isModalOpen() && !useWorkspaceChatModalStore.getState().isOpen) {
+      (terminalPickerTriggerRef.current ?? newTerminalButtonRef.current)?.focus();
+    }
+  }, [sessionIsLive, isActive]);
   const currentHistory = currentSessionId ? (historyBySession[currentSessionId] || []) : [];
-  const currentRunningCommandId = currentSessionId
-    ? (activeEntryBySession[currentSessionId] ?? null)
-    : null;
   const isCurrentHistoryLoading = currentSessionId ? Boolean(loadingHistoryBySession[currentSessionId]) : false;
 
   const focusHistory = useCallback(() => {
@@ -265,7 +254,7 @@ export default function TerminalPage({ sessionId: explicitSessionId }: TerminalP
   const canOpenPresentationCommand = useCallback((id: PagePresentationCommandID) => {
     if (id === 'terminal.sessions.open') return Boolean(terminalPickerTriggerRef.current && !terminalPickerTriggerRef.current.disabled);
     if (id === 'terminal.focus.input') {
-      return Boolean(currentSessionId && inputRef.current && !inputRef.current.disabled);
+      return Boolean(currentSessionId && inputRef.current && !inputRef.current.readOnly);
     }
     if (id === 'terminal.focus.history') return Boolean(currentSessionId && currentHistory.length > 0);
     return false;
@@ -362,8 +351,7 @@ export default function TerminalPage({ sessionId: explicitSessionId }: TerminalP
 
   const handleSendInput = useCallback(async (input: string): Promise<boolean> => {
     if (!currentSessionId) return false;
-    await sendInput(currentSessionId, input);
-    return true;
+    return sendInput(currentSessionId, input);
   }, [currentSessionId, sendInput]);
 
   const bindSession = useCallback(async (sessionId: string) => {
@@ -395,22 +383,28 @@ export default function TerminalPage({ sessionId: explicitSessionId }: TerminalP
   const terminalChatModalAdapter = useMemo((): WorkspaceChatModalAdapter | null => {
     if (!panelTab || panelTab.type !== 'terminal') return null;
 
+    const projectHistory = () => {
+      const { text, items, truncated } = terminalChatHistory(currentHistory, {
+        sessionOutput: t('terminal.entry.sessionOutput'),
+        blankInput: t('terminal.chatModal.blankInput'),
+        truncated: t('terminal.chatModal.truncatedHistory'),
+      });
+      return { contextDisplay: text || t('terminal.chatModal.noHistory'), items, truncated };
+    };
     return {
       prepare: async () => {
-        const slice = currentHistory.slice(-TERMINAL_CHAT_HISTORY_LIMIT);
-        const lines = formatTerminalHistoryForChat(slice);
-        const contextDisplay = lines || t('terminal.chatModal.noHistory');
+        const { contextDisplay } = projectHistory();
         return { ok: true, contextDisplay, meta: null };
       },
       send: async (instruction, media) => {
-        const historySlice = currentHistory.slice(-TERMINAL_CHAT_HISTORY_LIMIT);
-        const contextDisplay = formatTerminalHistoryForChat(historySlice) || t('terminal.chatModal.noHistory');
+        const { contextDisplay, items, truncated } = projectHistory();
         const selection = window.getSelection?.();
         const selectedOutput = selection && historyContainerRef.current?.contains(selection.anchorNode)
           ? selection.toString().trim()
           : '';
         const currentInput = inputRef.current?.value?.trim() || '';
         const lastEntry = currentHistory[currentHistory.length - 1];
+        const lastCommand = [...currentHistory].reverse().find(entry => entry.source !== sessionOutputSource);
         const surfaceContext: SurfaceContext = {
           surfaceType: 'terminal',
           surfaceId: panelTab.id,
@@ -434,15 +428,16 @@ export default function TerminalPage({ sessionId: explicitSessionId }: TerminalP
           content: {
             kind: 'terminal_output',
             recentOutput: contextDisplay,
+            recentOutputItems: items,
             currentInput,
-            truncated: currentHistory.length > historySlice.length,
+            truncated,
           },
           metadata: {
             sessionId: currentSessionId,
             cwd: activeSession?.cwd,
             shell: (activeSession as { shell?: string } | undefined)?.shell,
             historyEntryCount: currentHistory.length,
-            lastExitCode: lastEntry?.exitCode,
+            lastExitCode: lastCommand?.exitCode,
           },
           snapshotVersion: createSurfaceSnapshotVersion(
             'terminal',
@@ -489,6 +484,7 @@ export default function TerminalPage({ sessionId: explicitSessionId }: TerminalP
           actions={[
             {
               key: 'new-terminal',
+              buttonRef: newTerminalButtonRef,
               label: t('terminal.buttons.new'),
               onClick: () => { requestTerminalSessionOperation(TERMINAL_SESSION_CREATE_COMMAND, terminalOperationInstanceId); },
             },
@@ -535,7 +531,6 @@ export default function TerminalPage({ sessionId: explicitSessionId }: TerminalP
       <TerminalHistory
         ref={historyContainerRef}
         entries={currentHistory}
-        runningCommandId={currentRunningCommandId}
         isLoading={isCurrentHistoryLoading}
         onReachEnd={handleReachEnd}
       />
@@ -544,11 +539,14 @@ export default function TerminalPage({ sessionId: explicitSessionId }: TerminalP
         <ChatInput
           ref={inputRef}
           onSend={handleSendInput}
-          disabled={!activeSession}
+          disabled={!sessionIsLive}
+          editorReadOnly={!sessionIsLive}
+          maxFiles={0}
           placeholder={
-            !activeSession
-              ? t('terminal.placeholders.creating')
-              : t('terminal.placeholders.command')
+            sessionIsLive ? t('terminal.placeholders.command')
+              : !currentSessionId ? t('terminal.placeholders.unbound')
+              : isLoadingSessions ? t('terminal.placeholders.loading')
+              : sessionListFailed ? t('terminal.placeholders.unavailable') : t('terminal.placeholders.ended')
           }
           voiceEnabled={false}
           slashMenuEnabled={false}

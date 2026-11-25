@@ -102,7 +102,7 @@ func TestLocalInventoryPublishesReviewedRevisionPerAccount(t *testing.T) {
 		t.Fatal(err)
 	}
 	denied := errors.New("sessão revogada antes do commit")
-	if _, err := store.InstallReviewed(alice, seed.Origin, update.Digest, seed.Digest, func(func() error) error { return denied }); !errors.Is(err, denied) {
+	if _, err := store.InstallReviewed(alice, seed.Origin, update.Digest, seed.Digest, nil, func(*gorm.DB, func() error) error { return denied }); !errors.Is(err, denied) {
 		t.Fatal(err)
 	}
 	rows, err = store.List(alice)
@@ -124,6 +124,9 @@ func TestLocalInventoryPublishesReviewedRevisionPerAccount(t *testing.T) {
 		}
 		if string(files["plugin.json"]) != manifest {
 			t.Fatal("lost manifest")
+		}
+		if revision.Digest == update.Digest && string(files["README.md"]) != "v2" {
+			t.Fatal("lost updated file")
 		}
 		if revision.Digest == seed.Digest && files["README.md"] != nil {
 			t.Fatal("prior revision changed")

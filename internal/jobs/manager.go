@@ -1361,7 +1361,8 @@ func (m *Manager) TestToolDryRunContext(parent context.Context, req TestToolRequ
 	if err != nil {
 		return nil, fmt.Errorf("marshal inputs: %w", err)
 	}
-	persistedArgsJSON, err := json.Marshal(RedactResolvedInputs(req.Inputs, inputs))
+	persistedInputs := RedactResolvedInputs(req.Inputs, inputs)
+	persistedArgsJSON, err := json.Marshal(persistedInputs)
 	if err != nil {
 		return nil, fmt.Errorf("marshal redacted inputs: %w", err)
 	}
@@ -1374,6 +1375,7 @@ func (m *Manager) TestToolDryRunContext(parent context.Context, req TestToolRequ
 	if m.cfg.ToolInvocations == nil {
 		return nil, errors.New("tool invocation ledger not configured")
 	}
+	ctx = withRedactedShellMetadata(ctx, req.Inputs, inputs)
 	exec := m.cfg.ToolInvocations.Execute(ctx, toolinvocations.ExecuteRequest{
 		Call: tools.ToolCall{
 			ID:   fmt.Sprintf("tool_catalog_%d", time.Now().UnixNano()),
@@ -1419,26 +1421,9 @@ func (m *Manager) TestToolDryRunContext(parent context.Context, req TestToolRequ
 		}, nil
 	}
 
-	output := make(map[string]any)
-	if result.Content != "" {
-		if jsonErr := json.Unmarshal([]byte(result.Content), &output); jsonErr != nil {
-			var arr []any
-			if arrErr := json.Unmarshal([]byte(result.Content), &arr); arrErr == nil {
-				output["content"] = arr
-			} else {
-				output["content"] = result.Content
-			}
-		}
-	}
-	if result.Metadata != nil {
-		for k, v := range result.Metadata {
-			output["_meta_"+k] = v
-		}
-	}
-
 	return &TestToolResult{
 		Success:       true,
-		Output:        output,
+		Output:        jobToolOutput(result, nil),
 		Duration:      duration.String(),
 		Origin:        origin,
 		MCPServerID:   strings.TrimSpace(req.MCPServerID),
