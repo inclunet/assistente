@@ -1,6 +1,6 @@
 import { type Ref, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { BuilderProfileNames, BuilderSkillNames, PreviewBuilder, SaveBuilder } from '@wailsjs/go/wailsapi/Plugins';
+import { BuilderJobNames, BuilderProfileNames, BuilderSkillNames, PreviewBuilder, SaveBuilder } from '@wailsjs/go/wailsapi/Plugins';
 import { GetAllTaskLists } from '@wailsjs/go/wailsapi/Tasklist';
 import { plugins, type database, type wailsapi } from '@wailsjs/go/models';
 import { useAnnouncer } from '../hooks/useAnnouncer';
@@ -12,6 +12,8 @@ export default function PluginBuilder({ formRef }: { formRef?: Ref<HTMLFormEleme
   const { t } = useTranslation();
   const { announce } = useAnnouncer();
   const [lists, setLists] = useState<database.TaskList[]>([]);
+  const [jobNames, setJobNames] = useState<string[]>([]);
+  const [jobSelection, setJobSelection] = useState<string[]>([]);
   const [profileOptions, setProfileOptions] = useState<string[]>([]);
   const [profileSelection, setProfileSelection] = useState<string[]>([]);
   const [skillNames, setSkillNames] = useState<string[]>([]);
@@ -27,12 +29,13 @@ export default function PluginBuilder({ formRef }: { formRef?: Ref<HTMLFormEleme
   const mounted = useRef(false);
   useEffect(() => {
     mounted.current = true;
-    void Promise.allSettled([GetAllTaskLists(), BuilderSkillNames(), BuilderProfileNames()]).then(([items, names, profileList]) => {
+    void Promise.allSettled([GetAllTaskLists(), BuilderSkillNames(), BuilderProfileNames(), BuilderJobNames()]).then(([items, names, profileList, jobList]) => {
       if (!mounted.current) return;
       if (items.status === 'fulfilled') setLists(items.value ?? []);
       if (profileList.status === 'fulfilled') setProfileOptions(profileList.value.names ?? []);
       if (names.status === 'fulfilled') setSkillNames(names.value.names ?? []);
-      setSourcesIncomplete(profileList.status === 'rejected' || profileList.value.partial || items.status === 'rejected' || names.status === 'rejected' || names.value.partial);
+      if (jobList.status === 'fulfilled') setJobNames(jobList.value ?? []);
+      setSourcesIncomplete(jobList.status === 'rejected' || profileList.status === 'rejected' || profileList.value.partial || items.status === 'rejected' || names.status === 'rejected' || names.value.partial);
       setBusy(false);
     });
     return () => { mounted.current = false; };
@@ -53,7 +56,7 @@ export default function PluginBuilder({ formRef }: { formRef?: Ref<HTMLFormEleme
     if (busy) return;
     setBusy(true);
     setStatus('');
-    const request = new plugins.BuilderRequest({name, version, skills:skillSelection, profiles:profileSelection, tasklists: Object.values(selected)});
+    const request = new plugins.BuilderRequest({name, version, jobs:jobSelection, skills:skillSelection, profiles:profileSelection, tasklists: Object.values(selected)});
     try {
       if (preview) {
         const saved = await SaveBuilder(request, preview.digest);
@@ -80,6 +83,10 @@ export default function PluginBuilder({ formRef }: { formRef?: Ref<HTMLFormEleme
           setFailedResource(key ?? '');
           setStatus(key ? 'plugins.builderNamedSkillError' : 'plugins.builderSkillError');
         }
+        else if (message.includes('PLUGIN_BUILDER_JOB_UNAVAILABLE:')) {
+          setFailedResource(jobSelection.find(key => message.endsWith('PLUGIN_BUILDER_JOB_UNAVAILABLE: ' + key)) ?? '');
+          setStatus('plugins.builderJobError');
+        }
         else setStatus('plugins.builderError');
       }
     }
@@ -96,6 +103,15 @@ export default function PluginBuilder({ formRef }: { formRef?: Ref<HTMLFormEleme
     {sourcesIncomplete && <p>{t('plugins.builderSourcesError')}</p>}
     <Input label={t('plugins.packageName')} value={name} required disabled={busy} onChange={event => {invalidate(); setName(event.target.value);}} />
     <Input label={t('plugins.version')} value={version} disabled={busy} onChange={event => {invalidate(); setVersion(event.target.value);}} />
+    <fieldset disabled={busy}>
+      <legend>{t('plugins.builderJobs')}</legend>
+      <p>{t('plugins.builderJobInputs')}</p>
+      {jobNames.map(slug => <Checkbox key={slug} label={slug} checked={jobSelection.includes(slug)} onChange={event => {
+        invalidate();
+        const checked = event.target.checked;
+        setJobSelection(previous => checked ? [...previous, slug] : previous.filter(value => value !== slug));
+      }} />)}
+    </fieldset>
     <fieldset disabled={busy}>
       <legend>{t('plugins.builderProfiles')}</legend>
       <p>{t('plugins.builderProfileFields')}</p>
@@ -133,7 +149,7 @@ export default function PluginBuilder({ formRef }: { formRef?: Ref<HTMLFormEleme
       <p>{preview.name}</p><p>SHA-256 · {preview.digest}</p>
       <ul>{preview.files.map(file => <li key={file}><details><summary>{file}</summary><pre>{preview.contents[file]}</pre></details></li>)}</ul>
     </section>}
-    <Button type="submit" disabled={busy || (Object.keys(selected).length === 0 && skillSelection.length === 0 && profileSelection.length === 0)}>{t(preview ? 'plugins.builderSave' : 'plugins.builderReview')}</Button>
+    <Button type="submit" disabled={busy || (Object.keys(selected).length === 0 && skillSelection.length === 0 && profileSelection.length === 0 && jobSelection.length === 0)}>{t(preview ? 'plugins.builderSave' : 'plugins.builderReview')}</Button>
     {status && <p>{t(status, {name: failedResource})}</p>}
   </form>;
 }

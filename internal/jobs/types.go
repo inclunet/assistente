@@ -66,6 +66,7 @@ const (
 
 // Job representa uma unidade atomica de automacao: 1 job = 1 tool call.
 type Job struct {
+	RequiredInputs       []string       `yaml:"-" json:"required_inputs,omitempty"`
 	PluginInstallationID string         `yaml:"-" json:"plugin_installation_id,omitempty"`
 	PluginDigest         string         `yaml:"-" json:"-"`
 	ToolOrigin           string         `yaml:"-" json:"-"`

@@ -12,10 +12,10 @@ import (
 func TestPortableJobPreviewListsRequestedToolAndTriggers(t *testing.T) {
 	const key = "reminder"
 	const file = nativeExtension + "/jobs/reminder.json"
-	const valid = `{"name":"Reminder","tool":"notify","inputs":{"text":"Review"},"triggers":[{"type":"manual"},{"type":"interval","every":"2h"},{"type":"cron","expression":"TZ=UTC 0 9 * * *"}]}`
+	const valid = `{"maxRunsPerHour":4,"name":"Reminder","tool":"notify","inputs":{"text":"Review"},"triggers":[{"type":"manual"},{"type":"interval","every":"2h"},{"type":"cron","expression":"TZ=UTC 0 9 * * *"}]}`
 	snap := &pluginpackage.LocalSnapshot{Manifest: pluginpackage.Manifest{Extensions: map[string]json.RawMessage{nativeExtension: json.RawMessage(`{"version":1,"jobs":["reminder"]}`)}}, Files: map[string][]byte{file: []byte(valid)}}
 	cs := DiscoverComponents(snap)
-	if len(cs) != 1 || cs[0].Name != "Reminder" || cs[0].Tool != "notify" || cs[0].Reason != "" || !slices.Equal(cs[0].JobTriggers, []string{"manual", "interval", "cron"}) {
+	if len(cs) != 1 || cs[0].Name != "Reminder" || cs[0].Tool != "notify" || cs[0].Reason != "" || cs[0].JobMaxRunsPerHour != 4 || !slices.Equal(cs[0].JobTriggers, []jobs.PortableTrigger{{Type: jobs.TriggerManual}, {Type: jobs.TriggerInterval, Every: "2h"}, {Type: jobs.TriggerCron, Expression: "TZ=UTC 0 9 * * *"}}) {
 		t.Fatal(cs)
 	}
 	job, err := jobs.ReadPortableJob(key, []byte(valid))

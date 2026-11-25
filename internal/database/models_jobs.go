@@ -46,6 +46,7 @@ type JobPipeline struct {
 
 // Job armazena a definição persistente de uma automação.
 type Job struct {
+	PluginRequiredInputs string `json:"-" gorm:"type:text"`
 	PluginInstallationID string `json:"-" gorm:"index"`
 	PluginRefreshPending bool   `json:"-" gorm:"not null;default:false"`
 	PluginDigest         string `json:"-"`
