@@ -1,5 +1,5 @@
 import { ReadFocusContext } from './commandContextProviders';
-import { getModalRegistrySnapshot, getModalSnapshotGeneration } from './modalRegistry';
+import { getModalRegistrySnapshot, getModalSnapshotGeneration, subscribeModalRegistry } from './modalRegistry';
 import type { CommandContextualBackendPort } from './commandContextualBackendExecution';
 import type { UICommandStatus } from './commandUIExecution';
 
@@ -38,7 +38,7 @@ export interface PreparedChatMessagingTarget {
   failed?(reason: ChatMessagingFailureReason): void;
   readonly executionKind?: 'ui' | 'backend';
   prepareAdmission?(ticket: string): Promise<void>;
-  finishAdmission?(): void;
+  finishAdmission?(): void | Promise<void>;
   settled?(status: UICommandStatus): void;
   waitForAdmission?(): Promise<void>;
   registerAdmission?(): ChatMessagingAdmissionRegistration | undefined;
@@ -106,14 +106,20 @@ export function captureChatMessagingTarget(
   let invalid = false;
   let executed = false;
   let unsubscribe: (() => void) | undefined;
+  let cancelAdmissionWait: (() => void) | undefined;
+  let decisionIdentity: string | undefined;
   const isCurrent = () => {
     const modals = getModalRegistrySnapshot();
     // Only deletion owns an interactive backend decision. During that admission,
     // the original chat may be inert; its immutable message/context lease remains
     // live. No other command can ignore a modal-generation change.
+    const identity = JSON.stringify([modals.topID, modals.dialogCommandScope?.dialogId, modals.dialogCommandScope?.generation]);
+    if (decisionPending && modals.ids.length === initialModals.length + 1 && modals.dialogCommandScope?.kind === 'decision') {
+      decisionIdentity ??= identity;
+    }
     const decisionStack = decisionPending && initialModals.every((id, index) => modals.ids[index] === id) &&
       (modals.ids.length === initialModals.length ||
-        modals.ids.length === initialModals.length + 1 && modals.dialogCommandScope?.kind === 'decision');
+        modals.ids.length === initialModals.length + 1 && modals.dialogCommandScope?.kind === 'decision' && decisionIdentity === identity);
     const valid = !disposed && !invalid && surfaces.has(source) && visible(source.root, decisionPending) &&
       (decisionStack || getModalSnapshotGeneration() === modalGeneration) &&
       readPathname() === pathname && source.isCurrent() && prepared.isCurrent() &&
@@ -132,14 +138,38 @@ export function captureChatMessagingTarget(
       await prepared.prepareAdmission?.(ticket);
       if (!isCurrent()) throw new ChatMessagingStaleError();
     },
-    finishAdmission() {
+    async finishAdmission() {
       if (decisionPending) {
+        // O aceite do backend pode chegar antes de React desmontar o diálogo.
+        // Observar o lifecycle evita cancelar uma exclusão aceita por lentidão
+        // de render. O limite só protege contra um host que nunca fecha.
+        await new Promise<void>((resolve, reject) => {
+          let offModal = () => {};
+          let offSource = () => {};
+          let settled = false;
+          const finish = (error?: Error) => {
+            if (settled) return;
+            settled = true;
+            clearTimeout(timeout);
+            offModal(); offSource(); cancelAdmissionWait = undefined;
+            if (error) reject(error); else resolve();
+          };
+          const check = () => {
+            if (!isCurrent()) { finish(new ChatMessagingStaleError()); return; }
+            if (getModalRegistrySnapshot().ids.length === initialModals.length) finish();
+          };
+          const timeout = setTimeout(() => finish(new Error('chat-delete-decision-close-timeout')), 30_000);
+          cancelAdmissionWait = () => finish(new ChatMessagingStaleError());
+          offModal = subscribeModalRegistry(check);
+          offSource = source.subscribe(check);
+          check();
+        });
         const ids = getModalRegistrySnapshot().ids;
         if (ids.length !== initialModals.length || !ids.every((id, index) => id === initialModals[index])) invalid = true;
         else modalGeneration = getModalSnapshotGeneration();
         decisionPending = false;
       }
-      prepared.finishAdmission?.();
+      await prepared.finishAdmission?.();
     },
     waitForAdmission: () => prepared.waitForAdmission?.() ?? Promise.resolve(),
     registerAdmission: () => prepared.registerAdmission?.(),
@@ -155,7 +185,7 @@ export function captureChatMessagingTarget(
     },
     dispose() {
       if (disposed) return;
-      disposed = true; unsubscribe?.(); prepared.dispose(); leases.get(source)?.delete(target);
+      disposed = true; cancelAdmissionWait?.(); unsubscribe?.(); prepared.dispose(); leases.get(source)?.delete(target);
     },
   };
   leases.get(source)?.add(target);
@@ -244,13 +274,7 @@ async function executeCaptured(port: CommandContextualBackendPort, target: ChatM
     const taken = await port.takeUICommand(ticket);
     handoffId = taken.handoffId;
     if (!handoffId || taken.ticket !== ticket || taken.invocationId !== reservation.invocationId || taken.commandId !== target.commandId) return 'cancelled';
-    if (target.commandId === 'chat.message.delete') {
-      // Take can resolve before React unmounts the accepted DecisionDialog.
-      for (let i = 0; i < 10 && target.isCurrent() && !target.canCommit(); i++) {
-        await new Promise(resolve => window.setTimeout(resolve, 20));
-      }
-    }
-    target.finishAdmission?.();
+    await target.finishAdmission?.();
     if (!target.canCommit()) return 'cancelled';
     submitted = true;
     if (target.commandId === 'chat.response.cancel') await port.commitBackendCommand(ticket, handoffId);
