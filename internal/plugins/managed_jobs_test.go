@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"assistente/internal/commandsecurity"
@@ -12,6 +13,7 @@ import (
 	"assistente/internal/jobs"
 	"assistente/internal/pluginpackage"
 	"assistente/internal/sqlite"
+	"github.com/google/uuid"
 	"gorm.io/gorm"
 )
 
@@ -26,7 +28,7 @@ func managedJobTestDB(t *testing.T) *gorm.DB {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = conn.Close() })
-	if err = db.AutoMigrate(&database.PluginInstallation{}, &database.PluginRevision{}, &database.PluginProfileActivation{}, &database.PluginSkillActivation{}, &database.PluginMCPBinding{}, &database.User{}, &database.MCPServer{}, &database.ToolCatalog{}, &database.Job{}, &database.JobPipeline{}, &database.JobTrigger{}, &database.Tag{}, &database.TagAssignment{}, &database.JobProfileGrant{}); err != nil {
+	if err = db.AutoMigrate(&database.PluginInstallation{}, &database.PluginRevision{}, &database.PluginProfileActivation{}, &database.PluginSkillActivation{}, &database.PluginMCPBinding{}, &database.User{}, &database.MCPServer{}, &database.ToolCatalog{}, &database.Job{}, &database.JobPipeline{}, &database.JobTrigger{}, &database.Tag{}, &database.TagAssignment{}, &database.PluginJobCopyReceipt{}, &database.JobProfileGrant{}); err != nil {
 		t.Fatal(err)
 	}
 	if err = db.Create(&database.ToolCatalog{Name: "notify", Origin: "builtin", AvailabilityStatus: "available"}).Error; err != nil {
@@ -114,5 +116,99 @@ func TestManagedJobRevisionAndRecovery(t *testing.T) {
 	}
 	if err = store.SyncPendingJobs(owner, admit); err != nil || refreshes != before+1 {
 		t.Fatalf("reparo duplicado: %d, %v", refreshes, err)
+	}
+}
+
+func TestCopyManagedJobAfterRevocation(t *testing.T) {
+	db := managedJobTestDB(t)
+	owner := database.WithUserID(t.Context(), "ana")
+	other := database.WithUserID(t.Context(), "bob")
+	source := &jobs.Job{RequiredInputs: []string{"options"}, ID: "lembrete", Name: "Lembrete", Tool: "notify",
+		Inputs: map[string]any{"text": "edição local"}, Triggers: []jobs.Trigger{{Type: jobs.TriggerManual}}}
+	if err := jobs.CreateDisabledPluginJobTx(owner, db, source, "origem", "revisao", "jobs/lembrete"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := revokeJobs(db, "ana", "origem"); err != nil {
+		t.Fatal(err)
+	}
+	unavailable := true
+	store := NewInventory(db).WithJobRefresh(func(context.Context, string, commandsecurity.Admission) error {
+		if unavailable {
+			return errors.New("offline")
+		}
+		return nil
+	})
+	admit := func(_ *gorm.DB, f func() error) error { return f() }
+	const request = "ed2712e4-28c5-4c7b-90b9-8c2705aa9e02"
+	copyJob := func(ctx context.Context) (string, error) {
+		return store.CopyJob(ctx, "origem", source.ID, request, "Cópia", admit)
+	}
+	if _, err := copyJob(other); err == nil {
+		t.Fatal("cópia entre contas")
+	}
+	copySlug, err := copyJob(owner)
+	if !errors.Is(err, ErrJobSyncPending) {
+		t.Fatalf("falha após commit: %v", err)
+	}
+	repo := jobs.NewDBRepository(db)
+	copied, err := repo.GetJob(owner, copySlug)
+	if err != nil {
+		t.Fatal(err)
+	}
+	original, err := repo.GetJob(owner, source.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	id, err := uuid.Parse(copied.DatabaseID)
+	if err != nil || id.Version() != 7 {
+		t.Fatalf("UUID da cópia: %s, %v", copied.DatabaseID, err)
+	}
+	if copied.Enabled || copied.DatabaseID == original.DatabaseID || copied.PluginInstallationID != "" ||
+		copied.Inputs["text"] != "edição local" || len(copied.Triggers) != 1 || copied.Name != "Cópia" {
+		t.Fatalf("cópia inesperada: %+v", copied)
+	}
+	if len(copied.RequiredInputs) != 1 || copied.RequiredInputs[0] != "options" {
+		t.Fatalf("requisitos da cópia: %v", copied.RequiredInputs)
+	}
+	copied.Enabled = true
+	if err := repo.SaveJob(owner, copied); err == nil || !strings.Contains(err.Error(), "PLUGIN_JOB_INPUT_REQUIRED") {
+		t.Fatalf("habilitação sem options: %v", err)
+	}
+	copied.Inputs["options"] = false
+	copied.Name = "Nome editado"
+	if err := repo.SaveJob(owner, copied); err != nil {
+		t.Fatal(err)
+	}
+	unavailable = false
+	repeated, err := copyJob(owner)
+	if err != nil || repeated != copySlug {
+		t.Fatalf("repetição: %s, %v", repeated, err)
+	}
+	copied, err = repo.GetJob(owner, copySlug)
+	if err != nil || copied.Name != "Nome editado" {
+		t.Fatalf("edição perdida: %+v, %v", copied, err)
+	}
+	if err := db.Create(&database.ToolCatalog{Name: "review", Origin: "builtin", AvailabilityStatus: "available"}).Error; err != nil {
+		t.Fatal(err)
+	}
+	copied.Tool, copied.Inputs = "review", nil
+	if err := repo.SaveJob(owner, copied); err != nil {
+		t.Fatalf("troca de ferramenta local: %v", err)
+	}
+	copied, err = repo.GetJob(owner, copySlug)
+	if err != nil || len(copied.RequiredInputs) != 0 {
+		t.Fatalf("requisitos da ferramenta anterior: %+v %v", copied, err)
+	}
+	if _, err := store.CopyJob(owner, "outra", source.ID, request, "Cópia", admit); err == nil {
+		t.Fatal("origem incorreta aceita")
+	}
+	if err := db.Where("id=? AND user_id=?", copied.DatabaseID, "ana").Delete(&database.Job{}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if again, err := copyJob(owner); err != nil || again != copySlug {
+		t.Fatalf("pedido após exclusão: %s, %v", again, err)
+	}
+	if _, err := repo.GetJob(owner, copySlug); !errors.Is(err, gorm.ErrRecordNotFound) {
+		t.Fatalf("a cópia excluída reapareceu: %v", err)
 	}
 }

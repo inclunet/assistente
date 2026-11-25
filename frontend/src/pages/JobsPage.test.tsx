@@ -83,6 +83,9 @@ vi.mock('../store/uiStore', () => ({
     selector({ addToast: addToastMock }),
 }));
 
+const copyJob = vi.hoisted(() => vi.fn());
+vi.mock('@wailsjs/go/wailsapi/Plugins', () => ({ CopyJob: copyJob }));
+
 vi.mock('@wailsjs/go/wailsapi/Jobs', () => ({
   ReplayRun: vi.fn(),
   RunJob: vi.fn(),
@@ -210,6 +213,37 @@ describe('JobsPage', () => {
     fireEvent.click(origin);
     expect(useNavigationStore.getState().pendingEdit).toMatchObject({ resource: 'plugins', id: 'installed' });
     useNavigationStore.getState().clearPendingEdit();
+  });
+
+  it('pede confirmação e repete a cópia salva com a mesma identidade após falha', async () => {
+    const slug = 'plugin-editado';
+    storeState.fetchJobDetail.mockResolvedValue({ id: slug, name: 'Job', plugin_installation_id: 'origem' });
+    let complete!: (id: string) => void;
+    copyJob.mockRejectedValueOnce(new Error('offline')).mockReturnValueOnce(new Promise<string>(r => { complete = r; }));
+    useNavigationStore.getState().requestResourceEdit('jobs', slug);
+    const page = render(<MemoryRouter><JobsPage /></MemoryRouter>);
+    let button = await screen.findByRole('button', { name: 'plugins.copyJob' });
+    confirmMock.mockResolvedValueOnce(false);
+    await userEvent.click(button);
+    expect(copyJob).not.toHaveBeenCalled();
+    await userEvent.click(button);
+    await waitFor(() => expect(addToastMock).toHaveBeenCalledWith('plugins.copyJobFailed', 'error'));
+    page.unmount();
+    useNavigationStore.getState().requestResourceEdit('jobs', slug);
+    render(<MemoryRouter><JobsPage /></MemoryRouter>);
+    button = await screen.findByRole('button', { name: 'plugins.copyJob' });
+    await userEvent.click(button);
+    await waitFor(() => expect(button).toHaveAttribute('aria-busy', 'true'));
+    expect(button).toBeEnabled();
+    button.focus();
+    expect(button).toHaveFocus();
+    await userEvent.click(button);
+    expect(copyJob).toHaveBeenCalledTimes(2);
+    await act(async () => { complete('copia'); });
+    await waitFor(() => expect(announceMock).toHaveBeenCalledWith('plugins.copyJobDone'));
+    expect(copyJob.mock.calls[1]).toEqual(copyJob.mock.calls[0]);
+    expect(copyJob.mock.calls[0]).toEqual(['origem', slug, expect.any(String), 'plugins.copyJobName']);
+    expect(screen.getByRole('button', { name: 'fechar-builder' })).toBeInTheDocument();
   });
 
   it('não apresenta violações básicas de acessibilidade', async () => {

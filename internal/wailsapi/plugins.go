@@ -372,6 +372,17 @@ func (api *Plugins) CreateListFromTemplate(id, digest, key, request string) (str
 	return listID, err
 }
 
+// CopyJob creates an independent, disabled job from the saved managed definition.
+func (api *Plugins) CopyJob(installationID, sourceSlug, request, name string) (string, error) {
+	var slug string
+	err := api.withRepositorySession(func(ctx context.Context, inventory *plugins.Inventory, _ func() (string, error), admit commandsecurity.Admission) error {
+		var err error
+		slug, err = inventory.CopyJob(ctx, installationID, sourceSlug, request, name, admit)
+		return err
+	})
+	return slug, err
+}
+
 func (api *Plugins) PrepareJob(id, digest, key string) (string, error) {
 	var slug string
 	err := api.withRepositorySession(func(ctx context.Context, inventory *plugins.Inventory, _ func() (string, error), admit commandsecurity.Admission) error {
