@@ -61,10 +61,10 @@ describe('ProfilePicker', () => {
     render(<ProfilePicker includePluginProfiles value="" onChange={change} />);
     fireEvent.click(await screen.findByRole('button', {name:'Selecionar-local'}));
     expect(change).toHaveBeenCalledWith('local');
-    expect(screen.getByText(/Perfis de plugins indisponíveis/)).toBeVisible();
+    expect(screen.getByText('profiles.pluginCatalogUnavailable')).toBeVisible();
     fireEvent.click(screen.getByRole('button', {name:'Abrir'}));
     expect(await screen.findByRole('button', {name:'Selecionar-installed'})).toBeVisible();
-    expect(screen.queryByText(/Perfis de plugins indisponíveis/)).toBeNull();
+    expect(screen.queryByText('profiles.pluginCatalogUnavailable')).toBeNull();
   });
 
   it('dispara onChange no modo controlado', async () => {
