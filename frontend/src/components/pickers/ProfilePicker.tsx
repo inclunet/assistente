@@ -2,6 +2,7 @@ import { logger } from '../../utils/logger';
 import { useState, useEffect, forwardRef, useImperativeHandle, useCallback, useRef, type ReactNode } from 'react';
 import { MessageOutlined, WarningOutlined } from '@ant-design/icons';
 import { ComboboxItem } from './Combobox';
+import { Button } from '../ui/Button';
 import { BasePicker } from './BasePicker';
 import { GetConversationProfiles, GetProfiles, GetActiveProfileSlug, SetActiveProfile } from '@wailsjs/go/wailsapi/Profiles';
 import { EventsOn } from '@wailsjs/runtime/runtime';
@@ -194,6 +195,7 @@ export const ProfilePicker = forwardRef<ProfilePickerRef, ProfilePickerProps>(
       <div className="voice-picker voice-picker--error">
         <span className="voice-picker__icon"><WarningOutlined aria-hidden="true" /></span>
         <span className="voice-picker__error">{error}</span>
+        <Button onClick={() => void loadProfiles()}>{t('common.retry', 'Tentar novamente')}</Button>
       </div>
     );
 

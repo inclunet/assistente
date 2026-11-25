@@ -24,11 +24,13 @@ vi.mock('./BasePicker', () => ({
     items: Array<{ value: string }>;
     onOpen?: () => void;
     onSelect: (value: string) => void;
+    error?: string;
+    errorState?: React.ReactNode;
     emptyState?: React.ReactNode;
     loading?: boolean;
     loadingState?: React.ReactNode;
     label?: string;
-  }) => (
+  }) => props.error ? props.errorState : (
     <div>
       {props.onOpen && <button onClick={props.onOpen}>Abrir</button>}
       <span data-testid="picker-label">{props.label}</span>
@@ -52,6 +54,17 @@ describe('ProfilePicker', () => {
     fireEvent.click(await screen.findByRole('button', {name: 'Selecionar-plugin--12345678-1234-4234-8234-123456789abc'}));
     expect(change).toHaveBeenCalledWith('plugin--12345678-1234-4234-8234-123456789abc');
     expect(setActiveSpy).not.toHaveBeenCalled();
+  });
+
+  it('permite tentar novamente após falha de ambas as fontes ao reabrir', async () => {
+    const installed = [{name:'Writer', slug:'installed'}];
+    getConversationProfilesSpy.mockResolvedValueOnce(installed).mockRejectedValueOnce(new Error('offline')).mockResolvedValueOnce(installed);
+    getProfilesSpy.mockRejectedValueOnce(new Error('offline'));
+    render(<ProfilePicker includePluginProfiles value="" />);
+    await screen.findByRole('button', {name:'Selecionar-installed'});
+    fireEvent.click(screen.getByRole('button', {name:'Abrir'}));
+    fireEvent.click(await screen.findByRole('button', {name:'Tentar novamente'}));
+    expect(await screen.findByRole('button', {name:'Selecionar-installed'})).toBeVisible();
   });
 
   it('mantém os perfis locais e recupera a lista de plugins ao reabrir', async () => {
