@@ -45,7 +45,7 @@ func TestManagedJobRevisionAndRecovery(t *testing.T) {
 	if err = os.MkdirAll(dir, 0700); err != nil {
 		t.Fatal(err)
 	}
-	for path, body := range map[string]string{filepath.Join(root, "plugin.json"): `{"$schema":"` + pluginpackage.ManifestSchema + `","name":"reminders","extensions":{"br.com.inclunet.assistente":{"version":2,"jobs":["review"]}}}`, filepath.Join(dir, "review.yaml"): "id: review\nname: Review\ntool: notify\ntriggers: [{type: manual}]\n"} {
+	for path, body := range map[string]string{filepath.Join(root, "plugin.json"): `{"$schema":"` + pluginpackage.ManifestSchema + `","name":"reminders","extensions":{"br.com.inclunet.assistente":{"version":1,"jobs":["review"]}}}`, filepath.Join(dir, "review.yaml"): "id: review\nname: Review\ntool: notify\ntriggers: [{type: manual}]\n"} {
 		if err = os.WriteFile(path, []byte(body), 0600); err != nil {
 			t.Fatal(err)
 		}

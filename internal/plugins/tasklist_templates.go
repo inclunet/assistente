@@ -18,7 +18,7 @@ import (
 	"gorm.io/gorm"
 )
 
-const nativeVersion = 2
+const nativeVersion = 1
 
 const nativeExtension = "br.com.inclunet.assistente"
 
