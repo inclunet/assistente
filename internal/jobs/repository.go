@@ -532,14 +532,14 @@ func CreateDisabledPluginJobTx(ctx context.Context, tx *gorm.DB, job *Job, insta
 	// A preparação usa somente pipelines já disponíveis na conta de destino.
 	if pipeline := normalizeSlug(job.Pipeline); job.Pipeline != "" {
 		if pipeline != job.Pipeline {
-			return fmt.Errorf("%w: pipeline %q", ErrInvalidJobDefinition, job.Pipeline)
+			return fmt.Errorf("%w: PLUGIN_JOB_PIPELINE_UNAVAILABLE: %s", ErrInvalidJobDefinition, job.Pipeline)
 		}
 		var count int64
 		if err := tx.Model(&database.JobPipeline{}).Where("user_id = ? AND slug = ?", owner, pipeline).Count(&count).Error; err != nil {
 			return err
 		}
 		if count != 1 {
-			return fmt.Errorf("%w: pipeline %q", ErrInvalidJobDefinition, pipeline)
+			return fmt.Errorf("%w: PLUGIN_JOB_PIPELINE_UNAVAILABLE: %s", ErrInvalidJobDefinition, pipeline)
 		}
 	}
 	job.PluginInstallationID = installationID
@@ -2244,8 +2244,11 @@ func (r *DBRepository) toolCatalogIDForNameTx(ctx context.Context, tx *gorm.DB, 
 		if err := query.Limit(2).Find(&candidates).Error; err != nil {
 			return "", err
 		}
-		if len(candidates) != 1 {
-			return "", fmt.Errorf("%w: tool %q", ErrInvalidJobDefinition, name)
+		if len(candidates) == 0 {
+			return "", fmt.Errorf("%w: PLUGIN_JOB_TOOL_UNAVAILABLE: %s", ErrInvalidJobDefinition, name)
+		}
+		if len(candidates) > 1 {
+			return "", fmt.Errorf("%w: PLUGIN_JOB_TOOL_AMBIGUOUS: %s", ErrInvalidJobDefinition, name)
 		}
 		return candidates[0].ID, nil
 	}

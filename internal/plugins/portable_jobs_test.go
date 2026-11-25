@@ -32,6 +32,10 @@ func TestPortableJobPreviewListsRequestedToolAndTriggers(t *testing.T) {
 	if err != nil || job.Enabled || job.LastRun != nil || job.Inputs["text"] != "Review" {
 		t.Fatal(job, err)
 	}
+	snap.Files[file] = []byte("id: slug-do-job\ntool: notify\ntriggers: [{type: manual}]")
+	if preview := DiscoverComponents(snap); len(preview) != 1 || preview[0].Name != "slug-do-job" {
+		t.Fatal(preview)
+	}
 	for _, raw := range []string{
 		`{"id":"task","name":"Task","tool":"notify","triggers":[{"type":"cron","expression":"TZ=UTC"}]}`,
 		`{"id":"task","name":"Task","tool":"notify","triggers":[{"type":"cron","expression":"CRON_TZ=UTC"}]}`,
@@ -40,6 +44,7 @@ func TestPortableJobPreviewListsRequestedToolAndTriggers(t *testing.T) {
 		`{"id":"task","name":"Task","tool":"run_command","triggers":[{"type":"interval","every":"oops"}]}`,
 		`{"id":"task","name":"Task","tool":"notify","triggers":[{"type":"cron","expression":"bad"}]}`,
 		`{"id":"task","name":"Task","tool":"notify","triggers":[]}`,
+		`{"id":"task","tool":"notify","max_runs_per_hour":-1,"triggers":[{"type":"manual"}]}`,
 		`{"id":"task","name":"Task","tool":"notify","triggers":[{"type":"manual"}]} {}`,
 		"",
 	} {

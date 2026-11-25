@@ -24,14 +24,7 @@ import './JobBuilder.css';
 
 export type EventMode = 'simple' | 'fanout';
 
-export interface TriggerData {
-  type: string;
-  expression?: string;
-  every?: string;
-  listen?: string;
-  keys?: string;
-  when?: string;
-}
+export type TriggerData = jobs.Trigger;
 
 export interface JobDraft {
   id: string;
@@ -117,14 +110,7 @@ function jobToDraft(job: jobs.Job): JobDraft {
     enabled: job.enabled,
     pipeline: job.pipeline ?? '',
     tags: job.tags ?? [],
-    triggers: (job.triggers ?? [{ type: 'manual' }]).map((t) => ({
-      type: t.type as string,
-      expression: t.expression,
-      every: t.every,
-      listen: t.listen,
-      keys: t.keys,
-      when: t.when,
-    })),
+    triggers: job.triggers?.map(trigger => ({...trigger})) ?? [{type: 'manual'}],
     tool: job.tool,
     inputs: (job.inputs as Record<string, unknown>) ?? {},
     events: {
@@ -464,8 +450,10 @@ export function JobBuilder({ editJob, onClose, onSaved }: JobBuilderProps) {
         plugin_installation_id: editJob?.plugin_installation_id,
         id: finalId,
         tags: draft.tags.filter(Boolean),
-        output: testOutput ? { schema: testOutput } : undefined,
+        dry_run: editJob?.dry_run,
+        output: testOutput ? {...editJob?.output, schema: testOutput} : editJob?.output,
         events: {
+          ...editJob?.events,
           on_success: draft.events.emit_success ? (draft.events.on_success || undefined) : undefined,
           on_failure: draft.events.emit_failure ? (draft.events.on_failure || undefined) : undefined,
           emit_when: draft.events.emit_success
@@ -475,9 +463,7 @@ export function JobBuilder({ editJob, onClose, onSaved }: JobBuilderProps) {
           payload_template: draft.events.emit_success
             ? (draft.events.payload_template || undefined) : undefined,
         },
-        error_policy: draft.error_policy.strategy !== 'stop'
-          ? draft.error_policy
-          : undefined,
+        error_policy: {...editJob?.error_policy, ...draft.error_policy},
         max_runs_per_hour: draft.max_runs_per_hour > 0
           ? draft.max_runs_per_hour
           : undefined,

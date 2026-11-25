@@ -61,6 +61,9 @@ func parseJob(data []byte, packaged bool) (*Job, error) {
 
 // Validate verifica regras de negocio do Job.
 func Validate(job *Job) error {
+	if job.MaxRunsPerHour < 0 {
+		return fmt.Errorf("job validation: max_runs_per_hour must not be negative")
+	}
 	if job.ID == "" {
 		return fmt.Errorf("job validation: 'id' is required")
 	}

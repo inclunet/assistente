@@ -88,7 +88,11 @@ func nativeComponents(snap *pluginpackage.LocalSnapshot) []Component {
 		if err != nil {
 			c.Reason = "invalidJob"
 		} else {
-			c.Name = def.Name
+			if strings.TrimSpace(def.Name) != "" {
+				c.Name = def.Name
+			} else {
+				c.Name = def.ID
+			}
 			c.Tool = def.Tool
 			c.JobMaxRunsPerHour = def.MaxRunsPerHour
 			c.JobTriggers = def.Triggers

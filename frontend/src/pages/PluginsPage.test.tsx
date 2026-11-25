@@ -541,6 +541,18 @@ describe('PluginsPage', () => {
     expect(screen.queryByRole('button', {name:'plugins.activate'})).toBeNull();
   });
 
+  it.each(['PIPELINE_UNAVAILABLE','TOOL_AMBIGUOUS','TOOL_UNAVAILABLE'])('identifica a dependência de preparação %s', async reason => {
+    mocks.list.mockResolvedValue([{id:'one', name:'Demo', digest:'sha'}]);
+    mocks.components.mockResolvedValue([{kind:'job', key:'jobs/watch', name:'Watch', tool:'notify'}]);
+    mocks.prepareJob.mockRejectedValueOnce(new Error('PLUGIN_JOB_' + reason + ': nightly'));
+    const user=userEvent.setup();
+    render(<PluginsPage />);
+    (await screen.findByRole('gridcell', {name:/Demo/})).focus();
+    await user.keyboard('{Enter}');
+    await user.click(await screen.findByRole('button', {name:'plugins.prepareJob'}));
+    expect(await screen.findByText(new RegExp('plugins.jobDependency.' + reason))).toBeVisible();
+  });
+
   it('prepares a disabled job only after a user action in installed details', async () => {
     mocks.list.mockResolvedValue([{id:'one',name:'Demo',digest:'sha'}]);
     mocks.components.mockResolvedValue([{kind:'job', key:'jobs/watch', name:'Watch', tool:'notify'}]);
