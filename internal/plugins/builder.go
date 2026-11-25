@@ -6,14 +6,17 @@ import (
 	"assistente/internal/skills"
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"path"
+	"slices"
 	"sort"
 	"strings"
 
 	"assistente/internal/database"
+	"assistente/internal/jobs"
 	"assistente/internal/pluginpackage"
 	"assistente/internal/portability"
 	"gorm.io/gorm"
@@ -26,6 +29,7 @@ type BuilderTaskList struct {
 }
 
 type BuilderRequest struct {
+	Jobs      []string          `json:"jobs,omitempty"`
 	Profiles  []string          `json:"profiles,omitempty"`
 	Skills    []string          `json:"skills,omitempty"`
 	Name      string            `json:"name"`
@@ -79,11 +83,37 @@ func validBuilderSkill(key string) bool {
 	return portableSkillName.MatchString(key) && len(key) <= 64 && !reservedDevice(key)
 }
 
+// Keep existing portable slugs, even when one is also a generated key.
+func builderJobKeys(slugs []string) map[string]string {
+	keys := make(map[string]string, len(slugs))
+	used := make(map[string]bool, len(slugs))
+	for _, slug := range slugs {
+		if validBuilderSkill(slug) {
+			keys[slug] = slug
+			used[slug] = true
+		}
+	}
+	for _, slug := range slices.Sorted(slices.Values(slugs)) {
+		if _, ok := keys[slug]; ok {
+			continue
+		}
+		digest := sha256.Sum256([]byte(slug))
+		base := fmt.Sprintf("job-%x", digest[:16])
+		key := base
+		for suffix := 2; used[key]; suffix++ {
+			key = fmt.Sprintf("%s-%d", base, suffix)
+		}
+		keys[slug] = key
+		used[key] = true
+	}
+	return keys
+}
+
 func (i *Inventory) BuildPackage(ctx context.Context, request BuilderRequest) ([]byte, *pluginpackage.LocalSnapshot, error) {
 	if _, err := database.RequireUserID(ctx); err != nil {
 		return nil, nil, err
 	}
-	count := len(request.TaskLists) + len(request.Skills) + len(request.Profiles)
+	count := len(request.TaskLists) + len(request.Skills) + len(request.Profiles) + len(request.Jobs)
 	if count == 0 || count > 100 || strings.TrimSpace(request.Name) == "" || reservedDevice(request.Name) {
 		return nil, nil, errors.New("PLUGIN_BUILDER_SELECTION")
 	}
@@ -146,6 +176,32 @@ func (i *Inventory) BuildPackage(ctx context.Context, request BuilderRequest) ([
 		files[file] = raw
 	}
 	err := i.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		jobKeys := builderJobKeys(request.Jobs)
+		for _, slug := range request.Jobs {
+			key := jobKeys[slug]
+			file := path.Join(nativeExtension, "jobs", key+".json")
+			if _, exists := files[file]; exists {
+				return errors.New("PLUGIN_BUILDER_KEY")
+			}
+			job, err := jobs.NewDBRepository(tx).GetJob(ctx, slug)
+			if errors.Is(err, gorm.ErrRecordNotFound) || (err == nil && job.ID != slug) {
+				return errors.New("PLUGIN_BUILDER_JOB_UNAVAILABLE: " + slug)
+			}
+			if err != nil {
+				return err
+			}
+			raw, err := jobs.ExportPortableJob(job)
+			if err != nil {
+				return errors.New("PLUGIN_BUILDER_JOB_UNAVAILABLE: " + slug)
+			}
+			total += len(raw)
+			if total > 31<<20 {
+				return errors.New("PLUGIN_BUILDER_SIZE")
+			}
+			files[file] = raw
+			extension.Jobs = append(extension.Jobs, key)
+		}
+		sort.Strings(extension.Jobs)
 		for _, item := range request.TaskLists {
 			if !portableSkillName.MatchString(item.Key) || len(item.Key) > 64 || reservedDevice(item.Key) {
 				return errors.New("PLUGIN_BUILDER_KEY")
@@ -179,7 +235,7 @@ func (i *Inventory) BuildPackage(ctx context.Context, request BuilderRequest) ([
 	}
 	sort.Strings(extension.TaskLists)
 	manifest := map[string]any{"$schema": pluginpackage.ManifestSchema, "name": request.Name}
-	if len(extension.TaskLists)+len(extension.Profiles) > 0 {
+	if len(extension.TaskLists)+len(extension.Profiles)+len(extension.Jobs) > 0 {
 		manifest["extensions"] = map[string]nativeResources{nativeExtension: extension}
 	}
 	if request.Version != "" {
@@ -221,7 +277,7 @@ func (i *Inventory) BuildPackage(ctx context.Context, request BuilderRequest) ([
 		if (c.Kind == "skill" && c.Reason != "") || c.Kind == "invalidSkill" {
 			return nil, nil, fmt.Errorf("PLUGIN_BUILDER_SKILL_UNAVAILABLE:%s", strings.TrimPrefix(c.Key, "skills/"))
 		}
-		if c.Reason != "" || (c.Kind != "tasklistTemplate" && c.Kind != "skill" && c.Kind != "profile") {
+		if c.Reason != "" || (c.Kind != "tasklistTemplate" && c.Kind != "skill" && c.Kind != "profile" && c.Kind != "job") {
 			return nil, nil, ErrComponentUnavailable
 		}
 	}
@@ -241,4 +297,14 @@ func (i *Inventory) BuilderProfileNames() BuilderResourceCatalog {
 		sort.Strings(catalog.Names)
 	}
 	return catalog
+}
+
+func (i *Inventory) BuilderJobNames(ctx context.Context) ([]string, error) {
+	owner, err := database.RequireUserID(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var names []string
+	err = i.db.WithContext(ctx).Model(&database.Job{}).Where("user_id=?", owner).Order("slug").Pluck("slug", &names).Error
+	return names, err
 }

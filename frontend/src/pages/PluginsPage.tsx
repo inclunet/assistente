@@ -59,7 +59,9 @@ function JobRequirements({component}: {component: plugins.Component}) {
   if (!component.tool) return null;
   return <p>
     {t('plugins.jobTool', {name: component.tool})}
-    {component.jobTriggers?.map((trigger, index) => <span key={index}> · {t(`plugins.jobTrigger.${trigger}`)}</span>)}
+      {Boolean(component.jobRequiredInputs?.length) && <span> · {t('plugins.jobInputs', {fields:component.jobRequiredInputs!.join(', ')})}</span>}
+    <span> · {component.jobMaxRunsPerHour ? t('plugins.jobRate', {limit: component.jobMaxRunsPerHour}) : t('plugins.jobDefaultRate')}</span>
+    {component.jobTriggers?.map((trigger, index) => <span key={index}> · {t(`plugins.jobTrigger.${trigger.type}`)} {trigger.every || trigger.expression}</span>)}
   </p>;
 }
 

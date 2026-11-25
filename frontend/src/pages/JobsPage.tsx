@@ -172,7 +172,8 @@ export default function JobsPage() {
         addToast(t('jobs.toggleSuccess'), 'success', undefined, undefined, { suppressAnnounce: true });
         announce(t('jobs.toggleSuccess'));
       } catch (error) {
-        const message = isJobProfileAuthorizationError(error)
+        const required = /PLUGIN_JOB_INPUT_REQUIRED: ([a-zA-Z0-9_-]+)/.exec(String(error));
+        const message = required ? t('plugins.missingJobInput', {name: required[1]}) : isJobProfileAuthorizationError(error)
           ? t('jobs.builder.enableRequiresAuthorizedProfile')
           : t('common.error', 'Error');
         addToast(message, 'error', undefined, undefined, { suppressAnnounce: true });
