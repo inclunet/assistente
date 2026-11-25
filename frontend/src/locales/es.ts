@@ -176,7 +176,7 @@ notSaved: 'La decisión vale solo para esta operación: no se pudo recordar. Ser
       invalidLocalJson: 'Corrige el JSON antes de guardar.',
       localInputJson: 'Introduce un valor JSON. Usa comillas dobles para texto.',
       missingJobInput: 'Configura {{name}} antes de habilitar el job.',
-      builderJobError: 'El job {{name}} usa opciones que el paquete aún no puede conservar. Comprueba la pipeline, las condiciones de los disparadores, la simulación, los eventos, las asignaciones y la política de errores.',
+      builderJobError: 'El job {{name}} no está disponible para exportar. Comprueba que aún exista y que sus opciones sean compatibles. Comprueba la pipeline, las condiciones de los disparadores, la simulación, los eventos, las asignaciones y la política de errores.',
       builderJobInputs: 'El paquete incluye la herramienta, los disparadores compatibles y los nombres de las entradas. Completa sus valores en la cuenta de destino antes de habilitar el job.',
       jobRate: 'Máximo de ejecuciones por hora: {{limit}}',
       jobDefaultRate: 'Límite por hora predeterminado del destino',

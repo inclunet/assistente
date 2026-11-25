@@ -177,7 +177,7 @@ notSaved: 'A decisão vale somente para esta operação: não foi possível lemb
       invalidLocalJson: 'Corrija o JSON antes de salvar.',
       localInputJson: 'Informe um valor JSON. Use aspas duplas para texto.',
       missingJobInput: 'Preencha {{name}} antes de habilitar o job.',
-      builderJobError: 'O job {{name}} usa opções que o pacote ainda não consegue preservar. Confira a pipeline, as condições dos acionadores, a simulação, os eventos, os mapeamentos e a política de falhas.',
+      builderJobError: 'O job {{name}} está indisponível para exportação. Confira se ele ainda existe e se suas opções são compatíveis. Confira a pipeline, as condições dos acionadores, a simulação, os eventos, os mapeamentos e a política de falhas.',
       builderJobInputs: 'O pacote inclui a ferramenta, os acionadores compatíveis e os nomes das entradas. Preencha os valores na conta de destino antes de habilitar o job.',
       jobRate: 'Limite de execuções por hora: {{limit}}',
       jobDefaultRate: 'Limite por hora padrão do destino',

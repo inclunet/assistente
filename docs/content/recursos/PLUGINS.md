@@ -79,7 +79,7 @@ A prévia e os detalhes identificam os perfis de conversa fornecidos pelo plugin
 
 Nos detalhes do plugin instalado, confira a ferramenta e os acionadores pedidos pelo job. Escolha **Preparar job** e abra o link para o editor de Jobs. O job começa desativado. Revise as entradas e os horários no editor antes de habilitá-lo. Preparar a mesma definição novamente mantém o mesmo job da conta. O editor oferece um link de volta à instalação de origem. Testar a ferramenta no editor ou repetir uma execução pelo histórico exige que o job e a revisão continuem ativos.
 
-A prévia informa a frequência de cada acionador e o limite de execuções por hora, inclusive quando vale o padrão do destino. Ao montar o pacote, o builder conserva os identificadores portáveis de jobs e gera uma chave estável para nomes incompatíveis com arquivos do pacote.
+A prévia informa a frequência de cada acionador e o limite de execuções por hora, inclusive quando vale o padrão do destino. Ao montar o pacote, o builder conserva os identificadores portáveis de jobs e gera uma chave para cada nome incompatível com arquivos do pacote. A chave se mantém ao repetir a mesma seleção. Se outro job selecionado passar a usar essa chave, confira a nova identificação na prévia.
 
 Desativar, atualizar ou remover o plugin interrompe novos disparos da revisão anterior. O Assistente conserva o registro do job e seu histórico. Reativar o plugin exige preparar a definição outra vez. Se a alteração for salva e o agendador ficar indisponível, use a ação de sincronização na página Plugins para repetir a atualização da sessão.
 
