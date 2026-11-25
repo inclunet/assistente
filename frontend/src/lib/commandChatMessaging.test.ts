@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createStore } from 'zustand/vanilla';
 import { captureChatMessagingTarget, registerChatMessagingSurface, executeChatMessaging, type ChatMessagingCommandID } from './commandChatMessaging';
-import { getModalRegistrySnapshot, registerOpenModal, unregisterOpenModal } from './modalRegistry';
+import { getModalRegistrySnapshot, registerOpenModal, unregisterOpenModal, updateOpenModalScope } from './modalRegistry';
 
 const cleanups: Array<() => void> = [];
 function setup(id = 'a') {
@@ -27,8 +27,42 @@ function setup(id = 'a') {
   return { root, state, capture, execute, disposed, off };
 }
 beforeEach(() => { vi.spyOn(document, 'hasFocus').mockReturnValue(true); });
-afterEach(() => { cleanups.splice(0).reverse().forEach(off => off()); vi.restoreAllMocks(); });
+afterEach(() => { cleanups.splice(0).reverse().forEach(off => off()); vi.useRealTimers(); vi.restoreAllMocks(); });
 describe('chat messaging registry real', () => {
+  it.each(['closed', 'replaced', 'disposed', 'timeout'] as const)('exclusão aguarda fechamento da decisão sem aceitar contexto inválido: %s', async outcome => {
+    vi.useFakeTimers();
+    const root = document.createElement('div'); document.body.append(root);
+    const overlay = document.createElement('div'); overlay.className = 'modal-overlay';
+    const execute = vi.fn(async () => {});
+    const off = registerChatMessagingSurface({ root, instanceId: 'delayed-delete', isCurrent: () => true, canStart: () => true,
+      subscribe: () => () => {}, prepare: () => ({
+        isCurrent: () => true, canCommit: () => getModalRegistrySnapshot().ids.length === 0,
+        prepareAdmission: async () => {
+          document.body.append(overlay);
+          registerOpenModal('delayed-dialog', { dialogId: 'decision', kind: 'decision', generation: '1', allowedCommandIds: ['decision.respond'], allowedTriggerSpecs: ['keyboard.local:Ctrl+Shift+R'] });
+          root.setAttribute('inert', '');
+        }, execute, dispose: () => {},
+      }),
+    });
+    cleanups.push(() => root.remove(), off, () => { unregisterOpenModal('delayed-dialog'); overlay.remove(); });
+    const target = captureChatMessagingTarget(() => '/', 'chat.message.delete')!;
+    const reservation = { commandId: target.commandId, ticket: 't', invocationId: 'i' };
+    const port = { beginUICommand: vi.fn(async () => reservation),
+      takeUICommand: vi.fn(async () => ({ ...reservation, handoffId: 'h' })),
+      completeUICommand: vi.fn(async () => {}), cancelUICommand: vi.fn(async () => {}),
+      getUICommandResult: vi.fn(async () => ({ invocationId: 'i', status: 'succeeded' as const })), commitBackendCommand: vi.fn(async () => {}),
+    };
+    const running = executeChatMessaging(port, target);
+    await vi.advanceTimersByTimeAsync(300);
+    expect(execute).not.toHaveBeenCalled();
+    if (outcome === 'replaced') updateOpenModalScope('delayed-dialog', { dialogId: 'another-decision', kind: 'decision', generation: '2', allowedCommandIds: ['decision.respond'], allowedTriggerSpecs: ['keyboard.local:Ctrl+Shift+R'] });
+    if (outcome === 'disposed') target.dispose();
+    if (outcome === 'timeout') await vi.advanceTimersByTimeAsync(30_000);
+    unregisterOpenModal('delayed-dialog'); overlay.remove(); root.removeAttribute('inert');
+    expect(await running).toBe(outcome === 'closed' ? 'succeeded' : outcome === 'timeout' ? 'failed' : 'cancelled');
+    expect(execute).toHaveBeenCalledTimes(outcome === 'closed' ? 1 : 0);
+    expect(vi.getTimerCount()).toBe(0);
+  });
   it.each([true, false])('exclusão tolera apenas decisão backend durante admissão: decision=%s', async decision => {
     const root = document.createElement('div'); document.body.append(root);
     const overlay = document.createElement('div'); overlay.className = 'modal-overlay';

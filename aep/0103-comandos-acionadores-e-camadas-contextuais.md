@@ -2,6 +2,20 @@
 
 Status: In Progress — evidências e aceites pendentes conforme os registros abaixo
 
+**Exclusão confirmada no histórico (25/11/2026):** Delete e menu de contexto
+continuam no mesmo comando `chat.message.delete`. Após o aceite do backend,
+a apresentação aguarda a notificação de fechamento do diálogo proprietário,
+em vez de cancelar a ação após dez sondagens de 20 ms. A identidade do diálogo
+inclui instância, pedido e geração; durante a espera de fechamento, substituição,
+perda do alvo ou dispose cancelam a espera sem commit. Uma espera que exceda 30 segundos
+é reportada como falha, sem exclusão silenciosa. Listeners e timer são liberados
+em todas as saídas. Autorização, confirmação e cascata permanecem no backend.
+`commandChatMessaging.test.ts` reproduz deterministicamente o cancelamento
+anterior após 200 ms e cobre fechamento, substituição, dispose e timeout;
+`ChatSessionView.messageActions.test.tsx` exercita Delete e menu reais com Modal
+mantido após o aceite. Transportes Wails são substituídos nessas provas; não
+constituem aceite manual com NVDA. Status geral permanece **In Progress**.
+
 **Políticas de comandos em Permissões (17/11/2026):** `allowlists.create.open`
 apresenta o formulário pelo catálogo local; seu binding padrão `Ctrl+N` é
 contextual à superfície `allowlists` em configurações. O registro de apresentação
