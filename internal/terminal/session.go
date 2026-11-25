@@ -1066,6 +1066,14 @@ func (s *Session) canceledCommandResult(ctx context.Context, stream *markerStrea
 		}
 	default:
 	}
+	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		frame := "comando"
+		if stream.marker.probeInterrupt != nil {
+			frame = "consulta PowerShell"
+		}
+		return result.Output, -1, fmt.Errorf("fim do comando não observado (moldura=%s, texto analisado=%d bytes, início=%t, marca inicial presente=%t, marca final presente=%t, rodapé na drenagem=%t): %w",
+			frame, len(stream.text.data), stream.started, bytes.Contains(stream.text.data, []byte(stream.marker.startTag)), bytes.Contains(stream.text.data, []byte(stream.marker.endTag)), result.Found, cause)
+	}
 	return result.Output, -1, fmt.Errorf("fim do comando não observado: %w", cause)
 }
 

@@ -320,6 +320,9 @@ Pendente ou parcial:
   contém o comando, mesmo quando há saída residual ou um PowerShell filho.
   A moldura compacta revalida a instalação antes de executar. O prazo e a
   interrupção abrangem as duas etapas e a aplicação registra uma única entrada.
+  Se a espera pelo marcador expirar, o diagnóstico identifica a moldura,
+  o volume de texto analisado, o início observado e a recepção do rodapé
+  durante a drenagem. Esses campos permitem investigar a #1134 sem registrar o comando ou a saída.
   No Windows PowerShell 5.1 com ConPTY e PSReadLine, a linha recuperada pela
   seta para `Write-Output 'gerenciado-revisao-1120'` passou de 6.330 para
   1.036 bytes. A consulta anterior registrou 411 bytes (1.447 no total, sem
