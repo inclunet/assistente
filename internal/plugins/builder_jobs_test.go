@@ -2,6 +2,7 @@ package plugins
 
 import (
 	"context"
+	"gorm.io/gorm"
 	"slices"
 	"strings"
 	"testing"
@@ -47,8 +48,8 @@ func TestBuilderTransfersJobDefinitionAcrossAccounts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	admit := func(fn func() error) error { return fn() }
-	installed, err := store.InstallSource(destination, "review-kit", snap.Digest, "", admit, func() (*pluginpackage.LocalSnapshot, error) { return archive.Package("review-kit", ".") })
+	admit := func(_ *gorm.DB, fn func() error) error { return fn() }
+	installed, err := store.InstallSource(destination, "review-kit", snap.Digest, "", nil, admit, func() (*pluginpackage.LocalSnapshot, error) { return archive.Package("review-kit", ".") })
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -77,5 +78,51 @@ func TestBuilderTransfersJobDefinitionAcrossAccounts(t *testing.T) {
 	}
 	if err := repo.CheckPluginJobActivation(destination, target); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestBuilderPreservesDistinctJobsWithNonportableSlugs(t *testing.T) {
+	db := managedJobTestDB(t)
+	ctx := database.WithUserID(t.Context(), "source")
+	store := NewInventory(db)
+	repo := jobs.NewDBRepository(db)
+	// A real portable slug can equal the fallback for another job.
+	portable := builderJobKeys([]string{"con"})["con"]
+	slugs := []string{portable, "con", strings.Repeat("a", 65), strings.Repeat("a", 66)}
+	for _, slug := range slugs {
+		job := &jobs.Job{ID: slug, Name: slug, Tool: "notify", Triggers: []jobs.Trigger{{Type: jobs.TriggerManual}}}
+		if err := repo.SaveJob(ctx, job); err != nil {
+			t.Fatal(err)
+		}
+	}
+	names, err := store.BuilderJobNames(ctx)
+	if err != nil || len(names) != len(slugs) {
+		t.Fatal(names, err)
+	}
+	request := BuilderRequest{Name: "jobs", Jobs: names}
+	_, snap, err := store.BuildPackage(ctx, request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	components := DiscoverComponents(snap)
+	if len(components) != len(slugs) {
+		t.Fatal(components)
+	}
+	seen := map[string]bool{}
+	for _, component := range components {
+		key := strings.TrimPrefix(component.Key, "jobs/")
+		if component.Reason != "" || !validBuilderSkill(key) || seen[component.Name] || !slices.Contains(slugs, component.Name) || (component.Name == portable && key != portable) {
+			t.Fatalf("job incorreto: %+v", component)
+		}
+		seen[component.Name] = true
+	}
+	slices.Reverse(request.Jobs)
+	_, reversed, err := store.BuildPackage(ctx, request)
+	if err != nil || snap.Digest != reversed.Digest {
+		t.Fatalf("seleção em ordem inversa: %v", err)
+	}
+	request.Jobs = []string{"con", "con"}
+	if _, _, err := store.BuildPackage(ctx, request); err == nil {
+		t.Fatal("aceitou job repetido")
 	}
 }

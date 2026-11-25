@@ -89,8 +89,9 @@ func nativeComponents(snap *pluginpackage.LocalSnapshot) []Component {
 			c.Name = def.Name
 			c.Tool = def.Tool
 			c.JobRequiredInputs = def.RequiredInputs
+			c.JobMaxRunsPerHour = def.MaxRunsPerHour
 			for _, trigger := range def.Triggers {
-				c.JobTriggers = append(c.JobTriggers, string(trigger.Type))
+				c.JobTriggers = append(c.JobTriggers, jobs.PortableTrigger{Type: trigger.Type, Every: trigger.Every, Expression: trigger.Expression})
 			}
 		}
 		result = append(result, c)

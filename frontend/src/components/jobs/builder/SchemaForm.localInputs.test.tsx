@@ -22,3 +22,16 @@ it('permite configurar um requisito do plugin ausente no esquema local', () => {
   fireEvent.change(field,{target:{value:''}});
   expect(change).toHaveBeenLastCalledWith('options', undefined);
 });
+
+it.each([{value: {data: {count: 0}}}, {value: [{count: 0}]}])('preserva o JSON salvo ao reabrir com esquema', ({value}) => {
+  const schema = {properties: {options: {type: Array.isArray(value) ? 'array' : 'object'}}};
+  const change = vi.fn();
+  const form = render(<SchemaForm schema={null} configuredFields={['options']} values={{options: value}} onChange={change} templateMode />);
+  expect(screen.getByRole('textbox', {name: 'options'})).toHaveValue(JSON.stringify(value));
+  form.unmount();
+  render(<SchemaForm schema={schema} configuredFields={['options']} values={{options: value}} onChange={change} templateMode />);
+  const field = screen.getByRole('textbox', {name: 'options'});
+  expect(field).toHaveValue(JSON.stringify(value));
+  fireEvent.change(field, {target: {value: '{"updated":true}'}});
+  expect(change).toHaveBeenLastCalledWith('options', {updated: true});
+});
