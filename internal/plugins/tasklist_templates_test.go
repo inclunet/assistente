@@ -167,7 +167,7 @@ func TestTaskListTemplateDiagnostics(t *testing.T) {
 			if tc.content != "" {
 				snap.Files = map[string][]byte{entry: []byte(tc.content)}
 			}
-			got := taskListComponents(&snap)
+			got := nativeComponents(&snap)
 			if len(got) != 1 || got[0].Reason != tc.reason || got[0].Entry != entry {
 				t.Fatal(got)
 			}
@@ -177,12 +177,30 @@ func TestTaskListTemplateDiagnostics(t *testing.T) {
 	for i := range names {
 		names[i] = fmt.Sprintf("template-%d", i)
 	}
-	raw, err := json.Marshal(nativeResources{Version: 1, TaskLists: names})
-	if err != nil {
-		t.Fatal(err)
-	}
-	snap.Manifest.Extensions[nativeExtension] = raw
-	if got := taskListComponents(&snap); len(got) != 1 || got[0].Kind != "invalidNative" {
-		t.Fatal("excessive declarations expanded", len(got))
+	for _, tc := range []struct {
+		name            string
+		lists, profiles int
+		valid           bool
+	}{
+		{"lists only", 2049, 0, false},
+		{"profiles only", 0, 2049, false},
+		{"mixed overflow", 1024, 1025, false},
+		{"mixed at limit", 1024, 1024, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			raw, err := json.Marshal(nativeResources{Version: 1, TaskLists: names[:tc.lists], Profiles: names[:tc.profiles]})
+			if err != nil {
+				t.Fatal(err)
+			}
+			snap.Manifest.Extensions[nativeExtension] = raw
+			got := nativeComponents(&snap)
+			if tc.valid {
+				if len(got) != tc.lists+tc.profiles {
+					t.Fatalf("got %d components at limit", len(got))
+				}
+			} else if len(got) != 1 || got[0].Kind != "invalidNative" {
+				t.Fatalf("excessive declarations expanded to %d components", len(got))
+			}
+		})
 	}
 }
