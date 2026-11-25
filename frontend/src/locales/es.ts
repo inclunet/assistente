@@ -203,7 +203,7 @@ notSaved: 'La decisión vale solo para esta operación: no se pudo recordar. Ser
       copyJob: 'Crear copia independiente',
       copyJobConfirm: '¿Crear en esta cuenta una copia desactivada de la versión guardada de {{name}}? Los cambios sin guardar quedan en este editor. La copia empieza con su propio historial y permisos.',
       copyJobName: 'Copia de {{name}}',
-      copyJobDone: 'Copia independiente disponible en Jobs.',
+      copyJobDone: 'Solicitud de copia completada.',
       copyJobFailed: 'No se pudo completar la copia del job. Vuelve a intentarlo para comprobar la misma copia.',
       openJobOrigin: 'Abrir plugin de origen {{id}}',
       originUnavailable: 'Esta instalación del plugin no está disponible.',

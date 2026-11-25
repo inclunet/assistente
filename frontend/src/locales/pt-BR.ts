@@ -204,7 +204,7 @@ notSaved: 'A decisão vale somente para esta operação: não foi possível lemb
       copyJob: 'Criar cópia independente',
       copyJobConfirm: 'Criar nesta conta uma cópia desativada da versão salva de {{name}}? As alterações ainda não salvas ficam neste editor. A cópia começa com histórico e permissões próprios.',
       copyJobName: 'Cópia de {{name}}',
-      copyJobDone: 'Cópia independente disponível em Jobs.',
+      copyJobDone: 'Pedido de cópia concluído.',
       copyJobFailed: 'Não foi possível concluir a cópia do job. Tente novamente para verificar a mesma cópia.',
       openJobOrigin: 'Abrir plugin de origem {{id}}',
       originUnavailable: 'Esta instalação do plugin está indisponível.',

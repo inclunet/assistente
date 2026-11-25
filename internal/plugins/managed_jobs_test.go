@@ -13,6 +13,7 @@ import (
 	"assistente/internal/jobs"
 	"assistente/internal/pluginpackage"
 	"assistente/internal/sqlite"
+	"github.com/google/uuid"
 	"gorm.io/gorm"
 )
 
@@ -27,7 +28,7 @@ func managedJobTestDB(t *testing.T) *gorm.DB {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = conn.Close() })
-	if err = db.AutoMigrate(&database.PluginInstallation{}, &database.PluginRevision{}, &database.PluginProfileActivation{}, &database.PluginSkillActivation{}, &database.PluginMCPBinding{}, &database.User{}, &database.MCPServer{}, &database.ToolCatalog{}, &database.Job{}, &database.JobPipeline{}, &database.JobTrigger{}, &database.Tag{}, &database.TagAssignment{}, &database.JobProfileGrant{}); err != nil {
+	if err = db.AutoMigrate(&database.PluginInstallation{}, &database.PluginRevision{}, &database.PluginProfileActivation{}, &database.PluginSkillActivation{}, &database.PluginMCPBinding{}, &database.User{}, &database.MCPServer{}, &database.ToolCatalog{}, &database.Job{}, &database.JobPipeline{}, &database.JobTrigger{}, &database.Tag{}, &database.TagAssignment{}, &database.PluginJobCopyReceipt{}, &database.JobProfileGrant{}); err != nil {
 		t.Fatal(err)
 	}
 	if err = db.Create(&database.ToolCatalog{Name: "notify", Origin: "builtin", AvailabilityStatus: "available"}).Error; err != nil {
@@ -158,6 +159,10 @@ func TestCopyManagedJobAfterRevocation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	id, err := uuid.Parse(copied.DatabaseID)
+	if err != nil || id.Version() != 7 {
+		t.Fatalf("UUID da cópia: %s, %v", copied.DatabaseID, err)
+	}
 	if copied.Enabled || copied.DatabaseID == original.DatabaseID || copied.PluginInstallationID != "" ||
 		copied.Inputs["text"] != "edição local" || len(copied.Triggers) != 1 || copied.Name != "Cópia" {
 		t.Fatalf("cópia inesperada: %+v", copied)
@@ -196,5 +201,14 @@ func TestCopyManagedJobAfterRevocation(t *testing.T) {
 	}
 	if _, err := store.CopyJob(owner, "outra", source.ID, request, "Cópia", admit); err == nil {
 		t.Fatal("origem incorreta aceita")
+	}
+	if err := db.Where("id=? AND user_id=?", copied.DatabaseID, "ana").Delete(&database.Job{}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if again, err := copyJob(owner); err != nil || again != copySlug {
+		t.Fatalf("pedido após exclusão: %s, %v", again, err)
+	}
+	if _, err := repo.GetJob(owner, copySlug); !errors.Is(err, gorm.ErrRecordNotFound) {
+		t.Fatalf("a cópia excluída reapareceu: %v", err)
 	}
 }

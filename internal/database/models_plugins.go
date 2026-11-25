@@ -50,6 +50,15 @@ type PluginListReceipt struct {
 	Installation   PluginInstallation `gorm:"foreignKey:InstallationID;constraint:OnDelete:CASCADE"`
 }
 
+// PluginJobCopyReceipt survives deletion of the copy and removal of its plugin.
+type PluginJobCopyReceipt struct {
+	UserID         string `gorm:"primaryKey"`
+	InstallationID string `gorm:"primaryKey"`
+	SourceSlug     string `gorm:"primaryKey"`
+	RequestID      string `gorm:"primaryKey"`
+	CopySlug       string `gorm:"not null"`
+}
+
 type PluginMCPBinding struct {
 	InstallationID string `gorm:"primaryKey"`
 	ComponentKey   string `gorm:"primaryKey"`

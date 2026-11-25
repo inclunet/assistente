@@ -551,6 +551,17 @@ func CopyManagedJobTx(ctx context.Context, tx *gorm.DB, installationID, sourceSl
 	if err != nil || installationID == "" || strings.TrimSpace(name) == "" {
 		return "", ErrInvalidJobDefinition
 	}
+	receipt := database.PluginJobCopyReceipt{UserID: owner, InstallationID: installationID, SourceSlug: normalizeSlug(sourceSlug), RequestID: requestID.String()}
+	if receipt.SourceSlug == "" {
+		return "", ErrInvalidJobDefinition
+	}
+	err = tx.Where(&receipt).Take(&receipt).Error
+	if err == nil {
+		return receipt.CopySlug, nil
+	}
+	if !errors.Is(err, gorm.ErrRecordNotFound) {
+		return "", err
+	}
 	repo := NewDBRepository(tx)
 	job, err := repo.GetJob(ctx, sourceSlug)
 	if err != nil {
@@ -559,12 +570,12 @@ func CopyManagedJobTx(ctx context.Context, tx *gorm.DB, installationID, sourceSl
 	if job.PluginInstallationID != installationID {
 		return "", ErrJobNotFound
 	}
-	id := uuid.NewSHA1(uuid.NameSpaceOID, []byte(strings.Join([]string{"plugin-job-copy", owner, job.DatabaseID, requestID.String()}, "\x00"))).String()
-	slug := "local-" + id
-	var count int64
-	if err := tx.Model(&database.Job{}).Where("id=? AND user_id=? AND slug=?", id, owner, slug).Count(&count).Error; err != nil || count > 0 {
-		return slug, err
+	fresh, err := uuid.NewV7()
+	if err != nil {
+		return "", err
 	}
+	id := fresh.String()
+	slug := "local-" + id
 	job.ID, job.Name, job.Enabled = slug, strings.TrimSpace(name), false
 	job.PluginInstallationID, job.PluginDigest, job.DatabaseID = "", "", ""
 	job.Metadata = Metadata{CreatedBy: "ui"}
@@ -576,6 +587,10 @@ func CopyManagedJobTx(ctx context.Context, tx *gorm.DB, installationID, sourceSl
 	}
 	required, err := json.Marshal(job.RequiredInputs)
 	if err != nil {
+		return "", err
+	}
+	receipt.CopySlug = slug
+	if err := tx.Create(&receipt).Error; err != nil {
 		return "", err
 	}
 	return slug, tx.Model(&database.Job{}).Where("id=? AND user_id=?", id, owner).Updates(map[string]any{
