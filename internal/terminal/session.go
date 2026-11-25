@@ -1072,29 +1072,8 @@ func (s *Session) canceledCommandResult(ctx context.Context, stream *markerStrea
 		if stream.marker.probeInterrupt != nil {
 			frame = "consulta PowerShell"
 		}
-		// Classifica somente o separador imediatamente após uma marca
-		// sem enquadramento. O diagnóstico não inclui amostras do corpo.
-		layout := "indeterminado"
-		if _, rest, ok := bytes.Cut(stream.text.data, []byte(stream.marker.startTag)); !stream.started && ok {
-			padding := bytes.TrimLeft(rest, " \t\r")
-			afterCell := bytes.TrimLeft(rest, "_")
-			switch {
-			case len(rest) == 0:
-				layout = "sem byte seguinte"
-			case len(padding) != len(rest) && bytes.HasPrefix(padding, []byte("\n")):
-				layout = "espaço antes da quebra"
-			case len(afterCell) != len(rest) && bytes.HasPrefix(afterCell, []byte("\n")):
-				layout = "célula repetida antes da quebra"
-			case bytes.HasPrefix(padding, []byte(stream.marker.endTag)):
-				layout = "rodapé sem quebra"
-			case len(padding) != len(rest):
-				layout = "espaço antes de texto"
-			default:
-				layout = "texto adjacente"
-			}
-		}
-		return result.Output, -1, fmt.Errorf("fim do comando não observado (moldura=%s, antes da drenagem: bytes=%d início=%t, após drenagem: bytes=%d início=%t, marca inicial presente=%t, marca final presente=%t, rodapé na drenagem=%t, separador após início=%s): %w",
-			frame, beforeDrainBytes, beforeDrainStart, len(stream.text.data), stream.started, bytes.Contains(stream.text.data, []byte(stream.marker.startTag)), bytes.Contains(stream.text.data, []byte(stream.marker.endTag)), result.Found, layout, cause)
+		return result.Output, -1, fmt.Errorf("fim do comando não observado (moldura=%s, antes da drenagem: bytes=%d início=%t, após drenagem: bytes=%d início=%t, marca inicial presente=%t, marca final presente=%t, rodapé na drenagem=%t): %w",
+			frame, beforeDrainBytes, beforeDrainStart, len(stream.text.data), stream.started, bytes.Contains(stream.text.data, []byte(stream.marker.startTag)), bytes.Contains(stream.text.data, []byte(stream.marker.endTag)), result.Found, cause)
 	}
 	return result.Output, -1, fmt.Errorf("fim do comando não observado: %w", cause)
 }

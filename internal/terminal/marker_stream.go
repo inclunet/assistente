@@ -75,7 +75,7 @@ func (t *parsedTerminalText) feed(chunk string) {
 				// O ConPTY pode redesenhar a última célula do marcador de início.
 				// Nesse caso descarte a célula repetida e mantenha o delimitador.
 				beforeBreak := t.data[:len(t.data)-1]
-				if t.marker.probeInterrupt != nil || !bytes.HasSuffix(beforeBreak, []byte(t.marker.startTag)) {
+				if !bytes.HasSuffix(beforeBreak, []byte(t.marker.startTag)) {
 					t.data = beforeBreak
 				}
 				t.row = len(t.data)
@@ -289,7 +289,7 @@ func (s *markerStream) appendPart(chunk string, more bool) ([]byte, parseResult)
 	s.text.feed(chunk)
 	// Exclamações ordinárias no corpo não requerem buscas de status. O último
 	// trecho publica o delta inteiro mesmo quando nenhum terminador foi encontrado.
-	if more && s.candidate == 0 && !bytes.Contains(s.text.data[max(0, before-len(s.marker.endTag)):], []byte(s.marker.endTag)) {
+	if more && s.started && s.candidate == 0 && !bytes.Contains(s.text.data[max(0, before-len(s.marker.endTag)):], []byte(s.marker.endTag)) {
 		return nil, parseResult{}
 	}
 	// Um controle pendente pode consumir vários blocos sem alterar o texto.
@@ -300,30 +300,50 @@ func (s *markerStream) appendPart(chunk string, more bool) ([]byte, parseResult)
 	return s.progress()
 }
 
+// O ConPTY pode entregar início e rodapé sem a quebra visual quando o corpo
+// só contém espaços. Só aceite essa forma depois de receber o status inteiro.
+// append divide a entrada no terminador; a busca para no primeiro byte
+// incompatível, sem reler a saída acumulada em cada bloco.
+func (s *markerStream) joinedFrame() ([]byte, parseResult) {
+	data := s.text.data
+	if len(data) == 0 || data[len(data)-1] != markerStatusTerminator[0] {
+		return nil, parseResult{}
+	}
+	line := data[:len(data)-1]
+	throughEnd := bytes.TrimRight(line, " \t\r+-0123456789")
+	if !bytes.HasSuffix(throughEnd, []byte(s.marker.endTag)) {
+		return nil, parseResult{}
+	}
+	beforeEnd := throughEnd[:len(throughEnd)-len(s.marker.endTag)]
+	throughStart := bytes.TrimRight(beforeEnd, " \t\r")
+	if !bytes.HasSuffix(throughStart, []byte(s.marker.startTag)) {
+		return nil, parseResult{}
+	}
+	code, err := strconv.Atoi(string(bytes.TrimSpace(line[len(throughEnd):])))
+	if err != nil {
+		return nil, parseResult{}
+	}
+	s.started, s.start, s.sent = true, len(throughStart), len(beforeEnd)
+	s.candidate, s.statusScan = len(throughEnd), -1
+	body := data[s.start:s.sent]
+	return body, parseResult{Found: true, ExitCode: code, Output: string(body)}
+}
+
 func (s *markerStream) progress() (delta []byte, result parseResult) {
 	data := s.text.data
 	previous := s.scanned
 	s.scanned = len(data)
 	if !s.started {
-		delimiter := "\n"
-		if s.marker.probeInterrupt != nil {
-			// A consulta não tem corpo: as duas marcas formam uma única
-			// resposta visível, mesmo quando o ConPTY omite a quebra de linha.
-			delimiter = s.marker.endTag
-		}
-		needle := []byte(s.marker.startTag + delimiter)
+		needle := []byte(s.marker.startTag + "\n")
 		from := max(0, previous-len(needle))
 		for from < len(data) {
 			n := bytes.Index(data[from:], needle)
 			if n < 0 {
-				return
+				break
 			}
 			at := from + n
 			if s.marker.conPTY || at == 0 || data[at-1] == '\n' {
 				s.start = at + len(needle)
-				if s.marker.probeInterrupt != nil {
-					s.start -= len(delimiter) // o leitor de status consome o rodapé
-				}
 				s.sent = s.start
 				s.started = true
 				break
@@ -331,6 +351,9 @@ func (s *markerStream) progress() (delta []byte, result parseResult) {
 			from = at + 1
 		}
 		if !s.started {
+			if s.marker.conPTY {
+				return s.joinedFrame()
+			}
 			return
 		}
 	}

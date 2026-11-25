@@ -316,18 +316,19 @@ Pendente ou parcial:
   Na abertura, o PowerShell tenta registrar os três auxiliares juntos, numa
   constante identificada pela sessão. Uma variável do perfil que já ocupe o nome
   permanece intacta. Antes de cada despacho, uma consulta sem o corpo do comando
-  verifica a instalação no processo que controla o PTY. O PowerShell emite
-  juntas as marcas de início e fim da consulta, seguidas do status e do
-  terminador. Sua leitura independe das quebras de linha do ConPTY. Só a segunda escrita
+  verifica a instalação no processo que controla o PTY. Só a segunda escrita
   contém o comando, mesmo quando há saída residual ou um PowerShell filho.
   A moldura compacta revalida a instalação antes de executar. O prazo e a
   interrupção abrangem as duas etapas e a aplicação registra uma única entrada.
-  Se a espera pelo marcador expirar, o diagnóstico identifica a moldura,
-  o volume de texto analisado, o início observado e a recepção do rodapé
-  durante a drenagem. Esses campos permitem investigar a #1134 sem registrar o comando ou a saída.
+  No ConPTY, a troca de linha entre a marca inicial e o rodapé pode faltar
+  quando o corpo não produz texto visível. O leitor reconhece as duas marcas
+  da mesma execução nesse caso, preserva espaços do corpo e aguarda o status
+  terminado. `TestConPTYFooterWithoutStartLineBreak` cobre cortes entre leituras.
+  O diagnóstico de prazo distingue consulta e comando e o progresso do leitor
+  antes e depois da drenagem, sem incluir a saída.
   No Windows PowerShell 5.1 com ConPTY e PSReadLine, a linha recuperada pela
   seta para `Write-Output 'gerenciado-revisao-1120'` passou de 6.330 para
-  1.036 bytes. A consulta com as duas marcas contíguas registrou 380 bytes (1.416 no total, sem
+  1.036 bytes. A consulta anterior registrou 411 bytes (1.447 no total, sem
   terminadores). `TestPowerShellNativeHistory` verifica os dois estilos de
   persistência, a entrada manual, a execução sem o módulo e no shell filho.
   `BenchmarkPowerShellSessionStartup` mede até o primeiro prompt e até o
