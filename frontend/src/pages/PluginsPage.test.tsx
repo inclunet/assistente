@@ -524,7 +524,7 @@ describe('PluginsPage', () => {
 
   it('shows the requested job tool and triggers without running or enabling it', async () => {
     mocks.preview.mockResolvedValue({token:'reviewed', name:'kit', digest:'sha', files:[], diagnostics:[], components:[
-      {kind:'job', key:'jobs/reminder', name:'Reminder', tool:'notify', jobTriggers:[{type:'interval', every:'45m'}, {type:'cron', expression:'TZ=UTC 0 9 * * *'}], jobMaxRunsPerHour:4},
+      {kind:'job', key:'jobs/reminder', name:'Reminder', tool:'notify', jobTriggers:[{type:'interval', every:'45m'}, {type:'cron', expression:'TZ=UTC 0 9 * * *'}, {type:'event', listen:'job.finished', every:'ignored', when:'ready'}], jobMaxRunsPerHour:4},
     ]});
     const user=userEvent.setup();
     render(<PluginsPage />);
@@ -532,11 +532,25 @@ describe('PluginsPage', () => {
     await waitFor(()=>expect(choose).toBeEnabled());
     await user.click(choose);
     await screen.findByText(/Reminder/);
+    expect(screen.getByText(/plugins.jobTrigger.event job.finished ready/)).toBeVisible();
+    expect(screen.queryByText(/ignored/)).toBeNull();
     expect(screen.getByText(/plugins.jobTool/)).toBeVisible();
     expect(screen.getByText(/plugins.jobTrigger.interval 45m/)).toBeVisible();
     expect(screen.getByText(/plugins.jobTrigger.cron TZ=UTC 0 9/)).toBeVisible();
     expect(screen.getByText(/plugins.jobRate 4/)).toBeVisible();
     expect(screen.queryByRole('button', {name:'plugins.activate'})).toBeNull();
+  });
+
+  it.each(['PIPELINE_UNAVAILABLE','TOOL_AMBIGUOUS','TOOL_UNAVAILABLE'])('identifica a dependência de preparação %s', async reason => {
+    mocks.list.mockResolvedValue([{id:'one', name:'Demo', digest:'sha'}]);
+    mocks.components.mockResolvedValue([{kind:'job', key:'jobs/watch', name:'Watch', tool:'notify'}]);
+    mocks.prepareJob.mockRejectedValueOnce(new Error('PLUGIN_JOB_' + reason + ': nightly'));
+    const user=userEvent.setup();
+    render(<PluginsPage />);
+    (await screen.findByRole('gridcell', {name:/Demo/})).focus();
+    await user.keyboard('{Enter}');
+    await user.click(await screen.findByRole('button', {name:'plugins.prepareJob'}));
+    expect(await screen.findByText(new RegExp('plugins.jobDependency.' + reason))).toBeVisible();
   });
 
   it('prepares a disabled job only after a user action in installed details', async () => {

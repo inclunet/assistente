@@ -6,7 +6,7 @@ import { useNavigationStore } from '../store/navigationStore';
 import { create } from 'zustand';
 import { useTranslation } from 'react-i18next';
 import { CreateListFromTemplate, ChangeInstallation, DiscardPreview, InstalledComponents, InstallReviewed, ListInstalled, PreviewLocal, RegisterMCP, RemoveMCP, PrepareJob, SetProfileActive, SetSkillActive, SyncMCP, SyncPendingJobs } from '@wailsjs/go/wailsapi/Plugins';
-import type { database, plugins, wailsapi } from '@wailsjs/go/models';
+import type { database, jobs, plugins, wailsapi } from '@wailsjs/go/models';
 import { Button } from '../components/ui/Button';
 import { DataGrid } from '../components/ui/DataGrid';
 import { Modal } from '../components/ui/Modal';
@@ -22,6 +22,16 @@ import { logger } from '../utils/logger';
 import { useAuthStore } from '../store/authStore';
 
 type InstallationRow = Pick<database.PluginInstallation, 'id' | 'origin' | 'name' | 'version' | 'digest' | 'disabled'>;
+
+function triggerParameter(trigger: jobs.Trigger) {
+  switch (trigger.type) {
+    case 'interval': return trigger.every;
+    case 'cron': return trigger.expression;
+    case 'event': return trigger.listen;
+    case 'hotkey': return trigger.keys;
+    case 'webhook': return trigger.path;
+  }
+}
 
 function mcpConnectionLabel(component: plugins.Component) {
   return [component.transport, component.endpoint].filter(Boolean).join(' · ');
@@ -59,9 +69,8 @@ function JobRequirements({component}: {component: plugins.Component}) {
   if (!component.tool) return null;
   return <p>
     {t('plugins.jobTool', {name: component.tool})}
-      {Boolean(component.jobRequiredInputs?.length) && <span> · {t('plugins.jobInputs', {fields:component.jobRequiredInputs!.join(', ')})}</span>}
     <span> · {component.jobMaxRunsPerHour ? t('plugins.jobRate', {limit: component.jobMaxRunsPerHour}) : t('plugins.jobDefaultRate')}</span>
-    {component.jobTriggers?.map((trigger, index) => <span key={index}> · {t(`plugins.jobTrigger.${trigger.type}`)} {trigger.every || trigger.expression}</span>)}
+    {component.jobTriggers?.map((trigger, index) => <span key={index}> · {t(`plugins.jobTrigger.${trigger.type}`)} {triggerParameter(trigger)} {trigger.when}</span>)}
   </p>;
 }
 
@@ -170,13 +179,14 @@ function InstalledPlugins({ session }: { session: string }) {
   const [preview, setPreview] = useState<wailsapi.PluginPreview | null>(null);
   const [details, setDetails] = useState<{ installation: InstallationRow; components: plugins.Component[] } | null>(null);
   const [listError, setListError] = useState('');
-  const [operationError, setError] = useState('');
+  const [operationError, setError] = useState<string | {key:string; name:string}>('');
   const pendingSync = usePendingLifecycleSync(state => domains.some(domain => state.has(syncKey(session, domain))));
   const error = operationError || (pendingSync ? 'plugins.syncPending' : '');
   const [busy, setBusy] = useState(true);
+  const errorText = typeof error === 'string' ? (error && t(error)) : t(error.key, {name:error.name});
   useEffect(() => {
-    if (error) announce(t(error), 'assertive');
-  }, [error, announce, t]);
+    if (errorText) announce(errorText, 'assertive');
+  }, [errorText, announce]);
   const detailsOpener = useRef<HTMLElement | null>(null);
   const listErrorText = listError ? t(listError) : '';
   useEffect(() => {
@@ -352,7 +362,11 @@ function InstalledPlugins({ session }: { session: string }) {
           if (mounted.current) setError('plugins.syncPending');
         } catch { if (mounted.current) setError('plugins.syncPendingStale'); }
       } else if (String(cause).includes('PLUGIN_LIST_CAPACITY')) setError('plugins.listCapacity');
-      else setError(installationError(cause, 'plugins.componentError'));
+      else {
+        const dependency = /PLUGIN_JOB_(PIPELINE_UNAVAILABLE|TOOL_UNAVAILABLE|TOOL_AMBIGUOUS): (.+)$/.exec(String(cause));
+        if (dependency) setError({key: 'plugins.jobDependency.' + dependency[1], name:dependency[2]});
+        else setError(installationError(cause, 'plugins.componentError'));
+      }
     }
     finally { if (mounted.current) setBusy(false); }
   };
@@ -466,10 +480,10 @@ function InstalledPlugins({ session }: { session: string }) {
       {['catalog','repositories'].map(value => <TabPanel key={value} value={value}>{section === value && <PluginRepositories key={value} session={session} parentBusy={busy} catalog={value === 'catalog'} onPreview={(selection, opener) => { catalogOpener.current = opener; openToken.current = selection.token; setError(''); setPreview(selection); }} />}</TabPanel>)}
       <TabPanel value="builder">{section === 'builder' && <PluginBuilder formRef={builderForm} />}</TabPanel>
     </Tabs>
-    {!preview && !details && error && <p>{t(error)}</p>}
+    {!preview && !details && error && <p>{errorText}</p>}
     {listErrorText && <p>{listErrorText}</p>}
     {details && <Modal isOpen title={details.installation.name} onClose={() => setDetails(null)} allowClose={!busy} readingMode>
-      {error && <p>{t(error)}</p>}
+      {error && <p>{errorText}</p>}
       {syncAction}
       <p>{t('plugins.origin')}: {details.installation.origin}</p>
       {details.installation.disabled && <p>{t('plugins.disabledNotice')}</p>}
@@ -508,7 +522,7 @@ function InstalledPlugins({ session }: { session: string }) {
       onAction={id => { if (id === 'install') void install(); else void discard(); }}
       onCancel={() => void discard()}
       readingRegions={[{ id: 'package', label: t('plugins.preview', { name: preview.name }), content: <>
-      {error && <p>{t(error)}</p>}
+      {error && <p>{errorText}</p>}
       <dl>
         <dt>{t('plugins.origin')}</dt><dd>{preview.origin}</dd>
         {preview.version && <><dt>{t('plugins.version')}</dt><dd>{preview.version}</dd></>}

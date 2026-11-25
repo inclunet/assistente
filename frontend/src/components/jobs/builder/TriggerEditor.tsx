@@ -1,21 +1,15 @@
+import type {jobs} from '@wailsjs/go/models';
 import { useCallback, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Input } from '../../ui/Input';
-import { Select, SelectOption } from '../../ui/Select';
+import { Select } from '../../ui/Select';
 import { Button } from '../../ui/Button';
 import { FormField } from '../../ui/FormField';
 import { Combobox, type ComboboxItem } from '../../pickers/Combobox';
 import { InferEventSchema } from '@wailsjs/go/wailsapi/Jobs';
 import './TriggerEditor.css';
 
-export interface TriggerData {
-  type: string;
-  expression?: string;
-  every?: string;
-  listen?: string;
-  keys?: string;
-  when?: string;
-}
+export type TriggerData = jobs.Trigger;
 
 interface TriggerEditorProps {
   triggers: TriggerData[];
@@ -24,13 +18,7 @@ interface TriggerEditorProps {
   knownEvents?: ComboboxItem[];
 }
 
-const TRIGGER_TYPES: SelectOption[] = [
-  { value: 'manual', label: 'Manual' },
-  { value: 'cron', label: 'Cron' },
-  { value: 'interval', label: 'Interval' },
-  { value: 'event', label: 'Event' },
-  { value: 'hotkey', label: 'Hotkey' },
-];
+const TRIGGER_TYPES = ['manual', 'cron', 'interval', 'event', 'hotkey'];
 
 function TriggerRow({
   trigger,
@@ -51,6 +39,7 @@ function TriggerRow({
 }) {
   const { t } = useTranslation();
 
+  const types = trigger.type === 'webhook' ? [...TRIGGER_TYPES, 'webhook'] : TRIGGER_TYPES;
   const triggerLabel = t('jobs.builder.triggerN', { n: index + 1, total });
 
   return (
@@ -62,7 +51,7 @@ function TriggerRow({
       <div className="trigger-row__type">
         <FormField label={t('jobs.builder.triggerType')} visuallyHidden>
           <Select
-            options={TRIGGER_TYPES}
+            options={types.map(value => ({value, label: t(`plugins.jobTrigger.${value}`)}))}
             value={trigger.type}
             onChange={(e) => onUpdate(index, 'type', e.target.value)}
             fullWidth
@@ -110,6 +99,12 @@ function TriggerRow({
           </FormField>
         )}
 
+        {trigger.type === 'webhook' && (
+          <FormField label={t('jobs.builder.webhookPath')} visuallyHidden>
+            <Input value={trigger.path ?? ''} onChange={(e) => onUpdate(index, 'path', e.target.value)}
+              fullWidth aria-label={`${triggerLabel} — ${t('jobs.builder.webhookPath')}`} />
+          </FormField>
+        )}
         {trigger.type === 'hotkey' && (
           <FormField label={t('jobs.builder.hotkeyKeys')} visuallyHidden description={t('jobs.builder.hotkeyHint')}>
             <Input

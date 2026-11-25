@@ -6599,7 +6599,6 @@ export namespace jobs {
 	    }
 	}
 	export class Job {
-	    required_inputs?: string[];
 	    plugin_installation_id?: string;
 	    id: string;
 	    name: string;
@@ -6626,7 +6625,6 @@ export namespace jobs {
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.required_inputs = source["required_inputs"];
 	        this.plugin_installation_id = source["plugin_installation_id"];
 	        this.id = source["id"];
 	        this.name = source["name"];
@@ -6752,22 +6750,6 @@ export namespace jobs {
 		    }
 		    return a;
 		}
-	}
-	export class PortableTrigger {
-	    type: string;
-	    every?: string;
-	    expression?: string;
-	
-	    static createFrom(source: any = {}) {
-	        return new PortableTrigger(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.type = source["type"];
-	        this.every = source["every"];
-	        this.expression = source["expression"];
-	    }
 	}
 	export class RunEvent {
 	    id?: string;
@@ -8204,9 +8186,8 @@ export namespace plugins {
 	
 	export class Component {
 	    tool?: string;
-	    jobRequiredInputs?: string[];
 	    jobMaxRunsPerHour?: number;
-	    jobTriggers?: jobs.PortableTrigger[];
+	    jobTriggers?: jobs.Trigger[];
 	    requestsShell?: boolean;
 	    editedServer?: string;
 	    endpoint?: string;
@@ -8226,9 +8207,8 @@ export namespace plugins {
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.tool = source["tool"];
-	        this.jobRequiredInputs = source["jobRequiredInputs"];
 	        this.jobMaxRunsPerHour = source["jobMaxRunsPerHour"];
-	        this.jobTriggers = this.convertValues(source["jobTriggers"], jobs.PortableTrigger);
+	        this.jobTriggers = this.convertValues(source["jobTriggers"], jobs.Trigger);
 	        this.requestsShell = source["requestsShell"];
 	        this.editedServer = source["editedServer"];
 	        this.endpoint = source["endpoint"];

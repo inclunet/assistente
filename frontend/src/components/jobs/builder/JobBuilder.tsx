@@ -24,14 +24,7 @@ import './JobBuilder.css';
 
 export type EventMode = 'simple' | 'fanout';
 
-export interface TriggerData {
-  type: string;
-  expression?: string;
-  every?: string;
-  listen?: string;
-  keys?: string;
-  when?: string;
-}
+export type TriggerData = jobs.Trigger;
 
 export interface JobDraft {
   id: string;
@@ -117,14 +110,7 @@ function jobToDraft(job: jobs.Job): JobDraft {
     enabled: job.enabled,
     pipeline: job.pipeline ?? '',
     tags: job.tags ?? [],
-    triggers: (job.triggers ?? [{ type: 'manual' }]).map((t) => ({
-      type: t.type as string,
-      expression: t.expression,
-      every: t.every,
-      listen: t.listen,
-      keys: t.keys,
-      when: t.when,
-    })),
+    triggers: job.triggers?.map(trigger => ({...trigger})) ?? [{type: 'manual'}],
     tool: job.tool,
     inputs: (job.inputs as Record<string, unknown>) ?? {},
     events: {
@@ -140,7 +126,7 @@ function jobToDraft(job: jobs.Job): JobDraft {
     error_policy: {
       strategy: job.error_policy?.strategy ?? 'stop',
       max_retries: job.error_policy?.max_retries ?? 3,
-      retry_delay: job.error_policy?.retry_delay ?? '5s',
+      retry_delay: job.error_policy?.retry_delay ?? '',
     },
     max_runs_per_hour: job.max_runs_per_hour ?? 0,
   };
@@ -175,8 +161,6 @@ export function JobBuilder({ editJob, onClose, onSaved }: JobBuilderProps) {
   const [draft, setDraft] = useState<JobDraft>(() =>
     editJob ? jobToDraft(editJob) : createEmptyDraft()
   );
-  const requiredInputs = editJob?.plugin_installation_id || draft.tool === editJob?.tool
-    ? editJob?.required_inputs : undefined;
   const [localDrafts, setLocalDrafts] = useState<Record<string,string>>({});
   const inputsValid = Object.values(localDrafts).every(raw => parseLocalInput(raw).valid);
   const [toolSchema, setToolSchema] = useState<Record<string, unknown> | null>(null);
@@ -466,8 +450,10 @@ export function JobBuilder({ editJob, onClose, onSaved }: JobBuilderProps) {
         plugin_installation_id: editJob?.plugin_installation_id,
         id: finalId,
         tags: draft.tags.filter(Boolean),
-        output: testOutput ? { schema: testOutput } : undefined,
+        dry_run: editJob?.dry_run,
+        output: testOutput ? {...editJob?.output, schema: testOutput} : editJob?.output,
         events: {
+          ...editJob?.events,
           on_success: draft.events.emit_success ? (draft.events.on_success || undefined) : undefined,
           on_failure: draft.events.emit_failure ? (draft.events.on_failure || undefined) : undefined,
           emit_when: draft.events.emit_success
@@ -477,9 +463,7 @@ export function JobBuilder({ editJob, onClose, onSaved }: JobBuilderProps) {
           payload_template: draft.events.emit_success
             ? (draft.events.payload_template || undefined) : undefined,
         },
-        error_policy: draft.error_policy.strategy !== 'stop'
-          ? draft.error_policy
-          : undefined,
+        error_policy: {...editJob?.error_policy, ...draft.error_policy},
         max_runs_per_hour: draft.max_runs_per_hour > 0
           ? draft.max_runs_per_hour
           : undefined,
@@ -513,9 +497,7 @@ export function JobBuilder({ editJob, onClose, onSaved }: JobBuilderProps) {
       onSaved?.();
       onClose();
     } catch (err) {
-      const required = /PLUGIN_JOB_INPUT_REQUIRED: ([a-zA-Z0-9_-]+)/.exec(String(err));
-      if (required) showError(t('plugins.missingJobInput', {name: required[1]}));
-      else if (isJobProfileAuthorizationError(err) || String(err).includes('authorization_not_granted')) {
+      if (isJobProfileAuthorizationError(err) || String(err).includes('authorization_not_granted')) {
         showProfileGrantError(err);
       } else {
         showError(String(err));
@@ -532,7 +514,6 @@ export function JobBuilder({ editJob, onClose, onSaved }: JobBuilderProps) {
   return (
     <div className="job-builder">
       <div className="job-builder__content">
-        {Boolean(requiredInputs?.length) && <p>{t('plugins.jobInputs', {fields: requiredInputs!.join(', ')})}</p>}
         {error && (
           <div className="job-builder__error">
             <span>{error}</span>
@@ -643,7 +624,6 @@ export function JobBuilder({ editJob, onClose, onSaved }: JobBuilderProps) {
 
                 <SchemaForm
                   schema={toolSchema as never}
-                  configuredFields={requiredInputs}
                   localDrafts={localDrafts}
                   onLocalDraft={(field,raw) => setLocalDrafts(current => ({...current,[field]:raw}))}
                   values={draft.inputs}

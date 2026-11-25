@@ -529,15 +529,25 @@ func CreateDisabledPluginJobTx(ctx context.Context, tx *gorm.DB, job *Job, insta
 	if err := Validate(job); err != nil {
 		return err
 	}
+	// A preparação usa somente pipelines já disponíveis na conta de destino.
+	if pipeline := normalizeSlug(job.Pipeline); job.Pipeline != "" {
+		if pipeline != job.Pipeline {
+			return fmt.Errorf("%w: PLUGIN_JOB_PIPELINE_UNAVAILABLE: %s", ErrInvalidJobDefinition, job.Pipeline)
+		}
+		var count int64
+		if err := tx.Model(&database.JobPipeline{}).Where("user_id = ? AND slug = ?", owner, pipeline).Count(&count).Error; err != nil {
+			return err
+		}
+		if count != 1 {
+			return fmt.Errorf("%w: PLUGIN_JOB_PIPELINE_UNAVAILABLE: %s", ErrInvalidJobDefinition, pipeline)
+		}
+	}
+	job.PluginInstallationID = installationID
 	repo := NewDBRepository(tx)
 	if err := repo.createJobTx(ctx, tx, owner, normalizeSlug(job.ID), "", job); err != nil {
 		return err
 	}
-	required, err := json.Marshal(job.RequiredInputs)
-	if err != nil {
-		return err
-	}
-	return tx.Model(&database.Job{}).Where("id=? AND user_id=?", job.DatabaseID, owner).Updates(map[string]any{"plugin_installation_id": installationID, "plugin_digest": digest, "plugin_component_key": key, "plugin_required_inputs": string(required), "plugin_refresh_pending": true}).Error
+	return tx.Model(&database.Job{}).Where("id=? AND user_id=?", job.DatabaseID, owner).Updates(map[string]any{"plugin_installation_id": installationID, "plugin_digest": digest, "plugin_component_key": key, "plugin_refresh_pending": true}).Error
 }
 
 // CopyManagedJobTx copies the saved definition in the owner's transaction. A retry
@@ -585,16 +595,12 @@ func CopyManagedJobTx(ctx context.Context, tx *gorm.DB, installationID, sourceSl
 	if err := repo.createJobTx(ctx, tx, owner, slug, id, job); err != nil {
 		return "", err
 	}
-	required, err := json.Marshal(job.RequiredInputs)
-	if err != nil {
-		return "", err
-	}
 	receipt.CopySlug = slug
 	if err := tx.Create(&receipt).Error; err != nil {
 		return "", err
 	}
 	return slug, tx.Model(&database.Job{}).Where("id=? AND user_id=?", id, owner).Updates(map[string]any{
-		"plugin_refresh_pending": true, "plugin_required_inputs": string(required),
+		"plugin_refresh_pending": true,
 	}).Error
 }
 
@@ -603,7 +609,7 @@ func (r *DBRepository) createJobTx(ctx context.Context, tx *gorm.DB, userID, slu
 	if err != nil {
 		return err
 	}
-	toolCatalogID, err := r.toolCatalogIDForNameTx(ctx, tx, userID, job.Tool)
+	toolCatalogID, err := r.toolCatalogIDForNameTx(ctx, tx, userID, job, "")
 	if err != nil {
 		return err
 	}
@@ -670,7 +676,25 @@ func (r *DBRepository) SaveJob(ctx context.Context, job *Job) error {
 			if err != nil {
 				return err
 			}
-			toolCatalogID, err := r.toolCatalogIDForNameTx(ctx, tx, userID, job.Tool)
+			var existing database.Job
+			err = tx.Where("user_id = ? AND slug = ?", userID, slug).First(&existing).Error
+			if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+				return err
+			}
+			if job.PluginInstallationID != "" && job.PluginInstallationID != existing.PluginInstallationID {
+				return ErrPluginJobInactive
+			}
+			// O editor identifica a ferramenta pelo nome. Preserve o vínculo local
+			// selecionado na preparação quando o nome continuar igual.
+			selection := *job
+			selection.PluginInstallationID = existing.PluginInstallationID
+			pinnedID := ""
+			if existing.ID != "" && existing.ToolName == strings.TrimSpace(job.Tool) {
+				pinnedID = existing.ToolCatalogID
+			} else if existing.ID != "" {
+				selection.ToolOrigin = ""
+			}
+			toolCatalogID, err := r.toolCatalogIDForNameTx(ctx, tx, userID, &selection, pinnedID)
 			if err != nil {
 				return err
 			}
@@ -678,42 +702,14 @@ func (r *DBRepository) SaveJob(ctx context.Context, job *Job) error {
 			if err != nil {
 				return err
 			}
-			var existing database.Job
-			err = tx.Where("user_id = ? AND slug = ?", userID, slug).First(&existing).Error
-			switch {
-			case errors.Is(err, gorm.ErrRecordNotFound):
-				if job.PluginInstallationID != "" {
-					return ErrPluginJobInactive
-				}
-			case err != nil:
-				return err
-			default:
-				if job.PluginInstallationID != "" && job.PluginInstallationID != existing.PluginInstallationID {
-					return ErrPluginJobInactive
-				}
+			if existing.ID != "" {
 				row.ID = existing.ID
 				row.CreatedAt = existing.CreatedAt
 				row.CreatedBy = existing.CreatedBy
 				row.PluginInstallationID = existing.PluginInstallationID
 				row.PluginDigest = existing.PluginDigest
 				row.PluginRefreshPending = existing.PluginRefreshPending
-				if existing.PluginInstallationID != "" || row.ToolName == existing.ToolName {
-					row.PluginRequiredInputs = existing.PluginRequiredInputs
-				}
 				row.PluginComponentKey = existing.PluginComponentKey
-				if row.Enabled && row.PluginRequiredInputs != "" {
-					var required []string
-					if err := json.Unmarshal([]byte(row.PluginRequiredInputs), &required); err != nil {
-						return err
-					}
-					for _, field := range required {
-						value, ok := job.Inputs[field]
-						text, isText := value.(string)
-						if !ok || value == nil || (isText && strings.TrimSpace(text) == "") {
-							return fmt.Errorf("PLUGIN_JOB_INPUT_REQUIRED: %s", field)
-						}
-					}
-				}
 				if row.Enabled && existing.PluginInstallationID != "" {
 					if err := checkPluginJobRevision(ctx, tx, userID, &existing); err != nil {
 						return err
@@ -2228,16 +2224,37 @@ func (r *DBRepository) pipelineEnabledByIDTx(ctx context.Context, tx *gorm.DB, u
 	return row.Enabled, nil
 }
 
-func (r *DBRepository) toolCatalogIDForNameTx(ctx context.Context, tx *gorm.DB, userID, name string) (string, error) {
-	name = strings.TrimSpace(name)
+func (r *DBRepository) toolCatalogIDForNameTx(ctx context.Context, tx *gorm.DB, userID string, job *Job, pinnedID string) (string, error) {
+	name := strings.TrimSpace(job.Tool)
 	if name == "" {
 		return "", fmt.Errorf("tool é obrigatória")
 	}
 	var row database.ToolCatalog
-	err := tx.WithContext(ctx).
+	query := tx.WithContext(ctx).Model(&database.ToolCatalog{}).
 		Joins("LEFT JOIN mcp_servers ON mcp_servers.id = tool_catalog.mcp_server_id").
-		Where("tool_catalog.name = ? AND (tool_catalog.user_id IS NULL OR tool_catalog.user_id = ? OR mcp_servers.user_id = ?)", name, userID, userID).
-		Order("tool_catalog.mcp_server_id IS NULL ASC").
+		Where("tool_catalog.name = ? AND (tool_catalog.user_id IS NULL OR tool_catalog.user_id = ? OR mcp_servers.user_id = ?)", name, userID, userID)
+	if pinnedID != "" || job.PluginInstallationID != "" || job.ToolOrigin != "" {
+		if job.PluginInstallationID != "" && (job.Enabled || pinnedID == "") {
+			query = query.Where("tool_catalog.availability_status = ?", "available")
+		}
+		if pinnedID != "" {
+			query = query.Where("tool_catalog.id = ?", pinnedID)
+		} else if job.ToolOrigin != "" {
+			query = query.Where("tool_catalog.origin = ?", job.ToolOrigin)
+		}
+		var candidates []database.ToolCatalog
+		if err := query.Limit(2).Find(&candidates).Error; err != nil {
+			return "", err
+		}
+		if len(candidates) == 0 {
+			return "", fmt.Errorf("%w: PLUGIN_JOB_TOOL_UNAVAILABLE: %s", ErrInvalidJobDefinition, name)
+		}
+		if len(candidates) > 1 {
+			return "", fmt.Errorf("%w: PLUGIN_JOB_TOOL_AMBIGUOUS: %s", ErrInvalidJobDefinition, name)
+		}
+		return candidates[0].ID, nil
+	}
+	err := query.Order("tool_catalog.mcp_server_id IS NULL ASC").
 		Order("tool_catalog.availability_status = 'available' DESC").
 		Order("tool_catalog.user_id IS NULL ASC").
 		First(&row).Error
@@ -2543,14 +2560,7 @@ func jobModelToDomainWithTags(row database.Job, tagSlugs []string) (*Job, error)
 		toolName = row.ToolCatalog.Name
 		toolOrigin = row.ToolCatalog.Origin
 	}
-	var required []string
-	if row.PluginRequiredInputs != "" {
-		if err := json.Unmarshal([]byte(row.PluginRequiredInputs), &required); err != nil {
-			return nil, err
-		}
-	}
 	return &Job{
-		RequiredInputs:       required,
 		PluginInstallationID: row.PluginInstallationID,
 		PluginDigest:         row.PluginDigest,
 		ToolOrigin:           toolOrigin,

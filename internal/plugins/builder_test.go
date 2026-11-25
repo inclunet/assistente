@@ -30,7 +30,7 @@ func TestBuilderExportsOnlySelectedDefinitionsToAnotherAccount(t *testing.T) {
 	if err := db.AutoMigrate(&database.PluginInstallation{}, &database.PluginRevision{}, &database.PluginSkillActivation{}, &database.Job{}, &database.PluginProfileActivation{}, &database.PluginMCPBinding{}, &database.PluginListReceipt{}, &database.MCPServer{}, &database.TaskList{}, &database.TaskListWorkflow{}, &database.Task{}, &database.TaskNote{}); err != nil {
 		t.Fatal(err)
 	}
-	list := database.TaskList{UserID: "author", Title: "Release"}
+	list := database.TaskList{UserID: "author", Title: "Release", Slug: "releases"}
 	if err := db.Create(&list).Error; err != nil {
 		t.Fatal(err)
 	}
@@ -38,7 +38,7 @@ func TestBuilderExportsOnlySelectedDefinitionsToAnotherAccount(t *testing.T) {
 	if err := db.Create(&workflow).Error; err != nil {
 		t.Fatal(err)
 	}
-	task := database.Task{TaskListID: list.ID, Title: "Publish release", StatusID: 2, AssigneeName: "Private Assignee"}
+	task := database.Task{TaskListID: list.ID, Title: "Publish release", Code: "release", Link: "https://example.org/release", StatusID: 2, AssigneeName: "Private Assignee"}
 	if err := db.Create(&task).Error; err != nil {
 		t.Fatal(err)
 	}
@@ -113,6 +113,9 @@ func TestBuilderExportsOnlySelectedDefinitionsToAnotherAccount(t *testing.T) {
 	if snap.Digest == first.Digest {
 		t.Fatal("missing digest change")
 	}
+	if !strings.Contains(string(snap.Files[file]), "https://example.org/release") {
+		t.Fatal("o link da tarefa inicial não foi preservado")
+	}
 	for _, private := range []string{list.ID, task.ID, "Private Assignee", "Private note", "statusId", "assigneeName"} {
 		if strings.Contains(string(snap.Files[file]), private) {
 			t.Fatal("private field included", private)
@@ -150,8 +153,12 @@ func TestBuilderExportsOnlySelectedDefinitionsToAnotherAccount(t *testing.T) {
 	if err != nil || len(active) != 1 || active[0].Content != "Read the list." {
 		t.Fatal(active, err)
 	}
+	var receivedList database.TaskList
+	if err := db.Where("id=? AND user_id=? AND slug=?", id, "reader", "releases").Take(&receivedList).Error; err != nil {
+		t.Fatal(err)
+	}
 	var received database.Task
-	if err := db.Where("task_list_id=?", id).Take(&received).Error; err != nil || received.StatusID != 1 || received.Title != task.Title {
+	if err := db.Where("task_list_id=?", id).Take(&received).Error; err != nil || received.StatusID != 1 || received.Title != task.Title || received.Code != task.Code || received.Link != task.Link {
 		t.Fatal(received, err)
 	}
 }
