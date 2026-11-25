@@ -33,14 +33,6 @@ vi.mock('@wailsjs/go/wailsapi/LLMProviders', () => ({
   GetLLMProvidersWithStatus: vi.fn().mockResolvedValue([]),
 }));
 
-vi.mock('@wailsjs/go/models', () => ({
-  apidto: {
-    SkillCreateRequest: {
-      createFrom: (data: unknown) => data,
-    },
-  },
-}));
-
 vi.mock('../hooks/useGridFocus', () => ({
   useGridFocus: () => ({
     handleGridReady: vi.fn(),
@@ -196,6 +188,20 @@ describe('SkillsPage', { timeout: 60_000 }, () => {
     mockDuplicateSkill.mockResolvedValue('skill-base-copia');
     mockCreateSkill.mockResolvedValue('novo-skill');
     mockUpdateSkill.mockResolvedValue(undefined);
+  });
+
+  it('preserva as restrições de shell ao salvar no editor', async () => {
+    const policy = { allowed: ['read_file'], denied: ['other'], bashCommands: { allowed: ['git'], denied: ['rm'] } };
+    mockGetSkill.mockResolvedValueOnce({
+      slug: 'skill-base', name: 'skill-base', version: '2.3.4', description: 'Descricao valida',
+      tools: policy, content: '!git status', source: 'home',
+    });
+    render(<SkillsPage />);
+    const row = (await screen.findByText('skill-base')).closest('div')!;
+    fireEvent.click(within(row).getByRole('button', { name: 'Editar skill' }));
+    await screen.findByText('skills.toolsSection.shellConflict');
+    fireEvent.click(screen.getByRole('button', { name: 'Salvar' }));
+    await waitFor(() => expect(mockUpdateSkill).toHaveBeenCalledWith('skill-base', expect.objectContaining({ tools: policy })));
   });
 
   it('duplica um skill via menu de acoes', async () => {

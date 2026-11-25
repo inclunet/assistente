@@ -9,11 +9,11 @@ import (
 	"assistente/internal/database"
 	"assistente/internal/logging"
 	"assistente/internal/plugins"
+	httpclient "assistente/internal/tools/http"
 	"assistente/internal/wailsapi"
 	"assistente/internal/workspace"
 	"context"
 	"fmt"
-	"net/http"
 )
 
 // wireTokens monta o TokensController e associa o bind Wails (AEP-0088 Fase 4).
@@ -44,14 +44,23 @@ func (a *App) wirePlugins() {
 	}
 	if a.pluginsAPI != nil && a.dialogPort != nil {
 		wailsapi.AttachPluginSaveDialog(a.pluginsAPI, a.dialogPort.SaveFileDialog)
+		var authorizer httpclient.NetworkAuthorizer
+		if a.netTrustMgr != nil && a.questionnaireMgr != nil {
+			// Repository requests originate in the desktop manager, outside a conversation.
+			authorizer = a.repositoryNetworkAuthorizer()
+		}
 		wailsapi.AttachPlugins(a.pluginsAPI, wailsSession{app: a}, plugins.NewInventory(database.DB()).WithMCPSync(func(ctx context.Context) error {
+			// Serialize runtime publication with login/logout; ReloadPackagedConfigs
+			// verifies the captured account and session after acquiring this lock.
+			a.authSessionMu.Lock()
+			defer a.authSessionMu.Unlock()
 			if a.mcpMgr == nil {
 				return fmt.Errorf("gerenciador MCP indisponível")
 			}
 			return a.mcpMgr.ReloadPackagedConfigs(ctx)
-		}).WithRemoteClient(func(ref string) *http.Client {
-			return plugins.RepositoryHTTPClient(a.credMgr, ref)
-		}).WithSkillDefinition(a.skillMgr.PortableDefinition, a.skillMgr.BuilderSlugs).WithListCreated(a.taskSvc.NotifyTemplateListCreated), a.dialogPort.OpenDirectoryDialog, a.captureDialogAdmission)
+		}).WithRemoteClient(func(ref string) *httpclient.Client {
+			return plugins.RepositoryHTTPClient(a.credMgr, ref, authorizer)
+		}, a.watchRepositorySession).WithSkillDefinitions(a.skillMgr.DiscoverPortableDefinitions).WithListCreated(a.taskSvc.NotifyTemplateListCreated), a.dialogPort.OpenDirectoryDialog, a.captureDialogAdmission, func() { a.emitter.Emit("plugins:skills_changed", nil) })
 	}
 }
 

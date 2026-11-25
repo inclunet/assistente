@@ -37,6 +37,11 @@ tempo ainda pode produzir erro no log; a correção não elimina toda contençã
   permanentes classificadas pela tool, como argumentos/configuração inválidos,
   profile indisponível ou autorização sem interlocutor, encerram o run na
   primeira tentativa.
+- Em `run_command`, se o prazo vencer após a aprovação, o job encerra a
+  tentativa. Isso vale também quando a política dispensa o diálogo.
+- Se `output.map` falhar depois que a ferramenta concluir a execução, o job
+  informa o erro e preserva o registro da chamada. Isso inclui falhas ao
+  consultar um segredo no mapeamento. Uma nova execução exige outra chamada.
 - Armazenado no SQLite, com retenção de 30 dias e isolado por usuário.
 - Gerenciado em **Jobs**: grid com busca, criar/editar, ativar/desativar, ver logs e timeline.
 
@@ -89,7 +94,41 @@ jobs com gatilho `event` reagem, formando pipelines. O histórico do run guarda
 estado, trigger, duração, erro e a timeline operacional. Ao abrir os detalhes,
 tool, entradas redigidas e saída são lidas da invocação técnica associada; não
 há uma segunda cópia desses payloads no run. O replay em `dry-run` usa essa
-invocação canônica e fica indisponível quando a entrada foi redigida.
+invocação canônica e fica indisponível quando a entrada foi redigida. Se um
+comando usa um template de segredo, o campo `command` também aparece redigido
+nos metadados do resultado, tanto em execuções como em testes de ferramenta.
+O histórico do terminal persistente e o contexto que você envia dele ao chat
+também usam esse comando redigido. O programa recebe o valor resolvido e o
+texto que ele imprimir em sua própria saída continua visível.
+
+Jobs autônomos e o teste manual de ferramenta do catálogo não têm interlocutor,
+mesmo com uma conversa aberta no aplicativo. Se o comando depender de uma
+nova confirmação, a tentativa termina antes da execução. Um comando comum
+pode prosseguir quando a política o permite ou existe uma concessão válida.
+A opção de testar ferramentas com efeitos não concede autorização de shell.
+
+Quando uma chamada traz a origem de uma conversa e precisa de consentimento,
+a pergunta chega ao desktop ou ao canal dessa conversa. No Slack, o texto da
+pergunta conserva referências como `<!channel>` e `<url|rótulo>` literalmente.
+Links da pergunta aparecem como texto, com as prévias de sites e mídia desativadas.
+Se o corpo da pergunta contiver caracteres de controle ou de formatação invisíveis,
+o canal o mostra entre aspas e representa esses caracteres por sequências de escape.
+
+Em um terminal persistente, a pergunta informa que o diretório atual pode ter mudado. Um diretório público chamado `[redacted]` segue a política normal da chamada. A proteção depende da origem do valor no cofre.
+
+Para comandos protegidos, a decisão vale apenas para aquela execução. A pergunta pode mostrar
+o template original, por exemplo `example {{ secret "token" }}`, se ele contiver
+o nome literal do programa seguido apenas de referências simples ao cofre.
+Se o programa vier do cofre, a pergunta informa que os detalhes ficam ocultos.
+Quando houver outros dados, ela mostra no máximo o nome verificável
+do programa. O valor resolvido e o diretório ficam ocultos.
+
+Quando apenas o diretório de trabalho vem do cofre, a pergunta mostra o
+comando e oculta o caminho. A autorização vale para uma execução. O terminal
+usa o diretório escolhido e o oculta nos metadados e na lista de sessões,
+inclusive ao retomar um terminal persistente. A saída do shell continua
+visível. O prompt interativo e comandos que imprimem o diretório podem
+mostrá-lo nessa saída.
 
 Eventos não ficam em fila. Quando nenhum consumidor está habilitado — porque o
 job ou a pipeline consumidora foi desativado — o evento é descartado e não

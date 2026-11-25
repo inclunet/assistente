@@ -10,7 +10,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
-	"runtime"
+
 	"sort"
 	"strings"
 )
@@ -45,22 +45,12 @@ func inspectLocal(dir string, entryLimit, depthLimit int, fileLimit, byteLimit i
 	if err != nil {
 		return nil, err
 	}
-	origin, err := filepath.EvalSymlinks(absolute)
-	if err != nil {
-		return nil, err
-	}
-	if runtime.GOOS == "windows" {
-		volume := filepath.VolumeName(origin)
-		if strings.HasPrefix(volume, `\\`) && !strings.HasPrefix(volume, `\\?\`) {
-			origin = strings.ToLower(volume) + origin[len(volume):]
-		}
-	}
-	root, err := os.OpenRoot(origin)
+	root, err := os.OpenRoot(absolute)
 	if err != nil {
 		return nil, err
 	}
 	defer func() { _ = root.Close() }()
-	return inspectOpened(root, origin, entryLimit, depthLimit, fileLimit, byteLimit)
+	return inspectOpened(root, absolute, entryLimit, depthLimit, fileLimit, byteLimit)
 }
 
 // InspectRepositoryPackage anchors both the package root and its members in
@@ -94,10 +84,18 @@ func InspectRepositoryPackage(directory, expectedRoot, relative string) (*LocalS
 	return inspectOpened(root, filepath.Join(directory, local), maxEntries, maxDepth, maxFileBytes, maxPackageBytes)
 }
 
-func inspectOpened(root *os.Root, origin string, entryLimit, depthLimit int, fileLimit, byteLimit int64) (*LocalSnapshot, error) {
-	snapshot := &LocalSnapshot{Origin: origin, Files: make(map[string][]byte)}
-	remaining := byteLimit
+func inspectOpened(root *os.Root, absolute string, entryLimit, depthLimit int, fileLimit, byteLimit int64) (*LocalSnapshot, error) {
+	snapshot := &LocalSnapshot{Files: make(map[string][]byte)}
+	manifestPath, manifest, _, _, err := LocateManifest(func(name string) ([]byte, error) {
+		return ReadFile(root, name, min(int64(1<<20), byteLimit, fileLimit))
+	})
+	if err != nil {
+		return nil, err
+	}
+	snapshot.Files[manifestPath] = manifest
+	remaining := byteLimit - int64(len(manifest))
 	entriesLeft := entryLimit
+	foundManifest := false
 	var collect func(string, int) error
 	collect = func(dir string, depth int) error {
 		if depth > depthLimit {
@@ -108,6 +106,23 @@ func inspectOpened(root *os.Root, origin string, entryLimit, depthLimit int, fil
 			return err
 		}
 		defer func() { _ = opened.Close() }()
+		if depth == 0 {
+			snapshot.Origin, err = packageOrigin(opened, absolute)
+			if err != nil {
+				return err
+			}
+			current, err := opened.Stat()
+			if err != nil {
+				return err
+			}
+			location, err := os.Stat(snapshot.Origin)
+			if err != nil {
+				return err
+			}
+			if !os.SameFile(current, location) {
+				return fmt.Errorf("package directory changed during inspection")
+			}
+		}
 		for {
 			entries, err := opened.ReadDir(64)
 			if err != nil && err != io.EOF {
@@ -119,7 +134,14 @@ func inspectOpened(root *os.Root, origin string, entryLimit, depthLimit int, fil
 					return fmt.Errorf("package exceeds entry limit")
 				}
 				name := path.Join(dir, entry.Name())
-				if entry.Name() == ".git" {
+				if strings.EqualFold(name, manifestPath) {
+					if foundManifest {
+						return fmt.Errorf("ambiguous %s entries", manifestPath)
+					}
+					foundManifest = true
+					continue
+				}
+				if strings.EqualFold(entry.Name(), ".git") {
 					continue
 				}
 				if !fs.ValidPath(name) {
@@ -147,22 +169,19 @@ func inspectOpened(root *os.Root, origin string, entryLimit, depthLimit int, fil
 	if err := collect(".", 0); err != nil {
 		return nil, err
 	}
-	return finishSnapshot(snapshot)
+	if !foundManifest {
+		return nil, fmt.Errorf("%s disappeared during inspection: %w", manifestPath, fs.ErrNotExist)
+	}
+	return finishSnapshot(snapshot, manifestPath)
 }
 
-func finishSnapshot(snapshot *LocalSnapshot) (*LocalSnapshot, error) {
-	_, _, metadata, warnings, err := LocateManifest(func(name string) ([]byte, error) {
-		raw, ok := snapshot.Files[name]
-		if !ok {
-			return nil, fs.ErrNotExist
-		}
-		if len(raw) > 1<<20 {
-			return nil, fmt.Errorf("manifest exceeds size limit")
-		}
-		return raw, nil
-	})
+func finishSnapshot(snapshot *LocalSnapshot, manifestPath string) (*LocalSnapshot, error) {
+	captured, metadata, warnings, err := CapturedManifest(snapshot.Files)
 	if err != nil {
 		return nil, err
+	}
+	if manifestPath != "" && captured != manifestPath {
+		return nil, fmt.Errorf("package manifest changed during inspection")
 	}
 	snapshot.Manifest, snapshot.Warnings = metadata, warnings
 	names := make([]string, 0, len(snapshot.Files))

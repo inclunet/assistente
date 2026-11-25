@@ -56,7 +56,7 @@ func (r *DBRepository) ListServers(ctx context.Context) ([]ServerConfig, error) 
 	}
 	result := make([]ServerConfig, 0, len(rows))
 	for _, row := range rows {
-		cfg, err := serverModelToConfig(row)
+		cfg, err := ConfigFromServerRecord(row)
 		if err != nil {
 			return nil, err
 		}
@@ -76,7 +76,7 @@ func (r *DBRepository) GetServer(ctx context.Context, slug string) (*ServerConfi
 	if err != nil {
 		return nil, err
 	}
-	cfg, err := serverModelToConfig(row)
+	cfg, err := ConfigFromServerRecord(row)
 	if err != nil {
 		return nil, err
 	}
@@ -94,7 +94,7 @@ func (r *DBRepository) GetServerByID(ctx context.Context, id string) (*ServerCon
 	if err != nil {
 		return nil, err
 	}
-	cfg, err := serverModelToConfig(row)
+	cfg, err := ConfigFromServerRecord(row)
 	if err != nil {
 		return nil, err
 	}
@@ -352,7 +352,8 @@ func serverConfigToModel(cfg ServerConfig) (database.MCPServer, error) {
 	}, nil
 }
 
-func serverModelToConfig(row database.MCPServer) (ServerConfig, error) {
+// ConfigFromServerRecord reconstructs the native configuration from a stored server.
+func ConfigFromServerRecord(row database.MCPServer) (ServerConfig, error) {
 	var args []string
 	if err := unmarshalJSONString(row.Args, &args); err != nil {
 		return ServerConfig{}, err

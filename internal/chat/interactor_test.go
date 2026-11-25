@@ -3,9 +3,12 @@ package chat
 import (
 	"assistente/internal/plugins"
 	"assistente/internal/sqlite"
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -22,6 +25,7 @@ import (
 	"assistente/internal/slashskill"
 	"assistente/internal/tasklist"
 	"assistente/internal/tools"
+	"assistente/internal/tools/invocationctx"
 	"assistente/internal/workspace"
 	"gorm.io/gorm"
 )
@@ -1883,7 +1887,8 @@ func TestSlashCommandRequiresActiveProviderAndShellAccess(t *testing.T) {
 	for _, tc := range []struct {
 		name                         string
 		enabled, allowShell, wantRun bool
-	}{{"ativo", true, true, true}, {"provider desativado", false, true, false}, {"perfil sem shell", true, false, false}} {
+		budget                       int
+	}{{"ativo", true, true, true, 0}, {"provider desativado", false, true, false, 0}, {"perfil sem shell", true, false, false, 0}, {"bloco sem orçamento", true, true, false, 1}} {
 		t.Run(tc.name, func(t *testing.T) {
 			s := &skills.Skill{Slug: "helper", SkillMetadata: skills.SkillMetadata{Name: "helper"}, Content: "!echo report"}
 			s.Tools = &skills.ToolPermissions{BashCommands: &skills.BashCommands{Allowed: []string{"echo"}}}
@@ -1892,7 +1897,7 @@ func TestSlashCommandRequiresActiveProviderAndShellAccess(t *testing.T) {
 				count++
 				return "report", nil
 			}})
-			profile := &profiles.Profile{ContextProviders: map[string]profiles.ContextProviderProfileConfig{"slash_skill": {Enabled: &tc.enabled}}}
+			profile := &profiles.Profile{ContextProviders: map[string]profiles.ContextProviderProfileConfig{"slash_skill": {Enabled: &tc.enabled, Budget: tc.budget}}}
 			result := i.PrepareMessages(context.Background(), PrepareMessagesRequest{Messages: []llm.Message{{Role: "user", Content: "/helper"}}, UserContent: "/helper", ConversationID: "conv", TurnID: "turn", ActiveProfile: profile, AllowSkillShell: tc.allowShell})
 			if tc.wantRun && (count != 1 || result.Err != nil) {
 				t.Fatalf("calls=%d err=%v", count, result.Err)
@@ -1942,5 +1947,108 @@ func TestPrepareContextUsesInstalledTabProfile(t *testing.T) {
 	}
 	if resp, err := inter.PrepareContext(ctx, req); err == nil || resp != nil {
 		t.Fatal("revoked tab profile", resp, err)
+	}
+}
+
+func TestPrepareMessagesBaseSkillRefusalPreservesOriginAndMessages(t *testing.T) {
+	denied := contextprovider.ErrCommandRefused
+	origin := ports.NewChatSurfaceOrigin("conversation", "session", "surface", "chat", "tab")
+	source := staticSkillRuntimeManager{skills: map[string]*skills.Skill{"base": {Slug: "base", Content: "!echo test", SkillMetadata: skills.SkillMetadata{Name: "base", Tools: &skills.ToolPermissions{BashCommands: &skills.BashCommands{Allowed: []string{"echo"}}}}}}}
+	emitter := &spyEmitter{}
+	runner := func(ctx context.Context, _ *skills.Skill, _ string) (string, error) {
+		inv, _ := invocationctx.Get(ctx)
+		if inv.Source != "cli" || inv.SurfaceTabID != "tab" || inv.ProfileSlug != "profile" {
+			t.Fatalf("lost origin: %+v", inv)
+		}
+		return "", denied
+	}
+	i := NewInteractor(InteractorConfig{Emitter: emitter, SkillMgr: source, ContextProviders: contextprovider.NewRegistry(skills.NewContextProvider(source)), PromptBuilder: &capturingPromptBuilder{baseToolCallingEnabled: true}, SkillCommands: runner})
+	profile := &profiles.Profile{}
+	profile.Chat.EnabledSkills = []string{"base"}
+	ctx := invocationctx.With(t.Context(), invocationctx.InvocationContext{Source: "cli", SurfaceTabID: "tab", ProfileSlug: "profile"})
+	msgs := []llm.Message{{Role: "user", Content: "hello"}}
+	result := i.PrepareMessages(ctx, PrepareMessagesRequest{Messages: msgs, ConversationID: "conversation", TurnID: "turn", UserContent: "hello", ActiveProfile: profile, AllowSkillShell: true, SurfaceOrigin: origin})
+	event := emitter.findError()
+	if !errors.Is(result.Err, denied) || len(result.Messages) != 1 || result.Messages[0].Content != "hello" || event == nil || event.Error != denied.Error() || event.ConversationID != "conversation" || event.SurfaceOrigin != origin {
+		t.Fatalf("result=%+v event=%+v", result, event)
+	}
+}
+
+type missingSupportFiles struct {
+	staticSkillRuntimeManager
+	listings int
+}
+
+func (m *missingSupportFiles) GetSkillFiles(slug string) ([]string, error) {
+	if slug == "helper" {
+		m.listings++
+		return nil, os.ErrPermission
+	}
+	return m.staticSkillRuntimeManager.GetSkillFiles(slug)
+}
+
+func TestPrepareMessagesDeduplicatesSlashAndCatalogWarningPerAttempt(t *testing.T) {
+	var logs bytes.Buffer
+	original := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelWarn})))
+	t.Cleanup(func() { slog.SetDefault(original) })
+
+	src := &missingSupportFiles{staticSkillRuntimeManager: staticSkillRuntimeManager{skills: map[string]*skills.Skill{
+		"base":   {Slug: "base", SkillMetadata: skills.SkillMetadata{Name: "base"}, Content: "instruções base"},
+		"helper": {Slug: "helper", SkillMetadata: skills.SkillMetadata{Name: "helper"}, Content: "instruções por barra"},
+	}}}
+	builder := &capturingPromptBuilder{baseToolCallingEnabled: true, baseEnabledTools: []string{"load_skill"}}
+	i := NewInteractor(InteractorConfig{SkillMgr: src, ContextProviders: contextprovider.NewRegistry(skills.NewContextProvider(src), slashskill.NewContextProvider()), PromptBuilder: builder,
+		SkillCommands: func(context.Context, *skills.Skill, string) (string, error) {
+			t.Fatal("skill textual executou comando")
+			return "", nil
+		},
+	})
+	profile := &profiles.Profile{}
+	profile.Chat.EnabledSkills = []string{"base", "helper"}
+	req := PrepareMessagesRequest{Messages: []llm.Message{{Role: "user", Content: "/helper"}}, UserContent: "/helper", ConversationID: "conv", TurnID: "turn", ActiveProfile: profile, AllowSkillShell: true}
+	for range 2 {
+		logs.Reset()
+		src.listings = 0
+		result := i.PrepareMessages(t.Context(), req)
+		if result.Err != nil || !strings.Contains(builder.slashSkillContent(), "instruções por barra") || src.listings < 2 {
+			t.Fatalf("resultado=%+v listagens=%d blocos=%+v", result, src.listings, builder.contextBlocks)
+		}
+		catalogIncludesHelper := false
+		for _, block := range builder.contextBlocks {
+			if block.Name == "available_skills" && strings.Contains(block.Content, "Identifier: `helper`") {
+				catalogIncludesHelper = true
+			}
+		}
+		if !catalogIncludesHelper || strings.Count(logs.String(), "Listagem de arquivos de apoio indisponível") != 1 || !strings.Contains(logs.String(), "skill=helper") {
+			t.Fatalf("catálogo=%t avisos=%s", catalogIncludesHelper, logs.String())
+		}
+	}
+}
+
+func TestBaseRefusalPrecedesSlashCommand(t *testing.T) {
+	base := &skills.Skill{Slug: "base", Content: "!echo base", SkillMetadata: skills.SkillMetadata{Name: "base", Tools: &skills.ToolPermissions{BashCommands: &skills.BashCommands{Allowed: []string{"echo"}}}}}
+	slash := *base
+	slash.Slug = "helper"
+	slash.Name = "helper"
+	slash.Content = "!echo slash"
+	src := staticSkillRuntimeManager{skills: map[string]*skills.Skill{"base": base, "helper": &slash}}
+	profile := &profiles.Profile{}
+	profile.Chat.EnabledSkills = []string{"base", "helper"}
+	var calls []string
+	i := NewInteractor(InteractorConfig{SkillMgr: src, ContextProviders: contextprovider.NewRegistry(skills.NewContextProvider(src), slashskill.NewContextProvider()), PromptBuilder: &capturingPromptBuilder{baseToolCallingEnabled: true}, SkillCommands: func(ctx context.Context, s *skills.Skill, cmd string) (string, error) {
+		calls = append(calls, s.Slug)
+		return "", contextprovider.ErrCommandRefused
+	}})
+	msgs := []llm.Message{{Role: "user", Content: "/helper"}}
+	result := i.PrepareMessages(t.Context(), PrepareMessagesRequest{Messages: msgs, ConversationID: "conv", TurnID: "turn", UserContent: "/helper", ActiveProfile: profile, AllowSkillShell: true})
+	if !errors.Is(result.Err, contextprovider.ErrCommandRefused) || strings.Join(calls, ",") != "base" {
+		t.Fatalf("calls=%v err=%v", calls, result.Err)
+	}
+	calls = nil
+	slash.Tools = &skills.ToolPermissions{Denied: []string{"run_command"}, BashCommands: base.Tools.BashCommands}
+	result = i.PrepareMessages(t.Context(), PrepareMessagesRequest{Messages: msgs, ConversationID: "conv", TurnID: "turn", UserContent: "/helper", ActiveProfile: profile, AllowSkillShell: true})
+	if result.Err == nil || len(calls) != 0 {
+		t.Fatalf("barra incompatível: calls=%v err=%v", calls, result.Err)
 	}
 }

@@ -41,6 +41,10 @@ describe('voiceAccessibility types', () => {
     expect(isVoiceAccessibilityOriginActive({ tabId: 'tab-other' }, workspace)).toBe(false);
   });
 
+  it('mantém a origem de chat selecionada ativa com os painéis ocultos', () => {
+    expect(isVoiceAccessibilityOriginActive(buildVoiceAccessibilityOriginFromTab(chatTab, workspace), workspace, false)).toBe(true);
+  });
+
   it('considera origem externa e origem sem contexto de aba como ativa', () => {
     expect(isVoiceAccessibilityOriginActive({ isExternal: true, tabId: 'tab-other' }, workspace)).toBe(true);
     expect(isVoiceAccessibilityOriginActive({ surfaceId: 'modal' }, workspace)).toBe(true);
