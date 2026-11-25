@@ -3,6 +3,7 @@ package jobs
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"time"
 )
 
@@ -64,12 +65,14 @@ const (
 	OnExhaustedIgnore OnExhausted = "ignore"
 )
 
+var ErrToolOriginChanged = errors.New("a origem da ferramenta disponível difere da configurada no job")
+
 // Job representa uma unidade atomica de automacao: 1 job = 1 tool call.
 type Job struct {
-	RequiredInputs       []string       `yaml:"-" json:"required_inputs,omitempty"`
+	RequiredInputs       []string       `yaml:"required_inputs,omitempty" json:"required_inputs,omitempty"`
 	PluginInstallationID string         `yaml:"-" json:"plugin_installation_id,omitempty"`
 	PluginDigest         string         `yaml:"-" json:"-"`
-	ToolOrigin           string         `yaml:"-" json:"-"`
+	ToolOrigin           string         `yaml:"tool_origin,omitempty" json:"-"`
 	DatabaseID           string         `yaml:"-" json:"-"`
 	ID                   string         `yaml:"id" json:"id"`
 	Name                 string         `yaml:"name" json:"name"`

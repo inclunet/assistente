@@ -6,24 +6,23 @@ import (
 	"errors"
 	"io"
 	"regexp"
-	"slices"
+
 	"strings"
 	"unicode/utf8"
 )
 
-// PortableJob is a definition for review. Runtime state, identity and
-// grants are established in the destination account.
-type PortableJob struct {
-	MaxRunsPerHour int               `json:"maxRunsPerHour,omitempty"`
-	RequiredInputs []string          `json:"requiredInputs,omitempty"`
-	Name           string            `json:"name"`
-	Description    string            `json:"description,omitempty"`
-	Tool           string            `json:"tool"`
-	Triggers       []PortableTrigger `json:"triggers"`
-	Inputs         map[string]any    `json:"inputs,omitempty"`
+// legacyPackageJob decodes immutable version 1 snapshots.
+type legacyPackageJob struct {
+	MaxRunsPerHour int                    `json:"maxRunsPerHour,omitempty"`
+	RequiredInputs []string               `json:"requiredInputs,omitempty"`
+	Name           string                 `json:"name"`
+	Description    string                 `json:"description,omitempty"`
+	Tool           string                 `json:"tool"`
+	Triggers       []legacyPackageTrigger `json:"triggers"`
+	Inputs         map[string]any         `json:"inputs,omitempty"`
 }
 
-type PortableTrigger struct {
+type legacyPackageTrigger struct {
 	Type       TriggerType `json:"type"`
 	Every      string      `json:"every,omitempty"`
 	Expression string      `json:"expression,omitempty"`
@@ -38,7 +37,7 @@ func ReadPortableJob(key string, data []byte) (*Job, error) {
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.DisallowUnknownFields()
 	decoder.UseNumber()
-	var d PortableJob
+	var d legacyPackageJob
 	if err := decoder.Decode(&d); err != nil {
 		return nil, err
 	}
@@ -72,35 +71,4 @@ func ReadPortableJob(key string, data []byte) (*Job, error) {
 		return nil, err
 	}
 	return job, nil
-}
-
-// ExportPortableJob carries input names so the destination can configure its own values.
-func ExportPortableJob(job *Job) ([]byte, error) {
-	if job.Pipeline != "" || job.DryRun.Enabled || job.Events != (EventsConfig{}) || len(job.Output.Map) > 0 || (job.ErrorPolicy.Strategy != "" && job.ErrorPolicy.Strategy != ErrorStop) || job.ErrorPolicy.OnExhausted == OnExhaustedNotify {
-		return nil, errors.New("PLUGIN_BUILDER_JOB_UNAVAILABLE")
-	}
-	definition := PortableJob{MaxRunsPerHour: job.MaxRunsPerHour, Name: job.Name, Description: job.Description, Tool: job.Tool}
-	seen := map[string]bool{}
-	for _, field := range job.RequiredInputs {
-		seen[field] = true
-	}
-	for field := range job.Inputs {
-		seen[field] = true
-	}
-	for field := range seen {
-		definition.RequiredInputs = append(definition.RequiredInputs, field)
-	}
-	slices.Sort(definition.RequiredInputs)
-	for _, t := range job.Triggers {
-		if t.When != "" || t.Listen != "" || t.Keys != "" || t.Path != "" {
-			return nil, errors.New("unsupported portable trigger")
-		}
-		definition.Triggers = append(definition.Triggers, PortableTrigger{Type: t.Type, Every: t.Every, Expression: t.Expression})
-	}
-	raw, err := json.MarshalIndent(definition, "", "  ")
-	if err != nil {
-		return nil, err
-	}
-	_, err = ReadPortableJob(job.ID, raw)
-	return raw, err
 }

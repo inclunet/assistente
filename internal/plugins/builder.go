@@ -119,6 +119,9 @@ func (i *Inventory) BuildPackage(ctx context.Context, request BuilderRequest) ([
 	}
 	files := map[string][]byte{}
 	extension := nativeResources{Version: 1}
+	if len(request.Jobs) > 0 || len(request.TaskLists) > 0 {
+		extension.Version = 2
+	}
 	total := 0
 	var profileFiles profiles.PortableDefinitions
 	if len(request.Profiles) > 0 && i.profileDefinitions != nil {
@@ -179,7 +182,7 @@ func (i *Inventory) BuildPackage(ctx context.Context, request BuilderRequest) ([
 		jobKeys := builderJobKeys(request.Jobs)
 		for _, slug := range request.Jobs {
 			key := jobKeys[slug]
-			file := path.Join(nativeExtension, "jobs", key+".json")
+			file := path.Join(nativeExtension, "jobs", key+".yaml")
 			if _, exists := files[file]; exists {
 				return errors.New("PLUGIN_BUILDER_KEY")
 			}
@@ -190,7 +193,7 @@ func (i *Inventory) BuildPackage(ctx context.Context, request BuilderRequest) ([
 			if err != nil {
 				return err
 			}
-			raw, err := jobs.ExportPortableJob(job)
+			raw, err := jobs.MarshalPackageDefinition(job)
 			if err != nil {
 				return errors.New("PLUGIN_BUILDER_JOB_UNAVAILABLE: " + slug)
 			}
@@ -214,7 +217,7 @@ func (i *Inventory) BuildPackage(ctx context.Context, request BuilderRequest) ([
 			if err != nil {
 				return err
 			}
-			raw, err := json.MarshalIndent(template, "", "  ")
+			raw, err := template.MarshalTemplate()
 			if err != nil {
 				return err
 			}

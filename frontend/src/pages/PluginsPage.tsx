@@ -6,7 +6,7 @@ import { useNavigationStore } from '../store/navigationStore';
 import { create } from 'zustand';
 import { useTranslation } from 'react-i18next';
 import { CreateListFromTemplate, ChangeInstallation, DiscardPreview, InstalledComponents, InstallReviewed, ListInstalled, PreviewLocal, RegisterMCP, RemoveMCP, PrepareJob, SetProfileActive, SetSkillActive, SyncMCP, SyncPendingJobs } from '@wailsjs/go/wailsapi/Plugins';
-import type { database, plugins, wailsapi } from '@wailsjs/go/models';
+import type { database, jobs, plugins, wailsapi } from '@wailsjs/go/models';
 import { Button } from '../components/ui/Button';
 import { DataGrid } from '../components/ui/DataGrid';
 import { Modal } from '../components/ui/Modal';
@@ -22,6 +22,16 @@ import { logger } from '../utils/logger';
 import { useAuthStore } from '../store/authStore';
 
 type InstallationRow = Pick<database.PluginInstallation, 'id' | 'origin' | 'name' | 'version' | 'digest' | 'disabled'>;
+
+function triggerParameter(trigger: jobs.Trigger) {
+  switch (trigger.type) {
+    case 'interval': return trigger.every;
+    case 'cron': return trigger.expression;
+    case 'event': return trigger.listen;
+    case 'hotkey': return trigger.keys;
+    case 'webhook': return trigger.path;
+  }
+}
 
 function mcpConnectionLabel(component: plugins.Component) {
   return [component.transport, component.endpoint].filter(Boolean).join(' · ');
@@ -61,7 +71,7 @@ function JobRequirements({component}: {component: plugins.Component}) {
     {t('plugins.jobTool', {name: component.tool})}
       {Boolean(component.jobRequiredInputs?.length) && <span> · {t('plugins.jobInputs', {fields:component.jobRequiredInputs!.join(', ')})}</span>}
     <span> · {component.jobMaxRunsPerHour ? t('plugins.jobRate', {limit: component.jobMaxRunsPerHour}) : t('plugins.jobDefaultRate')}</span>
-    {component.jobTriggers?.map((trigger, index) => <span key={index}> · {t(`plugins.jobTrigger.${trigger.type}`)} {trigger.every || trigger.expression}</span>)}
+    {component.jobTriggers?.map((trigger, index) => <span key={index}> · {t(`plugins.jobTrigger.${trigger.type}`)} {triggerParameter(trigger)} {trigger.when}</span>)}
   </p>;
 }
 

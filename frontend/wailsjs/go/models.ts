@@ -6753,22 +6753,6 @@ export namespace jobs {
 		    return a;
 		}
 	}
-	export class PortableTrigger {
-	    type: string;
-	    every?: string;
-	    expression?: string;
-	
-	    static createFrom(source: any = {}) {
-	        return new PortableTrigger(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.type = source["type"];
-	        this.every = source["every"];
-	        this.expression = source["expression"];
-	    }
-	}
 	export class RunEvent {
 	    id?: string;
 	    run_id: string;
@@ -8206,7 +8190,7 @@ export namespace plugins {
 	    tool?: string;
 	    jobRequiredInputs?: string[];
 	    jobMaxRunsPerHour?: number;
-	    jobTriggers?: jobs.PortableTrigger[];
+	    jobTriggers?: jobs.Trigger[];
 	    requestsShell?: boolean;
 	    editedServer?: string;
 	    endpoint?: string;
@@ -8228,7 +8212,7 @@ export namespace plugins {
 	        this.tool = source["tool"];
 	        this.jobRequiredInputs = source["jobRequiredInputs"];
 	        this.jobMaxRunsPerHour = source["jobMaxRunsPerHour"];
-	        this.jobTriggers = this.convertValues(source["jobTriggers"], jobs.PortableTrigger);
+	        this.jobTriggers = this.convertValues(source["jobTriggers"], jobs.Trigger);
 	        this.requestsShell = source["requestsShell"];
 	        this.editedServer = source["editedServer"];
 	        this.endpoint = source["endpoint"];

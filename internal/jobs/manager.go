@@ -1264,6 +1264,7 @@ func (m *Manager) DeleteJobContext(ctx context.Context, id string) error {
 func (m *Manager) TestToolDryRunContext(parent context.Context, req TestToolRequest) (*TestToolResult, error) {
 	execCtx := m.contextFrom(parent)
 	var beforeExecute func(context.Context) error
+	var expectedOrigin string
 	if req.PluginInstallationID != "" {
 		job, err := m.cfg.Repository.GetJob(execCtx, req.JobID)
 		if err != nil {
@@ -1271,6 +1272,9 @@ func (m *Manager) TestToolDryRunContext(parent context.Context, req TestToolRequ
 		}
 		if job.PluginInstallationID != req.PluginInstallationID {
 			return nil, ErrPluginJobInactive
+		}
+		if job.Tool == strings.TrimSpace(req.ToolName) {
+			expectedOrigin = job.ToolOrigin
 		}
 		execCtx, err = m.executor.pluginJobContext(execCtx, job)
 		if err != nil {
@@ -1298,7 +1302,10 @@ func (m *Manager) TestToolDryRunContext(parent context.Context, req TestToolRequ
 			ToolCatalogID: strings.TrimSpace(req.ToolCatalogID),
 		}, nil
 	}
-	tool, ok := m.cfg.ToolRegistry.Get(toolName)
+	tool, generation, ok := m.cfg.ToolRegistry.GetWithGeneration(toolName)
+	if ok && expectedOrigin != "" && expectedOrigin != tools.CatalogEntryFromTool(tool).Origin {
+		return nil, ErrToolOriginChanged
+	}
 	if !ok {
 		return nil, fmt.Errorf("tool not found: %s", toolName)
 	}
@@ -1385,6 +1392,7 @@ func (m *Manager) TestToolDryRunContext(parent context.Context, req TestToolRequ
 				Arguments: string(argsJSON),
 			},
 		},
+		ExpectedToolGeneration: generation,
 		PersistedArguments:     &persistedArguments,
 		BeforeExecute:          beforeExecute,
 		Origin:                 toolinvocations.Origin{Type: toolinvocations.OriginToolCatalog, ID: toolName},
@@ -1485,7 +1493,7 @@ func (m *Manager) RegenerateCatalog() error {
 // --- Metodos internos ---
 
 func (m *Manager) registerJob(job *Job) {
-	if m.cfg.ToolRegistry != nil {
+	if job.ToolOrigin == "" && m.cfg.ToolRegistry != nil {
 		if tool, ok := m.cfg.ToolRegistry.Get(job.Tool); ok {
 			job.ToolOrigin = tools.CatalogEntryFromTool(tool).Origin
 		}

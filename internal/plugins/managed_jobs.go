@@ -21,6 +21,13 @@ func (i *Inventory) WithJobRefresh(refresh func(context.Context, string, command
 	return &copy
 }
 
+func readPackageJob(key, entry string, data []byte) (*jobs.Job, error) {
+	if strings.HasSuffix(entry, ".yaml") {
+		return jobs.ParsePackageDefinition(data)
+	}
+	return jobs.ReadPortableJob(key, data)
+}
+
 func (i *Inventory) PrepareJob(ctx context.Context, id, digest, key string, admit commandsecurity.Admission) (string, error) {
 	owner, err := database.RequireUserID(ctx)
 	if err != nil {
@@ -39,7 +46,7 @@ func (i *Inventory) PrepareJob(ctx context.Context, id, digest, key string, admi
 	var definition *jobs.Job
 	for _, c := range DiscoverComponents(snap) {
 		if c.Key == key && c.Kind == "job" && c.Reason == "" {
-			definition, err = jobs.ReadPortableJob(strings.TrimPrefix(key, "jobs/"), snap.Files[c.Entry])
+			definition, err = readPackageJob(strings.TrimPrefix(key, "jobs/"), c.Entry, snap.Files[c.Entry])
 			if err != nil {
 				return "", err
 			}
@@ -49,7 +56,7 @@ func (i *Inventory) PrepareJob(ctx context.Context, id, digest, key string, admi
 	if definition == nil {
 		return "", ErrComponentUnavailable
 	}
-	slug := "plugin-" + definition.ID + "-" + uuid.NewString()
+	slug := jobs.NormalizeSlug("plugin-" + strings.TrimPrefix(key, "jobs/") + "-" + uuid.NewString())
 	publish, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	err = database.WithSQLiteAdmittedCommit(publish, i.db, "plugins.job.prepare", func(tx *gorm.DB) error {
@@ -68,7 +75,8 @@ func (i *Inventory) PrepareJob(ctx context.Context, id, digest, key string, admi
 		}
 		job := *definition
 		job.ID = slug
-		job.Metadata.CreatedBy = "plugin"
+		job.Enabled = false
+		job.Metadata = jobs.Metadata{CreatedBy: "plugin"}
 		return jobs.CreateDisabledPluginJobTx(ctx, tx, &job, id, digest, key)
 	}, admit)
 	if err != nil {

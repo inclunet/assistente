@@ -529,6 +529,20 @@ func CreateDisabledPluginJobTx(ctx context.Context, tx *gorm.DB, job *Job, insta
 	if err := Validate(job); err != nil {
 		return err
 	}
+	// A preparação usa somente pipelines já disponíveis na conta de destino.
+	if pipeline := normalizeSlug(job.Pipeline); job.Pipeline != "" {
+		if pipeline != job.Pipeline {
+			return fmt.Errorf("%w: pipeline %q", ErrInvalidJobDefinition, job.Pipeline)
+		}
+		var count int64
+		if err := tx.Model(&database.JobPipeline{}).Where("user_id = ? AND slug = ?", owner, pipeline).Count(&count).Error; err != nil {
+			return err
+		}
+		if count != 1 {
+			return fmt.Errorf("%w: pipeline %q", ErrInvalidJobDefinition, pipeline)
+		}
+	}
+	job.PluginInstallationID = installationID
 	repo := NewDBRepository(tx)
 	if err := repo.createJobTx(ctx, tx, owner, normalizeSlug(job.ID), "", job); err != nil {
 		return err
@@ -603,7 +617,7 @@ func (r *DBRepository) createJobTx(ctx context.Context, tx *gorm.DB, userID, slu
 	if err != nil {
 		return err
 	}
-	toolCatalogID, err := r.toolCatalogIDForNameTx(ctx, tx, userID, job.Tool)
+	toolCatalogID, err := r.toolCatalogIDForNameTx(ctx, tx, userID, job, "")
 	if err != nil {
 		return err
 	}
@@ -670,7 +684,23 @@ func (r *DBRepository) SaveJob(ctx context.Context, job *Job) error {
 			if err != nil {
 				return err
 			}
-			toolCatalogID, err := r.toolCatalogIDForNameTx(ctx, tx, userID, job.Tool)
+			var existing database.Job
+			err = tx.Where("user_id = ? AND slug = ?", userID, slug).First(&existing).Error
+			if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+				return err
+			}
+			if job.PluginInstallationID != "" && job.PluginInstallationID != existing.PluginInstallationID {
+				return ErrPluginJobInactive
+			}
+			// O editor identifica a ferramenta pelo nome. Preserve o vínculo local
+			// selecionado na preparação quando o nome continuar igual.
+			selection := *job
+			selection.PluginInstallationID = existing.PluginInstallationID
+			pinnedID := ""
+			if existing.ID != "" && existing.ToolName == strings.TrimSpace(job.Tool) {
+				pinnedID = existing.ToolCatalogID
+			}
+			toolCatalogID, err := r.toolCatalogIDForNameTx(ctx, tx, userID, &selection, pinnedID)
 			if err != nil {
 				return err
 			}
@@ -678,19 +708,7 @@ func (r *DBRepository) SaveJob(ctx context.Context, job *Job) error {
 			if err != nil {
 				return err
 			}
-			var existing database.Job
-			err = tx.Where("user_id = ? AND slug = ?", userID, slug).First(&existing).Error
-			switch {
-			case errors.Is(err, gorm.ErrRecordNotFound):
-				if job.PluginInstallationID != "" {
-					return ErrPluginJobInactive
-				}
-			case err != nil:
-				return err
-			default:
-				if job.PluginInstallationID != "" && job.PluginInstallationID != existing.PluginInstallationID {
-					return ErrPluginJobInactive
-				}
+			if existing.ID != "" {
 				row.ID = existing.ID
 				row.CreatedAt = existing.CreatedAt
 				row.CreatedBy = existing.CreatedBy
@@ -2228,16 +2246,34 @@ func (r *DBRepository) pipelineEnabledByIDTx(ctx context.Context, tx *gorm.DB, u
 	return row.Enabled, nil
 }
 
-func (r *DBRepository) toolCatalogIDForNameTx(ctx context.Context, tx *gorm.DB, userID, name string) (string, error) {
-	name = strings.TrimSpace(name)
+func (r *DBRepository) toolCatalogIDForNameTx(ctx context.Context, tx *gorm.DB, userID string, job *Job, pinnedID string) (string, error) {
+	name := strings.TrimSpace(job.Tool)
 	if name == "" {
 		return "", fmt.Errorf("tool é obrigatória")
 	}
 	var row database.ToolCatalog
-	err := tx.WithContext(ctx).
+	query := tx.WithContext(ctx).Model(&database.ToolCatalog{}).
 		Joins("LEFT JOIN mcp_servers ON mcp_servers.id = tool_catalog.mcp_server_id").
-		Where("tool_catalog.name = ? AND (tool_catalog.user_id IS NULL OR tool_catalog.user_id = ? OR mcp_servers.user_id = ?)", name, userID, userID).
-		Order("tool_catalog.mcp_server_id IS NULL ASC").
+		Where("tool_catalog.name = ? AND (tool_catalog.user_id IS NULL OR tool_catalog.user_id = ? OR mcp_servers.user_id = ?)", name, userID, userID)
+	if pinnedID != "" || job.PluginInstallationID != "" || job.ToolOrigin != "" {
+		if job.PluginInstallationID != "" && (job.Enabled || pinnedID == "") {
+			query = query.Where("tool_catalog.availability_status = ?", "available")
+		}
+		if pinnedID != "" {
+			query = query.Where("tool_catalog.id = ?", pinnedID)
+		} else if job.ToolOrigin != "" {
+			query = query.Where("tool_catalog.origin = ?", job.ToolOrigin)
+		}
+		var candidates []database.ToolCatalog
+		if err := query.Limit(2).Find(&candidates).Error; err != nil {
+			return "", err
+		}
+		if len(candidates) != 1 {
+			return "", fmt.Errorf("%w: tool %q", ErrInvalidJobDefinition, name)
+		}
+		return candidates[0].ID, nil
+	}
+	err := query.Order("tool_catalog.mcp_server_id IS NULL ASC").
 		Order("tool_catalog.availability_status = 'available' DESC").
 		Order("tool_catalog.user_id IS NULL ASC").
 		First(&row).Error

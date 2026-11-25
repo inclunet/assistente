@@ -69,7 +69,7 @@ Abra os detalhes de um plugin instalado que forneça um modelo de lista de taref
 
 ## Conferir jobs incluídos no pacote
 
-A prévia identifica o nome do job, a ferramenta solicitada e os tipos de acionador. A leitura reconhece acionamento manual, por intervalo e por expressão cron. Uma definição inválida ou um acionador incompatível aparece com diagnóstico nos detalhes. Nesta etapa, abrir ou instalar o pacote apenas permite consultar os jobs.
+A prévia identifica o nome do job, a ferramenta solicitada e os tipos de acionador. Pacotes com jobs em YAML também podem declarar eventos, atalhos e webhooks. Uma definição inválida ou um acionador incompatível aparece com diagnóstico nos detalhes. Preparar e habilitar um job são ações separadas.
 
 ## Conferir perfis incluídos no pacote
 
@@ -87,9 +87,11 @@ No editor de Jobs, escolha **Criar cópia independente** para preservar a versã
 
 ## Gerar um pacote com o builder
 
-Abra **Plugins → Criar plugin**. Se uma pasta de skills ou perfis estiver inacessível, o formulário avisa e mantém os recursos das outras pastas disponíveis. Você pode selecioná-las e revisar o pacote normalmente. Use F6 para chegar ao formulário e Tab para percorrer os campos e as opções. Informe um identificador de pacote e, se quiser, sua versão. Marque as skills de instrução que deseja incluir. O builder preserva o SKILL.md original das skills portáveis sem arquivos auxiliares e permite conferir seu conteúdo na prévia. Selecione os perfis para incluir apenas nome, descrição, temperatura, top-p e limite de tokens. Marque as listas que deseja distribuir como modelos e informe uma chave estável para cada uma. Para incluir tarefas iniciais, marque a opção da lista correspondente. Os campos publicados são os títulos e as descrições das tarefas selecionadas, a hierarquia, o título e a descrição da lista e a definição do workflow. Notas pessoais, responsáveis, conclusão e histórico ficam na sua conta.
+Abra **Plugins → Criar plugin**. Se uma pasta de skills ou perfis estiver inacessível, o formulário avisa e mantém os recursos das outras pastas disponíveis. Você pode selecioná-las e revisar o pacote normalmente. Use F6 para chegar ao formulário e Tab para percorrer os campos e as opções. Informe um identificador de pacote e, se quiser, sua versão. Marque as skills de instrução que deseja incluir. O builder preserva o SKILL.md original das skills portáveis sem arquivos auxiliares e permite conferir seu conteúdo na prévia. Selecione os perfis para incluir apenas nome, descrição, temperatura, top-p e limite de tokens. Marque as listas que deseja distribuir como modelos e informe uma chave estável para cada uma. Para incluir tarefas iniciais, marque a opção da lista correspondente. Uma lista criada a partir de um modelo com slug precisa ter esse slug livre na conta de destino. O modelo conserva título, descrição, visualização, política de validação e workflow da lista. Quando você inclui tarefas, o pacote também contém títulos, descrições, códigos, links e hierarquia. Notas pessoais, responsáveis, conclusão e histórico ficam na sua conta.
 
-Marque os jobs que deseja distribuir. O pacote leva a ferramenta, os acionadores compatíveis e os nomes das entradas. A prévia lista os requisitos da conta de destino. Os valores de argumentos, inclusive objetos, credenciais e referências ao cofre, ficam na conta de origem. No destino, preencha cada entrada no editor de Jobs antes de habilitar o job.
+Marque os jobs que deseja distribuir. O builder inclui a definição YAML do job, com os argumentos literais, os acionadores, as condições, o mapeamento de saída e a política de erros. Antes de publicar, confira os argumentos. Tudo que você escrever diretamente neles ficará disponível para quem receber o pacote. Para distribuir um job que usa credenciais, escreva referências ao cofre. O builder copia a referência sem consultar seu valor.
+
+Se o job usa um pipeline, crie ou escolha no destino um pipeline com o mesmo slug antes de preparar o job. A preparação cria um job desativado. Pacotes antigos continuam mostrando as entradas que precisam ser configuradas no destino.
 
 Escolha **Revisar pacote**, confira os arquivos e escolha **Salvar ZIP**. Se um recurso mudou desde a prévia, revise novamente. Se a gravação falhar, escolha outro destino em **Salvar ZIP** para tentar de novo com a mesma prévia. Para instalar o arquivo em outra conta, extraia o ZIP em uma pasta e abra essa pasta pelo gerenciador de Plugins. Você também pode colocar a pasta em um repositório de plugins para publicar a revisão.
 

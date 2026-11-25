@@ -161,6 +161,7 @@ func TestTaskListTemplateDiagnostics(t *testing.T) {
 	for _, tc := range []struct{ name, content, reason string }{
 		{"missing", "", "missingTemplate"},
 		{"invalid JSON", "{", "invalidTemplate"},
+		{"invalid validation policy", `{"title":"Release","validationPolicy":"{","workflow":{"statuses":[{"id":1,"label":"Ready"},{"id":2,"label":"Done"}],"initialStatusId":1,"allowedTransitions":{"1":[2]}}}`, "invalidTemplate"},
 		{"unnamed status", `{"title":"Release","workflow":{"statuses":[{"id":1,"label":" "},{"id":2,"label":"Done"}],"initialStatusId":1,"allowedTransitions":{"1":[2]}}}`, "invalidTemplate"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
