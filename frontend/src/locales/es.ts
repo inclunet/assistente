@@ -175,12 +175,12 @@ notSaved: 'La decisión vale solo para esta operación: no se pudo recordar. Ser
       builderJobs: 'Jobs del Asistente',
       invalidLocalJson: 'Corrige el JSON antes de guardar.',
       localInputJson: 'Introduce un valor JSON. Usa comillas dobles para texto.',
-      missingJobInput: 'Configura {{name}} antes de habilitar el job.',
+
       builderJobError: 'El job {{name}} no está disponible para exportar. Compruebe su definición y si todavía existe.',
       builderJobInputs: 'El paquete incluye la definición del job y los valores literales de las entradas. Revise los argumentos antes de publicar. Las referencias a la bóveda se copian sin consultar el secreto.',
       jobRate: 'Máximo de ejecuciones por hora: {{limit}}',
       jobDefaultRate: 'Límite por hora predeterminado del destino',
-      jobInputs: 'Entradas que debes configurar en el destino: {{fields}}',
+
       builderProfiles: 'Perfiles de conversación',
       builderProfileFields: 'El paquete incluye nombre, descripción, temperatura, top-p y límite de tokens. El perfil instalado utiliza el proveedor predeterminado con herramientas y skills desactivadas.',
       builderSkills: 'Skills de instrucciones para incluir en el paquete',

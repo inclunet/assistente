@@ -176,12 +176,12 @@ notSaved: 'The decision applies only to this operation: it could not be remember
       builderJobs: 'Assistant jobs',
       invalidLocalJson: 'Enter valid JSON before saving.',
       localInputJson: 'Enter a JSON value. Use double quotes for text.',
-      missingJobInput: 'Set a value for {{name}} before enabling the job.',
+
       builderJobError: 'Job {{name}} is unavailable for export. Check its definition and whether it still exists.',
       builderJobInputs: 'The package includes the job definition and literal input values. Review the arguments before publishing. Vault references are copied without looking up the secret.',
       jobRate: 'Maximum runs per hour: {{limit}}',
       jobDefaultRate: 'Destination default hourly limit',
-      jobInputs: 'Inputs to configure at the destination: {{fields}}',
+
       builderProfiles: 'Conversation profiles',
       builderProfileFields: 'The package includes the name, description, temperature, top-p and token limit. The installed profile uses the default provider with tools and skills disabled.',
       builderSkills: 'Instruction skills to include in the package',

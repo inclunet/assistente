@@ -48,7 +48,7 @@ func TestTemplateListSurvivesUpdateAndUninstall(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	write("plugin.json", `{"$schema":"`+pluginpackage.ManifestSchema+`","name":"planner","extensions":{"br.com.inclunet.assistente":{"version":1,"tasklists":["release"]}}}`)
+	write("plugin.json", `{"$schema":"`+pluginpackage.ManifestSchema+`","name":"planner","extensions":{"br.com.inclunet.assistente":{"version":2,"tasklists":["release"]}}}`)
 	const template = `{"title":"Release","workflow":{"statuses":[{"id":1,"label":"Open"},{"id":2,"label":"Done"}],"initialStatusId":1,"allowedTransitions":{"1":[2]}},"tasks":[{"title":"Check"}]}`
 	write(nativeExtension+"/tasklists/release.json", template)
 	ctx := database.WithUserID(context.Background(), "reader")
@@ -156,7 +156,7 @@ func TestTemplateListSurvivesUpdateAndUninstall(t *testing.T) {
 func TestTaskListTemplateDiagnostics(t *testing.T) {
 	const entry = nativeExtension + "/tasklists/release.json"
 	snap := pluginpackage.LocalSnapshot{Manifest: pluginpackage.Manifest{Extensions: map[string]json.RawMessage{
-		nativeExtension: json.RawMessage(`{"version":1,"tasklists":["release"]}`),
+		nativeExtension: json.RawMessage(`{"version":2,"tasklists":["release"]}`),
 	}}}
 	for _, tc := range []struct{ name, content, reason string }{
 		{"missing", "", "missingTemplate"},
@@ -191,7 +191,7 @@ func TestTaskListTemplateDiagnostics(t *testing.T) {
 		{"mixed at limit", 1024, 1024, 0, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			raw, err := json.Marshal(nativeResources{Version: 1, TaskLists: names[:tc.lists], Profiles: names[:tc.profiles], Jobs: names[:tc.jobs]})
+			raw, err := json.Marshal(nativeResources{Version: nativeVersion, TaskLists: names[:tc.lists], Profiles: names[:tc.profiles], Jobs: names[:tc.jobs]})
 			if err != nil {
 				t.Fatal(err)
 			}

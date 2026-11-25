@@ -10,12 +10,15 @@ import (
 
 	"assistente/internal/commandsecurity"
 	"assistente/internal/database"
+	"assistente/internal/jobs"
 	"assistente/internal/pluginpackage"
 	"assistente/internal/portability"
 	"assistente/internal/profiles"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 )
+
+const nativeVersion = 2
 
 const nativeExtension = "br.com.inclunet.assistente"
 
@@ -34,7 +37,7 @@ func nativeComponents(snap *pluginpackage.LocalSnapshot) []Component {
 	var def nativeResources
 	decoder := json.NewDecoder(strings.NewReader(string(raw)))
 	decoder.DisallowUnknownFields()
-	if decoder.Decode(&def) != nil || (def.Version != 1 && def.Version != 2) || len(def.TaskLists)+len(def.Profiles)+len(def.Jobs) > 2048 {
+	if decoder.Decode(&def) != nil || def.Version != nativeVersion || len(def.TaskLists)+len(def.Profiles)+len(def.Jobs) > 2048 {
 		return []Component{{Kind: "invalidNative", Key: nativeExtension, Name: nativeExtension, Reason: "manifestConfiguration"}}
 	}
 	var result []Component
@@ -79,19 +82,14 @@ func nativeComponents(snap *pluginpackage.LocalSnapshot) []Component {
 			return []Component{{Kind: "invalidNative", Key: nativeExtension, Name: nativeExtension, Reason: "manifestConfiguration"}}
 		}
 		seen[key] = true
-		suffix := ".json"
-		if def.Version == 2 {
-			suffix = ".yaml"
-		}
-		entry := path.Join(nativeExtension, key+suffix)
+		entry := path.Join(nativeExtension, key+".yaml")
 		c := Component{Kind: "job", Key: key, Name: name, Entry: entry}
-		def, err := readPackageJob(name, entry, snap.Files[entry])
+		def, err := jobs.ParsePackageDefinition(snap.Files[entry])
 		if err != nil {
 			c.Reason = "invalidJob"
 		} else {
 			c.Name = def.Name
 			c.Tool = def.Tool
-			c.JobRequiredInputs = def.RequiredInputs
 			c.JobMaxRunsPerHour = def.MaxRunsPerHour
 			c.JobTriggers = def.Triggers
 		}

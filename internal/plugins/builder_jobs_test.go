@@ -46,7 +46,7 @@ func TestBuilderTransfersJobDefinitionAcrossAccounts(t *testing.T) {
 		t.Fatal("exportou dados da conta de origem")
 	}
 	components := DiscoverComponents(snap)
-	if len(components) != 1 || len(components[0].JobRequiredInputs) != 0 {
+	if len(components) != 1 || components[0].Tool != original.Tool {
 		t.Fatal(components)
 	}
 	archive, err := pluginpackage.OpenArchive(data)

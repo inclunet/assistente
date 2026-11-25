@@ -176,12 +176,12 @@ notSaved: 'A decisão vale somente para esta operação: não foi possível lemb
       builderJobs: 'Jobs do Assistente',
       invalidLocalJson: 'Corrija o JSON antes de salvar.',
       localInputJson: 'Informe um valor JSON. Use aspas duplas para texto.',
-      missingJobInput: 'Preencha {{name}} antes de habilitar o job.',
+
       builderJobError: 'O job {{name}} está indisponível para exportação. Confira sua definição e se ele ainda existe.',
       builderJobInputs: 'O pacote inclui a definição do job e os valores literais das entradas. Revise os argumentos antes de publicar. Referências ao cofre são copiadas sem consultar o segredo.',
       jobRate: 'Limite de execuções por hora: {{limit}}',
       jobDefaultRate: 'Limite por hora padrão do destino',
-      jobInputs: 'Entradas a configurar no destino: {{fields}}',
+
       builderProfiles: 'Perfis de conversa',
       builderProfileFields: 'O pacote inclui nome, descrição, temperatura, top-p e limite de tokens. O perfil instalado usa o provedor padrão, com ferramentas e skills desativadas.',
       builderSkills: 'Skills de instrução para incluir no pacote',

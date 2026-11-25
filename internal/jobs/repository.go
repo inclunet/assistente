@@ -547,11 +547,7 @@ func CreateDisabledPluginJobTx(ctx context.Context, tx *gorm.DB, job *Job, insta
 	if err := repo.createJobTx(ctx, tx, owner, normalizeSlug(job.ID), "", job); err != nil {
 		return err
 	}
-	required, err := json.Marshal(job.RequiredInputs)
-	if err != nil {
-		return err
-	}
-	return tx.Model(&database.Job{}).Where("id=? AND user_id=?", job.DatabaseID, owner).Updates(map[string]any{"plugin_installation_id": installationID, "plugin_digest": digest, "plugin_component_key": key, "plugin_required_inputs": string(required), "plugin_refresh_pending": true}).Error
+	return tx.Model(&database.Job{}).Where("id=? AND user_id=?", job.DatabaseID, owner).Updates(map[string]any{"plugin_installation_id": installationID, "plugin_digest": digest, "plugin_component_key": key, "plugin_refresh_pending": true}).Error
 }
 
 // CopyManagedJobTx copies the saved definition in the owner's transaction. A retry
@@ -599,16 +595,12 @@ func CopyManagedJobTx(ctx context.Context, tx *gorm.DB, installationID, sourceSl
 	if err := repo.createJobTx(ctx, tx, owner, slug, id, job); err != nil {
 		return "", err
 	}
-	required, err := json.Marshal(job.RequiredInputs)
-	if err != nil {
-		return "", err
-	}
 	receipt.CopySlug = slug
 	if err := tx.Create(&receipt).Error; err != nil {
 		return "", err
 	}
 	return slug, tx.Model(&database.Job{}).Where("id=? AND user_id=?", id, owner).Updates(map[string]any{
-		"plugin_refresh_pending": true, "plugin_required_inputs": string(required),
+		"plugin_refresh_pending": true,
 	}).Error
 }
 
@@ -715,23 +707,7 @@ func (r *DBRepository) SaveJob(ctx context.Context, job *Job) error {
 				row.PluginInstallationID = existing.PluginInstallationID
 				row.PluginDigest = existing.PluginDigest
 				row.PluginRefreshPending = existing.PluginRefreshPending
-				if existing.PluginInstallationID != "" || row.ToolName == existing.ToolName {
-					row.PluginRequiredInputs = existing.PluginRequiredInputs
-				}
 				row.PluginComponentKey = existing.PluginComponentKey
-				if row.Enabled && row.PluginRequiredInputs != "" {
-					var required []string
-					if err := json.Unmarshal([]byte(row.PluginRequiredInputs), &required); err != nil {
-						return err
-					}
-					for _, field := range required {
-						value, ok := job.Inputs[field]
-						text, isText := value.(string)
-						if !ok || value == nil || (isText && strings.TrimSpace(text) == "") {
-							return fmt.Errorf("PLUGIN_JOB_INPUT_REQUIRED: %s", field)
-						}
-					}
-				}
 				if row.Enabled && existing.PluginInstallationID != "" {
 					if err := checkPluginJobRevision(ctx, tx, userID, &existing); err != nil {
 						return err
@@ -2579,14 +2555,7 @@ func jobModelToDomainWithTags(row database.Job, tagSlugs []string) (*Job, error)
 		toolName = row.ToolCatalog.Name
 		toolOrigin = row.ToolCatalog.Origin
 	}
-	var required []string
-	if row.PluginRequiredInputs != "" {
-		if err := json.Unmarshal([]byte(row.PluginRequiredInputs), &required); err != nil {
-			return nil, err
-		}
-	}
 	return &Job{
-		RequiredInputs:       required,
 		PluginInstallationID: row.PluginInstallationID,
 		PluginDigest:         row.PluginDigest,
 		ToolOrigin:           toolOrigin,

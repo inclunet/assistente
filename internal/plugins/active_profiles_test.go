@@ -43,7 +43,7 @@ func TestInstalledProfileAccountAndRevision(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	write(filepath.Join(root, "plugin.json"), `{"$schema":"`+pluginpackage.ManifestSchema+`","name":"portable","extensions":{"br.com.inclunet.assistente":{"version":1,"profiles":["writer"]}}}`)
+	write(filepath.Join(root, "plugin.json"), `{"$schema":"`+pluginpackage.ManifestSchema+`","name":"portable","extensions":{"br.com.inclunet.assistente":{"version":2,"profiles":["writer"]}}}`)
 	install := func(previous string) database.PluginInstallation {
 		t.Helper()
 		snap, err := pluginpackage.InspectLocal(root)

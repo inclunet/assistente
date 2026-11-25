@@ -175,8 +175,6 @@ export function JobBuilder({ editJob, onClose, onSaved }: JobBuilderProps) {
   const [draft, setDraft] = useState<JobDraft>(() =>
     editJob ? jobToDraft(editJob) : createEmptyDraft()
   );
-  const requiredInputs = editJob?.plugin_installation_id || draft.tool === editJob?.tool
-    ? editJob?.required_inputs : undefined;
   const [localDrafts, setLocalDrafts] = useState<Record<string,string>>({});
   const inputsValid = Object.values(localDrafts).every(raw => parseLocalInput(raw).valid);
   const [toolSchema, setToolSchema] = useState<Record<string, unknown> | null>(null);
@@ -513,9 +511,7 @@ export function JobBuilder({ editJob, onClose, onSaved }: JobBuilderProps) {
       onSaved?.();
       onClose();
     } catch (err) {
-      const required = /PLUGIN_JOB_INPUT_REQUIRED: ([a-zA-Z0-9_-]+)/.exec(String(err));
-      if (required) showError(t('plugins.missingJobInput', {name: required[1]}));
-      else if (isJobProfileAuthorizationError(err) || String(err).includes('authorization_not_granted')) {
+      if (isJobProfileAuthorizationError(err) || String(err).includes('authorization_not_granted')) {
         showProfileGrantError(err);
       } else {
         showError(String(err));
@@ -532,7 +528,6 @@ export function JobBuilder({ editJob, onClose, onSaved }: JobBuilderProps) {
   return (
     <div className="job-builder">
       <div className="job-builder__content">
-        {Boolean(requiredInputs?.length) && <p>{t('plugins.jobInputs', {fields: requiredInputs!.join(', ')})}</p>}
         {error && (
           <div className="job-builder__error">
             <span>{error}</span>
@@ -643,7 +638,6 @@ export function JobBuilder({ editJob, onClose, onSaved }: JobBuilderProps) {
 
                 <SchemaForm
                   schema={toolSchema as never}
-                  configuredFields={requiredInputs}
                   localDrafts={localDrafts}
                   onLocalDraft={(field,raw) => setLocalDrafts(current => ({...current,[field]:raw}))}
                   values={draft.inputs}

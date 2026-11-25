@@ -16,8 +16,8 @@ import (
 // Component identifies a contribution within a revision; runtime keys are
 // allocated separately, so the same skill name can occur in several packages.
 type Component struct {
-	Tool              string         `json:"tool,omitempty"`
-	JobRequiredInputs []string       `json:"jobRequiredInputs,omitempty"`
+	Tool string `json:"tool,omitempty"`
+
 	JobMaxRunsPerHour int            `json:"jobMaxRunsPerHour,omitempty"`
 	JobTriggers       []jobs.Trigger `json:"jobTriggers,omitempty"`
 	RequestsShell     bool           `json:"requestsShell,omitempty"`

@@ -12,7 +12,7 @@ func TestDiscoverPortableProfile(t *testing.T) {
 	const entry = nativeExtension + "/profiles/writer.json"
 	snap := &pluginpackage.LocalSnapshot{
 		Manifest: pluginpackage.Manifest{Extensions: map[string]json.RawMessage{
-			nativeExtension: json.RawMessage(`{"version":1,"profiles":["writer"]}`),
+			nativeExtension: json.RawMessage(`{"version":2,"profiles":["writer"]}`),
 		}},
 		Files: map[string][]byte{entry: []byte(`{"name":"Writer","temperature":0,"maxTokens":250,"topP":0.8}`)},
 	}

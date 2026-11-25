@@ -31,7 +31,6 @@ interface JSONSchema {
 }
 
 interface SchemaFormProps {
-  configuredFields?: string[];
   localDrafts?: Record<string, string>;
   onLocalDraft?: (field: string, raw: string) => void;
   schema: JSONSchema | null;
@@ -238,7 +237,7 @@ export function parseLocalInput(raw: string): {valid:boolean; value?:unknown} {
   try { return {valid:true, value:JSON.parse(raw)}; } catch { return {valid:false}; }
 }
 
-export function SchemaForm({ schema, values, onChange, templateMode = false, templateContext, configuredFields = [], localDrafts = {}, onLocalDraft }: SchemaFormProps) {
+export function SchemaForm({ schema, values, onChange, templateMode = false, templateContext, localDrafts = {}, onLocalDraft }: SchemaFormProps) {
   const { t } = useTranslation();
 
   const fields = useMemo(() => {
@@ -251,7 +250,7 @@ export function SchemaForm({ schema, values, onChange, templateMode = false, tem
     }));
   }, [schema]);
 
-  const extra = configuredFields.filter(field =>
+  const extra = [...new Set([...Object.keys(values), ...Object.keys(localDrafts)])].filter(field =>
     Object.prototype.hasOwnProperty.call(localDrafts, field) ||
     !Object.prototype.hasOwnProperty.call(schema?.properties ?? {}, field) ||
     (values[field] != null && typeof values[field] === 'object')

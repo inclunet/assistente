@@ -69,7 +69,6 @@ var ErrToolOriginChanged = errors.New("a origem da ferramenta disponível difere
 
 // Job representa uma unidade atomica de automacao: 1 job = 1 tool call.
 type Job struct {
-	RequiredInputs       []string       `yaml:"required_inputs,omitempty" json:"required_inputs,omitempty"`
 	PluginInstallationID string         `yaml:"-" json:"plugin_installation_id,omitempty"`
 	PluginDigest         string         `yaml:"-" json:"-"`
 	ToolOrigin           string         `yaml:"tool_origin,omitempty" json:"-"`

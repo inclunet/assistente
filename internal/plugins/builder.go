@@ -118,10 +118,7 @@ func (i *Inventory) BuildPackage(ctx context.Context, request BuilderRequest) ([
 		return nil, nil, errors.New("PLUGIN_BUILDER_SELECTION")
 	}
 	files := map[string][]byte{}
-	extension := nativeResources{Version: 1}
-	if len(request.Jobs) > 0 || len(request.TaskLists) > 0 {
-		extension.Version = 2
-	}
+	extension := nativeResources{Version: nativeVersion}
 	total := 0
 	var profileFiles profiles.PortableDefinitions
 	if len(request.Profiles) > 0 && i.profileDefinitions != nil {

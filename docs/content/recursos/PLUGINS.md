@@ -69,7 +69,7 @@ Abra os detalhes de um plugin instalado que forneça um modelo de lista de taref
 
 ## Conferir jobs incluídos no pacote
 
-A prévia identifica o nome do job, a ferramenta solicitada e os tipos de acionador. Pacotes com jobs em YAML também podem declarar eventos, atalhos e webhooks. Uma definição inválida ou um acionador incompatível aparece com diagnóstico nos detalhes. Preparar e habilitar um job são ações separadas.
+A prévia identifica o nome do job, a ferramenta solicitada e os tipos de acionador. Os jobs em YAML também podem declarar eventos, atalhos e webhooks. Uma definição inválida ou um acionador incompatível aparece com diagnóstico nos detalhes. Preparar e habilitar um job são ações separadas.
 
 ## Conferir perfis incluídos no pacote
 
@@ -91,7 +91,7 @@ Abra **Plugins → Criar plugin**. Se uma pasta de skills ou perfis estiver inac
 
 Marque os jobs que deseja distribuir. O builder inclui a definição YAML do job, com os argumentos literais, os acionadores, as condições, o mapeamento de saída e a política de erros. Antes de publicar, confira os argumentos. Tudo que você escrever diretamente neles ficará disponível para quem receber o pacote. Para distribuir um job que usa credenciais, escreva referências ao cofre. O builder copia a referência sem consultar seu valor.
 
-Se o job usa um pipeline, crie ou escolha no destino um pipeline com o mesmo slug antes de preparar o job. A preparação cria um job desativado. Pacotes antigos continuam mostrando as entradas que precisam ser configuradas no destino.
+Se o job usa um pipeline, crie ou escolha no destino um pipeline com o mesmo slug antes de preparar o job. A preparação cria um job desativado.
 
 Escolha **Revisar pacote**, confira os arquivos e escolha **Salvar ZIP**. Se um recurso mudou desde a prévia, revise novamente. Se a gravação falhar, escolha outro destino em **Salvar ZIP** para tentar de novo com a mesma prévia. Para instalar o arquivo em outra conta, extraia o ZIP em uma pasta e abra essa pasta pelo gerenciador de Plugins. Você também pode colocar a pasta em um repositório de plugins para publicar a revisão.
 

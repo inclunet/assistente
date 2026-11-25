@@ -21,13 +21,6 @@ func (i *Inventory) WithJobRefresh(refresh func(context.Context, string, command
 	return &copy
 }
 
-func readPackageJob(key, entry string, data []byte) (*jobs.Job, error) {
-	if strings.HasSuffix(entry, ".yaml") {
-		return jobs.ParsePackageDefinition(data)
-	}
-	return jobs.ReadPortableJob(key, data)
-}
-
 func (i *Inventory) PrepareJob(ctx context.Context, id, digest, key string, admit commandsecurity.Admission) (string, error) {
 	owner, err := database.RequireUserID(ctx)
 	if err != nil {
@@ -46,7 +39,7 @@ func (i *Inventory) PrepareJob(ctx context.Context, id, digest, key string, admi
 	var definition *jobs.Job
 	for _, c := range DiscoverComponents(snap) {
 		if c.Key == key && c.Kind == "job" && c.Reason == "" {
-			definition, err = readPackageJob(strings.TrimPrefix(key, "jobs/"), c.Entry, snap.Files[c.Entry])
+			definition, err = jobs.ParsePackageDefinition(snap.Files[c.Entry])
 			if err != nil {
 				return "", err
 			}
