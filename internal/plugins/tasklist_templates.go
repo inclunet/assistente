@@ -12,6 +12,7 @@ import (
 	"assistente/internal/database"
 	"assistente/internal/pluginpackage"
 	"assistente/internal/portability"
+	"assistente/internal/profiles"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 )
@@ -20,10 +21,11 @@ const nativeExtension = "br.com.inclunet.assistente"
 
 type nativeResources struct {
 	Version   int      `json:"version"`
+	Profiles  []string `json:"profiles,omitempty"`
 	TaskLists []string `json:"tasklists"`
 }
 
-func taskListComponents(snap *pluginpackage.LocalSnapshot) []Component {
+func nativeComponents(snap *pluginpackage.LocalSnapshot) []Component {
 	raw, ok := snap.Manifest.Extensions[nativeExtension]
 	if !ok {
 		return nil
@@ -31,7 +33,7 @@ func taskListComponents(snap *pluginpackage.LocalSnapshot) []Component {
 	var def nativeResources
 	decoder := json.NewDecoder(strings.NewReader(string(raw)))
 	decoder.DisallowUnknownFields()
-	if decoder.Decode(&def) != nil || def.Version != 1 || len(def.TaskLists) > 2048 {
+	if decoder.Decode(&def) != nil || def.Version != 1 || len(def.TaskLists)+len(def.Profiles) > 2048 {
 		return []Component{{Kind: "invalidNative", Key: nativeExtension, Name: nativeExtension, Reason: "manifestConfiguration"}}
 	}
 	var result []Component
@@ -51,6 +53,22 @@ func taskListComponents(snap *pluginpackage.LocalSnapshot) []Component {
 			c.Reason = "invalidTemplate"
 		} else {
 			c.Name = definition.Title
+		}
+		result = append(result, c)
+	}
+	for _, name := range def.Profiles {
+		if !portableSkillName.MatchString(name) || len(name) > 64 || seen["profiles/"+name] {
+			return []Component{{Kind: "invalidNative", Key: nativeExtension, Name: nativeExtension, Reason: "manifestConfiguration"}}
+		}
+		key := "profiles/" + name
+		seen[key] = true
+		entry := path.Join(nativeExtension, key+".json")
+		c := Component{Key: key, Kind: "profile", Name: name, Entry: entry, Reason: "profileActivationPending"}
+		definition, err := profiles.ReadPortableDefinition(snap.Files[entry])
+		if err != nil {
+			c.Reason = "invalidProfile"
+		} else {
+			c.Name = definition.Name
 		}
 		result = append(result, c)
 	}

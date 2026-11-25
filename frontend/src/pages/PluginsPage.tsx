@@ -24,7 +24,19 @@ function mcpConnectionLabel(component: plugins.Component) {
   return [component.transport, component.endpoint].filter(Boolean).join(' · ');
 }
 
+function componentLabel(kind: string) {
+  switch (kind) {
+    case 'skill': return 'plugins.skill';
+    case 'mcp': return 'plugins.mcp';
+    case 'tasklistTemplate': return 'plugins.tasklistTemplate';
+    case 'profile': return 'plugins.profile';
+    default: return 'plugins.invalid';
+  }
+}
+
 function componentRequirement(component: plugins.Component) {
+  if (component.reason === 'invalidProfile') return 'plugins.invalidProfile';
+  if (component.reason === 'profileActivationPending') return 'plugins.profileActivationPending';
   if (component.reason === 'shellCommands') return 'plugins.shellPending';
   if (component.reason === 'supportingFiles') return 'plugins.filesPending';
   if (component.reason === 'missingTemplate') return 'plugins.missingTemplate';
@@ -416,7 +428,7 @@ function InstalledPlugins({ session }: { session: string }) {
       {createdList && <p>{t('plugins.createdList', { name: createdList })}</p>}
       <h2>{t('plugins.components')}</h2>
       {details.components.length === 0 ? <p>{t('plugins.noComponents')}</p> : <ul>{details.components.map(component => <li key={component.key}>
-        <strong>{component.name}</strong> · {t(component.kind === 'skill' ? 'plugins.skill' : component.kind === 'mcp' ? 'plugins.mcp' : component.kind === 'tasklistTemplate' ? 'plugins.tasklistTemplate' : 'plugins.invalid')}
+        <strong>{component.name}</strong> · {t(componentLabel(component.kind))}
         {component.editedServer && <p>{t('plugins.editedServer', { name: component.editedServer })}</p>}
         {component.kind === 'mcp' && <p>{mcpConnectionLabel(component)}</p>}
         {component.kind === 'skill' && component.requestsShell && <p>{t('plugins.commandPolicy')}</p>}
@@ -448,7 +460,7 @@ function InstalledPlugins({ session }: { session: string }) {
         {preview.authentication && <><dt>{t('plugins.authentication')}</dt><dd>{preview.authentication}</dd></>}
         <dt>SHA-256</dt><dd>{preview.digest}</dd>
       </dl>
-      {(preview.components ?? []).length > 0 && <ul aria-label={t('plugins.components')}>{preview.components.map(component => <li key={component.key}>{component.name} · {t(component.kind === 'skill' ? 'plugins.skill' : component.kind === 'mcp' ? 'plugins.mcp' : component.kind === 'tasklistTemplate' ? 'plugins.tasklistTemplate' : 'plugins.invalid')}{component.requestsShell && <span> · {t('plugins.commandPolicy')}</span>}{component.kind === 'mcp' && <p>{mcpConnectionLabel(component)}</p>}{componentRequirement(component) && <p>{t(componentRequirement(component)!, { path: component.entry })}</p>}</li>)}</ul>}
+      {(preview.components ?? []).length > 0 && <ul aria-label={t('plugins.components')}>{preview.components.map(component => <li key={component.key}>{component.name} · {t(componentLabel(component.kind))}{component.requestsShell && <span> · {t('plugins.commandPolicy')}</span>}{component.kind === 'mcp' && <p>{mcpConnectionLabel(component)}</p>}{componentRequirement(component) && <p>{t(componentRequirement(component)!, { path: component.entry })}</p>}</li>)}</ul>}
       {(preview.diagnostics ?? []).length > 0 && <details>
         <summary>{t('plugins.warnings', { count: preview.diagnostics.length })}</summary>
         <ul>{preview.diagnostics.map(warning => {
