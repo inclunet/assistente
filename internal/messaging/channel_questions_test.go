@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -378,6 +379,30 @@ func TestSimOuNaoViraDuasOpcoesNumeradas(t *testing.T) {
 	}
 }
 
+func TestDecisaoDistingueControleInvisivelDeTextoLiteral(t *testing.T) {
+	body := "arquivo\u200b.txt\n" + `arquivo\u200b.txt`
+	message := renderChannelDecision(questionnaire.RequestPayload{Body: body}, []string{"Negar"}, time.Minute)
+	if !strings.Contains(message, strconv.QuoteToGraphic(body)) || strings.ContainsRune(message, '\u200b') {
+		t.Fatalf("corpo ambíguo na pergunta: %q", message)
+	}
+	if decisionBodyText(`arquivo\u200b.txt`) != `arquivo\u200b.txt` {
+		t.Fatal("a referência literal foi alterada")
+	}
+}
+
+func TestDiretorioDaDecisaoDistingueCaracteresInvisiveis(t *testing.T) {
+	render := func(dir string) string {
+		return renderChannelDecision(questionnaire.RequestPayload{
+			Hint: questionnaire.Plain("Diretório: " + dir), Body: "pwd",
+		}, []string{"Negar"}, time.Minute)
+	}
+	dir := "projeto\u200b"
+	got := render(dir)
+	if got == render("projeto") || got == render(`projeto\u200b`) || strings.ContainsRune(got, '\u200b') || !strings.Contains(got, strconv.QuoteToGraphic("Diretório: "+dir)) {
+		t.Fatalf("diretório ambíguo na pergunta: %q", got)
+	}
+}
+
 func TestOTextoDoAgenteNaoVaiCruParaOCanal(t *testing.T) {
 	// A mensagem fica gravada no histórico de um app de terceiro: escape de
 	// terminal e espaço invisível não têm o que fazer ali, e o invisível é como
@@ -596,5 +621,33 @@ func TestSemMensageiroNaoHaComoPerguntar(t *testing.T) {
 	var nulo *ChannelQuestions
 	if res := nulo.TryAnswer(context.Background(), "conversa-1", "contato-1", "1"); res != AnswerNotPending {
 		t.Errorf("resultado = %v, quer mensagem comum", res)
+	}
+}
+
+func TestChannelAcceptGuardRunsOnlyForOfferedOwnerAnswer(t *testing.T) {
+	questions, channel := mecanismoDePergunta(time.Minute)
+	var actions []string
+	payload := pedidoDeDecisao().WithAcceptGuard(func(resp questionnaire.Response) bool {
+		action, _ := questionnaire.DecisionActionID(resp)
+		actions = append(actions, action)
+		return action == "deny"
+	})
+	done := perguntaEmVoo(t, questions, payload)
+	channel.esperarMensagem(t)
+	answer := func(owner, choice string) AnswerResult {
+		return questions.TryAnswer(t.Context(), "conversa-1", owner, choice)
+	}
+	if answer("terceiro", "2") != AnswerIgnored || answer("contato-1", "3") != AnswerIgnored || len(actions) != 0 {
+		t.Fatalf("guarda consultada para resposta inválida: %v", actions)
+	}
+	if answer("contato-1", "1") != AnswerIgnored || questions.PendingCount() != 1 {
+		t.Fatal("resposta reprovada pela guarda consumiu a pergunta")
+	}
+	if answer("contato-1", "2") != AnswerDelivered || strings.Join(actions, ",") != "allow-once,deny" {
+		t.Fatalf("escolhas consultadas: %v", actions)
+	}
+	got := esperarResultado(t, done)
+	if id, ok := questionnaire.DecisionActionID(got.resp); got.err != nil || !ok || id != "deny" {
+		t.Fatalf("resposta entregue: %+v", got)
 	}
 }

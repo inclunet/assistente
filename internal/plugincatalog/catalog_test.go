@@ -71,3 +71,24 @@ func TestCatalogDoesNotDropInlineHooks(t *testing.T) {
 		t.Fatal(idx, err)
 	}
 }
+
+func TestClaudeRelativeAndBareSources(t *testing.T) {
+	index, err := Decode(Claude, []byte(`{"name":"market","owner":{"name":"alice"},"metadata":{"pluginRoot":"./plugins"},"plugins":[{"name":"root","source":"."},{"name":"nested","source":"./tools/nested","strict":true},{"name":"bare","source":"bare"}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	root, nested, bare := index.Entries[0], index.Entries[1], index.Entries[2]
+	if root.Diagnostic != "source" || nested.Path != "tools/nested" || nested.Diagnostic != "" || bare.Path != "plugins/bare" {
+		t.Fatal(index)
+	}
+}
+
+func TestCodexProductRestrictionAndDeferredAuthentication(t *testing.T) {
+	index, err := Decode(Codex, []byte(`{"name":"catalog","plugins":[{"name":"allowed","source":"./allowed","category":"Utility","policy":{"installation":"AVAILABLE","authentication":"ON_USE"}},{"name":"limited","source":"./limited","category":"Utility","policy":{"installation":"AVAILABLE","authentication":"ON_USE","products":["CODEX"]}}]}`))
+	if err != nil || len(index.Entries) != 2 {
+		t.Fatal(index, err)
+	}
+	if index.Entries[0].Diagnostic != "" || index.Entries[1].Diagnostic != "policy" || len(index.Entries[1].Products) != 1 {
+		t.Fatal(index)
+	}
+}

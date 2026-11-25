@@ -8041,6 +8041,7 @@ export namespace oauthflow {
 export namespace plugincatalog {
 	
 	export class Entry {
+	    products?: string[];
 	    category?: string;
 	    authentication?: string;
 	    installation?: string;
@@ -8059,6 +8060,7 @@ export namespace plugincatalog {
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.products = source["products"];
 	        this.category = source["category"];
 	        this.authentication = source["authentication"];
 	        this.installation = source["installation"];
@@ -8165,11 +8167,26 @@ export namespace plugins {
 		    return a;
 		}
 	}
+	export class BuilderResourceCatalog {
+	    names: string[];
+	    partial: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new BuilderResourceCatalog(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.names = source["names"];
+	        this.partial = source["partial"];
+	    }
+	}
 	
 	export class Component {
 	    tool?: string;
 	    jobTriggers?: string[];
 	    requestsShell?: boolean;
+	    editedServer?: string;
 	    endpoint?: string;
 	    active: boolean;
 	    slug?: string;
@@ -8189,6 +8206,7 @@ export namespace plugins {
 	        this.tool = source["tool"];
 	        this.jobTriggers = source["jobTriggers"];
 	        this.requestsShell = source["requestsShell"];
+	        this.editedServer = source["editedServer"];
 	        this.endpoint = source["endpoint"];
 	        this.active = source["active"];
 	        this.slug = source["slug"];
@@ -10261,6 +10279,8 @@ export namespace wailsapi {
 	}
 	export class PluginPreview {
 	    authentication?: string;
+	    editedMcpServers?: string[];
+	    affectedMcpServers?: string[];
 	    components: plugins.Component[];
 	    token: string;
 	    name: string;
@@ -10278,6 +10298,8 @@ export namespace wailsapi {
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.authentication = source["authentication"];
+	        this.editedMcpServers = source["editedMcpServers"];
+	        this.affectedMcpServers = source["affectedMcpServers"];
 	        this.components = this.convertValues(source["components"], plugins.Component);
 	        this.token = source["token"];
 	        this.name = source["name"];

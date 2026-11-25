@@ -3,9 +3,13 @@ package questionnaire
 import (
 	"context"
 	"errors"
+	"strings"
 	"sync"
 	"testing"
+	"testing/synctest"
 	"time"
+
+	"assistente/internal/tools/invocationctx"
 )
 
 func TestRequestQuestionnaire_Answered(t *testing.T) {
@@ -438,5 +442,98 @@ func TestRequestQuestionnaireSerializesBackendDialogs(t *testing.T) {
 		}
 	case <-time.After(time.Second):
 		t.Fatal("terceiro diálogo não concluiu")
+	}
+}
+
+func TestAcceptedResponseSurvivesDeadline(t *testing.T) {
+	for _, before := range []bool{true, false} {
+		t.Run(map[bool]string{true: "accepted-first", false: "deadline-first"}[before], func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				var mgr *Manager
+				var respondErr error
+				closed := false
+				mgr = NewManager(func(event string, data any) {
+					if event == EventQuestionnaireClosed {
+						closed = true
+						return
+					}
+					id := data.(map[string]any)["id"].(string)
+					if !before {
+						time.Sleep(2 * time.Second)
+					}
+					respondErr = mgr.Respond(id, nil, true)
+					if before {
+						time.Sleep(2 * time.Second)
+					}
+				})
+				resp, err := mgr.RequestQuestionnaire(t.Context(), RequestPayload{Timeout: time.Second})
+				if before {
+					if err != nil || respondErr != nil || !resp.Cancelled || closed {
+						t.Fatalf("response=%+v err=%v respond=%v closed=%v", resp, err, respondErr, closed)
+					}
+				} else if err == nil || respondErr == nil || resp.Cancelled || !closed {
+					t.Fatalf("response=%+v err=%v respond=%v closed=%v", resp, err, respondErr, closed)
+				}
+			})
+		})
+	}
+}
+
+func TestRespondCannotAcceptAfterExecutorClosesReceipt(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	var receipt invocationctx.ConfirmationReceipt
+	var mgr *Manager
+	mgr = NewManager(func(event string, data any) {
+		if event != EventQuestionnaire {
+			return
+		}
+		id := data.(map[string]any)["id"].(string)
+		if receipt.Close() {
+			t.Fatal("recusa sem resposta")
+		}
+		if err := mgr.Respond(id, nil, true); err == nil || !strings.Contains(err.Error(), "expirada") {
+			t.Fatalf("resposta após encerramento: %v", err)
+		}
+		cancel()
+	})
+	if _, err := mgr.RequestQuestionnaire(ctx, RequestPayload{}.WithAcceptGuard(func(resp Response) bool { return receipt.TryAccept(resp.Cancelled) })); !errors.Is(err, context.Canceled) {
+		t.Fatalf("encerramento: %v", err)
+	}
+}
+
+func TestAcceptedResponseReachesCallerAfterGuardAndCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	acceptedID := ""
+	payload := RequestPayload{}.WithAcceptGuard(func(response Response) bool {
+		if !response.Cancelled {
+			t.Error("a guarda recebeu uma resposta diferente")
+			return false
+		}
+		acceptedID = response.ID
+		return true
+	})
+	var mgr *Manager
+	mgr = NewManager(func(event string, data any) {
+		if event == EventQuestionnaireClosed {
+			t.Error("fechamento emitido após resposta aceita")
+			return
+		}
+		id := data.(map[string]any)["id"].(string)
+		if err := mgr.Respond(id, nil, true); err != nil {
+			t.Fatal(err)
+		}
+		if acceptedID != id || mgr.PendingCount() != 0 {
+			t.Fatal("Respond retornou sem publicar a aceitação")
+		}
+		cancel()
+		if err := mgr.Respond(id, nil, false); err == nil || !strings.Contains(err.Error(), "resposta já enviada") {
+			t.Fatalf("resposta duplicada: %v", err)
+		}
+	})
+	response, err := mgr.RequestQuestionnaire(ctx, payload)
+	if err != nil || acceptedID == "" || response.ID != acceptedID || !response.Cancelled {
+		t.Fatalf("resposta=%+v erro=%v", response, err)
 	}
 }

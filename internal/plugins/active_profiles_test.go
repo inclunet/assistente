@@ -58,7 +58,7 @@ func TestInstalledProfileAccountAndRevision(t *testing.T) {
 	}
 	write(filepath.Join(dir, "writer.json"), `{"name":"Writer","maxTokens":123}`)
 	row := install("")
-	admit := func(action func() error) error { return action() }
+	admit := func(_ *gorm.DB, action func() error) error { return action() }
 	set := func(ctx context.Context, active bool) error {
 		return store.SetProfileActive(ctx, row.ID, row.Digest, "profiles/writer", active, admit)
 	}
@@ -66,7 +66,7 @@ func TestInstalledProfileAccountAndRevision(t *testing.T) {
 		t.Fatal("foreign activation")
 	}
 	denied := errors.New("session ended")
-	if err := store.SetProfileActive(owner, row.ID, row.Digest, "profiles/writer", true, func(func() error) error { return denied }); !errors.Is(err, denied) {
+	if err := store.SetProfileActive(owner, row.ID, row.Digest, "profiles/writer", true, func(*gorm.DB, func() error) error { return denied }); !errors.Is(err, denied) {
 		t.Fatal(err)
 	}
 	list := func(ctx context.Context) []profiles.ProfileInfo {

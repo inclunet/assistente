@@ -12,6 +12,7 @@ import (
 	"assistente/internal/database"
 	"assistente/internal/pluginpackage"
 	"assistente/internal/plugins"
+	"assistente/internal/skills"
 	"assistente/internal/sqlite"
 	"gorm.io/gorm"
 )
@@ -41,13 +42,13 @@ func TestBuilderSaveRechecksRevisionAndSessionBeforePublishing(t *testing.T) {
 	valid := true
 	api := NewPlugins()
 	AttachPlugins(api, stubSession{ctx: ctx}, plugins.NewInventory(db), func() (string, error) { return "", nil }, func(context.Context) (commandsecurity.Admission, error) {
-		return func(fn func() error) error {
+		return func(_ *gorm.DB, fn func() error) error {
 			if !valid {
 				return errors.New("session changed")
 			}
 			return fn()
 		}, nil
-	})
+	}, nil)
 	req := plugins.BuilderRequest{Name: "release", TaskLists: []plugins.BuilderTaskList{{ID: list.ID, Key: "plan"}}}
 	first, err := api.PreviewBuilder(req)
 	if err != nil || len(first.Contents) != 2 {
@@ -66,6 +67,10 @@ func TestBuilderSaveRechecksRevisionAndSessionBeforePublishing(t *testing.T) {
 	}
 	AttachPluginSaveDialog(api, func(ports.SaveFileOptions) (string, error) { return "", nil })
 	if saved, err := api.SaveBuilder(req, current.Digest); err != nil || saved {
+		t.Fatal(saved, err)
+	}
+	AttachPluginSaveDialog(api, func(ports.SaveFileOptions) (string, error) { return filepath.Join(dir, "absent", "output.zip"), nil })
+	if saved, err := api.SaveBuilder(req, current.Digest); saved || !errors.Is(err, errBuilderDestination) {
 		t.Fatal(saved, err)
 	}
 	target := filepath.Join(dir, "review.zip")
@@ -96,5 +101,32 @@ func TestBuilderSaveRechecksRevisionAndSessionBeforePublishing(t *testing.T) {
 	snap, err := archive.Package("review", ".")
 	if err != nil || snap.Digest != current.Digest {
 		t.Fatal(snap, err)
+	}
+}
+
+// A discovery warning can cross the bridge only while the caller's session is admitted.
+func TestBuilderSkillNamesPublishesPartialCatalogOnlyToAdmittedSession(t *testing.T) {
+	ctx := database.WithUserID(context.Background(), "author")
+	source := plugins.NewInventory(nil).WithSkillDefinitions(func() (skills.PortableDefinitions, error) {
+		return skills.PortableDefinitions{"notes": nil}, os.ErrPermission
+	})
+	api := NewPlugins()
+	var deny error
+	AttachPlugins(api, stubSession{ctx: ctx}, source, func() (string, error) { return "", nil }, func(context.Context) (commandsecurity.Admission, error) {
+		return func(_ *gorm.DB, fn func() error) error {
+			if deny != nil {
+				return deny
+			}
+			return fn()
+		}, nil
+	}, nil)
+	catalog, err := api.BuilderSkillNames()
+	if err != nil || catalog == nil || !catalog.Partial || len(catalog.Names) != 1 || catalog.Names[0] != "notes" {
+		t.Fatal(catalog, err)
+	}
+	deny = errors.New("session expired")
+	catalog, err = api.BuilderSkillNames()
+	if !errors.Is(err, deny) || catalog != nil {
+		t.Fatal(catalog, err)
 	}
 }

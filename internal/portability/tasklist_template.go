@@ -51,6 +51,11 @@ func ReadTaskListTemplate(raw []byte) (*TaskListTemplate, error) {
 	if dec.Decode(new(any)) != io.EOF || strings.TrimSpace(template.Title) == "" {
 		return nil, errors.New("invalid tasklist template")
 	}
+	for _, status := range template.Workflow.Statuses {
+		if strings.TrimSpace(status.Label) == "" {
+			return nil, errors.New("empty template workflow status label")
+		}
+	}
 	if _, _, err := validateImportedTaskListWorkflow(template.workflowExport()); err != nil {
 		return nil, err
 	}
@@ -81,15 +86,30 @@ func (t TaskListTemplate) Instantiate(ctx context.Context, tx *gorm.DB, id strin
 		return err
 	}
 	out := TaskListExport{ID: id, Title: t.Title, Description: t.Description, Workflow: t.workflowExport()}
-	out.Workflow.ID = uuid.NewString()
-	var tasks func([]TemplateTask) []TaskExport
-	tasks = func(input []TemplateTask) []TaskExport {
+	workflowID, err := uuid.NewV7()
+	if err != nil {
+		return err
+	}
+	out.Workflow.ID = workflowID.String()
+	var tasks func([]TemplateTask) ([]TaskExport, error)
+	tasks = func(input []TemplateTask) ([]TaskExport, error) {
 		result := make([]TaskExport, 0, len(input))
 		for order, item := range input {
-			result = append(result, TaskExport{ID: uuid.NewString(), Title: item.Title, Description: item.Description, Order: order, StatusID: t.Workflow.InitialStatusID, Children: tasks(item.Children)})
+			id, err := uuid.NewV7()
+			if err != nil {
+				return nil, err
+			}
+			children, err := tasks(item.Children)
+			if err != nil {
+				return nil, err
+			}
+			result = append(result, TaskExport{ID: id.String(), Title: item.Title, Description: item.Description, Order: order, StatusID: t.Workflow.InitialStatusID, Children: children})
 		}
-		return result
+		return result, nil
 	}
-	out.Tasks = tasks(t.Tasks)
+	out.Tasks, err = tasks(t.Tasks)
+	if err != nil {
+		return err
+	}
 	return persistTaskList(ctx, tx, out, nil)
 }
