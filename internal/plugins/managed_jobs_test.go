@@ -137,7 +137,7 @@ func TestCopyManagedJobAfterRevocation(t *testing.T) {
 		}
 		return nil
 	})
-	admit := func(f func() error) error { return f() }
+	admit := func(_ *gorm.DB, f func() error) error { return f() }
 	const request = "ed2712e4-28c5-4c7b-90b9-8c2705aa9e02"
 	copyJob := func(ctx context.Context) (string, error) {
 		return store.CopyJob(ctx, "origem", source.ID, request, "Cópia", admit)

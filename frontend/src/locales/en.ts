@@ -202,7 +202,7 @@ notSaved: 'The decision applies only to this operation: it could not be remember
       copyJob: 'Create independent copy',
       copyJobConfirm: 'Create a disabled copy of the saved version of {{name}} in this account? Unsaved edits stay in this editor. The copy starts with its own history and permissions.',
       copyJobName: 'Copy of {{name}}',
-      copyJobDone: 'Created disabled job {{name}}.',
+      copyJobDone: 'Independent copy available in Jobs.',
       copyJobFailed: 'Could not finish copying the job. Retry to check the same copy.',
       openJobOrigin: 'Open source plugin {{id}}',
       originUnavailable: 'This plugin installation is unavailable.',
