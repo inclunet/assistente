@@ -85,6 +85,8 @@ Lojas que distribuem o repositório em um ZIP HTTPS podem ser consultadas com ac
 
 A extensão nativa `extensions["br.com.inclunet.assistente"]` na versão 1 declara modelos de tasklist em `tasklists`. Cada chave referencia `br.com.inclunet.assistente/tasklists/<chave>.json`. O modelo contém título, descrição, workflow e tarefas iniciais opcionais. As instâncias usam o importador de portabilidade, com UUIDv7 para lista, workflow e tarefas, conforme o AEP-0046, e estado inicial. O recibo por instalação, revisão, componente e pedido é gravado na mesma transação. A repetição devolve o identificador original, inclusive após a lista ser excluída. O teste `TestTemplateListSurvivesUpdateAndUninstall` cobre criação, repetição, isolamento e preservação de notas e progresso após atualização e remoção.
 
+A entrega inicial do builder na tela Plugins seleciona listas da conta, exporta definições de workflow e inclui tarefas iniciais mediante escolha explícita. O ZIP passa pelo leitor usado na instalação, e o salvamento compara o digest com a prévia. `TestBuilderExportsOnlySelectedDefinitionsToAnotherAccount` prova a instalação em outra conta sem notas, responsáveis ou progresso. A composição com skills, jobs e perfis permanece pendente.
+
 1. Contrato de pacote, instalação local, identidade, inventário no banco, recuperação e primeira instalação de skill e MCP.
 2. Tela Plugins, repositórios e adaptadores de catálogos e pacotes, com fixtures por formato e versão.
 3. Agentes, comandos, regras e hooks, com testes comportamentais por componente e diagnósticos de suporte parcial.

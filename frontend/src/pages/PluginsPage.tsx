@@ -8,6 +8,7 @@ import { Button } from '../components/ui/Button';
 import { DataGrid } from '../components/ui/DataGrid';
 import { Modal } from '../components/ui/Modal';
 import PluginRepositories from './PluginRepositories';
+import PluginBuilder from './PluginBuilder';
 import { Tabs, Tab, TabList, TabPanel } from '../components/ui/tabs/Tabs';
 import { DecisionDialog } from '../components/ui/DecisionDialog';
 import { useGridPageLandmarks } from '../hooks/useGridPageLandmarks';
@@ -380,7 +381,7 @@ function InstalledPlugins({ session }: { session: string }) {
     <Toolbar ariaLabel={t('menu.plugins')} left={<h1 className="page-toolbar__title">{t('menu.plugins')}</h1>}
       right={<><Button ref={chooseButton} onClick={() => void inspect()} disabled={busy}>{t('plugins.choose')}</Button>{!details && !preview && syncAction}</>} />
     <Tabs value={section} onValueChange={setSection}>
-      <TabList ariaLabel={t('menu.plugins')}>{['installed','catalog','repositories'].map(value => <Tab value={value} key={value}>{t('plugins.' + value)}</Tab>)}</TabList>
+      <TabList ariaLabel={t('menu.plugins')}>{['installed','catalog','repositories','builder'].map(value => <Tab value={value} key={value}>{t('plugins.' + value)}</Tab>)}</TabList>
       <TabPanel value="installed">{section === 'installed' && <>
     <h2>{t('plugins.installed')}</h2>
     {items && items.length > 0 ? <DataGrid items={items} onActivate={row => void openDetails(row)} getItemId={row => row.id} label={t('plugins.installed')}
@@ -388,6 +389,7 @@ function InstalledPlugins({ session }: { session: string }) {
       : items && !busy && !error && !listError && <p>{t('plugins.empty')}</p>}
       </>}</TabPanel>
       {['catalog','repositories'].map(value => <TabPanel key={value} value={value}>{section === value && <PluginRepositories key={value} session={session} parentBusy={busy} catalog={value === 'catalog'} onPreview={(selection, opener) => { catalogOpener.current = opener; openToken.current = selection.token; setError(''); setPreview(selection); }} />}</TabPanel>)}
+      <TabPanel value="builder">{section === 'builder' && <PluginBuilder />}</TabPanel>
     </Tabs>
     {!preview && !details && error && <p>{t(error)}</p>}
     {listErrorText && <p>{listErrorText}</p>}

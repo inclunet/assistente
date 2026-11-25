@@ -184,6 +184,9 @@ func (a *Archive) Wrapper() string {
 func (a *Archive) Package(origin, dir string) (*LocalSnapshot, error) {
 	snap := &LocalSnapshot{Origin: origin, Files: make(map[string][]byte)}
 	prefix := strings.TrimSuffix(dir, "/") + "/"
+	if dir == "." {
+		prefix = ""
+	}
 	var total int64
 files:
 	for name := range a.files {

@@ -40,6 +40,7 @@ func (a *App) wireAllowlist() {
 
 func (a *App) wirePlugins() {
 	if a.pluginsAPI != nil && a.dialogPort != nil {
+		wailsapi.AttachPluginSaveDialog(a.pluginsAPI, a.dialogPort.SaveFileDialog)
 		var authorizer httpclient.NetworkAuthorizer
 		if a.netTrustMgr != nil && a.questionnaireMgr != nil {
 			// Repository requests originate in the desktop manager, outside a conversation.
