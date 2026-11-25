@@ -1,6 +1,7 @@
 package skills
 
 import (
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -9,6 +10,15 @@ import (
 
 	"assistente/internal/configdir"
 )
+
+func readSelected(m *Manager, slug string) ([]byte, error) {
+	definitions, _ := m.DiscoverPortableDefinitions()
+	read := definitions[slug]
+	if read == nil {
+		return nil, os.ErrNotExist
+	}
+	return read()
+}
 
 func TestPortableDefinitionReadsOnlySelectedNativeSkill(t *testing.T) {
 	root := t.TempDir()
@@ -21,7 +31,7 @@ func TestPortableDefinitionReadsOnlySelectedNativeSkill(t *testing.T) {
 		t.Fatal(err)
 	}
 	manager := &Manager{resolver: configdir.NewResolverWithBase(root)}
-	data, err := manager.PortableDefinition("notes")
+	data, err := readSelected(manager, "notes")
 	if err != nil || string(data) != raw {
 		t.Fatal(string(data), err)
 	}
@@ -29,40 +39,43 @@ func TestPortableDefinitionReadsOnlySelectedNativeSkill(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	native, err := manager.PortableDefinition(created)
+	native, err := readSelected(manager, created)
 	if err != nil || !strings.Contains(string(native), "version:") {
 		t.Fatal(string(native), err)
 	}
-	if got, err := manager.BuilderSlugs(); err != nil || !slices.Equal(got, []string{"native", "notes"}) {
+	if got, err := manager.DiscoverPortableDefinitions(); err != nil || !slices.Equal(slices.Sorted(maps.Keys(got)), []string{"native", "notes"}) {
 		t.Fatal(got)
 	}
 	if err := os.WriteFile(filepath.Join(dir, skillFile), append([]byte(raw), 0xff), 0600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := manager.PortableDefinition("notes"); err == nil {
+	if _, err := readSelected(manager, "notes"); err == nil {
 		t.Fatal("invalid UTF-8 exposed")
 	}
-	if _, err := manager.PortableDefinition("../other"); err == nil {
+	if _, err := readSelected(manager, "../other"); err == nil {
 		t.Fatal("unexpected path lookup")
+	}
+	if err := os.WriteFile(filepath.Join(dir, skillFile), []byte(raw), 0600); err != nil {
+		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(dir, "private.env"), []byte("private data"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := manager.PortableDefinition("notes"); err == nil {
-		t.Fatal("ignored supporting files")
+	if _, err := readSelected(manager, "notes"); err == nil || err.Error() != "SKILL_BUILDER_SUPPORTING_FILES" {
+		t.Fatal("expected supporting-file error", err)
 	}
 }
 
 func TestBuilderDistinguishesAbsentAndUnreadableRoots(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "skills")
 	m := &Manager{resolver: configdir.NewResolverWithBase(root)}
-	if names, err := m.BuilderSlugs(); err != nil || len(names) != 0 {
+	if names, err := m.DiscoverPortableDefinitions(); err != nil || len(names) != 0 {
 		t.Fatal(names, err)
 	}
 	if err := os.WriteFile(root, []byte("not a directory"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := m.BuilderSlugs(); err == nil {
+	if _, err := m.DiscoverPortableDefinitions(); err == nil {
 		t.Fatal("unreadable root reported as empty")
 	}
 }
@@ -88,11 +101,11 @@ func TestBuilderKeepsSkillsFromReadableRoots(t *testing.T) {
 		t.Fatal(err)
 	}
 	m := NewManager()
-	names, err := m.BuilderSlugs()
-	if err == nil || !slices.Contains(names, "release-notes") {
+	names, err := m.DiscoverPortableDefinitions()
+	if err == nil || names["release-notes"] == nil {
 		t.Fatal(names, err)
 	}
-	raw, err := m.PortableDefinition("release-notes")
+	raw, err := readSelected(m, "release-notes")
 	if err != nil || string(raw) != "notes" {
 		t.Fatal(string(raw), err)
 	}
@@ -114,8 +127,23 @@ func TestPortableDefinitionUsesNativeWorkdirPrecedence(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	contents, err := NewManager().PortableDefinition("notes")
+	contents, err := readSelected(NewManager(), "notes")
 	if err != nil || string(contents) != workDir {
 		t.Fatal(string(contents), err)
 	}
+	homeSkill := filepath.Join(home, ".assistente", "skills", "lower")
+	upperSkill := filepath.Join(workDir, ".assistente", "skills", "Lower")
+	for _, dir := range []string{homeSkill, upperSkill} {
+		if err := os.Mkdir(dir, 0700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, skillFile), []byte(dir), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	contents, err = readSelected(NewManager(), "lower")
+	if err != nil || string(contents) != homeSkill {
+		t.Fatal(string(contents), err)
+	}
+
 }

@@ -2,13 +2,13 @@ package plugins
 
 import (
 	"archive/zip"
+	"assistente/internal/skills"
 	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"path"
-	"slices"
 	"sort"
 	"strings"
 
@@ -41,10 +41,9 @@ func reservedDevice(name string) bool {
 	return len(base) == 4 && (base[:3] == "COM" || base[:3] == "LPT") && base[3] >= '1' && base[3] <= '9'
 }
 
-func (i *Inventory) WithSkillDefinition(read func(string) ([]byte, error), names func() ([]string, error)) *Inventory {
+func (i *Inventory) WithSkillDefinitions(discover func() (skills.PortableDefinitions, error)) *Inventory {
 	copy := *i
-	copy.skillDefinition = read
-	copy.skillNames = names
+	copy.skillDefinitions = discover
 	return &copy
 }
 
@@ -54,11 +53,18 @@ type BuilderSkillCatalog struct {
 }
 
 func (i *Inventory) BuilderSkillNames() BuilderSkillCatalog {
-	if i.skillNames == nil {
-		return BuilderSkillCatalog{Names: []string{}}
+	catalog := BuilderSkillCatalog{Names: []string{}}
+	if i.skillDefinitions != nil {
+		definitions, err := i.skillDefinitions()
+		catalog.Partial = err != nil
+		for key := range definitions {
+			if validBuilderSkill(key) {
+				catalog.Names = append(catalog.Names, key)
+			}
+		}
+		sort.Strings(catalog.Names)
 	}
-	names, err := i.skillNames()
-	return BuilderSkillCatalog{Names: slices.DeleteFunc(names, func(key string) bool { return !validBuilderSkill(key) }), Partial: err != nil}
+	return catalog
 }
 
 func validBuilderSkill(key string) bool {
@@ -75,15 +81,24 @@ func (i *Inventory) BuildPackage(ctx context.Context, request BuilderRequest) ([
 	files := map[string][]byte{}
 	extension := nativeResources{Version: 1}
 	total := 0
+	var definitions skills.PortableDefinitions
+	if len(request.Skills) > 0 && i.skillDefinitions != nil {
+		// An unrelated root can fail while the selected names are available.
+		definitions, _ = i.skillDefinitions()
+	}
 	for _, key := range request.Skills {
-		if !validBuilderSkill(key) || i.skillDefinition == nil {
+		if !validBuilderSkill(key) {
 			return nil, nil, errors.New("PLUGIN_BUILDER_SKILL_UNAVAILABLE")
 		}
 		file := path.Join("skills", key, "SKILL.md")
 		if _, exists := files[file]; exists {
 			return nil, nil, errors.New("PLUGIN_BUILDER_KEY")
 		}
-		raw, err := i.skillDefinition(key)
+		read := definitions[key]
+		if read == nil {
+			return nil, nil, fmt.Errorf("PLUGIN_BUILDER_SKILL_UNAVAILABLE:%s", key)
+		}
+		raw, err := read()
 		if err != nil {
 			return nil, nil, fmt.Errorf("PLUGIN_BUILDER_SKILL_UNAVAILABLE:%s", key)
 		}

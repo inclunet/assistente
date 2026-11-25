@@ -12,6 +12,7 @@ import (
 	"assistente/internal/database"
 	"assistente/internal/pluginpackage"
 	"assistente/internal/plugins"
+	"assistente/internal/skills"
 	"assistente/internal/sqlite"
 	"gorm.io/gorm"
 )
@@ -100,5 +101,32 @@ func TestBuilderSaveRechecksRevisionAndSessionBeforePublishing(t *testing.T) {
 	snap, err := archive.Package("review", ".")
 	if err != nil || snap.Digest != current.Digest {
 		t.Fatal(snap, err)
+	}
+}
+
+// A discovery warning can cross the bridge only while the caller's session is admitted.
+func TestBuilderSkillNamesPublishesPartialCatalogOnlyToAdmittedSession(t *testing.T) {
+	ctx := database.WithUserID(context.Background(), "author")
+	source := plugins.NewInventory(nil).WithSkillDefinitions(func() (skills.PortableDefinitions, error) {
+		return skills.PortableDefinitions{"notes": nil}, os.ErrPermission
+	})
+	api := NewPlugins()
+	var deny error
+	AttachPlugins(api, stubSession{ctx: ctx}, source, func() (string, error) { return "", nil }, func(context.Context) (commandsecurity.Admission, error) {
+		return func(_ *gorm.DB, fn func() error) error {
+			if deny != nil {
+				return deny
+			}
+			return fn()
+		}, nil
+	}, nil)
+	catalog, err := api.BuilderSkillNames()
+	if err != nil || catalog == nil || !catalog.Partial || len(catalog.Names) != 1 || catalog.Names[0] != "notes" {
+		t.Fatal(catalog, err)
+	}
+	deny = errors.New("session expired")
+	catalog, err = api.BuilderSkillNames()
+	if !errors.Is(err, deny) || catalog != nil {
+		t.Fatal(catalog, err)
 	}
 }

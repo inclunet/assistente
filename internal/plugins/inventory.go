@@ -10,6 +10,7 @@ import (
 	"assistente/internal/commandsecurity"
 	"assistente/internal/database"
 	"assistente/internal/pluginpackage"
+	"assistente/internal/skills"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
@@ -20,14 +21,13 @@ var ErrPackageChanged = errors.New("o pacote mudou desde a prévia")
 var ErrInstallationChanged = errors.New("a instalação mudou desde a prévia")
 
 type Inventory struct {
-	skillNames      func() ([]string, error)
-	skillDefinition func(string) ([]byte, error)
-	listCreated     func(context.Context, *database.TaskList, commandsecurity.Admission)
-	watchRemote     func(context.Context) (context.Context, func(), error)
-	queries         *repositoryQueries
-	remote          RemoteClient
-	db              *gorm.DB
-	syncMCP         func(context.Context) error
+	skillDefinitions func() (skills.PortableDefinitions, error)
+	listCreated      func(context.Context, *database.TaskList, commandsecurity.Admission)
+	watchRemote      func(context.Context) (context.Context, func(), error)
+	queries          *repositoryQueries
+	remote           RemoteClient
+	db               *gorm.DB
+	syncMCP          func(context.Context) error
 }
 
 func NewInventory(db *gorm.DB) *Inventory { return &Inventory{db: db, queries: &repositoryQueries{}} }

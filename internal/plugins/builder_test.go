@@ -48,18 +48,18 @@ func TestBuilderExportsOnlySelectedDefinitionsToAnotherAccount(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	store := NewInventory(db).WithSkillDefinition(func(key string) ([]byte, error) {
-		if key != "notes" {
-			return nil, os.ErrNotExist
-		}
-		return []byte(skill), nil
-	}, nil)
+	store := NewInventory(db).WithSkillDefinitions(func() (skills.PortableDefinitions, error) {
+		return skills.PortableDefinitions{"notes": func() ([]byte, error) { return []byte(skill), nil }}, os.ErrPermission
+	})
+
 	ctx := database.WithUserID(context.Background(), "author")
 	reader := database.WithUserID(context.Background(), "reader")
 	req := BuilderRequest{Name: "release-kit", Version: "1", TaskLists: []BuilderTaskList{{ID: list.ID, Key: "release"}}}
-	restricted := NewInventory(db).WithSkillDefinition(func(string) ([]byte, error) {
-		return []byte("---\nname: notes\nversion: 1.0.0\ndescription: Summarize\nallowed-tools: Read\n---\nRead"), nil
-	}, nil)
+	restricted := NewInventory(db).WithSkillDefinitions(func() (skills.PortableDefinitions, error) {
+		return skills.PortableDefinitions{"notes": func() ([]byte, error) {
+			return []byte("---\nname: notes\nversion: 1.0.0\ndescription: Summarize\nallowed-tools: Read\n---\nRead"), nil
+		}}, nil
+	})
 	if _, _, err := restricted.BuildPackage(ctx, BuilderRequest{Name: "notes", Skills: []string{"notes"}}); err == nil || !strings.Contains(err.Error(), "PLUGIN_BUILDER_SKILL_UNAVAILABLE:notes") {
 		t.Fatal("lost tool restriction")
 	}
@@ -131,7 +131,9 @@ func TestBuilderExportsOnlySelectedDefinitionsToAnotherAccount(t *testing.T) {
 }
 
 func TestBuilderOffersPortableSkillNames(t *testing.T) {
-	inventory := NewInventory(nil).WithSkillDefinition(nil, func() ([]string, error) { return []string{"my_skill", "notes", "con"}, os.ErrPermission })
+	inventory := NewInventory(nil).WithSkillDefinitions(func() (skills.PortableDefinitions, error) {
+		return skills.PortableDefinitions{"notes": nil, "my_skill": nil, "con": nil}, os.ErrPermission
+	})
 	catalog := inventory.BuilderSkillNames()
 	if !catalog.Partial || len(catalog.Names) != 1 || catalog.Names[0] != "notes" {
 		t.Fatal(catalog)
