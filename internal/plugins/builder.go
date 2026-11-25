@@ -2,10 +2,12 @@ package plugins
 
 import (
 	"archive/zip"
+	"assistente/internal/skills"
 	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"path"
 	"sort"
 	"strings"
@@ -47,18 +49,34 @@ func (i *Inventory) WithProfileDefinition(read func(string) ([]byte, error), nam
 	return &copy
 }
 
-func (i *Inventory) WithSkillDefinition(read func(string) ([]byte, error), names func() []string) *Inventory {
+func (i *Inventory) WithSkillDefinitions(discover func() (skills.PortableDefinitions, error)) *Inventory {
 	copy := *i
-	copy.skillDefinition = read
-	copy.skillNames = names
+	copy.skillDefinitions = discover
 	return &copy
 }
 
-func (i *Inventory) BuilderSkillNames() []string {
-	if i.skillNames == nil {
-		return nil
+type BuilderSkillCatalog struct {
+	Names   []string `json:"names"`
+	Partial bool     `json:"partial"`
+}
+
+func (i *Inventory) BuilderSkillNames() BuilderSkillCatalog {
+	catalog := BuilderSkillCatalog{Names: []string{}}
+	if i.skillDefinitions != nil {
+		definitions, err := i.skillDefinitions()
+		catalog.Partial = err != nil
+		for key := range definitions {
+			if validBuilderSkill(key) {
+				catalog.Names = append(catalog.Names, key)
+			}
+		}
+		sort.Strings(catalog.Names)
 	}
-	return i.skillNames()
+	return catalog
+}
+
+func validBuilderSkill(key string) bool {
+	return portableSkillName.MatchString(key) && len(key) <= 64 && !reservedDevice(key)
 }
 
 func (i *Inventory) BuildPackage(ctx context.Context, request BuilderRequest) ([]byte, *pluginpackage.LocalSnapshot, error) {
@@ -92,17 +110,26 @@ func (i *Inventory) BuildPackage(ctx context.Context, request BuilderRequest) ([
 		extension.Profiles = append(extension.Profiles, key)
 	}
 	sort.Strings(extension.Profiles)
+	var definitions skills.PortableDefinitions
+	if len(request.Skills) > 0 && i.skillDefinitions != nil {
+		// An unrelated root can fail while the selected names are available.
+		definitions, _ = i.skillDefinitions()
+	}
 	for _, key := range request.Skills {
-		if !portableSkillName.MatchString(key) || len(key) > 64 || reservedDevice(key) || i.skillDefinition == nil {
-			return nil, nil, errors.New("PLUGIN_BUILDER_KEY")
+		if !validBuilderSkill(key) {
+			return nil, nil, errors.New("PLUGIN_BUILDER_SKILL_UNAVAILABLE")
 		}
 		file := path.Join("skills", key, "SKILL.md")
 		if _, exists := files[file]; exists {
 			return nil, nil, errors.New("PLUGIN_BUILDER_KEY")
 		}
-		raw, err := i.skillDefinition(key)
+		read := definitions[key]
+		if read == nil {
+			return nil, nil, fmt.Errorf("PLUGIN_BUILDER_SKILL_UNAVAILABLE:%s", key)
+		}
+		raw, err := read()
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, fmt.Errorf("PLUGIN_BUILDER_SKILL_UNAVAILABLE:%s", key)
 		}
 		total += len(raw)
 		if total > 31<<20 {
@@ -184,7 +211,7 @@ func (i *Inventory) BuildPackage(ctx context.Context, request BuilderRequest) ([
 	}
 	for _, c := range DiscoverComponents(snapshot) {
 		if (c.Kind == "skill" && c.Reason != "") || c.Kind == "invalidSkill" {
-			return nil, nil, errors.New("PLUGIN_BUILDER_SKILL_UNAVAILABLE")
+			return nil, nil, fmt.Errorf("PLUGIN_BUILDER_SKILL_UNAVAILABLE:%s", strings.TrimPrefix(c.Key, "skills/"))
 		}
 		if c.Reason != "" || (c.Kind != "tasklistTemplate" && c.Kind != "skill" && c.Kind != "profile") {
 			return nil, nil, ErrComponentUnavailable

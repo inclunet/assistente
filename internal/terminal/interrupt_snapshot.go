@@ -40,7 +40,7 @@ func (s *Session) captureInterruptSnapshot() (InterruptSnapshot, error) {
 	if s.state != StateIdle && s.state != StateRunning {
 		return InterruptSnapshot{}, fmt.Errorf("%w: estado da sessão não é interrompível", ErrInterruptStale)
 	}
-	if s.managedCommandID == "" {
+	if s.lastDispatchedID == "" {
 		return InterruptSnapshot{}, fmt.Errorf("%w: sessão ainda não recebeu comando/input gerenciado", ErrInterruptStale)
 	}
 	if s.state == StateRunning && s.commandPending {
@@ -56,7 +56,7 @@ func (s *Session) captureInterruptSnapshot() (InterruptSnapshot, error) {
 		sessionVersion:    s.sessionVersion,
 		commandGeneration: s.commandGeneration,
 		commandPending:    s.commandPending,
-		commandID:         s.managedCommandID,
+		commandID:         s.lastDispatchedID,
 		state:             s.state,
 	}}, nil
 }

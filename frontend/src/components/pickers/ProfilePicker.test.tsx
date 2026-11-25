@@ -22,6 +22,7 @@ vi.mock('@wailsjs/runtime/runtime', () => ({
 vi.mock('./BasePicker', () => ({
   BasePicker: (props: {
     items: Array<{ value: string }>;
+    onOpen?: () => void;
     onSelect: (value: string) => void;
     emptyState?: React.ReactNode;
     loading?: boolean;
@@ -29,6 +30,7 @@ vi.mock('./BasePicker', () => ({
     label?: string;
   }) => (
     <div>
+      {props.onOpen && <button onClick={props.onOpen}>Abrir</button>}
       <span data-testid="picker-label">{props.label}</span>
       {props.loading ? props.loadingState : null}
       {!props.loading && props.items.length === 0 ? props.emptyState : null}
@@ -44,12 +46,25 @@ vi.mock('./BasePicker', () => ({
 
 describe('ProfilePicker', () => {
   it('seleciona um perfil instalado somente para a conversa', async () => {
-    getConversationProfilesSpy.mockResolvedValueOnce([{ name: 'Writer', slug: 'plugin--writer', source: 'plugin' }]);
+    getConversationProfilesSpy.mockResolvedValueOnce([{ name: 'Writer', slug: 'plugin--12345678-1234-4234-8234-123456789abc', source: 'plugin' }]);
     const change = vi.fn();
     render(<ProfilePicker includePluginProfiles value="" onChange={change} />);
-    fireEvent.click(await screen.findByRole('button', {name: 'Selecionar-plugin--writer'}));
-    expect(change).toHaveBeenCalledWith('plugin--writer');
+    fireEvent.click(await screen.findByRole('button', {name: 'Selecionar-plugin--12345678-1234-4234-8234-123456789abc'}));
+    expect(change).toHaveBeenCalledWith('plugin--12345678-1234-4234-8234-123456789abc');
     expect(setActiveSpy).not.toHaveBeenCalled();
+  });
+
+  it('mantém os perfis locais e recupera a lista de plugins ao reabrir', async () => {
+    getConversationProfilesSpy.mockRejectedValueOnce(new Error('offline')).mockResolvedValueOnce([{name:'Writer', slug:'installed'}]);
+    getProfilesSpy.mockResolvedValueOnce([{name:'Local', slug:'local'}]);
+    const change = vi.fn();
+    render(<ProfilePicker includePluginProfiles value="" onChange={change} />);
+    fireEvent.click(await screen.findByRole('button', {name:'Selecionar-local'}));
+    expect(change).toHaveBeenCalledWith('local');
+    expect(screen.getByText('profiles.pluginCatalogUnavailable')).toBeVisible();
+    fireEvent.click(screen.getByRole('button', {name:'Abrir'}));
+    expect(await screen.findByRole('button', {name:'Selecionar-installed'})).toBeVisible();
+    expect(screen.queryByText('profiles.pluginCatalogUnavailable')).toBeNull();
   });
 
   it('dispara onChange no modo controlado', async () => {

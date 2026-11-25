@@ -45,12 +45,13 @@ func (api *Plugins) ListRepositories() ([]plugins.Repository, error) {
 }
 func (api *Plugins) AddRemoteRepository(origin string, authenticated bool) error {
 	return api.withRepositorySession(func(ctx context.Context, i *plugins.Inventory, _ func() (string, error), admit commandsecurity.Admission) error {
-		return i.SaveRemoteRepository(ctx, origin, authenticated, "", "", admit)
+		return i.SaveRemoteRepository(ctx, origin, authenticated, admit)
 	})
 }
 
-func (api *Plugins) AddLocalRepository() error {
-	return api.withRepositorySession(func(ctx context.Context, i *plugins.Inventory, choose func() (string, error), admit commandsecurity.Admission) error {
+func (api *Plugins) AddLocalRepository() (bool, error) {
+	var selected bool
+	err := api.withRepositorySession(func(ctx context.Context, i *plugins.Inventory, choose func() (string, error), admit commandsecurity.Admission) error {
 		dir, err := choose()
 		if err != nil || dir == "" {
 			return err
@@ -58,8 +59,10 @@ func (api *Plugins) AddLocalRepository() error {
 		if err := admit.Check(); err != nil {
 			return err
 		}
+		selected = true
 		return i.SaveRepository(ctx, dir, "", "", admit)
 	})
+	return selected && err == nil, err
 }
 func (api *Plugins) RefreshRepository(id, revision string) error {
 	return api.withRepositorySession(func(ctx context.Context, i *plugins.Inventory, _ func() (string, error), admit commandsecurity.Admission) error {
@@ -73,13 +76,14 @@ func (api *Plugins) RemoveRepository(id, revision string) error {
 }
 
 func (api *Plugins) PreviewRepositoryEntry(id, revision, format, name string) (*PluginPreview, error) {
+	generation := api.beginPreview()
 	var preview *PluginPreview
 	err := api.withRepositorySession(func(ctx context.Context, i *plugins.Inventory, _ func() (string, error), admit commandsecurity.Admission) error {
 		owner, err := database.RequireUserID(ctx)
 		if err != nil {
 			return err
 		}
-		preview, err = api.preparePreview(ctx, i, owner, admit, func(active context.Context) (*pluginpackage.LocalSnapshot, error) {
+		preview, err = api.preparePreview(ctx, i, owner, generation, admit, func(active context.Context) (*pluginpackage.LocalSnapshot, error) {
 			return i.InspectRepositoryEntry(active, id, revision, plugincatalog.Format(format), name)
 		})
 		return err

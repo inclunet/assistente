@@ -158,7 +158,7 @@ func createTaskListCommandTx(ctx context.Context, tx *gorm.DB, title, descriptio
 		return nil, err
 	}
 	if count >= MaxTaskLists {
-		return nil, errors.New("limite de tasklists atingido")
+		return nil, ErrTaskListCapacity
 	}
 	list := &TaskList{UserID: userID, Title: title, Description: description, PreferredViewMode: "list"}
 	if err := tx.Create(list).Error; err != nil {
@@ -213,7 +213,7 @@ func cloneTaskListCommandTx(ctx context.Context, tx *gorm.DB, request TaskListCo
 		return nil, err
 	}
 	if count >= MaxTaskLists {
-		return nil, errors.New("limite de tasklists atingido")
+		return nil, ErrTaskListCapacity
 	}
 
 	clone := &TaskList{

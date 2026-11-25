@@ -168,6 +168,9 @@ func formatLoadedSkill(skill skills.Skill, reason string) string {
 		sb.WriteString("\nreason: ")
 		sb.WriteString(reason)
 	}
+	if skill.Source == "plugin" && skill.PackageFormat == "claude-code" && skills.ContainsClaudeCommand(skill.Content) {
+		sb.WriteString("\nInline commands are shown as source. Results are available through base or slash invocation.")
+	}
 	sb.WriteString("\n\n")
 	sb.WriteString(strings.TrimSpace(skill.Content))
 	sb.WriteString("\n</loaded_skill>")

@@ -70,9 +70,7 @@ func (i *Inventory) ChangeInstallation(ctx context.Context, id, digest, action s
 		return tx.Delete(&row).Error
 	}, admit)
 	if err == nil && syncNeeded {
-		if err := admit(func() error { return i.SyncMCP(ctx) }); err != nil {
-			return errors.Join(ErrMCPSyncPending, err)
-		}
+		return i.SyncMCP(ctx, admit)
 	}
 	return err
 }
