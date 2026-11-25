@@ -8,7 +8,9 @@ export function AddLocalRepository():Promise<boolean>;
 
 export function AddRemoteRepository(arg1:string,arg2:boolean):Promise<void>;
 
-export function BuilderSkillNames():Promise<plugins.BuilderSkillCatalog>;
+export function BuilderProfileNames():Promise<plugins.BuilderResourceCatalog>;
+
+export function BuilderSkillNames():Promise<plugins.BuilderResourceCatalog>;
 
 export function ChangeInstallation(arg1:string,arg2:string,arg3:string):Promise<void>;
 

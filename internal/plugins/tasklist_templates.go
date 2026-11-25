@@ -22,7 +22,7 @@ const nativeExtension = "br.com.inclunet.assistente"
 type nativeResources struct {
 	Version   int      `json:"version"`
 	Profiles  []string `json:"profiles,omitempty"`
-	TaskLists []string `json:"tasklists"`
+	TaskLists []string `json:"tasklists,omitempty"`
 }
 
 func nativeComponents(snap *pluginpackage.LocalSnapshot) []Component {
