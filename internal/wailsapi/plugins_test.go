@@ -239,6 +239,66 @@ func TestPluginPreviewUsesSelectedDirectoryAndSession(t *testing.T) {
 	}
 }
 
+func TestSkillCatalogNotifiedWhenOnlyJobSyncFails(t *testing.T) {
+	for _, action := range []string{"update", "disable", "uninstall"} {
+		t.Run(action, func(t *testing.T) {
+			dir := t.TempDir()
+			if err := os.WriteFile(filepath.Join(dir, "plugin.json"), []byte(`{"$schema":"`+pluginpackage.ManifestSchema+`","name":"local"}`), 0600); err != nil {
+				t.Fatal(err)
+			}
+			db, err := gorm.Open(sqlite.Open(filepath.Join(t.TempDir(), "plugins.db")), &gorm.Config{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			conn, err := db.DB()
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = conn.Close() })
+			if err := db.AutoMigrate(&database.PluginInstallation{}, &database.PluginRevision{}, &database.PluginSkillActivation{}, &database.PluginProfileActivation{}, &database.PluginMCPBinding{}, &database.MCPServer{}, &database.Job{}); err != nil {
+				t.Fatal(err)
+			}
+			inventory := plugins.NewInventory(db)
+			ctx := database.WithUserID(t.Context(), "owner")
+			api := NewPlugins()
+			notifications := 0
+			AttachPlugins(api, stubSession{ctx: userctx.WithSessionID(ctx, "session")}, inventory, func() (string, error) { return dir, nil }, func(context.Context) (commandsecurity.Admission, error) {
+				return func(_ *gorm.DB, commit func() error) error { return commit() }, nil
+			}, func() { notifications++ })
+			preview, err := api.PreviewLocal()
+			if err != nil {
+				t.Fatal(err)
+			}
+			row, err := api.InstallReviewed(preview.Token)
+			if err != nil || notifications != 0 {
+				t.Fatal(err, notifications)
+			}
+			job := database.Job{UserID: "owner", Slug: "managed", PluginInstallationID: row.ID, PluginDigest: row.Digest}
+			if err := db.Create(&job).Error; err != nil {
+				t.Fatal(err)
+			}
+			if action == "update" {
+				if err := os.WriteFile(filepath.Join(dir, "README.md"), []byte("new version"), 0600); err != nil {
+					t.Fatal(err)
+				}
+				preview, err = api.PreviewLocal()
+				if err != nil {
+					t.Fatal(err)
+				}
+				_, err = api.InstallReviewed(preview.Token)
+			} else {
+				err = api.ChangeInstallation(row.ID, row.Digest, action)
+			}
+			if !errors.Is(err, plugins.ErrJobSyncPending) || errors.Is(err, plugins.ErrMCPSyncPending) {
+				t.Fatalf("expected only job sync failure after %s, got %v", action, err)
+			}
+			if notifications != 1 {
+				t.Fatalf("expected one catalog notification after commit, got %d", notifications)
+			}
+		})
+	}
+}
+
 func TestLocalCatalogSurvivesFailedRefreshAndRemoval(t *testing.T) {
 	directory := t.TempDir()
 	write := func(name, data string) {
