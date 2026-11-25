@@ -126,7 +126,7 @@ function jobToDraft(job: jobs.Job): JobDraft {
     error_policy: {
       strategy: job.error_policy?.strategy ?? 'stop',
       max_retries: job.error_policy?.max_retries ?? 3,
-      retry_delay: job.error_policy?.retry_delay ?? '5s',
+      retry_delay: job.error_policy?.retry_delay ?? '',
     },
     max_runs_per_hour: job.max_runs_per_hour ?? 0,
   };

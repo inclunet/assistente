@@ -105,18 +105,18 @@ describe('JobBuilder grants de profiles', () => {
     authorizeProfile.mockResolvedValue(true);
   });
 
-  it('preserva a definição nativa ao salvar um job existente', async () => {
+  it.each(['2s', undefined])('preserva a definição nativa ao salvar com retry_delay %s', async retryDelay => {
     const user = userEvent.setup();
     const job = {...subagentJob('pesquisa'), dry_run: {enabled:true, mock_output:{ok:true}},
       output:{map:{copy:'output'}}, triggers:[{type:'webhook',path:'/inbox'}],
       events:{payload_filter:{include:['message']}},
-      error_policy:{strategy:'retry',max_retries:2,retry_delay:'2s',backoff:'linear',on_exhausted:'notify',notify_channels:['ops']},
+      error_policy:{strategy:'retry',max_retries:2,retry_delay:retryDelay,backoff:'linear',on_exhausted:'notify',notify_channels:['ops']},
     } as unknown as jobs.Job;
     render(<JobBuilder editJob={job} onClose={vi.fn()} />);
     await user.click(screen.getByRole('button', {name:'common.save'}));
     await waitFor(() => expect(saveJob).toHaveBeenCalled());
     expect(JSON.parse(saveJob.mock.calls[0][0])).toMatchObject({
-      dry_run:job.dry_run,output:job.output,triggers:job.triggers,events:job.events,error_policy:job.error_policy,
+      dry_run:job.dry_run,output:job.output,triggers:job.triggers,events:job.events,error_policy:{...job.error_policy,retry_delay:retryDelay ?? ''},
     });
   });
 

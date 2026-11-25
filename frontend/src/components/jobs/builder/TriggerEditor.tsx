@@ -18,7 +18,7 @@ interface TriggerEditorProps {
   knownEvents?: ComboboxItem[];
 }
 
-const TRIGGER_TYPES = ['manual','cron','interval','event','hotkey','webhook'];
+const TRIGGER_TYPES = ['manual', 'cron', 'interval', 'event', 'hotkey'];
 
 function TriggerRow({
   trigger,
@@ -39,6 +39,7 @@ function TriggerRow({
 }) {
   const { t } = useTranslation();
 
+  const types = trigger.type === 'webhook' ? [...TRIGGER_TYPES, 'webhook'] : TRIGGER_TYPES;
   const triggerLabel = t('jobs.builder.triggerN', { n: index + 1, total });
 
   return (
@@ -50,7 +51,7 @@ function TriggerRow({
       <div className="trigger-row__type">
         <FormField label={t('jobs.builder.triggerType')} visuallyHidden>
           <Select
-            options={TRIGGER_TYPES.map(value => ({value,label:t(`plugins.jobTrigger.${value}`)}))}
+            options={types.map(value => ({value, label: t(`plugins.jobTrigger.${value}`)}))}
             value={trigger.type}
             onChange={(e) => onUpdate(index, 'type', e.target.value)}
             fullWidth

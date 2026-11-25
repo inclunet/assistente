@@ -69,7 +69,7 @@ Abra os detalhes de um plugin instalado que forneça um modelo de lista de taref
 
 ## Conferir jobs incluídos no pacote
 
-A prévia identifica o nome do job, a ferramenta solicitada e os tipos de acionador. Os jobs em YAML também podem declarar eventos, atalhos e webhooks. Uma definição inválida ou um acionador incompatível aparece com diagnóstico nos detalhes. Preparar e habilitar um job são ações separadas.
+A prévia identifica o nome do job, a ferramenta solicitada e os tipos de acionador. Os jobs em YAML também podem declarar eventos e atalhos. Para definições com webhook, a prévia e o editor preservam o caminho configurado. O agendador atual não oferece um endpoint para dispará-lo. Uma definição inválida ou um acionador incompatível aparece com diagnóstico nos detalhes. Preparar e habilitar um job são ações separadas.
 
 ## Conferir perfis incluídos no pacote
 
