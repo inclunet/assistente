@@ -67,6 +67,10 @@ Escolha **Adicionar loja por URL**. Uma mudança no arquivo exige **Atualizar** 
 
 Abra os detalhes de um plugin instalado que forneça um modelo de lista de tarefas. Escolha **Criar lista a partir de** e o nome do modelo. A nova lista fica em **Listas de tarefas**, com os estados de workflow e as tarefas iniciais que o autor incluiu. Cada nova criação gera uma lista independente. Se a confirmação falhar, você pode tentar novamente na mesma sessão, inclusive depois de sair da página. Ao atingir o limite de listas da conta, exclua uma lista antes de criar outra. Suas notas e seu progresso continuam disponíveis quando você atualiza, desativa ou desinstala o plugin.
 
+## Conferir jobs incluídos no pacote
+
+A prévia identifica o nome do job, a ferramenta solicitada e os tipos de acionador. A leitura reconhece acionamento manual, por intervalo e por expressão cron. Uma definição inválida ou um acionador incompatível aparece com diagnóstico nos detalhes. Nesta etapa, abrir ou instalar o pacote apenas permite consultar os jobs.
+
 ## Conferir perfis incluídos no pacote
 
 A prévia e os detalhes identificam os perfis de conversa fornecidos pelo plugin. Nos detalhes do plugin instalado, escolha **Ativar** no perfil desejado. Abra o seletor **Perfil** na barra da conversa e escolha seu nome. O perfil usa o provedor padrão, com as preferências de geração incluídas no pacote e ferramentas e skills desabilitadas. A ativação vale para sua conta. Se o plugin for atualizado, desativado ou removido, a aba que usava o perfil precisará de uma nova seleção.
