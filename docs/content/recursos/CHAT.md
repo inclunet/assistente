@@ -94,6 +94,11 @@ compositor, a lista volta a poder liberar as mensagens fora da área visível.
 Excluir uma mensagem não transfere o foco automaticamente para outra que ocupe
 sua posição.
 
+Para excluir uma mensagem e suas respostas, selecione a mensagem no histórico
+e pressione Delete, ou escolha **Excluir mensagem** no menu de contexto.
+Confirme no diálogo. A exclusão aguarda o fechamento da confirmação, mesmo
+quando a interface demora a atualizá-la; cancelar o diálogo preserva o conteúdo.
+
 Ao carregar o histórico ou concluir uma resposta, o aplicativo lê o texto e os
 resumos das ferramentas a partir do mesmo estado salvo. Isso evita combinar
 conteúdo antigo com resultados novos durante uma alteração concorrente.

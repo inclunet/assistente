@@ -128,6 +128,31 @@ function capture(commandID: string) {
   return captureChatMessagingTarget(() => '/', commandID);
 }
 describe('ChatSessionView message actions — superfície/lista/registry reais', () => {
+  it.each(['Delete', 'menu'])('%s preserva exclusão confirmada até o diálogo real desmontar', async entry => {
+    mount(); act(() => node().focus());
+    let accept!: () => void;
+    let decision: ReturnType<typeof render> | undefined;
+    take.mockImplementationOnce(() => new Promise(resolve => { accept = () => resolve({ ticket: 'ticket', invocationId: 'invocation', commandId: 'chat.message.delete', handoffId: 'handoff' }); }));
+    prepareMessage.mockImplementationOnce(async () => {
+      decision = render(<Modal isOpen title="Confirmar exclusão" onClose={() => {}} dialogCommandScope={{ dialogId: 'delete-decision', kind: 'decision', generation: '1', allowedCommandIds: ['decision.respond'], allowedTriggerSpecs: ['keyboard.local:Ctrl+Shift+R'] }}>
+        <button onClick={() => accept()}>Confirmar exclusão</button>
+      </Modal>);
+    });
+    try {
+      if (entry === 'Delete') fireEvent.keyDown(node(), { key: 'Delete' });
+      else {
+        fireEvent.keyUp(node(), { key: 'ContextMenu' });
+        await userEvent.click(await screen.findByRole('menuitem', { name: /Excluir/ }));
+      }
+      await waitFor(() => expect(take).toHaveBeenCalled());
+      await userEvent.click(screen.getByRole('button', { name: 'Confirmar exclusão' }));
+      await act(async () => { await new Promise(resolve => setTimeout(resolve, 350)); });
+      expect(commitMessage).not.toHaveBeenCalled();
+      decision!.unmount();
+      await waitFor(() => expect(commitMessage).toHaveBeenCalledExactlyOnceWith('ticket', 'handoff'));
+      expect(prepareMessage).toHaveBeenCalledExactlyOnceWith('ticket', firstID);
+    } finally { decision?.unmount(); }
+  });
   it('o término da geração não rouba foco da mensagem em leitura', async () => {
     mount();
     const setLoading = (isLoading: boolean) => useChatStore.setState(state => ({ surfaceSessionsByKey:
