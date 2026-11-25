@@ -3,6 +3,8 @@ import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { axe } from 'vitest-axe';
 import PluginsPage from './PluginsPage';
+import { useWorkspaceStore } from '../store/workspaceStore';
+import { useAuthStore } from '../store/authStore';
 import * as navigation from '../lib/commandLandmarkNavigation';
 
 const mocks = vi.hoisted(() => ({ createList: vi.fn(), repos: vi.fn(), catalogPreview: vi.fn(), lifecycle: vi.fn(), sync: vi.fn(), register: vi.fn(), remove: vi.fn(), confirm: vi.fn(), list: vi.fn(), components: vi.fn(), toggle: vi.fn(), preview: vi.fn(), install: vi.fn(), discard: vi.fn(), announce: vi.fn(), announceRequest: vi.fn() }));
@@ -27,21 +29,32 @@ describe('PluginsPage', () => {
   });
 
   it('registers a focus target only while the builder form is available', async () => {
-    const register = vi.spyOn(navigation, 'registerLandmarkNavigationSurface');
+    const auth = useAuthStore.getState();
+    const ws = useWorkspaceStore.getState().workspace;
+    useAuthStore.setState({isAuthenticated:true, user:{userId:'owner',sessionId:'session',role:'admin'}});
+    useWorkspaceStore.setState({workspace:{id:"workspace",name:"Workspace",activeTabId:"tab",tabs:[{id:"tab",type:"editor",title:"Editor",position:0}]}});
+    const focused = vi.spyOn(document,'hasFocus').mockReturnValue(true);
     try {
       const user = userEvent.setup();
-      render(<PluginsPage />);
-      const target = register.mock.calls.at(-1)?.[0].read().landmarks.find(l => l.id === 'plugin-builder');
-      expect(target?.isAvailable?.()).toBe(false);
+      render(<><div className="topbar"><button>Topbar</button></div><PluginsPage /></>);
+      const next = () => {
+        const lease = navigation.captureLandmarkNavigationTarget(() => window.location.pathname);
+        try { expect(lease?.open('navigation.landmark.next')).toBe(true); }
+        finally { lease?.dispose(); }
+      };
       await user.click(await screen.findByRole('tab', {name:'plugins.builder'}));
       const name = await screen.findByRole('textbox', {name:'plugins.packageName'});
       await waitFor(() => expect(name).toBeEnabled());
-      expect(target?.focus()).toBe(true);
+      screen.getByRole('button',{name:'plugins.choose'}).focus();
+      next();
       expect(name).toHaveFocus();
-      expect(target?.contains()).toBe(true);
+      next();
+      expect(screen.getByRole('button',{name:'Topbar'})).toHaveFocus();
+      next();
+      expect(screen.getByRole('button',{name:'plugins.choose'})).toHaveFocus();
       await user.click(screen.getByRole('tab', {name:'plugins.installed'}));
-      expect(target?.focus()).toBe(false);
-    } finally { register.mockRestore(); }
+      expect(name.isConnected).toBe(false);
+    } finally { focused.mockRestore(); useAuthStore.setState(auth, true); useWorkspaceStore.setState({workspace:ws}); }
   });
 
   it('opens a preview from the keyboard and installs only after confirmation', async () => {

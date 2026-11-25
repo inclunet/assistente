@@ -104,8 +104,9 @@ export default function PluginsPage() {
 
 function InstalledPlugins({ session }: { session: string }) {
   const { t } = useTranslation();
+  const [section, setSection] = useState('installed');
   const builderForm = useRef<HTMLFormElement>(null);
-  useGridPageLandmarks({ pageClass: 'plugins-page', extraLandmarks: [{
+  useGridPageLandmarks({ pageClass: 'plugins-page', contentLandmark: section === 'builder' ? {
     id: 'plugin-builder', label: t('plugins.builder'),
     isAvailable: () => !!builderForm.current?.querySelector('input:enabled'),
     contains: () => !!builderForm.current?.contains(document.activeElement),
@@ -115,10 +116,9 @@ function InstalledPlugins({ session }: { session: string }) {
       input.focus();
       return document.activeElement === input;
     },
-  }] });
+  } : undefined });
   const { announce } = useAnnouncer();
   const confirm = useConfirm();
-  const [section, setSection] = useState('installed');
   const catalogOpener = useRef<HTMLElement | null>(null);
   const [items, setItems] = useState<InstallationRow[] | null>(null);
   const [preview, setPreview] = useState<wailsapi.PluginPreview | null>(null);
