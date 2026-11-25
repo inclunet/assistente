@@ -77,4 +77,4 @@ Abra **Plugins → Criar plugin**. Se uma pasta de skills estiver inacessível, 
 
 Escolha **Revisar pacote**, confira os arquivos e escolha **Salvar ZIP**. Se um recurso mudou desde a prévia, revise novamente. Se a gravação falhar, escolha outro destino em **Salvar ZIP** para tentar de novo com a mesma prévia. Para instalar o arquivo em outra conta, extraia o ZIP em uma pasta e abra essa pasta pelo gerenciador de Plugins. Você também pode colocar a pasta em um repositório de plugins para publicar a revisão.
 
-Se o catálogo de perfis de plugins estiver indisponível, o seletor da conversa avisa e oferece os perfis locais. Reabra o seletor para consultar o catálogo novamente.
+Se o catálogo de perfis de plugins estiver indisponível, o seletor da conversa avisa e oferece os perfis locais. Reabra o seletor para consultar o catálogo novamente. Se a lista local também falhar, use **Tentar novamente** no seletor.
