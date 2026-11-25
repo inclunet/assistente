@@ -83,7 +83,7 @@ A prévia informa a frequência de cada acionador e o limite de execuções por 
 
 Desativar, atualizar ou remover o plugin interrompe novos disparos da revisão anterior. O Assistente conserva o registro do job e seu histórico. Reativar o plugin exige preparar a definição outra vez. Se a alteração for salva e o agendador ficar indisponível, use a ação de sincronização na página Plugins para repetir a atualização da sessão.
 
-No editor de Jobs, escolha **Criar cópia independente** para preservar a versão salva na mesma conta. A cópia começa desativada, usa um histórico novo e exige suas próprias autorizações. As alterações ainda em edição ficam no job original. A ação continua disponível após a remoção do plugin. Se a confirmação de uma cópia falhar, repetir o pedido recupera o resultado original. Se você já excluiu essa cópia, ela continua excluída.
+No editor de Jobs, escolha **Criar cópia independente** para preservar a versão salva na mesma conta. A cópia começa desativada, usa um histórico novo e exige suas próprias autorizações. As alterações ainda em edição ficam no job original. A ação continua disponível após a remoção do plugin. Se a confirmação de uma cópia falhar, repetir o pedido na mesma sessão, sem reiniciar o aplicativo, recupera o resultado original. Depois de reiniciar ou trocar de sessão, confira a lista de Jobs antes de solicitar outra cópia. Se você já excluiu essa cópia, ela continua excluída.
 
 ## Gerar um pacote com o builder
 
