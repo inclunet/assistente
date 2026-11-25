@@ -6599,6 +6599,7 @@ export namespace jobs {
 	    }
 	}
 	export class Job {
+	    plugin_installation_id?: string;
 	    id: string;
 	    name: string;
 	    description: string;
@@ -6624,6 +6625,7 @@ export namespace jobs {
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.plugin_installation_id = source["plugin_installation_id"];
 	        this.id = source["id"];
 	        this.name = source["name"];
 	        this.description = source["description"];

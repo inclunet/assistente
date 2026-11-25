@@ -1,6 +1,9 @@
+import { Link } from 'react-router-dom';
+import { useNavigationStore } from '../store/navigationStore';
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { isJobProfileAuthorizationError, useJobStore } from '../store/jobStore';
+import { useResourceEditRequest } from '../hooks/useResourceEditRequest';
 import { Modal } from '../components/ui/Modal';
 import { Toolbar } from '../components/ui/Toolbar';
 import { DataGrid, DataGridColumn } from '../components/ui/DataGrid';
@@ -94,6 +97,7 @@ export default function JobsPage() {
   const toolbarRef = useRef<HTMLDivElement>(null);
   const gridRef = useRef<HTMLDivElement>(null);
   const mountedRef = useRef(true);
+  const editRequest = useRef(0);
   const restoreFocusFrameRef = useRef<number | null>(null);
 
   const getRowId = useCallback((item: jobs.JobInfo) => item.id, []);
@@ -192,7 +196,7 @@ export default function JobsPage() {
           addToast(t('jobs.runFailed'), 'error', undefined, undefined, { suppressAnnounce: true });
           announce(t('jobs.runFailed'));
         }
-      } catch {
+     } catch {
         addToast(t('jobs.runFailed'), 'error');
       } finally {
         setRunningJobId(null);
@@ -233,8 +237,9 @@ export default function JobsPage() {
   const handleRerun = useCallback(
     async (jobId: string) => {
       try {
-        await WailsRunJob(jobId);
-        addToast(t('jobs.runSuccess'), 'success');
+        const run = await WailsRunJob(jobId);
+        if (run?.status === 'completed') addToast(t('jobs.runSuccess'), 'success');
+        else addToast(t('jobs.runFailed'), 'error');
         await fetchJobRuns(jobId);
       } catch (err) {
         addToast(String(err), 'error');
@@ -244,20 +249,26 @@ export default function JobsPage() {
   );
 
   const handleNewJob = useCallback(() => {
+    editRequest.current++;
     setEditingJob(null);
     setBuilderOpen(true);
   }, []);
 
   const handleEditJob = useCallback(async (jobId: string) => {
+    const request = ++editRequest.current;
     try {
-      await fetchJobDetail(jobId);
-      const detail = useJobStore.getState().jobDetail;
+      const detail = await fetchJobDetail(jobId);
+      if (!mountedRef.current || request !== editRequest.current || !detail || detail.id !== jobId) return;
       setEditingJob(detail);
       setBuilderOpen(true);
     } catch {
-      addToast(t('common.error'), 'error');
+      if (mountedRef.current && request === editRequest.current) addToast(t('common.error'), 'error');
     }
   }, [fetchJobDetail, addToast, t]);
+
+  useResourceEditRequest('jobs', {
+    onEdit: id => void handleEditJob(id),
+  });
 
   const handleDeleteJob = useCallback(async (
     job: jobs.JobInfo,
@@ -528,6 +539,7 @@ export default function JobsPage() {
       <Modal
         isOpen={builderOpen}
         onClose={() => {
+          editRequest.current++;
           setBuilderOpen(false);
           restoreJobFocus(focusedJob?.id);
         }}
@@ -535,10 +547,16 @@ export default function JobsPage() {
         size="lg"
         returnFocusOnClose={false}
       >
+        {editingJob?.plugin_installation_id && (
+          <Link to="/plugins" onClick={() => useNavigationStore.getState().requestResourceEdit('plugins', editingJob.plugin_installation_id!)}>
+            {t('plugins.openJobOrigin', { id: editingJob.plugin_installation_id })}
+          </Link>
+        )}
         <JobBuilder
           editJob={editingJob}
           onClose={() => {
-            setBuilderOpen(false);
+            editRequest.current++;
+          setBuilderOpen(false);
             restoreJobFocus(focusedJob?.id);
           }}
           onSaved={() => fetchJobs()}

@@ -294,6 +294,11 @@ func (e *JobExecutor) Execute(ctx context.Context, job *Job, trigCtx *TriggerCon
 	}
 	ctx = e.withCommandEventOrigin(ctx, job, trigCtx, rl)
 
+	if err := e.checkPluginJob(ctx, job); err != nil {
+		rl.Status, rl.Error = RunStatusFailed, err.Error()
+		return rl
+	}
+
 	// A fila é persistida antes dos callbacks e da emissão de identidade.
 	// A preparação privada abaixo fica coberta pela finalização terminal.
 	durableCtx := context.WithoutCancel(ctx)
@@ -507,7 +512,7 @@ func (e *JobExecutor) Execute(ctx context.Context, job *Job, trigCtx *TriggerCon
 	}
 
 	// Notificar se on_exhausted = notify
-	if job.ErrorPolicy.OnExhausted == OnExhaustedNotify && e.notifyFunc != nil {
+	if job.ErrorPolicy.OnExhausted == OnExhaustedNotify && e.notifyFunc != nil && e.checkPluginJob(ctx, job) == nil {
 		channels := job.ErrorPolicy.NotifyChannels
 		if len(channels) == 0 {
 			channels = []string{"chat"}
@@ -592,6 +597,11 @@ func (e *JobExecutor) ExecuteDryRun(ctx context.Context, job *Job, trigCtx *Trig
 }
 
 func (e *JobExecutor) executeSingle(ctx context.Context, job *Job, trigCtx *TriggerContext, rl *RunLog) (map[string]any, error) {
+	var activationErr error
+	ctx, activationErr = e.pluginJobContext(ctx, job)
+	if activationErr != nil {
+		return nil, permanentAttemptFailure(activationErr, tools.ErrorKindAuthorization, "plugin_job_inactive")
+	}
 	// Um retry não herda autorização antiga. A verificação continua fora de
 	// transação/gate e usa a mesma definição e geração de grant da delegação.
 	if dispatch, delegated := ctx.Value(commandJobDispatchKey{}).(commandJobDispatch); delegated && dispatch.jobID == job.DatabaseID {
@@ -787,6 +797,10 @@ func (e *JobExecutor) executeTool(ctx context.Context, job *Job, rl *RunLog, arg
 	if dispatch, ok := ctx.Value(commandJobDispatchKey{}).(commandJobDispatch); ok && dispatch.jobID == job.DatabaseID {
 		request.SensitivePaths = dispatch.paths
 	}
+	if job.PluginInstallationID != "" {
+		ec, _ := tools.GetExecutionContext(ctx)
+		request.BeforeExecute = ec.CheckCommandActivation
+	}
 	recorded := e.toolInvocations.Execute(ctx, request)
 	if !recorded.Persisted {
 		return tools.ToolExecutionResult{
@@ -913,7 +927,7 @@ func (e *JobExecutor) emitSuccess(ctx context.Context, job *Job, rl *RunLog, tri
 				enriched["_chain_id"] = chainID
 				enriched["_chain_history"] = chainHistory
 
-				if e.eventBus.Publish(ctx, job.Events.OnSuccess, enriched) {
+				if e.checkPluginJob(ctx, job) == nil && e.eventBus.Publish(ctx, job.Events.OnSuccess, enriched) {
 					emitted++
 				}
 			}
@@ -949,7 +963,7 @@ func (e *JobExecutor) emitSuccess(ctx context.Context, job *Job, rl *RunLog, tri
 	enriched["_chain_id"] = chainID
 	enriched["_chain_history"] = chainHistory
 
-	if e.eventBus.Publish(ctx, job.Events.OnSuccess, enriched) {
+	if e.checkPluginJob(ctx, job) == nil && e.eventBus.Publish(ctx, job.Events.OnSuccess, enriched) {
 		rl.addDomainEvent("event_emitted", job.ID, job.Events.OnSuccess,
 			fmt.Sprintf("[%s] -> emitted %q", job.ID, job.Events.OnSuccess), nil)
 		rl.EventsEmitted = append(rl.EventsEmitted, job.Events.OnSuccess)
@@ -1016,7 +1030,7 @@ func (e *JobExecutor) emitFailure(ctx context.Context, job *Job, rl *RunLog, tri
 		"run_id": rl.RunID,
 	}
 
-	if e.eventBus.Publish(ctx, job.Events.OnFailure, payload) {
+	if e.checkPluginJob(ctx, job) == nil && e.eventBus.Publish(ctx, job.Events.OnFailure, payload) {
 		rl.EventsEmitted = append(rl.EventsEmitted, job.Events.OnFailure)
 		rl.addDomainEvent("event_emitted", job.ID, job.Events.OnFailure,
 			fmt.Sprintf("[%s] -> emitted %q", job.ID, job.Events.OnFailure), nil)

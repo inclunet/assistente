@@ -1,6 +1,8 @@
 import { create } from 'zustand';
 
 export type EditableResource =
+  | 'plugins'
+  | 'jobs'
   | 'profiles'
   | 'providers'
   | 'credentials'

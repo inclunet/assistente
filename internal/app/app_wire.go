@@ -5,6 +5,7 @@ import (
 	"assistente/internal/acpinstall"
 	"assistente/internal/commandcatalog"
 	"assistente/internal/commandruntime"
+	"assistente/internal/commandsecurity"
 	"assistente/internal/core/ports"
 	"assistente/internal/database"
 	"assistente/internal/logging"
@@ -60,7 +61,12 @@ func (a *App) wirePlugins() {
 			return a.mcpMgr.ReloadPackagedConfigs(ctx)
 		}).WithRemoteClient(func(ref string) *httpclient.Client {
 			return plugins.RepositoryHTTPClient(a.credMgr, ref, authorizer)
-		}, a.watchRepositorySession).WithProfileDefinitions(a.profileManager.DiscoverPortableDefinitions).WithSkillDefinitions(a.skillMgr.DiscoverPortableDefinitions).WithListCreated(a.taskSvc.NotifyTemplateListCreated), a.dialogPort.OpenDirectoryDialog, a.captureDialogAdmission, func() { a.emitter.Emit("plugins:skills_changed", nil) })
+		}, a.watchRepositorySession).WithJobRefresh(func(ctx context.Context, slug string, admit commandsecurity.Admission) error {
+			if a.jobMgr == nil {
+				return fmt.Errorf("gerenciador de jobs indisponível")
+			}
+			return a.jobMgr.RefreshPluginJob(ctx, slug, admit)
+		}).WithProfileDefinitions(a.profileManager.DiscoverPortableDefinitions).WithSkillDefinitions(a.skillMgr.DiscoverPortableDefinitions).WithListCreated(a.taskSvc.NotifyTemplateListCreated), a.dialogPort.OpenDirectoryDialog, a.captureDialogAdmission, func() { a.emitter.Emit("plugins:skills_changed", nil) })
 	}
 }
 

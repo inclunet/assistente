@@ -209,6 +209,11 @@ func (api *Plugins) preparePreview(ctx context.Context, inventory *plugins.Inven
 	return &p, nil
 }
 
+// Runtime synchronization can fail after the inventory transaction has committed.
+func pluginChangeCommitted(err error) bool {
+	return err == nil || errors.Is(err, plugins.ErrMCPSyncPending) || errors.Is(err, plugins.ErrJobSyncPending)
+}
+
 func (api *Plugins) InstallReviewed(token string) (database.PluginInstallation, error) {
 	session, inventory, _, _, err := api.wired()
 	if err != nil {
@@ -232,7 +237,7 @@ func (api *Plugins) InstallReviewed(token string) (database.PluginInstallation, 
 		}
 		p := selection.preview
 		row, err := inventory.InstallSource(ctx, p.Origin, p.Digest, p.PreviousDigest, selection.affected, selection.validate, func() (*pluginpackage.LocalSnapshot, error) { return selection.inspect(ctx) })
-		if (err == nil || errors.Is(err, plugins.ErrMCPSyncPending)) && p.PreviousDigest != "" && p.PreviousDigest != p.Digest {
+		if pluginChangeCommitted(err) && p.PreviousDigest != "" && p.PreviousDigest != p.Digest {
 			api.notifySkillsChanged()
 		}
 		return row, err
@@ -326,6 +331,15 @@ func (api *Plugins) RemoveMCP(id, digest, key string, preserve bool) error {
 	})
 }
 
+func (api *Plugins) SyncPendingJobs(expectedSession string) error {
+	return api.mutateComponent(func(ctx context.Context, i *plugins.Inventory, admit commandsecurity.Admission) error {
+		if session, ok := userctx.SessionIDFromContext(ctx); !ok || session != expectedSession {
+			return database.ErrUserScopeRequired
+		}
+		return i.SyncPendingJobs(ctx, admit)
+	})
+}
+
 func (api *Plugins) SyncMCP(expectedSession string) error {
 	return api.mutateComponent(func(ctx context.Context, i *plugins.Inventory, admit commandsecurity.Admission) error {
 		if session, ok := userctx.SessionIDFromContext(ctx); !ok || session != expectedSession {
@@ -339,7 +353,7 @@ func (api *Plugins) ChangeInstallation(id, digest, action string) error {
 	err := api.mutateComponent(func(ctx context.Context, i *plugins.Inventory, admit commandsecurity.Admission) error {
 		return i.ChangeInstallation(ctx, id, digest, action, admit)
 	})
-	if (action == "disable" || action == "uninstall") && (err == nil || errors.Is(err, plugins.ErrMCPSyncPending)) {
+	if (action == "disable" || action == "uninstall") && pluginChangeCommitted(err) {
 		api.notifySkillsChanged()
 	}
 	return err
@@ -356,4 +370,14 @@ func (api *Plugins) CreateListFromTemplate(id, digest, key, request string) (str
 		return "", errors.New("PLUGIN_LIST_CAPACITY")
 	}
 	return listID, err
+}
+
+func (api *Plugins) PrepareJob(id, digest, key string) (string, error) {
+	var slug string
+	err := api.withRepositorySession(func(ctx context.Context, inventory *plugins.Inventory, _ func() (string, error), admit commandsecurity.Admission) error {
+		var err error
+		slug, err = inventory.PrepareJob(ctx, id, digest, key, admit)
+		return err
+	})
+	return slug, err
 }

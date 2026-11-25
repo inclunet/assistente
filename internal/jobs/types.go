@@ -66,23 +66,25 @@ const (
 
 // Job representa uma unidade atomica de automacao: 1 job = 1 tool call.
 type Job struct {
-	ToolOrigin     string         `yaml:"-" json:"-"`
-	DatabaseID     string         `yaml:"-" json:"-"`
-	ID             string         `yaml:"id" json:"id"`
-	Name           string         `yaml:"name" json:"name"`
-	Description    string         `yaml:"description" json:"description"`
-	Enabled        bool           `yaml:"enabled" json:"enabled"`
-	Pipeline       string         `yaml:"pipeline,omitempty" json:"pipeline,omitempty"`
-	Tags           []string       `yaml:"tags,omitempty" json:"tags,omitempty"`
-	Triggers       []Trigger      `yaml:"triggers" json:"triggers"`
-	Tool           string         `yaml:"tool" json:"tool"`
-	Inputs         map[string]any `yaml:"inputs,omitempty" json:"inputs,omitempty"`
-	Output         OutputConfig   `yaml:"output,omitempty" json:"output,omitempty"`
-	Events         EventsConfig   `yaml:"events,omitempty" json:"events,omitempty"`
-	ErrorPolicy    ErrorPolicy    `yaml:"error_policy,omitempty" json:"error_policy,omitempty"`
-	MaxRunsPerHour int            `yaml:"max_runs_per_hour,omitempty" json:"max_runs_per_hour,omitempty"`
-	DryRun         DryRunConfig   `yaml:"dry_run,omitempty" json:"dry_run,omitempty"`
-	Metadata       Metadata       `yaml:"metadata,omitempty" json:"metadata,omitempty"`
+	PluginInstallationID string         `yaml:"-" json:"plugin_installation_id,omitempty"`
+	PluginDigest         string         `yaml:"-" json:"-"`
+	ToolOrigin           string         `yaml:"-" json:"-"`
+	DatabaseID           string         `yaml:"-" json:"-"`
+	ID                   string         `yaml:"id" json:"id"`
+	Name                 string         `yaml:"name" json:"name"`
+	Description          string         `yaml:"description" json:"description"`
+	Enabled              bool           `yaml:"enabled" json:"enabled"`
+	Pipeline             string         `yaml:"pipeline,omitempty" json:"pipeline,omitempty"`
+	Tags                 []string       `yaml:"tags,omitempty" json:"tags,omitempty"`
+	Triggers             []Trigger      `yaml:"triggers" json:"triggers"`
+	Tool                 string         `yaml:"tool" json:"tool"`
+	Inputs               map[string]any `yaml:"inputs,omitempty" json:"inputs,omitempty"`
+	Output               OutputConfig   `yaml:"output,omitempty" json:"output,omitempty"`
+	Events               EventsConfig   `yaml:"events,omitempty" json:"events,omitempty"`
+	ErrorPolicy          ErrorPolicy    `yaml:"error_policy,omitempty" json:"error_policy,omitempty"`
+	MaxRunsPerHour       int            `yaml:"max_runs_per_hour,omitempty" json:"max_runs_per_hour,omitempty"`
+	DryRun               DryRunConfig   `yaml:"dry_run,omitempty" json:"dry_run,omitempty"`
+	Metadata             Metadata       `yaml:"metadata,omitempty" json:"metadata,omitempty"`
 
 	// Campos carregados do runtime/DB e omitidos de imports YAML legados.
 	LastRun         *RunLog   `yaml:"-" json:"last_run,omitempty"`
@@ -350,12 +352,14 @@ type TestToolResult struct {
 
 // TestToolRequest descreve o alvo explícito de dry-run/teste de tool.
 type TestToolRequest struct {
-	ToolName      string         `json:"tool_name"`
-	MCPServerID   string         `json:"mcp_server_id,omitempty"`
-	Origin        string         `json:"origin,omitempty"`
-	ToolCatalogID string         `json:"tool_catalog_id,omitempty"`
-	Risk          string         `json:"risk,omitempty"`
-	Inputs        map[string]any `json:"inputs,omitempty"`
-	EventData     map[string]any `json:"event_data,omitempty"`
-	AllowUnsafe   bool           `json:"allow_unsafe,omitempty"`
+	JobID                string         `json:"job_id,omitempty"`
+	PluginInstallationID string         `json:"plugin_installation_id,omitempty"`
+	ToolName             string         `json:"tool_name"`
+	MCPServerID          string         `json:"mcp_server_id,omitempty"`
+	Origin               string         `json:"origin,omitempty"`
+	ToolCatalogID        string         `json:"tool_catalog_id,omitempty"`
+	Risk                 string         `json:"risk,omitempty"`
+	Inputs               map[string]any `json:"inputs,omitempty"`
+	EventData            map[string]any `json:"event_data,omitempty"`
+	AllowUnsafe          bool           `json:"allow_unsafe,omitempty"`
 }

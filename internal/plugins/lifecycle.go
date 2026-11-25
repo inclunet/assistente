@@ -26,6 +26,7 @@ func (i *Inventory) ChangeInstallation(ctx context.Context, id, digest, action s
 	}
 	publishCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
+	var revokedJobs []string
 	var syncNeeded bool
 	err = database.WithSQLiteAdmittedCommit(publishCtx, i.db, "plugins.lifecycle", func(tx *gorm.DB) error {
 		var row database.PluginInstallation
@@ -51,6 +52,10 @@ func (i *Inventory) ChangeInstallation(ctx context.Context, id, digest, action s
 		if err := tx.Model(&database.PluginMCPBinding{}).Where("installation_id=?", id).Count(&bindings).Error; err != nil {
 			return err
 		}
+		revokedJobs, err = revokeJobs(tx, owner, id)
+		if err != nil {
+			return err
+		}
 		syncNeeded = bindings > 0
 		if err := removeMCPBindings(publishCtx, tx, id, "", false); err != nil {
 			return err
@@ -69,8 +74,8 @@ func (i *Inventory) ChangeInstallation(ctx context.Context, id, digest, action s
 		}
 		return tx.Delete(&row).Error
 	}, admit)
-	if err == nil && syncNeeded {
-		return i.SyncMCP(ctx, admit)
+	if err != nil {
+		return err
 	}
-	return err
+	return i.refreshRuntime(ctx, revokedJobs, syncNeeded, admit)
 }

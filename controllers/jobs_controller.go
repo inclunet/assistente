@@ -135,7 +135,9 @@ func (c *JobsController) ReplayRun(jobID, runID string) (*jobs.TestToolResult, e
 	if !rl.Replayable {
 		return nil, fmt.Errorf("run %s is not replayable", runID)
 	}
+	pluginID, _ := rl.Provenance["plugin_installation_id"].(string)
 	return c.jobMgr.TestToolDryRunContext(context.Background(), jobs.TestToolRequest{
+		JobID: jobID, PluginInstallationID: pluginID,
 		ToolName:    rl.ToolName,
 		Inputs:      rl.ResolvedInputs,
 		AllowUnsafe: true,
@@ -162,7 +164,9 @@ func (c *JobsController) ReplayRunContext(ctx context.Context, jobID, runID stri
 	if !rl.Replayable {
 		return nil, fmt.Errorf("run %s is not replayable", runID)
 	}
+	pluginID, _ := rl.Provenance["plugin_installation_id"].(string)
 	return c.jobMgr.TestToolDryRunContext(ctx, jobs.TestToolRequest{
+		JobID: jobID, PluginInstallationID: pluginID,
 		ToolName:    rl.ToolName,
 		Inputs:      rl.ResolvedInputs,
 		AllowUnsafe: true,

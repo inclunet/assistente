@@ -7,9 +7,9 @@ import { useWorkspaceStore } from '../store/workspaceStore';
 import { useAuthStore } from '../store/authStore';
 import * as navigation from '../lib/commandLandmarkNavigation';
 
-const mocks = vi.hoisted(() => ({ profile: vi.fn(), createList: vi.fn(), repos: vi.fn(), catalogPreview: vi.fn(), lifecycle: vi.fn(), sync: vi.fn(), register: vi.fn(), remove: vi.fn(), confirm: vi.fn(), list: vi.fn(), components: vi.fn(), toggle: vi.fn(), preview: vi.fn(), install: vi.fn(), discard: vi.fn(), announce: vi.fn(), announceRequest: vi.fn() }));
+const mocks = vi.hoisted(() => ({ prepareJob: vi.fn(), syncJobs: vi.fn().mockResolvedValue(undefined), profile: vi.fn(), createList: vi.fn(), repos: vi.fn(), catalogPreview: vi.fn(), lifecycle: vi.fn(), sync: vi.fn(), register: vi.fn(), remove: vi.fn(), confirm: vi.fn(), list: vi.fn(), components: vi.fn(), toggle: vi.fn(), preview: vi.fn(), install: vi.fn(), discard: vi.fn(), announce: vi.fn(), announceRequest: vi.fn() }));
 vi.mock('@wailsjs/go/wailsapi/Tasklist', () => ({GetAllTaskLists: async () => []}));
-vi.mock('@wailsjs/go/wailsapi/Plugins', () => ({ BuilderProfileNames: async () => ({names:[],partial:false}), BuilderSkillNames: async () => ({names:[],partial:false}), CreateListFromTemplate: mocks.createList, ListRepositories: mocks.repos, PreviewRepositoryEntry: mocks.catalogPreview, ChangeInstallation: mocks.lifecycle, SyncMCP: mocks.sync, RegisterMCP: mocks.register, RemoveMCP: mocks.remove, InstalledComponents: mocks.components, SetProfileActive: mocks.profile, SetSkillActive: mocks.toggle, DiscardPreview: mocks.discard, ListInstalled: mocks.list, PreviewLocal: mocks.preview, InstallReviewed: mocks.install }));
+vi.mock('@wailsjs/go/wailsapi/Plugins', () => ({ BuilderProfileNames: async () => ({names:[],partial:false}), BuilderSkillNames: async () => ({names:[],partial:false}), CreateListFromTemplate: mocks.createList, ListRepositories: mocks.repos, PreviewRepositoryEntry: mocks.catalogPreview, ChangeInstallation: mocks.lifecycle, PrepareJob: mocks.prepareJob, SyncPendingJobs: mocks.syncJobs, SyncMCP: mocks.sync, RegisterMCP: mocks.register, RemoveMCP: mocks.remove, InstalledComponents: mocks.components, SetProfileActive: mocks.profile, SetSkillActive: mocks.toggle, DiscardPreview: mocks.discard, ListInstalled: mocks.list, PreviewLocal: mocks.preview, InstallReviewed: mocks.install }));
 vi.mock('../hooks/useConfirm', () => ({ useConfirm: () => mocks.confirm }));
 vi.mock('../store/authStore', async importOriginal => {
   const actual = await importOriginal<typeof import('../store/authStore')>();
@@ -316,6 +316,31 @@ describe('PluginsPage', () => {
     expect(mocks.remove).toHaveBeenCalledWith('one', 'sha', 'mcp/search', true);
   });
 
+  it('keeps a pending job refresh after a successful MCP registration', async () => {
+    const user = userEvent.setup();
+    mocks.list.mockResolvedValue([{id:'one',name:'Demo',digest:'sha'}]);
+    mocks.components.mockResolvedValue([
+      {kind:'job',key:'jobs/watch',name:'Watch',tool:'notify'},
+      {kind:'mcp',key:'mcp/search',name:'search'},
+    ]);
+    mocks.prepareJob.mockRejectedValueOnce(new Error('PLUGIN_JOB_SYNC_PENDING'));
+    render(<PluginsPage />);
+    (await screen.findByRole('gridcell', {name:/Demo/})).focus();
+    await user.keyboard('{Enter}');
+    await user.click(await screen.findByRole('button', {name:'plugins.prepareJob'}));
+    expect(await screen.findByText('plugins.syncPending')).toBeVisible();
+    await user.click(screen.getByRole('button', {name:'plugins.registerServer search'}));
+    await waitFor(() => expect(mocks.register).toHaveBeenCalledOnce());
+    expect(screen.getByText('plugins.syncPending')).toBeVisible();
+    mocks.syncJobs.mockRejectedValueOnce(new Error('offline'));
+    const retry = screen.getByRole('button', {name:'plugins.retrySync'});
+    await user.click(retry);
+    expect(await screen.findByText('plugins.syncFailed')).toBeVisible();
+    await user.click(retry);
+    await waitFor(() => expect(mocks.announce).toHaveBeenCalledWith('plugins.synchronized'));
+    expect(mocks.sync).not.toHaveBeenCalled();
+  });
+
   it('recovers the persisted registration when both synchronization and the first refresh fail', async () => {
     const user = userEvent.setup();
     mocks.list.mockResolvedValue([{ id: 'one', name: 'Demo', digest: 'sha' }]);
@@ -499,17 +524,30 @@ describe('PluginsPage', () => {
 
   it('shows the requested job tool and triggers without running or enabling it', async () => {
     mocks.preview.mockResolvedValue({token:'reviewed', name:'kit', digest:'sha', files:[], diagnostics:[], components:[
-      {kind:'job', key:'jobs/reminder', name:'Reminder', tool:'notify', jobTriggers:['interval'], reason:'jobActivationPending'},
+      {kind:'job', key:'jobs/reminder', name:'Reminder', tool:'notify', jobTriggers:['interval']},
     ]});
     const user=userEvent.setup();
     render(<PluginsPage />);
     const choose=await screen.findByRole('button', {name:'plugins.choose'});
     await waitFor(()=>expect(choose).toBeEnabled());
     await user.click(choose);
-    await screen.findByText('plugins.jobActivationPending');
+    await screen.findByText(/Reminder/);
     expect(screen.getByText(/plugins.jobTool/)).toBeVisible();
     expect(screen.getByText(/plugins.jobTrigger.interval/)).toBeVisible();
     expect(screen.queryByRole('button', {name:'plugins.activate'})).toBeNull();
+  });
+
+  it('prepares a disabled job only after a user action in installed details', async () => {
+    mocks.list.mockResolvedValue([{id:'one',name:'Demo',digest:'sha'}]);
+    mocks.components.mockResolvedValue([{kind:'job', key:'jobs/watch', name:'Watch', tool:'notify'}]);
+    const user=userEvent.setup();
+    render(<PluginsPage />);
+    const cell=await screen.findByRole('gridcell', {name:/Demo/});
+    cell.focus();
+    await user.keyboard('{Enter}');
+    expect(mocks.prepareJob).not.toHaveBeenCalled();
+    await user.click(await screen.findByRole('button', {name:'plugins.prepareJob'}));
+    expect(mocks.prepareJob).toHaveBeenCalledWith('one','sha','jobs/watch');
   });
 
   it('reports a supported template in preview before installation', async () => {
