@@ -327,7 +327,7 @@ Pendente ou parcial:
   durante a drenagem. Esses campos permitem investigar a #1134 sem registrar o comando ou a saída.
   No Windows PowerShell 5.1 com ConPTY e PSReadLine, a linha recuperada pela
   seta para `Write-Output 'gerenciado-revisao-1120'` passou de 6.330 para
-  1.036 bytes. A consulta anterior registrou 411 bytes (1.447 no total, sem
+  1.036 bytes. A consulta com as duas marcas contíguas registrou 380 bytes (1.416 no total, sem
   terminadores). `TestPowerShellNativeHistory` verifica os dois estilos de
   persistência, a entrada manual, a execução sem o módulo e no shell filho.
   `BenchmarkPowerShellSessionStartup` mede até o primeiro prompt e até o
