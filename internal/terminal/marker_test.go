@@ -492,6 +492,23 @@ func TestPowerShellProbeReadsContiguousMarkersAcrossChunks(t *testing.T) {
 	}
 }
 
+func TestPowerShellProbeAcrossConPTYMargin(t *testing.T) {
+	m := newCommandMarkerForShell("powershell")
+	m.conPTY = true
+	m.probeInterrupt = make(chan struct{})
+	m.viewportColumns = len(m.startTag)
+	raw := m.startTag + "\r\n\x1b[2;" + strconv.Itoa(m.viewportColumns) + "H_" + m.endTag + "0!"
+	for split := 0; split < len(raw); split++ {
+		stream := newMarkerStream(m)
+		if _, early := stream.append(raw[:split]); early.Found {
+			t.Fatalf("resposta antes do terminador, corte %d", split)
+		}
+		if _, result := stream.append(raw[split:]); !result.Found || result.ExitCode != 0 || result.Output != "" {
+			t.Fatalf("redesenho na margem, corte %d: %+v", split, result)
+		}
+	}
+}
+
 func TestConPTYRedrawAtStartMarkerPreservesBodyAcrossReads(t *testing.T) {
 	m := newCommandMarkerForShell("powershell")
 	m.conPTY = true

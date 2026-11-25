@@ -75,7 +75,7 @@ func (t *parsedTerminalText) feed(chunk string) {
 				// O ConPTY pode redesenhar a última célula do marcador de início.
 				// Nesse caso descarte a célula repetida e mantenha o delimitador.
 				beforeBreak := t.data[:len(t.data)-1]
-				if !bytes.HasSuffix(beforeBreak, []byte(t.marker.startTag)) {
+				if t.marker.probeInterrupt != nil || !bytes.HasSuffix(beforeBreak, []byte(t.marker.startTag)) {
 					t.data = beforeBreak
 				}
 				t.row = len(t.data)
