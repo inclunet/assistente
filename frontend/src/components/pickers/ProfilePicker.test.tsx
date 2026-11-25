@@ -22,6 +22,7 @@ vi.mock('@wailsjs/runtime/runtime', () => ({
 vi.mock('./BasePicker', () => ({
   BasePicker: (props: {
     items: Array<{ value: string }>;
+    triggerRef?: React.Ref<HTMLButtonElement>;
     onOpen?: () => void;
     onSelect: (value: string) => void;
     error?: string;
@@ -30,9 +31,9 @@ vi.mock('./BasePicker', () => ({
     loading?: boolean;
     loadingState?: React.ReactNode;
     label?: string;
-  }) => props.error ? props.errorState : (
+  }) => props.error ? props.errorState : props.loading ? props.loadingState : (
     <div>
-      {props.onOpen && <button onClick={props.onOpen}>Abrir</button>}
+      {props.onOpen && <button ref={props.triggerRef} onClick={props.onOpen}>Abrir</button>}
       <span data-testid="picker-label">{props.label}</span>
       {props.loading ? props.loadingState : null}
       {!props.loading && props.items.length === 0 ? props.emptyState : null}
@@ -63,8 +64,11 @@ describe('ProfilePicker', () => {
     render(<ProfilePicker includePluginProfiles value="" />);
     await screen.findByRole('button', {name:'Selecionar-installed'});
     fireEvent.click(screen.getByRole('button', {name:'Abrir'}));
-    fireEvent.click(await screen.findByRole('button', {name:'Tentar novamente'}));
+    const retry = await screen.findByRole('button', {name:'Tentar novamente'});
+    retry.focus();
+    fireEvent.click(retry);
     expect(await screen.findByRole('button', {name:'Selecionar-installed'})).toBeVisible();
+    expect(screen.getByRole('button', {name:'Abrir'})).toHaveFocus();
   });
 
   it('mantém os perfis locais e recupera a lista de plugins ao reabrir', async () => {
