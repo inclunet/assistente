@@ -40,6 +40,8 @@ export function RemoveRepository(arg1:string,arg2:string):Promise<void>;
 
 export function SaveBuilder(arg1:plugins.BuilderRequest,arg2:string):Promise<boolean>;
 
+export function SetProfileActive(arg1:string,arg2:string,arg3:string,arg4:boolean):Promise<void>;
+
 export function SetSkillActive(arg1:string,arg2:string,arg3:string,arg4:boolean):Promise<void>;
 
 export function SyncMCP(arg1:string):Promise<void>;

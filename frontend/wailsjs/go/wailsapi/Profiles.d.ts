@@ -17,6 +17,8 @@ export function GetActiveProfileSlug():Promise<string>;
 
 export function GetContextProviders():Promise<Array<contextprovider.ProviderMetadata>>;
 
+export function GetConversationProfiles():Promise<Array<profiles.ProfileInfo>>;
+
 export function GetProfile(arg1:string):Promise<profiles.Profile>;
 
 export function GetProfileSearchPaths():Promise<Array<string>>;

@@ -419,7 +419,7 @@ func (h *SimpleStreamHandler) OnSegmentDone() {
 	})
 
 	if h.svc != nil && h.svc.onSpeechRequest != nil && strings.TrimSpace(text) != "" {
-		h.svc.onSpeechRequest(h.ConversationID, "", "assistant", text, "segment", h.profileSlug, false)
+		h.svc.onSpeechRequest(h.ctx, h.ConversationID, "", "assistant", text, "segment", h.profileSlug, false)
 	}
 }
 

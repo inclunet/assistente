@@ -178,6 +178,7 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
   const effectiveProfileSlug = tabProfileSlug || workspace?.defaultProfile || '';
 
   const historyPickerRef = useRef<HistoryPickerRef>(null);
+  const profileSession = useAuthStore(state => state.user?.sessionId);
   const profilePickerRef = useRef<ProfilePickerRef>(null);
   const toolbarRef = useRef<HTMLDivElement>(null);
   const cancelQueuedTurnButtonRef = useRef<HTMLButtonElement | null>(null);
@@ -326,7 +327,7 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
   } = useAnchoredContextMenu();
 
   const getProfileMenuItems = useCallback((): MenuItem[] => [
-    {
+    ...(!/^plugin--[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(toolbarProfileSlug) ? [{
       id: 'edit-active-profile',
       label: t('chat.editActiveProfile'),
       icon: <EditOutlined />,
@@ -335,7 +336,7 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
         useNavigationStore.getState().requestResourceEdit('profiles', slug, 'edit');
         navigate('/profiles');
       },
-    },
+    }] : []),
     {
       id: 'manage-profiles',
       label: t('chat.manageProfiles'),
@@ -344,7 +345,7 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
         navigate('/profiles');
       },
     },
-  ], [navigate, t, activeProfileSlug, effectiveProfileSlug]);
+  ], [navigate, t, activeProfileSlug, effectiveProfileSlug, toolbarProfileSlug]);
 
   const handleProfileContextMenu = useCallback((e: React.MouseEvent<HTMLElement>) => {
     e.preventDefault();
@@ -737,6 +738,8 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
               onKeyDown={handleProfileKeyDown}
             >
               <ProfilePicker
+                key={profileSession}
+                includePluginProfiles
                 ref={profilePickerRef}
                 onChange={handleProfileChange}
                 variant="toolbar"

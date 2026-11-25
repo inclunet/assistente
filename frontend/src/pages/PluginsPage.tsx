@@ -2,7 +2,7 @@ import { repositoryError } from './pluginRepositoryError';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { create } from 'zustand';
 import { useTranslation } from 'react-i18next';
-import { CreateListFromTemplate, ChangeInstallation, DiscardPreview, InstalledComponents, InstallReviewed, ListInstalled, PreviewLocal, RegisterMCP, RemoveMCP, SetSkillActive, SyncMCP } from '@wailsjs/go/wailsapi/Plugins';
+import { CreateListFromTemplate, ChangeInstallation, DiscardPreview, InstalledComponents, InstallReviewed, ListInstalled, PreviewLocal, RegisterMCP, RemoveMCP, SetProfileActive, SetSkillActive, SyncMCP } from '@wailsjs/go/wailsapi/Plugins';
 import type { database, plugins, wailsapi } from '@wailsjs/go/models';
 import { Button } from '../components/ui/Button';
 import { DataGrid } from '../components/ui/DataGrid';
@@ -36,7 +36,6 @@ function componentLabel(kind: string) {
 
 function componentRequirement(component: plugins.Component) {
   if (component.reason === 'invalidProfile') return 'plugins.invalidProfile';
-  if (component.reason === 'profileActivationPending') return 'plugins.profileActivationPending';
   if (component.reason === 'shellCommands') return 'plugins.shellPending';
   if (component.reason === 'supportingFiles') return 'plugins.filesPending';
   if (component.reason === 'missingTemplate') return 'plugins.missingTemplate';
@@ -46,7 +45,7 @@ function componentRequirement(component: plugins.Component) {
   if (component.reason === 'rootSkill') return 'plugins.rootSkillPending';
   if (component.reason === 'frontmatter') return 'plugins.fieldsPending';
   if (component.reason === 'configuration') return 'plugins.mcpConfigRequired';
-  if ((component.kind === 'mcp' || component.kind === 'tasklistTemplate') && !component.reason) return undefined;
+  if ((component.kind === 'mcp' || component.kind === 'profile' || component.kind === 'tasklistTemplate') && !component.reason) return undefined;
   return component.kind === 'skill' ? undefined : 'plugins.unavailable';
 }
 
@@ -278,6 +277,8 @@ function InstalledPlugins({ session }: { session: string }) {
         } else {
           await reconcileMCP(session, RegisterMCP(installation.id, installation.digest, component.key));
         }
+      } else if (component.kind === 'profile') {
+        await SetProfileActive(installation.id, installation.digest, component.key, !component.active);
       } else {
         await SetSkillActive(installation.id, installation.digest, component.key, !component.active);
       }
@@ -434,8 +435,8 @@ function InstalledPlugins({ session }: { session: string }) {
         {component.kind === 'skill' && component.requestsShell && <p>{t('plugins.commandPolicy')}</p>}
         {component.kind === 'tasklistTemplate' && !component.reason ?
           <Button disabled={busy || details.installation.disabled || error === 'plugins.syncPendingStale'} onClick={() => void changeComponent(component)}>{t('plugins.createList', { name: component.name })}</Button>
-          : component.kind === 'skill' && !component.reason ? <>
-          {component.active && <code> /{component.slug}</code>}
+          : (component.kind === 'profile' || component.kind === 'skill') && !component.reason ? <>
+          {component.active && component.kind === 'skill' && <code> /{component.slug}</code>}
           <Button disabled={busy || details.installation.disabled || error === 'plugins.syncPendingStale'} onClick={() => void changeComponent(component)}>{t(component.active ? 'plugins.deactivate' : 'plugins.activate', { name: component.name })}</Button>
         </> : component.kind === 'mcp' && !component.reason ? <>
           <Button disabled={busy || details.installation.disabled || error === 'plugins.syncPendingStale'} onClick={() => void changeComponent(component)}>{t(component.active ? 'plugins.removeServer' : 'plugins.registerServer', { name: component.name })}</Button>

@@ -7,9 +7,9 @@ import { useWorkspaceStore } from '../store/workspaceStore';
 import { useAuthStore } from '../store/authStore';
 import * as navigation from '../lib/commandLandmarkNavigation';
 
-const mocks = vi.hoisted(() => ({ createList: vi.fn(), repos: vi.fn(), catalogPreview: vi.fn(), lifecycle: vi.fn(), sync: vi.fn(), register: vi.fn(), remove: vi.fn(), confirm: vi.fn(), list: vi.fn(), components: vi.fn(), toggle: vi.fn(), preview: vi.fn(), install: vi.fn(), discard: vi.fn(), announce: vi.fn(), announceRequest: vi.fn() }));
+const mocks = vi.hoisted(() => ({ profile: vi.fn(), createList: vi.fn(), repos: vi.fn(), catalogPreview: vi.fn(), lifecycle: vi.fn(), sync: vi.fn(), register: vi.fn(), remove: vi.fn(), confirm: vi.fn(), list: vi.fn(), components: vi.fn(), toggle: vi.fn(), preview: vi.fn(), install: vi.fn(), discard: vi.fn(), announce: vi.fn(), announceRequest: vi.fn() }));
 vi.mock('@wailsjs/go/wailsapi/Tasklist', () => ({GetAllTaskLists: async () => []}));
-vi.mock('@wailsjs/go/wailsapi/Plugins', () => ({ BuilderSkillNames: async () => ({names:[],partial:false}), CreateListFromTemplate: mocks.createList, ListRepositories: mocks.repos, PreviewRepositoryEntry: mocks.catalogPreview, ChangeInstallation: mocks.lifecycle, SyncMCP: mocks.sync, RegisterMCP: mocks.register, RemoveMCP: mocks.remove, InstalledComponents: mocks.components, SetSkillActive: mocks.toggle, DiscardPreview: mocks.discard, ListInstalled: mocks.list, PreviewLocal: mocks.preview, InstallReviewed: mocks.install }));
+vi.mock('@wailsjs/go/wailsapi/Plugins', () => ({ BuilderSkillNames: async () => ({names:[],partial:false}), CreateListFromTemplate: mocks.createList, ListRepositories: mocks.repos, PreviewRepositoryEntry: mocks.catalogPreview, ChangeInstallation: mocks.lifecycle, SyncMCP: mocks.sync, RegisterMCP: mocks.register, RemoveMCP: mocks.remove, InstalledComponents: mocks.components, SetProfileActive: mocks.profile, SetSkillActive: mocks.toggle, DiscardPreview: mocks.discard, ListInstalled: mocks.list, PreviewLocal: mocks.preview, InstallReviewed: mocks.install }));
 vi.mock('../hooks/useConfirm', () => ({ useConfirm: () => mocks.confirm }));
 vi.mock('../store/authStore', async importOriginal => {
   const actual = await importOriginal<typeof import('../store/authStore')>();
@@ -480,10 +480,10 @@ describe('PluginsPage', () => {
     expect(screen.queryByText('plugins.createdList')).toBeNull();
     expect(mocks.createList.mock.calls[2][3]).not.toBe(mocks.createList.mock.calls[1][3]);
   });
-  it('distinguishes an invalid profile from a valid profile awaiting activation', async () => {
+  it('activates only a valid packaged profile', async () => {
     mocks.list.mockResolvedValue([{id: 'one', name: 'Demo', digest: 'sha'}]);
     mocks.components.mockResolvedValue([
-      {name: 'Writer', key: 'profiles/writer', kind: 'profile', reason: 'profileActivationPending'},
+      {name: 'Writer', key: 'profiles/writer', kind: 'profile'},
       {name: 'broken', key: 'profiles/broken', kind: 'profile', reason: 'invalidProfile'},
     ]);
     const user = userEvent.setup();
@@ -491,9 +491,10 @@ describe('PluginsPage', () => {
     const cell = await screen.findByRole('gridcell', {name: /Demo/});
     cell.focus();
     await user.keyboard('{Enter}');
-    await screen.findByText('plugins.profileActivationPending');
+    const activate = await screen.findByRole('button', {name: 'plugins.activate'});
     expect(screen.getByText('plugins.invalidProfile')).toBeVisible();
-    expect(screen.queryByRole('button', {name: 'plugins.activate'})).toBeNull();
+    await user.click(activate);
+    expect(mocks.profile).toHaveBeenCalledWith('one', 'sha', 'profiles/writer', true);
   });
 
   it('reports a supported template in preview before installation', async () => {

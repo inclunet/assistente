@@ -55,6 +55,9 @@ func (i *Inventory) ChangeInstallation(ctx context.Context, id, digest, action s
 		if err := removeMCPBindings(publishCtx, tx, id, "", false); err != nil {
 			return err
 		}
+		if err := tx.Where("installation_id=?", id).Delete(&database.PluginProfileActivation{}).Error; err != nil {
+			return err
+		}
 		if err := tx.Where("installation_id=?", id).Delete(&database.PluginSkillActivation{}).Error; err != nil {
 			return err
 		}

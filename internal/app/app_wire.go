@@ -39,6 +39,9 @@ func (a *App) wireAllowlist() {
 }
 
 func (a *App) wirePlugins() {
+	if a.profileManager != nil && database.DB() != nil {
+		a.profileManager.SetPluginSource(plugins.NewInventory(database.DB()))
+	}
 	if a.pluginsAPI != nil && a.dialogPort != nil {
 		wailsapi.AttachPluginSaveDialog(a.pluginsAPI, a.dialogPort.SaveFileDialog)
 		var authorizer httpclient.NetworkAuthorizer

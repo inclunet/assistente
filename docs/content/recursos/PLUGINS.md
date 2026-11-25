@@ -69,10 +69,12 @@ Abra os detalhes de um plugin instalado que forneça um modelo de lista de taref
 
 ## Conferir perfis incluídos no pacote
 
-A prévia e os detalhes identificam os perfis de conversa fornecidos pelo plugin. Nesta versão, você pode conferir o nome do perfil e saber se a definição é compatível. A ativação para uso em conversas ainda está em desenvolvimento.
+A prévia e os detalhes identificam os perfis de conversa fornecidos pelo plugin. Nos detalhes do plugin instalado, escolha **Ativar** no perfil desejado. Abra o seletor **Perfil** na barra da conversa e escolha seu nome. O perfil usa o provedor padrão, com as preferências de geração incluídas no pacote e ferramentas e skills desabilitadas. A ativação vale para sua conta. Se o plugin for atualizado, desativado ou removido, a aba que usava o perfil precisará de uma nova seleção.
 
 ## Gerar um pacote com o builder
 
 Abra **Plugins → Criar plugin**. Se uma pasta de skills estiver inacessível, o aviso de carregamento parcial aparece junto das skills disponíveis nas outras pastas. Você pode selecioná-las e revisar o pacote normalmente. Use F6 para chegar ao formulário e Tab para percorrer os campos e as opções. Informe um identificador de pacote e, se quiser, sua versão. Marque as skills de instrução que deseja incluir. O builder preserva o SKILL.md original das skills portáveis sem arquivos auxiliares e permite conferir seu conteúdo na prévia. Marque as listas que deseja distribuir como modelos e informe uma chave estável para cada uma. Para incluir tarefas iniciais, marque a opção da lista correspondente. Os campos publicados são os títulos e as descrições das tarefas selecionadas, a hierarquia, o título e a descrição da lista e a definição do workflow. Notas pessoais, responsáveis, conclusão e histórico ficam na sua conta.
 
 Escolha **Revisar pacote**, confira os arquivos e escolha **Salvar ZIP**. Se um recurso mudou desde a prévia, revise novamente. Se a gravação falhar, escolha outro destino em **Salvar ZIP** para tentar de novo com a mesma prévia. Para instalar o arquivo em outra conta, extraia o ZIP em uma pasta e abra essa pasta pelo gerenciador de Plugins. Você também pode colocar a pasta em um repositório de plugins para publicar a revisão.
+
+Se o catálogo de perfis de plugins estiver indisponível, o seletor da conversa avisa e oferece os perfis locais. Reabra o seletor para consultar o catálogo novamente.

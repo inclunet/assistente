@@ -1,6 +1,7 @@
 package wailsapi
 
 import (
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
@@ -93,7 +94,7 @@ type stubSpeechDispatcher struct {
 	err error
 }
 
-func (s stubSpeechDispatcher) DispatchSpeech(apidto.ChatSpeakRequest) error {
+func (s stubSpeechDispatcher) DispatchSpeech(context.Context, apidto.ChatSpeakRequest) error {
 	return s.err
 }
 

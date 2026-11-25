@@ -77,7 +77,7 @@ type SendMessageConfig struct {
 	Transcribe chat.TranscribeFunc
 	Emitter    ports.Emitter
 	// OnSpeechRequest é chamado após salvar a mensagem do usuário para disparar TTS proativo.
-	OnSpeechRequest func(conversationID string, messageID string, role, text, origin, profileSlug string, interrupt bool)
+	OnSpeechRequest func(ctx context.Context, conversationID string, messageID string, role, text, origin, profileSlug string, interrupt bool)
 	// OpenEditorPaths retorna os caminhos de arquivos abertos em abas de editor.
 	// Filesystem tools podem ler/editar esses arquivos mesmo fora do workDir.
 	OpenEditorPaths func() []string
@@ -97,7 +97,7 @@ type SendMessageUseCase struct {
 	speechSvc         *speech.Service
 	transcribe        chat.TranscribeFunc
 	emitter           ports.Emitter
-	onSpeechRequest   func(conversationID string, messageID string, role, text, origin, profileSlug string, interrupt bool)
+	onSpeechRequest   func(ctx context.Context, conversationID string, messageID string, role, text, origin, profileSlug string, interrupt bool)
 	openEditorPaths   func() []string
 }
 
@@ -531,7 +531,7 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 
 		// TTS proativo: verbaliza a mensagem do usuário (síncrono para garantir ordem dos eventos)
 		if uc.onSpeechRequest != nil && userContent != "" {
-			uc.onSpeechRequest(req.ConversationID, userMsg.ID, "user", userContent, "user_message", params.ProfileSlug, true)
+			uc.onSpeechRequest(ctx, req.ConversationID, userMsg.ID, "user", userContent, "user_message", params.ProfileSlug, true)
 		}
 	}
 

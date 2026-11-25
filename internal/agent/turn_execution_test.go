@@ -177,7 +177,9 @@ func TestTurnRuntimePostCommitPanicStillEmitsCompleted(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	svc.onSpeechRequest = func(string, string, string, string, string, string, bool) { panic("TTS indisponível") }
+	svc.onSpeechRequest = func(context.Context, string, string, string, string, string, string, bool) {
+		panic("TTS indisponível")
+	}
 	func() {
 		defer svc.EndUnfinishedTurn(ctx, conv, turn, nil)
 		defer func() { svc.HandleRecoveredPanic(ctx, conv, turn, "test", recover(), nil) }()
@@ -226,7 +228,9 @@ func TestTurnRuntimeLimitSpeechPanicStillEmitsInterrupted(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	svc.onSpeechRequest = func(string, string, string, string, string, string, bool) { panic("fala indisponível") }
+	svc.onSpeechRequest = func(context.Context, string, string, string, string, string, string, bool) {
+		panic("fala indisponível")
+	}
 	runner := &agenticLoopRunner{svc: svc, conversationID: conv, turnID: turn, assistantMessageID: id, maxIterations: 1}
 	func() {
 		defer svc.EndUnfinishedTurn(ctx, conv, turn, nil)

@@ -209,20 +209,18 @@ test.describe('ChatToolbar — Ctrl+H history picker', () => {
 
 test.describe('ChatToolbar — Ctrl+P profile picker', () => {
   test('Ctrl+P abre o picker de perfis', async ({ page, wails }) => {
+    await wails.setResponse('GetConversationProfiles', [
+      {slug: 'plugin--writer', name: 'Perfil do plugin', source: 'plugin', description: '', icon: ''},
+    ]);
+    await wails.setResponse('GetLocalCommandKeyboardMap', {
+      generation: 'e2e-profile-picker', ownerId: 'user-e2e', sessionId: 'session-e2e', workspaceId: 'ws-1',
+      bindings: [{shortcut: {version: 1, code: 'KeyP', modifiers: ['Control']}, commandId: 'chat.profile.open', handler: 'local_ui'}],
+      localPaletteCommands: [],
+    });
     await wails.waitForApp();
-
-    // Ctrl+P deve acionar o profile picker
+    await page.locator('.chat-input__textarea').focus();
     await page.keyboard.press('Control+p');
-
-    await page.waitForTimeout(300);
-
-    // O picker de perfis deve abrir
-    const popup = page.locator('[role="menu"], [role="listbox"], .picker-menu');
-    const isVisible = await popup.first().isVisible().catch(() => false);
-    // A chamada GetProfiles indica que o picker abriu
-    const calls = await wails.getCallLog();
-    const profileCall = calls.find(c => c.fn === 'GetProfiles');
-    expect(isVisible || !!profileCall).toBe(true);
+    await expect(page.getByRole('option', {name: /Perfil do plugin/})).toBeVisible();
   });
 });
 

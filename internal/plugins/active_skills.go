@@ -72,6 +72,17 @@ func (i *Inventory) InstalledComponents(ctx context.Context, id, digest string) 
 			edited[server.ComponentKey] = server.Name
 		}
 	}
+	pq, err := i.profileQuery(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var granted []database.PluginProfileActivation
+	if err := pq.Select("plugin_profile_activations.component_key, plugin_profile_activations.slug").Where("p.id=? AND p.digest=?", id, digest).Find(&granted).Error; err != nil {
+		return nil, err
+	}
+	for _, row := range granted {
+		slugs[row.ComponentKey] = row.Slug
+	}
 	for n := range components {
 		components[n].EditedServer = edited[components[n].Key]
 		slug, ok := slugs[components[n].Key]

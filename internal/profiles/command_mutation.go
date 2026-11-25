@@ -307,6 +307,9 @@ func (m *Manager) mutationImpactLocked(operation string, plan commandMutationPla
 }
 
 func (m *Manager) buildCommandMutationPlanLocked(operation, slug string, profile *Profile) (commandMutationPlan, error) {
+	if IsPluginProfile(slug) {
+		return commandMutationPlan{}, ErrInvalidCommandMutation
+	}
 	if !validCommandMutationOperation(operation) {
 		return commandMutationPlan{}, fmt.Errorf("%w: unsupported operation %q", ErrInvalidCommandMutation, operation)
 	}

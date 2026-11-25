@@ -113,6 +113,13 @@ func NewProfilesController(cfg ProfilesControllerConfig) *ProfilesController {
 	}
 }
 
+func (c *ProfilesController) GetProfilesForContext(ctx context.Context) ([]profiles.ProfileInfo, error) {
+	return c.profileMgr.ListForContext(ctx)
+}
+func (c *ProfilesController) GetProfileForContext(ctx context.Context, slug string) (*profiles.Profile, error) {
+	return c.profileMgr.GetForContext(ctx, slug)
+}
+
 func (c *ProfilesController) GetProfiles() ([]profiles.ProfileInfo, error) {
 	return c.profileMgr.List()
 }

@@ -74,7 +74,7 @@ type ServiceConfig struct {
 	TriggerSummarize func(context.Context, string, string, int)
 	// OnSpeechRequest é chamado após chat:done e chat:segment_done para disparar TTS proativo.
 	// Parâmetros: conversationID, messageID, role, text, origin, profileSlug, interrupt.
-	OnSpeechRequest func(conversationID string, messageID string, role, text, origin, profileSlug string, interrupt bool)
+	OnSpeechRequest func(ctx context.Context, conversationID string, messageID string, role, text, origin, profileSlug string, interrupt bool)
 	// RenameFromAgent aplica o título que um agente de código gerou para a
 	// conversa (AEP-0084 D8). Recebe conversationID, a mensagem do turno e o
 	// título; a regra de quando o nome novo pode valer é de quem implementa.
@@ -95,7 +95,7 @@ type Service struct {
 	responseNotifier *messaging.ResponseNotifier
 	getTokenStats    func(string) (*chat.TokenStats, error)
 	triggerSummarize func(context.Context, string, string, int)
-	onSpeechRequest  func(conversationID string, messageID string, role, text, origin, profileSlug string, interrupt bool)
+	onSpeechRequest  func(ctx context.Context, conversationID string, messageID string, role, text, origin, profileSlug string, interrupt bool)
 	renameFromAgent  func(ctx context.Context, conversationID, turnMessageID, title string) error
 
 	// Somente seams unitários internos podem habilitar execução sem ledger.
@@ -500,7 +500,7 @@ func (s *Service) SaveAndFinish(
 			speech = result.RemainingSpeech
 		}
 		if s.onSpeechRequest != nil && strings.TrimSpace(speech) != "" {
-			s.onSpeechRequest(conversationID, savedMsgID, "assistant", speech, "assistant_message", profileSlug, true)
+			s.onSpeechRequest(ctx, conversationID, savedMsgID, "assistant", speech, "assistant_message", profileSlug, true)
 		}
 
 	}()

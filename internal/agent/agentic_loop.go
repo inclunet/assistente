@@ -126,7 +126,7 @@ func (r *agenticLoopRunner) run(ctx context.Context) {
 
 		// TTS proativo: verbaliza segmentos intermediários (não interrompe áudio anterior).
 		if r.svc.onSpeechRequest != nil && result.FullResponse != "" {
-			r.svc.onSpeechRequest(r.conversationID, "", "assistant", result.FullResponse, "segment", r.params.ProfileSlug, false)
+			r.svc.onSpeechRequest(ctx, r.conversationID, "", "assistant", result.FullResponse, "segment", r.params.ProfileSlug, false)
 		}
 
 		// 5. finish_reason="tool_calls" → executar ferramentas
@@ -877,7 +877,7 @@ func (r *agenticLoopRunner) finishLimitReached(ctx context.Context) {
 		// strategy backend_audio falaria o conteúdo do banco no lugar dele.
 		// Dispara antes de chat:done, que derruba os listeners.
 		if r.svc.onSpeechRequest != nil {
-			r.svc.onSpeechRequest(r.conversationID, "", "system", limitReachedNotice, "system_message", r.params.ProfileSlug, true)
+			r.svc.onSpeechRequest(ctx, r.conversationID, "", "system", limitReachedNotice, "system_message", r.params.ProfileSlug, true)
 		}
 	}()
 

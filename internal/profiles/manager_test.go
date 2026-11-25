@@ -4,6 +4,7 @@ import (
 	"assistente/internal/configdir"
 	"encoding/json"
 	"os"
+	"path/filepath"
 	"testing"
 )
 
@@ -35,6 +36,32 @@ func setupProfileTestEnv(t *testing.T) *Manager {
 	})
 
 	return NewManager()
+}
+
+func TestLegacyPluginNamedProfileRemainsLocal(t *testing.T) {
+	mgr := setupProfileTestEnv(t)
+	dir := filepath.Join(os.Getenv("HOME"), ".assistente", "profiles")
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	const slug = "plugin--redator"
+	if err := os.WriteFile(filepath.Join(dir, slug+".json"), []byte(`{"name":"Redator","active":true}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	profile, err := mgr.GetForContext(t.Context(), slug)
+	if err != nil || profile.Name != "Redator" {
+		t.Fatal(profile, err)
+	}
+	entries, err := mgr.ListForContext(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range entries {
+		if entry.Slug == slug {
+			return
+		}
+	}
+	t.Fatal("local profile missing", entries)
 }
 
 func TestManagerGetActiveSlug(t *testing.T) {

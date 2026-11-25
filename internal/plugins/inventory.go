@@ -149,6 +149,9 @@ func (i *Inventory) InstallSource(ctx context.Context, reviewedOrigin, reviewedD
 			if err := removeMCPBindings(publishCtx, tx, installed.ID, "", false); err != nil {
 				return err
 			}
+			if err := tx.Where("installation_id=?", installed.ID).Delete(&database.PluginProfileActivation{}).Error; err != nil {
+				return err
+			}
 			if err := tx.Where("installation_id = ?", installed.ID).Delete(&database.PluginSkillActivation{}).Error; err != nil {
 				return err
 			}

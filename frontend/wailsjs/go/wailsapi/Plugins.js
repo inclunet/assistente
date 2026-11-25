@@ -74,6 +74,10 @@ export function SaveBuilder(arg1, arg2) {
   return window['go']['wailsapi']['Plugins']['SaveBuilder'](arg1, arg2);
 }
 
+export function SetProfileActive(arg1, arg2, arg3, arg4) {
+  return window['go']['wailsapi']['Plugins']['SetProfileActive'](arg1, arg2, arg3, arg4);
+}
+
 export function SetSkillActive(arg1, arg2, arg3, arg4) {
   return window['go']['wailsapi']['Plugins']['SetSkillActive'](arg1, arg2, arg3, arg4);
 }

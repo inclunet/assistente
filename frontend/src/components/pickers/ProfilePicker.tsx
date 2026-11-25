@@ -1,9 +1,9 @@
 import { logger } from '../../utils/logger';
-import { useState, useEffect, forwardRef, useImperativeHandle, useCallback, type ReactNode } from 'react';
+import { useState, useEffect, forwardRef, useImperativeHandle, useCallback, useRef, type ReactNode } from 'react';
 import { MessageOutlined, WarningOutlined } from '@ant-design/icons';
 import { ComboboxItem } from './Combobox';
 import { BasePicker } from './BasePicker';
-import { GetProfiles, GetActiveProfileSlug, SetActiveProfile } from '@wailsjs/go/wailsapi/Profiles';
+import { GetConversationProfiles, GetProfiles, GetActiveProfileSlug, SetActiveProfile } from '@wailsjs/go/wailsapi/Profiles';
 import { EventsOn } from '@wailsjs/runtime/runtime';
 import { useTranslation } from 'react-i18next';
 import { profileDisplayDescription } from '../../lib/profileDescription';
@@ -11,6 +11,7 @@ import { profileDisplayDescription } from '../../lib/profileDescription';
 export interface ProfilePickerProps {
   /** Callback when profile is selected */
   onChange?: (slug: string) => void;
+  includePluginProfiles?: boolean;
   variant?: 'toolbar' | 'form';
   label?: string;
   description?: string;
@@ -36,6 +37,7 @@ export const ProfilePicker = forwardRef<ProfilePickerRef, ProfilePickerProps>(
   (
     {
       onChange,
+      includePluginProfiles = false,
       variant,
       label,
       description,
@@ -56,33 +58,50 @@ export const ProfilePicker = forwardRef<ProfilePickerRef, ProfilePickerProps>(
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
 
-    const loadProfiles = useCallback(async () => {
-      setLoading(true);
+    const [partial, setPartial] = useState(false);
+    useEffect(() => {
+      if (partial) onAnnounce?.(t('profiles.pluginCatalogUnavailable'));
+    }, [partial, onAnnounce, t]);
+    const requestId = useRef(0);
+    const loadProfiles = useCallback(async (background = false) => {
+      const request = ++requestId.current;
+      if (!background) setLoading(true);
       setError(null);
 
       try {
         if (isControlled) {
           // Controlled mode: only load profile list, don't read global active
-          const allProfiles = await GetProfiles();
+          let partialCatalog = false;
+          const allProfiles = await (includePluginProfiles ? GetConversationProfiles().catch(async () => {
+            if (request !== requestId.current) return [];
+            partialCatalog = true;
+            return GetProfiles();
+          }) : GetProfiles());
+          if (request !== requestId.current) return;
+          setPartial(partialCatalog);
           setProfileList(allProfiles || []);
         } else {
           const [allProfiles, currentSlug] = await Promise.all([
             GetProfiles(),
             GetActiveProfileSlug(),
           ]);
+          if (request !== requestId.current) return;
           setProfileList(allProfiles || []);
+          setPartial(false);
           setActiveSlug(currentSlug || 'padrao');
         }
       } catch (err) {
+        if (request !== requestId.current) return;
         setError(err instanceof Error ? err.message : t('profiles.loadError', 'Erro ao carregar perfis'));
         logger.error('[ProfilePicker] Failed to load profiles:', err);
       } finally {
-        setLoading(false);
+        if (request === requestId.current) setLoading(false);
       }
-    }, [isControlled, t]);
+    }, [includePluginProfiles, isControlled, t]);
 
     useEffect(() => {
-      loadProfiles();
+      void loadProfiles();
+      return () => { requestId.current += 1; };
     }, [loadProfiles]);
 
     // Escuta eventos de mudança de perfil (apenas no modo global)
@@ -186,9 +205,12 @@ export const ProfilePicker = forwardRef<ProfilePickerRef, ProfilePickerProps>(
     );
 
     return (
+      <>
+      {partial && !error && <span>{t('profiles.pluginCatalogUnavailable')}</span>}
       <BasePicker
         variant={variant ?? 'form'}
         items={buildItems()}
+        onOpen={includePluginProfiles ? () => void loadProfiles(true) : undefined}
         selected={selectedSlug}
         onSelect={handleSelect}
         label={resolvedLabel}
@@ -209,6 +231,7 @@ export const ProfilePicker = forwardRef<ProfilePickerRef, ProfilePickerProps>(
         comboboxWrapperProps={{ 'data-picker': 'profile' } as React.HTMLAttributes<HTMLDivElement>}
         onAfterSelect={onAfterSelect}
       />
+      </>
     );
   }
 );
