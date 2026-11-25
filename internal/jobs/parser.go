@@ -1,10 +1,13 @@
 package jobs
 
 import (
+	"bytes"
 	"fmt"
+	"io"
 	"strings"
 	"text/template"
 	"time"
+	"unicode/utf8"
 
 	"github.com/robfig/cron/v3"
 	"gopkg.in/yaml.v3"
@@ -12,20 +15,55 @@ import (
 
 // Parse decodifica YAML em um Job e valida campos obrigatorios.
 func Parse(data []byte) (*Job, error) {
+	return parseJob(data, false)
+}
+
+// MarshalPackageDefinition serializa a definição nativa sem metadados da conta.
+func MarshalPackageDefinition(job *Job) ([]byte, error) {
+	definition := *job
+	definition.Metadata = Metadata{}
+	definition.Enabled = false
+	data, err := yaml.Marshal(&definition)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := ParsePackageDefinition(data); err != nil {
+		return nil, err
+	}
+	return data, nil
+}
+
+// ParsePackageDefinition aplica o limite do pacote antes de usar o leitor nativo.
+func ParsePackageDefinition(data []byte) (*Job, error) {
+	if len(data) > 64<<10 || !utf8.Valid(data) {
+		return nil, fmt.Errorf("invalid packaged job size or encoding")
+	}
+	return parseJob(data, true)
+}
+
+func parseJob(data []byte, packaged bool) (*Job, error) {
+	decoder := yaml.NewDecoder(bytes.NewReader(data))
+	decoder.KnownFields(packaged)
 	var job Job
-	if err := yaml.Unmarshal(data, &job); err != nil {
+	if err := decoder.Decode(&job); err != nil {
 		return nil, fmt.Errorf("yaml parse error: %w", err)
 	}
-
+	if packaged {
+		if err := decoder.Decode(new(any)); err != io.EOF {
+			return nil, fmt.Errorf("expected a single job definition")
+		}
+	}
 	if err := Validate(&job); err != nil {
 		return nil, err
 	}
-
 	return &job, nil
 }
 
 // Validate verifica regras de negocio do Job.
 func Validate(job *Job) error {
+	if job.MaxRunsPerHour < 0 {
+		return fmt.Errorf("job validation: max_runs_per_hour must not be negative")
+	}
 	if job.ID == "" {
 		return fmt.Errorf("job validation: 'id' is required")
 	}

@@ -18,6 +18,8 @@ import (
 	"gorm.io/gorm"
 )
 
+const nativeVersion = 1
+
 const nativeExtension = "br.com.inclunet.assistente"
 
 type nativeResources struct {
@@ -35,7 +37,7 @@ func nativeComponents(snap *pluginpackage.LocalSnapshot) []Component {
 	var def nativeResources
 	decoder := json.NewDecoder(strings.NewReader(string(raw)))
 	decoder.DisallowUnknownFields()
-	if decoder.Decode(&def) != nil || def.Version != 1 || len(def.TaskLists)+len(def.Profiles)+len(def.Jobs) > 2048 {
+	if decoder.Decode(&def) != nil || def.Version != nativeVersion || len(def.TaskLists)+len(def.Profiles)+len(def.Jobs) > 2048 {
 		return []Component{{Kind: "invalidNative", Key: nativeExtension, Name: nativeExtension, Reason: "manifestConfiguration"}}
 	}
 	var result []Component
@@ -80,19 +82,20 @@ func nativeComponents(snap *pluginpackage.LocalSnapshot) []Component {
 			return []Component{{Kind: "invalidNative", Key: nativeExtension, Name: nativeExtension, Reason: "manifestConfiguration"}}
 		}
 		seen[key] = true
-		entry := path.Join(nativeExtension, key+".json")
+		entry := path.Join(nativeExtension, key+".yaml")
 		c := Component{Kind: "job", Key: key, Name: name, Entry: entry}
-		def, err := jobs.ReadPortableJob(name, snap.Files[entry])
+		def, err := jobs.ParsePackageDefinition(snap.Files[entry])
 		if err != nil {
 			c.Reason = "invalidJob"
 		} else {
-			c.Name = def.Name
-			c.Tool = def.Tool
-			c.JobRequiredInputs = def.RequiredInputs
-			c.JobMaxRunsPerHour = def.MaxRunsPerHour
-			for _, trigger := range def.Triggers {
-				c.JobTriggers = append(c.JobTriggers, jobs.PortableTrigger{Type: trigger.Type, Every: trigger.Every, Expression: trigger.Expression})
+			if strings.TrimSpace(def.Name) != "" {
+				c.Name = def.Name
+			} else {
+				c.Name = def.ID
 			}
+			c.Tool = def.Tool
+			c.JobMaxRunsPerHour = def.MaxRunsPerHour
+			c.JobTriggers = def.Triggers
 		}
 		result = append(result, c)
 	}
@@ -118,7 +121,7 @@ func (i *Inventory) CreateListFromTemplate(ctx context.Context, id, digest, key,
 	if err != nil {
 		return "", err
 	}
-	var definition *portability.TaskListTemplate
+	var definition *portability.TaskListExport
 	for _, c := range DiscoverComponents(snap) {
 		if c.Key == key && c.Kind == "tasklistTemplate" && c.Reason == "" {
 			definition, err = portability.ReadTaskListTemplate(snap.Files[c.Entry])
@@ -162,7 +165,7 @@ func (i *Inventory) CreateListFromTemplate(ctx context.Context, id, digest, key,
 		if err := tx.Create(&receipt).Error; err != nil {
 			return err
 		}
-		if err := definition.Instantiate(ctx, tx, listID); err != nil {
+		if err := definition.InstantiateTemplate(ctx, tx, listID); err != nil {
 			return err
 		}
 		var list database.TaskList

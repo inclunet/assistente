@@ -49,7 +49,7 @@ func TestTemplateListSurvivesUpdateAndUninstall(t *testing.T) {
 		}
 	}
 	write("plugin.json", `{"$schema":"`+pluginpackage.ManifestSchema+`","name":"planner","extensions":{"br.com.inclunet.assistente":{"version":1,"tasklists":["release"]}}}`)
-	const template = `{"title":"Release","workflow":{"statuses":[{"id":1,"label":"Open"},{"id":2,"label":"Done"}],"initialStatusId":1,"allowedTransitions":{"1":[2]}},"tasks":[{"title":"Check"}]}`
+	const template = `{"slug":"release","title":"Release","workflow":{"statuses":[{"id":1,"label":"Open"},{"id":2,"label":"Done"}],"initialStatusId":1,"allowedTransitions":{"1":[2]}},"tasks":[{"title":"Check"}]}`
 	write(nativeExtension+"/tasklists/release.json", template)
 	ctx := database.WithUserID(context.Background(), "reader")
 	install := func(previous string) database.PluginInstallation {
@@ -82,6 +82,12 @@ func TestTemplateListSurvivesUpdateAndUninstall(t *testing.T) {
 	deletedID, err := create(ctx)
 	if err != nil {
 		t.Fatal(err)
+	}
+	for id, want := range map[string]string{listID: "release", deletedID: "release-2"} {
+		var list database.TaskList
+		if err := db.First(&list, "id = ?", id).Error; err != nil || list.Slug != want {
+			t.Fatalf("lista %s: slug %q, esperado %q, erro %v", id, list.Slug, want, err)
+		}
 	}
 	if err := db.Select("Tasks", "Workflow").Delete(&database.TaskList{UUIDModel: database.UUIDModel{ID: deletedID}}).Error; err != nil {
 		t.Fatal(err)
@@ -161,6 +167,7 @@ func TestTaskListTemplateDiagnostics(t *testing.T) {
 	for _, tc := range []struct{ name, content, reason string }{
 		{"missing", "", "missingTemplate"},
 		{"invalid JSON", "{", "invalidTemplate"},
+		{"invalid validation policy", `{"title":"Release","validationPolicy":"{","workflow":{"statuses":[{"id":1,"label":"Ready"},{"id":2,"label":"Done"}],"initialStatusId":1,"allowedTransitions":{"1":[2]}}}`, "invalidTemplate"},
 		{"unnamed status", `{"title":"Release","workflow":{"statuses":[{"id":1,"label":" "},{"id":2,"label":"Done"}],"initialStatusId":1,"allowedTransitions":{"1":[2]}}}`, "invalidTemplate"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -172,6 +179,10 @@ func TestTaskListTemplateDiagnostics(t *testing.T) {
 				t.Fatal(got)
 			}
 		})
+	}
+	snap.Manifest.Extensions[nativeExtension] = json.RawMessage(`{"version":999,"tasklists":["release"]}`)
+	if got := nativeComponents(&snap); len(got) != 1 || got[0].Reason != "manifestConfiguration" {
+		t.Fatalf("versão desconhecida: %+v", got)
 	}
 	names := make([]string, 2049)
 	for i := range names {
@@ -190,7 +201,7 @@ func TestTaskListTemplateDiagnostics(t *testing.T) {
 		{"mixed at limit", 1024, 1024, 0, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			raw, err := json.Marshal(nativeResources{Version: 1, TaskLists: names[:tc.lists], Profiles: names[:tc.profiles], Jobs: names[:tc.jobs]})
+			raw, err := json.Marshal(nativeResources{Version: nativeVersion, TaskLists: names[:tc.lists], Profiles: names[:tc.profiles], Jobs: names[:tc.jobs]})
 			if err != nil {
 				t.Fatal(err)
 			}

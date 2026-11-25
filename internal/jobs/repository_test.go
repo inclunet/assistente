@@ -69,6 +69,30 @@ func setupJobsRepositoryTest(t *testing.T) (*DBRepository, context.Context, cont
 	return NewDBRepository(db), database.WithUserID(context.Background(), "user-a"), database.WithUserID(context.Background(), "user-b")
 }
 
+func TestUpdatingToolNameResolvesItsOwnOrigin(t *testing.T) {
+	repo, ctx, _ := setupJobsRepositoryTest(t)
+	job := testRepositoryJob("change-tool", "Change tool")
+	if err := repo.SaveJob(ctx, job); err != nil {
+		t.Fatal(err)
+	}
+	saved, err := repo.GetJob(ctx, job.ID)
+	if err != nil || saved.ToolOrigin != tools.ToolOriginBuiltin {
+		t.Fatalf("job inicial: %+v, erro %v", saved, err)
+	}
+	target := database.ToolCatalog{Name: "remote", DisplayName: "Remote", Origin: tools.ToolOriginMCPBridge, AvailabilityStatus: "available"}
+	if err := repo.db.Create(&target).Error; err != nil {
+		t.Fatal(err)
+	}
+	saved.Tool = target.Name
+	if err := repo.SaveJob(ctx, saved); err != nil {
+		t.Fatal(err)
+	}
+	updated, err := repo.GetJob(ctx, job.ID)
+	if err != nil || updated.ToolOrigin != target.Origin {
+		t.Fatalf("job atualizado: %+v, erro %v", updated, err)
+	}
+}
+
 func TestImportedJobCannotCreateProfileGrantFromApprovedFlag(t *testing.T) {
 	repo, userA, _ := setupJobsRepositoryTest(t)
 	if err := repo.db.Create(&database.ToolCatalog{

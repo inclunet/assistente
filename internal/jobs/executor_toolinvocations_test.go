@@ -69,6 +69,7 @@ func TestJobExecutorRuntimeDefenseDoesNotExecuteWithoutLedger(t *testing.T) {
 		context.Background(),
 		&Job{ID: "invalid-wiring", Tool: tool.Name()},
 		nil,
+		0,
 		json.RawMessage(`{}`),
 		json.RawMessage(`{}`),
 	)
@@ -77,6 +78,17 @@ func TestJobExecutorRuntimeDefenseDoesNotExecuteWithoutLedger(t *testing.T) {
 	}
 	if !result.Result.IsError || result.ErrorCode != "tool_invocation_ledger_unavailable" {
 		t.Fatalf("falha fechada inesperada: %#v", result)
+	}
+}
+
+func TestJobRecusaFerramentaHomonimaDeOutraOrigem(t *testing.T) {
+	tool := &scriptedTool{}
+	registry := tools.NewRegistry()
+	registry.MustRegister(tool)
+	executor := &JobExecutor{toolRegistry: registry}
+	_, err := executor.executeSingle(t.Context(), &Job{ID: "review", Tool: tool.Name(), ToolOrigin: tools.ToolOriginMCPBridge}, &TriggerContext{Type: TriggerManual}, nil)
+	if !errors.Is(err, ErrToolOriginChanged) || tool.calls != 0 {
+		t.Fatalf("erro=%v chamadas=%d", err, tool.calls)
 	}
 }
 

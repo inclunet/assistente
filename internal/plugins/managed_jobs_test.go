@@ -5,7 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"strings"
+
 	"testing"
 
 	"assistente/internal/commandsecurity"
@@ -45,7 +45,7 @@ func TestManagedJobRevisionAndRecovery(t *testing.T) {
 	if err = os.MkdirAll(dir, 0700); err != nil {
 		t.Fatal(err)
 	}
-	for path, body := range map[string]string{filepath.Join(root, "plugin.json"): `{"$schema":"` + pluginpackage.ManifestSchema + `","name":"reminders","extensions":{"br.com.inclunet.assistente":{"version":1,"jobs":["review"]}}}`, filepath.Join(dir, "review.json"): `{"name":"Review","tool":"notify","triggers":[{"type":"manual"}]}`} {
+	for path, body := range map[string]string{filepath.Join(root, "plugin.json"): `{"$schema":"` + pluginpackage.ManifestSchema + `","name":"reminders","extensions":{"br.com.inclunet.assistente":{"version":1,"jobs":["review"]}}}`, filepath.Join(dir, "review.yaml"): "id: review\nname: Review\ntool: notify\ntriggers: [{type: manual}]\n"} {
 		if err = os.WriteFile(path, []byte(body), 0600); err != nil {
 			t.Fatal(err)
 		}
@@ -123,7 +123,7 @@ func TestCopyManagedJobAfterRevocation(t *testing.T) {
 	db := managedJobTestDB(t)
 	owner := database.WithUserID(t.Context(), "ana")
 	other := database.WithUserID(t.Context(), "bob")
-	source := &jobs.Job{RequiredInputs: []string{"options"}, ID: "lembrete", Name: "Lembrete", Tool: "notify",
+	source := &jobs.Job{ID: "lembrete", Name: "Lembrete", Tool: "notify",
 		Inputs: map[string]any{"text": "edição local"}, Triggers: []jobs.Trigger{{Type: jobs.TriggerManual}}}
 	if err := jobs.CreateDisabledPluginJobTx(owner, db, source, "origem", "revisao", "jobs/lembrete"); err != nil {
 		t.Fatal(err)
@@ -167,13 +167,7 @@ func TestCopyManagedJobAfterRevocation(t *testing.T) {
 		copied.Inputs["text"] != "edição local" || len(copied.Triggers) != 1 || copied.Name != "Cópia" {
 		t.Fatalf("cópia inesperada: %+v", copied)
 	}
-	if len(copied.RequiredInputs) != 1 || copied.RequiredInputs[0] != "options" {
-		t.Fatalf("requisitos da cópia: %v", copied.RequiredInputs)
-	}
 	copied.Enabled = true
-	if err := repo.SaveJob(owner, copied); err == nil || !strings.Contains(err.Error(), "PLUGIN_JOB_INPUT_REQUIRED") {
-		t.Fatalf("habilitação sem options: %v", err)
-	}
 	copied.Inputs["options"] = false
 	copied.Name = "Nome editado"
 	if err := repo.SaveJob(owner, copied); err != nil {
@@ -196,7 +190,7 @@ func TestCopyManagedJobAfterRevocation(t *testing.T) {
 		t.Fatalf("troca de ferramenta local: %v", err)
 	}
 	copied, err = repo.GetJob(owner, copySlug)
-	if err != nil || len(copied.RequiredInputs) != 0 {
+	if err != nil || copied.Tool != "review" || len(copied.Inputs) != 0 {
 		t.Fatalf("requisitos da ferramenta anterior: %+v %v", copied, err)
 	}
 	if _, err := store.CopyJob(owner, "outra", source.ID, request, "Cópia", admit); err == nil {

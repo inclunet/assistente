@@ -626,7 +626,7 @@ func (e *JobExecutor) executeSingle(ctx context.Context, job *Job, trigCtx *Trig
 	logger := logging.Logger(ctx, "jobs.executor")
 
 	// Resolve a tool no registry
-	tool, ok := e.toolRegistry.Get(job.Tool)
+	tool, generation, ok := e.toolRegistry.GetWithGeneration(job.Tool)
 	if !ok {
 		return nil, permanentAttemptFailure(
 			fmt.Errorf("tool not found: %s", job.Tool),
@@ -635,6 +635,9 @@ func (e *JobExecutor) executeSingle(ctx context.Context, job *Job, trigCtx *Trig
 		)
 	}
 
+	if job.ToolOrigin != "" && tools.CatalogEntryFromTool(tool).Origin != job.ToolOrigin {
+		return nil, permanentAttemptFailure(ErrToolOriginChanged, tools.ErrorKindConfiguration, "tool_origin_changed")
+	}
 	// Monta contexto de template
 	tmplCtx := &TemplateContext{
 		Event: trigCtx.EventPayload,
@@ -712,7 +715,7 @@ func (e *JobExecutor) executeSingle(ctx context.Context, job *Job, trigCtx *Trig
 	}
 
 	ctx = withRedactedShellMetadata(ctx, job.Inputs, resolvedInputs)
-	execution := e.executeTool(ctx, job, rl, argsJSON, persistedArgsJSON)
+	execution := e.executeTool(ctx, job, rl, generation, argsJSON, persistedArgsJSON)
 	if execution.Error != nil || execution.Result.IsError {
 		return nil, newAttemptFailure(ctx, execution)
 	}
@@ -744,7 +747,7 @@ func (e *JobExecutor) executeSingle(ctx context.Context, job *Job, trigCtx *Trig
 	return output, nil
 }
 
-func (e *JobExecutor) executeTool(ctx context.Context, job *Job, rl *RunLog, argsJSON, persistedArgsJSON json.RawMessage) tools.ToolExecutionResult {
+func (e *JobExecutor) executeTool(ctx context.Context, job *Job, rl *RunLog, generation uint64, argsJSON, persistedArgsJSON json.RawMessage) tools.ToolExecutionResult {
 	if e.toolInvocations == nil {
 		return tools.ToolExecutionResult{
 			CallID:   fmt.Sprintf("job_%s_unconfigured", job.ID),
@@ -774,6 +777,7 @@ func (e *JobExecutor) executeTool(ctx context.Context, job *Job, rl *RunLog, arg
 		originID = rl.RunID
 	}
 	request := toolinvocations.ExecuteRequest{
+		ExpectedToolGeneration: generation,
 		Call: tools.ToolCall{
 			ID:   callID,
 			Type: "function",
