@@ -10,6 +10,7 @@ import (
 
 	"assistente/internal/commandsecurity"
 	"assistente/internal/database"
+	"assistente/internal/jobs"
 	"assistente/internal/pluginpackage"
 	"assistente/internal/portability"
 	"assistente/internal/profiles"
@@ -21,6 +22,7 @@ const nativeExtension = "br.com.inclunet.assistente"
 
 type nativeResources struct {
 	Version   int      `json:"version"`
+	Jobs      []string `json:"jobs,omitempty"`
 	Profiles  []string `json:"profiles,omitempty"`
 	TaskLists []string `json:"tasklists,omitempty"`
 }
@@ -33,7 +35,7 @@ func nativeComponents(snap *pluginpackage.LocalSnapshot) []Component {
 	var def nativeResources
 	decoder := json.NewDecoder(strings.NewReader(string(raw)))
 	decoder.DisallowUnknownFields()
-	if decoder.Decode(&def) != nil || def.Version != 1 || len(def.TaskLists)+len(def.Profiles) > 2048 {
+	if decoder.Decode(&def) != nil || def.Version != 1 || len(def.TaskLists)+len(def.Profiles)+len(def.Jobs) > 2048 {
 		return []Component{{Kind: "invalidNative", Key: nativeExtension, Name: nativeExtension, Reason: "manifestConfiguration"}}
 	}
 	var result []Component
@@ -69,6 +71,26 @@ func nativeComponents(snap *pluginpackage.LocalSnapshot) []Component {
 			c.Reason = "invalidProfile"
 		} else {
 			c.Name = definition.Name
+		}
+		result = append(result, c)
+	}
+	for _, name := range def.Jobs {
+		key := "jobs/" + name
+		if !portableSkillName.MatchString(name) || len(name) > 64 || seen[key] {
+			return []Component{{Kind: "invalidNative", Key: nativeExtension, Name: nativeExtension, Reason: "manifestConfiguration"}}
+		}
+		seen[key] = true
+		entry := path.Join(nativeExtension, key+".json")
+		c := Component{Kind: "job", Key: key, Name: name, Entry: entry, Reason: "jobActivationPending"}
+		def, err := jobs.ReadPortableJob(name, snap.Files[entry])
+		if err != nil {
+			c.Reason = "invalidJob"
+		} else {
+			c.Name = def.Name
+			c.Tool = def.Tool
+			for _, trigger := range def.Triggers {
+				c.JobTriggers = append(c.JobTriggers, string(trigger.Type))
+			}
 		}
 		result = append(result, c)
 	}

@@ -67,6 +67,13 @@ func validateTrigger(jobID string, idx int, t *Trigger) error {
 		if t.Expression == "" {
 			return fmt.Errorf("%s: cron trigger requires 'expression'", prefix)
 		}
+		// robfig/cron v3 expects a literal space between the zone and schedule.
+		if strings.HasPrefix(t.Expression, "TZ=") || strings.HasPrefix(t.Expression, "CRON_TZ=") {
+			zone, schedule, ok := strings.Cut(t.Expression, " ")
+			if !ok || strings.HasSuffix(zone, "=") || strings.TrimSpace(schedule) == "" {
+				return fmt.Errorf("%s: expected timezone followed by cron schedule", prefix)
+			}
+		}
 		parser := cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow)
 		if _, err := parser.Parse(t.Expression); err != nil {
 			return fmt.Errorf("%s: invalid cron expression %q: %w", prefix, t.Expression, err)
