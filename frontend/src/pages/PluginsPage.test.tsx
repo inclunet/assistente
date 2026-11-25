@@ -524,7 +524,7 @@ describe('PluginsPage', () => {
 
   it('shows the requested job tool and triggers without running or enabling it', async () => {
     mocks.preview.mockResolvedValue({token:'reviewed', name:'kit', digest:'sha', files:[], diagnostics:[], components:[
-      {kind:'job', key:'jobs/reminder', name:'Reminder', tool:'notify', jobTriggers:[{type:'interval', every:'45m'}, {type:'cron', expression:'TZ=UTC 0 9 * * *'}], jobMaxRunsPerHour:4},
+      {kind:'job', key:'jobs/reminder', name:'Reminder', tool:'notify', jobTriggers:[{type:'interval', every:'45m'}, {type:'cron', expression:'TZ=UTC 0 9 * * *'}, {type:'event', listen:'job.finished', every:'ignored', when:'ready'}], jobMaxRunsPerHour:4},
     ]});
     const user=userEvent.setup();
     render(<PluginsPage />);
@@ -532,6 +532,8 @@ describe('PluginsPage', () => {
     await waitFor(()=>expect(choose).toBeEnabled());
     await user.click(choose);
     await screen.findByText(/Reminder/);
+    expect(screen.getByText(/plugins.jobTrigger.event job.finished ready/)).toBeVisible();
+    expect(screen.queryByText(/ignored/)).toBeNull();
     expect(screen.getByText(/plugins.jobTool/)).toBeVisible();
     expect(screen.getByText(/plugins.jobTrigger.interval 45m/)).toBeVisible();
     expect(screen.getByText(/plugins.jobTrigger.cron TZ=UTC 0 9/)).toBeVisible();
