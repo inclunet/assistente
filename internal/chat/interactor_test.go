@@ -1927,7 +1927,7 @@ func TestPrepareContextUsesInstalledTabProfile(t *testing.T) {
 	if err := db.Create(&install).Error; err != nil {
 		t.Fatal(err)
 	}
-	row := database.PluginProfileActivation{InstallationID: install.ID, ComponentKey: "profiles/test", Digest: "v1", Slug: "plugin--test", Definition: []byte(`{"name":"Portable","maxTokens":123}`)}
+	row := database.PluginProfileActivation{InstallationID: install.ID, ComponentKey: "profiles/test", Digest: "v1", Slug: "plugin--12345678-1234-4234-8234-123456789abc", Definition: []byte(`{"name":"Portable","maxTokens":123}`)}
 	if err := db.Create(&row).Error; err != nil {
 		t.Fatal(err)
 	}

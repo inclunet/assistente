@@ -2185,6 +2185,7 @@ notSaved: 'La decisión vale solo para esta operación: no se pudo recordar. Ser
       confirmDelete: '¿Eliminar el perfil "{{name}}"? Esta acción no se puede deshacer.',
       nameRequired: 'El nombre es obligatorio',
       cannotDeleteActive: 'No se puede eliminar el perfil activo',
+      pluginCatalogUnavailable: 'Los perfiles de plugins no están disponibles. Los perfiles locales siguen disponibles.',
       useActiveGlobal: 'Usar perfil activo global',
       pickerLabel: 'Perfil',
       empty: 'Ningún perfil',

@@ -2182,6 +2182,7 @@ notSaved: 'The decision applies only to this operation: it could not be remember
       confirmDelete: 'Delete the profile "{{name}}"? This action cannot be undone.',
       nameRequired: 'Name is required',
       cannotDeleteActive: 'Cannot delete the active profile',
+      pluginCatalogUnavailable: 'Plugin profiles are unavailable. Local profiles are still available.',
       useActiveGlobal: 'Use global active profile',
       pickerLabel: 'Profile',
       empty: 'No profiles',

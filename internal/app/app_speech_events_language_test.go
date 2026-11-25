@@ -141,7 +141,7 @@ func TestDispatchSpeechResolvesPluginProfileForSpeaker(t *testing.T) {
 	if err := db.Create(&install).Error; err != nil {
 		t.Fatal(err)
 	}
-	row := database.PluginProfileActivation{InstallationID: install.ID, ComponentKey: "profiles/speak", Digest: "v1", Slug: "plugin--speaker", Definition: []byte(`{"name":"Speaker"}`)}
+	row := database.PluginProfileActivation{InstallationID: install.ID, ComponentKey: "profiles/speak", Digest: "v1", Slug: "plugin--12345678-1234-4234-8234-123456789abc", Definition: []byte(`{"name":"Speaker"}`)}
 	if err := db.Create(&row).Error; err != nil {
 		t.Fatal(err)
 	}

@@ -5,11 +5,20 @@ import (
 	"errors"
 	"sort"
 	"strings"
+
+	"github.com/google/uuid"
 )
 
 const PluginPrefix = "plugin--"
 
-func IsPluginProfile(slug string) bool { return strings.HasPrefix(slug, PluginPrefix) }
+func IsPluginProfile(slug string) bool {
+	suffix, ok := strings.CutPrefix(slug, PluginPrefix)
+	if !ok {
+		return false
+	}
+	id, err := uuid.Parse(suffix)
+	return err == nil && id.Version() == 4 && id.Variant() == uuid.RFC4122 && id.String() == suffix
+}
 
 type PluginSource interface {
 	GetPluginProfile(context.Context, string) (*Profile, error)

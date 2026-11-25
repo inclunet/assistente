@@ -121,7 +121,7 @@ describe('PluginsPage', () => {
     expect(mocks.install).not.toHaveBeenCalled();
   });
 
-  it('informa que a alteraÃ§Ã£o foi salva quando a atualizaÃ§Ã£o dos detalhes falha', async () => {
+  it('informa que a alteração foi salva quando a atualização dos detalhes falha', async () => {
     const user = userEvent.setup();
     mocks.list.mockResolvedValue([{ id: 'one', name: 'Demo', origin: 'folder', version: 'v1', digest: 'sha' }]);
     const note = { name: 'note', key: 'skills/note', kind: 'skill', active: false };
@@ -167,7 +167,7 @@ describe('PluginsPage', () => {
     expect(screen.queryByRole('alertdialog')).toBeNull();
   });
 
-  it('mostra o endereÃ§o disponÃ­vel na prÃ©via e nos detalhes de um MCP que exige configuraÃ§Ã£o', async () => {
+  it('mostra o endereço disponível na prévia e nos detalhes de um MCP que exige configuração', async () => {
     const user = userEvent.setup();
     const endpoint = 'https://example.org/search';
     const server = { kind: 'mcp', key: 'mcp/search', name: 'search', reason: 'configuration', transport: 'sse', endpoint };
@@ -177,18 +177,18 @@ describe('PluginsPage', () => {
     render(<PluginsPage />);
     const cell = await screen.findByRole('gridcell', { name: /Demo/ });
     await user.click(screen.getByRole('button', { name: 'plugins.choose' }));
-    expect(await screen.findByText('sse Â· ' + endpoint)).toBeVisible();
+    expect(await screen.findByText('sse · ' + endpoint)).toBeVisible();
     expect(screen.getByText('plugins.mcpConfigRequired')).toBeVisible();
     await user.click(screen.getByRole('button', { name: 'common.cancel' }));
     cell.focus();
     await user.keyboard('{Enter}');
-    expect(await screen.findByText('sse Â· ' + endpoint)).toBeVisible();
+    expect(await screen.findByText('sse · ' + endpoint)).toBeVisible();
     expect(screen.getByText('plugins.mcpConfigRequired')).toBeVisible();
     expect(screen.queryByRole('button', { name: /plugins.registerServer/ })).toBeNull();
     expect(mocks.register).not.toHaveBeenCalled();
   });
 
-  it.each([undefined, 'frontmatter'])('informa a polÃ­tica na prÃ©via e nos detalhes com requisito %s', async reason => {
+  it.each([undefined, 'frontmatter'])('informa a política na prévia e nos detalhes com requisito %s', async reason => {
     const user = userEvent.setup();
     const skill = { kind: 'skill', key: 'skills/build', name: 'build', requestsShell: true, reason };
     mocks.preview.mockResolvedValueOnce({ token: 'reviewed', name: 'demo', files: [], components: [skill] });
@@ -208,7 +208,7 @@ describe('PluginsPage', () => {
     }
   });
 
-  it('identifica os servidores afetados e explica a desconexÃ£o antes de confirmar a atualizaÃ§Ã£o', async () => {
+  it('identifica os servidores afetados e explica a desconexão antes de confirmar a atualização', async () => {
     const user = userEvent.setup();
     mocks.preview.mockResolvedValueOnce({ token: 'reviewed', name: 'demo', digest: 'new', previousDigest: 'old', files: [], affectedMcpServers: ['build', 'docs'] });
     render(<PluginsPage />);
@@ -224,7 +224,7 @@ describe('PluginsPage', () => {
     expect(mocks.install).not.toHaveBeenCalled();
   });
 
-  it('impede atualizar enquanto a prÃ©via indica um servidor editado e permite reabrir a pasta', async () => {
+  it('impede atualizar enquanto a prévia indica um servidor editado e permite reabrir a pasta', async () => {
     const user = userEvent.setup();
     const preview = { token: 'reviewed', name: 'demo', digest: 'new', previousDigest: 'old', files: [] };
     mocks.preview.mockResolvedValueOnce({ ...preview, editedMcpServers: ['custom'] }).mockResolvedValueOnce(preview);
@@ -247,7 +247,7 @@ describe('PluginsPage', () => {
     expect(await screen.findByRole('button', { name: 'plugins.update' })).toBeEnabled();
   });
 
-  it('anuncia uma vez a sincronizaÃ§Ã£o confirmada com falha na recarga da lista', async () => {
+  it('anuncia uma vez a sincronização confirmada com falha na recarga da lista', async () => {
     const user = userEvent.setup();
     mocks.list.mockResolvedValueOnce([]).mockRejectedValueOnce(new Error('read')).mockResolvedValueOnce([]);
     render(<PluginsPage />);
@@ -275,7 +275,7 @@ describe('PluginsPage', () => {
     expect(mocks.list).toHaveBeenCalledTimes(3);
   });
 
-  it('permite sincronizar apÃ³s sair da pÃ¡gina com um registro jÃ¡ salvo', async () => {
+  it('permite sincronizar após sair da página com um registro já salvo', async () => {
     const user = userEvent.setup();
     const row = { id: 'one', name: 'Demo', digest: 'sha' };
     const component = { kind: 'mcp', key: 'mcp/search', name: 'search', endpoint: 'https://example.org' };

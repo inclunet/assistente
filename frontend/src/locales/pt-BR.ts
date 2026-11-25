@@ -2183,6 +2183,7 @@ notSaved: 'A decisão vale somente para esta operação: não foi possível lemb
       confirmDelete: 'Excluir o perfil "{{name}}"? Esta ação não pode ser desfeita.',
       nameRequired: 'Nome é obrigatório',
       cannotDeleteActive: 'Não é possível excluir o perfil ativo',
+      pluginCatalogUnavailable: 'Perfis de plugins indisponíveis. Os perfis locais continuam disponíveis.',
       useActiveGlobal: 'Usar perfil ativo global',
       pickerLabel: 'Perfil',
       empty: 'Nenhum perfil',
