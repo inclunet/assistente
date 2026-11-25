@@ -1030,6 +1030,7 @@ func (s *Session) canceledCommandResult(ctx context.Context, stream *markerStrea
 	// Timeout ou cancelamento: envia Ctrl+C e aguarda brevemente a
 	// drenagem. RunEphemeral fará em seguida o cleanup completo
 	// (Kill + Wait + EOF do leitor + Close), antes de retornar.
+	beforeDrainBytes, beforeDrainStart := len(stream.text.data), stream.started
 	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
 		logging.Errorf(context.Background(), "terminal.session", "[Terminal] TIMEOUT session=%s", s.id)
 	} else {
@@ -1071,8 +1072,8 @@ func (s *Session) canceledCommandResult(ctx context.Context, stream *markerStrea
 		if stream.marker.probeInterrupt != nil {
 			frame = "consulta PowerShell"
 		}
-		return result.Output, -1, fmt.Errorf("fim do comando não observado (moldura=%s, texto analisado=%d bytes, início=%t, marca inicial presente=%t, marca final presente=%t, rodapé na drenagem=%t): %w",
-			frame, len(stream.text.data), stream.started, bytes.Contains(stream.text.data, []byte(stream.marker.startTag)), bytes.Contains(stream.text.data, []byte(stream.marker.endTag)), result.Found, cause)
+		return result.Output, -1, fmt.Errorf("fim do comando não observado (moldura=%s, antes da drenagem: bytes=%d início=%t, após drenagem: bytes=%d início=%t, marca inicial presente=%t, marca final presente=%t, rodapé na drenagem=%t): %w",
+			frame, beforeDrainBytes, beforeDrainStart, len(stream.text.data), stream.started, bytes.Contains(stream.text.data, []byte(stream.marker.startTag)), bytes.Contains(stream.text.data, []byte(stream.marker.endTag)), result.Found, cause)
 	}
 	return result.Output, -1, fmt.Errorf("fim do comando não observado: %w", cause)
 }

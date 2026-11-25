@@ -318,7 +318,7 @@ func TestWaitForMarkerPreservesReadFailureAndCancellation(t *testing.T) {
 			if !errors.Is(err, tc.wantErr) || (tc.readerErr != io.EOF && !errors.Is(err, tc.readerErr)) || code != tc.code || output != "parcial" {
 				t.Fatalf("output=%q code=%d err=%v", output, code, err)
 			}
-			if tc.wantErr == context.DeadlineExceeded && (!strings.Contains(err.Error(), "moldura=comando") || !strings.Contains(err.Error(), "início=true") || strings.Contains(err.Error(), "parcial")) {
+			if tc.wantErr == context.DeadlineExceeded && (!strings.Contains(err.Error(), "moldura=comando") || !strings.Contains(err.Error(), "antes da drenagem: bytes=0 início=false") || !strings.Contains(err.Error(), "início=true") || strings.Contains(err.Error(), "parcial")) {
 				t.Fatalf("diagnóstico do prazo: %v", err)
 			}
 		})
