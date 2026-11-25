@@ -8,7 +8,7 @@ const mock = vi.hoisted(() => ({list:vi.fn(),preview:vi.fn(),save:vi.fn(),announ
 vi.mock('@wailsjs/go/wailsapi/Tasklist', () => ({GetAllTaskLists:mock.list}));
 vi.mock('@wailsjs/go/wailsapi/Plugins', () => ({BuilderSkillNames:vi.fn(async()=>['notes']),PreviewBuilder:mock.preview,SaveBuilder:mock.save}));
 vi.mock('../hooks/useAnnouncer', () => ({useAnnouncer:()=>({announce:mock.announce})}));
-vi.mock('react-i18next', () => ({useTranslation:()=>({t:(key:string, args?: {name?: string, position?: number})=>key === 'plugins.builderListPosition' ? args?.name + ' #' + args?.position : key})}));
+vi.mock('react-i18next', () => ({useTranslation:()=>({t:(key:string, args?: {name?: string, position?: number})=>key === 'plugins.builderListPosition' ? args?.name + ' #' + args?.position : key === 'plugins.builderNamedSkillError' ? key + ': ' + args?.name : key})}));
 
 describe('PluginBuilder', () => {
   it('distinguishes lists with identical titles before selection', async () => {
@@ -16,6 +16,19 @@ describe('PluginBuilder', () => {
     render(<PluginBuilder />);
     expect(await screen.findByRole('checkbox',{name:'Release #1 · Mobile'})).toBeEnabled();
     expect(screen.getByRole('checkbox',{name:'Release #2 · Desktop'})).toBeEnabled();
+  });
+  it('identifies the selected skill that prevented preview', async () => {
+    mock.list.mockResolvedValue([]);
+    mock.preview.mockRejectedValueOnce('PLUGIN_BUILDER_SKILL_UNAVAILABLE:notes');
+    const user = userEvent.setup();
+    render(<PluginBuilder />);
+    const name = screen.getByRole('textbox', {name:'plugins.packageName'});
+    await waitFor(() => expect(name).toBeEnabled());
+    await user.type(name, 'notes');
+    await user.click(await screen.findByRole('checkbox', {name:'notes'}));
+    await user.click(screen.getByRole('button', {name:'plugins.builderReview'}));
+    expect(await screen.findByText('plugins.builderNamedSkillError: notes')).toBeVisible();
+    mock.preview.mockClear();
   });
   it('requires a fresh preview when the selection changes and saves the reviewed package',async () => {
     mock.list.mockResolvedValue([{id:'source',title:'Release',slug:'release'}]);

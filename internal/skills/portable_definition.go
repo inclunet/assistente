@@ -11,24 +11,43 @@ import (
 )
 
 // BuilderSlugs enumerates names using native resolution, without loading file contents.
-func (m *Manager) BuilderSlugs() []string {
-	discovered := m.discoverAll()
+func (m *Manager) BuilderSlugs() ([]string, error) {
+	discovered, err := m.discoverNative()
+	if err != nil {
+		return nil, err
+	}
 	slugs := make([]string, 0, len(discovered))
 	for _, item := range discovered {
 		slugs = append(slugs, item.slug)
 	}
 	sort.Strings(slugs)
-	return slugs
+	return slugs, nil
 }
 
 // PortableDefinition reads a selected native skill from its configured root.
 // A definition with additional files cannot be published as a single SKILL.md.
 func (m *Manager) PortableDefinition(slug string) ([]byte, error) {
-	for _, item := range m.discoverAll() {
-		if item.slug != slug {
+	if !filepath.IsLocal(slug) || filepath.Base(slug) != slug || slug == "." {
+		return nil, os.ErrInvalid
+	}
+	paths := m.resolver.GetSearchPaths()
+	for n := len(paths) - 1; n >= 0; n-- {
+		info, err := os.Lstat(filepath.Join(paths[n], slug))
+		if errors.Is(err, os.ErrNotExist) {
 			continue
 		}
-		base, err := os.OpenRoot(filepath.Dir(filepath.Dir(item.path)))
+		if err != nil {
+			return nil, err
+		}
+		if !info.IsDir() {
+			continue
+		}
+		if _, err := os.Stat(filepath.Join(paths[n], slug, skillFile)); errors.Is(err, os.ErrNotExist) {
+			continue
+		} else if err != nil {
+			return nil, err
+		}
+		base, err := os.OpenRoot(paths[n])
 		if err != nil {
 			return nil, err
 		}

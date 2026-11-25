@@ -169,6 +169,7 @@ notSaved: 'The decision applies only to this operation: it could not be remember
       repositories: 'Repositories',
       builder: 'Create plugin',
       packageName: 'Plugin identifier',
+      builderNamedSkillError: 'Could not include {{name}}. Check that the skill is accessible and contains only portable instructions.',
       builderSkillError: 'A selected skill requires supporting files or runtime features that this package cannot provide. Review the selection.',
       builderSourcesError: 'Some resources could not be loaded. Available resources can still be selected.',
       builderSkills: 'Instruction skills to include in the package',

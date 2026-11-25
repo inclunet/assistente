@@ -60,7 +60,7 @@ func TestBuilderExportsOnlySelectedDefinitionsToAnotherAccount(t *testing.T) {
 	restricted := NewInventory(db).WithSkillDefinition(func(string) ([]byte, error) {
 		return []byte("---\nname: notes\nversion: 1.0.0\ndescription: Summarize\nallowed-tools: Read\n---\nRead"), nil
 	}, nil)
-	if _, _, err := restricted.BuildPackage(ctx, BuilderRequest{Name: "notes", Skills: []string{"notes"}}); err == nil {
+	if _, _, err := restricted.BuildPackage(ctx, BuilderRequest{Name: "notes", Skills: []string{"notes"}}); err == nil || !strings.Contains(err.Error(), "PLUGIN_BUILDER_SKILL_UNAVAILABLE:notes") {
 		t.Fatal("lost tool restriction")
 	}
 	for _, name := range []string{"con", "NUL.txt", "LPT2"} {
@@ -117,7 +117,7 @@ func TestBuilderExportsOnlySelectedDefinitionsToAnotherAccount(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := store.SetSkillActive(reader, installed.ID, installed.Digest, "skills/notes", true); err != nil {
+	if err := store.SetSkillActive(reader, installed.ID, installed.Digest, "skills/notes", true, admit); err != nil {
 		t.Fatal(err)
 	}
 	active, err := store.ActiveSkills(reader)
@@ -127,5 +127,13 @@ func TestBuilderExportsOnlySelectedDefinitionsToAnotherAccount(t *testing.T) {
 	var received database.Task
 	if err := db.Where("task_list_id=?", id).Take(&received).Error; err != nil || received.StatusID != 1 || received.Title != task.Title {
 		t.Fatal(received, err)
+	}
+}
+
+func TestBuilderOffersPortableSkillNames(t *testing.T) {
+	inventory := NewInventory(nil).WithSkillDefinition(nil, func() ([]string, error) { return []string{"my_skill", "notes", "con"}, nil })
+	names, err := inventory.BuilderSkillNames()
+	if err != nil || len(names) != 1 || names[0] != "notes" {
+		t.Fatal(names, err)
 	}
 }

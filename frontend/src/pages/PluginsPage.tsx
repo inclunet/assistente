@@ -104,7 +104,18 @@ export default function PluginsPage() {
 
 function InstalledPlugins({ session }: { session: string }) {
   const { t } = useTranslation();
-  useGridPageLandmarks({ pageClass: 'plugins-page' });
+  const builderForm = useRef<HTMLFormElement>(null);
+  useGridPageLandmarks({ pageClass: 'plugins-page', extraLandmarks: [{
+    id: 'plugin-builder', label: t('plugins.builder'),
+    isAvailable: () => !!builderForm.current?.querySelector('input:enabled'),
+    contains: () => !!builderForm.current?.contains(document.activeElement),
+    focus: () => {
+      const input = builderForm.current?.querySelector('input:enabled');
+      if (!(input instanceof HTMLInputElement)) return false;
+      input.focus();
+      return document.activeElement === input;
+    },
+  }] });
   const { announce } = useAnnouncer();
   const confirm = useConfirm();
   const [section, setSection] = useState('installed');
@@ -389,7 +400,7 @@ function InstalledPlugins({ session }: { session: string }) {
       : items && !busy && !error && !listError && <p>{t('plugins.empty')}</p>}
       </>}</TabPanel>
       {['catalog','repositories'].map(value => <TabPanel key={value} value={value}>{section === value && <PluginRepositories key={value} session={session} parentBusy={busy} catalog={value === 'catalog'} onPreview={(selection, opener) => { catalogOpener.current = opener; openToken.current = selection.token; setError(''); setPreview(selection); }} />}</TabPanel>)}
-      <TabPanel value="builder">{section === 'builder' && <PluginBuilder />}</TabPanel>
+      <TabPanel value="builder">{section === 'builder' && <PluginBuilder formRef={builderForm} />}</TabPanel>
     </Tabs>
     {!preview && !details && error && <p>{t(error)}</p>}
     {listErrorText && <p>{listErrorText}</p>}

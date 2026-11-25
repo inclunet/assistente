@@ -33,7 +33,7 @@ func TestPortableDefinitionReadsOnlySelectedNativeSkill(t *testing.T) {
 	if err != nil || !strings.Contains(string(native), "version:") {
 		t.Fatal(string(native), err)
 	}
-	if got := manager.BuilderSlugs(); !slices.Equal(got, []string{"native", "notes"}) {
+	if got, err := manager.BuilderSlugs(); err != nil || !slices.Equal(got, []string{"native", "notes"}) {
 		t.Fatal(got)
 	}
 	if err := os.WriteFile(filepath.Join(dir, skillFile), append([]byte(raw), 0xff), 0600); err != nil {
@@ -50,6 +50,20 @@ func TestPortableDefinitionReadsOnlySelectedNativeSkill(t *testing.T) {
 	}
 	if _, err := manager.PortableDefinition("notes"); err == nil {
 		t.Fatal("ignored supporting files")
+	}
+}
+
+func TestBuilderDistinguishesAbsentAndUnreadableRoots(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "skills")
+	m := &Manager{resolver: configdir.NewResolverWithBase(root)}
+	if names, err := m.BuilderSlugs(); err != nil || len(names) != 0 {
+		t.Fatal(names, err)
+	}
+	if err := os.WriteFile(root, []byte("not a directory"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.BuilderSlugs(); err == nil {
+		t.Fatal("unreadable root reported as empty")
 	}
 }
 

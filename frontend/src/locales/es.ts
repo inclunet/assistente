@@ -168,6 +168,7 @@ notSaved: 'La decisión vale solo para esta operación: no se pudo recordar. Ser
       repositories: 'Repositorios',
       builder: 'Crear plugin',
       packageName: 'Identificador del plugin',
+      builderNamedSkillError: 'No se pudo incluir {{name}}. Compruebe que la skill esté accesible y solo contenga instrucciones portables.',
       builderSkillError: 'Una skill seleccionada requiere archivos auxiliares o funciones de ejecución no disponibles en el paquete. Revise la selección.',
       builderSourcesError: 'No se pudieron cargar algunos recursos. Puede seleccionar los recursos disponibles.',
       builderSkills: 'Skills de instrucciones para incluir en el paquete',

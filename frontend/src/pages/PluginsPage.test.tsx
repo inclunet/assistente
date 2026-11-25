@@ -3,9 +3,11 @@ import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { axe } from 'vitest-axe';
 import PluginsPage from './PluginsPage';
+import * as navigation from '../lib/commandLandmarkNavigation';
 
 const mocks = vi.hoisted(() => ({ createList: vi.fn(), repos: vi.fn(), catalogPreview: vi.fn(), lifecycle: vi.fn(), sync: vi.fn(), register: vi.fn(), remove: vi.fn(), confirm: vi.fn(), list: vi.fn(), components: vi.fn(), toggle: vi.fn(), preview: vi.fn(), install: vi.fn(), discard: vi.fn(), announce: vi.fn(), announceRequest: vi.fn() }));
-vi.mock('@wailsjs/go/wailsapi/Plugins', () => ({ CreateListFromTemplate: mocks.createList, ListRepositories: mocks.repos, PreviewRepositoryEntry: mocks.catalogPreview, ChangeInstallation: mocks.lifecycle, SyncMCP: mocks.sync, RegisterMCP: mocks.register, RemoveMCP: mocks.remove, InstalledComponents: mocks.components, SetSkillActive: mocks.toggle, DiscardPreview: mocks.discard, ListInstalled: mocks.list, PreviewLocal: mocks.preview, InstallReviewed: mocks.install }));
+vi.mock('@wailsjs/go/wailsapi/Tasklist', () => ({GetAllTaskLists: async () => []}));
+vi.mock('@wailsjs/go/wailsapi/Plugins', () => ({ BuilderSkillNames: async () => [], CreateListFromTemplate: mocks.createList, ListRepositories: mocks.repos, PreviewRepositoryEntry: mocks.catalogPreview, ChangeInstallation: mocks.lifecycle, SyncMCP: mocks.sync, RegisterMCP: mocks.register, RemoveMCP: mocks.remove, InstalledComponents: mocks.components, SetSkillActive: mocks.toggle, DiscardPreview: mocks.discard, ListInstalled: mocks.list, PreviewLocal: mocks.preview, InstallReviewed: mocks.install }));
 vi.mock('../hooks/useConfirm', () => ({ useConfirm: () => mocks.confirm }));
 vi.mock('../store/authStore', async importOriginal => {
   const actual = await importOriginal<typeof import('../store/authStore')>();
@@ -22,6 +24,24 @@ describe('PluginsPage', () => {
     mocks.preview.mockResolvedValue({ token: 'reviewed', name: 'demo', origin: 'local', digest: '123', files: ['plugin.json'], diagnostics: [] });
     mocks.install.mockResolvedValue({});
     mocks.discard.mockResolvedValue(undefined);
+  });
+
+  it('registers a focus target only while the builder form is available', async () => {
+    const register = vi.spyOn(navigation, 'registerLandmarkNavigationSurface');
+    try {
+      const user = userEvent.setup();
+      render(<PluginsPage />);
+      const target = register.mock.calls.at(-1)?.[0].read().landmarks.find(l => l.id === 'plugin-builder');
+      expect(target?.isAvailable?.()).toBe(false);
+      await user.click(await screen.findByRole('tab', {name:'plugins.builder'}));
+      const name = await screen.findByRole('textbox', {name:'plugins.packageName'});
+      await waitFor(() => expect(name).toBeEnabled());
+      expect(target?.focus()).toBe(true);
+      expect(name).toHaveFocus();
+      expect(target?.contains()).toBe(true);
+      await user.click(screen.getByRole('tab', {name:'plugins.installed'}));
+      expect(target?.focus()).toBe(false);
+    } finally { register.mockRestore(); }
   });
 
   it('opens a preview from the keyboard and installs only after confirmation', async () => {
