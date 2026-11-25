@@ -6,7 +6,7 @@ import PluginBuilder from './PluginBuilder';
 const mock = vi.hoisted(() => ({list:vi.fn(),profiles:vi.fn(async()=>({names:['writer'],partial:false})),skills:vi.fn(async()=>({names:['notes'],partial:false})),preview:vi.fn(),save:vi.fn(),announce:vi.fn()}));
 
 vi.mock('@wailsjs/go/wailsapi/Tasklist', () => ({GetAllTaskLists:mock.list}));
-vi.mock('@wailsjs/go/wailsapi/Plugins', () => ({BuilderProfileNames:mock.profiles,BuilderSkillNames:mock.skills,PreviewBuilder:mock.preview,SaveBuilder:mock.save}));
+vi.mock('@wailsjs/go/wailsapi/Plugins', () => ({BuilderJobNames:vi.fn(async()=>['reminder']),BuilderProfileNames:mock.profiles,BuilderSkillNames:mock.skills,PreviewBuilder:mock.preview,SaveBuilder:mock.save}));
 vi.mock('../hooks/useAnnouncer', () => ({useAnnouncer:()=>({announce:mock.announce})}));
 vi.mock('react-i18next', () => ({useTranslation:()=>({t:(key:string, args?: {name?: string, position?: number})=>key === 'plugins.builderListPosition' ? args?.name + ' #' + args?.position : (key === 'plugins.builderNamedSkillError' || key === 'plugins.builderNamedProfileError') ? key + ': ' + args?.name : key})}));
 
@@ -74,6 +74,7 @@ describe('PluginBuilder', () => {
     const name=screen.getByRole('textbox',{name:'plugins.packageName'});
     await waitFor(()=>expect(name).toBeEnabled());
     await user.type(name,'release-kit');
+    await user.click(screen.getByRole('checkbox',{name:'reminder'}));
     await user.click(screen.getByRole('checkbox',{name:'writer'}));
     await user.click(screen.getByRole('checkbox',{name:'notes'}));
     await user.click(screen.getByRole('checkbox',{name:'Release'}));
@@ -94,6 +95,6 @@ describe('PluginBuilder', () => {
     await user.click(screen.getByRole('button',{name:'plugins.builderSave'}));
     await screen.findByText('plugins.builderChanged');
     expect(screen.queryByRole('button',{name:'plugins.builderSave'})).toBeNull();
-    expect(mock.save).toHaveBeenCalledWith(expect.objectContaining({name:'release-kit',tasklists:[expect.objectContaining({id:'source',includeTasks:true})]}),'digest');
+    expect(mock.save).toHaveBeenCalledWith(expect.objectContaining({name:'release-kit',jobs:['reminder'],tasklists:[expect.objectContaining({id:'source',includeTasks:true})]}),'digest');
   });
 });

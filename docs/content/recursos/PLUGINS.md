@@ -79,11 +79,15 @@ A prévia e os detalhes identificam os perfis de conversa fornecidos pelo plugin
 
 Nos detalhes do plugin instalado, confira a ferramenta e os acionadores pedidos pelo job. Escolha **Preparar job** e abra o link para o editor de Jobs. O job começa desativado. Revise as entradas e os horários no editor antes de habilitá-lo. Preparar a mesma definição novamente mantém o mesmo job da conta. O editor oferece um link de volta à instalação de origem. Testar a ferramenta no editor ou repetir uma execução pelo histórico exige que o job e a revisão continuem ativos.
 
+A prévia informa a frequência de cada acionador e o limite de execuções por hora, inclusive quando vale o padrão do destino. Ao montar o pacote, o builder conserva os identificadores portáveis de jobs e gera uma chave para cada nome incompatível com arquivos do pacote. A chave se mantém ao repetir a mesma seleção. Se outro job selecionado passar a usar essa chave, confira a nova identificação na prévia.
+
 Desativar, atualizar ou remover o plugin interrompe novos disparos da revisão anterior. O Assistente conserva o registro do job e seu histórico. Reativar o plugin exige preparar a definição outra vez. Se a alteração for salva e o agendador ficar indisponível, use a ação de sincronização na página Plugins para repetir a atualização da sessão.
 
 ## Gerar um pacote com o builder
 
 Abra **Plugins → Criar plugin**. Se uma pasta de skills ou perfis estiver inacessível, o formulário avisa e mantém os recursos das outras pastas disponíveis. Você pode selecioná-las e revisar o pacote normalmente. Use F6 para chegar ao formulário e Tab para percorrer os campos e as opções. Informe um identificador de pacote e, se quiser, sua versão. Marque as skills de instrução que deseja incluir. O builder preserva o SKILL.md original das skills portáveis sem arquivos auxiliares e permite conferir seu conteúdo na prévia. Selecione os perfis para incluir apenas nome, descrição, temperatura, top-p e limite de tokens. Marque as listas que deseja distribuir como modelos e informe uma chave estável para cada uma. Para incluir tarefas iniciais, marque a opção da lista correspondente. Os campos publicados são os títulos e as descrições das tarefas selecionadas, a hierarquia, o título e a descrição da lista e a definição do workflow. Notas pessoais, responsáveis, conclusão e histórico ficam na sua conta.
+
+Marque os jobs que deseja distribuir. O pacote leva a ferramenta, os acionadores compatíveis e os nomes das entradas. A prévia lista os requisitos da conta de destino. Os valores de argumentos, inclusive objetos, credenciais e referências ao cofre, ficam na conta de origem. No destino, preencha cada entrada no editor de Jobs antes de habilitar o job.
 
 Escolha **Revisar pacote**, confira os arquivos e escolha **Salvar ZIP**. Se um recurso mudou desde a prévia, revise novamente. Se a gravação falhar, escolha outro destino em **Salvar ZIP** para tentar de novo com a mesma prévia. Para instalar o arquivo em outra conta, extraia o ZIP em uma pasta e abra essa pasta pelo gerenciador de Plugins. Você também pode colocar a pasta em um repositório de plugins para publicar a revisão.
 

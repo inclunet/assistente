@@ -8,6 +8,8 @@ export function AddLocalRepository():Promise<boolean>;
 
 export function AddRemoteRepository(arg1:string,arg2:boolean):Promise<void>;
 
+export function BuilderJobNames():Promise<Array<string>>;
+
 export function BuilderProfileNames():Promise<plugins.BuilderResourceCatalog>;
 
 export function BuilderSkillNames():Promise<plugins.BuilderResourceCatalog>;

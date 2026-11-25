@@ -31,6 +31,9 @@ interface JSONSchema {
 }
 
 interface SchemaFormProps {
+  configuredFields?: string[];
+  localDrafts?: Record<string, string>;
+  onLocalDraft?: (field: string, raw: string) => void;
   schema: JSONSchema | null;
   values: Record<string, unknown>;
   onChange: (key: string, value: unknown) => void;
@@ -230,7 +233,12 @@ function SchemaField({
   }
 }
 
-export function SchemaForm({ schema, values, onChange, templateMode = false, templateContext }: SchemaFormProps) {
+export function parseLocalInput(raw: string): {valid:boolean; value?:unknown} {
+  if (!raw.trim()) return {valid:true};
+  try { return {valid:true, value:JSON.parse(raw)}; } catch { return {valid:false}; }
+}
+
+export function SchemaForm({ schema, values, onChange, templateMode = false, templateContext, configuredFields = [], localDrafts = {}, onLocalDraft }: SchemaFormProps) {
   const { t } = useTranslation();
 
   const fields = useMemo(() => {
@@ -243,7 +251,12 @@ export function SchemaForm({ schema, values, onChange, templateMode = false, tem
     }));
   }, [schema]);
 
-  if (!schema || !schema.properties || fields.length === 0) {
+  const extra = configuredFields.filter(field =>
+    Object.prototype.hasOwnProperty.call(localDrafts, field) ||
+    !Object.prototype.hasOwnProperty.call(schema?.properties ?? {}, field) ||
+    (values[field] != null && typeof values[field] === 'object')
+  );
+  if (fields.length === 0 && extra.length === 0) {
     return (
       <div className="schema-form__empty">
         {t('jobs.builder.noInputs')}
@@ -256,7 +269,19 @@ export function SchemaForm({ schema, values, onChange, templateMode = false, tem
       {templateMode && (
         <p className="schema-form__hint" role="note">{t('jobs.builder.templateHint')}</p>
       )}
-      {fields.map(({ name, prop, required }) => (
+      {extra.map(name => {
+        const saved = Object.prototype.hasOwnProperty.call(values, name) ? values[name] : undefined;
+        const raw = Object.prototype.hasOwnProperty.call(localDrafts, name) ? localDrafts[name] : saved == null ? '' : JSON.stringify(saved);
+        return <Textarea key={name} label={name} value={raw} hint={t('plugins.localInputJson')}
+          error={parseLocalInput(raw).valid ? undefined : t('plugins.invalidLocalJson')}
+          onChange={event => {
+            const next = event.target.value;
+            onLocalDraft?.(name, next);
+            const parsed = parseLocalInput(next);
+            if (parsed.valid) onChange(name, parsed.value);
+          }} />;
+      })}
+      {fields.filter(field => !extra.includes(field.name)).map(({ name, prop, required }) => (
         <SchemaField
           key={name}
           name={name}
