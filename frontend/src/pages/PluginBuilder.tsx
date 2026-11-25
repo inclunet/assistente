@@ -19,6 +19,7 @@ export default function PluginBuilder({ formRef }: { formRef?: Ref<HTMLFormEleme
   const [selected, setSelected] = useState<Record<string, plugins.BuilderTaskList>>({});
   const [preview, setPreview] = useState<wailsapi.BuilderPreview | null>(null);
   const [failedSkill, setFailedSkill] = useState('');
+  const [sourcesIncomplete, setSourcesIncomplete] = useState(false);
   const [status, setStatus] = useState('');
   const [busy, setBusy] = useState(true);
   const mounted = useRef(false);
@@ -27,12 +28,13 @@ export default function PluginBuilder({ formRef }: { formRef?: Ref<HTMLFormEleme
     void Promise.allSettled([GetAllTaskLists(), BuilderSkillNames()]).then(([items, names]) => {
       if (!mounted.current) return;
       if (items.status === 'fulfilled') setLists(items.value ?? []);
-      if (names.status === 'fulfilled') setSkillNames(names.value ?? []);
-      if (items.status === 'rejected' || names.status === 'rejected') setStatus('plugins.builderSourcesError');
+      if (names.status === 'fulfilled') setSkillNames(names.value.names ?? []);
+      setSourcesIncomplete(items.status === 'rejected' || names.status === 'rejected' || names.value.partial);
       setBusy(false);
     });
     return () => { mounted.current = false; };
   }, []);
+  useEffect(() => { if (sourcesIncomplete) announce(t('plugins.builderSourcesError')); }, [sourcesIncomplete, announce, t]);
   useEffect(() => { if (status) announce(t(status, {name: failedSkill})); }, [status, failedSkill, t, announce]);
   const invalidate = () => { setPreview(null); setStatus(''); };
   const change = (id: string, item?: plugins.BuilderTaskList) => {
@@ -84,6 +86,7 @@ export default function PluginBuilder({ formRef }: { formRef?: Ref<HTMLFormEleme
   }
   return <form ref={formRef} onSubmit={event => {event.preventDefault(); void run();}}>
     <h2>{t('plugins.builder')}</h2>
+    {sourcesIncomplete && <p>{t('plugins.builderSourcesError')}</p>}
     <Input label={t('plugins.packageName')} value={name} required disabled={busy} onChange={event => {invalidate(); setName(event.target.value);}} />
     <Input label={t('plugins.version')} value={version} disabled={busy} onChange={event => {invalidate(); setVersion(event.target.value);}} />
     <fieldset disabled={busy}>

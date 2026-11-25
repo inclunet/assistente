@@ -13,15 +13,12 @@ import (
 // BuilderSlugs enumerates names using native resolution, without loading file contents.
 func (m *Manager) BuilderSlugs() ([]string, error) {
 	discovered, err := m.discoverNative()
-	if err != nil {
-		return nil, err
-	}
 	slugs := make([]string, 0, len(discovered))
 	for _, item := range discovered {
 		slugs = append(slugs, item.slug)
 	}
 	sort.Strings(slugs)
-	return slugs, nil
+	return slugs, err
 }
 
 // PortableDefinition reads a selected native skill from its configured root.
@@ -31,13 +28,16 @@ func (m *Manager) PortableDefinition(slug string) ([]byte, error) {
 		return nil, os.ErrInvalid
 	}
 	paths := m.resolver.GetSearchPaths()
+	var lookupErr error = os.ErrNotExist
 	for n := len(paths) - 1; n >= 0; n-- {
+		// Use the same candidate rule as discoverNative: an unreadable
+		// lookup does not hide a definition identified in a lower root.
 		info, err := os.Lstat(filepath.Join(paths[n], slug))
-		if errors.Is(err, os.ErrNotExist) {
-			continue
-		}
 		if err != nil {
-			return nil, err
+			if !errors.Is(err, os.ErrNotExist) {
+				lookupErr = err
+			}
+			continue
 		}
 		if !info.IsDir() {
 			continue
@@ -45,7 +45,8 @@ func (m *Manager) PortableDefinition(slug string) ([]byte, error) {
 		if _, err := os.Stat(filepath.Join(paths[n], slug, skillFile)); errors.Is(err, os.ErrNotExist) {
 			continue
 		} else if err != nil {
-			return nil, err
+			lookupErr = err
+			continue
 		}
 		base, err := os.OpenRoot(paths[n])
 		if err != nil {
@@ -78,5 +79,5 @@ func (m *Manager) PortableDefinition(slug string) ([]byte, error) {
 		}
 		return data, nil
 	}
-	return nil, os.ErrNotExist
+	return nil, lookupErr
 }

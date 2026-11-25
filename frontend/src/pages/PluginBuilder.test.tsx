@@ -3,14 +3,25 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import PluginBuilder from './PluginBuilder';
 
-const mock = vi.hoisted(() => ({list:vi.fn(),preview:vi.fn(),save:vi.fn(),announce:vi.fn()}));
+const mock = vi.hoisted(() => ({list:vi.fn(),skills:vi.fn(async()=>({names:['notes'],partial:false})),preview:vi.fn(),save:vi.fn(),announce:vi.fn()}));
 
 vi.mock('@wailsjs/go/wailsapi/Tasklist', () => ({GetAllTaskLists:mock.list}));
-vi.mock('@wailsjs/go/wailsapi/Plugins', () => ({BuilderSkillNames:vi.fn(async()=>['notes']),PreviewBuilder:mock.preview,SaveBuilder:mock.save}));
+vi.mock('@wailsjs/go/wailsapi/Plugins', () => ({BuilderSkillNames:mock.skills,PreviewBuilder:mock.preview,SaveBuilder:mock.save}));
 vi.mock('../hooks/useAnnouncer', () => ({useAnnouncer:()=>({announce:mock.announce})}));
 vi.mock('react-i18next', () => ({useTranslation:()=>({t:(key:string, args?: {name?: string, position?: number})=>key === 'plugins.builderListPosition' ? args?.name + ' #' + args?.position : key === 'plugins.builderNamedSkillError' ? key + ': ' + args?.name : key})}));
 
 describe('PluginBuilder', () => {
+  it('keeps skills selectable alongside a partial-discovery warning', async () => {
+    mock.list.mockResolvedValue([]);
+    mock.skills.mockResolvedValueOnce({names:['notes'],partial:true});
+    const user = userEvent.setup();
+    render(<PluginBuilder />);
+    await screen.findByText('plugins.builderSourcesError');
+    const skill = screen.getByRole('checkbox',{name:'notes'});
+    await user.click(skill);
+    expect(skill).toBeChecked();
+    expect(screen.getByText('plugins.builderSourcesError')).toBeVisible();
+  });
   it('distinguishes lists with identical titles before selection', async () => {
     mock.list.mockResolvedValue([{id:'first',title:'Release',description:'Mobile'}, {id:'second',title:'Release',description:'Desktop'}]);
     render(<PluginBuilder />);

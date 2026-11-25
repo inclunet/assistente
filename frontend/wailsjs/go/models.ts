@@ -8163,6 +8163,20 @@ export namespace plugins {
 		    return a;
 		}
 	}
+	export class BuilderSkillCatalog {
+	    names: string[];
+	    partial: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new BuilderSkillCatalog(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.names = source["names"];
+	        this.partial = source["partial"];
+	    }
+	}
 	
 	export class Component {
 	    requestsShell?: boolean;

@@ -131,9 +131,9 @@ func TestBuilderExportsOnlySelectedDefinitionsToAnotherAccount(t *testing.T) {
 }
 
 func TestBuilderOffersPortableSkillNames(t *testing.T) {
-	inventory := NewInventory(nil).WithSkillDefinition(nil, func() ([]string, error) { return []string{"my_skill", "notes", "con"}, nil })
-	names, err := inventory.BuilderSkillNames()
-	if err != nil || len(names) != 1 || names[0] != "notes" {
-		t.Fatal(names, err)
+	inventory := NewInventory(nil).WithSkillDefinition(nil, func() ([]string, error) { return []string{"my_skill", "notes", "con"}, os.ErrPermission })
+	catalog := inventory.BuilderSkillNames()
+	if !catalog.Partial || len(catalog.Names) != 1 || catalog.Names[0] != "notes" {
+		t.Fatal(catalog)
 	}
 }

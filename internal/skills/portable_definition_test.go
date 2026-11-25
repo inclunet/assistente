@@ -67,6 +67,37 @@ func TestBuilderDistinguishesAbsentAndUnreadableRoots(t *testing.T) {
 	}
 }
 
+func TestBuilderKeepsSkillsFromReadableRoots(t *testing.T) {
+	home, work := t.TempDir(), t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	t.Chdir(work)
+	configdir.ResetForTests()
+	t.Cleanup(configdir.ResetForTests)
+	dir := filepath.Join(home, ".assistente", "skills", "release-notes")
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, skillFile), []byte("notes"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(filepath.Join(work, ".assistente"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(work, ".assistente", "skills"), []byte("unreadable root"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	m := NewManager()
+	names, err := m.BuilderSlugs()
+	if err == nil || !slices.Contains(names, "release-notes") {
+		t.Fatal(names, err)
+	}
+	raw, err := m.PortableDefinition("release-notes")
+	if err != nil || string(raw) != "notes" {
+		t.Fatal(string(raw), err)
+	}
+}
+
 func TestPortableDefinitionUsesNativeWorkdirPrecedence(t *testing.T) {
 	home, workDir := t.TempDir(), t.TempDir()
 	t.Setenv("HOME", home)

@@ -48,15 +48,17 @@ func (i *Inventory) WithSkillDefinition(read func(string) ([]byte, error), names
 	return &copy
 }
 
-func (i *Inventory) BuilderSkillNames() ([]string, error) {
+type BuilderSkillCatalog struct {
+	Names   []string `json:"names"`
+	Partial bool     `json:"partial"`
+}
+
+func (i *Inventory) BuilderSkillNames() BuilderSkillCatalog {
 	if i.skillNames == nil {
-		return nil, nil
+		return BuilderSkillCatalog{Names: []string{}}
 	}
 	names, err := i.skillNames()
-	if err != nil {
-		return nil, err
-	}
-	return slices.DeleteFunc(names, func(key string) bool { return !validBuilderSkill(key) }), nil
+	return BuilderSkillCatalog{Names: slices.DeleteFunc(names, func(key string) bool { return !validBuilderSkill(key) }), Partial: err != nil}
 }
 
 func validBuilderSkill(key string) bool {
