@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { type Ref, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { BuilderJobNames, BuilderProfileNames, BuilderSkillNames, PreviewBuilder, SaveBuilder } from '@wailsjs/go/wailsapi/Plugins';
 import { GetAllTaskLists } from '@wailsjs/go/wailsapi/Tasklist';
@@ -8,7 +8,7 @@ import { Button } from '../components/ui/Button';
 import { Checkbox } from '../components/ui/Checkbox';
 import { Input } from '../components/ui/Input';
 
-export default function PluginBuilder() {
+export default function PluginBuilder({ formRef }: { formRef?: Ref<HTMLFormElement> }) {
   const { t } = useTranslation();
   const { announce } = useAnnouncer();
   const [lists, setLists] = useState<database.TaskList[]>([]);
@@ -22,8 +22,9 @@ export default function PluginBuilder() {
   const [version, setVersion] = useState('');
   const [selected, setSelected] = useState<Record<string, plugins.BuilderTaskList>>({});
   const [preview, setPreview] = useState<wailsapi.BuilderPreview | null>(null);
+  const [failedResource, setFailedResource] = useState('');
+  const [sourcesIncomplete, setSourcesIncomplete] = useState(false);
   const [status, setStatus] = useState('');
-  const [unavailableJob, setUnavailableJob] = useState('');
   const [busy, setBusy] = useState(true);
   const mounted = useRef(false);
   useEffect(() => {
@@ -31,15 +32,16 @@ export default function PluginBuilder() {
     void Promise.allSettled([GetAllTaskLists(), BuilderSkillNames(), BuilderProfileNames(), BuilderJobNames()]).then(([items, names, profileList, jobList]) => {
       if (!mounted.current) return;
       if (items.status === 'fulfilled') setLists(items.value ?? []);
-      if (names.status === 'fulfilled') setSkillNames(names.value ?? []);
-      if (profileList.status === 'fulfilled') setProfileOptions(profileList.value ?? []);
+      if (profileList.status === 'fulfilled') setProfileOptions(profileList.value.names ?? []);
+      if (names.status === 'fulfilled') setSkillNames(names.value.names ?? []);
       if (jobList.status === 'fulfilled') setJobNames(jobList.value ?? []);
-      if (jobList.status === 'rejected' || profileList.status === 'rejected' || items.status === 'rejected' || names.status === 'rejected') setStatus('plugins.builderSourcesError');
+      setSourcesIncomplete(jobList.status === 'rejected' || profileList.status === 'rejected' || profileList.value.partial || items.status === 'rejected' || names.status === 'rejected' || names.value.partial);
       setBusy(false);
     });
     return () => { mounted.current = false; };
   }, []);
-  useEffect(() => { if (status) announce(t(status, {name:unavailableJob})); }, [status, unavailableJob, t, announce]);
+  useEffect(() => { if (sourcesIncomplete) announce(t('plugins.builderSourcesError')); }, [sourcesIncomplete, announce, t]);
+  useEffect(() => { if (status) announce(t(status, {name: failedResource})); }, [status, failedResource, t, announce]);
   const invalidate = () => { setPreview(null); setStatus(''); };
   const change = (id: string, item?: plugins.BuilderTaskList) => {
     invalidate();
@@ -64,17 +66,41 @@ export default function PluginBuilder() {
         if (mounted.current) { setPreview(next); setStatus('plugins.builderReady'); }
       }
     } catch (cause) {
-      if (mounted.current) {
+      if (!mounted.current) return;
+      const message = String(cause);
+      if (message.includes('PLUGIN_BUILDER_DESTINATION')) {
+        setStatus('plugins.builderDestination');
+      } else {
         setPreview(null);
-        const failedJob = jobSelection.find(key => String(cause).endsWith('PLUGIN_BUILDER_JOB_UNAVAILABLE: ' + key));
-        setUnavailableJob(failedJob ?? '');
-        setStatus(/PLUGIN_BUILDER_SKILL_UNAVAILABLE|SKILL_BUILDER_SUPPORTING_FILES/.test(String(cause)) ? 'plugins.builderSkillError' : String(cause).includes('PLUGIN_BUILDER_JOB_UNAVAILABLE') ? 'plugins.builderJobError' : 'plugins.builderError');
+        if (message.includes('PLUGIN_BUILDER_CHANGED')) setStatus('plugins.builderChanged');
+        else if (message.includes('PLUGIN_BUILDER_KEY')) setStatus('plugins.builderInvalidKey');
+        else if (message.includes('PLUGIN_BUILDER_PROFILE_UNAVAILABLE:')) {
+          setFailedResource(/PLUGIN_BUILDER_PROFILE_UNAVAILABLE:([a-z0-9-]+)/.exec(message)?.[1] ?? '');
+          setStatus('plugins.builderNamedProfileError');
+        }
+        else if (message.includes('PLUGIN_BUILDER_SKILL_UNAVAILABLE')) {
+          const key = /PLUGIN_BUILDER_SKILL_UNAVAILABLE:([a-z0-9-]+)/.exec(message)?.[1];
+          setFailedResource(key ?? '');
+          setStatus(key ? 'plugins.builderNamedSkillError' : 'plugins.builderSkillError');
+        }
+        else if (message.includes('PLUGIN_BUILDER_JOB_UNAVAILABLE:')) {
+          setFailedResource(jobSelection.find(key => message.endsWith('PLUGIN_BUILDER_JOB_UNAVAILABLE: ' + key)) ?? '');
+          setStatus('plugins.builderJobError');
+        }
+        else setStatus('plugins.builderError');
       }
     }
     finally { if (mounted.current) setBusy(false); }
   };
-  return <form onSubmit={event => {event.preventDefault(); void run();}}>
+  const titles = new Set<string>();
+  const duplicates = new Set<string>();
+  for (const list of lists) {
+    if (titles.has(list.title)) duplicates.add(list.title);
+    titles.add(list.title);
+  }
+  return <form ref={formRef} onSubmit={event => {event.preventDefault(); void run();}}>
     <h2>{t('plugins.builder')}</h2>
+    {sourcesIncomplete && <p>{t('plugins.builderSourcesError')}</p>}
     <Input label={t('plugins.packageName')} value={name} required disabled={busy} onChange={event => {invalidate(); setName(event.target.value);}} />
     <Input label={t('plugins.version')} value={version} disabled={busy} onChange={event => {invalidate(); setVersion(event.target.value);}} />
     <fieldset disabled={busy}>
@@ -104,13 +130,16 @@ export default function PluginBuilder() {
     </fieldset>
     <fieldset disabled={busy}>
       <legend>{t('plugins.builderLists')}</legend>
-      {lists.map(list => {
+      {lists.map((list, index) => {
         const item = selected[list.id];
+        const label = duplicates.has(list.title)
+          ? [t('plugins.builderListPosition', {name: list.title, position: index + 1}), list.slug, list.description].filter(Boolean).join(' · ')
+          : list.title;
         return <div key={list.id}>
-          <Checkbox label={list.title} checked={Boolean(item)} onChange={event => change(list.id, event.target.checked ? new plugins.BuilderTaskList({id:list.id,key:list.slug || '',includeTasks:false}) : undefined)} />
+          <Checkbox label={label} checked={Boolean(item)} onChange={event => change(list.id, event.target.checked ? new plugins.BuilderTaskList({id:list.id,key:list.slug || '',includeTasks:false}) : undefined)} />
           {item && <>
-            <Input label={t('plugins.templateKey',{name:list.title})} required pattern="[a-z0-9]+(-[a-z0-9]+)*" maxLength={64} value={item.key} onChange={event => change(list.id,new plugins.BuilderTaskList({...item,key:event.target.value}))} />
-            <Checkbox label={t('plugins.builderTasks',{name:list.title})} checked={item.includeTasks} onChange={event => change(list.id,new plugins.BuilderTaskList({...item,includeTasks:event.target.checked}))} />
+            <Input label={t('plugins.templateKey',{name:label})} required pattern="[a-z0-9]+(-[a-z0-9]+)*" maxLength={64} value={item.key} onChange={event => change(list.id,new plugins.BuilderTaskList({...item,key:event.target.value}))} />
+            <Checkbox label={t('plugins.builderTasks',{name:label})} checked={item.includeTasks} onChange={event => change(list.id,new plugins.BuilderTaskList({...item,includeTasks:event.target.checked}))} />
           </>}
         </div>;
       })}
@@ -121,6 +150,6 @@ export default function PluginBuilder() {
       <ul>{preview.files.map(file => <li key={file}><details><summary>{file}</summary><pre>{preview.contents[file]}</pre></details></li>)}</ul>
     </section>}
     <Button type="submit" disabled={busy || (Object.keys(selected).length === 0 && skillSelection.length === 0 && profileSelection.length === 0 && jobSelection.length === 0)}>{t(preview ? 'plugins.builderSave' : 'plugins.builderReview')}</Button>
-    {status && <p>{t(status, {name:unavailableJob})}</p>}
+    {status && <p>{t(status, {name: failedResource})}</p>}
   </form>;
 }

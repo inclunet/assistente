@@ -8,9 +8,9 @@ import (
 	"errors"
 	"fmt"
 	"github.com/google/uuid"
-	"io/fs"
 	"strings"
 
+	"assistente/internal/commandsecurity"
 	"assistente/internal/database"
 	"assistente/internal/pluginpackage"
 	"assistente/internal/skills"
@@ -34,13 +34,7 @@ func (i *Inventory) installedSnapshot(ctx context.Context, id, digest string) (*
 	if err := json.Unmarshal(revision.Files, &result.Files); err != nil {
 		return nil, err
 	}
-	_, _, manifest, warnings, err := pluginpackage.LocateManifest(func(name string) ([]byte, error) {
-		raw, ok := result.Files[name]
-		if !ok {
-			return nil, fs.ErrNotExist
-		}
-		return raw, nil
-	})
+	_, manifest, warnings, err := pluginpackage.CapturedManifest(result.Files)
 	if err != nil {
 		return nil, err
 	}
@@ -67,12 +61,16 @@ func (i *Inventory) InstalledComponents(ctx context.Context, id, digest string) 
 	for _, row := range active {
 		slugs[row.ComponentKey] = row.Slug
 	}
-	var bound []database.PluginMCPBinding
-	if err := i.db.WithContext(ctx).Model(&database.PluginMCPBinding{}).Select("plugin_mcp_bindings.component_key, plugin_mcp_bindings.slug").Joins("JOIN plugin_installations p ON p.id=plugin_mcp_bindings.installation_id AND p.digest=plugin_mcp_bindings.digest").Joins("JOIN mcp_servers s ON s.id=plugin_mcp_bindings.server_id AND s.user_id=p.user_id").Where("p.id=? AND p.user_id=? AND p.digest=?", id, owner, digest).Find(&bound).Error; err != nil {
+	bound, err := i.BoundMCPServers(ctx, id, digest)
+	if err != nil {
 		return nil, err
 	}
-	for _, row := range bound {
-		slugs[row.ComponentKey] = row.Slug
+	edited := make(map[string]string)
+	for _, server := range bound {
+		slugs[server.ComponentKey] = server.Slug
+		if server.Edited {
+			edited[server.ComponentKey] = server.Name
+		}
 	}
 	pq, err := i.profileQuery(ctx)
 	if err != nil {
@@ -93,6 +91,7 @@ func (i *Inventory) InstalledComponents(ctx context.Context, id, digest string) 
 		slugs[job.PluginComponentKey] = job.Slug
 	}
 	for n := range components {
+		components[n].EditedServer = edited[components[n].Key]
 		slug, ok := slugs[components[n].Key]
 		components[n].Active = ok
 		components[n].Slug = slug
@@ -100,7 +99,10 @@ func (i *Inventory) InstalledComponents(ctx context.Context, id, digest string) 
 	return components, nil
 }
 
-func (i *Inventory) SetSkillActive(ctx context.Context, id, digest, key string, active bool) error {
+func (i *Inventory) SetSkillActive(ctx context.Context, id, digest, key string, active bool, admit commandsecurity.Admission) error {
+	if admit == nil {
+		return database.ErrUserScopeRequired
+	}
 	owner, err := database.RequireUserID(ctx)
 	if err != nil {
 		return err
@@ -127,7 +129,7 @@ func (i *Inventory) SetSkillActive(ctx context.Context, id, digest, key string, 
 			return ErrComponentUnavailable
 		}
 	}
-	return database.WithSQLiteImmediateTransaction(ctx, i.db, "plugins.skill.activation", func(tx *gorm.DB) error {
+	return database.WithSQLiteAdmittedCommit(ctx, i.db, "plugins.skill.activation", func(tx *gorm.DB) error {
 		var installation database.PluginInstallation
 		if err := tx.Where("user_id = ? AND id = ? AND digest = ?", owner, id, digest).Take(&installation).Error; err != nil {
 			return err
@@ -139,7 +141,7 @@ func (i *Inventory) SetSkillActive(ctx context.Context, id, digest, key string, 
 			return tx.Where("installation_id = ? AND component_key = ?", id, key).Delete(&database.PluginSkillActivation{}).Error
 		}
 		return tx.Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "installation_id"}, {Name: "component_key"}}, DoNothing: true}).Create(&activation).Error
-	})
+	}, admit)
 }
 
 func (i *Inventory) ActiveSkills(ctx context.Context) ([]skills.Skill, error) {

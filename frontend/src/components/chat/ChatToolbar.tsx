@@ -327,7 +327,7 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
   } = useAnchoredContextMenu();
 
   const getProfileMenuItems = useCallback((): MenuItem[] => [
-    ...(!toolbarProfileSlug.startsWith('plugin--') ? [{
+    ...(!/^plugin--[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(toolbarProfileSlug) ? [{
       id: 'edit-active-profile',
       label: t('chat.editActiveProfile'),
       icon: <EditOutlined />,

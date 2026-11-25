@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"strings"
 
+	"assistente/internal/commandsecurity"
 	"assistente/internal/database"
 	"assistente/internal/mcp"
 	"gorm.io/gorm"
@@ -41,6 +42,9 @@ func portableMCP(raw json.RawMessage) (mcp.ServerConfig, string) {
 	if json.Unmarshal(fields["url"], &address) != nil {
 		return mcp.ServerConfig{}, "invalid"
 	}
+	if strings.Contains(address, "${") {
+		return mcp.ServerConfig{}, "configuration"
+	}
 	u, err := url.Parse(address)
 	if err != nil || u.Hostname() == "" || u.User != nil || u.Fragment != "" || u.Opaque != "" {
 		return mcp.ServerConfig{}, "invalid"
@@ -48,15 +52,54 @@ func portableMCP(raw json.RawMessage) (mcp.ServerConfig, string) {
 	if u.Scheme != "https" && (u.Scheme != "http" || (!strings.EqualFold(u.Hostname(), "localhost") && !net.ParseIP(u.Hostname()).IsLoopback())) {
 		return mcp.ServerConfig{}, "invalid"
 	}
-	if u.RawQuery != "" || u.ForceQuery {
-		return mcp.ServerConfig{}, "configuration"
-	}
-	for key := range fields {
-		if key != "type" && key != "url" {
-			return mcp.ServerConfig{}, "configuration"
-		}
+	// Query parameters and headers may carry credentials. A pending declaration
+	// exposes only its validated endpoint for inspection.
+	if u.RawQuery != "" || u.ForceQuery || len(fields) > 2 {
+		u.RawQuery, u.ForceQuery = "", false
+		return mcp.ServerConfig{URL: u.String()}, "configuration"
 	}
 	return mcp.ServerConfig{URL: address, Transport: transport, AuthType: mcp.AuthNone, Enabled: true, AutoConnect: false}, ""
+}
+
+// BoundMCPServer identifies the native registration affected by an update.
+type BoundMCPServer struct {
+	ID, Name, Slug, ComponentKey string
+	Edited                       bool
+}
+
+func (i *Inventory) BoundMCPServers(ctx context.Context, id, digest string) ([]BoundMCPServer, error) {
+	owner, err := database.RequireUserID(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return boundMCPServers(ctx, i.db, owner, id, digest)
+}
+
+func boundMCPServers(ctx context.Context, db *gorm.DB, owner, id, digest string) ([]BoundMCPServer, error) {
+	var rows []struct {
+		database.MCPServer         `gorm:"embedded"`
+		ConfigDigest, ComponentKey string
+	}
+	err := db.WithContext(ctx).Table("plugin_mcp_bindings AS b").Select("s.*, b.config_digest, b.component_key").
+		Joins("JOIN plugin_installations p ON p.id = b.installation_id AND p.digest = b.digest").
+		Joins("JOIN mcp_servers s ON s.id = b.server_id AND s.user_id = p.user_id").
+		Where("p.id = ? AND p.user_id = ? AND p.digest = ?", id, owner, digest).Order("s.name, s.id").Scan(&rows).Error
+	if err != nil {
+		return nil, err
+	}
+	servers := make([]BoundMCPServer, 0, len(rows))
+	for _, row := range rows {
+		cfg, err := mcp.ConfigFromServerRecord(row.MCPServer)
+		if err != nil {
+			return nil, err
+		}
+		digest, err := mcpConfigDigest(&cfg)
+		if err != nil {
+			return nil, err
+		}
+		servers = append(servers, BoundMCPServer{ID: cfg.ID, Name: cfg.Name, Slug: cfg.Slug, ComponentKey: row.ComponentKey, Edited: digest != row.ConfigDigest})
+	}
+	return servers, nil
 }
 
 func mcpConfigDigest(cfg *mcp.ServerConfig) (string, error) {
@@ -68,7 +111,7 @@ func mcpConfigDigest(cfg *mcp.ServerConfig) (string, error) {
 	return hex.EncodeToString(hash[:]), nil
 }
 
-func (i *Inventory) RegisterMCP(ctx context.Context, id, digest, key string) error {
+func (i *Inventory) RegisterMCP(ctx context.Context, id, digest, key string, admit commandsecurity.Admission) error {
 	owner, err := database.RequireUserID(ctx)
 	if err != nil {
 		return err
@@ -94,7 +137,7 @@ func (i *Inventory) RegisterMCP(ctx context.Context, id, digest, key string) err
 		return ErrComponentUnavailable
 	}
 	cfg.Slug = "plugin-" + strings.ToLower(rand.Text())
-	err = database.WithSQLiteImmediateTransaction(ctx, i.db, "plugins.mcp.register", func(tx *gorm.DB) error {
+	err = database.WithSQLiteAdmittedCommit(ctx, i.db, "plugins.mcp.register", func(tx *gorm.DB) error {
 		var install database.PluginInstallation
 		if err := tx.Where("user_id=? AND id=? AND digest=?", owner, id, digest).Take(&install).Error; err != nil {
 			return err
@@ -131,11 +174,11 @@ func (i *Inventory) RegisterMCP(ctx context.Context, id, digest, key string) err
 			return err
 		}
 		return tx.Create(&database.PluginMCPBinding{InstallationID: id, ComponentKey: key, Digest: digest, ServerID: serverID, Slug: cfg.Slug, ConfigDigest: fingerprint}).Error
-	})
+	}, admit)
 	if err != nil {
 		return err
 	}
-	return i.SyncMCP(ctx)
+	return i.SyncMCP(ctx, admit)
 }
 
 // removeMCPBindings is called inside the same writer transaction that
@@ -174,7 +217,7 @@ func removeMCPBindings(ctx context.Context, tx *gorm.DB, id, key string, preserv
 	return nil
 }
 
-func (i *Inventory) RemoveMCP(ctx context.Context, id, digest, key string, preserve bool) error {
+func (i *Inventory) RemoveMCP(ctx context.Context, id, digest, key string, preserve bool, admit commandsecurity.Admission) error {
 	owner, err := database.RequireUserID(ctx)
 	if err != nil {
 		return err
@@ -182,15 +225,15 @@ func (i *Inventory) RemoveMCP(ctx context.Context, id, digest, key string, prese
 	if key == "" {
 		return ErrComponentUnavailable
 	}
-	err = database.WithSQLiteImmediateTransaction(ctx, i.db, "plugins.mcp.remove", func(tx *gorm.DB) error {
+	err = database.WithSQLiteAdmittedCommit(ctx, i.db, "plugins.mcp.remove", func(tx *gorm.DB) error {
 		var install database.PluginInstallation
 		if err := tx.Where("user_id=? AND id=? AND digest=?", owner, id, digest).Take(&install).Error; err != nil {
 			return err
 		}
 		return removeMCPBindings(ctx, tx, id, key, preserve)
-	})
+	}, admit)
 	if err != nil {
 		return err
 	}
-	return i.SyncMCP(ctx)
+	return i.SyncMCP(ctx, admit)
 }

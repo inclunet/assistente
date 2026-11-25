@@ -15,6 +15,7 @@ import (
 type PromptRequest struct {
 	AvailableScopes     []Scope
 	Host                string
+	PortExplicit        bool
 	Port                string
 	URL                 string
 	IPs                 []string
@@ -104,7 +105,7 @@ func (a *Authorizer) Authorize(ctx context.Context, dest httpclient.BlockedDesti
 	}
 	if a.prompt != nil {
 		flow.Ask = func(ctx context.Context) (authorization.Consent[AllowlistEntry], error) {
-			req := PromptRequest{AvailableScopes: scopes, Host: dest.Host, Port: dest.Port, URL: dest.URL, IPs: ipsToStrings(dest.IPs), Category: string(dest.Category), Reason: dest.Reason, SkillSlug: skillSlug, SkillSuggestedHosts: suggested, SkillHostMatch: matchingSuggestedHost(suggested, dest.Host)}
+			req := PromptRequest{AvailableScopes: scopes, Host: dest.Host, Port: dest.Port, PortExplicit: dest.PortExplicit, URL: dest.URL, IPs: ipsToStrings(dest.IPs), Category: string(dest.Category), Reason: dest.Reason, SkillSlug: skillSlug, SkillSuggestedHosts: suggested, SkillHostMatch: matchingSuggestedHost(suggested, dest.Host)}
 			decision, err := a.prompt.PromptNetworkAuthorization(ctx, req)
 			if err != nil {
 				return authorization.Consent[AllowlistEntry]{}, err

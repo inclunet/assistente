@@ -2,10 +2,13 @@ package plugins
 
 import (
 	"archive/zip"
+	"assistente/internal/profiles"
+	"assistente/internal/skills"
 	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"path"
 	"sort"
 	"strings"
@@ -42,25 +45,40 @@ func reservedDevice(name string) bool {
 	return len(base) == 4 && (base[:3] == "COM" || base[:3] == "LPT") && base[3] >= '1' && base[3] <= '9'
 }
 
-func (i *Inventory) WithProfileDefinition(read func(string) ([]byte, error), names func() ([]string, error)) *Inventory {
+func (i *Inventory) WithProfileDefinitions(discover func() (profiles.PortableDefinitions, error)) *Inventory {
 	copy := *i
-	copy.profileDefinition = read
-	copy.profileNames = names
+	copy.profileDefinitions = discover
 	return &copy
 }
 
-func (i *Inventory) WithSkillDefinition(read func(string) ([]byte, error), names func() []string) *Inventory {
+func (i *Inventory) WithSkillDefinitions(discover func() (skills.PortableDefinitions, error)) *Inventory {
 	copy := *i
-	copy.skillDefinition = read
-	copy.skillNames = names
+	copy.skillDefinitions = discover
 	return &copy
 }
 
-func (i *Inventory) BuilderSkillNames() []string {
-	if i.skillNames == nil {
-		return nil
+type BuilderResourceCatalog struct {
+	Names   []string `json:"names"`
+	Partial bool     `json:"partial"`
+}
+
+func (i *Inventory) BuilderSkillNames() BuilderResourceCatalog {
+	catalog := BuilderResourceCatalog{Names: []string{}}
+	if i.skillDefinitions != nil {
+		definitions, err := i.skillDefinitions()
+		catalog.Partial = err != nil
+		for key := range definitions {
+			if validBuilderSkill(key) {
+				catalog.Names = append(catalog.Names, key)
+			}
+		}
+		sort.Strings(catalog.Names)
 	}
-	return i.skillNames()
+	return catalog
+}
+
+func validBuilderSkill(key string) bool {
+	return portableSkillName.MatchString(key) && len(key) <= 64 && !reservedDevice(key)
 }
 
 func (i *Inventory) BuildPackage(ctx context.Context, request BuilderRequest) ([]byte, *pluginpackage.LocalSnapshot, error) {
@@ -74,17 +92,25 @@ func (i *Inventory) BuildPackage(ctx context.Context, request BuilderRequest) ([
 	files := map[string][]byte{}
 	extension := nativeResources{Version: 1}
 	total := 0
+	var profileFiles profiles.PortableDefinitions
+	if len(request.Profiles) > 0 && i.profileDefinitions != nil {
+		profileFiles, _ = i.profileDefinitions()
+	}
 	for _, key := range request.Profiles {
-		if !portableSkillName.MatchString(key) || len(key) > 64 || reservedDevice(key) || i.profileDefinition == nil {
+		if !validBuilderSkill(key) {
 			return nil, nil, errors.New("PLUGIN_BUILDER_KEY")
 		}
 		file := path.Join(nativeExtension, "profiles", key+".json")
 		if _, exists := files[file]; exists {
 			return nil, nil, errors.New("PLUGIN_BUILDER_KEY")
 		}
-		raw, err := i.profileDefinition(key)
+		read := profileFiles[key]
+		if read == nil {
+			return nil, nil, fmt.Errorf("PLUGIN_BUILDER_PROFILE_UNAVAILABLE:%s", key)
+		}
+		raw, err := read()
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, fmt.Errorf("PLUGIN_BUILDER_PROFILE_UNAVAILABLE:%s", key)
 		}
 		total += len(raw)
 		if total > 31<<20 {
@@ -94,17 +120,26 @@ func (i *Inventory) BuildPackage(ctx context.Context, request BuilderRequest) ([
 		extension.Profiles = append(extension.Profiles, key)
 	}
 	sort.Strings(extension.Profiles)
+	var definitions skills.PortableDefinitions
+	if len(request.Skills) > 0 && i.skillDefinitions != nil {
+		// An unrelated root can fail while the selected names are available.
+		definitions, _ = i.skillDefinitions()
+	}
 	for _, key := range request.Skills {
-		if !portableSkillName.MatchString(key) || len(key) > 64 || reservedDevice(key) || i.skillDefinition == nil {
-			return nil, nil, errors.New("PLUGIN_BUILDER_KEY")
+		if !validBuilderSkill(key) {
+			return nil, nil, errors.New("PLUGIN_BUILDER_SKILL_UNAVAILABLE")
 		}
 		file := path.Join("skills", key, "SKILL.md")
 		if _, exists := files[file]; exists {
 			return nil, nil, errors.New("PLUGIN_BUILDER_KEY")
 		}
-		raw, err := i.skillDefinition(key)
+		read := definitions[key]
+		if read == nil {
+			return nil, nil, fmt.Errorf("PLUGIN_BUILDER_SKILL_UNAVAILABLE:%s", key)
+		}
+		raw, err := read()
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, fmt.Errorf("PLUGIN_BUILDER_SKILL_UNAVAILABLE:%s", key)
 		}
 		total += len(raw)
 		if total > 31<<20 {
@@ -122,6 +157,9 @@ func (i *Inventory) BuildPackage(ctx context.Context, request BuilderRequest) ([
 				return errors.New("PLUGIN_BUILDER_KEY")
 			}
 			job, err := jobs.NewDBRepository(tx).GetJob(ctx, key)
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return errors.New("PLUGIN_BUILDER_JOB_UNAVAILABLE: " + key)
+			}
 			if err != nil {
 				return err
 			}
@@ -210,7 +248,7 @@ func (i *Inventory) BuildPackage(ctx context.Context, request BuilderRequest) ([
 	}
 	for _, c := range DiscoverComponents(snapshot) {
 		if (c.Kind == "skill" && c.Reason != "") || c.Kind == "invalidSkill" {
-			return nil, nil, errors.New("PLUGIN_BUILDER_SKILL_UNAVAILABLE")
+			return nil, nil, fmt.Errorf("PLUGIN_BUILDER_SKILL_UNAVAILABLE:%s", strings.TrimPrefix(c.Key, "skills/"))
 		}
 		if c.Reason != "" || (c.Kind != "tasklistTemplate" && c.Kind != "skill" && c.Kind != "profile" && c.Kind != "job") {
 			return nil, nil, ErrComponentUnavailable
@@ -219,21 +257,19 @@ func (i *Inventory) BuildPackage(ctx context.Context, request BuilderRequest) ([
 	return output.Bytes(), snapshot, nil
 }
 
-func (i *Inventory) BuilderProfileNames() ([]string, error) {
-	if i.profileNames == nil {
-		return nil, nil
-	}
-	names, err := i.profileNames()
-	if err != nil {
-		return nil, err
-	}
-	keys := make([]string, 0, len(names))
-	for _, key := range names {
-		if portableSkillName.MatchString(key) && len(key) <= 64 && !reservedDevice(key) {
-			keys = append(keys, key)
+func (i *Inventory) BuilderProfileNames() BuilderResourceCatalog {
+	catalog := BuilderResourceCatalog{Names: []string{}}
+	if i.profileDefinitions != nil {
+		files, err := i.profileDefinitions()
+		catalog.Partial = err != nil
+		for key := range files {
+			if validBuilderSkill(key) {
+				catalog.Names = append(catalog.Names, key)
+			}
 		}
+		sort.Strings(catalog.Names)
 	}
-	return keys, nil
+	return catalog
 }
 
 func (i *Inventory) BuilderJobNames(ctx context.Context) ([]string, error) {

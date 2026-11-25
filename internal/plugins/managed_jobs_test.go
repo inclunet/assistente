@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"assistente/internal/commandsecurity"
 	"assistente/internal/database"
 	"assistente/internal/jobs"
 	"assistente/internal/pluginpackage"
@@ -51,7 +52,7 @@ func TestManagedJobRevisionAndRecovery(t *testing.T) {
 	other := database.WithUserID(t.Context(), "bob")
 	unavailable := false
 	refreshes := 0
-	store := NewInventory(db).WithJobRefresh(func(context.Context, string) error {
+	store := NewInventory(db).WithJobRefresh(func(context.Context, string, commandsecurity.Admission) error {
 		refreshes++
 		if unavailable {
 			return errors.New("offline")
@@ -66,7 +67,7 @@ func TestManagedJobRevisionAndRecovery(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	admit := func(fn func() error) error { return fn() }
+	admit := func(_ *gorm.DB, fn func() error) error { return fn() }
 	prepare := func(ctx context.Context) (string, error) {
 		return store.PrepareJob(ctx, row.ID, row.Digest, "jobs/review", admit)
 	}
@@ -105,13 +106,13 @@ func TestManagedJobRevisionAndRecovery(t *testing.T) {
 	}
 	unavailable = false
 	before := refreshes
-	if err = store.SyncPendingJobs(other); err != nil || refreshes != before {
+	if err = store.SyncPendingJobs(other, admit); err != nil || refreshes != before {
 		t.Fatalf("reparo cruzou contas: %v", err)
 	}
-	if err = store.SyncPendingJobs(owner); err != nil {
+	if err = store.SyncPendingJobs(owner, admit); err != nil {
 		t.Fatal(err)
 	}
-	if err = store.SyncPendingJobs(owner); err != nil || refreshes != before+1 {
+	if err = store.SyncPendingJobs(owner, admit); err != nil || refreshes != before+1 {
 		t.Fatalf("reparo duplicado: %d, %v", refreshes, err)
 	}
 }

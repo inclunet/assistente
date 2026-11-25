@@ -94,10 +94,10 @@ export function SetSkillActive(arg1, arg2, arg3, arg4) {
   return window['go']['wailsapi']['Plugins']['SetSkillActive'](arg1, arg2, arg3, arg4);
 }
 
-export function SyncMCP() {
-  return window['go']['wailsapi']['Plugins']['SyncMCP']();
+export function SyncMCP(arg1) {
+  return window['go']['wailsapi']['Plugins']['SyncMCP'](arg1);
 }
 
-export function SyncPendingJobs() {
-  return window['go']['wailsapi']['Plugins']['SyncPendingJobs']();
+export function SyncPendingJobs(arg1) {
+  return window['go']['wailsapi']['Plugins']['SyncPendingJobs'](arg1);
 }

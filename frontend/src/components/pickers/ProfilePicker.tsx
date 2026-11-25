@@ -58,6 +58,10 @@ export const ProfilePicker = forwardRef<ProfilePickerRef, ProfilePickerProps>(
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
 
+    const [partial, setPartial] = useState(false);
+    useEffect(() => {
+      if (partial) onAnnounce?.(t('profiles.pluginCatalogUnavailable'));
+    }, [partial, onAnnounce, t]);
     const requestId = useRef(0);
     const loadProfiles = useCallback(async (background = false) => {
       const request = ++requestId.current;
@@ -67,8 +71,14 @@ export const ProfilePicker = forwardRef<ProfilePickerRef, ProfilePickerProps>(
       try {
         if (isControlled) {
           // Controlled mode: only load profile list, don't read global active
-          const allProfiles = await (includePluginProfiles ? GetConversationProfiles() : GetProfiles());
+          let partialCatalog = false;
+          const allProfiles = await (includePluginProfiles ? GetConversationProfiles().catch(async () => {
+            if (request !== requestId.current) return [];
+            partialCatalog = true;
+            return GetProfiles();
+          }) : GetProfiles());
           if (request !== requestId.current) return;
+          setPartial(partialCatalog);
           setProfileList(allProfiles || []);
         } else {
           const [allProfiles, currentSlug] = await Promise.all([
@@ -77,6 +87,7 @@ export const ProfilePicker = forwardRef<ProfilePickerRef, ProfilePickerProps>(
           ]);
           if (request !== requestId.current) return;
           setProfileList(allProfiles || []);
+          setPartial(false);
           setActiveSlug(currentSlug || 'padrao');
         }
       } catch (err) {
@@ -194,6 +205,8 @@ export const ProfilePicker = forwardRef<ProfilePickerRef, ProfilePickerProps>(
     );
 
     return (
+      <>
+      {partial && !error && <span>{t('profiles.pluginCatalogUnavailable')}</span>}
       <BasePicker
         variant={variant ?? 'form'}
         items={buildItems()}
@@ -218,6 +231,7 @@ export const ProfilePicker = forwardRef<ProfilePickerRef, ProfilePickerProps>(
         comboboxWrapperProps={{ 'data-picker': 'profile' } as React.HTMLAttributes<HTMLDivElement>}
         onAfterSelect={onAfterSelect}
       />
+      </>
     );
   }
 );

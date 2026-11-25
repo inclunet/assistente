@@ -1,6 +1,7 @@
 package jobs
 
 import (
+	"assistente/internal/commandsecurity"
 	"context"
 	"errors"
 
@@ -78,7 +79,7 @@ func (e *JobExecutor) pluginJobContext(ctx context.Context, job *Job) (context.C
 }
 
 // RefreshPluginJob reloads committed state through the native registry and scheduler.
-func (m *Manager) RefreshPluginJob(ctx context.Context, slug string) error {
+func (m *Manager) RefreshPluginJob(ctx context.Context, slug string, admit commandsecurity.Admission) error {
 	m.runtimeMu.Lock()
 	defer m.runtimeMu.Unlock()
 	ctx, err := m.scopedContext(ctx)
@@ -89,10 +90,15 @@ func (m *Manager) RefreshPluginJob(ctx context.Context, slug string) error {
 	if err != nil {
 		return err
 	}
-	if previous := m.registry.Get(slug); previous != nil {
-		m.unregisterTriggers(previous)
+	if err := admit(nil, func() error {
+		if previous := m.registry.Get(slug); previous != nil {
+			m.unregisterTriggers(previous)
+		}
+		m.registerJob(job)
+		return nil
+	}); err != nil {
+		return err
 	}
-	m.registerJob(job)
 	m.emitEvent("jobs:updated", map[string]any{"id": job.ID, "name": job.Name})
 	return nil
 }
