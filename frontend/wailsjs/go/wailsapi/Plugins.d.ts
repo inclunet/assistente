@@ -4,7 +4,7 @@ import {database} from '../models';
 import {plugins} from '../models';
 import {wailsapi} from '../models';
 
-export function AddLocalRepository():Promise<void>;
+export function AddLocalRepository():Promise<boolean>;
 
 export function AddRemoteRepository(arg1:string,arg2:boolean):Promise<void>;
 
@@ -42,4 +42,4 @@ export function SaveBuilder(arg1:plugins.BuilderRequest,arg2:string):Promise<boo
 
 export function SetSkillActive(arg1:string,arg2:string,arg3:string,arg4:boolean):Promise<void>;
 
-export function SyncMCP():Promise<void>;
+export function SyncMCP(arg1:string):Promise<void>;

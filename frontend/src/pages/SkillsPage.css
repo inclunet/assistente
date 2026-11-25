@@ -205,3 +205,10 @@
     flex: 1;
   }
 }
+
+.skills-field-warning {
+  color: var(--text-primary);
+  border-inline-start: 3px solid var(--color-warning);
+  padding-inline-start: var(--spacing-sm);
+  font-weight: 600;
+}

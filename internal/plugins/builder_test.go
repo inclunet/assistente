@@ -26,7 +26,7 @@ func TestBuilderExportsOnlySelectedDefinitionsToAnotherAccount(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = conn.Close() })
-	if err := db.AutoMigrate(&database.PluginInstallation{}, &database.PluginRevision{}, &database.PluginSkillActivation{}, &database.PluginMCPBinding{}, &database.MCPServer{}, &database.TaskList{}, &database.TaskListWorkflow{}, &database.Task{}, &database.TaskNote{}); err != nil {
+	if err := db.AutoMigrate(&database.PluginInstallation{}, &database.PluginRevision{}, &database.PluginSkillActivation{}, &database.PluginMCPBinding{}, &database.PluginListReceipt{}, &database.MCPServer{}, &database.TaskList{}, &database.TaskListWorkflow{}, &database.Task{}, &database.TaskNote{}); err != nil {
 		t.Fatal(err)
 	}
 	list := database.TaskList{UserID: "author", Title: "Release"}
@@ -108,8 +108,8 @@ func TestBuilderExportsOnlySelectedDefinitionsToAnotherAccount(t *testing.T) {
 		t.Fatal(err)
 	}
 	inspect := func() (*pluginpackage.LocalSnapshot, error) { return archive.Package("release-kit", ".") }
-	admit := commandsecurity.Admission(func(fn func() error) error { return fn() })
-	installed, err := store.InstallSource(reader, "release-kit", snap.Digest, "", admit, inspect)
+	admit := commandsecurity.Admission(func(_ *gorm.DB, fn func() error) error { return fn() })
+	installed, err := store.InstallSource(reader, "release-kit", snap.Digest, "", nil, admit, inspect)
 	if err != nil {
 		t.Fatal(err)
 	}

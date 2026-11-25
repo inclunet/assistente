@@ -8,6 +8,7 @@ import (
 	"assistente/internal/auth"
 	"assistente/internal/commandsecurity"
 	"assistente/internal/database"
+	"gorm.io/gorm"
 )
 
 var errEditorDialogSessionStale = errors.New("sessão do diálogo do editor ficou obsoleta")
@@ -52,7 +53,7 @@ func (a *App) captureDialogAdmission(ctx context.Context) (commandsecurity.Admis
 		return nil, err
 	}
 
-	admit := commandsecurity.Admission(func(handoff func() error) error {
+	admit := commandsecurity.Admission(func(tx *gorm.DB, handoff func() error) error {
 		validationCtx, cancel := context.WithTimeout(a.appContext(), 5*time.Second)
 		defer cancel()
 		return epochs.Admit(validationCtx, snapshot, func(ctx context.Context) error {
@@ -69,7 +70,13 @@ func (a *App) captureDialogAdmission(ctx context.Context) (commandsecurity.Admis
 				return database.ErrUserScopeRequired
 			}
 			principal := auth.LocalSessionPrincipal{UserID: snapshot.UserID, SessionID: snapshot.SessionID}
-			validated, err := sessions.RevalidateLocalSession(ctx, principal)
+			var validated auth.LocalSessionPrincipal
+			var err error
+			if tx == nil {
+				validated, err = sessions.RevalidateLocalSession(ctx, principal)
+			} else {
+				validated, err = sessions.RevalidateLocalSessionTx(ctx, tx, principal)
+			}
 			if err != nil {
 				return err
 			}

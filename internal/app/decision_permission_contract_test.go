@@ -53,7 +53,8 @@ func assertDecisionOnlyShape(t *testing.T, nome string, payload questionnaire.Re
 }
 
 func TestPermissoesCriticasUsamSoDecisionDialog(t *testing.T) {
-	assertDecisionOnly(t, "shell", shellConfirmationPayload(shelltrust.PromptRequest{Command: "echo ok", Directory: "C:/tmp", AvailableScopes: allAuthorizationScopesForTest()}))
+	shell, _ := shellConfirmationPayload(shelltrust.PromptRequest{Command: "echo ok", Directory: "C:/tmp", AvailableScopes: allAuthorizationScopesForTest()})
+	assertDecisionOnly(t, "shell", shell)
 	assertDecisionOnly(t, "http", httpConfirmationPayload("POST", "https://exemplo/api", `{"a":1}`))
 	// Mesmo builder que PromptNetworkAuthorization envia ao questionnaire —
 	// montar o payload à mão deixaria o prompter livre para regressar.

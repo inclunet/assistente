@@ -51,14 +51,19 @@ func TestCommandInDirectoryRejectsDirectorySwapBeforeExecution(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 			defer cancel()
 			var stderr bytes.Buffer
-			process := exec.CommandContext(ctx, shell, append(args, setup+commandInDirectory("echo EXECUTED", authorized, kind))...)
+			marker := newCommandMarkerForShell(kind)
+			process := exec.CommandContext(ctx, shell, append(args, setup+marker.wrapCommandInDirectory("echo EXECUTED", authorized, kind))...)
 			process.Stderr = &stderr
-			output, _ := process.Output()
-			if target, err := os.Readlink(a); err != nil || target != b {
-				t.Fatalf("troca não exercitada: %q %v (%s, %s)", target, err, output, stderr.String())
+			output, processErr := process.Output()
+			target, linkErr := os.Readlink(a)
+			got, gotErr := os.Stat(a)
+			want, wantErr := os.Stat(b)
+			if linkErr != nil || gotErr != nil || wantErr != nil || !os.SameFile(got, want) {
+				t.Fatalf("troca não exercitada: link=%q destino=%q erros=(%v,%v,%v) stderr=%.240s", target, b, linkErr, gotErr, wantErr, stderr.String())
 			}
-			if strings.Contains(string(output), "EXECUTED") {
-				t.Fatalf("executou no destino substituído: %s", output)
+			result := parseMarkerOutput(marker, string(output))
+			if processErr != nil || !result.Found || result.ExitCode == 0 || strings.Contains(result.Output, "EXECUTED") {
+				t.Fatalf("guarda após troca: encontrado=%t status=%d saída=%.240s erro=%v", result.Found, result.ExitCode, result.Output, processErr)
 			}
 		})
 	}
@@ -87,7 +92,8 @@ func TestEphemeralRejectsDirectorySwapDuringShellStartup(t *testing.T) {
 	t.Setenv("HOME", home)
 	config := DefaultManagerConfig()
 	config.DefaultShell = bash
-	entry, err := NewManager(config, nil).RunEphemeral(context.Background(), a, "echo EXECUTED", 5*time.Second, "test")
+	const rawCommand = "echo EXECUTED"
+	entry, err := NewManager(config, nil).RunEphemeral(context.Background(), WorkingDirectory{Path: a}, CommandText{Raw: rawCommand, Display: rawCommand}, 5*time.Second, "test")
 	if err != nil {
 		t.Fatalf("execução: %+v %v", entry, err)
 	}
@@ -116,7 +122,8 @@ func TestEphemeralRestoresDirectoryAfterShellStartup(t *testing.T) {
 	config := DefaultManagerConfig()
 	config.DefaultShell = bash
 	m := NewManager(config, nil)
-	entry, err := m.RunEphemeral(context.Background(), authorized, "pwd -P", 5*time.Second, "test")
+	const rawCommand = "pwd -P"
+	entry, err := m.RunEphemeral(context.Background(), WorkingDirectory{Path: authorized}, CommandText{Raw: rawCommand, Display: rawCommand}, 5*time.Second, "test")
 	if err != nil || entry.ExitCode != 0 {
 		t.Fatalf("execução: %+v %v", entry, err)
 	}
@@ -130,14 +137,14 @@ func TestEphemeralRestoresDirectoryAfterShellStartup(t *testing.T) {
 }
 
 func TestCommandInDirectoryQuotesPathsAndStopsOnFailure(t *testing.T) {
-	directory := filepath.Join(t.TempDir(), "a'b [literal]")
+	directory := filepath.Join(t.TempDir(), "a'b d’água [literal]")
 	if err := os.Mkdir(directory, 0700); err != nil {
 		t.Fatal(err)
 	}
 	shell, kind, command := "bash", "bash", "pwd -P"
 	args := []string{"--noprofile", "--norc", "-c"}
 	if runtime.GOOS == "windows" {
-		shell, kind, command = "powershell.exe", "powershell", "(Get-Location).Path"
+		shell, kind, command = "powershell.exe", "powershell", "[Console]::OutputEncoding = [Text.UTF8Encoding]::new($false); (Get-Location).Path"
 		args = []string{"-NoProfile", "-NonInteractive", "-Command"}
 	}
 	if _, err := exec.LookPath(shell); err != nil {
@@ -145,11 +152,12 @@ func TestCommandInDirectoryQuotesPathsAndStopsOnFailure(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	output, err := exec.CommandContext(ctx, shell, append(args, commandInDirectory(command, directory, kind))...).CombinedOutput()
-	if err != nil || !strings.Contains(string(output), directory) {
-		t.Fatalf("caminho literal: %s %v", output, err)
+	pathMarker := newCommandMarkerForShell(kind)
+	output, err := exec.CommandContext(ctx, shell, append(args, pathMarker.wrapCommandInDirectory(command, directory, kind))...).CombinedOutput()
+	if err != nil || !sameTestDirectory(strings.TrimSpace(parseMarkerOutput(pathMarker, string(output)).Output), directory) {
+		t.Fatalf("caminho literal: esperado=%q saída=%.240s erro=%v", directory, output, err)
 	}
-	output, _ = exec.CommandContext(ctx, shell, append(args, commandInDirectory("echo EXECUTED", filepath.Join(directory, "missing"), kind))...).Output()
+	output, _ = exec.CommandContext(ctx, shell, append(args, newCommandMarkerForShell(kind).wrapCommandInDirectory("echo EXECUTED", filepath.Join(directory, "missing"), kind))...).Output()
 	if strings.Contains(string(output), "EXECUTED") {
 		t.Fatalf("executou após falhar cd: %s", output)
 	}
@@ -167,7 +175,7 @@ func TestEphemeralPreservesMultilineAliasesAndLiteralArguments(t *testing.T) {
 	config.DefaultShell = bash
 	m := NewManager(config, nil)
 	command := "alias permission_alias='echo alias-ok'\npermission_alias\nprintf '%s\\n' 'literal $(echo unexpected)'\nfalse"
-	entry, err := m.RunEphemeral(context.Background(), t.TempDir(), command, 5*time.Second, "test")
+	entry, err := m.RunEphemeral(context.Background(), WorkingDirectory{Path: t.TempDir()}, CommandText{Raw: command, Display: command}, 5*time.Second, "test")
 	if err != nil || entry.ExitCode != 1 {
 		t.Fatalf("status perdido: %+v %v", entry, err)
 	}
@@ -186,8 +194,146 @@ func TestEphemeralSupportsPOSIXShell(t *testing.T) {
 	}
 	config := DefaultManagerConfig()
 	config.DefaultShell = sh
-	entry, err := NewManager(config, nil).RunEphemeral(context.Background(), t.TempDir(), "printf '%s\\n' 'posix literal $(echo unexpected)'", 5*time.Second, "test")
+	const rawCommand = "printf '%s\\n' 'posix literal $(echo unexpected)'"
+	entry, err := NewManager(config, nil).RunEphemeral(context.Background(), WorkingDirectory{Path: t.TempDir()}, CommandText{Raw: rawCommand, Display: rawCommand}, 5*time.Second, "test")
 	if err != nil || entry.ExitCode != 0 || !strings.Contains(entry.Output, "posix literal $(echo unexpected)") {
 		t.Fatalf("execução POSIX: %+v %v", entry, err)
 	}
+}
+
+func TestNativeZshMarkerAndDirectory(t *testing.T) {
+	zsh, err := exec.LookPath("zsh")
+	if err != nil {
+		t.Skip("zsh indisponível")
+	}
+	dir, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	quotedDir := filepath.Join(dir, "a'b [teste]")
+	if err := os.Mkdir(quotedDir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		directory, command, output string
+		code                       int
+	}{
+		{"", "printf ok", "ok", 0},
+		{"", "(exit 7)", "", 7},
+		{"", "printf '", "", 1},
+		{quotedDir, "pwd -P", quotedDir, 0},
+		{quotedDir, "(exit 7)", "", 7},
+		{quotedDir, "printf '", "", 1},
+		{filepath.Join(dir, "ausente"), "printf EXECUTED", "", 1},
+	} {
+		kind := shellType(zsh)
+		marker := newCommandMarkerForShell(kind)
+		frame := marker.wrapCommandInDirectory(tc.command, tc.directory, kind)
+		out, err := exec.CommandContext(t.Context(), zsh, "-fc", "unsetopt POSIX_BUILTINS\n"+frame+"\n[[ ! -o POSIX_BUILTINS ]]").Output()
+		result := parseMarkerOutput(marker, string(out))
+		if err != nil || !result.Found || result.ExitCode != tc.code || result.Output != tc.output {
+			t.Fatalf("diretório=%q comando=%q resultado=%+v erro=%v", tc.directory, tc.command, result, err)
+		}
+	}
+
+	// O shell interativo muda o diretório no startup; o executor efêmero
+	// deve restabelecê-lo e conservar as opções nativas que o perfil escolheu.
+	profile := t.TempDir()
+	t.Setenv("ZDOTDIR", profile)
+	t.Setenv("skip_global_compinit", "")
+	// Reproduz a leitura de uma tecla pelo compinit global do Ubuntu mesmo
+	// nas distribuições que não incluem esse completador no perfil.
+	zshenv := "if [[ $OSTYPE == linux* && -z $skip_global_compinit && -o interactive ]]; then read -q; fi\n"
+	if err := os.WriteFile(filepath.Join(profile, ".zshenv"), []byte(zshenv), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(profile, ".zshrc"), []byte("unsetopt POSIX_BUILTINS\ncd /\nasst_started=yes\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	cfg := DefaultManagerConfig()
+	cfg.DefaultShell = zsh
+	const rawCommand = "print -r -- executado >> execucoes; pwd -P; ([[ $asst_started == yes && ! -o POSIX_BUILTINS ]] && exit 7)"
+	entry, err := NewManager(cfg, nil).RunEphemeral(t.Context(), WorkingDirectory{Path: quotedDir}, CommandText{Raw: rawCommand, Display: rawCommand}, 10*time.Second, "test")
+	if err != nil || entry == nil || entry.ExitCode != 7 || strings.TrimSpace(entry.Output) != quotedDir {
+		t.Fatalf("zsh no PTY: entry=%+v erro=%v", entry, err)
+	}
+	executions, err := os.ReadFile(filepath.Join(quotedDir, "execucoes"))
+	if err != nil || string(executions) != "executado\n" {
+		t.Fatalf("execuções=%q erro=%v", executions, err)
+	}
+}
+
+func TestNativeZshPersistentStartupByOrigin(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("compinit global do zsh no Linux")
+	}
+	zsh, err := exec.LookPath("zsh")
+	if err != nil {
+		t.Skip("zsh indisponível")
+	}
+	for _, origin := range []string{"run_command", "terminal_session", "manual"} {
+		t.Run(origin, func(t *testing.T) {
+			dir := t.TempDir()
+			t.Setenv("ZDOTDIR", dir)
+			t.Setenv("skip_global_compinit", "")
+			// O perfil registra o valor herdado. No caso manual, ele define a
+			// variável depois disso para evitar o diálogo do completador no teste;
+			// não verifica o comportamento interativo desse diálogo.
+			profile := "asst_origin=${skip_global_compinit:-manual}\n"
+			if origin == "manual" {
+				profile += "skip_global_compinit=1\n"
+			} else {
+				profile += "[[ -z $skip_global_compinit ]] && read -q\n"
+			}
+			if err := os.WriteFile(filepath.Join(dir, ".zshenv"), []byte(profile), 0600); err != nil {
+				t.Fatal(err)
+			}
+			cfg := DefaultManagerConfig()
+			cfg.DefaultShell = zsh
+			manager := NewManager(cfg, nil)
+			t.Cleanup(manager.CloseAll)
+			var id string
+			switch origin {
+			case "run_command":
+				session, err := manager.Acquire(t.Context(), WorkingDirectory{Path: dir})
+				if err != nil {
+					t.Fatal(err)
+				}
+				id = session.ID()
+			case "terminal_session":
+				info, err := manager.CreateToolSession("modelo", WorkingDirectory{Path: dir})
+				if err != nil {
+					t.Fatal(err)
+				}
+				id = info.ID
+			case "manual":
+				info, err := manager.CreateInfo("usuário", dir)
+				if err != nil {
+					t.Fatal(err)
+				}
+				id = info.ID
+			}
+			entry, err := manager.RunCommand(t.Context(), id, "print -r -- $asst_origin >> visitas; pwd -P; (exit 7)", 10*time.Second, "test")
+			if err != nil || entry == nil || entry.ExitCode != 7 || strings.TrimSpace(entry.Output) != dir {
+				t.Fatalf("entry=%+v erro=%v", entry, err)
+			}
+			visits, err := os.ReadFile(filepath.Join(dir, "visitas"))
+			want := "1\n"
+			if origin == "manual" {
+				want = "manual\n"
+			}
+			if err != nil || string(visits) != want {
+				t.Fatalf("execuções=%q esperado=%q erro=%v", visits, want, err)
+			}
+		})
+	}
+}
+
+func sameTestDirectory(a, b string) bool {
+	x, err := os.Stat(a)
+	if err != nil {
+		return false
+	}
+	y, err := os.Stat(b)
+	return err == nil && os.SameFile(x, y)
 }

@@ -3,6 +3,7 @@ package telegram
 import (
 	"strings"
 	"testing"
+	"unicode/utf8"
 )
 
 func TestSplitMessage_Short(t *testing.T) {
@@ -27,6 +28,25 @@ func TestSplitMessage_ExactLimit(t *testing.T) {
 	parts := SplitMessage(text)
 	if len(parts) != 1 {
 		t.Fatalf("expected 1 part for exact limit, got %d", len(parts))
+	}
+}
+
+func TestSplitMessagePreservesUnicodeAndWhitespace(t *testing.T) {
+	for _, text := range []string{
+		strings.Repeat("x", maxMessageLength-1) + "á🔔",
+		strings.Repeat("🟢", maxMessageLength) + "fim",
+		strings.Repeat("a", maxMessageLength-3) + " \t\n  início",
+		strings.Repeat("b", maxMessageLength-1) + "  \r\n",
+	} {
+		parts := SplitMessage(text)
+		if strings.Join(parts, "") != text {
+			t.Fatal("os fragmentos alteraram o texto original")
+		}
+		for i, part := range parts {
+			if len(part) == 0 || len(part) > maxMessageLength || !utf8.ValidString(part) {
+				t.Fatalf("parte %d inválida, tamanho %d", i, len(part))
+			}
+		}
 	}
 }
 

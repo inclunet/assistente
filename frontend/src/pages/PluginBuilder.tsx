@@ -57,13 +57,26 @@ export default function PluginBuilder() {
         if (mounted.current) { setPreview(next); setStatus('plugins.builderReady'); }
       }
     } catch (cause) {
-      if (mounted.current) {
+      if (!mounted.current) return;
+      const message = String(cause);
+      if (message.includes('PLUGIN_BUILDER_DESTINATION')) {
+        setStatus('plugins.builderDestination');
+      } else {
         setPreview(null);
-        setStatus(/PLUGIN_BUILDER_SKILL_UNAVAILABLE|SKILL_BUILDER_SUPPORTING_FILES/.test(String(cause)) ? 'plugins.builderSkillError' : 'plugins.builderError');
+        if (message.includes('PLUGIN_BUILDER_CHANGED')) setStatus('plugins.builderChanged');
+        else if (message.includes('PLUGIN_BUILDER_KEY')) setStatus('plugins.builderInvalidKey');
+        else if (/PLUGIN_BUILDER_SKILL_UNAVAILABLE|SKILL_BUILDER_SUPPORTING_FILES/.test(message)) setStatus('plugins.builderSkillError');
+        else setStatus('plugins.builderError');
       }
     }
     finally { if (mounted.current) setBusy(false); }
   };
+  const titles = new Set<string>();
+  const duplicates = new Set<string>();
+  for (const list of lists) {
+    if (titles.has(list.title)) duplicates.add(list.title);
+    titles.add(list.title);
+  }
   return <form onSubmit={event => {event.preventDefault(); void run();}}>
     <h2>{t('plugins.builder')}</h2>
     <Input label={t('plugins.packageName')} value={name} required disabled={busy} onChange={event => {invalidate(); setName(event.target.value);}} />
@@ -77,13 +90,16 @@ export default function PluginBuilder() {
     </fieldset>
     <fieldset disabled={busy}>
       <legend>{t('plugins.builderLists')}</legend>
-      {lists.map(list => {
+      {lists.map((list, index) => {
         const item = selected[list.id];
+        const label = duplicates.has(list.title)
+          ? [t('plugins.builderListPosition', {name: list.title, position: index + 1}), list.slug, list.description].filter(Boolean).join(' · ')
+          : list.title;
         return <div key={list.id}>
-          <Checkbox label={list.title} checked={Boolean(item)} onChange={event => change(list.id, event.target.checked ? new plugins.BuilderTaskList({id:list.id,key:list.slug || '',includeTasks:false}) : undefined)} />
+          <Checkbox label={label} checked={Boolean(item)} onChange={event => change(list.id, event.target.checked ? new plugins.BuilderTaskList({id:list.id,key:list.slug || '',includeTasks:false}) : undefined)} />
           {item && <>
-            <Input label={t('plugins.templateKey',{name:list.title})} required pattern="[a-z0-9]+(-[a-z0-9]+)*" maxLength={64} value={item.key} onChange={event => change(list.id,new plugins.BuilderTaskList({...item,key:event.target.value}))} />
-            <Checkbox label={t('plugins.builderTasks',{name:list.title})} checked={item.includeTasks} onChange={event => change(list.id,new plugins.BuilderTaskList({...item,includeTasks:event.target.checked}))} />
+            <Input label={t('plugins.templateKey',{name:label})} required pattern="[a-z0-9]+(-[a-z0-9]+)*" maxLength={64} value={item.key} onChange={event => change(list.id,new plugins.BuilderTaskList({...item,key:event.target.value}))} />
+            <Checkbox label={t('plugins.builderTasks',{name:label})} checked={item.includeTasks} onChange={event => change(list.id,new plugins.BuilderTaskList({...item,includeTasks:event.target.checked}))} />
           </>}
         </div>;
       })}

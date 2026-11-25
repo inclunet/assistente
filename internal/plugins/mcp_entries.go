@@ -3,6 +3,7 @@ package plugins
 import (
 	"assistente/internal/pluginpackage"
 	"encoding/json"
+	"strings"
 )
 
 // mcpEntries normalizes only documented, lossless transport aliases. Unknown
@@ -16,6 +17,11 @@ func mcpEntries(snapshot *pluginpackage.LocalSnapshot) (string, map[string]json.
 	}
 	raw, exists := snapshot.Files[name]
 	if !exists {
+		for entry := range snapshot.Files {
+			if strings.HasPrefix(entry, name+"/") {
+				return name, nil, true
+			}
+		}
 		return "", nil, false
 	}
 	var fields map[string]json.RawMessage

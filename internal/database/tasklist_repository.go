@@ -14,6 +14,8 @@ import (
 
 const MaxTaskLists = 100
 
+var ErrTaskListCapacity = errors.New("limite de tasklists atingido")
+
 func taskQuery(ctx context.Context, base *gorm.DB) *gorm.DB {
 	return ScopeByUser(ctx,
 		base.WithContext(ctx).Joins("JOIN task_lists ON task_lists.id = tasks.task_list_id"),
@@ -45,7 +47,7 @@ func CheckTaskListCapacity(ctx context.Context, tx *gorm.DB) error {
 		return err
 	}
 	if count >= MaxTaskLists {
-		return errors.New("limite de tasklists atingido")
+		return ErrTaskListCapacity
 	}
 	return nil
 }

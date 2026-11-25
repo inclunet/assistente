@@ -104,6 +104,9 @@ func (r BuildRequest) Settings(provider string) map[string]any {
 	return r.ProviderSettings[provider]
 }
 
+// Block contém apenas valores que podem ser copiados por atribuição. O cache
+// de preparação das skills clona a fatia de blocos ao armazenar e devolver o
+// prompt. Campos mutáveis exigem atualizar a cópia nessas duas fronteiras.
 type Block struct {
 	Provider   string
 	Name       string
