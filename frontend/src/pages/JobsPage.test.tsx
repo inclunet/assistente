@@ -191,8 +191,27 @@ function getFirstCell(jobName: string): HTMLElement {
 }
 
 import JobsPage from './JobsPage';
+import { MemoryRouter } from 'react-router-dom';
+import { useNavigationStore } from '../store/navigationStore';
 
 describe('JobsPage', () => {
+  it('abre o job preparado mesmo quando a lista ainda mostra apenas jobs anteriores', async () => {
+    const slug = 'plugin-review';
+    storeState.fetchJobDetail.mockImplementation(async () => {
+      const detail = { id: slug, plugin_installation_id: 'installed' } as jobs.Job;
+      replaceStore({ jobDetail: detail });
+      return detail;
+    });
+    useNavigationStore.getState().requestResourceEdit('jobs', slug);
+    render(<MemoryRouter><JobsPage /></MemoryRouter>);
+    const origin = await screen.findByRole('link', { name: 'plugins.openJobOrigin' });
+    expect(origin).toHaveAttribute('href', '/plugins');
+    expect(storeState.fetchJobDetail).toHaveBeenCalledWith(slug);
+    fireEvent.click(origin);
+    expect(useNavigationStore.getState().pendingEdit).toMatchObject({ resource: 'plugins', id: 'installed' });
+    useNavigationStore.getState().clearPendingEdit();
+  });
+
   it('não apresenta violações básicas de acessibilidade', async () => {
     const { container } = render(<JobsPage />);
     await screen.findByRole('grid');

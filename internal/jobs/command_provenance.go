@@ -13,6 +13,9 @@ import (
 func (e *JobExecutor) commandRunProvenance(job *Job, trigger *TriggerContext, run *RunLog) (map[string]any, error) {
 	p := e.runProvenance(job, trigger, run)
 	result := map[string]any{"_source": p.Source, "_source_job_id": p.SourceJobID, "_chain_id": p.ChainID, "_chain_history": append([]string{}, p.ChainHistory...)}
+	if job.PluginInstallationID != "" {
+		result["plugin_installation_id"] = job.PluginInstallationID
+	}
 	if trigger == nil || trigger.Provenance == nil {
 		return result, nil
 	}

@@ -172,6 +172,23 @@ describe('jobStore.toggleJob', () => {
   });
 });
 
+it('mantém a seleção mais recente quando dois detalhes chegam fora de ordem', async () => {
+  let deliverOld: (job: jobs.Job) => void = () => { throw new Error('consulta antiga ausente'); };
+  let deliverNew: (job: jobs.Job) => void = () => { throw new Error('consulta nova ausente'); };
+  mockGetJob.mockReturnValueOnce(new Promise<jobs.Job>(resolve => { deliverOld = resolve; }));
+  mockGetJob.mockReturnValueOnce(new Promise<jobs.Job>(resolve => { deliverNew = resolve; }));
+  const older = useJobStore.getState().fetchJobDetail('old');
+  const newer = useJobStore.getState().fetchJobDetail('new');
+  const oldJob = new jobs.Job({id:'old'});
+  const newJob = new jobs.Job({id:'new'});
+  deliverNew(newJob);
+  deliverOld(oldJob);
+  expect(await newer).toBe(newJob);
+  expect(await older).toBe(oldJob);
+  expect(useJobStore.getState().selectedJobId).toBe('new');
+  expect(useJobStore.getState().jobDetail).toBe(newJob);
+});
+
 describe('jobStore.testTool', () => {
   it('envia metadata resolvida para dry-run de tool MCP bridge', async () => {
     mockGetToolCatalog.mockResolvedValue([
