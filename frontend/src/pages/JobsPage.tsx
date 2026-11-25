@@ -4,6 +4,8 @@ import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { isJobProfileAuthorizationError, useJobStore } from '../store/jobStore';
 import { useResourceEditRequest } from '../hooks/useResourceEditRequest';
+import { CopyJob } from '@wailsjs/go/wailsapi/Plugins';
+import { Button } from '../components/ui/Button';
 import { Modal } from '../components/ui/Modal';
 import { Toolbar } from '../components/ui/Toolbar';
 import { DataGrid, DataGridColumn } from '../components/ui/DataGrid';
@@ -19,7 +21,13 @@ import { restoreDefaultFocus } from '../hooks/useDefaultFocus';
 import { useUIStore } from '../store/uiStore';
 import { jobs } from '@wailsjs/go/models';
 import { ReplayRun, RunJob as WailsRunJob } from '@wailsjs/go/wailsapi/Jobs';
+import { useAuthStore } from '../store/authStore';
 import './JobsPage.css';
+
+const copyRequests = new Map<string, string>();
+useAuthStore.subscribe((state, previous) => {
+  if (state.user?.sessionId !== previous.user?.sessionId) copyRequests.clear();
+});
 
 function formatTriggers(triggers: jobs.Trigger[] | undefined, t: (key: string) => string): string {
   if (!triggers || triggers.length === 0) return '—';
@@ -94,6 +102,8 @@ export default function JobsPage() {
   const [builderOpen, setBuilderOpen] = useState(false);
   const [editingJob, setEditingJob] = useState<jobs.Job | null>(null);
 
+  const copying = useRef(false);
+  const [copyBusy, setCopyBusy] = useState(false);
   const toolbarRef = useRef<HTMLDivElement>(null);
   const gridRef = useRef<HTMLDivElement>(null);
   const mountedRef = useRef(true);
@@ -266,6 +276,37 @@ export default function JobsPage() {
       if (mountedRef.current && request === editRequest.current) addToast(t('common.error'), 'error');
     }
   }, [fetchJobDetail, addToast, t]);
+
+  const copySavedJob = async () => {
+    const job = editingJob;
+    if (!job?.plugin_installation_id || copying.current) return;
+    copying.current = true;
+    setCopyBusy(true);
+    const generation = editRequest.current;
+    const session = useAuthStore.getState().user?.sessionId;
+    const current = () => mountedRef.current && generation === editRequest.current && session === useAuthStore.getState().user?.sessionId;
+    try {
+      const accepted = await confirm({
+        title: t('plugins.copyJob'),
+        message: t('plugins.copyJobConfirm', { name: job.name }),
+        confirmText: t('plugins.copyJob'),
+        cancelText: t('common.cancel'),
+      });
+      if (!accepted || !current()) return;
+      const key = JSON.stringify([session, job.plugin_installation_id, job.id]);
+      const request = copyRequests.get(key) ?? crypto.randomUUID();
+      copyRequests.set(key, request);
+      const name = t('plugins.copyJobName', { name: job.name });
+      await CopyJob(job.plugin_installation_id, job.id, request, name);
+      if (copyRequests.get(key) === request) copyRequests.delete(key);
+      if (current()) announce(t('plugins.copyJobDone'));
+    } catch {
+      if (current()) addToast(t('plugins.copyJobFailed'), 'error');
+    } finally {
+      copying.current = false;
+      if (mountedRef.current) setCopyBusy(false);
+    }
+  };
 
   useResourceEditRequest('jobs', {
     onEdit: id => void handleEditJob(id),
@@ -549,9 +590,12 @@ export default function JobsPage() {
         returnFocusOnClose={false}
       >
         {editingJob?.plugin_installation_id && (
-          <Link to="/plugins" onClick={() => useNavigationStore.getState().requestResourceEdit('plugins', editingJob.plugin_installation_id!)}>
-            {t('plugins.openJobOrigin', { id: editingJob.plugin_installation_id })}
-          </Link>
+          <>
+            <Link to="/plugins" onClick={() => useNavigationStore.getState().requestResourceEdit('plugins', editingJob.plugin_installation_id!)}>
+              {t('plugins.openJobOrigin', { id: editingJob.plugin_installation_id })}
+            </Link>
+            <Button aria-busy={copyBusy} onClick={() => void copySavedJob()}>{t('plugins.copyJob')}</Button>
+          </>
         )}
         <JobBuilder
           editJob={editingJob}

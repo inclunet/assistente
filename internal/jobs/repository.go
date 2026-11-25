@@ -510,7 +510,7 @@ func (r *DBRepository) CreateJob(ctx context.Context, job *Job) error {
 	}
 	return r.retry(ctx, "create_job", func() error {
 		return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-			return r.createJobTx(ctx, tx, userID, slug, job)
+			return r.createJobTx(ctx, tx, userID, slug, "", job)
 		})
 	})
 }
@@ -530,7 +530,7 @@ func CreateDisabledPluginJobTx(ctx context.Context, tx *gorm.DB, job *Job, insta
 		return err
 	}
 	repo := NewDBRepository(tx)
-	if err := repo.createJobTx(ctx, tx, owner, normalizeSlug(job.ID), job); err != nil {
+	if err := repo.createJobTx(ctx, tx, owner, normalizeSlug(job.ID), "", job); err != nil {
 		return err
 	}
 	required, err := json.Marshal(job.RequiredInputs)
@@ -540,7 +540,65 @@ func CreateDisabledPluginJobTx(ctx context.Context, tx *gorm.DB, job *Job, insta
 	return tx.Model(&database.Job{}).Where("id=? AND user_id=?", job.DatabaseID, owner).Updates(map[string]any{"plugin_installation_id": installationID, "plugin_digest": digest, "plugin_component_key": key, "plugin_required_inputs": string(required), "plugin_refresh_pending": true}).Error
 }
 
-func (r *DBRepository) createJobTx(ctx context.Context, tx *gorm.DB, userID, slug string, job *Job) error {
+// CopyManagedJobTx copies the saved definition in the owner's transaction. A retry
+// of the same request returns the same copy without resetting later user edits.
+func CopyManagedJobTx(ctx context.Context, tx *gorm.DB, installationID, sourceSlug, request, name string) (string, error) {
+	owner, err := database.RequireUserID(ctx)
+	if err != nil {
+		return "", err
+	}
+	requestID, err := uuid.Parse(request)
+	if err != nil || installationID == "" || strings.TrimSpace(name) == "" {
+		return "", ErrInvalidJobDefinition
+	}
+	receipt := database.PluginJobCopyReceipt{UserID: owner, InstallationID: installationID, SourceSlug: normalizeSlug(sourceSlug), RequestID: requestID.String()}
+	if receipt.SourceSlug == "" {
+		return "", ErrInvalidJobDefinition
+	}
+	err = tx.Where(&receipt).Take(&receipt).Error
+	if err == nil {
+		return receipt.CopySlug, nil
+	}
+	if !errors.Is(err, gorm.ErrRecordNotFound) {
+		return "", err
+	}
+	repo := NewDBRepository(tx)
+	job, err := repo.GetJob(ctx, sourceSlug)
+	if err != nil {
+		return "", err
+	}
+	if job.PluginInstallationID != installationID {
+		return "", ErrJobNotFound
+	}
+	fresh, err := uuid.NewV7()
+	if err != nil {
+		return "", err
+	}
+	id := fresh.String()
+	slug := "local-" + id
+	job.ID, job.Name, job.Enabled = slug, strings.TrimSpace(name), false
+	job.PluginInstallationID, job.PluginDigest, job.DatabaseID = "", "", ""
+	job.Metadata = Metadata{CreatedBy: "ui"}
+	if err := Validate(job); err != nil {
+		return "", err
+	}
+	if err := repo.createJobTx(ctx, tx, owner, slug, id, job); err != nil {
+		return "", err
+	}
+	required, err := json.Marshal(job.RequiredInputs)
+	if err != nil {
+		return "", err
+	}
+	receipt.CopySlug = slug
+	if err := tx.Create(&receipt).Error; err != nil {
+		return "", err
+	}
+	return slug, tx.Model(&database.Job{}).Where("id=? AND user_id=?", id, owner).Updates(map[string]any{
+		"plugin_refresh_pending": true, "plugin_required_inputs": string(required),
+	}).Error
+}
+
+func (r *DBRepository) createJobTx(ctx context.Context, tx *gorm.DB, userID, slug, rowID string, job *Job) error {
 	pipelineID, err := r.pipelineIDForSlugTx(ctx, tx, userID, job.Pipeline)
 	if err != nil {
 		return err
@@ -553,6 +611,7 @@ func (r *DBRepository) createJobTx(ctx context.Context, tx *gorm.DB, userID, slu
 	if err != nil {
 		return err
 	}
+	row.ID = rowID
 	allowed, err := r.enabledJobGrantValidTx(tx, userID, "", job)
 	if err != nil {
 		return err
@@ -638,14 +697,14 @@ func (r *DBRepository) SaveJob(ctx context.Context, job *Job) error {
 				row.PluginInstallationID = existing.PluginInstallationID
 				row.PluginDigest = existing.PluginDigest
 				row.PluginRefreshPending = existing.PluginRefreshPending
-				row.PluginRequiredInputs = existing.PluginRequiredInputs
+				if existing.PluginInstallationID != "" || row.ToolName == existing.ToolName {
+					row.PluginRequiredInputs = existing.PluginRequiredInputs
+				}
 				row.PluginComponentKey = existing.PluginComponentKey
-				if row.Enabled && existing.PluginInstallationID != "" {
+				if row.Enabled && row.PluginRequiredInputs != "" {
 					var required []string
-					if existing.PluginRequiredInputs != "" {
-						if err := json.Unmarshal([]byte(existing.PluginRequiredInputs), &required); err != nil {
-							return err
-						}
+					if err := json.Unmarshal([]byte(row.PluginRequiredInputs), &required); err != nil {
+						return err
 					}
 					for _, field := range required {
 						value, ok := job.Inputs[field]
@@ -654,6 +713,8 @@ func (r *DBRepository) SaveJob(ctx context.Context, job *Job) error {
 							return fmt.Errorf("PLUGIN_JOB_INPUT_REQUIRED: %s", field)
 						}
 					}
+				}
+				if row.Enabled && existing.PluginInstallationID != "" {
 					if err := checkPluginJobRevision(ctx, tx, userID, &existing); err != nil {
 						return err
 					}

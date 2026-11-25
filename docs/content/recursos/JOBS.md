@@ -7,6 +7,14 @@ weight: 5
 
 Jobs são automações do tipo "uma ferramenta por disparo": cada job chama uma tool do catálogo quando um gatilho acontece, com entradas fixas ou por template.
 
+## Preservar um job de plugin
+
+Abra o job e escolha **Criar cópia independente**. A cópia usa a última versão
+salva na sua conta. Para incluir alterações que você ainda está editando,
+salve o original primeiro. A cópia começa desativada. Revise suas entradas e
+ative-a quando quiser. As autorizações de perfil e o histórico continuam
+associados ao original. Você também pode fazer a cópia depois de remover o plugin.
+
 ## Definições de saída e atalhos
 
 A definição completa usada para identificar o job aceita até **1 MiB** de JSON

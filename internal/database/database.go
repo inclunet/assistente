@@ -234,6 +234,7 @@ func InitPath(path string) error {
 		&PluginProfileActivation{},
 		&PluginMCPBinding{},
 		&PluginListReceipt{},
+		&PluginJobCopyReceipt{},
 		&AuthorizationRule{},
 		&AuthorizationImport{},
 		&AuthorizationPolicy{},

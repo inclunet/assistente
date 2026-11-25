@@ -500,7 +500,7 @@ function InstalledPlugins({ session }: { session: string }) {
       </li>)}</ul>}
     </Modal>}
     {preview && <DecisionDialog isOpen title={t('plugins.preview', { name: preview.name })}
-      description={t(previewDescription)} allowClose={!busy} size="lg"
+      description={preview.previousDigest && !sameRevision ? t(previewDescription) + ' ' + t('plugins.preserveJobNotice') : t(previewDescription)} allowClose={!busy} size="lg"
       actions={[
         { id: 'install', label: t(preview.previousDigest ? 'plugins.update' : 'plugins.install'), primary: true, polarity: 'affirmative', disabled: busy || sameRevision || editedServers.length > 0 },
         { id: 'cancel', label: t('common.cancel'), disabled: busy },
