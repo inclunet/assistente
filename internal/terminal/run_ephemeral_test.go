@@ -662,6 +662,7 @@ func TestPowerShellReturnInPersistentSession(t *testing.T) {
 		code            int
 	}{
 		{"$Host.UI.RawUI.WindowSize.Width", strconv.Itoa(defaultCols), 0},
+		{"$Host.UI.RawUI.CursorPosition.X", "0", 0},
 		{"cmd.exe /c --% echo sample", "sample", 0},
 		{"cmd /c exit 7; return", "", 7},
 		{"Write-Output $LASTEXITCODE", "7", 0},

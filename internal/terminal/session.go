@@ -1072,8 +1072,36 @@ func (s *Session) canceledCommandResult(ctx context.Context, stream *markerStrea
 		if stream.marker.probeInterrupt != nil {
 			frame = "consulta PowerShell"
 		}
-		return result.Output, -1, fmt.Errorf("fim do comando não observado (moldura=%s, antes da drenagem: bytes=%d início=%t, após drenagem: bytes=%d início=%t, marca inicial presente=%t, marca final presente=%t, rodapé na drenagem=%t): %w",
-			frame, beforeDrainBytes, beforeDrainStart, len(stream.text.data), stream.started, bytes.Contains(stream.text.data, []byte(stream.marker.startTag)), bytes.Contains(stream.text.data, []byte(stream.marker.endTag)), result.Found, cause)
+		// Instrumentação temporária da #1134: somente classes de separadores,
+		// sem texto do comando, do perfil ou da saída.
+		layout := ""
+		if _, rest, ok := bytes.Cut(stream.text.data, []byte(stream.marker.startTag)); ok {
+			for len(layout) < 160 && len(rest) > 0 {
+				if bytes.HasPrefix(rest, []byte(stream.marker.endTag)) {
+					layout += "[fim]"
+					break
+				}
+				switch rest[0] {
+				case ' ':
+					layout += "s"
+				case '\r':
+					layout += "r"
+				case '\n':
+					layout += "n"
+				case '\t':
+					layout += "t"
+				case '_':
+					layout += "_"
+				case '!':
+					layout += "!"
+				default:
+					layout += "x"
+				}
+				rest = rest[1:]
+			}
+		}
+		return result.Output, -1, fmt.Errorf("fim do comando não observado (moldura=%s, antes da drenagem: bytes=%d início=%t, após drenagem: bytes=%d início=%t, marca inicial presente=%t, marca final presente=%t, rodapé na drenagem=%t, classes após início=%s): %w",
+			frame, beforeDrainBytes, beforeDrainStart, len(stream.text.data), stream.started, bytes.Contains(stream.text.data, []byte(stream.marker.startTag)), bytes.Contains(stream.text.data, []byte(stream.marker.endTag)), result.Found, layout, cause)
 	}
 	return result.Output, -1, fmt.Errorf("fim do comando não observado: %w", cause)
 }
