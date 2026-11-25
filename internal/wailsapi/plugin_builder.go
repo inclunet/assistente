@@ -104,10 +104,18 @@ func (api *Plugins) SaveBuilder(request plugins.BuilderRequest, expectedDigest s
 	return saved, err
 }
 
-func (api *Plugins) BuilderSkillNames() (*plugins.BuilderSkillCatalog, error) {
-	var catalog plugins.BuilderSkillCatalog
+func (api *Plugins) BuilderSkillNames() (*plugins.BuilderResourceCatalog, error) {
+	return api.builderCatalog((*plugins.Inventory).BuilderSkillNames)
+}
+
+func (api *Plugins) BuilderProfileNames() (*plugins.BuilderResourceCatalog, error) {
+	return api.builderCatalog((*plugins.Inventory).BuilderProfileNames)
+}
+
+func (api *Plugins) builderCatalog(list func(*plugins.Inventory) plugins.BuilderResourceCatalog) (*plugins.BuilderResourceCatalog, error) {
+	var catalog plugins.BuilderResourceCatalog
 	err := api.withRepositorySession(func(ctx context.Context, i *plugins.Inventory, _ func() (string, error), admit commandsecurity.Admission) error {
-		catalog = i.BuilderSkillNames()
+		catalog = list(i)
 		return admit.Check()
 	})
 	if err != nil {
