@@ -107,7 +107,7 @@ func (s *Service) CreateTaskList(ctx context.Context, title, description string,
 
 func (s *Service) NotifyTemplateListCreated(ctx context.Context, list *database.TaskList, admit commandsecurity.Admission) {
 	// UI events are global in Wails. Deliver only to the same authenticated session.
-	_ = admit(func() error {
+	_ = admit(nil, func() error {
 		if s.emitter != nil {
 			s.emitter.Emit("taskList:created", list)
 		}

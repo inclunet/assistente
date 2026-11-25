@@ -33,17 +33,18 @@ var indices = []struct {
 var identifier = regexp.MustCompile("^[a-z0-9][a-z0-9._-]{0,127}$")
 
 type Entry struct {
-	Category       string `json:"category,omitempty"`
-	Authentication string `json:"authentication,omitempty"`
-	Installation   string `json:"installation,omitempty"`
-	Name           string `json:"name"`
-	Description    string `json:"description,omitempty"`
-	Version        string `json:"version,omitempty"`
-	Author         string `json:"author,omitempty"`
-	License        string `json:"license,omitempty"`
-	Path           string `json:"path,omitempty"`
-	SourceKind     string `json:"sourceKind"`
-	Diagnostic     string `json:"diagnostic,omitempty"`
+	Products       []string `json:"products,omitempty"`
+	Category       string   `json:"category,omitempty"`
+	Authentication string   `json:"authentication,omitempty"`
+	Installation   string   `json:"installation,omitempty"`
+	Name           string   `json:"name"`
+	Description    string   `json:"description,omitempty"`
+	Version        string   `json:"version,omitempty"`
+	Author         string   `json:"author,omitempty"`
+	License        string   `json:"license,omitempty"`
+	Path           string   `json:"path,omitempty"`
+	SourceKind     string   `json:"sourceKind"`
+	Diagnostic     string   `json:"diagnostic,omitempty"`
 }
 type Index struct {
 	Format  Format  `json:"format"`
@@ -59,6 +60,16 @@ func ReadLocal(directory string) ([]Index, error) {
 	}
 	defer func() { _ = root.Close() }()
 	return ReadRoot(root)
+}
+
+// ArchivePrefix prefers a catalog in the root to a common wrapper directory.
+func ArchivePrefix(archive *pluginpackage.Archive) string {
+	for _, index := range indices {
+		if archive.Has(index.file) {
+			return ""
+		}
+	}
+	return archive.Wrapper()
 }
 
 func ReadRoot(root *os.Root) ([]Index, error) {
@@ -110,6 +121,7 @@ func Decode(format Format, raw []byte) (Index, error) {
 			License     string
 			Category    string
 			Policy      struct {
+				Products       []string
 				Installation   string
 				Authentication string
 			}
@@ -144,6 +156,7 @@ func Decode(format Format, raw []byte) (Index, error) {
 		if format == Codex {
 			entry.Authentication = src.Policy.Authentication
 			entry.Installation = src.Policy.Installation
+			entry.Products = src.Policy.Products
 		}
 		var dir string
 		if err := json.Unmarshal(src.Source, &dir); err != nil {
@@ -164,17 +177,32 @@ func Decode(format Format, raw []byte) (Index, error) {
 				entry.Diagnostic = "source"
 			}
 		}
+		if format == Claude && dir == "." {
+			entry.Diagnostic = "source"
+		}
 		if entry.Diagnostic == "" {
 			cleaned, ok := portablePath(dir)
 			if !ok || format == Codex && !strings.HasPrefix(dir, "./") {
 				return Index{}, errors.New("invalid plugin path")
 			}
-			entry.Path = path.Join(prefix, cleaned)
+			switch {
+			case format == Claude && strings.HasPrefix(dir, "./"):
+				entry.Path = cleaned
+			case format == Claude && (prefix == "" || strings.Contains(dir, "/")):
+				return Index{}, errors.New("invalid Claude plugin source")
+			case format == Codex:
+				entry.Path = cleaned
+			default:
+				entry.Path = path.Join(prefix, cleaned)
+			}
 		}
-		if format == Codex && ((src.Policy.Installation != "AVAILABLE" && src.Policy.Installation != "INSTALLED_BY_DEFAULT") || src.Policy.Authentication != "ON_INSTALL" || strings.TrimSpace(src.Category) == "") {
+		if format == Codex && ((src.Policy.Installation != "AVAILABLE" && src.Policy.Installation != "INSTALLED_BY_DEFAULT") || (src.Policy.Authentication != "ON_INSTALL" && src.Policy.Authentication != "ON_USE") || src.Policy.Products != nil || strings.TrimSpace(src.Category) == "") {
 			entry.Diagnostic = "policy"
 		}
 		for _, field := range []string{"skills", "commands", "agents", "rules", "hooks", "mcpServers", "variables", "userConfig", "dependencies", "strict", "lspServers", "outputStyles", "channels", "monitors", "themes", "workflows"} {
+			if field == "strict" && format == Claude && (string(declared.Plugins[pos][field]) == "true" || string(declared.Plugins[pos][field]) == "false") {
+				continue
+			}
 			if _, ok := declared.Plugins[pos][field]; ok && entry.Diagnostic == "" {
 				entry.Diagnostic = "configuration"
 				break

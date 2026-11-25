@@ -26,7 +26,7 @@ func TestBuilderExportsOnlySelectedDefinitionsToAnotherAccount(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = conn.Close() })
-	if err := db.AutoMigrate(&database.PluginInstallation{}, &database.PluginRevision{}, &database.PluginSkillActivation{}, &database.PluginMCPBinding{}, &database.MCPServer{}, &database.TaskList{}, &database.TaskListWorkflow{}, &database.Task{}, &database.TaskNote{}); err != nil {
+	if err := db.AutoMigrate(&database.PluginInstallation{}, &database.PluginRevision{}, &database.PluginSkillActivation{}, &database.PluginMCPBinding{}, &database.PluginListReceipt{}, &database.MCPServer{}, &database.TaskList{}, &database.TaskListWorkflow{}, &database.Task{}, &database.TaskNote{}); err != nil {
 		t.Fatal(err)
 	}
 	list := database.TaskList{UserID: "author", Title: "Release"}
@@ -48,19 +48,19 @@ func TestBuilderExportsOnlySelectedDefinitionsToAnotherAccount(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	store := NewInventory(db).WithSkillDefinition(func(key string) ([]byte, error) {
-		if key != "notes" {
-			return nil, os.ErrNotExist
-		}
-		return []byte(skill), nil
-	}, nil)
+	store := NewInventory(db).WithSkillDefinitions(func() (skills.PortableDefinitions, error) {
+		return skills.PortableDefinitions{"notes": func() ([]byte, error) { return []byte(skill), nil }}, os.ErrPermission
+	})
+
 	ctx := database.WithUserID(context.Background(), "author")
 	reader := database.WithUserID(context.Background(), "reader")
 	req := BuilderRequest{Name: "release-kit", Version: "1", TaskLists: []BuilderTaskList{{ID: list.ID, Key: "release"}}}
-	restricted := NewInventory(db).WithSkillDefinition(func(string) ([]byte, error) {
-		return []byte("---\nname: notes\nversion: 1.0.0\ndescription: Summarize\nallowed-tools: Read\n---\nRead"), nil
-	}, nil)
-	if _, _, err := restricted.BuildPackage(ctx, BuilderRequest{Name: "notes", Skills: []string{"notes"}}); err == nil {
+	restricted := NewInventory(db).WithSkillDefinitions(func() (skills.PortableDefinitions, error) {
+		return skills.PortableDefinitions{"notes": func() ([]byte, error) {
+			return []byte("---\nname: notes\nversion: 1.0.0\ndescription: Summarize\nallowed-tools: Read\n---\nRead"), nil
+		}}, nil
+	})
+	if _, _, err := restricted.BuildPackage(ctx, BuilderRequest{Name: "notes", Skills: []string{"notes"}}); err == nil || !strings.Contains(err.Error(), "PLUGIN_BUILDER_SKILL_UNAVAILABLE:notes") {
 		t.Fatal("lost tool restriction")
 	}
 	for _, name := range []string{"con", "NUL.txt", "LPT2"} {
@@ -108,8 +108,8 @@ func TestBuilderExportsOnlySelectedDefinitionsToAnotherAccount(t *testing.T) {
 		t.Fatal(err)
 	}
 	inspect := func() (*pluginpackage.LocalSnapshot, error) { return archive.Package("release-kit", ".") }
-	admit := commandsecurity.Admission(func(fn func() error) error { return fn() })
-	installed, err := store.InstallSource(reader, "release-kit", snap.Digest, "", admit, inspect)
+	admit := commandsecurity.Admission(func(_ *gorm.DB, fn func() error) error { return fn() })
+	installed, err := store.InstallSource(reader, "release-kit", snap.Digest, "", nil, admit, inspect)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -117,7 +117,7 @@ func TestBuilderExportsOnlySelectedDefinitionsToAnotherAccount(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := store.SetSkillActive(reader, installed.ID, installed.Digest, "skills/notes", true); err != nil {
+	if err := store.SetSkillActive(reader, installed.ID, installed.Digest, "skills/notes", true, admit); err != nil {
 		t.Fatal(err)
 	}
 	active, err := store.ActiveSkills(reader)
@@ -127,5 +127,15 @@ func TestBuilderExportsOnlySelectedDefinitionsToAnotherAccount(t *testing.T) {
 	var received database.Task
 	if err := db.Where("task_list_id=?", id).Take(&received).Error; err != nil || received.StatusID != 1 || received.Title != task.Title {
 		t.Fatal(received, err)
+	}
+}
+
+func TestBuilderOffersPortableSkillNames(t *testing.T) {
+	inventory := NewInventory(nil).WithSkillDefinitions(func() (skills.PortableDefinitions, error) {
+		return skills.PortableDefinitions{"notes": nil, "my_skill": nil, "con": nil}, os.ErrPermission
+	})
+	catalog := inventory.BuilderSkillNames()
+	if !catalog.Partial || len(catalog.Names) != 1 || catalog.Names[0] != "notes" {
+		t.Fatal(catalog)
 	}
 }

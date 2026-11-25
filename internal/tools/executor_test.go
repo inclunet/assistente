@@ -4,8 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 	"unicode/utf8"
 )
@@ -631,5 +634,189 @@ func TestExecuteNormalizesFailureAsError(t *testing.T) {
 	})
 	if !res.Result.IsError || res.ErrorCode != "invalid_configuration" || !res.RetryabilityKnown {
 		t.Fatalf("Failure deveria implicar IsError: %#v", res)
+	}
+}
+
+func TestBoundedMachineFailurePreservesAuthorization(t *testing.T) {
+	tool := &mockTool{name: "authorize", exec: func(context.Context, json.RawMessage) (ToolResult, error) {
+		return ToolResult{Failure: &ToolFailure{Code: "shell_command_refused", Kind: ErrorKindAuthorization}, Content: strings.Repeat("motivo ", 50)}, nil
+	}}
+	cfg := DefaultExecutorConfig()
+	cfg.MaxResultSize = 40
+	cfg.RequireCompleteResult = true
+	got := NewExecutor(newRegistry(tool), cfg).ExecuteOne(t.Context(), ToolCall{ID: "bounded", Function: FunctionCall{Name: "authorize", Arguments: "{}"}})
+	if !got.Result.IsError || got.ErrorCode != "shell_command_refused" || got.ErrorKind != ErrorKindAuthorization || got.Retryable || len(ContentForModel(got.Result)) > cfg.MaxResultSize {
+		t.Fatalf("resultado=%+v", got)
+	}
+}
+
+func TestExecutorTimeoutPreservesPublishedRefusal(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		release := make(chan struct{})
+		defer close(release)
+		tool := &mockTool{name: "ask", exec: func(ctx context.Context, _ json.RawMessage) (ToolResult, error) {
+			resolve, _ := PendingConfirmation(ctx, "unavailable", "refused", "negado")
+			denied := ToolResult{IsError: true, Content: strings.Repeat("negado ", 30), Failure: &ToolFailure{Code: "refused", Kind: ErrorKindAuthorization}}
+			resolve(&denied)
+			<-release // simula pós-processamento ainda pendente após a decisão
+			return denied, nil
+		}}
+		cfg := DefaultExecutorConfig()
+		cfg.ToolTimeout = 200 * time.Millisecond
+		cfg.MaxResultSize = 40
+		got := NewExecutor(newRegistry(tool), cfg).ExecuteOne(t.Context(), ToolCall{ID: "race", Function: FunctionCall{Name: "ask", Arguments: "{}"}})
+		if got.ErrorCode != "refused" || got.Retryable || len(ContentForModel(got.Result)) > 40 {
+			t.Fatalf("resultado=%+v", got)
+		}
+	})
+}
+
+func TestExecutorParentCancelDuringConfirmation(t *testing.T) {
+	for _, published := range []bool{false, true} {
+		t.Run(map[bool]string{false: "aguardando", true: "recusado"}[published], func(t *testing.T) {
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			release := make(chan struct{})
+			defer close(release)
+			tool := &mockTool{name: "ask", exec: func(ctx context.Context, _ json.RawMessage) (ToolResult, error) {
+				resolve, _ := PendingConfirmation(ctx, "unavailable", "refused", "negado")
+				denied := ToolResult{IsError: true, Content: "negado", Failure: &ToolFailure{Code: "refused", Kind: ErrorKindAuthorization}}
+				if published {
+					resolve(&denied)
+				}
+				cancel()
+				<-release
+				return denied, nil
+			}}
+			got := NewExecutor(newRegistry(tool), DefaultExecutorConfig()).ExecuteOne(ctx, ToolCall{ID: "cancel", Function: FunctionCall{Name: "ask", Arguments: "{}"}})
+			if published {
+				if got.ErrorCode != "refused" || got.ErrorKind != ErrorKindAuthorization || got.Retryable {
+					t.Fatalf("recusa=%+v", got)
+				}
+			} else if got.ErrorKind != ErrorKindCancelled || got.Retryable {
+				t.Fatalf("cancelamento=%+v", got)
+			}
+		})
+	}
+}
+
+func TestExecutorConfirmationOnInterruption(t *testing.T) {
+	for _, tc := range []struct {
+		name                     string
+		parentCancelled, refused bool
+		wantCode                 string
+		wantKind                 ErrorKind
+		wantErr                  error
+	}{
+		{"cancelamento", true, false, "", ErrorKindCancelled, context.Canceled},
+		{"prazo", false, false, "unavailable", ErrorKindAuthorization, context.DeadlineExceeded},
+		{"recusa antes do cancelamento", true, true, "refused", ErrorKindAuthorization, nil},
+		{"recusa antes do prazo", false, true, "refused", ErrorKindAuthorization, nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			parent, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			if tc.parentCancelled {
+				cancel()
+			}
+			toolCtx, stop := context.WithDeadline(parent, time.Time{})
+			defer stop()
+			confirmation := &confirmationState{result: ToolResult{IsError: true, Content: "aguardando", Failure: &ToolFailure{Code: "unavailable", Kind: ErrorKindAuthorization}}}
+			if tc.refused {
+				confirmation.status = confirmationRefused
+				confirmation.result.Content = "negado"
+				confirmation.result.Failure.Code = "refused"
+			}
+			e := NewExecutor(NewRegistry(), DefaultExecutorConfig())
+			call := ToolCall{ID: "confirm", Function: FunctionCall{Name: "ask"}}
+			for _, callback := range []*ToolExecutionResult{
+				nil,                    // toolCtx.Done selecionado antes do retorno da ferramenta
+				{Error: toolCtx.Err()}, // callback devolveu o erro do contexto
+				{ErrorCode: "unavailable", Result: ToolResult{IsError: true}}, // adaptador converteu o erro em falha
+			} {
+				got := e.finishExecution(parent, toolCtx, call, time.Now(), callback, confirmation, &securitySignalCollector{})
+				if got.ErrorCode != tc.wantCode || got.ErrorKind != tc.wantKind || !errors.Is(got.Error, tc.wantErr) || got.Retryable || !got.RetryabilityKnown || !got.Result.IsError {
+					t.Fatalf("callback=%+v resultado=%+v", callback, got)
+				}
+			}
+		})
+	}
+}
+
+func TestPendingConfirmationRequiresClassifiedDecision(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		decision *ToolResult
+		wantCode string
+		wantKind ErrorKind
+	}{
+		{"sem Failure", &ToolResult{IsError: true, Content: "não classificado"}, "unavailable", ErrorKindAuthorization},
+		{"dependência indisponível", &ToolResult{IsError: true, Failure: &ToolFailure{Code: "missing", Kind: ErrorKindUnavailable}}, "unavailable", ErrorKindAuthorization},
+		{"mesmo código de outra categoria", &ToolResult{IsError: true, Failure: &ToolFailure{Code: "refused", Kind: ErrorKindUnavailable}}, "unavailable", ErrorKindAuthorization},
+		{"aprovação", nil, "", ErrorKindTimeout},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			parent := t.Context()
+			ctx, stop := context.WithDeadline(parent, time.Time{})
+			defer stop()
+			var state atomic.Pointer[confirmationState]
+			resolve, _ := PendingConfirmation(context.WithValue(ctx, pendingConfirmationKey{}, &state), "unavailable", "refused", "negado")
+			resolve(tc.decision)
+			e := NewExecutor(NewRegistry(), DefaultExecutorConfig())
+			call := ToolCall{ID: "decision", Function: FunctionCall{Name: "ask"}}
+			for _, callback := range []*ToolExecutionResult{
+				nil,
+				{Error: ctx.Err(), ErrorKind: ErrorKindTimeout, Result: ToolResult{IsError: true}, Retryable: true, RetryabilityKnown: true},
+			} {
+				got := e.finishExecution(parent, ctx, call, time.Now(), callback, state.Load(), &securitySignalCollector{})
+				if got.ErrorCode != tc.wantCode || got.ErrorKind != tc.wantKind || !errors.Is(got.Error, context.DeadlineExceeded) || got.Retryable || !got.RetryabilityKnown {
+					t.Fatalf("callback=%+v resultado=%+v", callback, got)
+				}
+			}
+		})
+	}
+}
+
+func TestExecutorInterruptionAfterApprovalInEitherSelectOrder(t *testing.T) {
+	for _, parentCancelled := range []bool{false, true} {
+		t.Run(fmt.Sprintf("cancelamento=%t", parentCancelled), func(t *testing.T) {
+			parent, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			if parentCancelled {
+				cancel()
+			}
+			toolCtx, stop := context.WithDeadline(parent, time.Time{})
+			defer stop()
+			e := NewExecutor(NewRegistry(), DefaultExecutorConfig())
+			call := ToolCall{ID: "approval", Function: FunctionCall{Name: "ask"}}
+			for _, state := range []confirmationStatus{confirmationApproved, confirmationApprovedByPolicy} {
+				results := []*ToolExecutionResult{nil, {Result: ToolResult{IsError: true}, ErrorKind: ErrorKindUnknown}}
+				if state == confirmationApprovedByPolicy {
+					results = append(results, &ToolExecutionResult{Result: ToolResult{IsError: true, Failure: &ToolFailure{Kind: ErrorKindUnavailable, Retryable: true, NotDispatched: true}}})
+				}
+				for _, result := range results {
+					got := e.finishExecution(parent, toolCtx, call, time.Now(), result, &confirmationState{status: state}, &securitySignalCollector{})
+					expectedErr, expectedKind := context.DeadlineExceeded, ErrorKindTimeout
+					if parentCancelled {
+						expectedErr, expectedKind = context.Canceled, ErrorKindCancelled
+					}
+					if !errors.Is(got.Error, expectedErr) || got.ErrorKind != expectedKind || got.ErrorCode != "" || got.Retryable || !got.RetryabilityKnown {
+						t.Fatalf("resultado=%+v", got)
+					}
+				}
+			}
+		})
+	}
+}
+
+func TestAprovacaoPorPoliticaExigeAtestadoDeNaoDespachoParaRetry(t *testing.T) {
+	e := NewExecutor(NewRegistry(), DefaultExecutorConfig())
+	call := ToolCall{ID: "shell", Function: FunctionCall{Name: "run_command"}}
+	for _, attested := range []bool{false, true} {
+		result := &ToolExecutionResult{Result: ToolResult{IsError: true, Failure: &ToolFailure{Code: "failure", Kind: ErrorKindUnavailable, Retryable: true, NotDispatched: attested}}, Retryable: true}
+		got := e.finishExecution(t.Context(), t.Context(), call, time.Now(), result, &confirmationState{status: confirmationApprovedByPolicy}, &securitySignalCollector{})
+		if got.Retryable != attested || !got.RetryabilityKnown {
+			t.Fatalf("atestado=%t resultado=%+v", attested, got)
+		}
 	}
 }

@@ -41,6 +41,8 @@ type Flow[T any] struct {
 	Ask               func(context.Context) (Consent[T], error)
 	Remember          func(context.Context, Consent[T]) error
 	PersistenceFailed func(context.Context, Request, error)
+	// Resolved entrega o resultado ao adaptador antes do log síncrono da decisão.
+	Resolved func(Decision, error)
 }
 
 // Resolve concentra a sequência avaliação → consentimento → revalidação →
@@ -48,6 +50,9 @@ type Flow[T any] struct {
 func Resolve[T any](ctx context.Context, request Request, flow Flow[T]) (out Decision, resolveErr error) {
 	asked := false
 	defer func() {
+		if flow.Resolved != nil {
+			flow.Resolved(out, resolveErr)
+		}
 		logger := logging.Logger(ctx, "authorization")
 		if resolveErr != nil {
 			logger.WarnContext(ctx, "Falha na decisão de autorização", "domain", request.Domain)
@@ -90,6 +95,11 @@ func Resolve[T any](ctx context.Context, request Request, flow Flow[T]) (out Dec
 	choice, err := flow.Ask(ctx)
 	if err != nil {
 		return Decision{}, err
+	}
+	// Uma recusa desta tentativa já encerra a decisão. A releitura protege
+	// concessões e mudanças persistentes, e pode estar indisponível nesse ponto.
+	if choice.Effect == "deny" && (choice.Scope == "" || choice.Scope == ScopeOnce) {
+		return Decision{Effect: "deny", Scope: ScopeOnce, Reason: "decisão do usuário"}, nil
 	}
 	if err := ctx.Err(); err != nil {
 		return Decision{}, err
