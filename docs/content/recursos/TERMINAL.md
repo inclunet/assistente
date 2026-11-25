@@ -140,7 +140,8 @@ para abrir outro terminal assim que a limpeza termina.
 | Histórico de comandos no backend | 200 comandos por sessão |
 | Histórico da aba | 200 comandos e até 200 blocos adicionais de saída da sessão |
 
-Uma falha de leitura, um cancelamento ou o fechamento explícito da sessão devolve erro com a saída parcial disponível. Se o leitor já falhou quando o prazo vence, o diagnóstico conserva as duas causas. A duração acompanha o resultado quando a sessão registrou o início e o fim da execução.
+Uma falha de leitura, um cancelamento ou o fechamento explícito da sessão devolve erro com a saída parcial disponível. Se o prazo vence durante a espera pelo PowerShell, o diagnóstico indica se a sessão ainda aguardava a consulta inicial ou se já havia enviado o comando.
+Se o leitor já falhou quando o prazo vence, o diagnóstico conserva as duas causas. A duração acompanha o resultado quando a sessão registrou o início e o fim da execução.
 
 Quando o prazo vence, a ferramenta informa o limite configurado e, quando disponível, a duração medida.
 Se houver saída parcial, o timeout devolve essa saída como resultado. Um cancelamento explícito devolve erro e inclui a saída que já chegou.

@@ -316,7 +316,9 @@ Pendente ou parcial:
   Na abertura, o PowerShell tenta registrar os três auxiliares juntos, numa
   constante identificada pela sessão. Uma variável do perfil que já ocupe o nome
   permanece intacta. Antes de cada despacho, uma consulta sem o corpo do comando
-  verifica a instalação no processo que controla o PTY. Só a segunda escrita
+  verifica a instalação no processo que controla o PTY. O PowerShell emite
+  juntas as marcas de início e fim da consulta, seguidas do status e do
+  terminador. Sua leitura independe das quebras de linha do ConPTY. Só a segunda escrita
   contém o comando, mesmo quando há saída residual ou um PowerShell filho.
   A moldura compacta revalida a instalação antes de executar. O prazo e a
   interrupção abrangem as duas etapas e a aplicação registra uma única entrada.

@@ -564,7 +564,7 @@ func TestInterruptAfterPowerShellProbe(t *testing.T) {
 				if len(id) != 2 {
 					t.Fatal("sem identificador de moldura")
 				}
-				reply := markerStart + string(id[1]) + markerSuffix + "\n"
+				reply := markerStart + string(id[1]) + markerSuffix
 				if mode != "sem rodapé" {
 					reply += markerEnd + string(id[1]) + markerSuffix + "1!\ntexto manual"
 				}
@@ -617,11 +617,11 @@ func TestPowerShellDispatchesBodyOnce(t *testing.T) {
 				code, output := reply, ""
 				if len(writes) > 1 {
 					code = "0"
-					output = "ok\n"
+					output = "\nok\n"
 				}
 				// Antes do início e depois da execução, a mesma saída residual
 				// é compatível com a resposta de ausência usada no protocolo antigo.
-				s.recordOutput(markerEnd + tag + "!\n" + markerStart + tag + "\n" + output + markerEnd + tag + code + "!" + markerEnd + tag + "!")
+				s.recordOutput(markerEnd + tag + "!\n" + markerStart + tag + output + markerEnd + tag + code + "!" + markerEnd + tag + "!")
 				return len(p), nil
 			})
 			e, err := s.runCommandInDirectory(t.Context(), CommandText{Raw: body, Display: body}, "", 5*time.Second, "test", "cmd", nil)

@@ -305,7 +305,13 @@ func (s *markerStream) progress() (delta []byte, result parseResult) {
 	previous := s.scanned
 	s.scanned = len(data)
 	if !s.started {
-		needle := []byte(s.marker.startTag + "\n")
+		delimiter := "\n"
+		if s.marker.probeInterrupt != nil {
+			// A consulta não tem corpo: as duas marcas formam uma única
+			// resposta visível, mesmo quando o ConPTY omite a quebra de linha.
+			delimiter = s.marker.endTag
+		}
+		needle := []byte(s.marker.startTag + delimiter)
 		from := max(0, previous-len(needle))
 		for from < len(data) {
 			n := bytes.Index(data[from:], needle)
@@ -315,6 +321,9 @@ func (s *markerStream) progress() (delta []byte, result parseResult) {
 			at := from + n
 			if s.marker.conPTY || at == 0 || data[at-1] == '\n' {
 				s.start = at + len(needle)
+				if s.marker.probeInterrupt != nil {
+					s.start -= len(delimiter) // o leitor de status consome o rodapé
+				}
 				s.sent = s.start
 				s.started = true
 				break

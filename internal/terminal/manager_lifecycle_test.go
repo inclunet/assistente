@@ -325,14 +325,14 @@ func TestWaitForMarkerPreservesReadFailureAndCancellation(t *testing.T) {
 	}
 }
 
-func TestPowerShellProbeTimeoutBeforeStartDelimiter(t *testing.T) {
+func TestPowerShellProbeTimeoutWithSeparatedMarkers(t *testing.T) {
 	marker := newCommandMarkerForShell("powershell")
 	marker.probeInterrupt = make(chan struct{})
 	done := make(chan struct{})
 	close(done)
 	s := &Session{readerDone: done}
 	s.beginMarkerCapture(marker)
-	s.recordOutput("secret" + marker.startTag + marker.endTag + "0!")
+	s.recordOutput(marker.startTag + "secret" + marker.endTag + "0!")
 	ctx, cancel := context.WithDeadline(t.Context(), time.Time{})
 	defer cancel()
 	_, _, err := s.waitForMarker(ctx, marker, "cmd")
