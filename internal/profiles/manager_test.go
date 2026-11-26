@@ -745,7 +745,7 @@ func TestManagerDuplicateProfile(t *testing.T) {
 	}
 }
 
-func TestBuilderExportsOnlyPortableProfileFields(t *testing.T) {
+func TestBuilderReadsNativeProfilePreferences(t *testing.T) {
 	manager := setupProfileTestEnv(t)
 	p := DefaultProfile()
 	p.Name = "Writer"
@@ -765,11 +765,11 @@ func TestBuilderExportsOnlyPortableProfileFields(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(string(raw), "private-") {
+	if !strings.Contains(string(raw), "private-local-allowlist") {
 		t.Fatal(string(raw))
 	}
 	got, err := ReadPortableDefinition(raw)
-	if err != nil || *got.Chat.MaxTokens != tokens || got.Chat.LLMProvider != DefaultProviderSentinel || !got.Chat.DisableTools {
+	if err != nil || *got.Chat.MaxTokens != tokens || got.Chat.LLMProvider != p.Chat.LLMProvider || got.Chat.DisableTools != p.Chat.DisableTools {
 		t.Fatal(got, err)
 	}
 	if keys["../writer"] != nil {
@@ -857,7 +857,7 @@ func TestBuilderKeepsExactProfileFromReadableRoot(t *testing.T) {
 			if err := os.MkdirAll(dir, 0700); err != nil {
 				t.Fatal(err)
 			}
-			if err := os.WriteFile(filepath.Join(dir, "writer.json"), []byte(`{"name":"Home"}`), 0600); err != nil {
+			if err := os.WriteFile(filepath.Join(dir, "writer.json"), []byte(`{"name":"Home","chat":{"llm_provider":"$default","response_timeout":60}}`), 0600); err != nil {
 				t.Fatal(err)
 			}
 			wd := filepath.Join(work, ".assistente", "profiles")

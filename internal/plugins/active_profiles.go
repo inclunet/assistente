@@ -50,6 +50,9 @@ func (i *Inventory) SetProfileActive(ctx context.Context, id, digest, key string
 		if installed.Disabled {
 			return ErrInstallationDisabled
 		}
+		if _, err := resolveProfile(ctx, tx, row.Definition); err != nil {
+			return err
+		}
 		return tx.Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "installation_id"}, {Name: "component_key"}}, DoNothing: true}).Create(&row).Error
 	}, admit)
 }
@@ -71,7 +74,7 @@ func (i *Inventory) GetPluginProfile(ctx context.Context, slug string) (*profile
 	if err := q.Where("plugin_profile_activations.slug=?", slug).Take(&row).Error; err != nil {
 		return nil, err
 	}
-	return profiles.ReadPortableDefinition(row.Definition)
+	return resolveProfile(ctx, i.db, row.Definition)
 }
 
 func (i *Inventory) ListPluginProfiles(ctx context.Context) ([]profiles.ProfileInfo, error) {
@@ -85,11 +88,33 @@ func (i *Inventory) ListPluginProfiles(ctx context.Context) ([]profiles.ProfileI
 	}
 	result := make([]profiles.ProfileInfo, 0, len(rows))
 	for _, row := range rows {
-		p, err := profiles.ReadPortableDefinition(row.Definition)
+		p, err := resolveProfile(ctx, i.db, row.Definition)
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			continue
+		}
 		if err != nil {
 			return nil, errors.Join(ErrComponentUnavailable, err)
 		}
 		result = append(result, profiles.ProfileInfo{Name: p.Name, Slug: row.Slug, Description: p.Description, Icon: p.Icon, Source: "plugin"})
 	}
 	return result, nil
+}
+
+func resolveProfile(ctx context.Context, db *gorm.DB, raw []byte) (*profiles.Profile, error) {
+	p, err := profiles.ReadPortableDefinition(raw)
+	if err != nil {
+		return nil, err
+	}
+	repo := database.NewProviderRepository(db)
+	err = p.MapProviderReferences(func(slug string) (string, error) {
+		row, err := repo.GetBySlug(ctx, slug)
+		if err != nil {
+			return "", err
+		}
+		return row.ID, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return p, nil
 }

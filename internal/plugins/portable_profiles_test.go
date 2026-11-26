@@ -14,7 +14,7 @@ func TestDiscoverPortableProfile(t *testing.T) {
 		Manifest: pluginpackage.Manifest{Extensions: map[string]json.RawMessage{
 			nativeExtension: json.RawMessage(`{"version":1,"profiles":["writer"]}`),
 		}},
-		Files: map[string][]byte{entry: []byte(`{"name":"Writer","temperature":0,"maxTokens":250,"topP":0.8}`)},
+		Files: map[string][]byte{entry: []byte(`{"name":"Writer","chat":{"llm_provider":"$default","response_timeout":60,"disable_tools":true,"disable_skills":true,"temperature":0,"max_tokens":250,"top_p":0.8}}`)},
 	}
 	components := DiscoverComponents(snap)
 	if len(components) != 1 || components[0].Kind != "profile" || components[0].Name != "Writer" || components[0].Reason != "" {

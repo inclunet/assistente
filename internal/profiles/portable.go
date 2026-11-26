@@ -2,10 +2,10 @@ package profiles
 
 import (
 	"assistente/internal/pluginpackage"
-	"bytes"
+
 	"encoding/json"
 	"errors"
-	"io"
+
 	"io/fs"
 
 	"os"
@@ -15,43 +15,38 @@ import (
 	"unicode/utf8"
 )
 
-// PortableDefinition carries conversational preferences across accounts.
-// Provider credentials, command grants and local resource IDs have no representation here.
-type PortableDefinition struct {
-	Name        string   `json:"name"`
-	Description string   `json:"description,omitempty"`
-	Temperature *float64 `json:"temperature,omitempty"`
-	MaxTokens   *int     `json:"maxTokens,omitempty"`
-	TopP        *float64 `json:"topP,omitempty"`
-}
-
+// ReadPortableDefinition lê o mesmo modelo da configuração local. A camada
+// de instalação resolve cada referência explícita na conta de destino.
 func ReadPortableDefinition(raw []byte) (*Profile, error) {
-	if len(raw) > 64<<10 || !utf8.Valid(raw) {
+	if len(raw) > 1<<20 || !utf8.Valid(raw) {
 		return nil, errors.New("invalid portable profile encoding or size")
 	}
-	var def PortableDefinition
-	decoder := json.NewDecoder(bytes.NewReader(raw))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&def); err != nil {
+	var p Profile
+	if err := json.Unmarshal(raw, &p); err != nil {
 		return nil, err
 	}
-	if decoder.Decode(new(any)) != io.EOF || strings.TrimSpace(def.Name) == "" {
+	if p.Active || p.BuiltinVersion != "" || strings.TrimSpace(p.Name) == "" {
 		return nil, errors.New("invalid portable profile")
 	}
-	p := DefaultProfile()
-	p.Name = def.Name
-	p.Description = def.Description
-	p.Chat.Temperature = def.Temperature
-	p.Chat.MaxTokens = def.MaxTokens
-	p.Chat.TopP = def.TopP
-	p.Chat.DisableTools = true
-	p.Chat.DisableSkills = true
-	p.Chat.ToolPolicy = nil
-	p.Chat.ToolPolicyDefault = "disabled"
 	if err := p.Validate(); err != nil {
 		return nil, err
 	}
-	return p, nil
+	return &p, nil
+}
+
+// MapProviderReferences preserva papéis opcionais e a seleção explícita do padrão.
+func (p *Profile) MapProviderReferences(resolve func(string) (string, error)) error {
+	for _, ref := range []*string{&p.Chat.LLMProvider, &p.Voice.Assistant.LLMProviderID, &p.Voice.User.LLMProviderID, &p.Voice.System.LLMProviderID, &p.Input.LLMProviderID} {
+		if *ref == "" || *ref == DefaultProviderSentinel {
+			continue
+		}
+		value, err := resolve(*ref)
+		if err != nil {
+			return err
+		}
+		*ref = value
+	}
+	return nil
 }
 
 // PortableDefinitions indexes readable native profiles by their exact, portable filename.
@@ -121,8 +116,9 @@ func encodePortableProfile(data []byte) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	def := PortableDefinition{Name: p.Name, Description: p.Description, Temperature: p.Chat.Temperature, MaxTokens: p.Chat.MaxTokens, TopP: p.Chat.TopP}
-	raw, err := json.MarshalIndent(def, "", "  ")
+	p.Active = false
+	p.BuiltinVersion = ""
+	raw, err := json.Marshal(&p)
 	if err != nil {
 		return nil, err
 	}

@@ -56,7 +56,7 @@ func TestInstalledProfileAccountAndRevision(t *testing.T) {
 		}
 		return r
 	}
-	write(filepath.Join(dir, "writer.json"), `{"name":"Writer","maxTokens":123}`)
+	write(filepath.Join(dir, "writer.json"), `{"name":"Writer","chat":{"llm_provider":"$default","response_timeout":60,"disable_tools":true,"max_tokens":123}}`)
 	row := install("")
 	admit := func(_ *gorm.DB, action func() error) error { return action() }
 	set := func(ctx context.Context, active bool) error {
@@ -97,7 +97,7 @@ func TestInstalledProfileAccountAndRevision(t *testing.T) {
 	if _, err := manager.GetForContext(other, slug); err == nil {
 		t.Fatal("another account resolved profile")
 	}
-	write(filepath.Join(dir, "writer.json"), `{"name":"Writer","maxTokens":256}`)
+	write(filepath.Join(dir, "writer.json"), `{"name":"Writer","chat":{"llm_provider":"$default","response_timeout":60,"disable_tools":true,"max_tokens":256}}`)
 	row = install(row.Digest)
 	if _, err := manager.GetForContext(owner, slug); err == nil {
 		t.Fatal("previous profile still available")
