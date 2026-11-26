@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
 	"path/filepath"
 	"slices"
 	"sync/atomic"
@@ -108,6 +109,23 @@ func TestRemoteStoreRetainsReviewedArchiveAndVaultOrigin(t *testing.T) {
 	ctx := database.WithUserID(context.Background(), "owner")
 	admit := commandsecurity.Admission(func(_ *gorm.DB, fn func() error) error { return fn() })
 	other := database.WithUserID(context.Background(), "other")
+	t.Run("formato escolhido precisa constar da leitura final", func(t *testing.T) {
+		root := t.TempDir()
+		dir := filepath.Join(root, ".cursor-plugin")
+		if err := os.Mkdir(dir, 0700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "marketplace.json"), []byte(`{"name":"store","plugins":[]}`), 0600); err != nil {
+			t.Fatal(err)
+		}
+		if err := store.saveRepository(other, root, "", "", plugincatalog.Claude, admit); err == nil || err.Error() != "PLUGIN_REPOSITORY_INDEX_PATH" {
+			t.Fatal(err)
+		}
+		rows, err := store.Repositories(other)
+		if err != nil || len(rows) != 0 {
+			t.Fatal(rows, err)
+		}
+	})
 	credential := &credentials.AuthConfig{Source: "static", Type: "bearer", Token: "test-secret"}
 	if err := manager.RegisterPatternWithContext(other, u.Host, credential); err != nil {
 		t.Fatal(err)
