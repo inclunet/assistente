@@ -151,6 +151,8 @@ notSaved: 'La decisión vale solo para esta operación: no se pudo recordar. Ser
 
     plugins: {
       packagePathsPending: 'La skill usa rutas proporcionadas por el entorno de Claude Code.',
+      agent: 'Definición de agente',
+      agentDelegationPending: 'Se identificó el archivo. La delegación a agentes de plugins aún no está disponible.',
       rootSkillPending: 'El adaptador aún no admite paquetes con SKILL.md en la raíz.',
       missingTemplate: 'Falta el archivo del modelo {{path}}.',
       invalidTemplate: 'Comprueba el JSON y las definiciones del flujo y las tareas en {{path}}.',

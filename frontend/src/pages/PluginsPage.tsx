@@ -42,6 +42,7 @@ function connectionLabel(component: plugins.Component) {
 
 function componentLabel(kind: string) {
   switch (kind) {
+    case 'agent': return 'plugins.agent';
     case 'skill': return 'plugins.skill';
     case 'mcp': return 'plugins.mcp';
     case 'tasklistTemplate': return 'plugins.tasklistTemplate';
@@ -63,6 +64,7 @@ function componentRequirement(component: plugins.Component) {
   if (component.reason === 'invalidTemplate') return 'plugins.invalidTemplate';
   if (component.reason === 'manifestConfiguration') return 'plugins.manifestPending';
   if (component.reason === 'packagePaths') return 'plugins.packagePathsPending';
+  if (component.reason === 'agentDelegation') return 'plugins.agentDelegationPending';
   if (component.reason === 'rootSkill') return 'plugins.rootSkillPending';
   if (component.reason === 'frontmatter') return 'plugins.fieldsPending';
   if (component.reason === 'configuration') return 'plugins.mcpConfigRequired';
