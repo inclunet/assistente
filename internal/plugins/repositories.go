@@ -120,7 +120,7 @@ func (i *Inventory) saveRepository(ctx context.Context, absolute, id, expected s
 			return i.saveLocalArchive(ctx, owner, row.Origin, id, expected, "", admit)
 		}
 		if strings.HasPrefix(row.Origin, "https://") {
-			return i.saveRemote(ctx, repositoryDownloadURL(row), row.CredentialRef, id, expected, admit)
+			return i.saveRemote(ctx, repositoryDownloadURL(row), row.CredentialRef, id, expected, strings.HasPrefix(row.RootID, gitRevisionPrefix), admit)
 		}
 		absolute = row.Origin
 		expectedRoot = row.RootID
@@ -210,6 +210,9 @@ func (i *Inventory) publishRepository(ctx context.Context, owner, origin, rootID
 			var existing database.PluginRepository
 			lookup := tx.Where("user_id=? AND origin=?", owner, origin).Take(&existing).Error
 			if lookup == nil {
+				if strings.HasPrefix(rootID, gitRevisionPrefix) != strings.HasPrefix(existing.RootID, gitRevisionPrefix) {
+					return errGitFormat
+				}
 				if ref != existing.CredentialRef {
 					return errors.New("PLUGIN_REPOSITORY_ACCESS_CHANGED")
 				}

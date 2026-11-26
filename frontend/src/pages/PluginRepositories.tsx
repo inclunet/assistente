@@ -2,7 +2,7 @@ import { repositoryError } from './pluginRepositoryError';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { plugins, wailsapi } from '@wailsjs/go/models';
-import { AddIndexRepository, AddArchiveRepository, AddRemoteRepository, AddLocalRepository, ListRepositories, PreviewRepositoryEntry, RefreshRepository, RemoveRepository, DiscardPreview } from '@wailsjs/go/wailsapi/Plugins';
+import { AddGitRepository, AddIndexRepository, AddArchiveRepository, AddRemoteRepository, AddLocalRepository, ListRepositories, PreviewRepositoryEntry, RefreshRepository, RemoveRepository, DiscardPreview } from '@wailsjs/go/wailsapi/Plugins';
 import { useAnnouncer } from '../hooks/useAnnouncer';
 import { useConfirm } from '../hooks/useConfirm';
 import { Button } from '../components/ui/Button';
@@ -35,7 +35,7 @@ export default function PluginRepositories({ session, catalog, parentBusy, onFor
     onFormOpenChange?.(adding);
     return () => onFormOpenChange?.(false);
   }, [adding,onFormOpenChange]);
-  const [source, setSource] = useState<'add' | 'index' | 'zip' | 'remote'>('add');
+  const [source, setSource] = useState<'add' | 'index' | 'zip' | 'remote' | 'git'>('add');
   const [url, setUrl] = useState('');
   const [authenticated, setAuthenticated] = useState(false);
   const [page, setPage] = useState(0);
@@ -73,7 +73,7 @@ export default function PluginRepositories({ session, catalog, parentBusy, onFor
   }, [session]);
   useEffect(() => { if (error) announce(t(error), 'assertive'); }, [error, t, announce]);
 
-  const change = async (action: 'index' | 'zip' | 'remote' | 'add' | 'refresh' | 'remove', repo?: plugins.Repository) => {
+  const change = async (action: 'git' | 'index' | 'zip' | 'remote' | 'add' | 'refresh' | 'remove', repo?: plugins.Repository) => {
     if (busy) return;
     setBusy(true);
     setError('');
@@ -85,20 +85,20 @@ export default function PluginRepositories({ session, catalog, parentBusy, onFor
       const pending = action === 'add' ? AddLocalRepository()
         : action === 'index' ? AddIndexRepository()
         : action === 'zip' ? AddArchiveRepository()
-        : action === 'remote' ? AddRemoteRepository(url.trim(), authenticated).then(() => true)
+        : action === 'remote' || action === 'git' ? (action === 'git' ? AddGitRepository : AddRemoteRepository)(url.trim(), authenticated).then(() => true)
         : repo ? (action === 'remove' ? RemoveRepository : RefreshRepository)(repo.id, repo.revision).then(() => true)
         : undefined;
       if (!pending) return;
       if (!await trackRepositoryWrite(session,pending) || !mounted.current) return;
-      if (['add','index','zip','remote'].includes(action)) { setAdding(false); focusAfterRemoval.current = true; }
-      if (action === 'remote') { setUrl(''); setAuthenticated(false); }
+      if (['add','index','zip','remote','git'].includes(action)) { setAdding(false); focusAfterRemoval.current = true; }
+      if (action === 'remote' || action === 'git') { setUrl(''); setAuthenticated(false); }
       if (action === 'remove' && repo) {
         focusAfterRemoval.current = repositories.length === 1;
         setRepositories(rows => rows.filter(row => row.id !== repo.id));
       }
       await refresh();
       if (mounted.current) announce(t('plugins.repoUpdated'));
-    } catch (cause) { if (mounted.current) setError(repositoryError(cause, action === 'remote' ? 'plugins.archiveDownloadError' : 'plugins.repositoryReadError')); }
+    } catch (cause) { if (mounted.current) setError(repositoryError(cause, action === 'git' ? 'plugins.gitError' : action === 'remote' ? 'plugins.archiveDownloadError' : 'plugins.repositoryReadError')); }
     finally { if (mounted.current) setBusy(false); }
   };
 
@@ -139,14 +139,15 @@ export default function PluginRepositories({ session, catalog, parentBusy, onFor
         <option value="add">{t('plugins.folderSource')}</option>
         <option value="index">{t('plugins.indexSource')}</option>
         <option value="zip">{t('plugins.zipSource')}</option>
+        <option value="git">{t('plugins.gitURL')}</option>
         <option value="remote">{t('plugins.archiveURL')}</option>
       </select>
-      {source === 'remote' && <>
-      <Input type="url" required label={t('plugins.archiveURL')} value={url} disabled={busy} onChange={event => { setUrl(event.target.value); setAuthenticated(false); }} />
+      {(source === 'remote' || source === 'git') && <>
+      <Input type="url" required label={t(source === 'git' ? 'plugins.gitURL' : 'plugins.archiveURL')} value={url} disabled={busy} onChange={event => { setUrl(event.target.value); setAuthenticated(false); }} />
       <label htmlFor="plugin-use-host-credential"><input id="plugin-use-host-credential" type="checkbox" checked={authenticated} disabled={busy} onChange={event => setAuthenticated(event.target.checked)} />{t('plugins.archiveCredential')}</label>
       </>}
       {error && <p>{t(error)}</p>}
-      <DialogActions primary={<Button type="submit" disabled={busy || (source === 'remote' && !url.trim())}>{t(source === 'remote' ? 'plugins.addRemoteRepo' : source === 'index' ? 'plugins.indexSource' : source === 'zip' ? 'plugins.zipSource' : 'plugins.folderSource')}</Button>}
+      <DialogActions primary={<Button type="submit" disabled={busy || ((source === 'remote' || source === 'git') && !url.trim())}>{t(source === 'git' ? 'plugins.addGit' : source === 'remote' ? 'plugins.addRemoteRepo' : source === 'index' ? 'plugins.indexSource' : source === 'zip' ? 'plugins.zipSource' : 'plugins.folderSource')}</Button>}
         secondary={<Button type="button" disabled={busy} onClick={cancelAdd}>{t('common.cancel')}</Button>} />
     </form></Modal>}
     {!adding && error && <p>{t(error)}</p>}
