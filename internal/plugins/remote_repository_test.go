@@ -422,3 +422,16 @@ func TestRepositoryIPv6Authority(t *testing.T) {
 		}
 	}
 }
+
+func TestArchiveETagRequiresOneRepresentation(t *testing.T) {
+	for _, tag := range []string{`"v1"`, `W/"v2"`, `""`} {
+		if !validArchiveETag(tag) {
+			t.Fatal(tag)
+		}
+	}
+	for _, tag := range []string{"*", "", `"a","b"`, "abc", `W/*`} {
+		if validArchiveETag(tag) {
+			t.Fatal(tag)
+		}
+	}
+}

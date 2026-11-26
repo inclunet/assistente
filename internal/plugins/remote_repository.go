@@ -119,6 +119,24 @@ type repositoryValidators struct {
 	etag, modified, root string
 }
 
+// If-None-Match also accepts lists and "*". A saved ETag must identify
+// one representation, so only accept the entity-tag grammar from RFC 9110.
+func validArchiveETag(value string) bool {
+	if len(value) > 1024 {
+		return false
+	}
+	tag := strings.TrimPrefix(value, "W/")
+	if len(tag) < 2 || tag[0] != '"' || tag[len(tag)-1] != '"' {
+		return false
+	}
+	for _, ch := range []byte(tag[1 : len(tag)-1]) {
+		if ch < 0x21 || ch == '"' || ch == 0x7f {
+			return false
+		}
+	}
+	return true
+}
+
 func (i *Inventory) download(ctx context.Context, origin, reference string, git bool, cache *repositoryValidators) (*pluginpackage.Archive, string, error) {
 	if _, err := database.RequireUserID(ctx); err != nil {
 		return nil, "", err
@@ -153,7 +171,7 @@ func (i *Inventory) download(ctx context.Context, origin, reference string, git 
 	if err != nil {
 		return nil, "", errors.New("PLUGIN_REPOSITORY_URL")
 	}
-	if cache.etag != "" {
+	if validArchiveETag(cache.etag) {
 		req.Header.Set("If-None-Match", cache.etag)
 	}
 	if cache.modified != "" {
@@ -175,7 +193,7 @@ func (i *Inventory) download(ctx context.Context, origin, reference string, git 
 		return nil, "", errors.New("PLUGIN_REPOSITORY_CREDENTIAL")
 	}
 	direct := res.Request != nil && res.Request.URL.String() == req.URL.String()
-	if direct && res.StatusCode == http.StatusNotModified && cache.root != "" && (cache.etag != "" || cache.modified != "") {
+	if direct && res.StatusCode == http.StatusNotModified && cache.root != "" && (validArchiveETag(cache.etag) || cache.modified != "") {
 		return nil, cache.root, nil
 	}
 	const maxDownload = 32 << 20
@@ -191,7 +209,7 @@ func (i *Inventory) download(ctx context.Context, origin, reference string, git 
 		return nil, "", err
 	}
 	cache.etag = res.Header.Get("ETag")
-	if len(cache.etag) > 1024 {
+	if !validArchiveETag(cache.etag) {
 		cache.etag = ""
 	}
 	cache.modified = res.Header.Get("Last-Modified")
