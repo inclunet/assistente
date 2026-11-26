@@ -517,7 +517,7 @@ function InstalledPlugins({ session }: { session: string }) {
         {component.kind === 'skill' && component.requestsShell && <p>{t('plugins.commandPolicy')}</p>}
         {component.kind === 'provider' && !component.reason ?
           <>{component.active && <p>{t('plugins.providerRegistered', { name: component.name })}</p>}
-            <Button disabled={busy || details.installation.disabled} onClick={() => void changeComponent(component)}>{t(component.active ? 'plugins.syncProvider' : 'plugins.registerProvider', { name: component.name })}</Button></>
+            <Button disabled={busy || details.installation.disabled || error === 'plugins.syncPendingStale'} onClick={() => void changeComponent(component)}>{t(component.active ? 'plugins.syncProvider' : 'plugins.registerProvider', { name: component.name })}</Button></>
           : component.kind === 'job' && !component.reason ?
           (component.active && component.slug ?
             <Link to="/jobs" onClick={() => useNavigationStore.getState().requestResourceEdit('jobs', component.slug!)}>{t('plugins.editJob', {name:component.name})}</Link> :
