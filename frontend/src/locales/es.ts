@@ -174,6 +174,7 @@ notSaved: 'La decisión vale solo para esta operación: no se pudo recordar. Ser
       builderSourcesError: 'No se pudieron cargar algunos recursos. Puede seleccionar los recursos disponibles.',
       provider: 'Proveedor',
       builderProviderError: 'El proveedor {{name}} no se puede incluir con su configuración actual.',
+      syncLocalProvider: '¿Volver a cargar la configuración actual de {{name}} guardada en tu cuenta?',
       syncProvider: 'Sincronizar {{name}}',
       registerProvider: 'Registrar {{name}}',
       providerRegistered: 'Proveedor {{name}} registrado.',
