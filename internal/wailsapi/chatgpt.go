@@ -12,6 +12,16 @@ func (p *LLMProviders) CreateChatGPTConnection(name string) (oauthflow.Summary, 
 	}
 	return WithUser(session, func(ctx context.Context) (oauthflow.Summary, error) { return ctrl.CreateChatGPTConnection(ctx, name) })
 }
+
+func (p *LLMProviders) CreateProfileChatGPTConnection(slug string) (oauthflow.Summary, error) {
+	session, ctrl, _, err := p.deps()
+	if err != nil {
+		return oauthflow.Summary{}, err
+	}
+	return WithUser(session, func(ctx context.Context) (oauthflow.Summary, error) {
+		return ctrl.CreateProfileChatGPTConnection(ctx, slug)
+	})
+}
 func (p *LLMProviders) ChatGPTConnection(id string) (oauthflow.Summary, error) {
 	session, ctrl, _, err := p.deps()
 	if err != nil {

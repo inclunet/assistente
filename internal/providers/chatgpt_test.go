@@ -100,6 +100,24 @@ func TestImportedChatGPTWithoutAuthorizationCanBeDeleted(t *testing.T) {
 	}
 }
 
+func TestProfileChatGPTConnectionUsesExactLocalSlug(t *testing.T) {
+	s, _, ctx := chatGPTTestService(t)
+	created, err := s.CreateProfileChatGPTConnection(ctx, "conta-equipe")
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := s.chatGPTProvider(ctx, created.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.Slug != "conta-equipe" || p.IsDefault || !p.RequiresExplicitDefault || created.State != "pending" || p.CredentialPattern != "oauth:"+created.ID {
+		t.Fatalf("slug=%q default=%v state=%q", p.Slug, p.IsDefault, created.State)
+	}
+	if _, err := s.CreateProfileChatGPTConnection(ctx, p.Slug); err == nil {
+		t.Fatal("colisão criou outro provedor")
+	}
+}
+
 func TestChatGPTUnicodeLabel(t *testing.T) {
 	s, _, ctx := chatGPTTestService(t)
 	if _, err := s.CreateChatGPTConnection(ctx, strings.Repeat("é", 100)); err != nil {
@@ -893,7 +911,7 @@ func TestChatGPTPreferencesRejectConnectionMutations(t *testing.T) {
 	for name, req := range map[string]UpdateRequest{
 		"type": {Type: "openai"}, "url": {BaseURL: "https://other.test"},
 		"server-profile": {ServerProfileID: &profileID},
-		"format": {APIFormat: "openai"}, "key": {APIKey: "secret"},
+		"format":         {APIFormat: "openai"}, "key": {APIKey: "secret"},
 		"reasoning": {ReasoningContentMode: "enabled"}, "command": {ACPCommand: "agent"},
 		"args": {ACPArgs: new([]string)}, "env": {ACPEnv: new(map[string]string)},
 		"credential": {ACPCredentialEnv: new(map[string]string)}, "agent": {ACPAgentID: new(string)},

@@ -98,7 +98,8 @@ func (i *Inventory) InstalledComponents(ctx context.Context, id, digest string) 
 				var policy missingProfileAllowlist
 				switch {
 				case errors.As(err, &missing):
-					components[n].MissingProvider = string(missing)
+					components[n].MissingProvider = missing.slug
+					components[n].CanCreateChatGPT = missing.chatOnly
 				case errors.As(err, &policy):
 					components[n].MissingAllowlist = string(policy)
 				default:

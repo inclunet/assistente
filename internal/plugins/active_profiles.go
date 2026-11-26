@@ -119,10 +119,13 @@ func resolveProfile(ctx context.Context, db *gorm.DB, raw []byte) (*profiles.Pro
 		}
 	}
 	repo := database.NewProviderRepository(db)
+	chatSlug := p.Chat.LLMProvider
+	// Uma conexão ChatGPT só pode suprir a dependência de texto.
+	chatOnly := chatSlug != "" && chatSlug != p.Voice.Assistant.LLMProviderID && chatSlug != p.Voice.User.LLMProviderID && chatSlug != p.Voice.System.LLMProviderID && chatSlug != p.Input.LLMProviderID
 	err = p.MapProviderReferences(func(slug string) (string, error) {
 		row, err := repo.GetBySlug(ctx, slug)
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return "", missingProfileProvider(slug)
+			return "", missingProfileProvider{slug: slug, chatOnly: chatOnly && slug == chatSlug}
 		}
 		if err != nil {
 			return "", err
@@ -135,10 +138,13 @@ func resolveProfile(ctx context.Context, db *gorm.DB, raw []byte) (*profiles.Pro
 	return p, nil
 }
 
-type missingProfileProvider string
+type missingProfileProvider struct {
+	slug     string
+	chatOnly bool
+}
 
 func (e missingProfileProvider) Error() string {
-	return "PLUGIN_PROFILE_PROVIDER_MISSING: " + string(e)
+	return "PLUGIN_PROFILE_PROVIDER_MISSING: " + e.slug
 }
 func (e missingProfileProvider) Unwrap() error { return gorm.ErrRecordNotFound }
 

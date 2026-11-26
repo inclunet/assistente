@@ -8189,6 +8189,7 @@ export namespace plugins {
 	}
 	
 	export class Component {
+	    canCreateChatGPT?: boolean;
 	    missingAllowlist?: string;
 	    missingProvider?: string;
 	    profileDefinition?: string;
@@ -8214,6 +8215,7 @@ export namespace plugins {
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.canCreateChatGPT = source["canCreateChatGPT"];
 	        this.missingAllowlist = source["missingAllowlist"];
 	        this.missingProvider = source["missingProvider"];
 	        this.profileDefinition = source["profileDefinition"];

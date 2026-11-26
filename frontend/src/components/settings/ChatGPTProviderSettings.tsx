@@ -13,7 +13,7 @@ interface Props {
   connected: boolean;
   disabled: boolean;
   onBusyChange: (busy: boolean) => void;
-  onChanged: () => void;
+  onChanged?: () => void;
 }
 
 export function ChatGPTProviderSettings({ providerId, connected, disabled, onBusyChange, onChanged }: Props) {
@@ -67,7 +67,7 @@ export function ChatGPTProviderSettings({ providerId, connected, disabled, onBus
         if (current !== generation.current) return;
       }
       announce(t(makeDefault ? 'chatgpt.defaultSaved' : 'chatgpt.preferencesSaved'));
-      onChanged();
+      onChanged?.();
     } catch {
       if (current === generation.current) { setError('chatgpt.preferencesSaveError'); announce(t('chatgpt.preferencesSaveError'), 'assertive'); }
     } finally {

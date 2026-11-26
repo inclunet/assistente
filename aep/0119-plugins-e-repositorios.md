@@ -44,6 +44,8 @@ O cadastro explícito de um provedor revisado grava sua configuração nativa e 
 
 O pacote usa os modelos nativos do provedor e do perfil. O perfil poderá apontar por slug para um provedor já configurado ou fornecido pelo mesmo pacote. A seleção explícita `$default` continuará vinculada ao padrão do destino. A ativação resolverá todas as referências de chat, voz e transcrição antes de disponibilizar o perfil. Os consumidores locais que precisam de uma instância específica poderão continuar a usar seu ID. A resolução de slug e a busca de ID serão explícitas, inclusive quando um slug coincidir com o ID de outra instância.
 
+Quando um perfil referencia exclusivamente para chat um slug ausente e o pacote não fornece o provedor, a pessoa pode criar uma conexão ChatGPT local com esse slug e iniciar o fluxo de autenticação nativo. O pacote contém somente a referência. A criação exige ação explícita, preserva o padrão da conta e recusa uma colisão de slug. O provedor assim criado pertence à conta e continua disponível após a desinstalação do perfil.
+
 ### Contribuições e execução
 
 - Skills e MCP usam os serviços e políticas existentes. O adaptador traduz os campos de cada formato e identifica transportes ou variáveis incompatíveis.

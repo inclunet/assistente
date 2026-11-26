@@ -14,6 +14,34 @@ import (
 	"gorm.io/gorm"
 )
 
+func TestMissingProviderChatGPTForTextOnly(t *testing.T) {
+	db := managedJobTestDB(t)
+	if err := db.AutoMigrate(&database.LLMProvider{}); err != nil {
+		t.Fatal(err)
+	}
+	ctx := database.WithUserID(t.Context(), "reader")
+	for _, tc := range []struct {
+		name, chat, audio string
+		want              bool
+	}{
+		{"chat", "work", "", true}, {"transcription", profiles.DefaultProviderSentinel, "work", false}, {"shared", "work", "work", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			p := profiles.DefaultProfile()
+			p.Chat.LLMProvider, p.Input.LLMProviderID = tc.chat, tc.audio
+			raw, err := json.Marshal(p)
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, err = resolveProfile(ctx, db, raw)
+			var missing missingProfileProvider
+			if !errors.As(err, &missing) || missing.slug != "work" || missing.chatOnly != tc.want {
+				t.Fatalf("missing=%+v err=%v", missing, err)
+			}
+		})
+	}
+}
+
 func TestNativeProfileUsesDestinationProviderBySlug(t *testing.T) {
 	db := managedJobTestDB(t)
 	if err := db.AutoMigrate(&database.LLMProvider{}, &database.PluginProviderBinding{}, &database.PluginProfileActivation{}); err != nil {

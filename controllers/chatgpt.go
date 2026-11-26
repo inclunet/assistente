@@ -8,6 +8,10 @@ import (
 func (c *LLMController) CreateChatGPTConnection(ctx context.Context, name string) (oauthflow.Summary, error) {
 	return c.providerSvc.CreateChatGPTConnection(ctx, name)
 }
+
+func (c *LLMController) CreateProfileChatGPTConnection(ctx context.Context, slug string) (oauthflow.Summary, error) {
+	return c.providerSvc.CreateProfileChatGPTConnection(ctx, slug)
+}
 func (c *LLMController) ChatGPTConnection(ctx context.Context, id string) (oauthflow.Summary, error) {
 	return c.providerSvc.ChatGPTConnection(ctx, id)
 }
