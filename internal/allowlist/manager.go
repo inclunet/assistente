@@ -493,9 +493,7 @@ func slugify(name string) string {
 // HasProfilePolicy verifica a dependência do perfil sem importar políticas
 // nem criar concessões durante a inspeção do pacote.
 func (m *Manager) HasProfilePolicy(ctx context.Context, slug string) (bool, error) {
-	if slug == defaultSlug {
-		return true, nil
-	}
+
 	rows, err := m.storedPolicies(ctx)
 	if err != nil {
 		return false, err
@@ -504,6 +502,10 @@ func (m *Manager) HasProfilePolicy(ctx context.Context, slug string) (bool, erro
 		if row.Slug == slug {
 			return true, nil
 		}
+	}
+	if slug == defaultSlug && m.home() != "" {
+		initialized, err := m.repo.Imported(ctx, "shell", "builtin:padrao")
+		return !initialized, err
 	}
 	return false, nil
 }

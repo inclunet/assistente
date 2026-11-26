@@ -239,3 +239,20 @@ func TestSave_RejectsInvalidAllowlist(t *testing.T) {
 		t.Fatal("persistiu política inválida no banco")
 	}
 }
+
+func TestProfilePolicyDistinguishesNewAndDeletedDefault(t *testing.T) {
+	m := newTestManager(t)
+	ctx := authorizationfixture.Context()
+	if ok, err := m.HasProfilePolicy(ctx, defaultSlug); err != nil || !ok {
+		t.Fatal(ok, err)
+	}
+	if err := m.EnsureDefaults(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Delete(ctx, defaultSlug); err != nil {
+		t.Fatal(err)
+	}
+	if ok, err := m.HasProfilePolicy(ctx, defaultSlug); err != nil || ok {
+		t.Fatal(ok, err)
+	}
+}
