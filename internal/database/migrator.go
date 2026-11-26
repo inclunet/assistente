@@ -482,6 +482,7 @@ var schemaMigrations = []migration{
 		}
 		return MigrateChatMediaAttachments(database)
 	}},
+	{Version: 47, Name: "llm_provider_slugs", Phase: phasePostAutoMigrate, Run: migrateProviderSlugs},
 }
 
 // runMigrations aplica, na ordem de Version, todas as migrações da fase

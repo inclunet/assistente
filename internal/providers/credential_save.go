@@ -187,6 +187,7 @@ func (s *Service) saveWithCredential(ctx context.Context, p, expected *llm.Provi
 			return repo.SaveLLMProvider(ctx, persistedProvider)
 		}, func() {
 			if persistedProvider != nil {
+				p.Slug = persistedProvider.Slug
 				p.CompatibilityRevision = persistedProvider.CompatibilityRevision
 			}
 			publishErr = s.registry.RegisterGeneration(p, generation)

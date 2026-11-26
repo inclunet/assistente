@@ -332,7 +332,7 @@ data: [DONE]
 			t.Fatal(err)
 		}
 		added := second
-		added.ID, added.IsDefault = "a-novo-primeiro", false
+		added.ID, added.Slug, added.IsDefault = "a-novo-primeiro", "", false
 		if err := database.DB().Create(&added).Error; err != nil {
 			t.Fatal(err)
 		}
@@ -340,7 +340,7 @@ data: [DONE]
 		if err := database.DB().Delete(&added).Error; err != nil {
 			t.Fatal(err)
 		}
-		added.ID, added.IsDefault = "novo-padrao", true
+		added.ID, added.Slug, added.IsDefault = "novo-padrao", "", true
 		if err := database.DB().Create(&added).Error; err != nil {
 			t.Fatal(err)
 		}

@@ -37,6 +37,7 @@ func (s *DBStore) Save(ctx context.Context, providers []*llm.ProviderConfig) err
 	if err := database.RequireUserIDOrBootstrap(ctx); err != nil {
 		return err
 	}
+	slugs := make([]string, len(providers))
 	compatibilityRevisions := make([]int, len(providers))
 	err := database.DB().WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		repository := database.NewProviderRepository(tx)
@@ -59,6 +60,7 @@ func (s *DBStore) Save(ctx context.Context, providers []*llm.ProviderConfig) err
 			if err := repository.SaveLLMProvider(ctx, dbProvider); err != nil {
 				return err
 			}
+			slugs[i] = dbProvider.Slug
 			compatibilityRevisions[i] = dbProvider.CompatibilityRevision
 		}
 		return nil
@@ -67,6 +69,7 @@ func (s *DBStore) Save(ctx context.Context, providers []*llm.ProviderConfig) err
 		return err
 	}
 	for i, p := range providers {
+		p.Slug = slugs[i]
 		p.CompatibilityRevision = compatibilityRevisions[i]
 	}
 	return nil
@@ -148,6 +151,7 @@ func (s *DBStore) Count(ctx context.Context) (int, error) {
 func toDBModel(p *llm.ProviderConfig) *database.LLMProvider {
 	return &database.LLMProvider{
 		ID:                        p.ID,
+		Slug:                      p.Slug,
 		Name:                      p.Name,
 		Type:                      string(p.Type),
 		ErrorFamily:               string(p.ErrorFamily),
@@ -188,6 +192,7 @@ func fromDBModel(dbP *database.LLMProvider) (*llm.ProviderConfig, error) {
 	}
 	p := &llm.ProviderConfig{
 		ID:                        dbP.ID,
+		Slug:                      dbP.Slug,
 		Name:                      dbP.Name,
 		Type:                      llm.ProviderType(dbP.Type),
 		ErrorFamily:               llm.ProviderErrorFamily(dbP.ErrorFamily),

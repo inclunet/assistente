@@ -22,7 +22,12 @@ func mediaV45Fixture(t *testing.T) (*gorm.DB, string) {
 	previous := db
 	db = database
 	t.Cleanup(func() { db = previous; sqlDB, _ := database.DB(); _ = sqlDB.Close() })
-	migrations := schemaMigrations[:len(schemaMigrations)-1]
+	var migrations []migration
+	for _, m := range schemaMigrations {
+		if m.Version <= 45 {
+			migrations = append(migrations, m)
+		}
+	}
 	if err := runMigrationList(database, phasePreAutoMigrate, migrations); err != nil {
 		t.Fatal(err)
 	}

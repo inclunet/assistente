@@ -120,6 +120,7 @@ type ToolInvocationExport struct {
 }
 
 type ProviderExport struct {
+	Slug                     string            `json:"slug,omitempty"`
 	ID                       string            `json:"id"`
 	Name                     string            `json:"name"`
 	Type                     string            `json:"type"`

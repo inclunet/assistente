@@ -7093,6 +7093,7 @@ export namespace llm {
 	    }
 	}
 	export class ProviderConfig {
+	    slug?: string;
 	    id: string;
 	    name: string;
 	    type: string;
@@ -7122,6 +7123,7 @@ export namespace llm {
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.slug = source["slug"];
 	        this.id = source["id"];
 	        this.name = source["name"];
 	        this.type = source["type"];

@@ -180,6 +180,7 @@ const (
 // ProviderConfig descreve um provedor LLM
 // Usado pelo ProviderRegistry para inicialização do cliente.
 type ProviderConfig struct {
+	Slug string       `json:"slug,omitempty"`
 	ID   string       `json:"id"`
 	Name string       `json:"name"`
 	Type ProviderType `json:"type"`

@@ -46,6 +46,7 @@ func exportProvider(provider *database.LLMProvider) (ProviderExport, error) {
 		return ProviderExport{}, fmt.Errorf("erro ao decodificar credenciais do cofre do agente do provider %s: %w", provider.ID, err)
 	}
 	return ProviderExport{
+		Slug:                     provider.Slug,
 		ID:                       provider.ID,
 		Name:                     provider.Name,
 		Type:                     provider.Type,
@@ -180,6 +181,7 @@ func persistProvider(ctx context.Context, tx *gorm.DB, provider ProviderExport, 
 
 	if existing == nil {
 		model := database.LLMProvider{
+			Slug:                     provider.Slug,
 			ID:                       strings.TrimSpace(provider.ID),
 			Name:                     provider.Name,
 			Type:                     provider.Type,
@@ -207,6 +209,16 @@ func persistProvider(ctx context.Context, tx *gorm.DB, provider ProviderExport, 
 		}
 		if userID, ok := database.UserIDFromContext(ctx); ok {
 			model.UserID = userID
+		}
+		if model.Slug != "" {
+			// Backups restauram por ID. Um slug de outra instância local continua reservado.
+			_, err := database.NewProviderRepository(tx).GetBySlug(ctx, model.Slug)
+			switch {
+			case err == nil:
+				model.Slug = ""
+			case !errors.Is(err, gorm.ErrRecordNotFound):
+				return err
+			}
 		}
 		return tx.Create(&model).Error
 	}

@@ -261,7 +261,12 @@ func persistChatGPTAuthorization(ctx context.Context, store oauthflow.Store, r o
 			*p = *updated
 			return nil
 		}
-		return repository.SaveLLMProvider(ctx, toDBModel(p))
+		row := toDBModel(p)
+		if err := repository.SaveLLMProvider(ctx, row); err != nil {
+			return err
+		}
+		p.Slug = row.Slug
+		return nil
 	})
 }
 
