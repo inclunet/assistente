@@ -226,6 +226,8 @@ function InstalledPlugins({ session }: { session: string }) {
   const detailsAction = useRef<HTMLButtonElement>(null);
   const tabList = useRef<HTMLDivElement>(null);
   const restoreAfterSync = useRef(false);
+  const restoreAfterReload = useRef(false);
+  const reloadButton = useRef<HTMLButtonElement>(null);
   const syncDialogOpen = newPending && !busy && !preview && !providerRemoval && !chatGPTSlug;
   const activeTab = () => tabList.current?.querySelector<HTMLElement>('[aria-selected="true"]');
   useEffect(() => {
@@ -240,6 +242,13 @@ function InstalledPlugins({ session }: { session: string }) {
       restoreFocus.current = false;
       if (catalogOpener.current?.isConnected) catalogOpener.current.focus(); else (chooseButton.current ?? activeTab())?.focus();
       catalogOpener.current = null;
+    }
+    if (!syncDialogOpen && !busy && restoreAfterReload.current) {
+      restoreAfterReload.current = false;
+      if (document.activeElement === document.body) {
+        const cell = chooseButton.current?.closest('[role="tabpanel"]')?.querySelector<HTMLElement>('[role="gridcell"][tabindex="0"]');
+        (reloadButton.current ?? cell ?? chooseButton.current ?? activeTab())?.focus();
+      }
     }
     if (!syncDialogOpen && !busy && restoreAfterSync.current) {
       restoreAfterSync.current = false;
@@ -281,6 +290,12 @@ function InstalledPlugins({ session }: { session: string }) {
       openToken.current = null;
     };
   }, [refresh]);
+  const reloadList = async () => {
+    restoreAfterReload.current = true;
+    setBusy(true);
+    try { await refresh(); }
+    finally { if (mounted.current) setBusy(false); }
+  };
   const inspect = async () => {
     setBusy(true);
     setError('');
@@ -533,7 +548,8 @@ function InstalledPlugins({ session }: { session: string }) {
       <TabList listRef={tabList} ariaLabel={t('menu.plugins')}>{['installed','catalog','repositories','builder'].map(value => <Tab value={value} key={value}>{t('plugins.' + value)}</Tab>)}</TabList>
       <TabPanel value="installed">{section === 'installed' && <>
     <Toolbar ariaLabel={t('plugins.installed')} left={<h2>{t('plugins.installed')}</h2>}
-      right={<><Button ref={chooseButton} onClick={() => void inspect()} disabled={busy}>{t('plugins.choose')}</Button>{!details && !preview && syncAction}</>} />
+      right={<><Button ref={chooseButton} onClick={() => void inspect()} disabled={busy}>{t('plugins.choose')}</Button>{!details && !preview && syncAction}
+        {listError && <Button ref={reloadButton} disabled={busy} onClick={() => void reloadList()}>{t('plugins.reloadList')}</Button>}</>} />
     {items && items.length > 0 ? <DataGrid items={items} onActivate={row => void openDetails(row)} getItemId={row => row.id} label={t('plugins.installed')}
       columns={[{ key: 'name', label: t('plugins.name') }, { key: 'version', label: t('plugins.version') }, { key: 'origin', label: t('plugins.origin') }]} />
       : items && !busy && !error && !listError && <p>{t('plugins.empty')}</p>}
@@ -542,7 +558,7 @@ function InstalledPlugins({ session }: { session: string }) {
       <TabPanel value="builder">{section === 'builder' && <PluginBuilder formRef={builderForm} />}</TabPanel>
     </Tabs>
     {!preview && !details && error && <p>{errorText}</p>}
-    {listErrorText && <p>{listErrorText} <Button disabled={busy} onClick={async () => { setBusy(true); try { await refresh(); } finally { if (mounted.current) setBusy(false); } }}>{t('plugins.reloadList')}</Button></p>}
+    {listErrorText && <p>{listErrorText}</p>}
     {details && <Modal isOpen title={details.installation.name} onClose={() => setDetails(null)} allowClose={!busy} readingMode>
       {error && <p>{errorText}</p>}
       {syncAction}

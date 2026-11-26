@@ -273,6 +273,7 @@ describe('PluginsPage', () => {
     expect(screen.queryByRole('button',{name:'plugins.retrySync'})).toBeNull();
     await user.click(screen.getByRole('button',{name:'plugins.reloadList'}));
     expect(await screen.findByText('plugins.empty')).toBeVisible();
+    expect(screen.getByRole('button',{name:'plugins.choose'})).toHaveFocus();
     expect(mocks.syncJobs).toHaveBeenCalledTimes(2);
     expect(mocks.sync).not.toHaveBeenCalled();
     expect(mocks.list).toHaveBeenCalledTimes(3);
