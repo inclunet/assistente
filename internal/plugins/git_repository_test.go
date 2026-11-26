@@ -131,3 +131,24 @@ func TestGitStoreClassifiesHTTPAuthenticationFailure(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestRemoteCatalogPrefixUsesActualGitRoot(t *testing.T) {
+	var data bytes.Buffer
+	writer := zip.NewWriter(&data)
+	if _, err := writer.Create("release/.cursor-plugin/marketplace.json"); err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	archive, err := pluginpackage.OpenArchive(data.Bytes())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if prefix := remoteCatalogPrefix(archive, "git:revision"); prefix != "" {
+		t.Fatal(prefix)
+	}
+	if prefix := remoteCatalogPrefix(archive, "digest"); prefix != "release/" {
+		t.Fatal(prefix)
+	}
+}

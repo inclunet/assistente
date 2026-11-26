@@ -223,7 +223,7 @@ func (i *Inventory) saveRemote(ctx context.Context, origin, ref, id, expected st
 	if err != nil {
 		return err
 	}
-	prefix := plugincatalog.ArchivePrefix(archive)
+	prefix := remoteCatalogPrefix(archive, digest)
 	indices, err := plugincatalog.ReadIndices(func(name string) ([]byte, error) { return archive.Read(prefix+name, 10<<20) })
 	if err != nil {
 		return err
@@ -258,5 +258,12 @@ func (i *Inventory) repositoryPackage(ctx context.Context, row database.PluginRe
 	if digest != row.RootID {
 		return nil, errors.Join(ErrPackageChanged, errors.New("PLUGIN_REPOSITORY_ARCHIVE_CHANGED"))
 	}
-	return archive.Package(row.Origin+"#"+url.PathEscape(entry), plugincatalog.ArchivePrefix(archive)+entry)
+	return archive.Package(row.Origin+"#"+url.PathEscape(entry), remoteCatalogPrefix(archive, digest)+entry)
+}
+
+func remoteCatalogPrefix(archive *pluginpackage.Archive, revision string) string {
+	if strings.HasPrefix(revision, gitRevisionPrefix) {
+		return ""
+	}
+	return plugincatalog.ArchivePrefix(archive)
 }
