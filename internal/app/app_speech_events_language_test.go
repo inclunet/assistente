@@ -141,7 +141,7 @@ func TestDispatchSpeechResolvesPluginProfileForSpeaker(t *testing.T) {
 	if err := db.Create(&install).Error; err != nil {
 		t.Fatal(err)
 	}
-	row := database.PluginProfileActivation{InstallationID: install.ID, ComponentKey: "profiles/speak", Digest: "v1", Slug: "plugin--12345678-1234-4234-8234-123456789abc", Definition: []byte(`{"name":"Speaker"}`)}
+	row := database.PluginProfileActivation{InstallationID: install.ID, ComponentKey: "profiles/speak", Digest: "v1", Slug: "plugin--12345678-1234-4234-8234-123456789abc", Definition: []byte(`{"name":"Speaker","chat":{"llm_provider":"$default","response_timeout":60},"input":{"language":"es-ES"},"voice":{"assistant":{"provider":"webspeech","enabled":true}}}`)}
 	if err := db.Create(&row).Error; err != nil {
 		t.Fatal(err)
 	}
@@ -153,7 +153,7 @@ func TestDispatchSpeechResolvesPluginProfileForSpeaker(t *testing.T) {
 		t.Fatal("foreign profile")
 	}
 	event, err := app.dispatchSpeechEvent(database.WithUserID(t.Context(), "alice"), req)
-	if err != nil || event == nil || len(emitter.find("chat:speak")) != 1 {
+	if err != nil || event == nil || event.SpeechLanguage != "es-ES" || len(emitter.find("chat:speak")) != 1 {
 		t.Fatal(event, err)
 	}
 }

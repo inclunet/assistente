@@ -374,6 +374,11 @@ function InstalledPlugins({ session }: { session: string }) {
         } catch { if (mounted.current) setError('plugins.syncPendingStale'); }
       } else if (String(cause).includes('PLUGIN_LIST_CAPACITY')) setError('plugins.listCapacity');
       else {
+        const missing = /PLUGIN_PROFILE_PROVIDER_MISSING: (.+)$/.exec(String(cause));
+        if (missing) {
+          setError({ key: 'plugins.missingProfileProvider', name: missing[1] });
+          return;
+        }
         const dependency = /PLUGIN_JOB_(PIPELINE_UNAVAILABLE|TOOL_UNAVAILABLE|TOOL_AMBIGUOUS): (.+)$/.exec(String(cause));
         if (dependency) setError({key: 'plugins.jobDependency.' + dependency[1], name:dependency[2]});
         else setError(installationError(cause, 'plugins.componentError'));
@@ -520,7 +525,7 @@ function InstalledPlugins({ session }: { session: string }) {
           <Button disabled={busy || details.installation.disabled || error === 'plugins.syncPendingStale'} onClick={() => void changeComponent(component)}>{t('plugins.createList', { name: component.name })}</Button>
           : (component.kind === 'profile' || component.kind === 'skill') && !component.reason ? <>
           {component.active && component.kind === 'skill' && <code> /{component.slug}</code>}
-          <Button disabled={busy || details.installation.disabled || error === 'plugins.syncPendingStale'} onClick={() => void changeComponent(component)}>{t(component.active ? 'plugins.deactivate' : 'plugins.activate', { name: component.name })}</Button>
+          <Button disabled={busy || details.installation.disabled || (!component.active && !!component.missingProvider) || error === 'plugins.syncPendingStale'} onClick={() => void changeComponent(component)}>{t(component.active ? 'plugins.deactivate' : 'plugins.activate', { name: component.name })}</Button>
         </> : component.kind === 'mcp' && !component.reason ? <>
           <Button disabled={busy || details.installation.disabled || error === 'plugins.syncPendingStale'} onClick={() => void changeComponent(component)}>{t(component.active ? 'plugins.removeServer' : 'plugins.registerServer', { name: component.name })}</Button>
           {component.active && <Button disabled={busy || error === 'plugins.syncPendingStale'} onClick={() => void changeComponent(component, true)}>{t('plugins.keepServer', { name: component.name })}</Button>}
