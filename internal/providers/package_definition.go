@@ -76,8 +76,8 @@ func ReadPackageDefinition(raw []byte, slug string) (*llm.ProviderConfig, error)
 	p.ErrorFamily = llm.ExplicitProviderErrorFamilyFromType(p.Type)
 	if p.ServerProfileID != "" {
 		profile, ok := catalogRuntimeProfiles[p.ServerProfileID]
- origin, _, originErr:=catalogCredentialOrigin(p.BaseURL)
-		if !ok || originErr!=nil || origin!=profile.credentialOrigin || p.IsACP() || p.Type != profile.providerType || string(p.GetAPIFormat()) != profile.apiFormat {
+		origin, _, originErr := catalogCredentialOrigin(p.BaseURL)
+		if !ok || originErr != nil || origin != profile.credentialOrigin || p.IsACP() || p.Type != profile.providerType || string(p.GetAPIFormat()) != profile.apiFormat {
 			return nil, ErrPackageDefinition
 		}
 		p.ErrorFamily = catalogErrorFamily(profile.providerFamily)

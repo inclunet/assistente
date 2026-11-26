@@ -38,9 +38,11 @@ func TestPackageProviderUsesNativeConfigurationValidation(t *testing.T) {
 	if err != nil || p.ErrorFamily != llm.ProviderErrorFamilyOpenAI {
 		t.Fatalf("família do catálogo: %v %v", p, err)
 	}
- for _, endpoint:=range []string{"https://other.example/v1","https://api.openai.com:9443/v1","http://api.openai.com/v1"} {
-  row.BaseURL=endpoint
-  if _,err:=MarshalPackageDefinition(row);err==nil{t.Fatalf("associação de catálogo fora da origem: %s",endpoint)}
- }
+	for _, endpoint := range []string{"https://other.example/v1", "https://api.openai.com:9443/v1", "http://api.openai.com/v1"} {
+		row.BaseURL = endpoint
+		if _, err := MarshalPackageDefinition(row); err == nil {
+			t.Fatalf("associação de catálogo fora da origem: %s", endpoint)
+		}
+	}
 
 }
