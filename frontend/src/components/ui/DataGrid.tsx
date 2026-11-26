@@ -1,4 +1,5 @@
 import { useState, useEffect, useLayoutEffect, useRef, useCallback, useId } from 'react';
+import { defaultRangeExtractor, useVirtualizer, type Range, type VirtualItem } from '@tanstack/react-virtual';
 import { useTranslation } from 'react-i18next';
 import { ContextMenu, MenuItem } from './menu';
 import { useAnchoredContextMenu } from '../../hooks/useAnchoredContextMenu';
@@ -61,6 +62,8 @@ export interface DataGridProps<T = unknown> {
   onEmptyFocus?: () => boolean | void;
   onMoveItem?: (fromIndex: number, toIndex: number) => void;
   onFocusChange?: (item: T | null, rowIndex: number) => void;
+  /** Render visible rows while keeping absolute keyboard and ARIA positions. */
+  virtualizeRows?: boolean;
   onNearEnd?: () => void;
   nearEndThreshold?: number;
   onItemToggle?: (item: T, rowIndex: number) => void;
@@ -94,6 +97,7 @@ export function DataGrid<T = unknown>({
   onFocusChange,
   onNearEnd,
   nearEndThreshold = 8,
+  virtualizeRows = false,
   onItemToggle,
   className,
   showHeader = true,
@@ -152,6 +156,21 @@ export function DataGrid<T = unknown>({
 
   const rowCount = items.length;
   const columnCount = columns.length;
+  const virtual = virtualizeRows && rowCount > 50;
+  const rangeExtractor = useCallback((range: Range) => {
+    const visible = defaultRangeExtractor(range);
+    if (focusedRow < 0 || focusedRow >= range.count || visible.includes(focusedRow)) return visible;
+    return [...visible, focusedRow].sort((a, b) => a - b);
+  }, [focusedRow]);
+  const rowVirtualizer = useVirtualizer({
+    enabled: virtual,
+    count: rowCount,
+    getScrollElement: () => bodyRef.current,
+    getItemKey: useCallback((index: number) => getItemIdRef.current(items[index]), [items]),
+    estimateSize: () => 48,
+    overscan: 8,
+    rangeExtractor,
+  });
 
   useEffect(() => {
     mountedRef.current = true;
@@ -1051,6 +1070,58 @@ export function DataGrid<T = unknown>({
     isMultiSelect ? t('ui.dataGrid.hintEscape') : null,
   ].filter((instruction): instruction is string => !!instruction).join(' ');
 
+  const renderRow = (item: T, rowIndex: number, virtualRow?: VirtualItem) => {
+    const itemId = getItemId(item);
+    const isSelected = localSelectedIds.has(itemId);
+    const isFocused = focusedRow >= 0 && rowIndex === focusedRow;
+
+    return (
+      <div
+        key={itemId}
+        data-index={virtualRow?.index}
+        ref={virtualRow ? rowVirtualizer.measureElement : undefined}
+        style={virtualRow ? { position: 'absolute', top: virtualRow.start, width: '100%' } : undefined}
+        className={`datagrid-row ${isSelected ? 'selected' : ''} ${isFocused ? 'focused' : ''}`}
+        role="row"
+        aria-rowindex={showHeader ? rowIndex + 2 : rowIndex + 1}
+        aria-selected={isSelected}
+        onContextMenu={getRowActions ? handleRowContextMenu(item, rowIndex) : undefined}
+      >
+        {columns.map((column, colIndex) => {
+          const isCellFocused = focusedRow >= 0 && rowIndex === focusedRow && colIndex === focusedCol;
+          const cellKey = `${rowIndex}-${colIndex}`;
+
+          return (
+            <div
+              key={column.key}
+              ref={(el) => {
+                if (el) cellRefs.current.set(cellKey, el);
+                else cellRefs.current.delete(cellKey);
+              }}
+              className={`datagrid-cell ${isCellFocused ? 'focused' : ''} ${column.action ? 'action-cell' : ''} ${column.truncate ? 'truncate' : ''}`}
+              role="gridcell"
+              style={{ width: column.width }}
+              aria-colindex={colIndex + 1}
+              aria-label={column.actionLabel || undefined}
+              onClick={(e) => handleCellClick(rowIndex, colIndex, e)}
+              tabIndex={isCellFocused ? 0 : -1}
+            >
+              {renderCellContent(item, column, rowIndex, colIndex)}
+            </div>
+          );
+        })}
+      </div>
+    );
+  };
+
+  const renderRows = () => {
+    if (!virtual) return items.map((item, index) => renderRow(item, index));
+    const rows = rowVirtualizer.getVirtualItems();
+    // Resizing or enabling the virtualizer can yield no measured range for a
+    // render. Keep the focused cell mounted until the viewport has been measured.
+    if (!rows.length && focusedRow >= 0 && focusedRow < rowCount) return renderRow(items[focusedRow], focusedRow);
+    return rows.map(row => renderRow(items[row.index], row.index, row));
+  };
   return (
     <>
       <div
@@ -1098,47 +1169,10 @@ export function DataGrid<T = unknown>({
         </div>
       )}
       
-      <div ref={bodyRef} className="datagrid-body" onScroll={handleBodyScroll}>
-        {items.map((item, rowIndex) => {
-          const itemId = getItemId(item);
-          const isSelected = localSelectedIds.has(itemId);
-          const isFocused = focusedRow >= 0 && rowIndex === focusedRow;
-
-          return (
-            <div
-              key={itemId}
-              className={`datagrid-row ${isSelected ? 'selected' : ''} ${isFocused ? 'focused' : ''}`}
-              role="row"
-              aria-rowindex={showHeader ? rowIndex + 2 : rowIndex + 1}
-              aria-selected={isSelected}
-              onContextMenu={getRowActions ? handleRowContextMenu(item, rowIndex) : undefined}
-            >
-              {columns.map((column, colIndex) => {
-                const isCellFocused = focusedRow >= 0 && rowIndex === focusedRow && colIndex === focusedCol;
-                const cellKey = `${rowIndex}-${colIndex}`;
-
-                return (
-                  <div
-                    key={column.key}
-                    ref={(el) => {
-                      if (el) cellRefs.current.set(cellKey, el);
-                      else cellRefs.current.delete(cellKey);
-                    }}
-                    className={`datagrid-cell ${isCellFocused ? 'focused' : ''} ${column.action ? 'action-cell' : ''} ${column.truncate ? 'truncate' : ''}`}
-                    role="gridcell"
-                    style={{ width: column.width }}
-                    aria-colindex={colIndex + 1}
-                    aria-label={column.actionLabel || undefined}
-                    onClick={(e) => handleCellClick(rowIndex, colIndex, e)}
-                    tabIndex={isCellFocused ? 0 : -1}
-                  >
-                    {renderCellContent(item, column, rowIndex, colIndex)}
-                  </div>
-                );
-              })}
-            </div>
-          );
-        })}
+      <div ref={bodyRef} className={virtualizeRows ? "datagrid-body datagrid-body--windowed" : "datagrid-body"} onScroll={handleBodyScroll}>
+        {virtualizeRows ? <div role="rowgroup" style={virtual ? { position: 'relative', height: rowVirtualizer.getTotalSize() } : undefined}>
+          {renderRows()}
+        </div> : renderRows()}
           {/* Renderiza o ContextMenu global do grid */}
           <ContextMenu
             items={contextMenu.items}

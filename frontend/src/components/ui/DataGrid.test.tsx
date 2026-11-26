@@ -925,3 +925,13 @@ describe('DataGrid (regressão: loop infinito de re-renders)', () => {
     expect(renderCount).toBeLessThanOrEqual(4);
   });
 });
+
+it('keeps the focused cell when a refresh enables virtualization before the first measurement', async () => {
+  const rows = Array.from({ length: 51 }, (_, i) => ({ id: String(i), name: 'Plugin ' + i, desc: '' }));
+  const grid = (count: number) => <DataGrid virtualizeRows items={rows.slice(0, count)} columns={columns} />;
+  const view = render(grid(50));
+  const cell = await screen.findByRole('gridcell', {name: 'Plugin 0'});
+  await waitFor(() => expect(cell).toHaveFocus());
+  view.rerender(grid(51));
+  expect(cell).toHaveFocus();
+});
