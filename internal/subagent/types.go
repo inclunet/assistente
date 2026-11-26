@@ -78,6 +78,7 @@ type RunParams struct {
 	AgentInstructions string
 	AgentSlug         string
 	agentGeneration   string
+	inheritAgentModel bool
 	// Tools limits this run. A nil slice inherits the enclosing permissions.
 	Tools []string
 	// ParentConversationID é a conversa que originou o sub-agente (pode ser

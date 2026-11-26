@@ -217,11 +217,11 @@ type PrepareContextRequest struct {
 
 // PrepareContextResponse holds the resolved profile and hydrated params for the chat pipeline.
 type PrepareContextResponse struct {
-	PluginAgentProvider, PluginAgentModel string
-	PluginAgentGeneration                 string
-	ActiveProfile                         *profiles.Profile
-	Params                                ChatParams
-	UserContent                           string
+	PluginAgentProvider, PluginAgentModel, PluginAgentInstructions string
+	PluginAgentGeneration                                          string
+	ActiveProfile                                                  *profiles.Profile
+	Params                                                         ChatParams
+	UserContent                                                    string
 }
 
 // PrepareContext validates limits, checks credentials, applies auto-rename, resolves
@@ -290,7 +290,7 @@ func (i *Interactor) PrepareContext(ctx context.Context, req PrepareContextReque
 	}
 
 	// 4. Auto-rename conversation if it still has the generic default title
-	var agentGeneration, agentProvider, agentModel string
+	var agentGeneration, agentProvider, agentModel, agentInstructions string
 	if conversationCh != nil {
 		result := <-conversationCh
 		conv, convErr := result.conversation, result.err
@@ -299,6 +299,7 @@ func (i *Interactor) PrepareContext(ctx context.Context, req PrepareContextReque
 		}
 		if conv != nil {
 			agentGeneration = conv.PluginAgentGeneration
+			agentInstructions = conv.PluginAgentInstructions
 			agentProvider, agentModel = conv.PluginAgentProvider, conv.PluginAgentModel
 		}
 		if req.UserContent != "" && conv != nil && conv.Title == DefaultConversationTitle {
@@ -432,8 +433,8 @@ func (i *Interactor) PrepareContext(ctx context.Context, req PrepareContextReque
 	}
 
 	return &PrepareContextResponse{
-		PluginAgentGeneration: agentGeneration,
-		PluginAgentProvider:   agentProvider, PluginAgentModel: agentModel,
+		PluginAgentGeneration: agentGeneration, PluginAgentInstructions: agentInstructions,
+		PluginAgentProvider: agentProvider, PluginAgentModel: agentModel,
 		ActiveProfile: activeProfile,
 		Params:        params,
 		UserContent:   req.UserContent,

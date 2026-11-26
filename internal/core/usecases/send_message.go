@@ -252,17 +252,25 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 		}
 	}
 	var agentInstructions string
-	var inheritParentModel bool
+	var inheritParentModel, inactiveAgent bool
 	if generation := pctx.PluginAgentGeneration; generation != "" {
 		inventory := plugins.NewInventory(database.DB())
 		def, err := inventory.ResolveAgent(ctx, generation)
-		if err != nil {
+		switch {
+		case errors.Is(err, plugins.ErrAgentInactive):
+			inactiveAgent = true
+			agentInstructions = pctx.PluginAgentInstructions
+			inheritParentModel = pctx.PluginAgentProvider != ""
+			// A conversa preserva as instruções originais. A revisão nova não concede ferramentas à conversa antiga.
+			ctx = invocationctx.WithDelegatedTools(ctx, []string{})
+		case err != nil:
 			return "", fmt.Errorf("agente de plugin indisponível: %w", err)
+		default:
+			ctx = invocationctx.WithDelegatedTools(ctx, def.Tools)
+			ctx = invocationctx.WithAgentCheck(ctx, func(ctx context.Context) error { return inventory.CheckAgent(ctx, generation) })
+			agentInstructions = def.AgentInstructions
+			inheritParentModel = def.Model == "inherit"
 		}
-		ctx = invocationctx.WithDelegatedTools(ctx, def.Tools)
-		ctx = invocationctx.WithAgentCheck(ctx, func(ctx context.Context) error { return inventory.CheckAgent(ctx, generation) })
-		agentInstructions = def.AgentInstructions
-		inheritParentModel = def.Model == "inherit"
 	}
 	activeProfile := pctx.ActiveProfile
 	var sttProvider string
@@ -545,7 +553,11 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 			if req.Source != "subagent" || pctx.PluginAgentGeneration == "" || req.RetryMessageID != "" {
 				return "", errors.New("limpeza fora de uma delegação de plugin")
 			}
-			if err := database.NewMessageRepository(database.DB()).ClearAdmittedConversation(ctx, req.ConversationID, func(tx *gorm.DB) error { return plugins.NewInventory(tx).CheckAgent(ctx, pctx.PluginAgentGeneration) }); err != nil {
+			var admit func(*gorm.DB) error
+			if !inactiveAgent {
+				admit = func(tx *gorm.DB) error { return plugins.NewInventory(tx).CheckAgent(ctx, pctx.PluginAgentGeneration) }
+			}
+			if err := database.NewMessageRepository(database.DB()).ClearAdmittedConversation(ctx, req.ConversationID, admit); err != nil {
 				return "", err
 			}
 		}

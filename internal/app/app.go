@@ -1230,11 +1230,14 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 	// Subagent manager (AEP-0068): criado após o ChatController para reusar a
 	// MESMA SendMessageUseCase (sem fluxo alternativo de envio — AEP-0040).
 	a.subagentMgr = subagent.NewManager(subagent.ManagerConfig{
-		CheckAgent: func(ctx context.Context, generation string) error {
-			return plugins.NewInventory(database.DB()).CheckAgent(ctx, generation)
-		},
-		AgentGeneration: func(ctx context.Context, slug string) (string, error) {
-			return plugins.NewInventory(database.DB()).AgentGeneration(ctx, slug)
+		ResolveAgent: func(ctx context.Context, slug string) (string, subagent.RunParams, error) {
+			inventory := plugins.NewInventory(database.DB())
+			generation, err := inventory.AgentGeneration(ctx, slug)
+			if err != nil {
+				return "", subagent.RunParams{}, err
+			}
+			def, err := inventory.ResolveAgent(ctx, generation)
+			return generation, def, err
 		},
 		Repo:     subagent.NewDBRepository(database.DB()),
 		Notifier: a.responseNotifier,

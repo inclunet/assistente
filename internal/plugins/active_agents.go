@@ -91,6 +91,8 @@ func (i *Inventory) CheckAgent(ctx context.Context, generation string) error {
 	return q.Select("generation").Where("generation=?", generation).Take(&grant).Error
 }
 
+var ErrAgentInactive = errors.New("ativação do agente encerrada")
+
 // ResolveAgent reads the authorized definition from the installation snapshot.
 func (i *Inventory) ResolveAgent(ctx context.Context, generation string) (subagent.RunParams, error) {
 	query, err := i.agentGrants(ctx)
@@ -99,6 +101,9 @@ func (i *Inventory) ResolveAgent(ctx context.Context, generation string) (subage
 	}
 	var grant database.PluginAgentActivation
 	if err = query.Where("generation=?", generation).Take(&grant).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return subagent.RunParams{}, ErrAgentInactive
+		}
 		return subagent.RunParams{}, err
 	}
 	snap, err := i.installedSnapshot(ctx, grant.InstallationID, grant.Digest)

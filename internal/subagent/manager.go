@@ -121,8 +121,7 @@ func (a *activeRun) cancel() {
 // para criar/continuar sub-conversas; reusa o pipeline oficial via SendFunc e
 // detecta conclusão por callback in-process (ResponseNotifier).
 type Manager struct {
-	checkAgent          func(context.Context, string) error
-	agentGeneration     func(context.Context, string) (string, error)
+	resolveAgent        func(context.Context, string) (string, RunParams, error)
 	repo                Repository
 	notifier            *messaging.ResponseNotifier
 	send                SendFunc
@@ -159,11 +158,10 @@ const deletionTombstoneTTL = 5 * time.Minute
 
 // ManagerConfig agrupa as dependências do Manager.
 type ManagerConfig struct {
-	CheckAgent      func(context.Context, string) error
-	AgentGeneration func(context.Context, string) (string, error)
-	Repo            Repository
-	Notifier        *messaging.ResponseNotifier
-	Send            SendFunc
+	ResolveAgent func(context.Context, string) (string, RunParams, error)
+	Repo         Repository
+	Notifier     *messaging.ResponseNotifier
+	Send         SendFunc
 	// Delivery entrega o aviso de conclusão de runs em background ao pai
 	// (auto-wake). Pode ser nil (ex.: contextos sem pai); então o aviso é
 	// apenas persistido no run.
@@ -206,8 +204,8 @@ func NewManager(cfg ManagerConfig) *Manager {
 		maxConcurrentGlobal = DefaultMaxConcurrentGlobal
 	}
 	return &Manager{
-		checkAgent:          cfg.CheckAgent,
-		agentGeneration:     cfg.AgentGeneration,
+
+		resolveAgent:        cfg.ResolveAgent,
 		repo:                cfg.Repo,
 		notifier:            cfg.Notifier,
 		send:                cfg.Send,
@@ -257,10 +255,13 @@ func (m *Manager) Run(ctx context.Context, p RunParams) (RunResult, error) {
 		return RunResult{}, err
 	}
 	if p.AgentSlug != "" {
-		if m.agentGeneration == nil {
+		if m.resolveAgent == nil {
 			return RunResult{}, ErrManagerNotConfigured
 		}
-		p.agentGeneration, err = m.agentGeneration(ctx, p.AgentSlug)
+		var def RunParams
+		p.agentGeneration, def, err = m.resolveAgent(ctx, p.AgentSlug)
+		p.AgentInstructions = def.AgentInstructions
+		p.inheritAgentModel = def.Model == "inherit"
 		if err != nil {
 			return RunResult{}, err
 		}
@@ -634,10 +635,13 @@ func (m *Manager) resolveChildConversation(ctx context.Context, p *RunParams) (c
 			title = deriveTitle(p.Prompt)
 		}
 		var provider, model string
-		if p.agentGeneration != "" {
+		if p.inheritAgentModel {
 			provider, model = invocationctx.TurnModel(ctx)
+			if provider == "" || model == "" {
+				return "", "", false, errors.New("modelo de origem indisponível para a delegação")
+			}
 		}
-		conv, cerr := database.NewConversationRepository(database.DB()).CreateDelegatedConversation(ctx, title, p.ParentConversationID, p.agentGeneration, provider, model)
+		conv, cerr := database.NewConversationRepository(database.DB()).CreateDelegatedConversation(ctx, title, p.ParentConversationID, p.agentGeneration, provider, model, p.AgentInstructions)
 		if cerr != nil {
 			return "", "", false, fmt.Errorf("erro ao criar sub-conversa: %w", cerr)
 		}
@@ -655,14 +659,6 @@ func (m *Manager) resolveChildConversation(ctx context.Context, p *RunParams) (c
 	}
 	if conv.Kind != database.ConversationKindSubagent {
 		return "", "", false, fmt.Errorf("conversa %s não é uma sub-conversa de sub-agente", convID)
-	}
-	if conv.PluginAgentGeneration != "" {
-		if m.checkAgent == nil {
-			return "", "", false, ErrManagerNotConfigured
-		}
-		if err := m.checkAgent(ctx, conv.PluginAgentGeneration); err != nil {
-			return "", "", false, fmt.Errorf("ativação do agente indisponível: %w", err)
-		}
 	}
 	p.agentGeneration = conv.PluginAgentGeneration
 	return conv.ID, conv.Title, false, nil

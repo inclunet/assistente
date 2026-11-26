@@ -51,6 +51,7 @@ func TestActivatedPluginAgentPromptAndDispatch(t *testing.T) {
 	ctx := database.WithUserID(t.Context(), "test-user")
 	profileMgr := setupProfileDir(t)
 	dir := t.TempDir()
+	const replacement = "Instruções exclusivas da segunda revisão."
 	const instructions = "Verifique a tarefa usando apenas leitura."
 	for key, body := range map[string]string{".claude-plugin/plugin.json": `{"name":"suite"}`, "agents/check.md": "---\nname: review\ndescription: Review\ntools: Read\nmodel: inherit\n---\n" + instructions} {
 		file := filepath.Join(dir, filepath.FromSlash(key))
@@ -86,7 +87,7 @@ func TestActivatedPluginAgentPromptAndDispatch(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	conv, err := database.NewConversationRepository(db).CreateDelegatedConversation(ctx, "Revisor", parent.ID, generation, "local-test", "modelo-herdado")
+	conv, err := database.NewConversationRepository(db).CreateDelegatedConversation(ctx, "Revisor", parent.ID, generation, "local-test", "modelo-herdado", instructions)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -97,6 +98,7 @@ func TestActivatedPluginAgentPromptAndDispatch(t *testing.T) {
 	registry.MustRegister(read)
 	registry.MustRegister(write)
 	var requests atomic.Int32
+	var afterRevocation atomic.Bool
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		raw, err := io.ReadAll(r.Body)
 		if err != nil {
@@ -114,6 +116,11 @@ func TestActivatedPluginAgentPromptAndDispatch(t *testing.T) {
 		}
 		w.Header().Set("Content-Type", "text/event-stream")
 		turn := requests.Add(1)
+		if afterRevocation.Load() {
+			if len(request.Tools) != 0 || !strings.Contains(string(raw), "Analise.") || request.Model != "modelo-herdado" || !strings.Contains(string(raw), instructions) || strings.Contains(string(raw), replacement) {
+				t.Errorf("retomada após revogação: %s", raw)
+			}
+		}
 		if turn <= 2 {
 			name := read.name
 			if turn == 1 {
@@ -192,5 +199,53 @@ func TestActivatedPluginAgentPromptAndDispatch(t *testing.T) {
 	}
 	if err := history.Count(&after).Error; err != nil || after != before {
 		t.Fatalf("histórico passou de %d para %d: %v", before, after, err)
+	}
+
+	if err := os.WriteFile(filepath.Join(dir, "agents", "check.md"), []byte("---\nname: review\ndescription: Review\n---\n"+replacement), 0600); err != nil {
+		t.Fatal(err)
+	}
+	updated, err := pluginpackage.InspectLocal(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	next, err := inv.InstallSource(ctx, updated.Origin, updated.Digest, row.Digest, nil, admit, func() (*pluginpackage.LocalSnapshot, error) { return updated, nil })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = inv.SetAgentActive(ctx, next.ID, next.Digest, "agents/check.md", true, admit); err != nil {
+		t.Fatal(err)
+	}
+	afterRevocation.Store(true)
+	resumed := make(chan struct{})
+	earlier := requests.Load()
+	_, err = uc.Execute(usecases.SendMessageRequest{Ctx: ctx, ConversationID: conv.ID, UserContent: "Continue a conversa.", Source: "wails", OnFinished: func() { close(resumed) }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-resumed:
+	case <-time.After(10 * time.Second):
+		t.Fatal("retomada não terminou")
+	}
+	if requests.Load() != earlier+1 || read.calls.Load() != 1 || write.calls.Load() != 0 {
+		t.Fatal("retomada não chegou ao provedor sem ferramentas")
+	}
+	other := *provider
+	other.ID = "alternate"
+	other.Name = "Alternate"
+	if err = llms.Register(&other); err != nil {
+		t.Fatal(err)
+	}
+	if err = store.Save(ctx, []*llm.ProviderConfig{provider, &other}); err != nil {
+		t.Fatal(err)
+	}
+	alternateProfile := minValidProfile("Alternativo", other.ID)
+	alternative, err := profileMgr.Create(&alternateProfile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = uc.Execute(usecases.SendMessageRequest{Ctx: ctx, ConversationID: conv.ID, UserContent: "Continue.", Source: "wails", Params: llm.ChatParams{ProfileSlug: alternative}})
+	if err == nil || !strings.Contains(err.Error(), "herdar o modelo") || requests.Load() != earlier+1 {
+		t.Fatal("retomada mudou de provedor", err)
 	}
 }
