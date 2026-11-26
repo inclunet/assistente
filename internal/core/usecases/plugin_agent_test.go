@@ -232,6 +232,7 @@ func TestActivatedPluginAgentPromptAndDispatch(t *testing.T) {
 	}
 	other := *provider
 	other.ID = "alternate"
+	other.Slug = "alternate"
 	other.Name = "Alternate"
 	if err = llms.Register(&other); err != nil {
 		t.Fatal(err)
