@@ -9,7 +9,9 @@ import (
 	"io"
 	"io/fs"
 	"iter"
+	"os"
 	"path"
+	"path/filepath"
 	"strings"
 )
 
@@ -179,6 +181,37 @@ func (a *Archive) Wrapper() string {
 		prefix = dir + "/"
 	}
 	return prefix
+}
+
+// InspectLocalZIP reads a selected archive again for each review or installation.
+func InspectLocalZIP(filename string) (*LocalSnapshot, error) {
+	absolute, err := filepath.Abs(filename)
+	if err != nil {
+		return nil, err
+	}
+	parent, err := os.OpenRoot(filepath.Dir(absolute))
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = parent.Close() }()
+	data, err := ReadFile(parent, filepath.Base(absolute), maxPackageBytes)
+	if err != nil {
+		return nil, err
+	}
+	archive, err := OpenArchive(data)
+	if err != nil {
+		return nil, err
+	}
+	dir := "."
+	for _, candidate := range manifestFiles {
+		if archive.Has(candidate.name) {
+			return archive.Package(absolute, dir)
+		}
+	}
+	if wrapper := archive.Wrapper(); wrapper != "" && !strings.EqualFold(wrapper, ".git/") {
+		dir = strings.TrimSuffix(wrapper, "/")
+	}
+	return archive.Package(absolute, dir)
 }
 
 func (a *Archive) Package(origin, dir string) (*LocalSnapshot, error) {

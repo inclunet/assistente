@@ -40,6 +40,7 @@ type pluginSelection struct {
 }
 
 type Plugins struct {
+	chooseArchive     func(ports.OpenFileOptions) (string, error)
 	savePackage       func(ports.SaveFileOptions) (string, error)
 	mu                sync.Mutex
 	session           Session
@@ -120,6 +121,14 @@ func (api *Plugins) beginPreview() uint64 {
 }
 
 func (api *Plugins) PreviewLocal() (*PluginPreview, error) {
+	return api.previewLocal(false)
+}
+
+func (api *Plugins) PreviewLocalZIP() (*PluginPreview, error) {
+	return api.previewLocal(true)
+}
+
+func (api *Plugins) previewLocal(zip bool) (*PluginPreview, error) {
 	generation := api.beginPreview()
 	session, inventory, choose, capture, err := api.wired()
 	if err != nil {
@@ -140,6 +149,19 @@ func (api *Plugins) PreviewLocal() (*PluginPreview, error) {
 		if !api.previewIsCurrent(generation) {
 			return nil, errPreviewSuperseded
 		}
+		inspect := pluginpackage.InspectLocal
+		if zip {
+			api.mu.Lock()
+			picker := api.chooseArchive
+			api.mu.Unlock()
+			if picker == nil {
+				return nil, errors.New("archive picker unavailable")
+			}
+			choose = func() (string, error) {
+				return picker(ports.OpenFileOptions{Filters: []ports.FileFilter{{DisplayName: "ZIP", Pattern: "*.zip"}}})
+			}
+			inspect = pluginpackage.InspectLocalZIP
+		}
 		dir, err := choose()
 		if !api.previewIsCurrent(generation) {
 			return nil, errPreviewSuperseded
@@ -150,7 +172,7 @@ func (api *Plugins) PreviewLocal() (*PluginPreview, error) {
 		if err := validate.Check(); err != nil {
 			return nil, err
 		}
-		return api.preparePreview(ctx, inventory, owner, generation, validate, func(context.Context) (*pluginpackage.LocalSnapshot, error) { return pluginpackage.InspectLocal(dir) })
+		return api.preparePreview(ctx, inventory, owner, generation, validate, func(context.Context) (*pluginpackage.LocalSnapshot, error) { return inspect(dir) })
 	})
 }
 

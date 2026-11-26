@@ -187,3 +187,7 @@ Um nome igual em duas lojas pode induzir troca de origem. Uma tradução incompl
 - [ ] Demonstrar delegação com restrições e hooks antes/depois de uma ferramenta, inclusive veto, timeout e desativação. A prévia nunca executa o hook.
 - [ ] Selecionar skill, perfil, job vinculado e modelo de tasklist. Gerar pacote, inspecioná-lo e instalá-lo em outra conta. Resolver o perfil local, autorizar o job e criar uma lista. Atualizar com edição local, desinstalar e verificar que cessaram os disparos e a lista conserva suas notas e progresso.
 - [ ] Concluir descoberta, prévia, instalação e navegação de ida e volta até o editor do recurso por teclado e NVDA, com anúncios de estado e strings nos três idiomas.
+
+### Instalação de um pacote ZIP local
+
+Em **Instalados → Instalar plugin…**, a pessoa escolhe uma pasta ou um arquivo ZIP. Ambos usam a prévia da revisão e exigem confirmação. O Assistente relê a origem ao instalar e verifica o digest aprovado. O leitor do ZIP também reconhece uma pasta externa única que envolve o pacote.

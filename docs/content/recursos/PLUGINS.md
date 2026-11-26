@@ -5,17 +5,17 @@ weight: 24
 
 # Plugins
 
-Abra **Plugins** pelo menu principal para consultar os pacotes instalados na sua conta. A lista mostra nome, versão informada pelo autor e pasta de origem.
+Abra **Plugins** pelo menu principal para consultar os pacotes instalados na sua conta. A lista mostra nome, versão informada pelo autor e origem.
 
-## Instalar uma pasta local
+## Instalar um plugin local
 
-1. Na aba **Instalados**, escolha **Instalar da pasta…** e selecione a raiz do pacote. No formato Agent Plugins 1.0.0, ela contém `plugin.json`. Para Claude Code, Cursor ou Codex, escolha a pasta que contém `.claude-plugin`, `.cursor-plugin` ou `.codex-plugin`.
+1. Na aba **Instalados**, escolha **Instalar plugin…**. Escolha **Escolher pasta…** para selecionar a raiz do pacote ou **ZIP…** para abrir o arquivo diretamente. No formato Agent Plugins 1.0.0, ela contém `plugin.json`. Para Claude Code, Cursor ou Codex, escolha a pasta que contém `.claude-plugin`, `.cursor-plugin` ou `.codex-plugin`.
 2. Confira a origem e os arquivos incluídos na prévia. O identificador SHA-256 corresponde aos nomes e ao conteúdo dos arquivos capturados. Ele permite conferir a revisão instalada.
 3. Escolha **Instalar revisão** para guardar uma cópia na conta atual ou **Cancelar** para fechar a prévia.
 
-Se sair da página antes de confirmar, abra a pasta novamente para instalar. Uma instalação já confirmada continua ao sair da página. Se você voltar enquanto ela estiver em andamento, a página aguarda o resultado e atualiza a lista. Expanda os avisos do manifesto para conferir os campos ignorados.
+Se sair da página antes de confirmar, selecione a origem novamente para instalar. Uma instalação já confirmada continua ao sair da página. Se você voltar enquanto ela estiver em andamento, a página aguarda o resultado e atualiza a lista. Expanda os avisos do manifesto para conferir os campos ignorados.
 
-Se os arquivos mudarem depois da prévia, abra a pasta novamente para examinar a nova revisão. Para atualizar um pacote, selecione a mesma pasta. A prévia mostra o digest instalado e o novo digest. Escolha **Atualizar revisão** para confirmar. Se ambos forem iguais, a tela informa que essa revisão já está instalada. A nova revisão começa com os componentes inativos.
+Se os arquivos mudarem depois da prévia, selecione a origem novamente para examinar a nova revisão. Para atualizar um pacote, selecione a mesma pasta ou arquivo ZIP. A prévia mostra o digest instalado e o novo digest. Escolha **Atualizar revisão** para confirmar. Se ambos forem iguais, a tela informa que essa revisão já está instalada. A nova revisão começa com os componentes inativos.
 
 ## Ativar uma skill
 
@@ -101,7 +101,7 @@ Marque os jobs que deseja distribuir. O builder inclui a definição YAML do job
 
 Se o job usa um pipeline, crie ou escolha no destino um pipeline com o mesmo slug antes de preparar o job. A preparação cria um job desativado.
 
-Escolha **Revisar pacote**, confira os arquivos e escolha **Salvar ZIP**. Se um recurso mudou desde a prévia, revise novamente. Se a gravação falhar, escolha outro destino em **Salvar ZIP** para tentar de novo com a mesma prévia. Para instalar o arquivo em outra conta, extraia o ZIP em uma pasta e abra essa pasta pelo gerenciador de Plugins. Você também pode colocar a pasta em um repositório de plugins para publicar a revisão.
+Escolha **Revisar pacote**, confira os arquivos e escolha **Salvar ZIP**. Se um recurso mudou desde a prévia, revise novamente. Se a gravação falhar, escolha outro destino em **Salvar ZIP** para tentar de novo com a mesma prévia. Para instalar o arquivo em outra conta, abra **Instalar plugin… → ZIP…** no gerenciador de Plugins. Você também pode colocar a pasta em um repositório de plugins para publicar a revisão.
 
 Se o catálogo de perfis de plugins estiver indisponível, o seletor da conversa avisa e oferece os perfis locais. Reabra o seletor para consultar o catálogo novamente. Se a lista local também falhar, use **Tentar novamente** no seletor.
 

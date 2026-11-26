@@ -70,6 +70,10 @@ export function PreviewLocal() {
   return window['go']['wailsapi']['Plugins']['PreviewLocal']();
 }
 
+export function PreviewLocalZIP() {
+  return window['go']['wailsapi']['Plugins']['PreviewLocalZIP']();
+}
+
 export function PreviewRepositoryEntry(arg1, arg2, arg3, arg4) {
   return window['go']['wailsapi']['Plugins']['PreviewRepositoryEntry'](arg1, arg2, arg3, arg4);
 }

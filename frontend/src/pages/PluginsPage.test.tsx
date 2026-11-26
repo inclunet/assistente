@@ -7,9 +7,9 @@ import { useWorkspaceStore } from '../store/workspaceStore';
 import { useAuthStore } from '../store/authStore';
 import * as navigation from '../lib/commandLandmarkNavigation';
 
-const mocks = vi.hoisted(() => ({ providerRemovalPreview: vi.fn(), uninstallReviewed: vi.fn(), registerProvider: vi.fn(), prepareJob: vi.fn(), syncJobs: vi.fn().mockResolvedValue(undefined), profile: vi.fn(), createList: vi.fn(), repos: vi.fn(), catalogPreview: vi.fn(), lifecycle: vi.fn(), sync: vi.fn(), register: vi.fn(), remove: vi.fn(), confirm: vi.fn(), list: vi.fn(), components: vi.fn(), toggle: vi.fn(), preview: vi.fn(), install: vi.fn(), discard: vi.fn(), announce: vi.fn(), announceRequest: vi.fn() }));
+const mocks = vi.hoisted(() => ({ providerRemovalPreview: vi.fn(), uninstallReviewed: vi.fn(), registerProvider: vi.fn(), prepareJob: vi.fn(), syncJobs: vi.fn().mockResolvedValue(undefined), profile: vi.fn(), createList: vi.fn(), repos: vi.fn(), catalogPreview: vi.fn(), lifecycle: vi.fn(), sync: vi.fn(), register: vi.fn(), remove: vi.fn(), confirm: vi.fn(), list: vi.fn(), components: vi.fn(), toggle: vi.fn(), preview: vi.fn(), archive: vi.fn(), install: vi.fn(), discard: vi.fn(), announce: vi.fn(), announceRequest: vi.fn() }));
 vi.mock('@wailsjs/go/wailsapi/Tasklist', () => ({GetAllTaskLists: async () => []}));
-vi.mock('@wailsjs/go/wailsapi/Plugins', () => ({ BuilderProviderSlugs: async () => ['equipe'], BuilderJobNames: async () => [], BuilderProfileNames: async () => ({names:[],partial:false}), BuilderSkillNames: async () => ({names:[],partial:false}), CreateListFromTemplate: mocks.createList, ListRepositories: mocks.repos, PreviewRepositoryEntry: mocks.catalogPreview, ChangeInstallation: mocks.lifecycle, PrepareJob: mocks.prepareJob, SyncPendingJobs: mocks.syncJobs, SyncMCP: mocks.sync, ProviderRemovalPreview: mocks.providerRemovalPreview, UninstallReviewed: mocks.uninstallReviewed, RegisterProvider: mocks.registerProvider, RegisterMCP: mocks.register, RemoveMCP: mocks.remove, InstalledComponents: mocks.components, SetProfileActive: mocks.profile, SetSkillActive: mocks.toggle, DiscardPreview: mocks.discard, ListInstalled: mocks.list, PreviewLocal: mocks.preview, InstallReviewed: mocks.install }));
+vi.mock('@wailsjs/go/wailsapi/Plugins', () => ({ BuilderProviderSlugs: async () => ['equipe'], BuilderJobNames: async () => [], BuilderProfileNames: async () => ({names:[],partial:false}), BuilderSkillNames: async () => ({names:[],partial:false}), CreateListFromTemplate: mocks.createList, ListRepositories: mocks.repos, PreviewRepositoryEntry: mocks.catalogPreview, ChangeInstallation: mocks.lifecycle, PrepareJob: mocks.prepareJob, SyncPendingJobs: mocks.syncJobs, SyncMCP: mocks.sync, ProviderRemovalPreview: mocks.providerRemovalPreview, UninstallReviewed: mocks.uninstallReviewed, RegisterProvider: mocks.registerProvider, RegisterMCP: mocks.register, RemoveMCP: mocks.remove, InstalledComponents: mocks.components, SetProfileActive: mocks.profile, SetSkillActive: mocks.toggle, DiscardPreview: mocks.discard, ListInstalled: mocks.list, PreviewLocal: mocks.preview, PreviewLocalZIP: mocks.archive, InstallReviewed: mocks.install }));
 vi.mock('../hooks/useConfirm', () => ({ useConfirm: () => mocks.confirm }));
 vi.mock('../store/authStore', async importOriginal => {
   const actual = await importOriginal<typeof import('../store/authStore')>();
@@ -78,8 +78,14 @@ describe('PluginsPage', () => {
     expect(await axe(container)).toHaveNoViolations();
     choose.focus();
     await user.keyboard('{Enter}');
+    const archive = await screen.findByRole('button', {name:'plugins.zipSource'});
+    mocks.archive.mockResolvedValueOnce({token:'reviewed',name:'demo',files:[],diagnostics:[]});
+    archive.focus();
+    await user.keyboard('{Enter}');
     const install = await screen.findByRole('button', { name: 'plugins.install' });
     const cancel = screen.getByRole('button', { name: 'common.cancel' });
+    expect(mocks.archive).toHaveBeenCalledOnce();
+    expect(mocks.preview).not.toHaveBeenCalled();
     expect(install.compareDocumentPosition(cancel) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(mocks.install).not.toHaveBeenCalled();
     install.focus();
@@ -97,6 +103,7 @@ describe('PluginsPage', () => {
     const choose = await screen.findByRole('button', { name: 'plugins.choose' });
     await waitFor(() => expect(choose).toBeEnabled());
     await user.click(choose);
+    await user.click(screen.getByRole('button', { name: 'plugins.folderSource' }));
     expect(await screen.findByText('old')).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'plugins.update' }));
     expect(choose).toBeDisabled();
@@ -112,6 +119,7 @@ describe('PluginsPage', () => {
     const choose = await screen.findByRole('button', { name: 'plugins.choose' });
     await waitFor(() => expect(choose).toBeEnabled());
     await user.click(choose);
+    await user.click(screen.getByRole('button', { name: 'plugins.folderSource' }));
     expect(await screen.findByText('plugins.current')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'plugins.update' })).toBeDisabled();
   });
@@ -123,6 +131,7 @@ describe('PluginsPage', () => {
     const choose = await screen.findByRole('button', { name: 'plugins.choose' });
     await waitFor(() => expect(choose).toBeEnabled());
     await user.click(choose);
+    await user.click(screen.getByRole('button', { name: 'plugins.folderSource' }));
     const cancel = await screen.findByRole('button', { name: 'common.cancel' });
     await user.click(cancel);
     expect(screen.getByRole('alertdialog')).toContainElement(await screen.findByText('plugins.discardError'));
@@ -175,6 +184,7 @@ describe('PluginsPage', () => {
     await waitFor(() => expect(choose).toBeEnabled());
     choose.focus();
     await user.keyboard('{Enter}');
+    await user.click(await screen.findByRole('button', {name:'plugins.folderSource'}));
     await waitFor(() => expect(mocks.preview).toHaveBeenCalledOnce());
     await waitFor(() => expect(choose).toHaveFocus());
     expect(screen.queryByRole('alertdialog')).toBeNull();
@@ -190,6 +200,7 @@ describe('PluginsPage', () => {
     render(<PluginsPage />);
     const cell = await screen.findByRole('gridcell', { name: /Demo/ });
     await user.click(screen.getByRole('button', { name: 'plugins.choose' }));
+    await user.click(screen.getByRole('button', { name: 'plugins.folderSource' }));
     expect(await screen.findByText('sse · ' + endpoint)).toBeVisible();
     expect(screen.getByText('plugins.mcpConfigRequired')).toBeVisible();
     await user.click(screen.getByRole('button', { name: 'common.cancel' }));
@@ -210,6 +221,7 @@ describe('PluginsPage', () => {
     render(<PluginsPage />);
     const cell = await screen.findByRole('gridcell', { name: /Demo/ });
     await user.click(screen.getByRole('button', { name: 'plugins.choose' }));
+    await user.click(screen.getByRole('button', { name: 'plugins.folderSource' }));
     expect(await screen.findByText(/plugins\.commandPolicy/)).toBeVisible();
     await user.click(screen.getByRole('button', { name: 'common.cancel' }));
     cell.focus();
@@ -228,6 +240,7 @@ describe('PluginsPage', () => {
     const choose = screen.getByRole('button', { name: 'plugins.choose' });
     await waitFor(() => expect(choose).toBeEnabled());
     await user.click(choose);
+    await user.click(screen.getByRole('button', { name: 'plugins.folderSource' }));
     expect(await screen.findByText('plugins.affectedServersNotice')).toBeVisible();
     expect(mocks.announceRequest).toHaveBeenCalledWith(expect.objectContaining({
       message: expect.stringContaining('plugins.disconnectUpdate plugins.preserveJobNotice'), announcePriority: 'assertive',
@@ -245,6 +258,7 @@ describe('PluginsPage', () => {
     const choose = screen.getByRole('button', { name: 'plugins.choose' });
     await waitFor(() => expect(choose).toBeEnabled());
     await user.click(choose);
+    await user.click(screen.getByRole('button', { name: 'plugins.folderSource' }));
     expect(await screen.findByText('plugins.editedServersNotice')).toBeVisible();
     expect(mocks.announceRequest).toHaveBeenCalledWith(expect.objectContaining({
       message: expect.stringContaining('plugins.editedUpdate plugins.preserveJobNotice'), announcePriority: 'assertive',
@@ -257,6 +271,7 @@ describe('PluginsPage', () => {
     await user.click(screen.getByRole('button', { name: 'common.cancel' }));
     await waitFor(() => expect(choose).toHaveFocus());
     await user.click(choose);
+    await user.click(screen.getByRole('button', { name: 'plugins.folderSource' }));
     expect(await screen.findByRole('button', { name: 'plugins.update' })).toBeEnabled();
   });
 
@@ -576,6 +591,7 @@ describe('PluginsPage', () => {
     const choose = await screen.findByRole('button', { name: 'plugins.choose' });
     await waitFor(() => expect(choose).toBeEnabled());
     await user.click(choose);
+    await user.click(screen.getByRole('button', { name: 'plugins.folderSource' }));
     await user.click(await screen.findByRole('button', { name: 'common.cancel' }));
     expect(mocks.install).not.toHaveBeenCalled();
     expect(mocks.discard).toHaveBeenCalledWith('reviewed');
@@ -634,6 +650,7 @@ describe('PluginsPage', () => {
     const choose=await screen.findByRole('button', {name:'plugins.choose'});
     await waitFor(()=>expect(choose).toBeEnabled());
     await user.click(choose);
+    await user.click(screen.getByRole('button', { name: 'plugins.folderSource' }));
     await screen.findByText(/Reminder/);
     expect(screen.getByText(/plugins.jobTrigger.event job.finished ready/)).toBeVisible();
     expect(screen.queryByText(/ignored/)).toBeNull();
@@ -676,6 +693,7 @@ describe('PluginsPage', () => {
     const choose = await screen.findByRole('button', {name:'plugins.choose'});
     await waitFor(() => expect(choose).toBeEnabled());
     await user.click(choose);
+    await user.click(screen.getByRole('button', { name: 'plugins.folderSource' }));
     await screen.findByText(/plugins.tasklistTemplate/);
     expect(screen.queryByText('plugins.unavailable')).toBeNull();
   });
@@ -691,6 +709,7 @@ describe('PluginsPage', () => {
     const choose = await screen.findByRole('button', { name: 'plugins.choose' });
     await waitFor(() => expect(choose).toBeEnabled());
     await user.click(choose);
+    await user.click(screen.getByRole('button', { name: 'plugins.folderSource' }));
     if (phase !== 'pending') await act(async () => finishPreview(result));
     if (phase === 'installing') await user.click(await screen.findByRole('button', { name: 'plugins.install' }));
     const listsBeforeUnmount = mocks.list.mock.calls.length;
@@ -718,6 +737,7 @@ describe('PluginsPage', () => {
     const choose = await screen.findByRole('button', { name: 'plugins.choose' });
     await waitFor(() => expect(choose).toBeEnabled());
     await user.click(choose);
+    await user.click(screen.getByRole('button', { name: 'plugins.folderSource' }));
     await user.click(await screen.findByText('plugins.warnings'));
     expect(screen.getByText('plugins.unknownField')).toBeVisible();
     expect(screen.getByText('plugins.invalidExtensions')).toBeVisible();
@@ -738,6 +758,7 @@ describe('PluginsPage', () => {
     render(<PluginsPage />);
     await screen.findByText('plugins.listError');
     await user.click(screen.getByRole('button', { name: 'plugins.choose' }));
+    await user.click(screen.getByRole('button', { name: 'plugins.folderSource' }));
     await waitFor(() => expect(screen.getByRole('button', { name: 'plugins.choose' })).toBeEnabled());
     expect(screen.getByText('plugins.listError')).toBeVisible();
     expect(screen.queryByText('plugins.empty')).toBeNull();
@@ -755,6 +776,7 @@ describe('PluginsPage', () => {
     const choose = screen.getByRole('button', { name: 'plugins.choose' });
     await waitFor(() => expect(choose).toBeEnabled());
     await user.click(choose);
+    await user.click(screen.getByRole('button', { name: 'plugins.folderSource' }));
     await user.click(await screen.findByRole('button', { name: 'plugins.install' }));
     unmount();
     render(<PluginsPage />);

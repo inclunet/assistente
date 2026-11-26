@@ -44,7 +44,7 @@ func (a *App) wirePlugins() {
 		a.profileManager.SetPluginSource(plugins.NewInventory(database.DB()))
 	}
 	if a.pluginsAPI != nil && a.dialogPort != nil {
-		wailsapi.AttachPluginSaveDialog(a.pluginsAPI, a.dialogPort.SaveFileDialog)
+		wailsapi.AttachPluginDialogs(a.pluginsAPI, a.dialogPort.OpenFileDialog, a.dialogPort.SaveFileDialog)
 		var authorizer httpclient.NetworkAuthorizer
 		if a.netTrustMgr != nil && a.questionnaireMgr != nil {
 			// Repository requests originate in the desktop manager, outside a conversation.

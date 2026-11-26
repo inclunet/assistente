@@ -22,9 +22,10 @@ type BuilderPreview struct {
 	Components []plugins.Component `json:"components"`
 }
 
-func AttachPluginSaveDialog(api *Plugins, dialog func(ports.SaveFileOptions) (string, error)) {
+func AttachPluginDialogs(api *Plugins, archive func(ports.OpenFileOptions) (string, error), dialog func(ports.SaveFileOptions) (string, error)) {
 	api.mu.Lock()
 	defer api.mu.Unlock()
+	api.chooseArchive = archive
 	api.savePackage = dialog
 }
 
