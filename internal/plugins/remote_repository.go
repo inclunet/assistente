@@ -36,6 +36,9 @@ func RepositoryHTTPClient(manager *credentials.Manager, reference string, author
 			if len(via) == 0 || next.URL.Scheme != "https" || next.URL.User != nil || addressHost(next.URL, true) != addressHost(via[0].URL, true) {
 				return http.ErrUseLastResponse
 			}
+			// HTTP validators identify a representation at a particular URL.
+			next.Header.Del("If-None-Match")
+			next.Header.Del("If-Modified-Since")
 			return guardRedirect(next, via)
 		},
 	}, nil)
@@ -171,7 +174,8 @@ func (i *Inventory) download(ctx context.Context, origin, reference string, git 
 	if (res.StatusCode == http.StatusUnauthorized || res.StatusCode == http.StatusForbidden) && reference != "" {
 		return nil, "", errors.New("PLUGIN_REPOSITORY_CREDENTIAL")
 	}
-	if res.StatusCode == http.StatusNotModified && cache.root != "" && (cache.etag != "" || cache.modified != "") {
+	direct := res.Request != nil && res.Request.URL.String() == req.URL.String()
+	if direct && res.StatusCode == http.StatusNotModified && cache.root != "" && (cache.etag != "" || cache.modified != "") {
 		return nil, cache.root, nil
 	}
 	const maxDownload = 32 << 20
@@ -192,6 +196,10 @@ func (i *Inventory) download(ctx context.Context, origin, reference string, git 
 	}
 	cache.modified = res.Header.Get("Last-Modified")
 	if _, err := http.ParseTime(cache.modified); err != nil {
+		cache.modified = ""
+	}
+	if !direct {
+		cache.etag = ""
 		cache.modified = ""
 	}
 	sum := sha256.Sum256(data)

@@ -76,6 +76,11 @@ export default function PluginRepositories({ session, catalog, parentBusy, onFor
     void load();
     return () => { active = false; mounted.current = false; listGeneration.current++; };
   }, [session]);
+  const offlineAnnounced = useRef(false);
+  useEffect(() => {
+    if (offline && !offlineAnnounced.current) announce(t('plugins.catalogOffline'));
+    offlineAnnounced.current = offline;
+  }, [offline,announce,t]);
   useEffect(() => { if (error) announce(t(error), 'assertive'); }, [error, t, announce]);
 
   const change = async (action: 'git' | 'index' | 'zip' | 'remote' | 'add' | 'refresh' | 'remove', repo?: plugins.Repository) => {

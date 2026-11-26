@@ -63,6 +63,31 @@ describe('PluginRepositories', () => {
     expect(screen.queryByText('first')).toBeNull();
   });
 
+  it('publishes a completed refresh after the store form closes', async () => {
+    let finish!: () => void;
+    mocks.refresh.mockImplementationOnce(() => new Promise<void>(resolve => {finish=resolve;}));
+    const stale={...repo,updated:'2000-01-01T00:00:00Z'};
+    mocks.list.mockResolvedValueOnce([stale]).mockResolvedValue([{...repo,origin:'updated-folder'}]);
+    const user=userEvent.setup();
+    render(<PluginRepositories session="modal-refresh" catalog={false} onPreview={vi.fn()} />);
+    await waitFor(()=>expect(finish).toBeDefined());
+    await user.click(screen.getByRole('button',{name:'plugins.addRepo'}));
+    await act(async()=>finish());
+    await user.keyboard('{Escape}');
+    expect(await screen.findByText('updated-folder')).toBeVisible();
+  });
+
+  it('retries the listing after the store was refreshed successfully', async () => {
+    const stale={...repo,updated:'2000-01-01T00:00:00Z'};
+    mocks.list.mockResolvedValueOnce([stale]).mockRejectedValueOnce(new Error('unavailable')).mockResolvedValue([{...repo,origin:'retry-result'}]);
+    mocks.refresh.mockClear().mockResolvedValueOnce(undefined);
+    render(<PluginRepositories session="retry-list" catalog={false} onPreview={vi.fn()} />);
+    expect(await screen.findByText('plugins.catalogOffline')).toBeVisible();
+    await act(async()=>{window.dispatchEvent(new Event('focus'));});
+    expect(await screen.findByText('retry-result')).toBeVisible();
+    expect(mocks.refresh).toHaveBeenCalledTimes(1);
+  });
+
   it('scopes the vault choice to the address in the form', async () => {
     mocks.list.mockResolvedValue([]);
     const user = userEvent.setup();

@@ -238,6 +238,41 @@ type storeRoundTripFunc func(*http.Request) (*http.Response, error)
 
 func (f storeRoundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
 
+func TestRedirectedZIPDoesNotReuseAnotherResourcesValidator(t *testing.T) {
+	var archive bytes.Buffer
+	writer := zip.NewWriter(&archive)
+	if _, err := writer.Create("data"); err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/latest" {
+			http.Redirect(w, r, "/new.zip", http.StatusFound)
+			return
+		}
+		if r.Header.Get("If-None-Match") != "" || r.Header.Get("If-Modified-Since") != "" {
+			t.Error("validator forwarded")
+			w.WriteHeader(304)
+			return
+		}
+		w.Header().Set("ETag", `"v1"`)
+		_, _ = w.Write(archive.Bytes())
+	}))
+	defer server.Close()
+	inventory := NewInventory(nil).WithRemoteClient(func(string) *httpclient.Client {
+		client := RepositoryHTTPClient(nil, "", nil)
+		client.GetBaseClient().Transport = server.Client().Transport
+		return client
+	}, nil)
+	cache := repositoryValidators{etag: `"v1"`, root: "old"}
+	snap, digest, err := inventory.download(database.WithUserID(context.Background(), "owner"), server.URL+"/latest", "", false, &cache)
+	if err != nil || snap == nil || digest == "old" || cache.etag != "" {
+		t.Fatal(digest, cache, err)
+	}
+}
+
 func TestRemoteStoreDefaultPortPersistsAcrossOperations(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open(filepath.Join(t.TempDir(), "port.db")), &gorm.Config{})
 	if err != nil {
