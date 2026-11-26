@@ -4469,7 +4469,7 @@ notSaved: 'La decisión vale solo para esta operación: no se pudo recordar. Ser
       activeStatus: 'Abierto',
       inactiveStatus: 'No está en uso',
       remove: 'Eliminar espacio de trabajo',
-      removeConfirmation: '¿Eliminar el espacio “{{name}}”? Solo se eliminará su archivo de espacio de trabajo. Se conservarán las conversaciones y los demás archivos del paquete.',
+      removeConfirmation: '¿Eliminar el espacio “{{name}}”? Solo se eliminará su archivo de espacio de trabajo. Se conservarán las conversaciones y los demás archivos de la carpeta.',
       directory: 'Carpeta del espacio de trabajo',
       createInDirectory: 'Crear espacio de trabajo',
       noTabs: 'Ninguna pestaña abierta',
