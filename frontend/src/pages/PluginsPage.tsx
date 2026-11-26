@@ -400,8 +400,8 @@ function InstalledPlugins({ session }: { session: string }) {
         const request = listRequests.get(key) ?? crypto.randomUUID();
         listRequests.set(key, request);
         await CreateListFromTemplate(installation.id, installation.digest, component.key, request);
+        if (listRequests.get(key) === request) listRequests.delete(key);
         if (mounted.current) {
-          if (listRequests.get(key) === request) listRequests.delete(key);
           setCreatedList(component.name);
           announce(t('plugins.createdList', { name: component.name }));
         }
