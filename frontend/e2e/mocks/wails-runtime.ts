@@ -1077,6 +1077,7 @@ export function buildWailsMockScript(): string {
       TasklistActions: makeProxy('wailsapi.TasklistActions'),
       Conversations: makeProxy('wailsapi.Conversations'),
       Speech: makeProxy('wailsapi.Speech'),
+      Plugins: makeProxy('wailsapi.Plugins'),
       Jobs: makeProxy('wailsapi.Jobs'),
       LLMCatalog: makeProxy('wailsapi.LLMCatalog'),
       LLMProviders: makeProxy('wailsapi.LLMProviders'),
