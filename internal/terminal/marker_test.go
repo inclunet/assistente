@@ -472,6 +472,42 @@ func TestPowerShellSplitRedrawDoesNotLeakControlBytes(t *testing.T) {
 	}
 }
 
+func TestConPTYFooterWithoutStartLineBreak(t *testing.T) {
+	m := newCommandMarkerForShell("powershell")
+	m.conPTY = true
+	for _, body := range []string{"", "  \t", strings.Repeat(" ", 1024)} {
+		wire := m.startTag + body + m.endTag + "-7!"
+		for split := 0; split < len(wire); split++ {
+			stream := newMarkerStream(m)
+			first, early := stream.append(wire[:split])
+			last, result := stream.append(wire[split:] + "prompt")
+			if early.Found || !result.Found || result.ExitCode != -7 || result.Output != body || string(first)+string(last) != body || result.afterFooter != "prompt" {
+				t.Fatalf("corte %d, corpo de %d bytes: cedo=%t resultado=%+v", split, len(body), early.Found, result)
+			}
+		}
+	}
+	for _, status := range []string{"", "0", "bad!", "++1!", "1 2!", "9999999999999999999999!"} {
+		stream := newMarkerStream(m)
+		_, result := stream.append(m.startTag + m.endTag + status)
+		if stream.started || result.Found {
+			t.Fatalf("status incompleto ou inválido aceito: %q", status)
+		}
+	}
+	for _, tc := range []struct {
+		conPTY bool
+		body   string
+	}{
+		{false, ""}, {true, "texto"}, {true, " ' + ' "},
+	} {
+		m.conPTY = tc.conPTY
+		stream := newMarkerStream(m)
+		_, result := stream.append(m.startTag + tc.body + m.endTag + "0!")
+		if stream.started || result.Found {
+			t.Fatalf("enquadramento indevido: ConPTY=%t corpo=%q", tc.conPTY, tc.body)
+		}
+	}
+}
+
 func TestConPTYRedrawAtStartMarkerPreservesBodyAcrossReads(t *testing.T) {
 	m := newCommandMarkerForShell("powershell")
 	m.conPTY = true
@@ -895,8 +931,9 @@ func BenchmarkMarkerStreamScale(b *testing.B) {
 
 func TestPowerShellProbeIgnoresUnframedReply(t *testing.T) {
 	m := newCommandMarkerForShell("powershell")
+	m.probeInterrupt = make(chan struct{})
 	for _, code := range []int{0, 1} {
-		wire := m.endTag + "!\n" + m.startTag + "\n" + m.endTag + strconv.Itoa(code) + "!"
+		wire := m.endTag + "!\n" + m.startTag + m.endTag + strconv.Itoa(code) + "!"
 		for split := 0; split < len(wire); split++ {
 			stream := newMarkerStream(m)
 			stream.append(wire[:split])
@@ -904,6 +941,43 @@ func TestPowerShellProbeIgnoresUnframedReply(t *testing.T) {
 			if !got.Found || got.ExitCode != code || got.Output != "" {
 				t.Fatalf("corte %d: %+v", split, got)
 			}
+		}
+	}
+}
+
+func TestPowerShellProbeReadsContiguousMarkersAcrossChunks(t *testing.T) {
+	m := newCommandMarkerForShell("powershell")
+	m.conPTY = true
+	m.probeInterrupt = make(chan struct{})
+	for _, code := range []string{"0", "1"} {
+		reply := m.startTag + m.endTag + code + markerStatusTerminator
+		for split := 0; split < len(reply); split++ {
+			stream := newMarkerStream(m)
+			_, partial := stream.append(m.endTag + "1!" + m.startTag + "ruído" + m.endTag + "0!" + reply[:split])
+			if partial.Found {
+				t.Fatalf("resposta incompleta aceita no corte %d", split)
+			}
+			_, result := stream.append(reply[split:])
+			if !result.Found || strconv.Itoa(result.ExitCode) != code || result.Output != "" {
+				t.Fatalf("status %s corte %d: %+v", code, split, result)
+			}
+		}
+	}
+}
+
+func TestPowerShellProbeAcrossConPTYMargin(t *testing.T) {
+	m := newCommandMarkerForShell("powershell")
+	m.conPTY = true
+	m.probeInterrupt = make(chan struct{})
+	m.viewportColumns = len(m.startTag)
+	raw := m.startTag + "\r\n\x1b[2;" + strconv.Itoa(m.viewportColumns) + "H_" + m.endTag + "0!"
+	for split := 0; split < len(raw); split++ {
+		stream := newMarkerStream(m)
+		if _, early := stream.append(raw[:split]); early.Found {
+			t.Fatalf("resposta antes do terminador, corte %d", split)
+		}
+		if _, result := stream.append(raw[split:]); !result.Found || result.ExitCode != 0 || result.Output != "" {
+			t.Fatalf("redesenho na margem, corte %d: %+v", split, result)
 		}
 	}
 }
