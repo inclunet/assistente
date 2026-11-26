@@ -163,6 +163,7 @@ func toDBModel(p *llm.ProviderConfig) *database.LLMProvider {
 		BaseURL:                   p.BaseURL,
 		Model:                     p.Model,
 		DefaultModel:              p.DefaultModel,
+		RequiresExplicitDefault:   p.RequiresExplicitDefault,
 		IsDefault:                 p.IsDefault,
 		Timeout:                   p.Timeout,
 		StreamIdleTimeoutSeconds:  p.StreamIdleTimeoutSeconds,
@@ -204,6 +205,7 @@ func fromDBModel(dbP *database.LLMProvider) (*llm.ProviderConfig, error) {
 		BaseURL:                   dbP.BaseURL,
 		Model:                     dbP.Model,
 		DefaultModel:              dbP.DefaultModel,
+		RequiresExplicitDefault:   dbP.RequiresExplicitDefault,
 		IsDefault:                 dbP.IsDefault,
 		Timeout:                   dbP.Timeout,
 		StreamIdleTimeoutSeconds:  dbP.StreamIdleTimeoutSeconds,
@@ -279,23 +281,28 @@ func (s *DBStore) Delete(ctx context.Context, id string) error {
 		return err
 	}
 	return database.DB().WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		repository := database.NewProviderRepository(tx)
-		current, err := repository.GetLLMProvider(ctx, id)
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil
-		}
-		if err != nil {
-			return err
-		}
-		protected, err := hasProtectedOAuthConsumer(tx, *current)
-		if err != nil {
-			return err
-		}
-		if protected {
-			return oauthflow.ErrConflict
-		}
-		return repository.DeleteLLMProvider(ctx, id)
+		return DeleteNativeProviderTx(ctx, tx, id)
 	})
+}
+
+// DeleteNativeProviderTx preserva as proteções do cofre em uma transação do chamador.
+func DeleteNativeProviderTx(ctx context.Context, tx *gorm.DB, id string) error {
+	repository := database.NewProviderRepository(tx)
+	current, err := repository.GetLLMProvider(ctx, id)
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	protected, err := hasProtectedOAuthConsumer(tx, *current)
+	if err != nil {
+		return err
+	}
+	if protected {
+		return oauthflow.ErrConflict
+	}
+	return repository.DeleteLLMProvider(ctx, id)
 }
 
 func hasProtectedOAuthConsumer(tx *gorm.DB, current database.LLMProvider) (bool, error) {

@@ -40,9 +40,13 @@ export function PreviewLocal():Promise<wailsapi.PluginPreview>;
 
 export function PreviewRepositoryEntry(arg1:string,arg2:string,arg3:string,arg4:string):Promise<wailsapi.PluginPreview>;
 
+export function ProviderRemovalPreview(arg1:string,arg2:string):Promise<Record<string, string>>;
+
 export function RefreshRepository(arg1:string,arg2:string):Promise<void>;
 
 export function RegisterMCP(arg1:string,arg2:string,arg3:string):Promise<void>;
+
+export function RegisterProvider(arg1:string,arg2:string,arg3:string):Promise<void>;
 
 export function RemoveMCP(arg1:string,arg2:string,arg3:string,arg4:boolean):Promise<void>;
 
@@ -57,3 +61,5 @@ export function SetSkillActive(arg1:string,arg2:string,arg3:string,arg4:boolean)
 export function SyncMCP(arg1:string):Promise<void>;
 
 export function SyncPendingJobs(arg1:string):Promise<void>;
+
+export function UninstallReviewed(arg1:string,arg2:string,arg3:string,arg4:Record<string, string>):Promise<void>;

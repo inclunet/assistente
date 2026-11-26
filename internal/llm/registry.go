@@ -234,3 +234,16 @@ func (r *ProviderRegistry) SetDefaultGeneration(id string, generation uint64) er
 	}
 	return nil
 }
+
+// ForgetGeneration retira as instâncias após a exclusão persistida. Clear já
+// removeu toda a geração anterior quando a sessão muda durante a operação.
+func (r *ProviderRegistry) ForgetGeneration(ids []string, generation uint64) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.generation != generation {
+		return
+	}
+	for _, id := range ids {
+		delete(r.providers, id)
+	}
+}

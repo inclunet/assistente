@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { act, render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { axe } from 'vitest-axe';
 import PluginsPage from './PluginsPage';
@@ -7,20 +7,21 @@ import { useWorkspaceStore } from '../store/workspaceStore';
 import { useAuthStore } from '../store/authStore';
 import * as navigation from '../lib/commandLandmarkNavigation';
 
-const mocks = vi.hoisted(() => ({ prepareJob: vi.fn(), syncJobs: vi.fn().mockResolvedValue(undefined), profile: vi.fn(), createList: vi.fn(), repos: vi.fn(), catalogPreview: vi.fn(), lifecycle: vi.fn(), sync: vi.fn(), register: vi.fn(), remove: vi.fn(), confirm: vi.fn(), list: vi.fn(), components: vi.fn(), toggle: vi.fn(), preview: vi.fn(), install: vi.fn(), discard: vi.fn(), announce: vi.fn(), announceRequest: vi.fn() }));
+const mocks = vi.hoisted(() => ({ providerRemovalPreview: vi.fn(), uninstallReviewed: vi.fn(), registerProvider: vi.fn(), prepareJob: vi.fn(), syncJobs: vi.fn().mockResolvedValue(undefined), profile: vi.fn(), createList: vi.fn(), repos: vi.fn(), catalogPreview: vi.fn(), lifecycle: vi.fn(), sync: vi.fn(), register: vi.fn(), remove: vi.fn(), confirm: vi.fn(), list: vi.fn(), components: vi.fn(), toggle: vi.fn(), preview: vi.fn(), install: vi.fn(), discard: vi.fn(), announce: vi.fn(), announceRequest: vi.fn() }));
 vi.mock('@wailsjs/go/wailsapi/Tasklist', () => ({GetAllTaskLists: async () => []}));
-vi.mock('@wailsjs/go/wailsapi/Plugins', () => ({ BuilderProviderSlugs: async () => ['equipe'], BuilderJobNames: async () => [], BuilderProfileNames: async () => ({names:[],partial:false}), BuilderSkillNames: async () => ({names:[],partial:false}), CreateListFromTemplate: mocks.createList, ListRepositories: mocks.repos, PreviewRepositoryEntry: mocks.catalogPreview, ChangeInstallation: mocks.lifecycle, PrepareJob: mocks.prepareJob, SyncPendingJobs: mocks.syncJobs, SyncMCP: mocks.sync, RegisterMCP: mocks.register, RemoveMCP: mocks.remove, InstalledComponents: mocks.components, SetProfileActive: mocks.profile, SetSkillActive: mocks.toggle, DiscardPreview: mocks.discard, ListInstalled: mocks.list, PreviewLocal: mocks.preview, InstallReviewed: mocks.install }));
+vi.mock('@wailsjs/go/wailsapi/Plugins', () => ({ BuilderProviderSlugs: async () => ['equipe'], BuilderJobNames: async () => [], BuilderProfileNames: async () => ({names:[],partial:false}), BuilderSkillNames: async () => ({names:[],partial:false}), CreateListFromTemplate: mocks.createList, ListRepositories: mocks.repos, PreviewRepositoryEntry: mocks.catalogPreview, ChangeInstallation: mocks.lifecycle, PrepareJob: mocks.prepareJob, SyncPendingJobs: mocks.syncJobs, SyncMCP: mocks.sync, ProviderRemovalPreview: mocks.providerRemovalPreview, UninstallReviewed: mocks.uninstallReviewed, RegisterProvider: mocks.registerProvider, RegisterMCP: mocks.register, RemoveMCP: mocks.remove, InstalledComponents: mocks.components, SetProfileActive: mocks.profile, SetSkillActive: mocks.toggle, DiscardPreview: mocks.discard, ListInstalled: mocks.list, PreviewLocal: mocks.preview, InstallReviewed: mocks.install }));
 vi.mock('../hooks/useConfirm', () => ({ useConfirm: () => mocks.confirm }));
 vi.mock('../store/authStore', async importOriginal => {
   const actual = await importOriginal<typeof import('../store/authStore')>();
   return { ...actual, useAuthStore: Object.assign(() => 'session', actual.useAuthStore) };
 });
 vi.mock('../hooks/useAnnouncer', () => ({ announce: mocks.announce, useAnnouncer: () => ({ announce: mocks.announce, announceRequest: mocks.announceRequest }) }));
-vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string, options?: {name?: string; limit?: number}) => key === 'plugins.jobRate' ? key + ' ' + options?.limit : ['plugins.registerServer','plugins.keepServer','plugins.removeServer'].includes(key) ? key + ' ' + options?.name : key }) }));
+vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string, options?: {name?: string; limit?: number}) => key === 'plugins.jobRate' ? key + ' ' + options?.limit : ['plugins.registerProvider','plugins.registerServer','plugins.keepServer','plugins.removeServer'].includes(key) ? key + ' ' + options?.name : key }) }));
 
 describe('PluginsPage', () => {
   beforeEach(() => {
     vi.resetAllMocks();
+    mocks.providerRemovalPreview.mockResolvedValue({});
     mocks.lifecycle.mockResolvedValue(undefined);
     mocks.list.mockResolvedValue([]);
     mocks.preview.mockResolvedValue({ token: 'reviewed', name: 'demo', origin: 'local', digest: '123', files: ['plugin.json'], diagnostics: [] });
@@ -297,6 +298,55 @@ describe('PluginsPage', () => {
     expect(mocks.sync).toHaveBeenCalledOnce();
   });
 
+  it('confirma o endereço antes de cadastrar o provedor da revisão selecionada', async () => {
+    const user = userEvent.setup();
+    mocks.list.mockResolvedValue([{ id: 'one', name: 'Demo', digest: 'sha' }]);
+    const provider = { kind: 'provider', key: 'providers/equipe', name: 'Equipe', slug: 'equipe', endpoint: 'https://equipe.example/v1' };
+    mocks.components.mockResolvedValue([provider]);
+    mocks.confirm.mockResolvedValueOnce(false).mockResolvedValueOnce(true);
+    render(<PluginsPage />);
+    (await screen.findByRole('gridcell', { name: /Demo/ })).focus();
+    await user.keyboard('{Enter}');
+    const register = await screen.findByRole('button', { name: 'plugins.registerProvider Equipe' });
+    await user.click(register);
+    expect(mocks.confirm.mock.calls[0][0].message).toContain(provider.endpoint);
+    expect(mocks.registerProvider).not.toHaveBeenCalled();
+    await user.click(register);
+    expect(mocks.registerProvider).toHaveBeenCalledWith('one', 'sha', provider.key);
+  });
+
+  it('permite sincronizar um provedor cadastrado após reabrir os detalhes', async () => {
+    const user = userEvent.setup();
+    mocks.list.mockResolvedValue([{ id: 'one', name: 'Demo', digest: 'sha' }]);
+    mocks.components.mockResolvedValue([{ kind:'provider', active:true, key:'providers/equipe', name:'Equipe', endpoint:'https://equipe.example/v1' }]);
+    mocks.confirm.mockResolvedValue(true);
+    render(<PluginsPage />);
+    (await screen.findByRole('gridcell', { name: /Demo/ })).focus();
+    await user.keyboard('{Enter}');
+    await user.click(await screen.findByRole('button', {name:'plugins.syncProvider'}));
+    expect(mocks.confirm.mock.calls[0][0].message).toBe('plugins.syncLocalProvider');
+    expect(mocks.registerProvider).toHaveBeenCalledWith('one','sha','providers/equipe');
+  });
+
+  it.each(['cancel','detach','remove'] as const)('respeita a escolha %s ao desinstalar com provedor', async choice => {
+    const user = userEvent.setup();
+    mocks.list.mockResolvedValue([{id:'one',name:'Demo',digest:'sha'}]);
+    mocks.components.mockResolvedValue([]);
+    mocks.providerRemovalPreview.mockResolvedValue({equipe:'rev-local'});
+    render(<PluginsPage />);
+    (await screen.findByRole('gridcell',{name:/Demo/})).focus();
+    await user.keyboard('{Enter}');
+    await user.click(await screen.findByRole('button',{name:'plugins.uninstall'}));
+    const dialog = await screen.findByRole('alertdialog');
+    expect(dialog).toBeVisible();
+    expect(mocks.uninstallReviewed).not.toHaveBeenCalled();
+    const label = {cancel:'common.cancel',detach:'plugins.detachProviders',remove:'plugins.removeProviders'}[choice];
+    await user.click(within(dialog).getByRole('button',{name:label}));
+    expect(mocks.lifecycle).not.toHaveBeenCalled();
+    if(choice==='cancel') expect(mocks.uninstallReviewed).not.toHaveBeenCalled();
+    else expect(mocks.uninstallReviewed).toHaveBeenCalledWith('one','sha',choice,{equipe:'rev-local'});
+  });
+
   it('registers an MCP and preserves the native configuration only after confirmation', async () => {
     const user = userEvent.setup();
     mocks.list.mockResolvedValue([{ id: 'one', name: 'Demo', digest: 'sha' }]);
@@ -345,13 +395,14 @@ describe('PluginsPage', () => {
     const user = userEvent.setup();
     mocks.list.mockResolvedValue([{ id: 'one', name: 'Demo', digest: 'sha' }]);
     const server = { kind: 'mcp', key: 'mcp/search', name: 'search', endpoint: 'https://example.org/mcp' };
-    mocks.components.mockResolvedValueOnce([server]).mockRejectedValueOnce(new Error('read')).mockResolvedValueOnce([{ ...server, active: true }]);
+    mocks.components.mockResolvedValueOnce([server,{kind:'provider',key:'providers/equipe',name:'Equipe',endpoint:'https://equipe.example'}]).mockRejectedValueOnce(new Error('read')).mockResolvedValueOnce([{ ...server, active: true }]);
     mocks.register.mockRejectedValueOnce(new Error('PLUGIN_MCP_SYNC_PENDING'));
     render(<PluginsPage />);
     (await screen.findByRole('gridcell', { name: /Demo/ })).focus();
     await user.keyboard('{Enter}');
     await user.click(await screen.findByRole('button', { name: 'plugins.registerServer search' }));
     expect(await screen.findByText('plugins.syncPendingStale')).toBeInTheDocument();
+    expect(screen.getByRole('button', {name:'plugins.registerProvider Equipe'})).toBeDisabled();
     const retry = screen.getByRole('button', { name: 'plugins.retrySync' });
     mocks.sync.mockRejectedValueOnce(new Error('offline'));
     await user.click(retry);

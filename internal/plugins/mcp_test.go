@@ -24,7 +24,7 @@ func TestPackagedMCPLifecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = sqlDB.Close() })
-	if err := db.AutoMigrate(&database.PluginInstallation{}, &database.PluginRevision{}, &database.PluginSkillActivation{}, &database.PluginProfileActivation{}, &database.Job{}, &database.PluginMCPBinding{}, &database.MCPServer{}, &database.MCPServerLog{}, &database.ToolCatalog{}); err != nil {
+	if err := db.AutoMigrate(&database.PluginInstallation{}, &database.PluginRevision{}, &database.PluginSkillActivation{}, &database.PluginProfileActivation{}, &database.Job{}, &database.PluginProviderBinding{}, &database.LLMProvider{}, &database.PluginMCPBinding{}, &database.MCPServer{}, &database.MCPServerLog{}, &database.ToolCatalog{}); err != nil {
 		t.Fatal(err)
 	}
 	pkg := t.TempDir()
@@ -188,7 +188,7 @@ func TestRegisterMCPRefusesPreviewOnlyEndpoints(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = conn.Close() })
-	if err := db.AutoMigrate(&database.PluginInstallation{}, &database.PluginRevision{}, &database.PluginMCPBinding{}, &database.MCPServer{}); err != nil {
+	if err := db.AutoMigrate(&database.PluginInstallation{}, &database.PluginRevision{}, &database.PluginProviderBinding{}, &database.LLMProvider{}, &database.PluginMCPBinding{}, &database.MCPServer{}); err != nil {
 		t.Fatal(err)
 	}
 	pkg := t.TempDir()
@@ -215,7 +215,7 @@ func TestRegisterMCPRefusesPreviewOnlyEndpoints(t *testing.T) {
 			t.Errorf("register %s: %v", key, err)
 		}
 	}
-	for _, model := range []any{&database.PluginMCPBinding{}, &database.MCPServer{}} {
+	for _, model := range []any{&database.PluginProviderBinding{}, &database.LLMProvider{}, &database.PluginMCPBinding{}, &database.MCPServer{}} {
 		var count int64
 		if err := db.Model(model).Count(&count).Error; err != nil || count != 0 {
 			t.Errorf("%T: %d, %v", model, count, err)

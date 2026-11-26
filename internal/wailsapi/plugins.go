@@ -286,6 +286,27 @@ func (api *Plugins) InstalledComponents(id, digest string) ([]plugins.Component,
 	})
 }
 
+func (api *Plugins) ProviderRemovalPreview(id, digest string) (map[string]string, error) {
+	session, inventory, _, capture, err := api.wired()
+	if err != nil {
+		return nil, err
+	}
+	return WithUser(session, func(ctx context.Context) (map[string]string, error) {
+		admit, err := capture(ctx)
+		if err != nil {
+			return nil, err
+		}
+		rows, err := inventory.ProviderRemovalPreview(ctx, id, digest)
+		if err != nil {
+			return nil, err
+		}
+		if err := admit.Check(); err != nil {
+			return nil, err
+		}
+		return rows, nil
+	})
+}
+
 func (api *Plugins) mutateComponent(apply func(context.Context, *plugins.Inventory, commandsecurity.Admission) error) error {
 	session, inventory, _, capture, err := api.wired()
 	if err != nil {
@@ -320,6 +341,12 @@ func (api *Plugins) SetSkillActive(id, digest, key string, active bool) error {
 	return err
 }
 
+func (api *Plugins) RegisterProvider(id, digest, key string) error {
+	return api.mutateComponent(func(ctx context.Context, i *plugins.Inventory, admit commandsecurity.Admission) error {
+		return i.RegisterProvider(ctx, id, digest, key, admit)
+	})
+}
+
 func (api *Plugins) RegisterMCP(id, digest, key string) error {
 	return api.mutateComponent(func(ctx context.Context, i *plugins.Inventory, admit commandsecurity.Admission) error {
 		return i.RegisterMCP(ctx, id, digest, key, admit)
@@ -347,6 +374,16 @@ func (api *Plugins) SyncMCP(expectedSession string) error {
 		}
 		return i.SyncMCP(ctx, admit)
 	})
+}
+
+func (api *Plugins) UninstallReviewed(id, digest, choice string, reviewed map[string]string) error {
+	err := api.mutateComponent(func(ctx context.Context, i *plugins.Inventory, admit commandsecurity.Admission) error {
+		return i.UninstallReviewed(ctx, id, digest, choice, reviewed, admit)
+	})
+	if pluginChangeCommitted(err) || errors.Is(err, plugins.ErrProviderSyncPending) {
+		api.notifySkillsChanged()
+	}
+	return err
 }
 
 func (api *Plugins) ChangeInstallation(id, digest, action string) error {

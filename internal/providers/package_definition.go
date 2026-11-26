@@ -1,9 +1,12 @@
 package providers
 
 import (
+	"assistente/internal/commandsecurity"
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
+	"gorm.io/gorm"
 	"io"
 	"net/url"
 	"strings"
@@ -90,4 +93,54 @@ func ReadPackageDefinition(raw []byte, slug string) (*llm.ProviderConfig, error)
 		return nil, ErrPackageDefinition
 	}
 	return &p, nil
+}
+
+// InsertPackageDefinition grava a configuração já revisada na transação da instalação.
+func InsertPackageDefinition(ctx context.Context, tx *gorm.DB, p llm.ProviderConfig, id string) error {
+	p.ID = id
+	p.RequiresExplicitDefault = true
+	if !p.IsACP() && p.EffectiveAuthMode() != llm.AuthModeNone {
+		p.CredentialPattern = "provider:" + id
+	}
+	return database.SaveLLMProviderTx(ctx, tx, toDBModel(&p))
+}
+
+// RefreshPackagedProvider publica o cadastro no registro da sessão que o instalou.
+func (s *Service) RefreshPackagedProvider(ctx context.Context, id string, admit commandsecurity.Admission) error {
+	if admit == nil {
+		return database.ErrUserScopeRequired
+	}
+	generation := s.registry.Generation()
+	s.publicationMu.Lock()
+	defer s.publicationMu.Unlock()
+	p, err := s.store.Get(ctx, id)
+	if err != nil {
+		return err
+	}
+	if p == nil {
+		return gorm.ErrRecordNotFound
+	}
+	return admit(nil, func() error {
+		return s.registry.WithGeneration(generation, func() error {
+			err := s.registry.RegisterGeneration(p, generation)
+			if errors.Is(err, llm.ErrInsecureHTTPAuthorizationRequired) {
+				return s.registry.RegisterPendingAuthorization(p)
+			}
+			return err
+		})
+	})
+}
+
+// RemovePackagedProviders serializa a gravação e a publicação com as edições
+// nativas. Depois do commit basta remover as instâncias da geração capturada.
+func (s *Service) RemovePackagedProviders(commit func() ([]string, error)) error {
+	s.publicationMu.Lock()
+	defer s.publicationMu.Unlock()
+	generation := s.registry.Generation()
+	ids, err := commit()
+	if err != nil {
+		return err
+	}
+	s.registry.ForgetGeneration(ids, generation)
+	return nil
 }

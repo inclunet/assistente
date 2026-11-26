@@ -74,12 +74,20 @@ export function PreviewRepositoryEntry(arg1, arg2, arg3, arg4) {
   return window['go']['wailsapi']['Plugins']['PreviewRepositoryEntry'](arg1, arg2, arg3, arg4);
 }
 
+export function ProviderRemovalPreview(arg1, arg2) {
+  return window['go']['wailsapi']['Plugins']['ProviderRemovalPreview'](arg1, arg2);
+}
+
 export function RefreshRepository(arg1, arg2) {
   return window['go']['wailsapi']['Plugins']['RefreshRepository'](arg1, arg2);
 }
 
 export function RegisterMCP(arg1, arg2, arg3) {
   return window['go']['wailsapi']['Plugins']['RegisterMCP'](arg1, arg2, arg3);
+}
+
+export function RegisterProvider(arg1, arg2, arg3) {
+  return window['go']['wailsapi']['Plugins']['RegisterProvider'](arg1, arg2, arg3);
 }
 
 export function RemoveMCP(arg1, arg2, arg3, arg4) {
@@ -108,4 +116,8 @@ export function SyncMCP(arg1) {
 
 export function SyncPendingJobs(arg1) {
   return window['go']['wailsapi']['Plugins']['SyncPendingJobs'](arg1);
+}
+
+export function UninstallReviewed(arg1, arg2, arg3, arg4) {
+  return window['go']['wailsapi']['Plugins']['UninstallReviewed'](arg1, arg2, arg3, arg4);
 }

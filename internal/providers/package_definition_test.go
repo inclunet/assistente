@@ -46,3 +46,78 @@ func TestPackageProviderUsesNativeConfigurationValidation(t *testing.T) {
 	}
 
 }
+
+func TestPackagedProviderStaysExplicitAfterReload(t *testing.T) {
+	store := NewMemoryStore()
+	p := &llm.ProviderConfig{ID: "instancia", Name: "Equipe", BaseURL: "https://equipe.example/v1", Type: "openai", RequiresExplicitDefault: true}
+	if err := store.Save(t.Context(), []*llm.ProviderConfig{p}); err != nil {
+		t.Fatal(err)
+	}
+	svc := NewService(ServiceConfig{Store: store, Registry: llm.NewProviderRegistry()})
+	if err := svc.Load(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.Update(t.Context(), p.ID, UpdateRequest{Name: "Equipe nova"}); err != nil {
+		t.Fatal(err)
+	}
+	updated := svc.registry.Get(p.ID)
+	if updated == nil || !updated.RequiresExplicitDefault {
+		t.Fatal("edição tornou provedor elegível a padrão automático")
+	}
+	for _, skip := range []bool{false, true} {
+		svc.skipBootRepairs = skip
+		def, err := svc.profileDefaultProvider(t.Context())
+		if err != nil || def != nil {
+			t.Fatalf("padrão implícito: %+v %v", def, err)
+		}
+	}
+	if err := store.SetDefault(t.Context(), p.ID); err != nil {
+		t.Fatal(err)
+	}
+	def, err := svc.profileDefaultProvider(t.Context())
+	if err != nil || def == nil || def.ID != p.ID {
+		t.Fatalf("escolha explícita: %+v %v", def, err)
+	}
+}
+
+func TestRemovePackagedProviderSerializesConcurrentEdit(t *testing.T) {
+	ctx := t.Context()
+	store := NewMemoryStore()
+	p := &llm.ProviderConfig{ID: "local-id", Name: "Original", Type: "openai", BaseURL: "https://example.test/v1", RequiresExplicitDefault: true}
+	if err := store.Save(ctx, []*llm.ProviderConfig{p}); err != nil {
+		t.Fatal(err)
+	}
+	svc := NewService(ServiceConfig{Store: store, Registry: llm.NewProviderRegistry()})
+	if err := svc.Load(ctx); err != nil {
+		t.Fatal(err)
+	}
+	started := make(chan struct{})
+	edited := make(chan error, 1)
+	err := svc.RemovePackagedProviders(func() ([]string, error) {
+		if err := store.Delete(ctx, p.ID); err != nil {
+			return nil, err
+		}
+		go func() {
+			close(started)
+			_, err := svc.Update(ctx, p.ID, UpdateRequest{Name: "Edição concorrente"})
+			edited <- err
+		}()
+		<-started
+		return []string{p.ID}, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := <-edited; err == nil {
+		t.Fatal("edição recriou o cadastro removido")
+	}
+	if svc.registry.Get(p.ID) != nil {
+		t.Fatal("provedor removido ficou no registro")
+	}
+	if err := svc.Save(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if rows, err := store.Load(ctx); err != nil || len(rows) != 0 {
+		t.Fatal(rows, err)
+	}
+}

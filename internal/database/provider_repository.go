@@ -47,7 +47,13 @@ func SaveLLMProviderWithContext(ctx context.Context, provider *LLMProvider) erro
 // fail-open silencioso (provider.UserID ficava em branco e gravava órfão).
 // Defesa em camadas: o caller providers.DBStore.Save também valida.
 func (r *ProviderRepository) SaveLLMProvider(ctx context.Context, provider *LLMProvider) error {
-	db := r.db
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		return SaveLLMProviderTx(ctx, tx, provider)
+	})
+}
+
+// SaveLLMProviderTx usa a transação do chamador para validar e salvar o cadastro nativo.
+func SaveLLMProviderTx(ctx context.Context, tx *gorm.DB, provider *LLMProvider) error {
 	if err := RequireUserIDOrBootstrap(ctx); err != nil {
 		return err
 	}
@@ -62,41 +68,41 @@ func (r *ProviderRepository) SaveLLMProvider(ctx context.Context, provider *LLMP
 			provider.UserID = userID
 		}
 	}
-	return db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		var existing LLMProvider
-		err := tx.First(&existing, "id = ?", provider.ID).Error
-		switch {
-		case err == nil:
-			// SECURITY (AEP-0052 / fail-closed): impedir que o Save (UPSERT por
-			// PK) sobrescreva provider de outro usuário ao reutilizar seu ID.
-			if userID, ok := UserIDFromContext(ctx); existing.UserID != "" && (!ok || existing.UserID != userID) {
-				return ErrProviderCrossUser
-			}
-			if existing.Slug != "" {
-				if provider.Slug != "" && provider.Slug != existing.Slug {
-					return errors.New("slug de provedor não pode ser alterado")
-				}
-				provider.Slug = existing.Slug
-			}
-			provider.CompatibilityRevision = existing.CompatibilityRevision
-			if provider.CompatibilityRevision < 1 {
-				provider.CompatibilityRevision = 1
-			}
-			if providerCompatibilityChanged(&existing, provider) {
-				provider.CompatibilityRevision++
-			}
-		case errors.Is(err, gorm.ErrRecordNotFound):
-			if provider.CompatibilityRevision < 1 {
-				provider.CompatibilityRevision = 1
-			}
-		default:
-			return err
+
+	var existing LLMProvider
+	err := tx.First(&existing, "id = ?", provider.ID).Error
+	switch {
+	case err == nil:
+		// SECURITY (AEP-0052 / fail-closed): impedir que o Save (UPSERT por
+		// PK) sobrescreva provider de outro usuário ao reutilizar seu ID.
+		if userID, ok := UserIDFromContext(ctx); existing.UserID != "" && (!ok || existing.UserID != userID) {
+			return ErrProviderCrossUser
 		}
-		if err := prepareProviderSlug(tx, provider); err != nil {
-			return err
+		if existing.Slug != "" {
+			if provider.Slug != "" && provider.Slug != existing.Slug {
+				return errors.New("slug de provedor não pode ser alterado")
+			}
+			provider.Slug = existing.Slug
 		}
-		return tx.Save(provider).Error
-	})
+		provider.RequiresExplicitDefault = existing.RequiresExplicitDefault
+		provider.CompatibilityRevision = existing.CompatibilityRevision
+		if provider.CompatibilityRevision < 1 {
+			provider.CompatibilityRevision = 1
+		}
+		if providerCompatibilityChanged(&existing, provider) {
+			provider.CompatibilityRevision++
+		}
+	case errors.Is(err, gorm.ErrRecordNotFound):
+		if provider.CompatibilityRevision < 1 {
+			provider.CompatibilityRevision = 1
+		}
+	default:
+		return err
+	}
+	if err := prepareProviderSlug(tx, provider); err != nil {
+		return err
+	}
+	return tx.Save(provider).Error
 }
 
 func providerCompatibilityChanged(current, next *LLMProvider) bool {
