@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { act, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import PluginRepositories from './PluginRepositories';
 
@@ -195,20 +195,43 @@ describe('PluginRepositories', () => {
     expect(screen.getByRole('button', { name: 'plugins.addRepo' })).toHaveFocus();
   });
 
-  it('paginates the grid while searching all entries', async () => {
-    const entries = Array.from({ length: 51 }, (_, index) => ({ name: 'sample-' + index }));
-    mocks.list.mockResolvedValue([{ ...repo, indices: [{ ...repo.indices[0], entries }] }]);
-    render(<PluginRepositories session="pages" catalog onPreview={vi.fn()} />);
-    const next = await screen.findByRole('button', { name: 'plugins.nextPage' });
-    expect(screen.queryByText('sample-50')).toBeNull();
-    next.focus();
-    await userEvent.keyboard('{Enter}');
-    expect(next).toHaveFocus();
-    expect(next).toHaveAttribute('aria-disabled', 'true');
-    expect(mocks.announce).toHaveBeenCalledWith('plugins.pageOf');
-    expect(screen.getByText('sample-50')).toBeVisible();
-    await userEvent.type(screen.getByLabelText('plugins.searchCatalog'), 'sample-2');
-    expect(screen.getByText('sample-2')).toBeVisible();
-    expect(screen.queryByRole('button', { name: 'plugins.nextPage' })).toBeNull();
+  it('navigates the whole catalog while rendering only nearby rows and the focused plugin', async () => {
+    const height = vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockImplementation(function (this: HTMLElement) {
+      return this.classList.contains('datagrid-body') ? 240 : 48;
+    });
+    try {
+      const entries = Array.from({ length: 240 }, (_, index) => ({ name: 'sample-' + index }));
+      mocks.list.mockResolvedValue([{ ...repo, indices: [{ ...repo.indices[0], entries }] }]);
+      render(<PluginRepositories session="scroll" catalog onPreview={vi.fn()} />);
+      const user = userEvent.setup();
+      const grid = await screen.findByRole('grid', { name: 'plugins.catalog' });
+      expect(grid).toHaveAttribute('aria-rowcount', '241');
+      expect(screen.queryByText('sample-239')).toBeNull();
+      act(() => grid.focus());
+      const first = await screen.findByText('sample-0');
+      await waitFor(() => expect(first).toHaveFocus());
+      const scroller = first.closest('.datagrid-body')!;
+      fireEvent.scroll(scroller, { target: { scrollTop: 4800 } });
+      expect(await screen.findByText('sample-100')).toBeVisible();
+      expect(first).toHaveFocus();
+      await user.keyboard('{Control>}{End}{/Control}');
+      const last = await screen.findByText('sample-239');
+      await waitFor(() => expect(document.activeElement?.closest('[role="row"]')).toBe(last.closest('[role="row"]')));
+      await user.keyboard('{Enter}');
+      expect(mocks.preview).toHaveBeenCalledWith('one', 'reviewed', 'cursor', 'sample-239');
+      await user.keyboard('{Control>}{Home}{/Control}');
+      await waitFor(() => expect(screen.getByText('sample-0')).toHaveFocus());
+      await user.keyboard('{Control>}{PageDown}{/Control}');
+      await waitFor(() => expect(screen.getByText('sample-10')).toHaveFocus());
+      await user.keyboard('{Control>}{PageUp}{/Control}');
+      await waitFor(() => expect(screen.getByText('sample-0')).toHaveFocus());
+      await user.keyboard('{ArrowDown}');
+      await waitFor(() => expect(screen.getByText('sample-1')).toHaveFocus());
+      await user.type(screen.getByLabelText('plugins.searchCatalog'), 'sample-231');
+      expect(screen.getByText('sample-231')).toBeVisible();
+      expect(screen.getByRole('grid')).toHaveAttribute('aria-rowcount', '2');
+    } finally {
+      height.mockRestore();
+    }
   });
 });

@@ -213,3 +213,7 @@
 .datagrid-body::-webkit-scrollbar-thumb:hover {
   background: var(--text-muted);
 }
+
+.datagrid-body--windowed {
+  max-block-size: 65vh;
+}
