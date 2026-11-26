@@ -164,7 +164,7 @@ func checkGitPack(ctx context.Context, data []byte) error {
 		}
 		total += h.Length
 		var delta bytes.Buffer
-		var sink io.Writer = io.Discard
+		sink := io.Discard
 		if h.Type == plumbing.OFSDeltaObject || h.Type == plumbing.REFDeltaObject {
 			sink = &delta
 		}
