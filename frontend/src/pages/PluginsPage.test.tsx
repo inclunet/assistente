@@ -408,13 +408,14 @@ describe('PluginsPage', () => {
     const user = userEvent.setup();
     mocks.list.mockResolvedValue([{ id: 'one', name: 'Demo', digest: 'sha' }]);
     const server = { kind: 'mcp', key: 'mcp/search', name: 'search', endpoint: 'https://example.org/mcp' };
-    mocks.components.mockResolvedValueOnce([server]).mockRejectedValueOnce(new Error('read')).mockResolvedValueOnce([{ ...server, active: true }]);
+    mocks.components.mockResolvedValueOnce([server,{kind:'provider',key:'providers/equipe',name:'Equipe',endpoint:'https://equipe.example'}]).mockRejectedValueOnce(new Error('read')).mockResolvedValueOnce([{ ...server, active: true }]);
     mocks.register.mockRejectedValueOnce(new Error('PLUGIN_MCP_SYNC_PENDING'));
     render(<PluginsPage />);
     (await screen.findByRole('gridcell', { name: /Demo/ })).focus();
     await user.keyboard('{Enter}');
     await user.click(await screen.findByRole('button', { name: 'plugins.registerServer search' }));
     expect(await screen.findByText('plugins.syncPendingStale')).toBeInTheDocument();
+    expect(screen.getByRole('button', {name:'plugins.registerProvider Equipe'})).toBeDisabled();
     const retry = screen.getByRole('button', { name: 'plugins.retrySync' });
     mocks.sync.mockRejectedValueOnce(new Error('offline'));
     await user.click(retry);
