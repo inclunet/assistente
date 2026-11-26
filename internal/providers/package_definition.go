@@ -114,17 +114,14 @@ func (s *Service) RefreshPackagedProvider(ctx context.Context, id string, admit 
 	s.publicationMu.Lock()
 	defer s.publicationMu.Unlock()
 	p, err := s.store.Get(ctx, id)
-	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+	if err != nil {
 		return err
+	}
+	if p == nil {
+		return gorm.ErrRecordNotFound
 	}
 	return admit(nil, func() error {
 		return s.registry.WithGeneration(generation, func() error {
-			if p == nil {
-				if s.registry.Get(id) == nil {
-					return nil
-				}
-				return s.registry.Remove(id)
-			}
 			err := s.registry.RegisterGeneration(p, generation)
 			if errors.Is(err, llm.ErrInsecureHTTPAuthorizationRequired) {
 				return s.registry.RegisterPendingAuthorization(p)
@@ -132,4 +129,18 @@ func (s *Service) RefreshPackagedProvider(ctx context.Context, id string, admit 
 			return err
 		})
 	})
+}
+
+// RemovePackagedProviders serializa a gravação e a publicação com as edições
+// nativas. Depois do commit basta remover as instâncias da geração capturada.
+func (s *Service) RemovePackagedProviders(commit func() ([]string, error)) error {
+	s.publicationMu.Lock()
+	defer s.publicationMu.Unlock()
+	generation := s.registry.Generation()
+	ids, err := commit()
+	if err != nil {
+		return err
+	}
+	s.registry.ForgetGeneration(ids, generation)
+	return nil
 }

@@ -125,3 +125,9 @@ func (i *Inventory) markExistingProviders(ctx context.Context, components []Comp
 	}
 	return nil
 }
+
+func (i *Inventory) WithProviderRemoval(remove func(func() ([]string, error)) error) *Inventory {
+	copy := *i
+	copy.removeProviders = remove
+	return &copy
+}

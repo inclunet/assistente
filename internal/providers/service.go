@@ -133,6 +133,12 @@ func ExtractHostname(baseURL string) (string, error) {
 // Save persists generic providers. OAuth consumers have transactional lifecycle
 // methods and must never be overwritten by an unrelated registry snapshot.
 func (s *Service) Save(ctx context.Context) error {
+	s.publicationMu.Lock()
+	defer s.publicationMu.Unlock()
+	return s.save(ctx)
+}
+
+func (s *Service) save(ctx context.Context) error {
 	var generic []*llm.ProviderConfig
 	for _, provider := range s.registry.List() {
 		if provider.Type != llm.ProviderChatGPT && !strings.HasPrefix(provider.CredentialPattern, "oauth:") {
@@ -144,6 +150,8 @@ func (s *Service) Save(ctx context.Context) error {
 
 // Load carrega provedores do store para o registry.
 func (s *Service) Load(ctx context.Context) error {
+	s.publicationMu.Lock()
+	defer s.publicationMu.Unlock()
 	providers, err := s.store.Load(ctx)
 	if err != nil {
 		return err
@@ -185,11 +193,11 @@ func (s *Service) Load(ctx context.Context) error {
 	if s.skipBootRepairs {
 		return nil
 	}
-	s.EnsureDefault(ctx)
+	s.ensureDefault(ctx)
 
 	// Persistir api_format materializado para não repetir inferência no próximo boot
 	if needsSave {
-		if err := s.Save(ctx); err != nil {
+		if err := s.save(ctx); err != nil {
 			logging.Errorf(ctx, "providers.service", "[providers] Erro ao persistir api_format materializado: %v", err)
 		}
 	}
@@ -199,6 +207,12 @@ func (s *Service) Load(ctx context.Context) error {
 // EnsureDefault garante que pelo menos um provedor está marcado como padrão.
 // Chamado automaticamente após Load. Seguro executar múltiplas vezes.
 func (s *Service) EnsureDefault(ctx context.Context) {
+	s.publicationMu.Lock()
+	defer s.publicationMu.Unlock()
+	s.ensureDefault(ctx)
+}
+
+func (s *Service) ensureDefault(ctx context.Context) {
 	defaultProv, err := s.store.GetDefault(ctx)
 	if err == nil && defaultProv != nil {
 		return
