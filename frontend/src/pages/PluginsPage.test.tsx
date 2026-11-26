@@ -79,7 +79,7 @@ describe('PluginsPage', () => {
     choose.focus();
     await user.keyboard('{Enter}');
     const archive = await screen.findByRole('button', {name:'plugins.zipSource'});
-    mocks.archive.mockResolvedValueOnce({token:'reviewed',name:'demo',files:[],diagnostics:[]});
+    mocks.archive.mockResolvedValueOnce({token:'reviewed',name:'demo',digest:'zip-digest',files:[],diagnostics:[]});
     archive.focus();
     await user.keyboard('{Enter}');
     const install = await screen.findByRole('button', { name: 'plugins.install' });
