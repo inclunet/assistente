@@ -46,3 +46,29 @@ func TestPackageProviderUsesNativeConfigurationValidation(t *testing.T) {
 	}
 
 }
+
+func TestPackagedProviderStaysExplicitAfterReload(t *testing.T) {
+	store := NewMemoryStore()
+	p := &llm.ProviderConfig{ID: "instancia", Name: "Equipe", BaseURL: "https://equipe.example/v1", Type: "openai", RequiresExplicitDefault: true}
+	if err := store.Save(t.Context(), []*llm.ProviderConfig{p}); err != nil {
+		t.Fatal(err)
+	}
+	svc := NewService(ServiceConfig{Store: store, Registry: llm.NewProviderRegistry()})
+	if err := svc.Load(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	for _, skip := range []bool{false, true} {
+		svc.skipBootRepairs = skip
+		def, err := svc.profileDefaultProvider(t.Context())
+		if err != nil || def != nil {
+			t.Fatalf("padrão implícito: %+v %v", def, err)
+		}
+	}
+	if err := store.SetDefault(t.Context(), p.ID); err != nil {
+		t.Fatal(err)
+	}
+	def, err := svc.profileDefaultProvider(t.Context())
+	if err != nil || def == nil || def.ID != p.ID {
+		t.Fatalf("escolha explícita: %+v %v", def, err)
+	}
+}

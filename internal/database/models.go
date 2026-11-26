@@ -81,6 +81,7 @@ type LLMProvider struct {
 	BaseURL                  string `gorm:"not null"`
 	Model                    string
 	DefaultModel             string
+	RequiresExplicitDefault  bool `gorm:"default:false" json:"-"`
 	IsDefault                bool `gorm:"default:false"`
 	Timeout                  int
 	StreamIdleTimeoutSeconds int

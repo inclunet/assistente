@@ -98,6 +98,7 @@ func ReadPackageDefinition(raw []byte, slug string) (*llm.ProviderConfig, error)
 // InsertPackageDefinition grava a configuração já revisada na transação da instalação.
 func InsertPackageDefinition(ctx context.Context, tx *gorm.DB, p llm.ProviderConfig, id string) error {
 	p.ID = id
+	p.RequiresExplicitDefault = true
 	if !p.IsACP() && p.EffectiveAuthMode() != llm.AuthModeNone {
 		p.CredentialPattern = "provider:" + id
 	}

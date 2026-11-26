@@ -73,6 +73,9 @@ func (i *Inventory) RegisterProvider(ctx context.Context, id, digest, key string
 		if !errors.Is(err, gorm.ErrRecordNotFound) {
 			return err
 		}
+		if err := tx.Where("installation_id=? AND component_key=? AND NOT EXISTS (SELECT 1 FROM llm_providers WHERE id=plugin_provider_bindings.provider_id)", id, key).Delete(&database.PluginProviderBinding{}).Error; err != nil {
+			return err
+		}
 		fresh, err := uuid.NewV7()
 		if err != nil {
 			return err

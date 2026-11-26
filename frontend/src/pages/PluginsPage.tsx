@@ -341,7 +341,7 @@ function InstalledPlugins({ session }: { session: string }) {
           await reconcile(session, 'mcp', RegisterMCP(installation.id, installation.digest, component.key));
         }
       } else if (component.kind === 'provider') {
-        const title = t('plugins.registerProvider', { name: component.name });
+        const title = t(component.active ? 'plugins.syncProvider' : 'plugins.registerProvider', { name: component.name });
         const accepted = await confirm({ title, message: connectionLabel(component), confirmText: title, cancelText: t('common.cancel') });
         if (!accepted || !mounted.current) return;
         await RegisterProvider(installation.id, installation.digest, component.key);
@@ -510,8 +510,8 @@ function InstalledPlugins({ session }: { session: string }) {
         {(component.kind === 'mcp' || component.kind === 'provider') && <p>{connectionLabel(component)}</p>}
         {component.kind === 'skill' && component.requestsShell && <p>{t('plugins.commandPolicy')}</p>}
         {component.kind === 'provider' && !component.reason ?
-          component.active && error !== 'plugins.providerSyncPending' ? <p>{t('plugins.providerRegistered',{name:component.name})}</p> :
-            <Button disabled={busy || details.installation.disabled} onClick={() => void changeComponent(component)}>{t('plugins.registerProvider',{name:component.name})}</Button>
+          <>{component.active && <p>{t('plugins.providerRegistered', { name: component.name })}</p>}
+            <Button disabled={busy || details.installation.disabled} onClick={() => void changeComponent(component)}>{t(component.active ? 'plugins.syncProvider' : 'plugins.registerProvider', { name: component.name })}</Button></>
           : component.kind === 'job' && !component.reason ?
           (component.active && component.slug ?
             <Link to="/jobs" onClick={() => useNavigationStore.getState().requestResourceEdit('jobs', component.slug!)}>{t('plugins.editJob', {name:component.name})}</Link> :

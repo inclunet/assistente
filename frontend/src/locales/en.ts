@@ -175,6 +175,7 @@ notSaved: 'The decision applies only to this operation: it could not be remember
       builderSourcesError: 'Some resources could not be loaded. Available resources can still be selected.',
       provider: 'Provider',
       builderProviderError: 'Provider {{name}} cannot be packaged with its current configuration.',
+      syncProvider: 'Sync {{name}}',
       registerProvider: 'Register {{name}}',
       providerRegistered: 'Provider {{name}} registered.',
       providerSlugTaken: 'This slug already belongs to another provider in this account.',

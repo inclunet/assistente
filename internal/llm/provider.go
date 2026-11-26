@@ -198,13 +198,14 @@ type ProviderConfig struct {
 	InsecureHTTPAuthorizedURL string `json:"insecure_http_authorized_url,omitempty"`
 	// CompatibilityRevision identifica o snapshot da conexão carregado do banco.
 	// Requisições em andamento preservam esta revisão ao registrar evidências.
-	CompatibilityRevision int       `json:"-"`
-	APIFormat             APIFormat `json:"api_format,omitempty"`
-	BaseURL               string    `json:"base_url"`
-	Model                 string    `json:"model,omitempty"`
-	DefaultModel          string    `json:"default_model,omitempty"`
-	IsDefault             bool      `json:"is_default,omitempty"`
-	Timeout               int       `json:"timeout,omitempty"`
+	CompatibilityRevision   int       `json:"-"`
+	APIFormat               APIFormat `json:"api_format,omitempty"`
+	BaseURL                 string    `json:"base_url"`
+	Model                   string    `json:"model,omitempty"`
+	DefaultModel            string    `json:"default_model,omitempty"`
+	RequiresExplicitDefault bool      `json:"-"`
+	IsDefault               bool      `json:"is_default,omitempty"`
+	Timeout                 int       `json:"timeout,omitempty"`
 	// StreamIdleTimeoutSeconds limita quanto tempo um streaming SSE pode ficar
 	// sem eventos. Zero usa o padrão de 60s; cada evento reinicia a contagem.
 	// O valor é preservado por DB e portabilidade para compatibilidade; a UI
