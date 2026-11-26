@@ -66,6 +66,9 @@ func DiscoverComponents(snapshot *pluginpackage.LocalSnapshot) []Component {
 	}
 	for entry := range snapshot.Files {
 		parts := strings.Split(entry, "/")
+		if claude && parts[0] == "agents" && len(parts) > 1 && path.Ext(entry) == ".md" {
+			components = append(components, Component{Key: entry, Entry: entry, Name: strings.TrimPrefix(entry, "agents/"), Kind: "agent", Reason: "agentDelegation"})
+		}
 		if parts[0] == "bin" && len(parts) > 1 {
 			hasExecutables = true
 		}

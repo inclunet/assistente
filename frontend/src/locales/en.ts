@@ -152,6 +152,8 @@ notSaved: 'The decision applies only to this operation: it could not be remember
 
     plugins: {
       packagePathsPending: 'The skill uses paths supplied by the Claude Code runtime.',
+      agent: 'Agent definition',
+      agentDelegationPending: 'The file was identified. Delegation to plugin agents is not available yet.',
       rootSkillPending: 'Single-skill packages with SKILL.md at the root are not supported yet.',
       missingTemplate: 'The template file {{path}} is missing.',
       invalidTemplate: 'Check the JSON and workflow or task definitions in {{path}}.',

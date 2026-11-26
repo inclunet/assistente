@@ -152,6 +152,8 @@ notSaved: 'A decisão vale somente para esta operação: não foi possível lemb
 
     plugins: {
       packagePathsPending: 'A skill usa caminhos fornecidos pelo ambiente do Claude Code.',
+      agent: 'Definição de agente',
+      agentDelegationPending: 'O arquivo foi identificado. A delegação a agentes de plugins ainda está indisponível.',
       rootSkillPending: 'O adaptador ainda não ativa pacotes com SKILL.md na raiz.',
       missingTemplate: 'O arquivo de modelo {{path}} está ausente.',
       invalidTemplate: 'Confira o JSON e as definições de workflow e tarefas em {{path}}.',

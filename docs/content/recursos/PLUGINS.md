@@ -49,6 +49,8 @@ Na grade de **Repositórios**, use as setas para escolher a loja e percorrer sua
 
 A pesquisa abrange todas as entradas. Percorra o catálogo com a roda do mouse ou as setas. Use os comandos **Próxima região** e **Região anterior** da paleta ou os atalhos configurados para alternar entre a barra e a grade. Dentro da grade, Page Down e Page Up avançam ou recuam dez linhas. Ctrl+Home leva ao primeiro resultado e Ctrl+End ao último resultado da pesquisa. Na loja Claude, um caminho com `./` parte da raiz; nomes simples usam o `metadata.pluginRoot`. Uma entrada na própria raiz continua visível para consulta. Restrições de produto do Codex ficam indicadas como política da loja. Pacotes de instruções admitem autenticação no primeiro uso; quando há exigência de autenticação para um servidor MCP, a prévia informa a limitação do adaptador.
 
+Em pacotes Claude Code, a prévia e os detalhes mostram os arquivos Markdown da pasta `agents/`, inclusive em subpastas. A indicação **Definição de agente** identifica o arquivo encontrado. A delegação por esses arquivos ainda está indisponível.
+
 ## Usar uma skill com comandos do Claude Code
 
 A prévia e os detalhes identificam skills que pedem execução de comandos. Ao invocar pela barra ou usar a skill como base do turno, cada comando usa a autorização de shell da conta. Uma regra de aprovação permite executar o comando imediatamente. Uma regra de negação interrompe a invocação. Quando a regra pede confirmação, o Assistente aguarda sua decisão. As opções permanentes seguem o mesmo fluxo dos demais comandos. Se a skill perder a ativação enquanto você decide, o comando é interrompido.

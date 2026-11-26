@@ -792,6 +792,33 @@ describe('PluginsPage', () => {
     }
   });
 
+  it('identifies a Claude agent file and explains its availability in the preview', async () => {
+    const user = userEvent.setup();
+    mocks.preview.mockResolvedValueOnce({token: 'agent', name: 'demo', digest: 'new', files: [], components: [
+      {key: 'agents/backend/reviewer.md', entry: 'agents/backend/reviewer.md', name: 'backend/reviewer.md', kind: 'agent', reason: 'agentDelegation'},
+    ]});
+    render(<PluginsPage />);
+    await user.click(await screen.findByRole('button', {name: 'plugins.choose'}));
+    await user.click(screen.getByRole('button', {name: 'plugins.folderSource'}));
+    expect(await screen.findByText(/backend\/reviewer\.md.*plugins\.agent/)).toBeVisible();
+    expect(screen.getByText('plugins.agentDelegationPending')).toBeVisible();
+  });
+  it('offers activation only for the available skill in the installed components', async () => {
+    const user = userEvent.setup();
+    mocks.list.mockResolvedValue([{id: 'one', name: 'Demo', digest: 'sha'}]);
+    mocks.components.mockResolvedValue([
+      {key: 'agents/reviewer.md', entry: 'agents/reviewer.md', name: 'reviewer.md', kind: 'agent', reason: 'agentDelegation'},
+      {key: 'skills/notes', name: 'Notes', kind: 'skill'},
+    ]);
+    render(<PluginsPage />);
+    (await screen.findByRole('gridcell', {name: /Demo/})).focus();
+    await user.keyboard('{Enter}');
+    const agent = (await screen.findByText('reviewer.md')).closest('li')!;
+    expect(within(agent).getByText('plugins.agentDelegationPending')).toBeVisible();
+    expect(within(agent).queryByRole('button')).toBeNull();
+    const skill = screen.getByText('Notes').closest('li')!;
+    expect(within(skill).getByRole('button', {name: 'plugins.activate'})).toBeEnabled();
+  });
   it('clears a discard error after installation and explains distinct manifest warnings', async () => {
     const user = userEvent.setup();
     mocks.preview.mockResolvedValueOnce({ token: 'warning', name: 'demo', digest: 'new', files: [], diagnostics: ['unknown manifest field: other', 'invalid extensions object'] });

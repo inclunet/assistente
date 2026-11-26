@@ -233,3 +233,29 @@ func TestSupportingFilesPreserveClaudeShellNotice(t *testing.T) {
 		t.Fatal(got)
 	}
 }
+
+func TestClaudeAgentFilesAppearInPreviewWithoutActivation(t *testing.T) {
+	snap := &pluginpackage.LocalSnapshot{
+		Manifest: pluginpackage.Manifest{Format: pluginpackage.ClaudeCode},
+		Files: map[string][]byte{
+			"agents/reviewer.md":         []byte("---\nname: reviewer\n---\nReview"),
+			"agents/backend/reviewer.md": []byte("Review the backend"),
+			"agents/schema.json":         []byte("{}"),
+			"examples/reviewer.md":       []byte("example"),
+			"skills/notes/SKILL.md":      []byte("---\nname: notes\ndescription: Read notes\n---\nRead."),
+		},
+	}
+	got := DiscoverComponents(snap)
+	if len(got) != 3 {
+		t.Fatal(got)
+	}
+	for i, entry := range []string{"agents/backend/reviewer.md", "agents/reviewer.md"} {
+		c := got[i]
+		if c.Entry != entry || c.Key != entry || c.Kind != "agent" || c.Reason != "agentDelegation" || c.Active {
+			t.Fatal(c)
+		}
+	}
+	if got[2].Kind != "skill" || got[2].Reason != "" {
+		t.Fatal(got[2])
+	}
+}
