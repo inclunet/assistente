@@ -9,6 +9,8 @@ weight: 1
 
 O Assistente suporta múltiplos provedores de LLM, tanto comerciais (cloud) quanto locais.
 
+Cada provedor tem um slug próprio na conta. O Assistente o gera a partir do nome e acrescenta um sufixo numérico quando necessário. Renomear o provedor preserva o slug.
+
 No primeiro acesso, após preparar o cofre, o Assistente abre este mesmo formulário
 de provedores. Perfis do catálogo, campos fixos ou editáveis, links de cadastro e
 obtenção de chave, teste de conexão e escolha do modelo funcionam da mesma forma

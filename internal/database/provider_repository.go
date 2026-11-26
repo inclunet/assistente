@@ -69,8 +69,14 @@ func (r *ProviderRepository) SaveLLMProvider(ctx context.Context, provider *LLMP
 		case err == nil:
 			// SECURITY (AEP-0052 / fail-closed): impedir que o Save (UPSERT por
 			// PK) sobrescreva provider de outro usuário ao reutilizar seu ID.
-			if userID, ok := UserIDFromContext(ctx); ok && existing.UserID != "" && existing.UserID != userID {
+			if userID, ok := UserIDFromContext(ctx); existing.UserID != "" && (!ok || existing.UserID != userID) {
 				return ErrProviderCrossUser
+			}
+			if existing.Slug != "" {
+				if provider.Slug != "" && provider.Slug != existing.Slug {
+					return errors.New("slug de provedor não pode ser alterado")
+				}
+				provider.Slug = existing.Slug
 			}
 			provider.CompatibilityRevision = existing.CompatibilityRevision
 			if provider.CompatibilityRevision < 1 {
@@ -84,6 +90,9 @@ func (r *ProviderRepository) SaveLLMProvider(ctx context.Context, provider *LLMP
 				provider.CompatibilityRevision = 1
 			}
 		default:
+			return err
+		}
+		if err := prepareProviderSlug(tx, provider); err != nil {
 			return err
 		}
 		return tx.Save(provider).Error

@@ -410,6 +410,11 @@ func AdoptLegacyData(userID string) error {
 				return err
 			}
 		}
+		if applied[47] {
+			if err := fillProviderSlugs(tx, userID); err != nil {
+				return err
+			}
+		}
 		// Antes do UPDATE genérico de credential_entries, removemos órfãs
 		// (user_id IS NULL/'') cujo `pattern` JÁ está reivindicado pelo
 		// userID corrente. Sem isso o UPDATE viola

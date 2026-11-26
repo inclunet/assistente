@@ -62,8 +62,9 @@ type Session struct {
 
 // LLMProvider armazena configuração de provedor LLM
 type LLMProvider struct {
+	Slug        string `json:"slug,omitempty" gorm:"uniqueIndex:ux_llm_provider_owner_slug,priority:2,where:slug <> ''"`
 	ID          string `gorm:"primaryKey"`
-	UserID      string `json:"userId,omitempty" gorm:"index"`
+	UserID      string `json:"userId,omitempty" gorm:"index;uniqueIndex:ux_llm_provider_owner_slug,priority:1,where:slug <> ''"`
 	Name        string `gorm:"not null"`
 	Type        string `gorm:"not null"` // openai, claude, ollama, etc
 	ErrorFamily string // explicit upstream family for documented error recognition

@@ -1892,6 +1892,23 @@ func TestImportConversationsImportsProviders(t *testing.T) {
 	}
 }
 
+func TestRestoreProviderPreservesLocalSlugCollision(t *testing.T) {
+	setupPortabilityTestDB(t)
+	ctx := portabilityTestCtx()
+	for _, id := range []string{"local", "importado", "importado"} {
+		p := ProviderExport{ID: id, Slug: "acme", Name: "Acme", Type: "openai", BaseURL: "https://example.org/v1"}
+		if _, err := importProvider(ctx, p); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for id, slug := range map[string]string{"local": "acme", "importado": "acme-2"} {
+		p, err := database.GetLLMProviderWithContext(ctx, id)
+		if err != nil || p.Slug != slug {
+			t.Fatalf("provedor %s: %v %v", id, p, err)
+		}
+	}
+}
+
 func TestImportConversationsRejectsProviderMissingRequiredFields(t *testing.T) {
 	setupPortabilityTestDB(t)
 
