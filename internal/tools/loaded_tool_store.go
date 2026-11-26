@@ -1,6 +1,8 @@
 package tools
 
 import (
+	"maps"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -52,6 +54,22 @@ type LoadedToolStore struct {
 
 func NewLoadedToolStore() *LoadedToolStore {
 	return &LoadedToolStore{byConversation: map[string]*loadedToolConversationState{}}
+}
+
+// ForDelegation snapshots only this conversation. Filtering or loading tools
+// during a restricted run must not change the next unrestricted turn.
+func (s *LoadedToolStore) ForDelegation(conversationID, profileSlug string) *LoadedToolStore {
+	session := NewLoadedToolStore()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	state := s.byConversation[conversationID]
+	if state != nil && state.profileSlug == profileSlug {
+		copy := *state
+		copy.loaded = maps.Clone(state.loaded)
+		copy.recent = slices.Clone(state.recent)
+		session.byConversation[conversationID] = &copy
+	}
+	return session
 }
 
 func (s *LoadedToolStore) Loaded(conversationID, profileSlug string, visible []string) []string {

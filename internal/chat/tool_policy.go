@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"assistente/internal/tools"
+	"assistente/internal/tools/invocationctx"
 )
 
 type ToolPolicyState string
@@ -26,10 +27,11 @@ const (
 )
 
 type EffectiveToolPolicy struct {
-	targets  map[string]ToolPolicyTarget
-	states   map[string]ToolPolicyState
-	registry *tools.Registry
-	matcher  ToolPolicyMatcher
+	delegatedTools invocationctx.DelegatedTools
+	targets        map[string]ToolPolicyTarget
+	states         map[string]ToolPolicyState
+	registry       *tools.Registry
+	matcher        ToolPolicyMatcher
 
 	structured  bool
 	status      ToolSelectionStatus
@@ -45,6 +47,15 @@ type EffectiveToolPolicy struct {
 func (p *ToolSelectionPolicy) ResolveEffectiveToolPolicy(cfg ProfileToolConfig) EffectiveToolPolicy {
 	policy := p.resolveProfileToolPolicy(cfg)
 	policy.applySkillScope(cfg.SkillAllowedTools, cfg.SkillDeniedTools)
+	if cfg.DelegatedTools.Restricted() && !cfg.DelegatedTools.Allows(tools.ToolCatalogName) {
+		// Without the catalog, expose permitted on-demand tools directly.
+		for name := range policy.states {
+			if cfg.DelegatedTools.Allows(name) && policy.AllowsRuntimeLoad(name) {
+				policy.states[name] = ToolPolicyPreloaded
+			}
+		}
+	}
+	policy.delegatedTools = cfg.DelegatedTools
 	return policy
 }
 
@@ -198,6 +209,9 @@ func (p *EffectiveToolPolicy) applySkillScope(allowed, denied []string) {
 }
 
 func (p EffectiveToolPolicy) State(name string) ToolPolicyState {
+	if !p.delegatedTools.Allows(name) {
+		return ToolPolicyDisabled
+	}
 	if p.disabled {
 		return ToolPolicyDisabled
 	}

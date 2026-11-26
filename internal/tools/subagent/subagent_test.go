@@ -837,8 +837,8 @@ func TestToolSameExplicitProfileDoesNotAsk(t *testing.T) {
 		ProfileSlug:    "parent-profile",
 	})
 
-	result, err := tool.Execute(ctx, json.RawMessage(`{"prompt":"x","profile":"parent-profile"}`))
-	if err != nil || result.IsError || authorizer.calls != 0 || runner.lastParams.Prompt != "x" {
+	result, err := tool.Execute(ctx, json.RawMessage(`{"prompt":"x","profile":"parent-profile","tools":["read_file"]}`))
+	if err != nil || result.IsError || authorizer.calls != 0 || runner.lastParams.Prompt != "x" || len(runner.lastParams.Tools) != 1 || runner.lastParams.Tools[0] != "read_file" {
 		t.Fatalf("same-profile deveria preservar fluxo atual: result=%#v auth=%#v runner=%#v err=%v", result, authorizer, runner, err)
 	}
 }

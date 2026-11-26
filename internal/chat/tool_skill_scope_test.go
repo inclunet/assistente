@@ -4,7 +4,9 @@ import (
 	"context"
 	"testing"
 
+	mcplib "assistente/internal/mcp"
 	"assistente/internal/tools"
+	"assistente/internal/tools/invocationctx"
 )
 
 // Estes testes cobrem o escopo de tools do skill invocado (AEP-0072 D5): tools
@@ -199,5 +201,72 @@ func TestToolSelectionPolicy_PerfilDisabled_RemoveBaseMesmoProtegida(t *testing.
 	}
 	if containsName(effective.PreloadedNames(), "memory") {
 		t.Fatalf("memory desligada pelo perfil não deveria constar como preloaded: %#v", effective.PreloadedNames())
+	}
+}
+
+func TestDelegatedToolsLimitDefinitionsAndDispatch(t *testing.T) {
+	policy := NewToolSelectionPolicy(charRegistry(t))
+	for _, tc := range []struct {
+		name        string
+		request     []string
+		read, write bool
+	}{
+		{"inherit", nil, true, true},
+		{"none", []string{}, false, false},
+		{"read", []string{"read_file", "grep_search"}, true, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := invocationctx.WithDelegatedTools(t.Context(), tc.request)
+			cfg := ProfileToolConfig{EnabledTools: []string{"read_file", "write_file"}, DelegatedTools: invocationctx.DelegatedToolsFrom(ctx)}
+			names := defNames(policy.PlanTurnToolDefs(ctx, nil, nil, cfg).Definitions)
+			if containsName(names, "read_file") != tc.read || containsName(names, "write_file") != tc.write || containsName(names, "grep_search") {
+				t.Fatalf("definições: %v", names)
+			}
+			if ok := tools.ValidateExecutionContextToolAccess(ctx, "write_file") == nil; ok != tc.write {
+				t.Fatalf("despacho de escrita permitido: %v", ok)
+			}
+		})
+	}
+	parent := invocationctx.WithDelegatedTools(t.Context(), []string{"read_file", "subagent"})
+	child := invocationctx.WithDelegatedTools(parent, []string{"read_file", "write_file"})
+	if tools.ValidateExecutionContextToolAccess(child, "read_file") != nil || tools.ValidateExecutionContextToolAccess(child, "write_file") == nil || tools.ValidateExecutionContextToolAccess(child, "tool_catalog") == nil {
+		t.Fatal("a delegação aninhada perdeu a restrição")
+	}
+}
+
+func TestRestrictedRunWithoutRegistryDoesNotEnableNativeMCP(t *testing.T) {
+	ctx := invocationctx.WithDelegatedTools(t.Context(), []string{})
+	streamer := &mockChatProvider{nativeCapable: true}
+	manager := &mockNativeMCPMgr{servers: []mcplib.NativeMCPServer{{Slug: "s", URL: "https://s.test", Tools: []mcplib.NativeMCPTool{{Name: "f", RegisteredName: "mcp_s__f"}}}}}
+	plan := NewToolSelectionPolicy(nil).PlanTurnToolDefs(ctx, streamer, manager, ProfileToolConfig{NativeMCP: boolPtr(true), DelegatedTools: invocationctx.DelegatedToolsFrom(ctx)})
+	if plan.Streamer != streamer || len(plan.Definitions) != 0 || len(plan.NativeNames) != 0 {
+		t.Fatal("delegação vazia habilitou MCP nativo")
+	}
+}
+
+func TestTemporaryDelegationKeepsConversationLoads(t *testing.T) {
+	store := tools.NewLoadedToolStore()
+	names := []string{"read_file", "write_file"}
+	store.Load("c", "p", names, names, nil, nil)
+	fork := store.ForDelegation("c", "p")
+	if got := fork.Loaded("c", "p", []string{"read_file"}); len(got) != 1 || got[0] != "read_file" {
+		t.Fatal(got)
+	}
+	if got := store.Loaded("c", "p", names); len(got) != 2 {
+		t.Fatalf("delegação removeu ferramentas da conversa: %v", got)
+	}
+}
+
+func TestDelegatedOnDemandToolIsOfferedWithoutCatalog(t *testing.T) {
+	policy := NewToolSelectionPolicy(charRegistry(t))
+	cfg := ProfileToolConfig{ToolPolicyDefault: "disabled", ToolPolicy: map[string]string{"read_file": "on_demand", "tool_catalog": "preloaded"}}
+	if policy.ResolveEffectiveToolPolicy(cfg).State("read_file") != ToolPolicyOnDemand {
+		t.Fatal("pré-condição: leitura deveria ser sob demanda")
+	}
+	ctx := invocationctx.WithDelegatedTools(t.Context(), []string{"read_file", "write_file"})
+	cfg.DelegatedTools = invocationctx.DelegatedToolsFrom(ctx)
+	names := defNames(policy.PlanTurnToolDefs(ctx, nil, nil, cfg).Definitions)
+	if len(names) != 1 || names[0] != "read_file" {
+		t.Fatalf("ferramentas da delegação: %v", names)
 	}
 }

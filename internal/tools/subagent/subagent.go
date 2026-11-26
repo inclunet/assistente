@@ -101,6 +101,7 @@ func (t *Tool) Parameters() json.RawMessage {
 				"type": "string",
 				"description": "Slug of the interaction profile for the sub-agent (model, behavior, enabled tools). Discover valid slugs and descriptions with profile action=list. Defaults to the parent's profile; a different explicit profile requires user authorization for this invocation."
 			},
+			"tools": {"type":"array","items":{"type":"string"},"description":"Restrict this run to these tools within the selected profile. Omit to inherit; an empty array disables every tool."},
 			"title": {
 				"type": "string",
 				"description": "Optional title for the sub-conversation."
@@ -115,16 +116,17 @@ func (t *Tool) Parameters() json.RawMessage {
 }
 
 type subagentArgs struct {
-	Prompt         string `json:"prompt"`
-	Background     bool   `json:"background,omitempty"`
-	Raw            bool   `json:"raw,omitempty"`
-	ConversationID string `json:"conversation_id,omitempty"`
-	RunID          string `json:"run_id,omitempty"`
-	Cancel         bool   `json:"cancel,omitempty"`
-	Clear          bool   `json:"clear,omitempty"`
-	Profile        string `json:"profile,omitempty"`
-	Title          string `json:"title,omitempty"`
-	Model          string `json:"model,omitempty"`
+	Tools          []string `json:"tools"`
+	Prompt         string   `json:"prompt"`
+	Background     bool     `json:"background,omitempty"`
+	Raw            bool     `json:"raw,omitempty"`
+	ConversationID string   `json:"conversation_id,omitempty"`
+	RunID          string   `json:"run_id,omitempty"`
+	Cancel         bool     `json:"cancel,omitempty"`
+	Clear          bool     `json:"clear,omitempty"`
+	Profile        string   `json:"profile,omitempty"`
+	Title          string   `json:"title,omitempty"`
+	Model          string   `json:"model,omitempty"`
 }
 
 // originAllowsParentless informa se a origem da chamada permite rodar o
@@ -295,6 +297,7 @@ func (t *Tool) Execute(ctx context.Context, args json.RawMessage) (tools.ToolRes
 			Clear:                a.Clear,
 			Prompt:               prompt,
 			ProfileSlug:          profile,
+			Tools:                a.Tools,
 			Model:                model,
 			Title:                strings.TrimSpace(a.Title),
 			Background:           a.Background,

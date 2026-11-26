@@ -16,6 +16,7 @@ import (
 	"assistente/internal/profiles"
 	"assistente/internal/skills"
 	"assistente/internal/tools"
+	"assistente/internal/tools/invocationctx"
 	"assistente/internal/workspace"
 )
 
@@ -419,6 +420,7 @@ func (b *Builder) resolveToolSelectionWithSkillScope(ctx context.Context, active
 		runtimeTools = append(runtimeTools, tools.LoadSkillName)
 	}
 	effective := chat.NewToolSelectionPolicy(b.Tools).ResolveEffectiveToolPolicy(chat.ProfileToolConfig{
+		DelegatedTools:    invocationctx.DelegatedToolsFrom(ctx),
 		EnabledTools:      activeProfile.Chat.EnabledTools,
 		ToolPolicy:        activeProfile.Chat.ToolPolicy,
 		ToolPolicyDefault: activeProfile.Chat.ToolPolicyDefault,

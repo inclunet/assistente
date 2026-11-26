@@ -14,6 +14,7 @@ import (
 	"assistente/internal/speech"
 	"assistente/internal/toolcatalog"
 	"assistente/internal/tools"
+	"assistente/internal/tools/invocationctx"
 	"context"
 	"errors"
 	"fmt"
@@ -38,6 +39,16 @@ func profileWithToolsDisabled(activeProfile *profiles.Profile) *profiles.Profile
 	turnProfile := *activeProfile
 	turnProfile.Chat.DisableTools = true
 	return &turnProfile
+}
+
+func agentTurnForDelegation(provider *llm.ProviderConfig, scope invocationctx.DelegatedTools) (bool, error) {
+	if !provider.IsACP() {
+		return false, nil
+	}
+	if scope.Restricted() {
+		return false, errors.New("o provedor de agente não permite restringir as ferramentas desta delegação")
+	}
+	return true, nil
 }
 
 func resolveStreamingRecoverySettings(activeProfile *profiles.Profile) (enabled bool, maxAttempts int) {
@@ -328,20 +339,6 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 		}()
 		return req.ConversationID, nil
 	}
-	// Turno conduzido por agente externo (AEP-0084 D7): as ferramentas são do
-	// agente, e o app planeja o turno com as suas desligadas — pelo mesmo
-	// interruptor que o perfil oferece, para que prompt e roteamento enxerguem a
-	// mesma decisão. Oferecer tools levaria a conversa ao loop agêntico, que
-	// tentaria executar aqui o que não é dele.
-	//
-	// A marca também diz ao preparo do turno que nada do app acompanha a
-	// mensagem (Fase 8): persona, skills, memória e contexto ficam de fora, e a
-	// skill invocada por barra deixa de ser processada — num perfil de agente,
-	// quem responde por `/` é ele.
-	agentDrivenTurn := uc.providerSvc != nil && uc.providerSvc.UsesAgentTurn(ctx, activeProfile)
-	if agentDrivenTurn {
-		activeProfile = profileWithToolsDisabled(activeProfile)
-	}
 	params := pctx.Params
 	params.Source = strings.TrimSpace(req.Source)
 	surfaceOrigin := ports.NewChatSurfaceOrigin(
@@ -366,6 +363,23 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 		logging.Errorf(ctx, "core.usecases.send-message", "[SendMessage] ERRO: %s", errMsg)
 		uc.emitter.Emit("chat:error", ports.ErrorEvent{ConversationID: req.ConversationID, Error: errMsg})
 		return "", fmt.Errorf("%s", errMsg)
+	}
+	// Turno conduzido por agente externo (AEP-0084 D7): as ferramentas são do
+	// agente, e o app planeja o turno com as suas desligadas — pelo mesmo
+	// interruptor que o perfil oferece, para que prompt e roteamento enxerguem a
+	// mesma decisão. Oferecer tools levaria a conversa ao loop agêntico, que
+	// tentaria executar aqui o que não é dele.
+	//
+	// A marca também diz ao preparo do turno que nada do app acompanha a
+	// mensagem (Fase 8): persona, skills, memória e contexto ficam de fora, e a
+	// skill invocada por barra deixa de ser processada — num perfil de agente,
+	// quem responde por `/` é ele.
+	agentDrivenTurn, err := agentTurnForDelegation(providerConfig, invocationctx.DelegatedToolsFrom(ctx))
+	if err != nil {
+		return "", err
+	}
+	if agentDrivenTurn {
+		activeProfile = profileWithToolsDisabled(activeProfile)
 	}
 	params.Compatibility = uc.loadCompatibilityState(ctx, providerConfig, params.Model)
 	params, err = uc.providerSvc.ApplyChatParameterContract(providerConfig, params)
@@ -540,6 +554,7 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 	preferredToolPackages := activeProfile.Chat.PreferredToolPackages
 	toolPolicy := chat.NewToolSelectionPolicy(uc.toolRegistry)
 	toolCfg := chat.ProfileToolConfig{
+		DelegatedTools:    invocationctx.DelegatedToolsFrom(ctx),
 		EnabledTools:      activeProfile.Chat.EnabledTools,
 		ToolPolicy:        activeProfile.Chat.ToolPolicy,
 		ToolPolicyDefault: activeProfile.Chat.ToolPolicyDefault,
@@ -605,8 +620,12 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 		toolCfg.SkillAllowedTools = invokedExecutionContext.AllowedTools
 		toolCfg.SkillDeniedTools = invokedExecutionContext.DeniedTools
 	}
-	if disableTools && uc.loadedToolStore != nil {
-		uc.loadedToolStore.ResetConversation(req.ConversationID)
+	loadedStore := uc.loadedToolStore
+	if toolCfg.DelegatedTools.Restricted() && loadedStore != nil {
+		loadedStore = loadedStore.ForDelegation(req.ConversationID, params.ProfileSlug)
+	}
+	if disableTools && loadedStore != nil {
+		loadedStore.ResetConversation(req.ConversationID)
 	}
 	baseEffectiveToolPolicy := toolPolicy.ResolveEffectiveToolPolicy(toolCfg)
 	basePreloadedToolNames := baseEffectiveToolPolicy.PreloadedNames()
@@ -616,9 +635,9 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 	// somente de candidatas on_demand com risco "read". A autorização continua
 	// vindo da policy e o ToolPlanner ainda aplica o budget ao conjunto final.
 	if !disableTools && req.RetryMessageID == "" && isFirstConversationTurn(messages) &&
-		uc.loadedToolStore != nil && database.DB() != nil &&
-		uc.loadedToolStore.ClaimAutoSearch(req.ConversationID, params.ProfileSlug) {
-		recentNames := uc.loadedToolStore.RecentNames(req.ConversationID, params.ProfileSlug)
+		loadedStore != nil && database.DB() != nil &&
+		loadedStore.ClaimAutoSearch(req.ConversationID, params.ProfileSlug) {
+		recentNames := loadedStore.RecentNames(req.ConversationID, params.ProfileSlug)
 		autoNames, autoErr := autoDiscoverReadOnlyTools(
 			ctx,
 			toolcatalog.NewDBRepository(database.DB()),
@@ -631,7 +650,7 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 			logging.Warnf(ctx, "core.usecases.send-message", "[SendMessage] auto-search do tool_catalog falhou sem bloquear o turno: %v", autoErr)
 		} else if len(autoNames) > 0 {
 			candidates := append([]string(nil), autoNames...)
-			loaded, rejected := uc.loadedToolStore.Load(
+			loaded, rejected := loadedStore.Load(
 				req.ConversationID,
 				params.ProfileSlug,
 				autoNames,
@@ -643,8 +662,8 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 			logging.Infof(ctx, "core.usecases.send-message", "[SendMessage] tool_catalog auto-search: candidatas=%v preload=%v rejeitadas=%d", candidates, autoNames, len(rejected))
 		}
 	}
-	if uc.loadedToolStore != nil && !disableTools {
-		loadedRuntimeTools := uc.loadedToolStore.Loaded(req.ConversationID, params.ProfileSlug, toolCatalogVisibleNames)
+	if loadedStore != nil && !disableTools {
+		loadedRuntimeTools := loadedStore.Loaded(req.ConversationID, params.ProfileSlug, toolCatalogVisibleNames)
 		available, unavailable, availabilityErr := loadedRuntimeToolAvailability(ctx, loadedRuntimeTools, recoverableNames...)
 		if availabilityErr != nil {
 			// A falha transitória ao consultar o catálogo não deve apagar do payload
@@ -653,7 +672,7 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 			logging.Warnf(ctx, "core.usecases.send-message", "[SendMessage] não foi possível revalidar tools carregadas; mantendo o conjunto da conversa: %v", availabilityErr)
 		} else {
 			loadedRuntimeTools = available
-			uc.loadedToolStore.Forget(req.ConversationID, params.ProfileSlug, unavailable)
+			loadedStore.Forget(req.ConversationID, params.ProfileSlug, unavailable)
 		}
 		if len(loadedRuntimeTools) > 0 {
 			runtimeTools = append(runtimeTools, loadedRuntimeTools...)
@@ -768,7 +787,7 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 		effectiveToolPolicy := toolPolicy.ResolveEffectiveToolPolicy(toolCfg)
 		agentCtx = tools.WithToolCatalogVisibleNames(agentCtx, effectiveToolPolicy.CatalogVisibleNames())
 		agentCtx = tools.WithToolCatalogRuntime(agentCtx, tools.ToolCatalogRuntime{
-			Store:             uc.loadedToolStore,
+			Store:             loadedStore,
 			RecoverableNames:  recoverableNames,
 			Prepare:           uc.prepareCatalogTool,
 			ConversationID:    req.ConversationID,

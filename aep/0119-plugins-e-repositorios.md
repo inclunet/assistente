@@ -51,7 +51,7 @@ A página usa uma barra de ações por lista. A instalação por pasta parte da 
 ### Contribuições e execução
 
 - Skills e MCP usam os serviços e políticas existentes. O adaptador traduz os campos de cada formato e identifica transportes ou variáveis incompatíveis.
-- Definições de agentes e subagentes mapeiam instruções, perfil, modelo e restrições de ferramentas para a delegação existente. A ativação preserva as autorizações do perfil e as verificações de troca por invocação.
+- Definições de agentes e subagentes mapeiam instruções, perfil, modelo e restrições de ferramentas para a delegação existente. A ativação preserva as autorizações do perfil e as verificações de troca por invocação. O AEP-0068 define a restrição nativa por run que as definições distribuídas usarão. A [issue #1154](https://github.com/inclunet/assistente/issues/1154) acompanha essa integração.
 - Comandos passam pelo [catálogo e resolvedor](0103-comandos-acionadores-e-camadas-contextuais.md). Regras e instruções persistentes declaram escopo e precedência. Conflitos que alterem uma personalização exigem decisão. O pacote não ganha autoridade para produzir eventos externos de ativação de comandos.
 - Hooks exigem contrato por evento com momento de disparo, filtros, entrada, saída, timeout, permissões e efeito de falha ou veto. Um evento só será anunciado como suportado após teste pelo fluxo real da ferramenta.
 - Uma extensão identificada como própria do Assistente pode declarar provedores, jobs, perfis e modelos de tasklist. Novos tipos entram com validação, importação, ativação, atualização e remoção definidas. O núcleo portátil continua utilizável quando suas dependências forem portáveis.

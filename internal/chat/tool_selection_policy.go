@@ -9,6 +9,7 @@ import (
 	"assistente/internal/llm"
 	mcplib "assistente/internal/mcp"
 	"assistente/internal/tools"
+	"assistente/internal/tools/invocationctx"
 )
 
 // ToolSelectionPolicy seleciona e orça as ferramentas autorizadas pelo perfil.
@@ -31,6 +32,7 @@ func NewToolSelectionPolicy(registry *tools.Registry) *ToolSelectionPolicy {
 // ToolPolicy, quando presente, representa a política tri-state nova da AEP-0081
 // por nome de tool: disabled, on_demand ou preloaded.
 type ProfileToolConfig struct {
+	DelegatedTools invocationctx.DelegatedTools
 	// CatalogTools amplia somente a descoberta; execução exige uma tool no registry.
 	CatalogTools []tools.ToolCatalogEntry
 	EnabledTools []string
@@ -86,6 +88,9 @@ type TurnToolPlan struct {
 func (p *ToolSelectionPolicy) PlanTurnToolDefs(ctx context.Context, streamer llm.ChatProvider, mcpMgr NativeMCPManager, cfg ProfileToolConfig) TurnToolPlan {
 	preloaded := p.ResolveEffectiveToolPolicy(cfg).PreloadedNames()
 	raw := p.buildLLMToolDefs(preloaded, cfg.DisableTools)
+	if cfg.DelegatedTools.Restricted() && len(preloaded) == 0 {
+		return TurnToolPlan{Streamer: streamer}
+	}
 	nativeStreamer, reduced := applyNativeMCP(ctx, streamer, raw, mcpMgr, preloaded, cfg.DisableTools, cfg.NativeMCP)
 	plan := TurnToolPlan{Streamer: nativeStreamer, Definitions: p.applyPlanner(reduced, cfg, "inicial")}
 	if nativeStreamer == streamer {

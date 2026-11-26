@@ -5,8 +5,10 @@ import (
 	"testing"
 
 	"assistente/internal/chat"
+	"assistente/internal/llm"
 	"assistente/internal/profiles"
 	"assistente/internal/tools"
+	"assistente/internal/tools/invocationctx"
 )
 
 // O interruptor vale para o turno, não para o perfil salvo: quem trocar o perfil
@@ -72,5 +74,24 @@ func TestConjuntoFinalDoTurnoDeAgenteChegaVazioAoRoteamento(t *testing.T) {
 	nativas, adapter = turnPlan0.Definitions, turnPlan0.AdapterDefinitions
 	if len(nativas) > 0 || len(adapter) > 0 {
 		t.Errorf("turno de agente chegou ao roteamento com tools: %d nativas, %d adapter", len(nativas), len(adapter))
+	}
+}
+
+func TestDelegatedRunRequiresControllableProvider(t *testing.T) {
+	for _, tc := range []struct {
+		provider           llm.APIFormat
+		tools              []string
+		wantAgent, wantErr bool
+	}{
+		{llm.APIFormatACP, nil, true, false},
+		{llm.APIFormatACP, []string{}, false, true},
+		{llm.APIFormatACP, []string{"read_file"}, false, true},
+		{llm.APIFormatOpenAI, []string{"read_file"}, false, false},
+	} {
+		ctx := invocationctx.WithDelegatedTools(t.Context(), tc.tools)
+		agent, err := agentTurnForDelegation(&llm.ProviderConfig{APIFormat: tc.provider}, invocationctx.DelegatedToolsFrom(ctx))
+		if agent != tc.wantAgent || (err != nil) != tc.wantErr {
+			t.Errorf("%v %v: agente=%v, erro=%v", tc.provider, tc.tools, agent, err)
+		}
 	}
 }

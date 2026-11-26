@@ -73,6 +73,8 @@ type SendFunc func(ctx context.Context, p SendParams) (string, error)
 
 // RunParams são os parâmetros de um run de sub-agente.
 type RunParams struct {
+	// Tools limits this run. A nil slice inherits the enclosing permissions.
+	Tools []string
 	// ParentConversationID é a conversa que originou o sub-agente (pode ser
 	// vazio quando não há pai — job/system, fases futuras).
 	ParentConversationID string
@@ -167,12 +169,12 @@ type RunEvent struct {
 // RunListItem descreve um run de sub-agente para a superfície de visibilidade
 // da UI (AEP-0068 F5): lista de runs ativos/recentes com ação de cancelar.
 type RunListItem struct {
-	RunID                string     `json:"runId"`
-	ConversationID       string     `json:"conversationId"`
-	ParentConversationID string     `json:"parentConversationId,omitempty"`
-	Title                string     `json:"title,omitempty"`
-	Status               string     `json:"status"`
-	Background           bool       `json:"background"`
+	RunID                string `json:"runId"`
+	ConversationID       string `json:"conversationId"`
+	ParentConversationID string `json:"parentConversationId,omitempty"`
+	Title                string `json:"title,omitempty"`
+	Status               string `json:"status"`
+	Background           bool   `json:"background"`
 	// Active informa se o run ainda pode ser cancelado (queued/running).
 	Active      bool       `json:"active"`
 	Error       string     `json:"error,omitempty"`
