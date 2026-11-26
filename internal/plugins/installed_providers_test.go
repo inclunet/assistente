@@ -25,7 +25,7 @@ func TestRegisterProviderFromReviewedPackage(t *testing.T) {
 	}
 	var synced []string
 	unavailable := errors.New("registro indisponível")
-	var refreshErr error = unavailable
+	refreshErr := unavailable
 	inventory := NewInventory(db).WithProviderRemoval(func(commit func() ([]string, error)) error { _, err := commit(); return err }).WithProviderRefresh(func(_ context.Context, id string, _ commandsecurity.Admission) error {
 		synced = append(synced, id)
 		return refreshErr
