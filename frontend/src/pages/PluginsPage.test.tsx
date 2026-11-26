@@ -43,16 +43,28 @@ describe('PluginsPage', () => {
         try { expect(lease?.open('navigation.landmark.next')).toBe(true); }
         finally { lease?.dispose(); }
       };
+      expect(screen.getAllByRole('toolbar')).toHaveLength(1);
+      expect(screen.queryByRole('button', {name:'plugins.retrySync'})).toBeNull();
+      for (const [tab, control] of [['plugins.repositories','plugins.addRepo'], ['plugins.catalog','plugins.searchCatalog']]) {
+        await user.click(screen.getByRole('tab', {name:tab}));
+        expect(screen.getAllByRole('toolbar')).toHaveLength(1);
+        const target = await screen.findByRole(tab === 'plugins.repositories' ? 'button' : 'textbox', {name:control});
+        await waitFor(() => expect(target).toBeEnabled());
+        screen.getByRole('button',{name:'Topbar'}).focus();
+        next();
+        expect(target).toHaveFocus();
+      }
       await user.click(await screen.findByRole('tab', {name:'plugins.builder'}));
       const name = await screen.findByRole('textbox', {name:'plugins.packageName'});
       await waitFor(() => expect(name).toBeEnabled());
-      screen.getByRole('button',{name:'plugins.choose'}).focus();
+      expect(screen.queryByRole('toolbar')).toBeNull();
+      screen.getByRole('button',{name:'Topbar'}).focus();
       next();
       expect(name).toHaveFocus();
       next();
       expect(screen.getByRole('button',{name:'Topbar'})).toHaveFocus();
       next();
-      expect(screen.getByRole('button',{name:'plugins.choose'})).toHaveFocus();
+      expect(name).toHaveFocus();
       await user.click(screen.getByRole('tab', {name:'plugins.installed'}));
       expect(name.isConnected).toBe(false);
     } finally { focused.mockRestore(); useAuthStore.setState(auth, true); useWorkspaceStore.setState({workspace:ws}); }
@@ -251,29 +263,33 @@ describe('PluginsPage', () => {
   it('anuncia uma vez a sincronização confirmada com falha na recarga da lista', async () => {
     const user = userEvent.setup();
     mocks.list.mockResolvedValueOnce([]).mockRejectedValueOnce(new Error('read')).mockResolvedValueOnce([]);
+    mocks.syncJobs.mockRejectedValueOnce(new Error('offline'));
     render(<PluginsPage />);
-    const sync = screen.getByRole('button', { name: 'plugins.retrySync' });
-    await waitFor(() => expect(sync).toBeEnabled());
-    mocks.announce.mockClear();
-    await user.click(sync);
+    const decision = await screen.findByRole('alertdialog', {name:'plugins.syncQuestion'});
+    await user.click(within(decision).getByRole('button',{name:'plugins.syncNow'}));
     expect(await screen.findByText('plugins.syncReloadError')).toBeVisible();
     expect(screen.queryByText('plugins.empty')).toBeNull();
-    expect(mocks.announce.mock.calls).toEqual([['plugins.syncReloadError', 'assertive']]);
-    mocks.sync.mockRejectedValueOnce(new Error('offline'));
-    mocks.announce.mockClear();
-    await user.click(sync);
-    expect(await screen.findByText('plugins.syncFailedStale')).toBeVisible();
-    expect(screen.queryByText('plugins.syncReloadError')).toBeNull();
-    expect(screen.queryByText('plugins.empty')).toBeNull();
-    expect(mocks.announce.mock.calls).toEqual([['plugins.syncFailedStale', 'assertive']]);
-    expect(mocks.list).toHaveBeenCalledTimes(2);
-    await user.click(sync);
-    await waitFor(() => expect(mocks.announce).toHaveBeenCalledWith('plugins.synchronized'));
-    expect(screen.queryByText('plugins.syncReloadError')).toBeNull();
-    expect(screen.getByText('plugins.empty')).toBeVisible();
-    expect(screen.queryByText('plugins.syncFailedStale')).toBeNull();
-    expect(mocks.sync).toHaveBeenCalledTimes(3);
+    expect(mocks.announce.mock.calls.filter(([msg]) => msg === 'plugins.syncReloadError')).toEqual([['plugins.syncReloadError', 'assertive']]);
+    expect(screen.queryByRole('button',{name:'plugins.retrySync'})).toBeNull();
+    await user.click(screen.getByRole('button',{name:'plugins.reloadList'}));
+    expect(await screen.findByText('plugins.empty')).toBeVisible();
+    expect(mocks.syncJobs).toHaveBeenCalledTimes(2);
+    expect(mocks.sync).not.toHaveBeenCalled();
     expect(mocks.list).toHaveBeenCalledTimes(3);
+  });
+
+  it('preserva o diagnóstico de lista desatualizada quando a tentativa de aplicar a pendência falha', async () => {
+    const user = userEvent.setup();
+    mocks.list.mockRejectedValueOnce(new Error('read')).mockResolvedValueOnce([]);
+    mocks.syncJobs.mockRejectedValueOnce(new Error('offline')).mockRejectedValueOnce(new Error('offline'));
+    render(<PluginsPage />);
+    await user.click(await screen.findByRole('button', {name:'plugins.syncNow'}));
+    expect(await screen.findByText('plugins.syncFailedStale')).toBeVisible();
+    expect(mocks.list).toHaveBeenCalledTimes(1);
+    await user.click(screen.getByRole('button', {name:'plugins.retrySync'}));
+    expect(await screen.findByText('plugins.empty')).toBeVisible();
+    expect(screen.queryByText('plugins.syncFailedStale')).toBeNull();
+    expect(mocks.list).toHaveBeenCalledTimes(2);
   });
 
   it('permite sincronizar após sair da página com um registro já salvo', async () => {
@@ -288,8 +304,14 @@ describe('PluginsPage', () => {
     await user.keyboard('{Enter}');
     await user.click(await screen.findByRole('button', { name: 'plugins.registerServer search' }));
     expect(await screen.findByText('plugins.syncPending')).toBeVisible();
+    const later = await screen.findByRole('button',{name:'plugins.syncLater'});
+    later.focus();
+    await user.keyboard('{Enter}');
+    await waitFor(() => expect(screen.getByRole('button',{name:'plugins.retrySync'})).toHaveFocus());
     page.unmount();
     render(<PluginsPage />);
+    await waitFor(() => expect(screen.getByRole('button', {name:'plugins.choose'})).toBeEnabled());
+    expect(screen.queryByRole('alertdialog')).toBeNull();
     const sync = screen.getByRole('button', { name: 'plugins.retrySync' });
     await waitFor(() => expect(sync).toBeEnabled());
     await user.click(sync);
@@ -404,6 +426,7 @@ describe('PluginsPage', () => {
     await user.keyboard('{Enter}');
     await user.click(await screen.findByRole('button', {name:'plugins.prepareJob'}));
     expect(await screen.findByText('plugins.syncPending')).toBeVisible();
+    await user.keyboard('{Escape}');
     await user.click(screen.getByRole('button', {name:'plugins.registerServer search'}));
     await waitFor(() => expect(mocks.register).toHaveBeenCalledOnce());
     expect(screen.getByText('plugins.syncPending')).toBeVisible();
@@ -427,6 +450,7 @@ describe('PluginsPage', () => {
     await user.keyboard('{Enter}');
     await user.click(await screen.findByRole('button', { name: 'plugins.registerServer search' }));
     expect(await screen.findByText('plugins.syncPendingStale')).toBeInTheDocument();
+    await user.click(await screen.findByRole('button',{name:'plugins.syncLater'}));
     expect(screen.getByRole('button', {name:'plugins.registerProvider Equipe'})).toBeDisabled();
     const retry = screen.getByRole('button', { name: 'plugins.retrySync' });
     mocks.sync.mockRejectedValueOnce(new Error('offline'));
@@ -511,6 +535,7 @@ describe('PluginsPage', () => {
     second.unmount();
     const third = render(<PluginsPage />);
     expect(await screen.findByText('plugins.syncPending')).toBeVisible();
+    await user.click(await screen.findByRole('button',{name:'plugins.syncLater'}));
     const retry = screen.getByRole('button', { name: 'plugins.retrySync' });
     await waitFor(() => expect(retry).toBeEnabled());
     let synchronized!: () => void;
@@ -535,6 +560,7 @@ describe('PluginsPage', () => {
     await user.keyboard('{Enter}');
     await user.click(await screen.findByRole('button', { name: 'plugins.disable' }));
     await screen.findByText('plugins.syncPending');
+    await user.click(await screen.findByRole('button',{name:'plugins.syncLater'}));
     await waitFor(() => expect(screen.getByRole('button', { name: 'plugins.choose' })).toBeEnabled());
     screen.getByRole('gridcell', { name: /Demo/ }).focus();
     await user.keyboard('{Enter}');
@@ -733,7 +759,10 @@ describe('PluginsPage', () => {
     render(<PluginsPage />);
     await act(async () => fail());
     expect(await screen.findByText(message)).toBeVisible();
-    if (cause === 'PLUGIN_MCP_SYNC_PENDING') expect(screen.getByRole('button', { name: 'plugins.retrySync' })).toBeEnabled();
+    if (cause === 'PLUGIN_MCP_SYNC_PENDING') {
+      await user.click(await screen.findByRole('button',{name:'plugins.syncLater'}));
+      expect(screen.getByRole('button', { name: 'plugins.retrySync' })).toBeEnabled();
+    }
     expect(screen.getByRole('button', { name: 'plugins.choose' })).toBeEnabled();
   });
 });

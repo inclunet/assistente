@@ -46,6 +46,8 @@ O pacote usa os modelos nativos do provedor e do perfil. O perfil poderá aponta
 
 Quando um perfil referencia exclusivamente para chat um slug ausente e o pacote não fornece o provedor, a pessoa pode criar uma conexão ChatGPT local com esse slug e iniciar o fluxo de autenticação nativo. O pacote contém somente a referência. A criação exige ação explícita, preserva o padrão da conta e recusa uma colisão de slug. O provedor assim criado pertence à conta e continua disponível após a desinstalação do perfil.
 
+A página usa uma barra de ações por lista. A instalação por pasta parte da aba Instalados, inclusive com inventário vazio. Uma nova pendência de sincronização de MCP ou jobs abre o diálogo de decisão do AEP-0091, com opções de tentar agora ou adiar. Enquanto a pendência existir, a ação permanece acessível na barra de Instalados e nos detalhes.
+
 ### Contribuições e execução
 
 - Skills e MCP usam os serviços e políticas existentes. O adaptador traduz os campos de cada formato e identifica transportes ou variáveis incompatíveis.

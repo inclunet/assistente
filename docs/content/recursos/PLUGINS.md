@@ -9,7 +9,7 @@ Abra **Plugins** pelo menu principal para consultar os pacotes instalados na sua
 
 ## Instalar uma pasta local
 
-1. Escolha **Escolher pasta de plugin** e selecione a raiz do pacote. No formato Agent Plugins 1.0.0, ela contém `plugin.json`. Para Claude Code, Cursor ou Codex, escolha a pasta que contém `.claude-plugin`, `.cursor-plugin` ou `.codex-plugin`.
+1. Na aba **Instalados**, escolha **Instalar da pasta…** e selecione a raiz do pacote. No formato Agent Plugins 1.0.0, ela contém `plugin.json`. Para Claude Code, Cursor ou Codex, escolha a pasta que contém `.claude-plugin`, `.cursor-plugin` ou `.codex-plugin`.
 2. Confira a origem e os arquivos incluídos na prévia. O identificador SHA-256 corresponde aos nomes e ao conteúdo dos arquivos capturados. Ele permite conferir a revisão instalada.
 3. Escolha **Instalar revisão** para guardar uma cópia na conta atual ou **Cancelar** para fechar a prévia.
 
@@ -31,7 +31,7 @@ Na prévia e nos detalhes do plugin, confira o endereço e o transporte. Quando 
 
 Nos detalhes do plugin, você pode remover o servidor ou mantê-lo como servidor independente. A prévia da atualização identifica os servidores afetados e aponta os editados. Ao atualizar o plugin, servidores vinculados cuja configuração continua igual são removidos. Se você editou um deles, mantenha-o como independente antes de repetir a atualização para preservar sua configuração.
 
-Se a alteração for salva e a sincronização com o gerenciador MCP falhar, use a opção de sincronizar novamente. O cadastro ou a remoção já foi gravado. Se o gerenciador sincronizar e a leitura da lista ou dos detalhes falhar, a tela informa que os dados exibidos precisam ser recarregados.
+Se houver uma sincronização pendente de MCP ou de jobs, um diálogo anuncia a pendência e oferece **Sincronizar agora** e **Mais tarde**. Escape também adia. Para retomar, vá à aba **Instalados** e use **Sincronizar componentes do plugin** na barra da lista. Nos detalhes do plugin, a ação também fica disponível enquanto houver pendência. O cadastro ou a remoção já foi gravado. Se o gerenciador sincronizar e a leitura da lista ou dos detalhes falhar, a tela informa que os dados exibidos precisam ser recarregados.
 
 ## Desativar ou desinstalar
 
