@@ -262,8 +262,8 @@ func TestRedirectedZIPDoesNotReuseAnotherResourcesValidator(t *testing.T) {
 	}))
 	defer server.Close()
 	inventory := NewInventory(nil).WithRemoteClient(func(string) *httpclient.Client {
-		client := RepositoryHTTPClient(nil, "", nil)
-		client.GetBaseClient().Transport = server.Client().Transport
+		client := RepositoryHTTPClient(nil, "", &repositoryNetworkDecision{allow: true})
+		client.GetBaseClient().Transport.(*http.Transport).TLSClientConfig = server.Client().Transport.(*http.Transport).TLSClientConfig.Clone()
 		return client
 	}, nil)
 	cache := repositoryValidators{etag: `"v1"`, root: "old"}
