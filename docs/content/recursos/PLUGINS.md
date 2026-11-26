@@ -102,3 +102,7 @@ Se o job usa um pipeline, crie ou escolha no destino um pipeline com o mesmo slu
 Escolha **Revisar pacote**, confira os arquivos e escolha **Salvar ZIP**. Se um recurso mudou desde a prévia, revise novamente. Se a gravação falhar, escolha outro destino em **Salvar ZIP** para tentar de novo com a mesma prévia. Para instalar o arquivo em outra conta, extraia o ZIP em uma pasta e abra essa pasta pelo gerenciador de Plugins. Você também pode colocar a pasta em um repositório de plugins para publicar a revisão.
 
 Se o catálogo de perfis de plugins estiver indisponível, o seletor da conversa avisa e oferece os perfis locais. Reabra o seletor para consultar o catálogo novamente. Se a lista local também falhar, use **Tentar novamente** no seletor.
+
+Atualizar o pacote preserva a configuração local dos provedores já cadastrados. Mesmo que a nova revisão retire o componente do catálogo, seu provedor continua na lista apresentada ao desinstalar.
+
+Ao desinstalar um plugin com provedores cadastrados, confira os slugs no diálogo. **Desinstalar e desvincular provedores** conserva esses cadastros na sua conta e os perfis podem continuar usando-os. **Desinstalar e remover provedores** exclui os cadastros. Perfis que dependiam deles precisarão de um provedor disponível. **Cancelar** mantém o plugin e os provedores.

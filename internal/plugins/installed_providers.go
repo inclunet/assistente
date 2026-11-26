@@ -61,7 +61,7 @@ func (i *Inventory) RegisterProvider(ctx context.Context, id, digest, key string
 		local, err := repo.GetBySlug(ctx, p.Slug)
 		if err == nil {
 			var receipt database.PluginProviderBinding
-			if err := tx.Where("installation_id=? AND component_key=? AND digest=? AND provider_id=?", id, key, digest, local.ID).Take(&receipt).Error; err != nil {
+			if err := tx.Where("installation_id=? AND component_key=? AND provider_id=?", id, key, local.ID).Take(&receipt).Error; err != nil {
 				if errors.Is(err, gorm.ErrRecordNotFound) {
 					return ErrProviderSlugTaken
 				}
@@ -95,7 +95,7 @@ func (i *Inventory) RegisterProvider(ctx context.Context, id, digest, key string
 	return nil
 }
 
-func (i *Inventory) markExistingProviders(ctx context.Context, components []Component, owner, installation, digest string) error {
+func (i *Inventory) markExistingProviders(ctx context.Context, components []Component, owner, installation string) error {
 	indices := make(map[string]int)
 	var slugs []string
 	for n, c := range components {
@@ -110,7 +110,7 @@ func (i *Inventory) markExistingProviders(ctx context.Context, components []Comp
 	var rows []struct{ Slug, ComponentKey string }
 	err := i.db.WithContext(ctx).Model(&database.LLMProvider{}).
 		Select("llm_providers.slug, coalesce(b.component_key, '') as component_key").
-		Joins("LEFT JOIN plugin_provider_bindings b ON b.provider_id=llm_providers.id AND b.installation_id=? AND b.digest=?", installation, digest).
+		Joins("LEFT JOIN plugin_provider_bindings b ON b.provider_id=llm_providers.id AND b.installation_id=?", installation).
 		Where("llm_providers.user_id=? AND llm_providers.slug IN ?", owner, slugs).Scan(&rows).Error
 	if err != nil {
 		return err

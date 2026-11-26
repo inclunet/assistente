@@ -114,14 +114,17 @@ func (s *Service) RefreshPackagedProvider(ctx context.Context, id string, admit 
 	s.publicationMu.Lock()
 	defer s.publicationMu.Unlock()
 	p, err := s.store.Get(ctx, id)
-	if err != nil {
+	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
 		return err
-	}
-	if p == nil {
-		return gorm.ErrRecordNotFound
 	}
 	return admit(nil, func() error {
 		return s.registry.WithGeneration(generation, func() error {
+			if p == nil {
+				if s.registry.Get(id) == nil {
+					return nil
+				}
+				return s.registry.Remove(id)
+			}
 			err := s.registry.RegisterGeneration(p, generation)
 			if errors.Is(err, llm.ErrInsecureHTTPAuthorizationRequired) {
 				return s.registry.RegisterPendingAuthorization(p)

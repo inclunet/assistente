@@ -14,6 +14,17 @@ var ErrInstallationDisabled = errors.New("PLUGIN_DISABLED")
 // ChangeInstallation applies one user decision to one reviewed revision.
 // Re-enabling permits new grants. It never replays an earlier authorization.
 func (i *Inventory) ChangeInstallation(ctx context.Context, id, digest, action string, admit commandsecurity.Admission) error {
+	return i.changeInstallation(ctx, id, digest, action, "", nil, admit)
+}
+
+func (i *Inventory) UninstallReviewed(ctx context.Context, id, digest, choice string, reviewed map[string]string, admit commandsecurity.Admission) error {
+	if choice != "detach" && choice != "remove" {
+		return ErrInstallationChanged
+	}
+	return i.changeInstallation(ctx, id, digest, "uninstall", choice, reviewed, admit)
+}
+
+func (i *Inventory) changeInstallation(ctx context.Context, id, digest, action, choice string, reviewed map[string]string, admit commandsecurity.Admission) error {
 	owner, err := database.RequireUserID(ctx)
 	if err != nil {
 		return err
@@ -26,6 +37,7 @@ func (i *Inventory) ChangeInstallation(ctx context.Context, id, digest, action s
 	}
 	publishCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
+	var removedProviders []string
 	var revokedJobs []string
 	var syncNeeded bool
 	err = database.WithSQLiteAdmittedCommit(publishCtx, i.db, "plugins.lifecycle", func(tx *gorm.DB) error {
@@ -69,6 +81,13 @@ func (i *Inventory) ChangeInstallation(ctx context.Context, id, digest, action s
 		if action == "disable" {
 			return tx.Model(&row).Update("disabled", true).Error
 		}
+		removedProviders, err = applyProviderRemoval(tx, publishCtx, owner, id, choice, reviewed)
+		if err != nil {
+			return err
+		}
+		if len(removedProviders) > 0 && i.refreshProvider == nil {
+			return ErrComponentUnavailable
+		}
 		if err := tx.Where("installation_id=?", id).Delete(&database.PluginRevision{}).Error; err != nil {
 			return err
 		}
@@ -77,5 +96,11 @@ func (i *Inventory) ChangeInstallation(ctx context.Context, id, digest, action s
 	if err != nil {
 		return err
 	}
-	return i.refreshRuntime(ctx, revokedJobs, syncNeeded, admit)
+	err = i.refreshRuntime(ctx, revokedJobs, syncNeeded, admit)
+	for _, providerID := range removedProviders {
+		if refreshErr := i.refreshProvider(ctx, providerID, admit); refreshErr != nil {
+			err = errors.Join(err, ErrProviderSyncPending, refreshErr)
+		}
+	}
+	return err
 }
