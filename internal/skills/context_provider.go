@@ -10,6 +10,7 @@ import (
 
 	"assistente/internal/contextprovider"
 	"assistente/internal/logging"
+	"assistente/internal/tools/invocationctx"
 )
 
 const defaultContextProviderBudget = 50000
@@ -368,6 +369,9 @@ func (turn *commandTurn) renderBase(ctx context.Context, skill *Skill, doc comma
 }
 
 func buildAvailableSkillsBlock(ctx context.Context, availableSkills []Skill, source ContextProviderSource) string {
+	if !invocationctx.DelegatedToolsFrom(ctx).Allows("load_skill") {
+		return ""
+	}
 	modelInvocable := make([]Skill, 0, len(availableSkills))
 	for _, skill := range availableSkills {
 		if skill.IsModelInvocable() {

@@ -101,6 +101,7 @@ quanto os jobs o acionam pelo mesmo caminho.
   à base, que distingue `nil` de `[]`): **omitido/`nil`** = herda as tools do profile;
   **`[]` (lista vazia)** = nenhuma tool (sub-agente sem tool calling). Itens fora do
   habilitado pelo profile são ignorados (nunca expandem privilégio).
+  A restrição acompanha o contexto do run, inclusive em segundo plano. Em delegações aninhadas, os limites se acumulam. O teste `TestDelegatedToolsLimitDefinitionsAndDispatch` cobre a seleção e o despacho. Provedores que executam suas próprias ferramentas sem controle pelo Assistente recusam a delegação restrita.
 - `run_id` (string UUIDv7, opcional — AEP-0046): identifica um **run específico**
   (turno) de uma sub-conversa para `status`/`cancel`. Se omitido, as operações abaixo
   agem sobre o **run mais recente** da `conversation_id` informada.

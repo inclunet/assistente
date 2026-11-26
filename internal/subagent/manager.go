@@ -18,6 +18,7 @@ import (
 	"assistente/internal/eventctx"
 	"assistente/internal/messaging"
 	"assistente/internal/toolinvocations"
+	"assistente/internal/tools/invocationctx"
 )
 
 // maxResultSummary limita o tamanho do result_summary persistido para evitar
@@ -468,6 +469,7 @@ func (m *Manager) Run(ctx context.Context, p RunParams) (RunResult, error) {
 	//     ao fim do turno-pai; o cancel é disparado na goroutine ao concluir a
 	//     espera (timeout/cancel via wait), alcançando o loop daquele run.
 	sendBase := eventctx.With(ctx, sendProv)
+	sendBase = invocationctx.WithDelegatedTools(sendBase, p.Tools)
 	sendBase = toolinvocations.WithParentInvocationID(sendBase, p.ParentInvocationID)
 	if p.Background {
 		sendBase = context.WithoutCancel(sendBase)

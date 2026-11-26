@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"assistente/internal/contextprovider"
+	"assistente/internal/tools/invocationctx"
 )
 
 type contextProviderSourceStub struct {
@@ -397,5 +398,20 @@ func TestCatalogFileRetryPreservesBaseReservation(t *testing.T) {
 	again, err := p.Build(ctx, req)
 	if err != nil || cached == nil || prepared.last != cached || !slices.Equal(again, final) || calls != 1 || src.calls != 3 {
 		t.Fatalf("reuso após recuperação: %v err=%v execuções=%d listagens=%d", again, err, calls, src.calls)
+	}
+}
+
+func TestRestrictedDelegationDoesNotAdvertiseLoadSkill(t *testing.T) {
+	skill := providerSkill("later", "Later instructions.", false)
+	source := contextProviderSourceStub{skills: []Skill{skill}}
+	for _, tc := range []struct {
+		tools      []string
+		advertised bool
+	}{{[]string{"read_file"}, false}, {nil, true}} {
+		ctx := invocationctx.WithDelegatedTools(t.Context(), tc.tools)
+		content := buildAvailableSkillsBlock(ctx, source.skills, source)
+		if strings.Contains(content, "load_skill") != tc.advertised {
+			t.Fatalf("catálogo inesperado: %q", content)
+		}
 	}
 }

@@ -179,6 +179,8 @@ anuncia e o que o agente pode executar permanecem coerentes.
 
 ## Sub-agentes
 
+Ao delegar, o campo opcional `tools` limita as ferramentas do subagente naquela execução. Omitir o campo herda o acesso do perfil. Usar `[]` permite apenas responder. Por exemplo, `["read_file"]` permite leitura se o perfil já a autoriza. A restrição também vale em segundo plano e se mantém nas delegações feitas durante o run. Um provedor de agente que controla suas próprias ferramentas não aceita essa restrição.
+
 A tool `subagent` delega trabalho especializado, paralelizável, longo ou que se
 beneficie de contexto isolado. Para tarefas curtas que uma tool direta resolve,
 delegar adiciona latência, consumo de contexto e ocupa uma das vagas limitadas

@@ -216,7 +216,11 @@ func TestManagerRunSyncSuccess(t *testing.T) {
 	mgr := NewManager(ManagerConfig{
 		Repo:     repo,
 		Notifier: notifier,
-		Send: func(_ context.Context, p SendParams) (string, error) {
+		Send: func(ctx context.Context, p SendParams) (string, error) {
+			scope := invocationctx.DelegatedToolsFrom(ctx)
+			if !scope.Allows("read_file") || scope.Allows("write_file") {
+				t.Error("o envio perdeu a restrição do run")
+			}
 			if p.Source != Source {
 				t.Errorf("esperava Source=%q, veio %q", Source, p.Source)
 			}
@@ -231,6 +235,7 @@ func TestManagerRunSyncSuccess(t *testing.T) {
 		ParentTurnID:         "parent-turn",
 		Prompt:               "faça X",
 		ProfileSlug:          "coder",
+		Tools:                []string{"read_file"},
 	})
 	if err != nil {
 		t.Fatalf("Run erro inesperado: %v", err)
