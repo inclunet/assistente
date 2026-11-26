@@ -244,6 +244,7 @@ notSaved: 'La decisión vale solo para esta operación: no se pudo recordar. Ser
       gitURL: 'URL HTTPS del repositorio Git',
       addGit: 'Añadir repositorio Git',
       gitSizeError: 'El repositorio supera el límite de tamaño de las tiendas.',
+      catalogOffline: 'Algunas tiendas no pudieron actualizarse. El catálogo muestra la última copia disponible.',
       gitError: 'No se pudo leer la tienda Git. Comprueba la URL de clonación, la conexión y las credenciales.',
       storeDetected: 'Tienda de plugins encontrada',
       storeDetectedPrompt: '¿Añadir la tienda {{name}} desde {{origin}}?',

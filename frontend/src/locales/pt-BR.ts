@@ -245,6 +245,7 @@ notSaved: 'A decisão vale somente para esta operação: não foi possível lemb
       gitURL: 'URL HTTPS do repositório Git',
       addGit: 'Adicionar repositório Git',
       gitSizeError: 'O repositório excede o limite de tamanho para lojas.',
+      catalogOffline: 'Algumas lojas não puderam ser atualizadas. O catálogo mostra a última cópia disponível.',
       gitError: 'Não foi possível ler a loja Git. Confira a URL de clone, a conexão e a credencial.',
       storeDetected: 'Loja de plugins encontrada',
       storeDetectedPrompt: 'Adicionar a loja {{name}} a partir de {{origin}}?',

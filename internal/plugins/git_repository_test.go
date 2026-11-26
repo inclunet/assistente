@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -57,6 +58,7 @@ func TestGitStoreReadsAdvertisedCommitOverApplicationHTTP(t *testing.T) {
 		t.Fatal(err)
 	}
 	pkt := func(s string) string { return fmt.Sprintf("%04x%s", len(s)+4, s) }
+	var packs atomic.Int32
 	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/team/store.git/info/refs":
@@ -66,6 +68,7 @@ func TestGitStoreReadsAdvertisedCommitOverApplicationHTTP(t *testing.T) {
 			w.Header().Set("Content-Type", "application/x-git-upload-pack-advertisement")
 			_, _ = io.WriteString(w, pkt("# service=git-upload-pack\n")+"0000"+pkt(head.String()+" HEAD\x00shallow symref=HEAD:refs/heads/main\n")+pkt(head.String()+" refs/heads/main\n")+"0000")
 		case "/team/store.git/git-upload-pack":
+			packs.Add(1)
 			data, err := io.ReadAll(r.Body)
 			if err != nil || r.Method != "POST" || !strings.Contains(string(data), "want "+head.String()) || !strings.Contains(string(data), "deepen 1") {
 				t.Error(r.Method, string(data), err)
@@ -81,12 +84,16 @@ func TestGitStoreReadsAdvertisedCommitOverApplicationHTTP(t *testing.T) {
 	defer server.Close()
 	client := RepositoryHTTPClient(nil, "", nil)
 	client.GetBaseClient().Transport = server.Client().Transport
-	archive, revision, err := readGitRepository(context.Background(), client, server.URL+"/team/store.git")
+	archive, revision, err := readGitRepository(context.Background(), client, server.URL+"/team/store.git", "")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if revision != gitRevisionPrefix+head.String() {
 		t.Fatal(revision)
+	}
+	unchanged, hash, err := readGitRepository(context.Background(), client, server.URL+"/team/store.git", revision)
+	if err != nil || unchanged != nil || hash != revision || packs.Load() != 1 {
+		t.Fatal(hash, err, packs.Load())
 	}
 	snap, err := archive.Package(server.URL, ".")
 	if err != nil || snap.Manifest.Name != "sample" {
@@ -126,7 +133,7 @@ func TestGitStoreClassifiesHTTPAuthenticationFailure(t *testing.T) {
 		client.GetBaseClient().Transport = server.Client().Transport
 		return client
 	}, nil)
-	_, _, err := i.download(database.WithUserID(context.Background(), "owner"), server.URL, "", true)
+	_, _, err := i.download(database.WithUserID(context.Background(), "owner"), server.URL, "", true, &repositoryValidators{})
 	if err == nil || err.Error() != "PLUGIN_REPOSITORY_CREDENTIAL" {
 		t.Fatal(err)
 	}

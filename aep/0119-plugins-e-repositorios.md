@@ -178,6 +178,8 @@ Um nome igual em duas lojas pode induzir troca de origem. Uma tradução incompl
 
 ## Critérios de aceitação
 
+- [x] Catálogo e Repositórios apresentam o índice salvo durante a revalidação das origens visíveis. ZIPs remotos usam os validadores HTTP quando disponíveis e Git compara o HEAD antes de transferir a árvore. `TestRemoteStoreRetainsReviewedArchiveAndVaultOrigin`, `TestGitStoreReadsAdvertisedCommitOverApplicationHTTP` e os casos de atualização de `PluginRepositories.test.tsx` cobrem cache, descoberta e indisponibilidade.
+
 - [x] Lojas Git por HTTPS usam o cliente de rede do Assistente. `TestGitStoreReadsAdvertisedCommitOverApplicationHTTP` verifica descoberta, pedido raso, leitura do commit anunciado e montagem de um pacote sem checkout.
 - [x] A instalação local aceita pasta ou arquivo ZIP. `TestInspectLocalZIPFindsPackageRoot` verifica a raiz e os formatos. Em `TestPluginPreviewUsesSelectedDirectoryAndSession`, o caso “ZIP alterado requer outra prévia” exige nova confirmação se a origem mudar.
 
