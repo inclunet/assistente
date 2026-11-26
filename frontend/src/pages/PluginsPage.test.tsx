@@ -662,6 +662,31 @@ describe('PluginsPage', () => {
     expect(screen.queryByText('plugins.createdList')).toBeNull();
     expect(mocks.createList.mock.calls[2][3]).not.toBe(mocks.createList.mock.calls[1][3]);
   });
+  it('starts a new list after the previous creation succeeds while the page is unmounted', async () => {
+    const user = userEvent.setup();
+    mocks.list.mockResolvedValue([{id: 'one', name: 'Demo', digest: 'sha'}]);
+    mocks.components.mockResolvedValue([{name: 'Release', key: 'tasklists/release', kind: 'tasklistTemplate'}]);
+    let confirmCreation!: (id: string) => void;
+    const pending = new Promise<string>(resolve => { confirmCreation = resolve; });
+    mocks.createList.mockReturnValueOnce(pending).mockResolvedValueOnce('second-list');
+    async function createList() {
+      (await screen.findByRole('gridcell', {name: /Demo/})).focus();
+      await user.keyboard('{Enter}');
+      await user.click(await screen.findByRole('button', {name: 'plugins.createList'}));
+    }
+    const view = render(<PluginsPage />);
+    await createList();
+    view.unmount();
+    confirmCreation('first-list');
+    await pending;
+    render(<PluginsPage />);
+    await createList();
+    await screen.findByText('plugins.createdList');
+    const [first, second] = mocks.createList.mock.calls;
+    expect(first).toEqual(['one', 'sha', 'tasklists/release', expect.any(String)]);
+    expect(second).toEqual(['one', 'sha', 'tasklists/release', expect.any(String)]);
+    expect(second[3]).not.toBe(first[3]);
+  });
   it('activates only a valid packaged profile', async () => {
     mocks.list.mockResolvedValue([{id: 'one', name: 'Demo', digest: 'sha'}]);
     mocks.components.mockResolvedValue([
