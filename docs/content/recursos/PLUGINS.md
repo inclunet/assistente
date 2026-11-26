@@ -69,7 +69,7 @@ Escolha **Adicionar loja por URL**. Uma mudança no arquivo exige **Atualizar** 
 
 ## Criar uma lista a partir de um modelo
 
-Abra os detalhes de um plugin instalado que forneça um modelo de lista de tarefas. Escolha **Criar lista a partir de** e o nome do modelo. A nova lista fica em **Listas de tarefas**, com os estados de workflow e as tarefas iniciais que o autor incluiu. Cada nova criação gera uma lista independente. Se o slug do modelo já estiver em uso nessa conta, a cópia recebe o primeiro sufixo livre a partir de `-2`. Se a confirmação falhar, você pode tentar novamente na mesma sessão, inclusive depois de sair da página. Ao atingir o limite de listas da conta, exclua uma lista antes de criar outra. Suas notas e seu progresso continuam disponíveis quando você atualiza, desativa ou desinstala o plugin.
+Abra os detalhes de um plugin instalado que forneça um modelo de lista de tarefas. Escolha **Criar lista a partir de** e o nome do modelo. A nova lista fica em **Listas de tarefas**, com os estados de workflow e as tarefas iniciais que o autor incluiu. Se a criação for confirmada enquanto você estiver fora da página, criar outra lista ao voltar inicia um novo pedido. Enquanto o resultado estiver incerto, tentar novamente reutiliza o pedido anterior. Se o slug do modelo já estiver em uso nessa conta, a cópia recebe o primeiro sufixo livre a partir de `-2`. Se a confirmação falhar, você pode tentar novamente na mesma sessão, inclusive depois de sair da página. Ao atingir o limite de listas da conta, exclua uma lista antes de criar outra. Suas notas e seu progresso continuam disponíveis quando você atualiza, desativa ou desinstala o plugin.
 
 ## Conferir jobs incluídos no pacote
 
