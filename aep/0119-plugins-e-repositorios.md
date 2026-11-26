@@ -30,13 +30,21 @@ Usar a origem canônica do pacote e seu identificador declarado para distinguir 
 
 Classificar componentes como suportados, parciais, indisponíveis ou pendentes de configuração e explicar o motivo na prévia. Resolver dependências obrigatórias e opcionais antes da ativação. Ciclos, referências ambíguas e requisitos desconhecidos impedem ativar os componentes que dependem deles. Uma capacidade opcional omitida aparece no relatório. Um hook necessário para impedir uma operação é requisito de execução.
 
+### Provedores e perfis nativos (#1140)
+
+O builder permitirá distribuir um provedor sozinho ou junto de perfis. Cada provedor terá um slug único na conta. Alterar o nome de exibição preservará esse slug. O preenchimento das instalações existentes manterá os IDs, vínculos e credenciais locais. Nomes que gerem o mesmo slug receberão sufixos estáveis durante o preenchimento. Uma dependência declarada por slug será consultada somente na conta de destino.
+
+A prévia identificará o provedor, a origem do pacote e o endereço ou processo configurado. Instalar sua definição será uma operação local, sem abrir conexão, iniciar processo, substituir um homônimo ou eleger um novo padrão silenciosamente. A instalação, a atualização e a remoção distinguirão recursos fornecidos pelo pacote de configurações locais, inclusive quando editadas. Credenciais e concessões de rede e execução serão configuradas no destino.
+
+O pacote usará os modelos nativos do provedor e do perfil. O perfil poderá apontar por slug para um provedor já configurado ou fornecido pelo mesmo pacote. A seleção explícita `$default` continuará vinculada ao padrão do destino. A ativação resolverá todas as referências de chat, voz e transcrição antes de disponibilizar o perfil. Os consumidores locais que precisam de uma instância específica poderão continuar a usar seu ID. A resolução de slug e a busca de ID serão explícitas, inclusive quando um slug coincidir com o ID de outra instância.
+
 ### Contribuições e execução
 
 - Skills e MCP usam os serviços e políticas existentes. O adaptador traduz os campos de cada formato e identifica transportes ou variáveis incompatíveis.
 - Definições de agentes e subagentes mapeiam instruções, perfil, modelo e restrições de ferramentas para a delegação existente. A ativação preserva as autorizações do perfil e as verificações de troca por invocação.
 - Comandos passam pelo [catálogo e resolvedor](0103-comandos-acionadores-e-camadas-contextuais.md). Regras e instruções persistentes declaram escopo e precedência. Conflitos que alterem uma personalização exigem decisão. O pacote não ganha autoridade para produzir eventos externos de ativação de comandos.
 - Hooks exigem contrato por evento com momento de disparo, filtros, entrada, saída, timeout, permissões e efeito de falha ou veto. Um evento só será anunciado como suportado após teste pelo fluxo real da ferramenta.
-- Uma extensão identificada como própria do Assistente pode declarar jobs, perfis e modelos de tasklist. Novos tipos entram com validação, importação, ativação, atualização e remoção definidas. O núcleo portátil continua utilizável quando suas dependências forem portáveis.
+- Uma extensão identificada como própria do Assistente pode declarar provedores, jobs, perfis e modelos de tasklist. Novos tipos entram com validação, importação, ativação, atualização e remoção definidas. O núcleo portátil continua utilizável quando suas dependências forem portáveis.
 
 ### Instalação e atualização
 
@@ -157,6 +165,11 @@ O executor de skills usa o protocolo de comandos do [AEP-0089](0089-terminais-co
 Um nome igual em duas lojas pode induzir troca de origem. Uma tradução incompleta pode remover uma restrição de ferramenta ou um veto. Uma atualização interrompida pode deixar um job ativo com arquivos de outra versão. A prévia, as verificações no destino e as provas de recuperação cobrem esses casos. Arquivos de backup podem conter dados privados, por isso o builder precisa de seleção explícita de campos publicáveis por tipo.
 
 ## Critérios de aceitação
+
+- [ ] Preencher e persistir slugs únicos por conta, preservando os vínculos por ID após renomear um provedor e ao reabrir uma instalação existente.
+- [ ] Gerar e instalar um pacote contendo apenas um provedor, conferir a prévia e preservar um provedor local homônimo. Verificar que a instalação não conecta, não executa processos e não transporta credenciais nem aprovações da origem.
+- [ ] Instalar provedor e perfil em outra conta com IDs diferentes e verificar as referências de chat, voz e transcrição. Cobrir o padrão explícito e a dependência obrigatória ausente antes da ativação.
+
 
 - [ ] Carregar fixtures de Claude Code, Cursor, Codex e Agent Plugins, identificar componentes incompatíveis e explicar o efeito na instalação. Mostrar o último índice válido quando uma loja ficar offline.
 - [ ] Distinguir pacotes homônimos. Instalar a mesma revisão duas vezes e retomar uma atualização interrompida sem duplicar recursos ou disparos.

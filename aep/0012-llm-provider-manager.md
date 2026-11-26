@@ -6,6 +6,10 @@
 
 ---
 
+## Integração prevista com plugins
+
+O ID identifica a instância local do provedor. O [AEP-0119](0119-plugins-e-repositorios.md) prevê também um slug estável por conta para referências portáveis. Perfis existentes que guardam o ID conservam o vínculo durante a adoção dos slugs.
+
 ## 1. Problem Statement
 
 ### Current Architecture (Issues)

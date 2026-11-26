@@ -11,6 +11,10 @@ real de comando de 16 segundos; a borda não repete essa espera. Reintroduzir
 um teto de 15 s no bind faz as três verificações falharem. Contrato e status
 **Done** preservados; medições em `docs/operations/ci-test-cost.md`.
 
+## Integração prevista com plugins
+
+O cadastro nativo também será usado por plugins. O [AEP-0119](0119-plugins-e-repositorios.md) prevê um slug único por conta, separado do nome editável e do ID de persistência. Um pacote poderá distribuir a configuração do provedor. A associação com o cofre e as autorizações do destino continuam sob controle do gerenciador.
+
 ## Resumo
 
 Separar a criação de conta ChatGPT, serviço ACP e provedor API no menu
