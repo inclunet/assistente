@@ -266,6 +266,9 @@ func (rc *RunCommand) Execute(ctx context.Context, args json.RawMessage) (tools.
 			return shellPrerequisiteFailure(ctx, "directory_changed", "O diretório mudou durante a autorização."), nil
 		}
 	}
+	if err := invocationctx.CheckAgent(ctx); err != nil {
+		return tools.ToolResult{Content: "Agente de plugin indisponível para esta execução.", IsError: true}, nil
+	}
 	if origin, ok := tools.GetExecutionContext(ctx); ok && origin.CheckCommandActivation != nil {
 		if err := origin.CheckCommandActivation(ctx); err != nil {
 			return tools.ToolResult{Content: "A ativação do plugin mudou ou está indisponível.", IsError: true}, nil

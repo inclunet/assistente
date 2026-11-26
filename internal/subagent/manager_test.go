@@ -960,6 +960,68 @@ func TestManagerResumeRejectsNonSubagentConversation(t *testing.T) {
 	}
 }
 
+func TestDelegationBindsOriginalDefinitionToChild(t *testing.T) {
+	repo, ctx := setupManagerTest(t)
+	notifier := messaging.NewResponseNotifier()
+	t.Cleanup(notifier.Stop)
+	mgr := NewManager(ManagerConfig{
+		Repo: repo, Notifier: notifier,
+		ResolveAgent: func(_ context.Context, slug string) (string, RunParams, error) {
+			if slug != "reviewer" {
+				t.Fatalf("slug=%q", slug)
+			}
+			return "ativação", RunParams{AgentInstructions: "Somente leitura", Model: "inherit"}, nil
+		},
+		Send: func(inner context.Context, p SendParams) (string, error) {
+			child, err := database.GetConversationInfoWithContext(inner, p.ConversationID)
+			if err != nil {
+				return "", err
+			}
+			if child.PluginAgentGeneration != "ativação" || child.PluginAgentProvider != "p" || child.PluginAgentModel != "aba" || child.PluginAgentInstructions != "Somente leitura" {
+				t.Errorf("vínculo da sub-conversa: %+v", child)
+			}
+			go notifier.Notify(p.ConversationID, "ok", "m")
+			return p.ConversationID, nil
+		},
+	})
+	result, err := mgr.Run(invocationctx.WithTurnModel(ctx, "p", "aba"), RunParams{AgentSlug: "reviewer", ParentConversationID: "parent-conv", Prompt: "revisar"})
+	if err != nil || result.Status != StatusSucceeded {
+		t.Fatal(result, err)
+	}
+}
+
+func TestPluginAgentDefersClearUntilSendIsAdmitted(t *testing.T) {
+	repo, ctx := setupManagerTest(t)
+	notifier := messaging.NewResponseNotifier()
+	t.Cleanup(notifier.Stop)
+	revoked := errors.New("ativação revogada")
+	mgr := NewManager(ManagerConfig{
+		Repo: repo, Notifier: notifier,
+		Send: func(_ context.Context, p SendParams) (string, error) {
+			if !p.ClearPluginHistory {
+				t.Error("perdeu a intenção de limpar o histórico após a validação")
+			}
+			return "", revoked
+		},
+	})
+	conv, err := database.NewConversationRepository(database.DB()).CreateDelegatedConversation(ctx, "Agente", "parent-conv", "ativação", "", "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	msg := database.ChatMessage{ConversationID: conv.ID, Role: "user", Content: "histórico anterior"}
+	if err := database.DB().WithContext(ctx).Create(&msg).Error; err != nil {
+		t.Fatal(err)
+	}
+	result, err := mgr.Run(ctx, RunParams{ParentConversationID: "parent-conv", ConversationID: conv.ID, Prompt: "outra tarefa", Clear: true})
+	if err != nil || result.Status != database.SubAgentRunStatusFailed || result.Error != revoked.Error() {
+		t.Fatalf("esperava recusa de envio, recebeu %+v %v", result, err)
+	}
+	var stored database.ChatMessage
+	if err := database.DB().WithContext(ctx).First(&stored, "id = ?", msg.ID).Error; err != nil || stored.Content != msg.Content {
+		t.Fatalf("histórico após tentativa de limpeza: %q, erro %v", stored.Content, err)
+	}
+}
+
 func TestManagerClearResetsHistoryBeforeSend(t *testing.T) {
 	repo, ctx := setupManagerTest(t)
 	notifier := messaging.NewResponseNotifier()

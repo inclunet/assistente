@@ -79,6 +79,9 @@ func (i *Inventory) changeInstallation(ctx context.Context, id, digest, action, 
 			if err := tx.Where("installation_id=?", id).Delete(&database.PluginSkillActivation{}).Error; err != nil {
 				return err
 			}
+			if err := tx.Where("installation_id=?", id).Delete(&database.PluginAgentActivation{}).Error; err != nil {
+				return err
+			}
 			if action == "disable" {
 				return tx.Model(&row).Update("disabled", true).Error
 			}

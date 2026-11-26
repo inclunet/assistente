@@ -231,6 +231,7 @@ func InitPath(path string) error {
 		&PluginInstallation{}, &PluginRepository{},
 		&PluginRevision{},
 		&PluginSkillActivation{},
+		&PluginAgentActivation{},
 		&PluginProfileActivation{},
 		&PluginMCPBinding{},
 		&PluginProviderBinding{},

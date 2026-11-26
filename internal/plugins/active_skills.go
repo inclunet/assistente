@@ -61,6 +61,13 @@ func (i *Inventory) InstalledComponents(ctx context.Context, id, digest string) 
 	for _, row := range active {
 		slugs[row.ComponentKey] = row.Slug
 	}
+	var agents []database.PluginAgentActivation
+	if err := i.db.WithContext(ctx).Where("installation_id=? AND digest=?", id, digest).Find(&agents).Error; err != nil {
+		return nil, err
+	}
+	for _, grant := range agents {
+		slugs[grant.ComponentKey] = grant.Slug
+	}
 	bound, err := i.BoundMCPServers(ctx, id, digest)
 	if err != nil {
 		return nil, err
@@ -121,6 +128,14 @@ func (i *Inventory) InstalledComponents(ctx context.Context, id, digest string) 
 	return components, nil
 }
 
+func pluginComponentSlug(id, key, prefix string) string {
+	hash := sha256.Sum256([]byte(id + "\x00" + key))
+	if len(prefix) > 28 {
+		prefix = prefix[:28]
+	}
+	return skills.PluginPrefix + strings.TrimRight(prefix, "-") + "-" + hex.EncodeToString(hash[:12])
+}
+
 func (i *Inventory) SetSkillActive(ctx context.Context, id, digest, key string, active bool, admit commandsecurity.Admission) error {
 	if admit == nil {
 		return database.ErrUserScopeRequired
@@ -139,12 +154,7 @@ func (i *Inventory) SetSkillActive(ctx context.Context, id, digest, key string, 
 			if component.Key != key || component.Kind != "skill" || component.Reason != "" {
 				continue
 			}
-			hash := sha256.Sum256([]byte(id + "\x00" + key))
-			prefix := component.Name
-			if len(prefix) > 28 {
-				prefix = prefix[:28]
-			}
-			activation = database.PluginSkillActivation{Generation: uuid.NewString(), PackageFormat: snap.Manifest.Format, InstallationID: id, ComponentKey: key, Digest: digest, Slug: skills.PluginPrefix + strings.TrimRight(prefix, "-") + "-" + hex.EncodeToString(hash[:12]), Definition: string(snap.Files[component.Entry])}
+			activation = database.PluginSkillActivation{Generation: uuid.NewString(), PackageFormat: snap.Manifest.Format, InstallationID: id, ComponentKey: key, Digest: digest, Slug: pluginComponentSlug(id, key, component.Name), Definition: string(snap.Files[component.Entry])}
 			break
 		}
 		if activation.Slug == "" {

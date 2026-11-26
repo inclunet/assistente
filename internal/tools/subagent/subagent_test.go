@@ -243,6 +243,17 @@ func TestToolStatusRouting(t *testing.T) {
 	}
 }
 
+func TestAgentSelectionRequiresTask(t *testing.T) {
+	tool := NewWithProvider(func() Runner { return &fakeRunner{} })
+	for _, args := range []string{`{"agent":"revisor","run_id":"r"}`, `{"agent":"revisor","cancel":true,"conversation_id":"c"}`} {
+		result, err := tool.Execute(context.Background(), json.RawMessage(args))
+		if err != nil {
+			t.Fatal(err)
+		}
+		requirePermanentFailure(t, result, "invalid_arguments", tools.ErrorKindInvalidArgs)
+	}
+}
+
 func TestToolValidationCancelWithPrompt(t *testing.T) {
 	tool := NewWithProvider(func() Runner { return &fakeRunner{} })
 	res, _ := tool.Execute(context.Background(), json.RawMessage(`{"cancel":true,"prompt":"x","conversation_id":"c1"}`))

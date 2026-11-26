@@ -166,6 +166,9 @@ func (i *Inventory) InstallSource(ctx context.Context, reviewedOrigin, reviewedD
 			if err := tx.Where("installation_id = ?", installed.ID).Delete(&database.PluginSkillActivation{}).Error; err != nil {
 				return err
 			}
+			if err := tx.Where("installation_id = ?", installed.ID).Delete(&database.PluginAgentActivation{}).Error; err != nil {
+				return err
+			}
 		}
 		revision := database.PluginRevision{InstallationID: installed.ID, Digest: snapshot.Digest, Files: files}
 		return tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&revision).Error

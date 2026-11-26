@@ -163,14 +163,15 @@ func (c *ChatController) captureWorkspace(ctx context.Context) context.Context {
 // SendMessageUseCase usada pelo chat e canais — sem fluxo alternativo de envio
 // (AEP-0040). A conversa (sub-conversa) deve já existir; o Manager de
 // sub-agentes a cria antes de chamar este método.
-func (c *ChatController) SendForSubagent(ctx context.Context, conversationID, prompt, media, profileSlug, model string) (string, error) {
+func (c *ChatController) SendForSubagent(ctx context.Context, conversationID, prompt, media, profileSlug, model string, clearPluginHistory bool) (string, error) {
 	return c.sendMsgUC.Execute(usecases.SendMessageRequest{
-		Ctx:            ctx,
-		ConversationID: conversationID,
-		UserContent:    prompt,
-		UserMedia:      media,
-		Params:         llm.ChatParams{ProfileSlug: profileSlug, Model: model},
-		Source:         subagent.Source,
+		Ctx:                ctx,
+		ConversationID:     conversationID,
+		UserContent:        prompt,
+		UserMedia:          media,
+		Params:             llm.ChatParams{ProfileSlug: profileSlug, Model: model},
+		Source:             subagent.Source,
+		ClearPluginHistory: clearPluginHistory,
 	})
 }
 

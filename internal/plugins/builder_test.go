@@ -27,7 +27,7 @@ func TestBuilderExportsOnlySelectedDefinitionsToAnotherAccount(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = conn.Close() })
-	if err := db.AutoMigrate(&database.PluginInstallation{}, &database.PluginRevision{}, &database.PluginSkillActivation{}, &database.Job{}, &database.PluginProfileActivation{}, &database.PluginProviderBinding{}, &database.LLMProvider{}, &database.PluginMCPBinding{}, &database.PluginListReceipt{}, &database.MCPServer{}, &database.TaskList{}, &database.TaskListWorkflow{}, &database.Task{}, &database.TaskNote{}); err != nil {
+	if err := db.AutoMigrate(&database.PluginInstallation{}, &database.PluginRevision{}, &database.PluginSkillActivation{}, &database.PluginAgentActivation{}, &database.Job{}, &database.PluginProfileActivation{}, &database.PluginProviderBinding{}, &database.LLMProvider{}, &database.PluginMCPBinding{}, &database.PluginListReceipt{}, &database.MCPServer{}, &database.TaskList{}, &database.TaskListWorkflow{}, &database.Task{}, &database.TaskNote{}); err != nil {
 		t.Fatal(err)
 	}
 	list := database.TaskList{UserID: "author", Title: "Release", Slug: "releases"}
@@ -91,7 +91,9 @@ func TestBuilderExportsOnlySelectedDefinitionsToAnotherAccount(t *testing.T) {
 	req.Skills = []string{"notes"}
 	req.Profiles = []string{"writer"}
 	store = store.WithProfileDefinitions(func() (profiles.PortableDefinitions, error) {
-		return profiles.PortableDefinitions{"writer": func() ([]byte, error) { return []byte(`{"name":"Writer","chat":{"llm_provider":"$default","response_timeout":60,"disable_tools":true,"max_tokens":350}}`), nil }}, nil
+		return profiles.PortableDefinitions{"writer": func() ([]byte, error) {
+			return []byte(`{"name":"Writer","chat":{"llm_provider":"$default","response_timeout":60,"disable_tools":true,"max_tokens":350}}`), nil
+		}}, nil
 	})
 	if _, _, err := store.BuildPackage(ctx, BuilderRequest{Name: "writer", Profiles: []string{"gone"}}); err == nil || err.Error() != "PLUGIN_BUILDER_PROFILE_UNAVAILABLE:gone" {
 		t.Fatal("missing profile", err)

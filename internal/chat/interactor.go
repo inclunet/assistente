@@ -217,9 +217,11 @@ type PrepareContextRequest struct {
 
 // PrepareContextResponse holds the resolved profile and hydrated params for the chat pipeline.
 type PrepareContextResponse struct {
-	ActiveProfile *profiles.Profile
-	Params        ChatParams
-	UserContent   string
+	PluginAgentProvider, PluginAgentModel, PluginAgentInstructions string
+	PluginAgentGeneration                                          string
+	ActiveProfile                                                  *profiles.Profile
+	Params                                                         ChatParams
+	UserContent                                                    string
 }
 
 // PrepareContext validates limits, checks credentials, applies auto-rename, resolves
@@ -261,7 +263,7 @@ func (i *Interactor) PrepareContext(ctx context.Context, req PrepareContextReque
 		err          error
 	}
 	var conversationCh chan conversationResult
-	if req.ConversationID != "" && req.UserContent != "" && i.convRepo != nil {
+	if req.ConversationID != "" && i.convRepo != nil {
 		conversationCh = make(chan conversationResult, 1)
 		reads.Add(1)
 		go func() {
@@ -288,10 +290,19 @@ func (i *Interactor) PrepareContext(ctx context.Context, req PrepareContextReque
 	}
 
 	// 4. Auto-rename conversation if it still has the generic default title
+	var agentGeneration, agentProvider, agentModel, agentInstructions string
 	if conversationCh != nil {
 		result := <-conversationCh
 		conv, convErr := result.conversation, result.err
-		if convErr == nil && conv != nil && conv.Title == DefaultConversationTitle {
+		if convErr != nil {
+			return nil, convErr
+		}
+		if conv != nil {
+			agentGeneration = conv.PluginAgentGeneration
+			agentInstructions = conv.PluginAgentInstructions
+			agentProvider, agentModel = conv.PluginAgentProvider, conv.PluginAgentModel
+		}
+		if req.UserContent != "" && conv != nil && conv.Title == DefaultConversationTitle {
 			title := automaticTitle(req.UserContent)
 			if err := i.convRepo.UpdateConversation(ctx, req.ConversationID, title, ""); err == nil {
 				i.emitter.Emit("conversation:renamed", ports.ConversationRenamedEvent{
@@ -422,6 +433,8 @@ func (i *Interactor) PrepareContext(ctx context.Context, req PrepareContextReque
 	}
 
 	return &PrepareContextResponse{
+		PluginAgentGeneration: agentGeneration, PluginAgentInstructions: agentInstructions,
+		PluginAgentProvider: agentProvider, PluginAgentModel: agentModel,
 		ActiveProfile: activeProfile,
 		Params:        params,
 		UserContent:   req.UserContent,
@@ -792,6 +805,7 @@ func (i *Interactor) PersistUserTranscription(ctx context.Context, messageID, co
 
 // PrepareMessagesRequest carries inputs for the PrepareMessages pipeline.
 type PrepareMessagesRequest struct {
+	AgentInstructions   string
 	AllowSkillShell     bool
 	Messages            []llm.Message
 	UserContent         string
@@ -1007,6 +1021,12 @@ func (i *Interactor) PrepareMessages(ctx context.Context, req PrepareMessagesReq
 		}
 	}
 
+	if req.AgentInstructions != "" {
+		if i.promptBuilder == nil {
+			return PrepareMessagesResponse{Err: errors.New("construtor de prompt do agente indisponível")}
+		}
+		contextBlocks = append(contextBlocks, contextprovider.Block{Provider: "plugin_agent", Name: "instructions", Volatility: contextprovider.VolatilityStable, Content: req.AgentInstructions})
+	}
 	var messages []llm.Message
 	if i.promptBuilder != nil {
 		messages = i.promptBuilder.BuildWithContextBlocks(markTurnContextTarget(req.Messages, req.TurnID), enabledSkills, disableSkills, disableOnDemand, skillTplData, contextBlocks)

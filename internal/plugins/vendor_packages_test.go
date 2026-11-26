@@ -55,7 +55,7 @@ func TestVendorPackagesUseRetainedFormatAndCommandRunner(t *testing.T) {
 				t.Fatal(err)
 			}
 			t.Cleanup(func() { _ = conn.Close() })
-			if err := db.AutoMigrate(&database.PluginInstallation{}, &database.PluginRevision{}, &database.PluginSkillActivation{}, &database.PluginProfileActivation{}, &database.Job{}, &database.PluginProviderBinding{}, &database.LLMProvider{}, &database.PluginMCPBinding{}, &database.MCPServer{}); err != nil {
+			if err := db.AutoMigrate(&database.PluginInstallation{}, &database.PluginRevision{}, &database.PluginSkillActivation{}, &database.PluginAgentActivation{}, &database.PluginProfileActivation{}, &database.Job{}, &database.PluginProviderBinding{}, &database.LLMProvider{}, &database.PluginMCPBinding{}, &database.MCPServer{}); err != nil {
 				t.Fatal(err)
 			}
 			owner := database.WithUserID(context.Background(), "reader")
@@ -251,11 +251,106 @@ func TestClaudeAgentFilesAppearInPreviewWithoutActivation(t *testing.T) {
 	}
 	for i, entry := range []string{"agents/backend/reviewer.md", "agents/reviewer.md"} {
 		c := got[i]
-		if c.Entry != entry || c.Key != entry || c.Kind != "agent" || c.Reason != "agentDelegation" || c.Active {
+		if c.Entry != entry || c.Key != entry || c.Kind != "agent" || c.Reason != "agentConfiguration" || c.Active {
 			t.Fatal(c)
 		}
 	}
 	if got[2].Kind != "skill" || got[2].Reason != "" {
 		t.Fatal(got[2])
+	}
+}
+
+func TestClaudeAgentGrantIsLocalAndRevocable(t *testing.T) {
+	store := NewInventory(managedJobTestDB(t))
+	user := database.WithUserID(t.Context(), "owner")
+	other := database.WithUserID(t.Context(), "other")
+	dir := t.TempDir()
+	for name, content := range map[string]string{
+		".claude-plugin/plugin.json": `{"name":"equipe"}`,
+		"agents/reviewer.md":         "---\nname: reviewer\ndescription: Review\ntools: Read, Grep\nmodel: inherit\n---\nReview the change.",
+		"agents/unsupported.md":      "---\nname: writer\ndescription: Edit\ntools: [UnknownTool]\n---\nEdit.",
+	} {
+		p := filepath.Join(dir, filepath.FromSlash(name))
+		if err := os.MkdirAll(filepath.Dir(p), 0700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(content), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	snap, err := pluginpackage.InspectLocal(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	admit := func(_ *gorm.DB, commit func() error) error { return commit() }
+	row, err := store.InstallSource(user, snap.Origin, snap.Digest, "", nil, admit, func() (*pluginpackage.LocalSnapshot, error) { return snap, nil })
+	if err != nil {
+		t.Fatal(err)
+	}
+	toggle := func(key string, active bool) error {
+		return store.SetAgentActive(user, row.ID, row.Digest, key, active, admit)
+	}
+	if err := toggle("agents/unsupported.md", true); err == nil {
+		t.Fatal("ativou uma restrição desconhecida")
+	}
+	key := "agents/reviewer.md"
+	if err := toggle(key, true); err != nil {
+		t.Fatal(err)
+	}
+	items, err := store.InstalledComponents(user, row.ID, row.Digest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var slug string
+	for _, item := range items {
+		if item.Key == key && item.Active {
+			slug = item.Slug
+		}
+	}
+	if slug == "" {
+		t.Fatal("ativação ausente")
+	}
+	generation, err := store.AgentGeneration(user, slug)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.AgentGeneration(other, slug); err == nil {
+		t.Fatal("outra conta resolveu o slug")
+	}
+	run, err := store.ResolveAgent(user, generation)
+	if err != nil || run.AgentInstructions != "Review the change." || len(run.Tools) != 2 || run.Tools[0] != "read_file" || run.Tools[1] != "grep_search" {
+		t.Fatal(run, err)
+	}
+	if err := toggle(key, false); err != nil {
+		t.Fatal(err)
+	}
+	if err := toggle(key, true); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.CheckAgent(user, generation); err == nil {
+		t.Fatal("uma reativação restaurou a concessão anterior")
+	}
+}
+
+func TestClaudeAgentDefinitionDiagnostics(t *testing.T) {
+	const header = "---\nname: reviewer\ndescription: Review\n"
+	const body = "---\nInstructions."
+	for _, tc := range []struct{ option, field string }{
+		{"tools: [Write]\n", "tools"},
+		{"hooks: {}\n", "hooks"},
+		{"model: opus\n", "model"},
+		{"size: small\n", "size"},
+	} {
+		_, field, err := readClaudeAgent([]byte(header + tc.option + body))
+		if err == nil || field != tc.field {
+			t.Errorf("%q: field=%q error=%v", tc.option, field, err)
+		}
+	}
+	exact := header + body + strings.Repeat("x", maxClaudeAgentBytes-len(header+body))
+	if _, _, err := readClaudeAgent([]byte(exact)); err != nil {
+		t.Fatal(err)
+	}
+	if _, field, err := readClaudeAgent([]byte(exact + "x")); err != errAgentTooLarge || field != "" {
+		t.Fatal(field, err)
 	}
 }

@@ -28,7 +28,7 @@ func (d *subagentParentDelivery) Deliver(ctx context.Context, n subagent.ParentN
 	content := buildSubagentNotice(n)
 	// Profile vazio → o pipeline resolve o profile do pai/ativo. Model vazio →
 	// derivado do profile. Source="subagent" é definido por SendForSubagent.
-	_, err := d.app.chatCtrl.SendForSubagent(ctx, n.ParentConversationID, content, "", "", "")
+	_, err := d.app.chatCtrl.SendForSubagent(ctx, n.ParentConversationID, content, "", "", "", false)
 	return err
 }
 

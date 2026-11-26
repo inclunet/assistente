@@ -5,7 +5,7 @@ import { useResourceEditRequest } from '../hooks/useResourceEditRequest';
 import { useNavigationStore } from '../store/navigationStore';
 import { create } from 'zustand';
 import { useTranslation } from 'react-i18next';
-import { AddReviewedRepository, ProviderRemovalPreview, UninstallReviewed, CreateListFromTemplate, ChangeInstallation, DiscardPreview, InstalledComponents, InstallReviewed, ListInstalled, PreviewLocal, PreviewLocalZIP, RegisterProvider, RegisterMCP, RemoveMCP, PrepareJob, SetProfileActive, SetSkillActive, SyncMCP, SyncPendingJobs } from '@wailsjs/go/wailsapi/Plugins';
+import { AddReviewedRepository, ProviderRemovalPreview, UninstallReviewed, CreateListFromTemplate, ChangeInstallation, DiscardPreview, InstalledComponents, InstallReviewed, ListInstalled, PreviewLocal, PreviewLocalZIP, RegisterProvider, RegisterMCP, RemoveMCP, PrepareJob, SetAgentActive, SetProfileActive, SetSkillActive, SyncMCP, SyncPendingJobs } from '@wailsjs/go/wailsapi/Plugins';
 import type { database, jobs, plugins, wailsapi } from '@wailsjs/go/models';
 import { Button } from '../components/ui/Button';
 import { DataGrid } from '../components/ui/DataGrid';
@@ -64,12 +64,26 @@ function componentRequirement(component: plugins.Component) {
   if (component.reason === 'invalidTemplate') return 'plugins.invalidTemplate';
   if (component.reason === 'manifestConfiguration') return 'plugins.manifestPending';
   if (component.reason === 'packagePaths') return 'plugins.packagePathsPending';
-  if (component.reason === 'agentDelegation') return 'plugins.agentDelegationPending';
+  if (component.reason === 'agentTooLarge') return 'plugins.agentTooLarge';
+  if (component.reason === 'agentConfiguration') return 'plugins.agentConfiguration';
   if (component.reason === 'rootSkill') return 'plugins.rootSkillPending';
   if (component.reason === 'frontmatter') return 'plugins.fieldsPending';
   if (component.reason === 'configuration') return 'plugins.mcpConfigRequired';
-  if ((component.kind === 'mcp' || component.kind === 'profile' || component.kind === 'job' || component.kind === 'provider' || component.kind === 'tasklistTemplate') && !component.reason) return undefined;
+  if ((component.kind === 'agent' || component.kind === 'mcp' || component.kind === 'profile' || component.kind === 'job' || component.kind === 'provider' || component.kind === 'tasklistTemplate') && !component.reason) return undefined;
   return component.kind === 'skill' ? undefined : 'plugins.unavailable';
+}
+
+function AgentDefinition({component}: {component: plugins.Component}) {
+  const {t} = useTranslation();
+  if (component.agentProblemField) return <p>{t('plugins.agentField', {field: component.agentProblemField})}</p>;
+  if (!component.agentInstructions) return null;
+  const tools = component.agentTools;
+  const permissions = tools == null ? t('plugins.agentInherits') : tools.length
+    ? t('plugins.agentTools', {names: tools.join(', ')}) : t('plugins.agentNoTools');
+  return <>
+    <p>{permissions}</p>
+    <details><summary>{t('plugins.agentInstructions')}</summary><pre>{component.agentInstructions}</pre></details>
+  </>;
 }
 
 function JobRequirements({component}: {component: plugins.Component}) {
@@ -408,6 +422,8 @@ function InstalledPlugins({ session }: { session: string }) {
         await RegisterProvider(installation.id, installation.digest, component.key);
       } else if (component.kind === 'job') {
         await PrepareJob(installation.id, installation.digest, component.key);
+      } else if (component.kind === 'agent') {
+        await SetAgentActive(installation.id, installation.digest, component.key, !component.active);
       } else if (component.kind === 'profile') {
         await SetProfileActive(installation.id, installation.digest, component.key, !component.active);
       } else {
@@ -578,7 +594,7 @@ function InstalledPlugins({ session }: { session: string }) {
       {createdList && <p>{t('plugins.createdList', { name: createdList })}</p>}
       <h2>{t('plugins.components')}</h2>
       {details.components.length === 0 ? <p>{t('plugins.noComponents')}</p> : <ul>{details.components.map(component => <li key={component.key}>
-        <strong>{component.name}</strong> · {t(componentLabel(component.kind))}<JobRequirements component={component} />
+        <strong>{component.name}</strong> · {t(componentLabel(component.kind))}<AgentDefinition component={component} /><JobRequirements component={component} />
         {component.editedServer && <p>{t('plugins.editedServer', { name: component.editedServer })}</p>}
         {component.missingAllowlist && <p>{t('plugins.missingProfileAllowlist',{name:component.missingAllowlist})}</p>}{component.missingProvider && <p>{t('plugins.missingProfileProvider',{name:component.missingProvider})}</p>}{component.profileDefinition && <details><summary>{t('plugins.profileSettings')}</summary><pre>{component.profileDefinition}</pre></details>}{(component.kind === 'mcp' || component.kind === 'provider') && <p>{connectionLabel(component)}</p>}
         {component.kind === 'skill' && component.requestsShell && <p>{t('plugins.commandPolicy')}</p>}
@@ -591,9 +607,10 @@ function InstalledPlugins({ session }: { session: string }) {
             <Button disabled={busy || details.installation.disabled || error === 'plugins.syncPendingStale'} onClick={() => void changeComponent(component)}>{t('plugins.prepareJob', {name:component.name})}</Button>)
           : component.kind === 'tasklistTemplate' && !component.reason ?
           <Button disabled={busy || details.installation.disabled || error === 'plugins.syncPendingStale'} onClick={() => void changeComponent(component)}>{t('plugins.createList', { name: component.name })}</Button>
-          : (component.kind === 'profile' || component.kind === 'skill') && !component.reason ? <>
+          : (component.kind === 'profile' || component.kind === 'skill' || component.kind === 'agent') && !component.reason ? <>
           {component.kind === 'profile' && component.canCreateChatGPT && component.missingProvider && !details.components.some(c => c.kind === 'provider' && c.slug === component.missingProvider) &&
             <Button disabled={busy || details.installation.disabled || error === 'plugins.syncPendingStale'} onClick={() => setChatGPTSlug(component.missingProvider!)}>{t('plugins.createProfileChatGPT', { name: component.missingProvider })}</Button>}
+          {component.active && component.kind === 'agent' && <code>{component.slug}</code>}
           {component.active && component.kind === 'skill' && <code> /{component.slug}</code>}
           <Button disabled={busy || details.installation.disabled || (!component.active && !!(component.missingProvider || component.missingAllowlist)) || error === 'plugins.syncPendingStale'} onClick={() => void changeComponent(component)}>{t(component.active ? 'plugins.deactivate' : 'plugins.activate', { name: component.name })}</Button>
         </> : component.kind === 'mcp' && !component.reason ? <>
@@ -658,7 +675,7 @@ function InstalledPlugins({ session }: { session: string }) {
         {preview.authentication && <><dt>{t('plugins.authentication')}</dt><dd>{preview.authentication}</dd></>}
         <dt>SHA-256</dt><dd>{preview.digest}</dd>
       </dl>
-      {(preview.components ?? []).length > 0 && <ul aria-label={t('plugins.components')}>{preview.components.map(component => <li key={component.key}>{component.name} · {t(componentLabel(component.kind))}<JobRequirements component={component} />{component.requestsShell && <span> · {t('plugins.commandPolicy')}</span>}{component.missingAllowlist && <p>{t('plugins.missingProfileAllowlist',{name:component.missingAllowlist})}</p>}{component.missingProvider && <p>{t('plugins.missingProfileProvider',{name:component.missingProvider})}</p>}{component.profileDefinition && <details><summary>{t('plugins.profileSettings')}</summary><pre>{component.profileDefinition}</pre></details>}{(component.kind === 'mcp' || component.kind === 'provider') && <p>{connectionLabel(component)}</p>}{componentRequirement(component) && <p>{t(componentRequirement(component)!, { path: component.entry })}</p>}</li>)}</ul>}
+      {(preview.components ?? []).length > 0 && <ul aria-label={t('plugins.components')}>{preview.components.map(component => <li key={component.key}>{component.name} · {t(componentLabel(component.kind))}<AgentDefinition component={component} /><JobRequirements component={component} />{component.requestsShell && <span> · {t('plugins.commandPolicy')}</span>}{component.missingAllowlist && <p>{t('plugins.missingProfileAllowlist',{name:component.missingAllowlist})}</p>}{component.missingProvider && <p>{t('plugins.missingProfileProvider',{name:component.missingProvider})}</p>}{component.profileDefinition && <details><summary>{t('plugins.profileSettings')}</summary><pre>{component.profileDefinition}</pre></details>}{(component.kind === 'mcp' || component.kind === 'provider') && <p>{connectionLabel(component)}</p>}{componentRequirement(component) && <p>{t(componentRequirement(component)!, { path: component.entry })}</p>}</li>)}</ul>}
       {(preview.diagnostics ?? []).length > 0 && <details>
         <summary>{t('plugins.warnings', { count: preview.diagnostics.length })}</summary>
         <ul>{preview.diagnostics.map(warning => {

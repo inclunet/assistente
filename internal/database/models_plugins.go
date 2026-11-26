@@ -32,6 +32,16 @@ type PluginSkillActivation struct {
 	Definition     string `gorm:"not null" json:"-"`
 }
 
+// PluginAgentActivation grants delegation to one reviewed component and revision.
+// A new activation has a new generation even if the files are unchanged.
+type PluginAgentActivation struct {
+	Slug           string `gorm:"uniqueIndex;not null"`
+	InstallationID string `gorm:"primaryKey"`
+	ComponentKey   string `gorm:"primaryKey"`
+	Digest         string `gorm:"not null"`
+	Generation     string `gorm:"uniqueIndex;not null"`
+}
+
 type PluginProfileActivation struct {
 	InstallationID string `gorm:"primaryKey"`
 	ComponentKey   string `gorm:"primaryKey"`

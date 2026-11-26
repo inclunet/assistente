@@ -7,9 +7,9 @@ import { useWorkspaceStore } from '../store/workspaceStore';
 import { useAuthStore } from '../store/authStore';
 import * as navigation from '../lib/commandLandmarkNavigation';
 
-const mocks = vi.hoisted(() => ({ providerRemovalPreview: vi.fn(), uninstallReviewed: vi.fn(), registerProvider: vi.fn(), prepareJob: vi.fn(), syncJobs: vi.fn().mockResolvedValue(undefined), profile: vi.fn(), createList: vi.fn(), repos: vi.fn(), catalogPreview: vi.fn(), lifecycle: vi.fn(), sync: vi.fn(), register: vi.fn(), remove: vi.fn(), confirm: vi.fn(), list: vi.fn(), components: vi.fn(), toggle: vi.fn(), preview: vi.fn(), archive: vi.fn(), addReviewed: vi.fn(), install: vi.fn(), discard: vi.fn(), announce: vi.fn(), announceRequest: vi.fn() }));
+const mocks = vi.hoisted(() => ({ providerRemovalPreview: vi.fn(), uninstallReviewed: vi.fn(), registerProvider: vi.fn(), prepareJob: vi.fn(), syncJobs: vi.fn().mockResolvedValue(undefined), profile: vi.fn(), createList: vi.fn(), repos: vi.fn(), catalogPreview: vi.fn(), lifecycle: vi.fn(), sync: vi.fn(), register: vi.fn(), remove: vi.fn(), confirm: vi.fn(), list: vi.fn(), components: vi.fn(), toggle: vi.fn(), agent: vi.fn(), preview: vi.fn(), archive: vi.fn(), addReviewed: vi.fn(), install: vi.fn(), discard: vi.fn(), announce: vi.fn(), announceRequest: vi.fn() }));
 vi.mock('@wailsjs/go/wailsapi/Tasklist', () => ({GetAllTaskLists: async () => []}));
-vi.mock('@wailsjs/go/wailsapi/Plugins', () => ({ BuilderProviderSlugs: async () => ['equipe'], BuilderJobNames: async () => [], BuilderProfileNames: async () => ({names:[],partial:false}), BuilderSkillNames: async () => ({names:[],partial:false}), CreateListFromTemplate: mocks.createList, ListRepositories: mocks.repos, PreviewRepositoryEntry: mocks.catalogPreview, ChangeInstallation: mocks.lifecycle, PrepareJob: mocks.prepareJob, SyncPendingJobs: mocks.syncJobs, SyncMCP: mocks.sync, ProviderRemovalPreview: mocks.providerRemovalPreview, UninstallReviewed: mocks.uninstallReviewed, RegisterProvider: mocks.registerProvider, RegisterMCP: mocks.register, RemoveMCP: mocks.remove, InstalledComponents: mocks.components, SetProfileActive: mocks.profile, SetSkillActive: mocks.toggle, DiscardPreview: mocks.discard, ListInstalled: mocks.list, PreviewLocal: mocks.preview, PreviewLocalZIP: mocks.archive, AddReviewedRepository: mocks.addReviewed, InstallReviewed: mocks.install }));
+vi.mock('@wailsjs/go/wailsapi/Plugins', () => ({ BuilderProviderSlugs: async () => ['equipe'], BuilderJobNames: async () => [], BuilderProfileNames: async () => ({names:[],partial:false}), BuilderSkillNames: async () => ({names:[],partial:false}), CreateListFromTemplate: mocks.createList, ListRepositories: mocks.repos, PreviewRepositoryEntry: mocks.catalogPreview, ChangeInstallation: mocks.lifecycle, PrepareJob: mocks.prepareJob, SyncPendingJobs: mocks.syncJobs, SyncMCP: mocks.sync, ProviderRemovalPreview: mocks.providerRemovalPreview, UninstallReviewed: mocks.uninstallReviewed, RegisterProvider: mocks.registerProvider, RegisterMCP: mocks.register, RemoveMCP: mocks.remove, InstalledComponents: mocks.components, SetProfileActive: mocks.profile, SetSkillActive: mocks.toggle, SetAgentActive: mocks.agent, DiscardPreview: mocks.discard, ListInstalled: mocks.list, PreviewLocal: mocks.preview, PreviewLocalZIP: mocks.archive, AddReviewedRepository: mocks.addReviewed, InstallReviewed: mocks.install }));
 vi.mock('../hooks/useConfirm', () => ({ useConfirm: () => mocks.confirm }));
 vi.mock('../store/authStore', async importOriginal => {
   const actual = await importOriginal<typeof import('../store/authStore')>();
@@ -795,30 +795,46 @@ describe('PluginsPage', () => {
   it('identifies a Claude agent file and explains its availability in the preview', async () => {
     const user = userEvent.setup();
     mocks.preview.mockResolvedValueOnce({token: 'agent', name: 'demo', digest: 'new', files: [], components: [
-      {key: 'agents/backend/reviewer.md', entry: 'agents/backend/reviewer.md', name: 'backend/reviewer.md', kind: 'agent', reason: 'agentDelegation'},
+      {key: 'agents/backend/reviewer.md', entry: 'agents/backend/reviewer.md', name: 'backend/reviewer.md', kind: 'agent', reason: 'agentConfiguration'},
     ]});
     render(<PluginsPage />);
     await user.click(await screen.findByRole('button', {name: 'plugins.choose'}));
     await user.click(screen.getByRole('button', {name: 'plugins.folderSource'}));
     expect(await screen.findByText(/backend\/reviewer\.md.*plugins\.agent/)).toBeVisible();
-    expect(screen.getByText('plugins.agentDelegationPending')).toBeVisible();
+    expect(screen.getByText('plugins.agentConfiguration')).toBeVisible();
   });
   it('offers activation only for the available skill in the installed components', async () => {
     const user = userEvent.setup();
     mocks.list.mockResolvedValue([{id: 'one', name: 'Demo', digest: 'sha'}]);
     mocks.components.mockResolvedValue([
-      {key: 'agents/reviewer.md', entry: 'agents/reviewer.md', name: 'reviewer.md', kind: 'agent', reason: 'agentDelegation'},
+      {key: 'agents/reviewer.md', entry: 'agents/reviewer.md', name: 'reviewer.md', kind: 'agent', reason: 'agentConfiguration'},
       {key: 'skills/notes', name: 'Notes', kind: 'skill'},
     ]);
     render(<PluginsPage />);
     (await screen.findByRole('gridcell', {name: /Demo/})).focus();
     await user.keyboard('{Enter}');
     const agent = (await screen.findByText('reviewer.md')).closest('li')!;
-    expect(within(agent).getByText('plugins.agentDelegationPending')).toBeVisible();
+    expect(within(agent).getByText('plugins.agentConfiguration')).toBeVisible();
     expect(within(agent).queryByRole('button')).toBeNull();
     const skill = screen.getByText('Notes').closest('li')!;
     expect(within(skill).getByRole('button', {name: 'plugins.activate'})).toBeEnabled();
   });
+  it('shows the declared tools and activates a supported agent from the inspected revision', async () => {
+    const user = userEvent.setup();
+    const agent = {key: 'agents/check.md', name: 'Revisor', kind: 'agent', agentInstructions: 'Leia o arquivo.', agentTools: []};
+    mocks.list.mockResolvedValue([{id: 'one', name: 'Demo', digest: 'sha'}]);
+    mocks.components.mockResolvedValue([agent]);
+    render(<PluginsPage />);
+    (await screen.findByRole('gridcell', {name: /Demo/})).focus();
+    await user.keyboard('{Enter}');
+    const item = (await screen.findByText('Revisor')).closest('li')!;
+    expect(within(item).getByText('plugins.agentNoTools')).toBeVisible();
+    await user.click(within(item).getByText('plugins.agentInstructions'));
+    expect(within(item).getByText('Leia o arquivo.')).toBeVisible();
+    await user.click(within(item).getByRole('button', {name: 'plugins.activate'}));
+    expect(mocks.agent).toHaveBeenCalledWith('one', 'sha', agent.key, true);
+  });
+
   it('clears a discard error after installation and explains distinct manifest warnings', async () => {
     const user = userEvent.setup();
     mocks.preview.mockResolvedValueOnce({ token: 'warning', name: 'demo', digest: 'new', files: [], diagnostics: ['unknown manifest field: other', 'invalid extensions object'] });
