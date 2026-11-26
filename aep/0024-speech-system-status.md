@@ -5,6 +5,10 @@
 
 ---
 
+## Integração prevista com plugins
+
+Para perfis distribuídos em plugins, o [AEP-0119](0119-plugins-e-repositorios.md) prevê referências por slug nos campos de síntese e transcrição. A ativação resolve o provedor na conta de destino antes de entregar o perfil ao serviço de voz. A seleção explícita do padrão continua vinculada à configuração da conta.
+
 ## 1. Current State
 
 ### What Works
