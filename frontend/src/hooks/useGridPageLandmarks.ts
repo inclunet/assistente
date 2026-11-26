@@ -64,7 +64,8 @@ export function useGridPageLandmarks({ pageClass, extraLandmarks, contentLandmar
       focus: () => {
         const page = scope();
         if (!page) return false;
-        const cell = page.querySelector('.datagrid-container [role="gridcell"][tabindex="0"], .datagrid-container [role="gridcell"]') as HTMLElement | null;
+        const cell = page.querySelector<HTMLElement>('.datagrid-container [role="gridcell"][tabindex="0"]')
+          ?? page.querySelector<HTMLElement>('.datagrid-container [role="gridcell"]');
         if (cell) { cell.focus(); return true; }
         const grid = page.querySelector('[role="grid"]') as HTMLElement | null;
         if (grid) { grid.focus(); return true; }

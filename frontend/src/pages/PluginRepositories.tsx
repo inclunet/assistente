@@ -17,8 +17,6 @@ import { pendingRepositoryWrites, trackRepositoryWrite } from './pluginRepositor
 
 import { useCatalogRefresh } from './useCatalogRefresh';
 
-const pageSize = 50;
-
 interface Props {
   session: string;
   parentBusy?: boolean;
@@ -40,7 +38,6 @@ export default function PluginRepositories({ session, catalog, parentBusy, onFor
   const [source, setSource] = useState<'add' | 'index' | 'zip' | 'remote' | 'git'>('add');
   const [url, setUrl] = useState('');
   const [authenticated, setAuthenticated] = useState(false);
-  const [page, setPage] = useState(0);
   const [search, setSearch] = useState('');
   const [busy, setBusy] = useState(true);
   const [error, setError] = useState('');
@@ -118,13 +115,6 @@ export default function PluginRepositories({ session, catalog, parentBusy, onFor
   })))), [repositories]);
   const needle = search.toLocaleLowerCase();
   const entries = useMemo(() => allEntries.filter(entry => [entry.name, entry.description, entry.store, entry.author, entry.license, entry.repo.origin].some(text => text?.toLocaleLowerCase().includes(needle))), [allEntries, needle]);
-  const lastPage = Math.max(0, Math.ceil(entries.length / pageSize) - 1);
-  const currentPage = Math.min(page, lastPage);
-  const selectPage = (next: number) => {
-    if (next < 0 || next > lastPage) return;
-    setPage(next);
-    announce(t('plugins.pageOf', { page: next + 1, total: lastPage + 1 }));
-  };
   const preview = async (entry: typeof entries[number]) => {
     if (busy || parentBusy || entry.diagnostic) return;
     const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
@@ -139,7 +129,7 @@ export default function PluginRepositories({ session, catalog, parentBusy, onFor
   };
   return <>
     <Toolbar ariaLabel={t(catalog ? 'plugins.catalog' : 'plugins.repositories')} left={<h2>{t(catalog ? 'plugins.catalog' : 'plugins.repositories')}</h2>}
-      right={catalog ? <Input label={t('plugins.searchCatalog')} value={search} onChange={event => { setSearch(event.target.value); setPage(0); }} /> :
+      right={catalog ? <Input label={t('plugins.searchCatalog')} value={search} onChange={event => setSearch(event.target.value)} /> :
         <Button ref={addButton} disabled={busy} onClick={() => { setSource('add'); setUrl(''); setAuthenticated(false); setError(''); setAdding(true); }}>{t('plugins.addRepo')}</Button>} />
     {adding && <Modal isOpen title={t('plugins.addRepo')} allowClose={!busy} onClose={cancelAdd}>
       <form onSubmit={event => { event.preventDefault(); void change(source); }}>
@@ -163,7 +153,7 @@ export default function PluginRepositories({ session, catalog, parentBusy, onFor
     {offline && <p>{t('plugins.catalogOffline')}</p>}
     {!adding && error && <p>{t(error)}</p>}
     {catalog ? <>
-      {entries.length > 0 ? <DataGrid items={entries.slice(currentPage * pageSize, (currentPage + 1) * pageSize)} getItemId={item => item.id} autoFocusOnMount={false} label={t('plugins.catalog')} onActivate={entry => void preview(entry)}
+      {entries.length > 0 ? <DataGrid key={needle} virtualizeRows items={entries} getItemId={item => item.id} autoFocusOnMount={false} label={t('plugins.catalog')} onActivate={entry => void preview(entry)}
         columns={[
           { key: 'name', label: t('plugins.name') }, { key: 'store', label: t('plugins.store') },
           { key: 'format', label: t('plugins.format') }, { key: 'repo', label: t('plugins.origin'), format: (_, item) => item.repo.origin },
@@ -171,11 +161,7 @@ export default function PluginRepositories({ session, catalog, parentBusy, onFor
           { key: 'version', label: t('plugins.version') }, { key: 'author', label: t('plugins.author') }, { key: 'license', label: t('plugins.license') },
           { key: 'diagnostic', label: t('common.status'), format: (_, item) => t(item.diagnostic === 'policy' ? 'plugins.catalogPolicy' : item.diagnostic === 'configuration' ? 'plugins.catalogConfig' : item.diagnostic ? 'plugins.catalogSource' : 'plugins.catalogAvailable') },
         ]} /> : !busy && !error && <p>{t('plugins.catalogEmpty')}</p>}
-      {lastPage > 0 && <nav aria-label={t('plugins.catalog')}>
-        <Button aria-disabled={currentPage === 0} onClick={() => selectPage(currentPage - 1)}>{t('plugins.prevPage')}</Button>
-        <span>{t('plugins.pageOf', { page: currentPage + 1, total: lastPage + 1 })}</span>
-        <Button aria-disabled={currentPage === lastPage} onClick={() => selectPage(currentPage + 1)}>{t('plugins.nextPage')}</Button>
-      </nav>}
+
     </> : repositories.length === 0 && (busy || error) ? null : <DataGrid
       items={repositories} getItemId={repo => repo.id} label={t('plugins.repositories')} autoFocusOnMount={false}
       onEmptyFocus={() => { addButton.current?.focus(); }}
