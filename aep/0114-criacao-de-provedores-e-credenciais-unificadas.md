@@ -53,6 +53,8 @@ separada do editor compartilhado usado por MCP.
   terceiros para API/Cloud. Implementar outro adaptador não faz parte desta
   reformulação; não se promete uso de assinatura onde a documentação não o prevê.
 
+O perfil distribuído por plugin pode solicitar a criação local de uma conexão ChatGPT por slug, conforme o AEP-0119. O consentimento e o armazenamento das credenciais seguem o mesmo fluxo do gerenciador de provedores.
+
 ## Fases
 
 - [x] 1. Preferências e padrão ChatGPT, testes e documentação.

@@ -3,11 +3,11 @@ import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ChatGPTConnection } from './ChatGPTConnection';
-const mocks = vi.hoisted(() => ({ create: vi.fn(), authorize: vi.fn(), cancel: vi.fn(), get: vi.fn(), disconnect: vi.fn(), announce: vi.fn(), userID: undefined as string | undefined, t: (key: string) => key }));
+const mocks = vi.hoisted(() => ({ create: vi.fn(), createProfile: vi.fn(), authorize: vi.fn(), cancel: vi.fn(), get: vi.fn(), disconnect: vi.fn(), announce: vi.fn(), userID: undefined as string | undefined, t: (key: string) => key }));
 vi.mock('../../store/authStore', () => ({ useAuthStore: () => mocks.userID }));
 vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: mocks.t }) }));
 vi.mock('../../hooks/useAnnouncer', () => ({ useAnnouncer: () => ({ announce: mocks.announce }) }));
-vi.mock('@wailsjs/go/wailsapi/LLMProviders', () => ({ CreateChatGPTConnection: mocks.create, AuthorizeChatGPT: mocks.authorize, CancelChatGPT: mocks.cancel, ChatGPTConnection: mocks.get, DisconnectChatGPT: mocks.disconnect }));
+vi.mock('@wailsjs/go/wailsapi/LLMProviders', () => ({ CreateChatGPTConnection: mocks.create, CreateProfileChatGPTConnection: mocks.createProfile, AuthorizeChatGPT: mocks.authorize, CancelChatGPT: mocks.cancel, ChatGPTConnection: mocks.get, DisconnectChatGPT: mocks.disconnect }));
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.userID = undefined;
@@ -17,6 +17,16 @@ beforeEach(() => {
   mocks.get.mockResolvedValue({ id: 'authorization', state: 'connected', email: 'user@example.test' });
 });
 describe('ChatGPT connection', () => {
+  it('cria a dependência pelo slug e autoriza somente o cadastro local após conectar', async () => {
+    mocks.createProfile.mockResolvedValueOnce({id:'local'});
+    render(<ChatGPTConnection profileSlug="equipe" onChanged={vi.fn()} onClose={vi.fn()} />);
+    expect(screen.getByLabelText('chatgpt.label')).toHaveValue('equipe');
+    expect(mocks.createProfile).not.toHaveBeenCalled();
+    await userEvent.click(screen.getByRole('button', {name:'chatgpt.connect'}));
+    expect(mocks.createProfile).toHaveBeenCalledWith('equipe');
+    expect(mocks.authorize).toHaveBeenCalledWith('local', 'chatgpt.browserReturn');
+    expect(mocks.create).not.toHaveBeenCalled();
+  });
   it.each(['query', 'create', 'authorize'])('orienta desbloqueio do cofre na etapa %s', async stage => {
     if (stage === 'query') mocks.get.mockRejectedValueOnce(new Error('oauth_vault_unavailable'));
     if (stage === 'create') mocks.create.mockRejectedValueOnce('oauth_vault_persistence_required');

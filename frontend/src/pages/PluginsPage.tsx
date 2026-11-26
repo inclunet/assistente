@@ -9,6 +9,7 @@ import { ProviderRemovalPreview, UninstallReviewed, CreateListFromTemplate, Chan
 import type { database, jobs, plugins, wailsapi } from '@wailsjs/go/models';
 import { Button } from '../components/ui/Button';
 import { DataGrid } from '../components/ui/DataGrid';
+import { ChatGPTConnection } from '../components/settings/ChatGPTConnection';
 import { Modal } from '../components/ui/Modal';
 import PluginRepositories from './PluginRepositories';
 import PluginBuilder from './PluginBuilder';
@@ -183,6 +184,8 @@ function InstalledPlugins({ session }: { session: string }) {
   const catalogOpener = useRef<HTMLElement | null>(null);
   const [items, setItems] = useState<InstallationRow[] | null>(null);
   const [preview, setPreview] = useState<wailsapi.PluginPreview | null>(null);
+  const [chatGPTSlug, setChatGPTSlug] = useState('');
+  const [chatGPTCloseBlocked, setChatGPTCloseBlocked] = useState(false);
   const [details, setDetails] = useState<{ installation: InstallationRow; components: plugins.Component[] } | null>(null);
   const [listError, setListError] = useState('');
   const [operationError, setError] = useState<string | {key:string; name:string}>('');
@@ -312,6 +315,13 @@ function InstalledPlugins({ session }: { session: string }) {
   const refreshDetails = async (installation: InstallationRow) => {
     const components = await InstalledComponents(installation.id, installation.digest);
     if (mounted.current) setDetails({ installation, components: components ?? [] });
+  };
+  const reloadProfileDependencies = () => {
+    if (!details) return;
+    const {installation} = details;
+    void InstalledComponents(installation.id, installation.digest).then(components => {
+      if (mounted.current) setDetails(current => current?.installation === installation ? {installation, components: components ?? []} : current);
+    }).catch(() => { if (mounted.current) setError('plugins.componentReloadError'); });
   };
   const [createdList, setCreatedList] = useState('');
   const changeComponent = async (component: plugins.Component, preserve = false) => {
@@ -530,6 +540,8 @@ function InstalledPlugins({ session }: { session: string }) {
           : component.kind === 'tasklistTemplate' && !component.reason ?
           <Button disabled={busy || details.installation.disabled || error === 'plugins.syncPendingStale'} onClick={() => void changeComponent(component)}>{t('plugins.createList', { name: component.name })}</Button>
           : (component.kind === 'profile' || component.kind === 'skill') && !component.reason ? <>
+          {component.kind === 'profile' && component.canCreateChatGPT && component.missingProvider && !details.components.some(c => c.kind === 'provider' && c.slug === component.missingProvider) &&
+            <Button disabled={busy || details.installation.disabled || error === 'plugins.syncPendingStale'} onClick={() => setChatGPTSlug(component.missingProvider!)}>{t('plugins.createProfileChatGPT', { name: component.missingProvider })}</Button>}
           {component.active && component.kind === 'skill' && <code> /{component.slug}</code>}
           <Button disabled={busy || details.installation.disabled || (!component.active && !!(component.missingProvider || component.missingAllowlist)) || error === 'plugins.syncPendingStale'} onClick={() => void changeComponent(component)}>{t(component.active ? 'plugins.deactivate' : 'plugins.activate', { name: component.name })}</Button>
         </> : component.kind === 'mcp' && !component.reason ? <>
@@ -537,6 +549,11 @@ function InstalledPlugins({ session }: { session: string }) {
           {component.active && <Button disabled={busy || error === 'plugins.syncPendingStale'} onClick={() => void changeComponent(component, true)}>{t('plugins.keepServer', { name: component.name })}</Button>}
         </> : <p>{t(componentRequirement(component) ?? 'plugins.unavailable', { path: component.entry })}</p>}
       </li>)}</ul>}
+    </Modal>}
+    {chatGPTSlug && details && <Modal isOpen title={t('chatgpt.title')} allowClose={!chatGPTCloseBlocked}
+      onClose={() => { if (!chatGPTCloseBlocked) { setChatGPTSlug(''); reloadProfileDependencies(); } }}>
+      <ChatGPTConnection profileSlug={chatGPTSlug} onCloseBlockedChange={setChatGPTCloseBlocked}
+        onClose={() => setChatGPTSlug('')} onChanged={reloadProfileDependencies} />
     </Modal>}
     {providerRemoval && details && <DecisionDialog isOpen
       title={t('plugins.uninstall', {name: details.installation.name})}

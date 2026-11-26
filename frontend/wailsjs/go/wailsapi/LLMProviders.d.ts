@@ -16,6 +16,8 @@ export function CreateDefaultLLMProvider(arg1:string,arg2:string):Promise<void>;
 
 export function CreateLLMProvider(arg1:apidto.CreateLLMProviderRequest):Promise<Record<string, any>>;
 
+export function CreateProfileChatGPTConnection(arg1:string):Promise<oauthflow.Summary>;
+
 export function DeleteLLMProvider(arg1:string):Promise<void>;
 
 export function DisconnectChatGPT(arg1:string):Promise<boolean>;

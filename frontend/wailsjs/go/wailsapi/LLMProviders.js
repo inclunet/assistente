@@ -26,6 +26,10 @@ export function CreateLLMProvider(arg1) {
   return window['go']['wailsapi']['LLMProviders']['CreateLLMProvider'](arg1);
 }
 
+export function CreateProfileChatGPTConnection(arg1) {
+  return window['go']['wailsapi']['LLMProviders']['CreateProfileChatGPTConnection'](arg1);
+}
+
 export function DeleteLLMProvider(arg1) {
   return window['go']['wailsapi']['LLMProviders']['DeleteLLMProvider'](arg1);
 }

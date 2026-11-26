@@ -2,7 +2,7 @@ import { ChatGPTProviderSettings } from './ChatGPTProviderSettings';
 import { useAuthStore } from '../../store/authStore';
 import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { AuthorizeChatGPT, CancelChatGPT, ChatGPTConnection as GetConnection, CreateChatGPTConnection, DisconnectChatGPT } from '@wailsjs/go/wailsapi/LLMProviders';
+import { AuthorizeChatGPT, CancelChatGPT, ChatGPTConnection as GetConnection, CreateChatGPTConnection, CreateProfileChatGPTConnection, DisconnectChatGPT } from '@wailsjs/go/wailsapi/LLMProviders';
 import { Input } from '../ui/Input';
 import { Button } from '../ui/Button';
 import { DialogActions } from '../ui/DialogActions';
@@ -14,8 +14,8 @@ function connectionFailureKey(failure: unknown): string {
     ? 'chatgpt.vaultUnavailable' : 'chatgpt.connectionError';
 }
 
-interface Props { id?: string; onChanged: () => void; onClose: () => void; onCloseBlockedChange?: (closeBlocked: boolean) => void }
-export function ChatGPTConnection({ id, onChanged, onClose, onCloseBlockedChange }: Props) {
+interface Props { id?: string; profileSlug?: string; onChanged: () => void; onClose: () => void; onCloseBlockedChange?: (closeBlocked: boolean) => void }
+export function ChatGPTConnection({ id, profileSlug, onChanged, onClose, onCloseBlockedChange }: Props) {
   const { t } = useTranslation();
   const { announce } = useAnnouncer();
   const localUserID = useAuthStore(s => s.user?.userId);
@@ -31,7 +31,7 @@ export function ChatGPTConnection({ id, onChanged, onClose, onCloseBlockedChange
   }, [welcome]);
   const mounted = useRef(true);
   const loadGeneration = useRef(0);
-  const [name, setName] = useState('');
+  const [name, setName] = useState(profileSlug ?? '');
   const [closeBlocked, setCloseBlocked] = useState(false);
   const [busy, setBusy] = useState(false);
   const [settingsBusy, setSettingsBusy] = useState(false);
@@ -53,7 +53,7 @@ export function ChatGPTConnection({ id, onChanged, onClose, onCloseBlockedChange
       if (!currentID.current) {
         setCloseBlocked(true); onCloseBlockedChange?.(true); announce(t('chatgpt.operationPending'));
         try {
-          const created = await CreateChatGPTConnection(name);
+          const created = profileSlug ? await CreateProfileChatGPTConnection(profileSlug) : await CreateChatGPTConnection(name);
           currentID.current = created.id;
         } finally {
           if (mounted.current) { setCloseBlocked(false); onCloseBlockedChange?.(false); }
@@ -106,7 +106,7 @@ export function ChatGPTConnection({ id, onChanged, onClose, onCloseBlockedChange
   return <div>
     <p>{t('chatgpt.planNotice')}</p>
     <p>{t('chatgpt.limitations')}</p>
-    {!id && <Input label={t('chatgpt.label')} value={name} maxLength={100} disabled={busy || !!currentID.current} onChange={e => setName(e.target.value)} />}
+    {!id && <Input label={t('chatgpt.label')} value={name} maxLength={100} disabled={!!profileSlug || busy || !!currentID.current} onChange={e => setName(e.target.value)} />}
     <p>{t('chatgpt.status', { state: t(`chatgpt.states.${state}`, { defaultValue: state }) })}</p>
     {email && <p>{t('chatgpt.account', { email })}</p>}
     {currentID.current && <p>{t('chatgpt.providerID', { id: currentID.current })}</p>}

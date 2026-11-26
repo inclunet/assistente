@@ -176,6 +176,7 @@ notSaved: 'La decisión vale solo para esta operación: no se pudo recordar. Ser
       builderProviderError: 'El proveedor {{name}} no se puede incluir con su configuración actual.',
       missingProfileAllowlist: 'Configura la lista de comandos {{name}} para usar este perfil.',
       profileSettings: 'Revisar la configuración del perfil',
+      createProfileChatGPT: 'Crear una conexión local de ChatGPT para {{name}}',
       missingProfileProvider: 'Registra el proveedor {{name}} para usar este perfil.',
       syncLocalProvider: '¿Volver a cargar la configuración actual de {{name}} guardada en tu cuenta?',
       syncProvider: 'Sincronizar {{name}}',

@@ -25,6 +25,18 @@ func (s *Service) oauthStore(ctx context.Context) (oauthflow.Store, error) {
 	return mgr.OAuthStore(ctx)
 }
 func (s *Service) CreateChatGPTConnection(ctx context.Context, name string) (oauthflow.Summary, error) {
+	return s.createChatGPTConnection(ctx, name, "")
+}
+
+// CreateProfileChatGPTConnection cria a dependência local com o slug exato do perfil.
+func (s *Service) CreateProfileChatGPTConnection(ctx context.Context, slug string) (oauthflow.Summary, error) {
+	if slug == "" {
+		return oauthflow.Summary{}, errors.New("oauth_label_required")
+	}
+	return s.createChatGPTConnection(ctx, slug, slug)
+}
+
+func (s *Service) createChatGPTConnection(ctx context.Context, name, slug string) (oauthflow.Summary, error) {
 	generation := s.registry.Generation()
 	user, err := database.RequireUserID(ctx)
 	if err != nil {
@@ -43,7 +55,7 @@ func (s *Service) CreateChatGPTConnection(ctx context.Context, name string) (oau
 	if err != nil {
 		return oauthflow.Summary{}, err
 	}
-	p := &llm.ProviderConfig{ID: id, Name: name, Type: llm.ProviderChatGPT, APIFormat: llm.APIFormatOpenAIResponses, BaseURL: r.Resource, CredentialPattern: "oauth:" + id, AuthMode: llm.AuthModeRequired, Timeout: 180}
+	p := &llm.ProviderConfig{ID: id, Slug: slug, RequiresExplicitDefault: slug != "", Name: name, Type: llm.ProviderChatGPT, APIFormat: llm.APIFormatOpenAIResponses, BaseURL: r.Resource, CredentialPattern: "oauth:" + id, AuthMode: llm.AuthModeRequired, Timeout: 180}
 	if err = persistChatGPTAuthorization(ctx, store, r, p, nil); err != nil {
 		return oauthflow.Summary{}, err
 	}
@@ -235,7 +247,7 @@ func persistChatGPTAuthorization(ctx context.Context, store oauthflow.Store, r o
 			if err != nil {
 				return err
 			}
-			p.IsDefault = count == 0
+			p.IsDefault = count == 0 && !p.RequiresExplicitDefault
 		} else {
 			current, err := repository.GetLLMProvider(ctx, p.ID)
 			if err != nil {

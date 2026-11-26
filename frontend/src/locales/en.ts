@@ -177,6 +177,7 @@ notSaved: 'The decision applies only to this operation: it could not be remember
       builderProviderError: 'Provider {{name}} cannot be packaged with its current configuration.',
       missingProfileAllowlist: 'Configure command policy {{name}} to use this profile.',
       profileSettings: 'Inspect profile configuration',
+      createProfileChatGPT: 'Create a local ChatGPT connection for {{name}}',
       missingProfileProvider: 'Register provider {{name}} to use this profile.',
       syncLocalProvider: 'Reload the current configuration for {{name}} saved in your account?',
       syncProvider: 'Sync {{name}}',
