@@ -87,7 +87,7 @@ No editor de Jobs, escolha **Criar cópia independente** para preservar a versã
 
 ## Provedores em pacotes
 
-Em **Plugins → Criar plugin**, marque o slug do provedor na seção **Provedores**. Você pode criar um pacote contendo somente esse recurso. Confira o endereço antes de salvar. Para um agente local, confira também o executável e cada argumento. Os argumentos literais ficam visíveis no arquivo distribuído. Credenciais e a aprovação de envio por HTTP pertencem à conta de destino. Um agente que depende de variáveis de ambiente explícitas exige configuração local.
+Em **Plugins → Criar plugin**, marque o slug do provedor na seção **Provedores**. Você pode criar um pacote contendo somente esse recurso. Confira o endereço antes de salvar. Para um agente local, confira também o executável e cada argumento. Os argumentos literais ficam visíveis no arquivo distribuído. Credenciais e a aprovação de envio por HTTP pertencem à conta de destino. Nesta etapa o builder recusa a exportação de uma conta ChatGPT ou de um agente ACP com ambiente explícito, inclusive vínculos de variáveis ao cofre. Para gerar o pacote com os demais componentes, desmarque esse provedor.
 
 ## Gerar um pacote com o builder
 

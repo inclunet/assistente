@@ -36,7 +36,7 @@ O builder permitirá distribuir um provedor sozinho ou junto de perfis. Cada pro
 
 A prévia identificará o provedor, a origem do pacote e o endereço ou processo configurado. Instalar sua definição será uma operação local, sem abrir conexão, iniciar processo, substituir um homônimo ou eleger um novo padrão silenciosamente. A instalação, a atualização e a remoção distinguirão recursos fornecidos pelo pacote de configurações locais, inclusive quando editadas. Credenciais e concessões de rede e execução serão configuradas no destino.
 
-O builder já serializa a configuração nativa e a prévia identifica o endpoint ou o processo com seus argumentos. A configuração ACP que depende de ambiente explícito ou de referências de cofre precisa ser preparada no destino. `TestBuildNativeProviderOnly` cobre a separação entre os dados da conta e o recurso distribuído.
+O builder já serializa a configuração nativa e a prévia identifica o endpoint ou o processo com seus argumentos. O builder recusa a exportação de provedores ACP com ambiente explícito ou vínculos de cofre e de contas ChatGPT nesta etapa. `TestBuildNativeProviderOnly` cobre a separação entre os dados da conta e o recurso distribuído.
 
 O pacote usará os modelos nativos do provedor e do perfil. O perfil poderá apontar por slug para um provedor já configurado ou fornecido pelo mesmo pacote. A seleção explícita `$default` continuará vinculada ao padrão do destino. A ativação resolverá todas as referências de chat, voz e transcrição antes de disponibilizar o perfil. Os consumidores locais que precisam de uma instância específica poderão continuar a usar seu ID. A resolução de slug e a busca de ID serão explícitas, inclusive quando um slug coincidir com o ID de outra instância.
 
