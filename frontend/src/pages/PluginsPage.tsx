@@ -104,16 +104,19 @@ const publications = new Map<string, Promise<void>>();
 type SyncDomain = 'mcp' | 'jobs';
 const domains: SyncDomain[] = ['mcp', 'jobs'];
 const pendingCode = {mcp: 'PLUGIN_MCP_SYNC_PENDING', jobs: 'PLUGIN_JOB_SYNC_PENDING'};
-const usePendingLifecycleSync = create<ReadonlyMap<string, symbol>>(() => new Map());
+const usePendingLifecycleSync = create<ReadonlyMap<string, {generation: symbol; deferred: boolean}>>(() => new Map());
 
 function syncKey(session: string, domain: SyncDomain) {
   return session + '/' + domain;
 }
 
-function rememberPending(session: string, cause: unknown) {
+function rememberPending(session: string, cause: unknown, discovery = false) {
   const next = new Map(usePendingLifecycleSync.getState());
   for (const domain of domains) {
-    if (String(cause).includes(pendingCode[domain])) next.set(syncKey(session, domain), Symbol());
+    const key = syncKey(session, domain);
+    if (String(cause).includes(pendingCode[domain]) && !(discovery && next.has(key))) {
+      next.set(key, {generation: Symbol(), deferred: false});
+    }
   }
   usePendingLifecycleSync.setState(next, true);
 }
@@ -122,7 +125,7 @@ async function reconcile(session: string, domain: SyncDomain, operation: Promise
   const key = syncKey(session, domain);
   const pending = usePendingLifecycleSync.getState().get(key);
   await operation;
-  if (pending && usePendingLifecycleSync.getState().get(key) === pending) {
+  if (pending && usePendingLifecycleSync.getState().get(key)?.generation === pending.generation) {
     const next = new Map(usePendingLifecycleSync.getState());
     next.delete(key);
     usePendingLifecycleSync.setState(next, true);
@@ -143,7 +146,7 @@ async function publish(session: string, operation: Promise<unknown>, lifecycle =
     const current = usePendingLifecycleSync.getState();
     const outstanding = domains.filter(domain => {
       const key = syncKey(session, domain);
-      return before.has(key) && before.get(key) === current.get(key);
+      return before.has(key) && before.get(key)?.generation === current.get(key)?.generation;
     });
     await synchronize(session, outstanding);
   }).catch(cause => {
@@ -189,7 +192,19 @@ function InstalledPlugins({ session }: { session: string }) {
   const [details, setDetails] = useState<{ installation: InstallationRow; components: plugins.Component[] } | null>(null);
   const [listError, setListError] = useState('');
   const [operationError, setError] = useState<string | {key:string; name:string}>('');
-  const pendingSync = usePendingLifecycleSync(state => domains.some(domain => state.has(syncKey(session, domain))));
+  const pending = usePendingLifecycleSync();
+  const pendingSync = domains.some(domain => pending.has(syncKey(session, domain)));
+  const newPending = domains.some(domain => pending.get(syncKey(session, domain))?.deferred === false);
+  const acknowledgePending = () => {
+    restoreAfterSync.current = true;
+    const next = new Map(usePendingLifecycleSync.getState());
+    for (const domain of domains) {
+      const key = syncKey(session, domain);
+      const shown = pending.get(key);
+      if (shown && shown.generation === next.get(key)?.generation) next.set(key, {...shown, deferred:true});
+    }
+    usePendingLifecycleSync.setState(next, true);
+  };
   const error = operationError || (pendingSync ? 'plugins.syncPending' : '');
   const [busy, setBusy] = useState(true);
   const errorText = typeof error === 'string' ? (error && t(error)) : t(error.key, {name:error.name});
@@ -207,6 +222,14 @@ function InstalledPlugins({ session }: { session: string }) {
   const openToken = useRef<string | null>(null);
   const chooseButton = useRef<HTMLButtonElement>(null);
   const restoreFocus = useRef(false);
+  const retryButton = useRef<HTMLButtonElement>(null);
+  const detailsAction = useRef<HTMLButtonElement>(null);
+  const tabList = useRef<HTMLDivElement>(null);
+  const restoreAfterSync = useRef(false);
+  const restoreAfterReload = useRef(false);
+  const reloadButton = useRef<HTMLButtonElement>(null);
+  const syncDialogOpen = newPending && !busy && !preview && !providerRemoval && !chatGPTSlug;
+  const activeTab = () => tabList.current?.querySelector<HTMLElement>('[aria-selected="true"]');
   useEffect(() => {
     if (!busy && details && lifecycleOpener.current?.isConnected) lifecycleOpener.current.focus();
     if (!busy) lifecycleOpener.current = null;
@@ -217,10 +240,23 @@ function InstalledPlugins({ session }: { session: string }) {
     }
     if (!preview && !busy && restoreFocus.current) {
       restoreFocus.current = false;
-      if (catalogOpener.current?.isConnected) catalogOpener.current.focus(); else chooseButton.current?.focus();
+      if (catalogOpener.current?.isConnected) catalogOpener.current.focus(); else (chooseButton.current ?? activeTab())?.focus();
       catalogOpener.current = null;
     }
-  }, [preview, details, busy]);
+    if (!syncDialogOpen && !busy && restoreAfterReload.current) {
+      restoreAfterReload.current = false;
+      if (document.activeElement === document.body) {
+        const cell = chooseButton.current?.closest('[role="tabpanel"]')?.querySelector<HTMLElement>('[role="gridcell"][tabindex="0"]');
+        (reloadButton.current ?? cell ?? chooseButton.current ?? activeTab())?.focus();
+      }
+    }
+    if (!syncDialogOpen && !busy && restoreAfterSync.current) {
+      restoreAfterSync.current = false;
+      if (document.activeElement === document.body) {
+        (retryButton.current ?? detailsAction.current ?? chooseButton.current ?? activeTab())?.focus();
+      }
+    }
+  }, [preview, details, busy, syncDialogOpen]);
   const refresh = useCallback(async (failureMessage = 'plugins.listError') => {
     const pending = publications.get(session);
     if (pending) {
@@ -243,7 +279,7 @@ function InstalledPlugins({ session }: { session: string }) {
   useEffect(() => {
     mounted.current = true;
     void reconcile(session, 'jobs', SyncPendingJobs(session)).catch(() => {
-      rememberPending(session, pendingCode.jobs);
+      rememberPending(session, pendingCode.jobs, true);
       if (mounted.current) setError('plugins.syncPending');
     });
     void refresh()
@@ -254,6 +290,12 @@ function InstalledPlugins({ session }: { session: string }) {
       openToken.current = null;
     };
   }, [refresh]);
+  const reloadList = async () => {
+    restoreAfterReload.current = true;
+    setBusy(true);
+    try { await refresh(); }
+    finally { if (mounted.current) setBusy(false); }
+  };
   const inspect = async () => {
     setBusy(true);
     setError('');
@@ -398,12 +440,13 @@ function InstalledPlugins({ session }: { session: string }) {
     }
     finally { if (mounted.current) setBusy(false); }
   };
-  const syncMCP = async () => {
+  const retryPendingSync = async () => {
     if (busy) return;
+    restoreAfterSync.current = true;
     setBusy(true);
     try {
       const needed = domains.filter(domain => usePendingLifecycleSync.getState().has(syncKey(session, domain)));
-      await synchronize(session, needed.length ? needed : ['mcp']);
+      await synchronize(session, needed);
       if (!mounted.current) return;
       setError('');
       if (details) {
@@ -428,7 +471,7 @@ function InstalledPlugins({ session }: { session: string }) {
     }
     finally { if (mounted.current) setBusy(false); }
   };
-  const syncAction = <Button disabled={busy} onClick={() => void syncMCP()}>{t('plugins.retrySync')}</Button>;
+  const syncAction = pendingSync && <Button ref={retryButton} disabled={busy} onClick={() => void retryPendingSync()}>{t('plugins.retrySync')}</Button>;
   const changeInstallation = async (action: 'enable' | 'disable' | 'uninstall', opener: HTMLButtonElement, decision?: {choice: 'detach' | 'remove'; versions: Record<string,string>}) => {
     if (busy || !details || error === 'plugins.syncPendingStale') return;
     setBusy(true);
@@ -500,12 +543,13 @@ function InstalledPlugins({ session }: { session: string }) {
     }
   };
   return <section className="plugins-page" aria-label={t('menu.plugins')}>
-    <Toolbar ariaLabel={t('menu.plugins')} left={<h1 className="page-toolbar__title">{t('menu.plugins')}</h1>}
-      right={<><Button ref={chooseButton} onClick={() => void inspect()} disabled={busy}>{t('plugins.choose')}</Button>{!details && !preview && syncAction}</>} />
+    <h1 className="page-toolbar__title">{t('menu.plugins')}</h1>
     <Tabs value={section} onValueChange={setSection}>
-      <TabList ariaLabel={t('menu.plugins')}>{['installed','catalog','repositories','builder'].map(value => <Tab value={value} key={value}>{t('plugins.' + value)}</Tab>)}</TabList>
+      <TabList listRef={tabList} ariaLabel={t('menu.plugins')}>{['installed','catalog','repositories','builder'].map(value => <Tab value={value} key={value}>{t('plugins.' + value)}</Tab>)}</TabList>
       <TabPanel value="installed">{section === 'installed' && <>
-    <h2>{t('plugins.installed')}</h2>
+    <Toolbar ariaLabel={t('plugins.installed')} left={<h2>{t('plugins.installed')}</h2>}
+      right={<><Button ref={chooseButton} onClick={() => void inspect()} disabled={busy}>{t('plugins.choose')}</Button>{!details && !preview && syncAction}
+        {listError && <Button ref={reloadButton} disabled={busy} onClick={() => void reloadList()}>{t('plugins.reloadList')}</Button>}</>} />
     {items && items.length > 0 ? <DataGrid items={items} onActivate={row => void openDetails(row)} getItemId={row => row.id} label={t('plugins.installed')}
       columns={[{ key: 'name', label: t('plugins.name') }, { key: 'version', label: t('plugins.version') }, { key: 'origin', label: t('plugins.origin') }]} />
       : items && !busy && !error && !listError && <p>{t('plugins.empty')}</p>}
@@ -520,7 +564,7 @@ function InstalledPlugins({ session }: { session: string }) {
       {syncAction}
       <p>{t('plugins.origin')}: {details.installation.origin}</p>
       {details.installation.disabled && <p>{t('plugins.disabledNotice')}</p>}
-      <Button disabled={busy || error === 'plugins.syncPendingStale'} onClick={event => void changeInstallation(details.installation.disabled ? 'enable' : 'disable', event.currentTarget)}>
+      <Button ref={detailsAction} disabled={busy || error === 'plugins.syncPendingStale'} onClick={event => void changeInstallation(details.installation.disabled ? 'enable' : 'disable', event.currentTarget)}>
         {t(details.installation.disabled ? 'plugins.enable' : 'plugins.disable', { name: details.installation.name })}
       </Button>
       <Button disabled={busy || error === 'plugins.syncPendingStale'} onClick={event => void changeInstallation('uninstall', event.currentTarget)}>{t('plugins.uninstall', { name: details.installation.name })}</Button>
@@ -551,6 +595,11 @@ function InstalledPlugins({ session }: { session: string }) {
         </> : <p>{t(componentRequirement(component) ?? 'plugins.unavailable', { path: component.entry })}</p>}
       </li>)}</ul>}
     </Modal>}
+    {syncDialogOpen && <DecisionDialog isOpen
+      title={t('plugins.syncQuestion')} description={t('plugins.syncPrompt')}
+      actions={[{id:'retry', label:t('plugins.syncNow'), primary:true}, {id:'later', label:t('plugins.syncLater')}]}
+      onAction={id => { acknowledgePending(); if (id === 'retry') void retryPendingSync(); }}
+      onCancel={acknowledgePending} />}
     {chatGPTSlug && details && <Modal isOpen title={t('chatgpt.title')} allowClose={!chatGPTCloseBlocked}
       onClose={() => void closeChatGPT()}>
       <ChatGPTConnection profileSlug={chatGPTSlug} onCloseBlockedChange={setChatGPTCloseBlocked}

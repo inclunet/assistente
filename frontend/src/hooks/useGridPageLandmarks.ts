@@ -45,9 +45,9 @@ export function useGridPageLandmarks({ pageClass, extraLandmarks, contentLandmar
           if (!page) return false;
           const toolbar = page.querySelector('[role="toolbar"]') as Element | null;
           if (!toolbar) return false;
-          const btn = toolbar.querySelector('button:not([disabled])') as HTMLButtonElement | null;
-          if (!btn) return false;
-          btn.focus();
+          const control = toolbar.querySelector<HTMLElement>('button:not([disabled])') ?? toolbar.querySelector<HTMLInputElement>('input:not([disabled])');
+          if (!control) return false;
+          control.focus();
           return true;
         },
         contains: () => !!document.activeElement?.closest?.(`${`.${pageClass}`} [role="toolbar"]`),
