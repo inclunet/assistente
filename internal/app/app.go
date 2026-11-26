@@ -43,6 +43,7 @@ import (
 	"assistente/internal/memory"
 	"assistente/internal/messaging"
 	"assistente/internal/nettrust"
+	"assistente/internal/plugins"
 	"assistente/internal/profileaccess"
 	"assistente/internal/profiles"
 	"assistente/internal/prompt"
@@ -1229,10 +1230,16 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 	// Subagent manager (AEP-0068): criado após o ChatController para reusar a
 	// MESMA SendMessageUseCase (sem fluxo alternativo de envio — AEP-0040).
 	a.subagentMgr = subagent.NewManager(subagent.ManagerConfig{
+		CheckAgent: func(ctx context.Context, generation string) error {
+			return plugins.NewInventory(database.DB()).CheckAgent(ctx, generation)
+		},
+		AgentGeneration: func(ctx context.Context, slug string) (string, error) {
+			return plugins.NewInventory(database.DB()).AgentGeneration(ctx, slug)
+		},
 		Repo:     subagent.NewDBRepository(database.DB()),
 		Notifier: a.responseNotifier,
 		Send: func(ctx context.Context, p subagent.SendParams) (string, error) {
-			return a.chatCtrl.SendForSubagent(ctx, p.ConversationID, p.Prompt, p.Media, p.ProfileSlug, p.Model)
+			return a.chatCtrl.SendForSubagent(ctx, p.ConversationID, p.Prompt, p.Media, p.ProfileSlug, p.Model, p.ClearPluginHistory)
 		},
 		Delivery:     &subagentParentDelivery{app: a},
 		CancelStream: a.streamMgr.Cancel,

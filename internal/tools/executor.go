@@ -801,6 +801,9 @@ func failureRetryable(result ToolResult) bool {
 
 // ValidateExecutionContextToolAccess checks the caller's narrowing without invoking the tool.
 func ValidateExecutionContextToolAccess(ctx context.Context, toolName string) error {
+	if err := invocationctx.CheckAgent(ctx); err != nil {
+		return err
+	}
 	if !invocationctx.DelegatedToolsFrom(ctx).Allows(toolName) {
 		return fmt.Errorf("ferramenta %q fora do escopo da delegação", toolName)
 	}

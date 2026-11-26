@@ -49,7 +49,7 @@ Na grade de **Repositórios**, use as setas para escolher a loja e percorrer sua
 
 A pesquisa abrange todas as entradas, e a grade exibe até 50 por página. Na loja Claude, um caminho com `./` parte da raiz; nomes simples usam o `metadata.pluginRoot`. Uma entrada na própria raiz continua visível para consulta. Restrições de produto do Codex ficam indicadas como política da loja. Pacotes de instruções admitem autenticação no primeiro uso; quando há exigência de autenticação para um servidor MCP, a prévia informa a limitação do adaptador.
 
-Em pacotes Claude Code, a prévia e os detalhes mostram os arquivos Markdown da pasta `agents/`, inclusive em subpastas. A indicação **Definição de agente** identifica o arquivo encontrado. A delegação por esses arquivos ainda está indisponível.
+Em pacotes Claude Code, a prévia e os detalhes mostram os arquivos Markdown da pasta `agents/`, inclusive em subpastas. O arquivo de agente pode ter até 32 KiB. Uma definição compatível contém nome, descrição e instruções. A prévia mostra as instruções e quais ferramentas o agente solicita. Com `model: inherit`, a conversa do agente mantém o provedor e o modelo do turno que a criou, inclusive ao reabrir o histórico. Nesta etapa, o adaptador aceita as ferramentas Claude Code `Read` e `Grep`, uma lista vazia ou a omissão da lista para herdar o perfil. Campos desconhecidos impedem a ativação. Nos detalhes do plugin instalado, selecione **Ativar** e use o identificador exibido no argumento `agent` da ferramenta `subagent`. Desativar revoga a concessão.
 
 ## Usar uma skill com comandos do Claude Code
 

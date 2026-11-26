@@ -101,6 +101,7 @@ func (t *Tool) Parameters() json.RawMessage {
 				"type": "string",
 				"description": "Slug of the interaction profile for the sub-agent (model, behavior, enabled tools). Discover valid slugs and descriptions with profile action=list. Defaults to the parent's profile; a different explicit profile requires user authorization for this invocation."
 			},
+			"agent": {"type":"string","description":"Slug of an activated plugin agent shown in Plugins. Omit for ordinary delegation."},
 			"tools": {"type":"array","items":{"type":"string"},"description":"Restrict this run to these tools within the selected profile. Omit to inherit; an empty array disables every tool."},
 			"title": {
 				"type": "string",
@@ -116,6 +117,7 @@ func (t *Tool) Parameters() json.RawMessage {
 }
 
 type subagentArgs struct {
+	Agent          string   `json:"agent"`
 	Tools          []string `json:"tools"`
 	Prompt         string   `json:"prompt"`
 	Background     bool     `json:"background,omitempty"`
@@ -153,6 +155,9 @@ func (t *Tool) Execute(ctx context.Context, args json.RawMessage) (tools.ToolRes
 	runID := strings.TrimSpace(a.RunID)
 
 	// Validações de combinação (AEP-0068).
+	if strings.TrimSpace(a.Agent) != "" && prompt == "" {
+		return invalidArgsResult("a escolha de agente requer uma tarefa"), nil
+	}
 	if a.Cancel && prompt != "" {
 		return invalidArgsResult("'cancel' e 'prompt' são mutuamente exclusivos"), nil
 	}
@@ -296,6 +301,7 @@ func (t *Tool) Execute(ctx context.Context, args json.RawMessage) (tools.ToolRes
 			ConversationID:       conversationID,
 			Clear:                a.Clear,
 			Prompt:               prompt,
+			AgentSlug:            strings.TrimSpace(a.Agent),
 			ProfileSlug:          profile,
 			Tools:                a.Tools,
 			Model:                model,

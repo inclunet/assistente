@@ -65,6 +65,11 @@ func CreateSubAgentConversationWithContext(ctx context.Context, title, parentCon
 }
 
 func (r *ConversationRepository) CreateSubAgentConversationWithContext(ctx context.Context, title, parentConversationID string) (*Conversation, error) {
+	return r.CreateDelegatedConversation(ctx, title, parentConversationID, "", "", "")
+}
+
+// CreateDelegatedConversation binds a child to the reviewed activation at creation.
+func (r *ConversationRepository) CreateDelegatedConversation(ctx context.Context, title, parentConversationID, generation, provider, model string) (*Conversation, error) {
 	db := r.db
 	userID, err := RequireUserID(ctx)
 	if err != nil {
@@ -72,10 +77,12 @@ func (r *ConversationRepository) CreateSubAgentConversationWithContext(ctx conte
 	}
 	parentConversationID = strings.TrimSpace(parentConversationID)
 	conv := &Conversation{
-		Title:                title,
-		UserID:               userID,
-		Kind:                 ConversationKindSubagent,
-		ParentConversationID: parentConversationID,
+		Title:                 title,
+		UserID:                userID,
+		Kind:                  ConversationKindSubagent,
+		ParentConversationID:  parentConversationID,
+		PluginAgentGeneration: generation,
+		PluginAgentProvider:   provider, PluginAgentModel: model,
 	}
 	err = WithSQLiteMaintenance(ctx, func() error {
 		return withSQLiteImmediateTransaction(ctx, db, "conversation.create_subagent", func(tx *gorm.DB) error {

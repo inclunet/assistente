@@ -1164,6 +1164,11 @@ func ClearConversationContentWithContext(ctx context.Context, conversationID str
 }
 
 func (r *MessageRepository) ClearConversationContentWithContext(ctx context.Context, conversationID string) error {
+	return r.ClearAdmittedConversation(ctx, conversationID, nil)
+}
+
+// ClearAdmittedConversation checks ownership and optional admission in the same write transaction.
+func (r *MessageRepository) ClearAdmittedConversation(ctx context.Context, conversationID string, admit func(*gorm.DB) error) error {
 	db := r.db
 	if _, err := RequireUserID(ctx); err != nil {
 		return err
@@ -1175,6 +1180,11 @@ func (r *MessageRepository) ClearConversationContentWithContext(ctx context.Cont
 	return withSQLiteImmediateTransaction(ctx, db, "conversation.clear_content", func(tx *gorm.DB) error {
 		if _, err := NewConversationRepository(tx).GetConversationInfoWithContext(ctx, conversationID); err != nil {
 			return err
+		}
+		if admit != nil {
+			if err := admit(tx); err != nil {
+				return err
+			}
 		}
 		return clearConversationContentTx(ctx, tx, conversationID)
 	})

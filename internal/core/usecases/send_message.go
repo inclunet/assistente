@@ -9,6 +9,7 @@ import (
 	"assistente/internal/llmcapabilities"
 	"assistente/internal/logging"
 	mcpmgr "assistente/internal/mcp"
+	"assistente/internal/plugins"
 	"assistente/internal/profiles"
 	"assistente/internal/providers"
 	"assistente/internal/speech"
@@ -18,6 +19,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"gorm.io/gorm"
 	"strings"
 	"sync"
 )
@@ -141,15 +143,16 @@ func NewSendMessageUseCase(cfg SendMessageConfig) *SendMessageUseCase {
 
 // SendMessageRequest encapsula os parâmetros de entrada do Use Case.
 type SendMessageRequest struct {
-	Ctx             context.Context
-	ConversationID  string
-	RetryMessageID  string
-	UserContent     string
-	UserMedia       string
-	Params          llm.ChatParams
-	Source          string
-	prepared        *chat.PrepareContextResponse
-	finishExecution func()
+	ClearPluginHistory bool
+	Ctx                context.Context
+	ConversationID     string
+	RetryMessageID     string
+	UserContent        string
+	UserMedia          string
+	Params             llm.ChatParams
+	Source             string
+	prepared           *chat.PrepareContextResponse
+	finishExecution    func()
 	// OnFinished limpa recursos do chamador após a última persistência/evento.
 	OnFinished func()
 }
@@ -247,6 +250,19 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 		if err != nil {
 			return "", err
 		}
+	}
+	var agentInstructions string
+	var inheritParentModel bool
+	if generation := pctx.PluginAgentGeneration; generation != "" {
+		inventory := plugins.NewInventory(database.DB())
+		def, err := inventory.ResolveAgent(ctx, generation)
+		if err != nil {
+			return "", fmt.Errorf("agente de plugin indisponível: %w", err)
+		}
+		ctx = invocationctx.WithDelegatedTools(ctx, def.Tools)
+		ctx = invocationctx.WithAgentCheck(ctx, func(ctx context.Context) error { return inventory.CheckAgent(ctx, generation) })
+		agentInstructions = def.AgentInstructions
+		inheritParentModel = def.Model == "inherit"
 	}
 	activeProfile := pctx.ActiveProfile
 	var sttProvider string
@@ -374,12 +390,21 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 	// mensagem (Fase 8): persona, skills, memória e contexto ficam de fora, e a
 	// skill invocada por barra deixa de ser processada — num perfil de agente,
 	// quem responde por `/` é ele.
+	if providerConfig.IsACP() && invocationctx.HasAgentCheck(ctx) {
+		return "", errors.New("provedor externo sem controle das ferramentas do agente de plugin")
+	}
 	agentDrivenTurn, err := agentTurnForDelegation(providerConfig, invocationctx.DelegatedToolsFrom(ctx))
 	if err != nil {
 		return "", err
 	}
 	if agentDrivenTurn {
 		activeProfile = profileWithToolsDisabled(activeProfile)
+	}
+	if inheritParentModel {
+		params.Model, err = delegatedModel(pctx.PluginAgentProvider, pctx.PluginAgentModel, activeProfile.Chat.LLMProvider, req.Params.Model)
+		if err != nil {
+			return "", err
+		}
 	}
 	params.Compatibility = uc.loadCompatibilityState(ctx, providerConfig, params.Model)
 	params, err = uc.providerSvc.ApplyChatParameterContract(providerConfig, params)
@@ -516,6 +541,14 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 			}
 		}
 
+		if req.ClearPluginHistory {
+			if req.Source != "subagent" || pctx.PluginAgentGeneration == "" || req.RetryMessageID != "" {
+				return "", errors.New("limpeza fora de uma delegação de plugin")
+			}
+			if err := database.NewMessageRepository(database.DB()).ClearAdmittedConversation(ctx, req.ConversationID, func(tx *gorm.DB) error { return plugins.NewInventory(tx).CheckAgent(ctx, pctx.PluginAgentGeneration) }); err != nil {
+				return "", err
+			}
+		}
 		// Persiste mensagem do usuário, emite ready e carrega histórico.
 		rmsg, err := uc.chatInteractor.RecordUserMessage(ctx, chat.RecordUserMessageRequest{
 			ConversationID:     req.ConversationID,
@@ -572,6 +605,7 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 		Params:              params,
 		ActiveProfile:       activeProfile,
 		SurfaceOrigin:       surfaceOrigin,
+		AgentInstructions:   agentInstructions,
 		AgentTurn:           agentDrivenTurn,
 	})
 	if prepResult.Err != nil {
@@ -703,6 +737,10 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 	// já que ambos resolvem o mesmo activeProfile neste pipeline. Aqui activeProfile
 	// já é não-nil (validado acima, onde LLMProvider vazio/nil retorna erro).
 	nativeMCPOverride := activeProfile.Chat.NativeMCP
+	if invocationctx.HasAgentCheck(ctx) {
+		adapterOnly := false
+		nativeMCPOverride = &adapterOnly
+	}
 	toolCfg.NativeMCP = nativeMCPOverride
 
 	// Resolução coesa native/adapter + ToolPlanner (AEP-0077 F4, #121). O budget
@@ -775,7 +813,7 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 	// nativo→adapter consegue restaurar as tools no mesmo turno.
 	if len(llmToolDefs) > 0 || len(adapterToolDefs) > 0 {
 		recoveryEnabled, recoveryMaxAttempts := resolveStreamingRecoverySettings(activeProfile)
-		agentCtx := convCtx
+		agentCtx := invocationctx.WithTurnModel(convCtx, activeProfile.Chat.LLMProvider, llm.ResolveModel(providerConfig, resolvedModel))
 		if invokedExecutionContext != nil {
 			agentCtx = tools.WithExecutionContext(agentCtx, *invokedExecutionContext)
 		} else if invokedSkillSlug != "" {
@@ -980,4 +1018,16 @@ func (uc *SendMessageUseCase) prepareCatalogTool(ctx context.Context, entry tool
 		return uc.mcpMgr.PrepareCatalogTool(ctx, entry)
 	}
 	return nil
+}
+
+// An inherited model is bound to its provider. A model identifier on another
+// endpoint may identify an entirely different model.
+func delegatedModel(parentProvider, parentModel, provider, requested string) (string, error) {
+	if parentModel == "" || parentProvider != provider {
+		return "", errors.New("não foi possível herdar o modelo do turno de origem")
+	}
+	if requested != "" && requested != parentModel {
+		return "", errors.New("a definição do agente exige o modelo do turno de origem")
+	}
+	return parentModel, nil
 }

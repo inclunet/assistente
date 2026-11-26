@@ -16,12 +16,15 @@ import (
 // Component identifies a contribution within a revision; runtime keys are
 // allocated separately, so the same skill name can occur in several packages.
 type Component struct {
-	CanCreateChatGPT  bool     `json:"canCreateChatGPT,omitempty"`
-	MissingAllowlist  string   `json:"missingAllowlist,omitempty"`
-	MissingProvider   string   `json:"missingProvider,omitempty"`
-	ProfileDefinition string   `json:"profileDefinition,omitempty"`
-	ProcessArgs       []string `json:"processArgs,omitempty"`
-	Tool              string   `json:"tool,omitempty"`
+	AgentProblemField string    `json:"agentProblemField,omitempty"`
+	AgentInstructions string    `json:"agentInstructions,omitempty"`
+	AgentTools        *[]string `json:"agentTools,omitempty"`
+	CanCreateChatGPT  bool      `json:"canCreateChatGPT,omitempty"`
+	MissingAllowlist  string    `json:"missingAllowlist,omitempty"`
+	MissingProvider   string    `json:"missingProvider,omitempty"`
+	ProfileDefinition string    `json:"profileDefinition,omitempty"`
+	ProcessArgs       []string  `json:"processArgs,omitempty"`
+	Tool              string    `json:"tool,omitempty"`
 
 	JobMaxRunsPerHour int            `json:"jobMaxRunsPerHour,omitempty"`
 	JobTriggers       []jobs.Trigger `json:"jobTriggers,omitempty"`
@@ -67,7 +70,21 @@ func DiscoverComponents(snapshot *pluginpackage.LocalSnapshot) []Component {
 	for entry := range snapshot.Files {
 		parts := strings.Split(entry, "/")
 		if claude && parts[0] == "agents" && len(parts) > 1 && path.Ext(entry) == ".md" {
-			components = append(components, Component{Key: entry, Entry: entry, Name: strings.TrimPrefix(entry, "agents/"), Kind: "agent", Reason: "agentDelegation"})
+			c := Component{Key: entry, Entry: entry, Name: strings.TrimPrefix(entry, "agents/"), Kind: "agent"}
+			def, field, err := readClaudeAgent(snapshot.Files[entry])
+			if err != nil {
+				c.Reason = "agentConfiguration"
+				c.AgentProblemField = field
+				if err == errAgentTooLarge {
+					c.Reason = "agentTooLarge"
+				}
+			} else {
+				c.AgentInstructions = def.AgentInstructions
+				if def.Tools != nil {
+					c.AgentTools = &def.Tools
+				}
+			}
+			components = append(components, c)
 		}
 		if parts[0] == "bin" && len(parts) > 1 {
 			hasExecutables = true

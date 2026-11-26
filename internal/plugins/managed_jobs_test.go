@@ -28,7 +28,7 @@ func managedJobTestDB(t *testing.T) *gorm.DB {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = conn.Close() })
-	if err = db.AutoMigrate(&database.PluginInstallation{}, &database.PluginRevision{}, &database.PluginProfileActivation{}, &database.PluginSkillActivation{}, &database.PluginProviderBinding{}, &database.LLMProvider{}, &database.PluginMCPBinding{}, &database.User{}, &database.MCPServer{}, &database.ToolCatalog{}, &database.Job{}, &database.JobPipeline{}, &database.JobTrigger{}, &database.Tag{}, &database.TagAssignment{}, &database.PluginJobCopyReceipt{}, &database.JobProfileGrant{}); err != nil {
+	if err = db.AutoMigrate(&database.PluginInstallation{}, &database.PluginRevision{}, &database.PluginProfileActivation{}, &database.PluginSkillActivation{}, &database.PluginAgentActivation{}, &database.PluginProviderBinding{}, &database.LLMProvider{}, &database.PluginMCPBinding{}, &database.User{}, &database.MCPServer{}, &database.ToolCatalog{}, &database.Job{}, &database.JobPipeline{}, &database.JobTrigger{}, &database.Tag{}, &database.TagAssignment{}, &database.PluginJobCopyReceipt{}, &database.JobProfileGrant{}); err != nil {
 		t.Fatal(err)
 	}
 	if err = db.Create(&database.ToolCatalog{Name: "notify", Origin: "builtin", AvailabilityStatus: "available"}).Error; err != nil {

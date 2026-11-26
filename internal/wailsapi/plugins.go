@@ -373,6 +373,12 @@ func (api *Plugins) SetProfileActive(id, digest, key string, active bool) error 
 	})
 }
 
+func (api *Plugins) SetAgentActive(id, digest, key string, active bool) error {
+	return api.mutateComponent(func(ctx context.Context, inventory *plugins.Inventory, admit commandsecurity.Admission) error {
+		return inventory.SetAgentActive(ctx, id, digest, key, active, admit)
+	})
+}
+
 func (api *Plugins) SetSkillActive(id, digest, key string, active bool) error {
 	err := api.mutateComponent(func(ctx context.Context, i *plugins.Inventory, admit commandsecurity.Admission) error {
 		return i.SetSkillActive(ctx, id, digest, key, active, admit)

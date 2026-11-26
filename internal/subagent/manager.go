@@ -121,6 +121,8 @@ func (a *activeRun) cancel() {
 // para criar/continuar sub-conversas; reusa o pipeline oficial via SendFunc e
 // detecta conclusão por callback in-process (ResponseNotifier).
 type Manager struct {
+	checkAgent          func(context.Context, string) error
+	agentGeneration     func(context.Context, string) (string, error)
 	repo                Repository
 	notifier            *messaging.ResponseNotifier
 	send                SendFunc
@@ -157,9 +159,11 @@ const deletionTombstoneTTL = 5 * time.Minute
 
 // ManagerConfig agrupa as dependências do Manager.
 type ManagerConfig struct {
-	Repo     Repository
-	Notifier *messaging.ResponseNotifier
-	Send     SendFunc
+	CheckAgent      func(context.Context, string) error
+	AgentGeneration func(context.Context, string) (string, error)
+	Repo            Repository
+	Notifier        *messaging.ResponseNotifier
+	Send            SendFunc
 	// Delivery entrega o aviso de conclusão de runs em background ao pai
 	// (auto-wake). Pode ser nil (ex.: contextos sem pai); então o aviso é
 	// apenas persistido no run.
@@ -202,6 +206,8 @@ func NewManager(cfg ManagerConfig) *Manager {
 		maxConcurrentGlobal = DefaultMaxConcurrentGlobal
 	}
 	return &Manager{
+		checkAgent:          cfg.CheckAgent,
+		agentGeneration:     cfg.AgentGeneration,
 		repo:                cfg.Repo,
 		notifier:            cfg.Notifier,
 		send:                cfg.Send,
@@ -250,6 +256,15 @@ func (m *Manager) Run(ctx context.Context, p RunParams) (RunResult, error) {
 	if err != nil {
 		return RunResult{}, err
 	}
+	if p.AgentSlug != "" {
+		if m.agentGeneration == nil {
+			return RunResult{}, ErrManagerNotConfigured
+		}
+		p.agentGeneration, err = m.agentGeneration(ctx, p.AgentSlug)
+		if err != nil {
+			return RunResult{}, err
+		}
+	}
 	p.ParentConversationID = strings.TrimSpace(p.ParentConversationID)
 	p.ConversationID = strings.TrimSpace(p.ConversationID)
 
@@ -288,7 +303,7 @@ func (m *Manager) Run(ctx context.Context, p RunParams) (RunResult, error) {
 	// existente (resume — Fase 3). O clear (reset) NÃO ocorre aqui — só após a
 	// reserva de concorrência abaixo, para não apagar dados de um run que será
 	// rejeitado pelo fail-fast.
-	childConvID, childTitle, isNew, err := m.resolveChildConversation(ctx, p)
+	childConvID, childTitle, isNew, err := m.resolveChildConversation(ctx, &p)
 	if err != nil {
 		m.deletionGate.RUnlock()
 		m.releaseSlot(userID)
@@ -357,7 +372,7 @@ func (m *Manager) Run(ctx context.Context, p RunParams) (RunResult, error) {
 	//     Continua 100% dentro da região reservada (não reabre clear-antes-da-
 	//     reserva). Se o clear falhar, o run existe: marca-o failed (auditoria/
 	//     retry, best-effort) e libera a reserva da conversa E a vaga do usuário.
-	if err := m.applyClear(ctx, childConvID, isNew, p.Clear); err != nil {
+	if err := m.applyClear(ctx, childConvID, isNew, p.Clear && p.agentGeneration == ""); err != nil {
 		clearedAt := m.nowFn()
 		run.Status = database.SubAgentRunStatusFailed
 		run.Error = fmt.Sprintf("erro ao limpar sub-conversa (clear): %v", err)
@@ -476,12 +491,13 @@ func (m *Manager) Run(ctx context.Context, p RunParams) (RunResult, error) {
 	}
 	sendCtx, cancelSend := context.WithCancel(sendBase)
 	if _, err := m.send(sendCtx, SendParams{
-		ConversationID: childConvID,
-		Prompt:         p.Prompt,
-		Media:          p.Media,
-		ProfileSlug:    p.ProfileSlug,
-		Model:          p.Model,
-		Source:         Source,
+		ClearPluginHistory: p.Clear && p.agentGeneration != "",
+		ConversationID:     childConvID,
+		Prompt:             p.Prompt,
+		Media:              p.Media,
+		ProfileSlug:        p.ProfileSlug,
+		Model:              p.Model,
+		Source:             Source,
 	}); err != nil {
 		cancelSend()
 		m.notifier.Cancel(childConvID)
@@ -600,7 +616,7 @@ func (m *Manager) concurrencySnapshot(userID string) (forUser, global int) {
 // Create nunca deixa histórico apagado sem run (evita efeito destrutivo órfão).
 // Devolve também o título da sub-conversa, usado nos eventos de run para a UI
 // poder nomear o sub-agente sem uma leitura extra.
-func (m *Manager) resolveChildConversation(ctx context.Context, p RunParams) (childConvID, childTitle string, isNew bool, err error) {
+func (m *Manager) resolveChildConversation(ctx context.Context, p *RunParams) (childConvID, childTitle string, isNew bool, err error) {
 	// Normaliza UMA vez e usa o valor em todo o fluxo (decisão do modo, lookup e
 	// mensagens de erro): evita o estado inconsistente em que um id com espaços
 	// passa no teste de "não-vazio" mas falha como "não encontrada" no lookup.
@@ -617,7 +633,11 @@ func (m *Manager) resolveChildConversation(ctx context.Context, p RunParams) (ch
 		if title == "" {
 			title = deriveTitle(p.Prompt)
 		}
-		conv, cerr := database.CreateSubAgentConversationWithContext(ctx, title, p.ParentConversationID)
+		var provider, model string
+		if p.agentGeneration != "" {
+			provider, model = invocationctx.TurnModel(ctx)
+		}
+		conv, cerr := database.NewConversationRepository(database.DB()).CreateDelegatedConversation(ctx, title, p.ParentConversationID, p.agentGeneration, provider, model)
 		if cerr != nil {
 			return "", "", false, fmt.Errorf("erro ao criar sub-conversa: %w", cerr)
 		}
@@ -630,9 +650,21 @@ func (m *Manager) resolveChildConversation(ctx context.Context, p RunParams) (ch
 	if gerr != nil {
 		return "", "", false, fmt.Errorf("sub-conversa não encontrada ou sem acesso: %w", gerr)
 	}
+	if p.agentGeneration != "" && conv.PluginAgentGeneration != p.agentGeneration {
+		return "", "", false, fmt.Errorf("a conversa pertence a outra definição de agente")
+	}
 	if conv.Kind != database.ConversationKindSubagent {
 		return "", "", false, fmt.Errorf("conversa %s não é uma sub-conversa de sub-agente", convID)
 	}
+	if conv.PluginAgentGeneration != "" {
+		if m.checkAgent == nil {
+			return "", "", false, ErrManagerNotConfigured
+		}
+		if err := m.checkAgent(ctx, conv.PluginAgentGeneration); err != nil {
+			return "", "", false, fmt.Errorf("ativação do agente indisponível: %w", err)
+		}
+	}
+	p.agentGeneration = conv.PluginAgentGeneration
 	return conv.ID, conv.Title, false, nil
 }
 

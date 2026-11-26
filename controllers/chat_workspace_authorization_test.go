@@ -41,7 +41,7 @@ func TestChatCapturaWorkspaceAntesDeEnfileirar(t *testing.T) {
 	}
 	for _, parent := range []int{0, 2} {
 		ctx := context.WithoutCancel(executor.requests[parent].Ctx)
-		if _, err := c.SendForSubagent(ctx, "child", "task", "", "", ""); err != nil {
+		if _, err := c.SendForSubagent(ctx, "child", "task", "", "", "", false); err != nil {
 			t.Fatal(err)
 		}
 		want, _ := invocationctx.Workspace(ctx)

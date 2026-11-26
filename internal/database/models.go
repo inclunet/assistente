@@ -197,8 +197,11 @@ type Conversation struct {
 	// Sub-agentes (AEP-0068): vínculo e filtragem de sub-conversas.
 	//   - Kind="" → conversa normal; Kind="subagent" → sub-conversa de sub-agente.
 	//   - ParentConversationID aponta para a conversa que originou o sub-agente.
-	Kind                 string `json:"kind,omitempty" gorm:"index"`
-	ParentConversationID string `json:"parentConversationId,omitempty" gorm:"index"`
+	Kind                  string `json:"kind,omitempty" gorm:"index"`
+	ParentConversationID  string `json:"parentConversationId,omitempty" gorm:"index"`
+	PluginAgentGeneration string `json:"-"`
+	PluginAgentProvider   string `json:"-"`
+	PluginAgentModel      string `json:"-"`
 
 	// LatestStatus é o status do run de sub-agente MAIS RECENTE desta conversa
 	// (AEP-0068), preenchido só na listagem unificada via LEFT JOIN com

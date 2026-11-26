@@ -960,6 +960,37 @@ func TestManagerResumeRejectsNonSubagentConversation(t *testing.T) {
 	}
 }
 
+func TestRevokedAgentPreservesHistoryOnClear(t *testing.T) {
+	repo, ctx := setupManagerTest(t)
+	notifier := messaging.NewResponseNotifier()
+	t.Cleanup(notifier.Stop)
+	revoked := errors.New("ativação revogada")
+	mgr := NewManager(ManagerConfig{
+		Repo: repo, Notifier: notifier,
+		CheckAgent: func(context.Context, string) error { return revoked },
+		Send: func(context.Context, SendParams) (string, error) {
+			t.Error("enviou após a revogação")
+			return "", revoked
+		},
+	})
+	conv, err := database.NewConversationRepository(database.DB()).CreateDelegatedConversation(ctx, "Agente", "parent-conv", "ativação", "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	msg := database.ChatMessage{ConversationID: conv.ID, Role: "user", Content: "histórico anterior"}
+	if err := database.DB().WithContext(ctx).Create(&msg).Error; err != nil {
+		t.Fatal(err)
+	}
+	_, err = mgr.Run(ctx, RunParams{ParentConversationID: "parent-conv", ConversationID: conv.ID, Prompt: "outra tarefa", Clear: true})
+	if !errors.Is(err, revoked) {
+		t.Fatalf("esperava revogação, recebeu %v", err)
+	}
+	var stored database.ChatMessage
+	if err := database.DB().WithContext(ctx).First(&stored, "id = ?", msg.ID).Error; err != nil || stored.Content != msg.Content {
+		t.Fatalf("histórico após tentativa de limpeza: %q, erro %v", stored.Content, err)
+	}
+}
+
 func TestManagerClearResetsHistoryBeforeSend(t *testing.T) {
 	repo, ctx := setupManagerTest(t)
 	notifier := messaging.NewResponseNotifier()

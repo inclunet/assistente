@@ -95,3 +95,13 @@ func TestDelegatedRunRequiresControllableProvider(t *testing.T) {
 		}
 	}
 }
+
+func TestPluginDelegationRejectsIncompatibleModel(t *testing.T) {
+	for _, tc := range []struct{ provider, model, requested string }{
+		{"other", "aba", ""}, {"provider", "aba", "diferente"}, {"", "", ""},
+	} {
+		if _, err := delegatedModel(tc.provider, tc.model, "provider", tc.requested); err == nil {
+			t.Fatal(tc)
+		}
+	}
+}

@@ -58,12 +58,13 @@ const callbackTTLMargin = 2 * time.Minute
 // SendParams descreve um envio ao pipeline oficial de mensagens. O adapter de
 // wiring traduz para usecases.SendMessageRequest (sem duplicar o pipeline).
 type SendParams struct {
-	ConversationID string
-	Prompt         string
-	Media          string
-	ProfileSlug    string
-	Model          string
-	Source         string
+	ClearPluginHistory bool
+	ConversationID     string
+	Prompt             string
+	Media              string
+	ProfileSlug        string
+	Model              string
+	Source             string
 }
 
 // SendFunc dispara um envio pelo pipeline oficial e retorna o conversationID.
@@ -73,6 +74,10 @@ type SendFunc func(ctx context.Context, p SendParams) (string, error)
 
 // RunParams são os parâmetros de um run de sub-agente.
 type RunParams struct {
+	// AgentInstructions come from an activated agent definition, independently of the user task.
+	AgentInstructions string
+	AgentSlug         string
+	agentGeneration   string
 	// Tools limits this run. A nil slice inherits the enclosing permissions.
 	Tools []string
 	// ParentConversationID é a conversa que originou o sub-agente (pode ser
