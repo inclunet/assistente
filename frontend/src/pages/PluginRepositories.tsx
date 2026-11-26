@@ -1,5 +1,5 @@
 import { repositoryError } from './pluginRepositoryError';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { plugins, wailsapi } from '@wailsjs/go/models';
 import { AddGitRepository, AddIndexRepository, AddArchiveRepository, AddRemoteRepository, AddLocalRepository, ListRepositories, PreviewRepositoryEntry, RefreshRepository, RemoveRepository, DiscardPreview } from '@wailsjs/go/wailsapi/Plugins';
@@ -14,6 +14,8 @@ import { Modal } from '../components/ui/Modal';
 import { DialogActions } from '../components/ui/DialogActions';
 
 import { pendingRepositoryWrites, trackRepositoryWrite } from './pluginRepositoryWrites';
+
+import { useCatalogRefresh } from './useCatalogRefresh';
 
 const pageSize = 50;
 
@@ -51,10 +53,13 @@ export default function PluginRepositories({ session, catalog, parentBusy, onFor
     if (document.activeElement === document.body) addButton.current?.focus();
   }, [busy]);
   const cancelAdd = () => { setAdding(false); requestAnimationFrame(() => { if (document.activeElement === document.body) addButton.current?.focus(); }); };
-  const refresh = async () => {
+  const listGeneration = useRef(0);
+  const refresh = useCallback(async () => {
+    const generation = ++listGeneration.current;
     const result = await ListRepositories();
-    if (mounted.current) setRepositories(result ?? []);
-  };
+    if (mounted.current && generation === listGeneration.current) setRepositories(result ?? []);
+  }, []);
+  const offline = useCatalogRefresh(session,repositories,busy || !!parentBusy || adding,refresh);
   useEffect(() => {
     mounted.current = true;
     let active = true;
@@ -69,8 +74,13 @@ export default function PluginRepositories({ session, catalog, parentBusy, onFor
       if (active) { setError(failure); setBusy(false); }
     }
     void load();
-    return () => { active = false; mounted.current = false; };
+    return () => { active = false; mounted.current = false; listGeneration.current++; };
   }, [session]);
+  const offlineAnnounced = useRef(false);
+  useEffect(() => {
+    if (offline && !offlineAnnounced.current) announce(t('plugins.catalogOffline'));
+    offlineAnnounced.current = offline;
+  }, [offline,announce,t]);
   useEffect(() => { if (error) announce(t(error), 'assertive'); }, [error, t, announce]);
 
   const change = async (action: 'git' | 'index' | 'zip' | 'remote' | 'add' | 'refresh' | 'remove', repo?: plugins.Repository) => {
@@ -150,6 +160,7 @@ export default function PluginRepositories({ session, catalog, parentBusy, onFor
       <DialogActions primary={<Button type="submit" disabled={busy || ((source === 'remote' || source === 'git') && !url.trim())}>{t(source === 'git' ? 'plugins.addGit' : source === 'remote' ? 'plugins.addRemoteRepo' : source === 'index' ? 'plugins.indexSource' : source === 'zip' ? 'plugins.zipSource' : 'plugins.folderSource')}</Button>}
         secondary={<Button type="button" disabled={busy} onClick={cancelAdd}>{t('common.cancel')}</Button>} />
     </form></Modal>}
+    {offline && <p>{t('plugins.catalogOffline')}</p>}
     {!adding && error && <p>{t(error)}</p>}
     {catalog ? <>
       {entries.length > 0 ? <DataGrid items={entries.slice(currentPage * pageSize, (currentPage + 1) * pageSize)} getItemId={item => item.id} autoFocusOnMount={false} label={t('plugins.catalog')} onActivate={entry => void preview(entry)}
