@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -117,12 +118,29 @@ func TestArchivePrefixExcludesGitMetadata(t *testing.T) {
 func TestIndexDirectoryUsesKnownMarketplaceLocations(t *testing.T) {
 	root := t.TempDir()
 	for _, i := range indices {
-		got, err := IndexDirectory(filepath.Join(root, filepath.FromSlash(i.file)))
+		file := filepath.Join(root, filepath.FromSlash(i.file))
+		if err := os.MkdirAll(filepath.Dir(file), 0700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(file, nil, 0600); err != nil {
+			t.Fatal(err)
+		}
+		got, format, err := IndexDirectory(file)
+		if format != i.format {
+			t.Fatal(format)
+		}
+		upper := filepath.Join(root, strings.ToUpper(filepath.FromSlash(i.file)))
+		if _, err := os.Stat(upper); err == nil {
+			alias, fmt, e := IndexDirectory(upper)
+			if e != nil || alias != root || fmt != i.format {
+				t.Fatal(alias, fmt, e)
+			}
+		}
 		if err != nil || got != root {
 			t.Fatal(got, err)
 		}
 	}
-	if _, err := IndexDirectory(filepath.Join(root, "marketplace.json")); err == nil {
+	if _, _, err := IndexDirectory(filepath.Join(root, "marketplace.json")); err == nil {
 		t.Fatal("accepted unknown index location")
 	}
 }

@@ -8,6 +8,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -89,6 +90,16 @@ func (i *Inventory) Repositories(ctx context.Context) ([]Repository, error) {
 // absolute comes only from the native picker. Refresh uses the stored origin.
 // Compare-and-swap prevents a refresh from recreating a removed repository.
 func (i *Inventory) SaveRepository(ctx context.Context, absolute, id, expected string, admit commandsecurity.Admission) error {
+	return i.saveRepository(ctx, absolute, id, expected, "", admit)
+}
+func (i *Inventory) AddRepositoryIndex(ctx context.Context, filename string, admit commandsecurity.Admission) error {
+	root, format, err := plugincatalog.IndexDirectory(filename)
+	if err != nil {
+		return err
+	}
+	return i.saveRepository(ctx, root, "", "", format, admit)
+}
+func (i *Inventory) saveRepository(ctx context.Context, absolute, id, expected string, required plugincatalog.Format, admit commandsecurity.Admission) error {
 	owner, err := database.RequireUserID(ctx)
 	if err != nil {
 		return err
@@ -139,6 +150,9 @@ func (i *Inventory) SaveRepository(ctx context.Context, absolute, id, expected s
 	indices, err := plugincatalog.ReadRoot(root)
 	if err != nil {
 		return err
+	}
+	if required != "" && !slices.ContainsFunc(indices, func(index plugincatalog.Index) bool { return index.Format == required }) {
+		return errors.New("PLUGIN_REPOSITORY_INDEX_PATH")
 	}
 	return i.publishRepository(ctx, owner, origin, rootID, "", false, id, expected, indices, admit)
 }

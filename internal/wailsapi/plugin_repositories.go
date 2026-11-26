@@ -74,12 +74,8 @@ func (api *Plugins) AddIndexRepository() (bool, error) {
 		if err = admit.Check(); err != nil {
 			return err
 		}
-		root, err := plugincatalog.IndexDirectory(file)
-		if err != nil {
-			return err
-		}
 		selected = true
-		return i.SaveRepository(ctx, root, "", "", admit)
+		return i.AddRepositoryIndex(ctx, file, admit)
 	})
 	return selected && err == nil, err
 }
