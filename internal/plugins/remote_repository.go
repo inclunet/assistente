@@ -222,6 +222,16 @@ func (i *Inventory) saveRemote(ctx context.Context, origin, ref, id, expected st
 }
 
 func (i *Inventory) repositoryPackage(ctx context.Context, row database.PluginRepository, entry string) (*pluginpackage.LocalSnapshot, error) {
+	if digest, ok := strings.CutPrefix(row.RootID, localZIPPrefix); ok {
+		archive, current, err := pluginpackage.OpenLocalArchive(row.Origin)
+		if err != nil {
+			return nil, err
+		}
+		if digest != current {
+			return nil, errors.Join(ErrPackageChanged, errors.New("PLUGIN_REPOSITORY_ARCHIVE_CHANGED"))
+		}
+		return archive.Package(row.Origin+"#"+url.PathEscape(entry), plugincatalog.ArchivePrefix(archive)+entry)
+	}
 	if !strings.HasPrefix(row.Origin, "https://") {
 		return pluginpackage.InspectRepositoryPackage(row.Origin, row.RootID, entry)
 	}

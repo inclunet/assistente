@@ -69,12 +69,46 @@ func ArchivePrefix(archive *pluginpackage.Archive) string {
 			return ""
 		}
 	}
-	return archive.Wrapper()
+	wrapper := archive.Wrapper()
+	if strings.EqualFold(wrapper, ".git/") {
+		return ""
+	}
+	return wrapper
+}
+
+// IndexDirectory resolves a native picker selection to its marketplace root.
+func IndexDirectory(filename string) (string, Format, error) {
+	if !filepath.IsAbs(filename) {
+		return "", "", fs.ErrInvalid
+	}
+	selected, err := os.Stat(filename)
+	if err != nil {
+		return "", "", err
+	}
+	if !selected.Mode().IsRegular() {
+		return "", "", fs.ErrInvalid
+	}
+	for _, index := range indices {
+		root := filename
+		for range strings.Split(index.file, "/") {
+			root = filepath.Dir(root)
+		}
+		candidate := filepath.Join(root, filepath.FromSlash(index.file))
+		if strings.EqualFold(candidate, filename) {
+			info, err := os.Stat(candidate)
+			if err == nil && os.SameFile(selected, info) {
+				return root, index.format, nil
+			}
+		}
+	}
+	return "", "", errors.New("PLUGIN_REPOSITORY_INDEX_PATH")
 }
 
 func ReadRoot(root *os.Root) ([]Index, error) {
 	return ReadIndices(func(name string) ([]byte, error) { return pluginpackage.ReadFile(root, name, 10<<20) })
 }
+
+var ErrCatalogNotFound = errors.New("PLUGIN_CATALOG_NOT_FOUND")
 
 func ReadIndices(read func(string) ([]byte, error)) ([]Index, error) {
 	var result []Index
@@ -93,7 +127,7 @@ func ReadIndices(read func(string) ([]byte, error)) ([]Index, error) {
 		result = append(result, parsed)
 	}
 	if len(result) == 0 {
-		return nil, errors.New("PLUGIN_CATALOG_NOT_FOUND")
+		return nil, ErrCatalogNotFound
 	}
 	return result, nil
 }
@@ -102,6 +136,11 @@ func portablePath(value string) (string, bool) {
 	value = strings.TrimPrefix(value, "./")
 	if value == "." || !fs.ValidPath(value) || strings.ContainsAny(value, "\\:\x00") {
 		return "", false
+	}
+	for _, part := range strings.Split(value, "/") {
+		if strings.EqualFold(part, ".git") {
+			return "", false
+		}
 	}
 	_, err := filepath.Localize(value)
 	return value, err == nil

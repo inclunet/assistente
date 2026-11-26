@@ -10314,6 +10314,7 @@ export namespace wailsapi {
 		}
 	}
 	export class PluginPreview {
+	    repository?: boolean;
 	    authentication?: string;
 	    editedMcpServers?: string[];
 	    affectedMcpServers?: string[];
@@ -10333,6 +10334,7 @@ export namespace wailsapi {
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.repository = source["repository"];
 	        this.authentication = source["authentication"];
 	        this.editedMcpServers = source["editedMcpServers"];
 	        this.affectedMcpServers = source["affectedMcpServers"];

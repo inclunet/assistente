@@ -21,6 +21,8 @@ var manifestFiles = []struct{ name, format string }{
 	{"plugin.json", AgentPlugins}, {".claude-plugin/plugin.json", ClaudeCode}, {".cursor-plugin/plugin.json", Cursor}, {".codex-plugin/plugin.json", Codex},
 }
 
+var ErrMissingManifest = fmt.Errorf("PLUGIN_MANIFEST_MISSING: %w", fs.ErrNotExist)
+
 // LocateManifest requires an unambiguous interpreter. Multiple package
 // manifests require choosing an interpreter, since their policies can differ.
 func LocateManifest(read func(string) ([]byte, error)) (string, []byte, Manifest, []string, error) {
@@ -44,7 +46,7 @@ func LocateManifest(read func(string) ([]byte, error)) (string, []byte, Manifest
 		}
 	}
 	if selected == "" {
-		return "", nil, Manifest{}, nil, fmt.Errorf("PLUGIN_MANIFEST_MISSING: %w", fs.ErrNotExist)
+		return "", nil, Manifest{}, nil, ErrMissingManifest
 	}
 	if format == AgentPlugins {
 		m, w, err := decodeManifest(contents)

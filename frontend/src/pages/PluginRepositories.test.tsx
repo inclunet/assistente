@@ -48,6 +48,10 @@ describe('PluginRepositories', () => {
     const user = userEvent.setup();
     render(<PluginRepositories session="test" catalog={false} onPreview={vi.fn()} />);
     mocks.addRemote.mockResolvedValue(undefined);
+    const opener = await screen.findByRole('button',{name:'plugins.addRepo'});
+    await waitFor(() => expect(opener).toBeEnabled());
+    await user.click(opener);
+    await user.selectOptions(screen.getByRole('combobox'), 'remote');
     const address = screen.getByRole('textbox', {name:'plugins.archiveURL'});
     await waitFor(() => expect(address).toBeEnabled());
     await user.type(address, 'https://first.example/store.zip');
@@ -60,7 +64,7 @@ describe('PluginRepositories', () => {
     await user.click(screen.getByRole('button', {name: 'plugins.addRemoteRepo'}));
     expect(mocks.addRemote).toHaveBeenCalledWith('https://second.example/store.zip', true);
     await waitFor(() => expect(mocks.announce).toHaveBeenCalledWith('plugins.repoUpdated'));
-    expect(address).toHaveValue('');
+    expect(address).not.toBeInTheDocument();
   });
 
   it('does not announce a publication after the folder picker is cancelled', async () => {
@@ -71,8 +75,20 @@ describe('PluginRepositories', () => {
     const add = screen.getByRole('button', { name: 'plugins.addRepo' });
     await waitFor(() => expect(add).toBeEnabled());
     await userEvent.click(add);
+    await userEvent.click(screen.getByRole('button',{name:'plugins.folderSource'}));
     expect(mocks.add).toHaveBeenCalled();
     expect(mocks.announce).not.toHaveBeenCalled();
+  });
+
+  it('restores focus when the store form closes with Escape', async () => {
+    mocks.list.mockResolvedValue([]);
+    const user = userEvent.setup();
+    render(<PluginRepositories session="escape" catalog={false} onPreview={vi.fn()} />);
+    const add = screen.getByRole('button', {name:'plugins.addRepo'});
+    await waitFor(() => expect(add).toBeEnabled());
+    await user.click(add);
+    await user.keyboard('{Escape}');
+    await waitFor(() => expect(add).toHaveFocus());
   });
 
   it('waits for a repository update when reopening the catalog', async () => {

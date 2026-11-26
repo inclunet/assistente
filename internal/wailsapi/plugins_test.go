@@ -35,7 +35,7 @@ func TestPluginPreviewUsesSelectedDirectoryAndSession(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = conn.Close() })
-	if err := db.AutoMigrate(&database.PluginInstallation{}, &database.PluginRevision{}, &database.PluginSkillActivation{}, &database.Job{}, &database.PluginProfileActivation{}, &database.PluginProviderBinding{}, &database.LLMProvider{}, &database.PluginMCPBinding{}, &database.MCPServer{}, &database.MCPServerLog{}, &database.ToolCatalog{}); err != nil {
+	if err := db.AutoMigrate(&database.PluginRepository{}, &database.PluginInstallation{}, &database.PluginRevision{}, &database.PluginSkillActivation{}, &database.Job{}, &database.PluginProfileActivation{}, &database.PluginProviderBinding{}, &database.LLMProvider{}, &database.PluginMCPBinding{}, &database.MCPServer{}, &database.MCPServerLog{}, &database.ToolCatalog{}); err != nil {
 		t.Fatal(err)
 	}
 	var syncErr error
@@ -86,6 +86,126 @@ func TestPluginPreviewUsesSelectedDirectoryAndSession(t *testing.T) {
 		}
 		if err = os.Remove(filename); err != nil {
 			t.Fatal(err)
+		}
+	})
+
+	t.Run("cadastra loja ZIP com a seleção já revisada", func(t *testing.T) {
+		file := filepath.Join(t.TempDir(), "market.zip")
+		writeZIP := func(version string) {
+			t.Helper()
+			var buf bytes.Buffer
+			w := zip.NewWriter(&buf)
+			for name, contents := range map[string]string{
+				".claude-plugin/marketplace.json": `{"name":"store","owner":{"name":"author"},"plugins":[{"name":"demo","source":"./demo"}]}`,
+				"demo/plugin.json":                `{"$schema":"` + pluginpackage.ManifestSchema + `","name":"demo","version":"` + version + `"}`,
+			} {
+				member, err := w.Create(name)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if _, err = member.Write([]byte(contents)); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := w.Close(); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(file, buf.Bytes(), 0600); err != nil {
+				t.Fatal(err)
+			}
+		}
+		calls := 0
+		AttachPluginDialogs(api, func(ports.OpenFileOptions) (string, error) { calls++; return file, nil }, nil)
+		var malformed bytes.Buffer
+		z := zip.NewWriter(&malformed)
+		entry, err := z.Create(".cursor-plugin/marketplace.json")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err = entry.Write([]byte("{")); err != nil {
+			t.Fatal(err)
+		}
+		if err = z.Close(); err != nil {
+			t.Fatal(err)
+		}
+		if err = os.WriteFile(file, malformed.Bytes(), 0600); err != nil {
+			t.Fatal(err)
+		}
+		if _, err = api.PreviewLocalZIP(); err == nil || errors.Is(err, pluginpackage.ErrMissingManifest) {
+			t.Fatal("lost catalog error", err)
+		}
+		calls = 0
+		writeZIP("1")
+		p, err := api.PreviewLocalZIP()
+		if err != nil || !p.Repository {
+			t.Fatal(p, err)
+		}
+		if _, err = api.InstallReviewed(p.Token); err == nil {
+			t.Fatal("catalog treated as plugin")
+		}
+		writeZIP("2")
+		if err = api.AddReviewedRepository(p.Token); !errors.Is(err, plugins.ErrPackageChanged) {
+			t.Fatal(err)
+		}
+		p, err = api.PreviewLocalZIP()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err = api.AddReviewedRepository(p.Token); err != nil || calls != 2 {
+			t.Fatal(calls, err)
+		}
+		rows, err := api.ListRepositories()
+		if err != nil || len(rows) != 1 {
+			t.Fatal(rows, err)
+		}
+		row := rows[0]
+		check, err := api.PreviewRepositoryEntry(row.ID, row.Revision, "claude-code", "demo")
+		if err != nil || check.Version != "2" {
+			t.Fatal(check, err)
+		}
+		writeZIP("3")
+		if _, err = api.InstallReviewed(check.Token); !errors.Is(err, plugins.ErrPackageChanged) {
+			t.Fatal(err)
+		}
+		if err = api.RefreshRepository(row.ID, row.Revision); err != nil {
+			t.Fatal(err)
+		}
+		if err = api.AddReviewedRepository(p.Token); err == nil {
+			t.Fatal("accepted consumed preview")
+		}
+		rows, err = api.ListRepositories()
+		if err != nil || len(rows) != 1 || rows[0].Revision == row.Revision {
+			t.Fatal(rows, err)
+		}
+		if err = api.RemoveRepository(row.ID, rows[0].Revision); err != nil {
+			t.Fatal(err)
+		}
+	})
+
+	t.Run("não substitui índice selecionado por outro formato", func(t *testing.T) {
+		store := t.TempDir()
+		body := []byte(`{"name":"store","owner":{"name":"author"},"plugins":[]}`)
+		for _, dir := range []string{".claude-plugin", ".cursor-plugin"} {
+			if err := os.Mkdir(filepath.Join(store, dir), 0700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(store, dir, "marketplace.json"), body, 0600); err != nil {
+				t.Fatal(err)
+			}
+		}
+		selected := filepath.Join(store, ".claude-plugin", "marketplace.json")
+		AttachPluginDialogs(api, func(ports.OpenFileOptions) (string, error) {
+			if err := os.Remove(selected); err != nil {
+				t.Fatal(err)
+			}
+			return selected, nil
+		}, nil)
+		if saved, err := api.AddIndexRepository(); err == nil || saved {
+			t.Fatal(saved, err)
+		}
+		rows, err := api.ListRepositories()
+		if err != nil || len(rows) != 0 {
+			t.Fatal(rows, err)
 		}
 	})
 

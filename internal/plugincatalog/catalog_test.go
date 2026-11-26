@@ -1,9 +1,13 @@
 package plugincatalog
 
 import (
+	"archive/zip"
+	"assistente/internal/pluginpackage"
+	"bytes"
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -43,7 +47,7 @@ func TestCatalogAdaptersReadLocalIndices(t *testing.T) {
 	}
 }
 func TestCatalogRejectsEscapeAndRetainsUnavailableEntries(t *testing.T) {
-	for _, source := range []string{"./../other", "https://example.com", "C:/outside", "dir\\other"} {
+	for _, source := range []string{"./../other", "./x/.GiT/p", "https://example.com", "C:/outside", "dir\\other"} {
 		data, _ := json.Marshal(map[string]any{"name": "store", "owner": map[string]string{"name": "a"}, "plugins": []any{map[string]string{"name": "p", "source": source}}})
 		if _, err := Decode(Claude, data); err == nil {
 			t.Fatal(source)
@@ -90,5 +94,53 @@ func TestCodexProductRestrictionAndDeferredAuthentication(t *testing.T) {
 	}
 	if index.Entries[0].Diagnostic != "" || index.Entries[1].Diagnostic != "policy" || len(index.Entries[1].Products) != 1 {
 		t.Fatal(index)
+	}
+}
+
+func TestArchivePrefixExcludesGitMetadata(t *testing.T) {
+	var data bytes.Buffer
+	writer := zip.NewWriter(&data)
+	if _, err := writer.Create(".Git/.claude-plugin/marketplace.json"); err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	archive, err := pluginpackage.OpenArchive(data.Bytes())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if prefix := ArchivePrefix(archive); prefix != "" {
+		t.Fatal(prefix)
+	}
+}
+
+func TestIndexDirectoryUsesKnownMarketplaceLocations(t *testing.T) {
+	root := t.TempDir()
+	for _, i := range indices {
+		file := filepath.Join(root, filepath.FromSlash(i.file))
+		if err := os.MkdirAll(filepath.Dir(file), 0700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(file, nil, 0600); err != nil {
+			t.Fatal(err)
+		}
+		got, format, err := IndexDirectory(file)
+		if format != i.format {
+			t.Fatal(format)
+		}
+		upper := filepath.Join(root, strings.ToUpper(filepath.FromSlash(i.file)))
+		if _, err := os.Stat(upper); err == nil {
+			alias, fmt, e := IndexDirectory(upper)
+			if e != nil || alias != root || fmt != i.format {
+				t.Fatal(alias, fmt, e)
+			}
+		}
+		if err != nil || got != root {
+			t.Fatal(got, err)
+		}
+	}
+	if _, _, err := IndexDirectory(filepath.Join(root, "marketplace.json")); err == nil {
+		t.Fatal("accepted unknown index location")
 	}
 }

@@ -3,7 +3,9 @@ package pluginpackage
 import (
 	"archive/zip"
 	"bytes"
+	"crypto/sha256"
 	"encoding/binary"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -189,32 +191,51 @@ func InspectLocalZIP(filename string) (*LocalSnapshot, error) {
 	if err != nil {
 		return nil, err
 	}
-	parent, err := os.OpenRoot(filepath.Dir(absolute))
+	archive, _, err := OpenLocalArchive(absolute)
 	if err != nil {
 		return nil, err
 	}
-	defer func() { _ = parent.Close() }()
-	data, err := ReadFile(parent, filepath.Base(absolute), maxPackageBytes)
+	for _, dir := range []string{".", strings.TrimSuffix(archive.Wrapper(), "/")} {
+		if dir == "" || strings.EqualFold(dir, ".git") {
+			continue
+		}
+		for _, candidate := range manifestFiles {
+			if archive.Has(path.Join(dir, candidate.name)) {
+				return archive.Package(absolute, dir)
+			}
+		}
+	}
+	return nil, ErrMissingManifest
+}
+
+// OpenLocalArchive hashes the same bounded bytes that are indexed.
+func OpenLocalArchive(filename string) (*Archive, string, error) {
+	if !filepath.IsAbs(filename) {
+		return nil, "", fs.ErrInvalid
+	}
+	parent, err := os.OpenRoot(filepath.Dir(filename))
 	if err != nil {
-		return nil, err
+		return nil, "", err
+	}
+	defer func() { _ = parent.Close() }()
+	data, err := ReadFile(parent, filepath.Base(filename), maxPackageBytes)
+	if err != nil {
+		return nil, "", err
 	}
 	archive, err := OpenArchive(data)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
-	dir := "."
-	for _, candidate := range manifestFiles {
-		if archive.Has(candidate.name) {
-			return archive.Package(absolute, dir)
-		}
-	}
-	if wrapper := archive.Wrapper(); wrapper != "" && !strings.EqualFold(wrapper, ".git/") {
-		dir = strings.TrimSuffix(wrapper, "/")
-	}
-	return archive.Package(absolute, dir)
+	sum := sha256.Sum256(data)
+	return archive, hex.EncodeToString(sum[:]), nil
 }
 
 func (a *Archive) Package(origin, dir string) (*LocalSnapshot, error) {
+	for _, part := range strings.Split(dir, "/") {
+		if strings.EqualFold(part, ".git") {
+			return nil, fs.ErrInvalid
+		}
+	}
 	snap := &LocalSnapshot{Origin: origin, Files: make(map[string][]byte)}
 	prefix := strings.TrimSuffix(dir, "/") + "/"
 	if dir == "." {

@@ -7,9 +7,9 @@ import { useWorkspaceStore } from '../store/workspaceStore';
 import { useAuthStore } from '../store/authStore';
 import * as navigation from '../lib/commandLandmarkNavigation';
 
-const mocks = vi.hoisted(() => ({ providerRemovalPreview: vi.fn(), uninstallReviewed: vi.fn(), registerProvider: vi.fn(), prepareJob: vi.fn(), syncJobs: vi.fn().mockResolvedValue(undefined), profile: vi.fn(), createList: vi.fn(), repos: vi.fn(), catalogPreview: vi.fn(), lifecycle: vi.fn(), sync: vi.fn(), register: vi.fn(), remove: vi.fn(), confirm: vi.fn(), list: vi.fn(), components: vi.fn(), toggle: vi.fn(), preview: vi.fn(), archive: vi.fn(), install: vi.fn(), discard: vi.fn(), announce: vi.fn(), announceRequest: vi.fn() }));
+const mocks = vi.hoisted(() => ({ providerRemovalPreview: vi.fn(), uninstallReviewed: vi.fn(), registerProvider: vi.fn(), prepareJob: vi.fn(), syncJobs: vi.fn().mockResolvedValue(undefined), profile: vi.fn(), createList: vi.fn(), repos: vi.fn(), catalogPreview: vi.fn(), lifecycle: vi.fn(), sync: vi.fn(), register: vi.fn(), remove: vi.fn(), confirm: vi.fn(), list: vi.fn(), components: vi.fn(), toggle: vi.fn(), preview: vi.fn(), archive: vi.fn(), addReviewed: vi.fn(), install: vi.fn(), discard: vi.fn(), announce: vi.fn(), announceRequest: vi.fn() }));
 vi.mock('@wailsjs/go/wailsapi/Tasklist', () => ({GetAllTaskLists: async () => []}));
-vi.mock('@wailsjs/go/wailsapi/Plugins', () => ({ BuilderProviderSlugs: async () => ['equipe'], BuilderJobNames: async () => [], BuilderProfileNames: async () => ({names:[],partial:false}), BuilderSkillNames: async () => ({names:[],partial:false}), CreateListFromTemplate: mocks.createList, ListRepositories: mocks.repos, PreviewRepositoryEntry: mocks.catalogPreview, ChangeInstallation: mocks.lifecycle, PrepareJob: mocks.prepareJob, SyncPendingJobs: mocks.syncJobs, SyncMCP: mocks.sync, ProviderRemovalPreview: mocks.providerRemovalPreview, UninstallReviewed: mocks.uninstallReviewed, RegisterProvider: mocks.registerProvider, RegisterMCP: mocks.register, RemoveMCP: mocks.remove, InstalledComponents: mocks.components, SetProfileActive: mocks.profile, SetSkillActive: mocks.toggle, DiscardPreview: mocks.discard, ListInstalled: mocks.list, PreviewLocal: mocks.preview, PreviewLocalZIP: mocks.archive, InstallReviewed: mocks.install }));
+vi.mock('@wailsjs/go/wailsapi/Plugins', () => ({ BuilderProviderSlugs: async () => ['equipe'], BuilderJobNames: async () => [], BuilderProfileNames: async () => ({names:[],partial:false}), BuilderSkillNames: async () => ({names:[],partial:false}), CreateListFromTemplate: mocks.createList, ListRepositories: mocks.repos, PreviewRepositoryEntry: mocks.catalogPreview, ChangeInstallation: mocks.lifecycle, PrepareJob: mocks.prepareJob, SyncPendingJobs: mocks.syncJobs, SyncMCP: mocks.sync, ProviderRemovalPreview: mocks.providerRemovalPreview, UninstallReviewed: mocks.uninstallReviewed, RegisterProvider: mocks.registerProvider, RegisterMCP: mocks.register, RemoveMCP: mocks.remove, InstalledComponents: mocks.components, SetProfileActive: mocks.profile, SetSkillActive: mocks.toggle, DiscardPreview: mocks.discard, ListInstalled: mocks.list, PreviewLocal: mocks.preview, PreviewLocalZIP: mocks.archive, AddReviewedRepository: mocks.addReviewed, InstallReviewed: mocks.install }));
 vi.mock('../hooks/useConfirm', () => ({ useConfirm: () => mocks.confirm }));
 vi.mock('../store/authStore', async importOriginal => {
   const actual = await importOriginal<typeof import('../store/authStore')>();
@@ -92,6 +92,27 @@ describe('PluginsPage', () => {
     await user.keyboard('{Enter}');
     await waitFor(() => expect(mocks.install).toHaveBeenCalledWith('reviewed'));
     expect(mocks.announce).toHaveBeenCalled();
+  });
+
+  it('waits for the forwarded ZIP registration before listing stores on remount', async () => {
+    let finish!: () => void;
+    mocks.addReviewed.mockImplementationOnce(() => new Promise<void>(resolve => { finish = resolve; }));
+    mocks.archive.mockResolvedValueOnce({token:'market',name:'market',origin:'local.zip',repository:true});
+    mocks.repos.mockResolvedValue([]);
+    const user = userEvent.setup();
+    const page = render(<PluginsPage />);
+    const choose = await screen.findByRole('button',{name:'plugins.choose'});
+    await waitFor(() => expect(choose).toBeEnabled());
+    await user.click(choose);
+    await user.click(screen.getByRole('button',{name:'plugins.zipSource'}));
+    await user.click(await screen.findByRole('button',{name:'plugins.addRepo'}));
+    expect(mocks.addReviewed).toHaveBeenCalledWith('market');
+    page.unmount();
+    render(<PluginsPage />);
+    await user.click(await screen.findByRole('tab',{name:'plugins.repositories'}));
+    expect(mocks.repos).not.toHaveBeenCalled();
+    await act(async () => finish());
+    await waitFor(() => expect(mocks.repos).toHaveBeenCalledOnce());
   });
 
   it('keeps the preview open during refresh and restores focus after publication', async () => {
@@ -273,6 +294,23 @@ describe('PluginsPage', () => {
     await user.click(choose);
     await user.click(screen.getByRole('button', { name: 'plugins.folderSource' }));
     expect(await screen.findByRole('button', { name: 'plugins.update' })).toBeEnabled();
+  });
+
+  it('defers a late sync question until the store form closes', async () => {
+    let reject!: (reason: Error) => void;
+    mocks.syncJobs.mockImplementationOnce(() => new Promise((_, fail) => { reject = fail; }));
+    mocks.repos.mockResolvedValue([]);
+    const user = userEvent.setup();
+    render(<PluginsPage />);
+    await user.click(await screen.findByRole('tab',{name:'plugins.repositories'}));
+    const add = await screen.findByRole('button',{name:'plugins.addRepo'});
+    await waitFor(() => expect(add).toBeEnabled());
+    await user.click(add);
+    await act(async () => reject(new Error('offline')));
+    expect(screen.queryByRole('alertdialog',{name:'plugins.syncQuestion'})).toBeNull();
+    await user.keyboard('{Escape}');
+    const question = await screen.findByRole('alertdialog',{name:'plugins.syncQuestion'});
+    await user.click(within(question).getByRole('button',{name:'plugins.syncNow'}));
   });
 
   it('anuncia uma vez a sincronização confirmada com falha na recarga da lista', async () => {
