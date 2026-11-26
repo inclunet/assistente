@@ -2,7 +2,7 @@ import { repositoryError } from './pluginRepositoryError';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { plugins, wailsapi } from '@wailsjs/go/models';
-import { AddArchiveRepository, AddRemoteRepository, AddLocalRepository, ListRepositories, PreviewRepositoryEntry, RefreshRepository, RemoveRepository, DiscardPreview } from '@wailsjs/go/wailsapi/Plugins';
+import { AddIndexRepository, AddArchiveRepository, AddRemoteRepository, AddLocalRepository, ListRepositories, PreviewRepositoryEntry, RefreshRepository, RemoveRepository, DiscardPreview } from '@wailsjs/go/wailsapi/Plugins';
 import { useAnnouncer } from '../hooks/useAnnouncer';
 import { useConfirm } from '../hooks/useConfirm';
 import { Button } from '../components/ui/Button';
@@ -13,23 +13,29 @@ import { DataGrid } from '../components/ui/DataGrid';
 import { Modal } from '../components/ui/Modal';
 import { DialogActions } from '../components/ui/DialogActions';
 
-const pageSize = 50;
 import { pendingRepositoryWrites, trackRepositoryWrite } from './pluginRepositoryWrites';
+
+const pageSize = 50;
 
 interface Props {
   session: string;
   parentBusy?: boolean;
+  onFormOpenChange?: (open:boolean) => void;
   catalog: boolean;
   onPreview: (preview: wailsapi.PluginPreview, opener: HTMLElement | null) => void;
 }
 
-export default function PluginRepositories({ session, catalog, parentBusy, onPreview }: Props) {
+export default function PluginRepositories({ session, catalog, parentBusy, onFormOpenChange, onPreview }: Props) {
   const { t, i18n } = useTranslation();
   const { announce } = useAnnouncer();
   const confirm = useConfirm();
   const [repositories, setRepositories] = useState<plugins.Repository[]>([]);
   const [adding, setAdding] = useState(false);
-  const [source, setSource] = useState<'add' | 'zip' | 'remote'>('add');
+  useEffect(() => {
+    onFormOpenChange?.(adding);
+    return () => onFormOpenChange?.(false);
+  }, [adding,onFormOpenChange]);
+  const [source, setSource] = useState<'add' | 'index' | 'zip' | 'remote'>('add');
   const [url, setUrl] = useState('');
   const [authenticated, setAuthenticated] = useState(false);
   const [page, setPage] = useState(0);
@@ -67,7 +73,7 @@ export default function PluginRepositories({ session, catalog, parentBusy, onPre
   }, [session]);
   useEffect(() => { if (error) announce(t(error), 'assertive'); }, [error, t, announce]);
 
-  const change = async (action: 'zip' | 'remote' | 'add' | 'refresh' | 'remove', repo?: plugins.Repository) => {
+  const change = async (action: 'index' | 'zip' | 'remote' | 'add' | 'refresh' | 'remove', repo?: plugins.Repository) => {
     if (busy) return;
     setBusy(true);
     setError('');
@@ -77,13 +83,14 @@ export default function PluginRepositories({ session, catalog, parentBusy, onPre
         if (!accepted || !mounted.current) return;
       }
       const pending = action === 'add' ? AddLocalRepository()
+        : action === 'index' ? AddIndexRepository()
         : action === 'zip' ? AddArchiveRepository()
         : action === 'remote' ? AddRemoteRepository(url.trim(), authenticated).then(() => true)
         : repo ? (action === 'remove' ? RemoveRepository : RefreshRepository)(repo.id, repo.revision).then(() => true)
         : undefined;
       if (!pending) return;
       if (!await trackRepositoryWrite(session,pending) || !mounted.current) return;
-      if (['add','zip','remote'].includes(action)) { setAdding(false); focusAfterRemoval.current = true; }
+      if (['add','index','zip','remote'].includes(action)) { setAdding(false); focusAfterRemoval.current = true; }
       if (action === 'remote') { setUrl(''); setAuthenticated(false); }
       if (action === 'remove' && repo) {
         focusAfterRemoval.current = repositories.length === 1;
@@ -130,6 +137,7 @@ export default function PluginRepositories({ session, catalog, parentBusy, onPre
       <select id="plugin-store-source" disabled={busy} value={source}
         onChange={event => { setSource(event.target.value as typeof source); setAuthenticated(false); setError(''); }}>
         <option value="add">{t('plugins.folderSource')}</option>
+        <option value="index">{t('plugins.indexSource')}</option>
         <option value="zip">{t('plugins.zipSource')}</option>
         <option value="remote">{t('plugins.archiveURL')}</option>
       </select>
@@ -138,7 +146,7 @@ export default function PluginRepositories({ session, catalog, parentBusy, onPre
       <label htmlFor="plugin-use-host-credential"><input id="plugin-use-host-credential" type="checkbox" checked={authenticated} disabled={busy} onChange={event => setAuthenticated(event.target.checked)} />{t('plugins.archiveCredential')}</label>
       </>}
       {error && <p>{t(error)}</p>}
-      <DialogActions primary={<Button type="submit" disabled={busy || (source === 'remote' && !url.trim())}>{t(source === 'remote' ? 'plugins.addRemoteRepo' : source === 'zip' ? 'plugins.zipSource' : 'plugins.folderSource')}</Button>}
+      <DialogActions primary={<Button type="submit" disabled={busy || (source === 'remote' && !url.trim())}>{t(source === 'remote' ? 'plugins.addRemoteRepo' : source === 'index' ? 'plugins.indexSource' : source === 'zip' ? 'plugins.zipSource' : 'plugins.folderSource')}</Button>}
         secondary={<Button type="button" disabled={busy} onClick={cancelAdd}>{t('common.cancel')}</Button>} />
     </form></Modal>}
     {!adding && error && <p>{t(error)}</p>}

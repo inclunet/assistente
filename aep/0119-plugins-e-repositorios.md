@@ -194,4 +194,4 @@ Em **Instalados → Instalar plugin…**, a pessoa escolhe uma pasta ou um arqui
 
 ### Cadastro de lojas
 
-A aba Repositórios reúne pasta, ZIP local e ZIP por HTTPS em **Adicionar loja…**. Um ZIP local com índice de loja selecionado em **Instalar plugin…** abre uma decisão de cadastro vinculada à conta e ao digest. A prévia de um item exige o mesmo ZIP que forneceu o índice. Atualizar a loja relê o arquivo e preserva os plugins instalados.
+A aba Repositórios reúne pasta, arquivo de índice local, ZIP local e ZIP por HTTPS em **Adicionar loja…**. Um ZIP local com índice de loja selecionado em **Instalar plugin…** abre uma decisão de cadastro vinculada à conta e ao digest. A prévia de um item exige o mesmo ZIP que forneceu o índice. Atualizar a loja relê o arquivo e preserva os plugins instalados.

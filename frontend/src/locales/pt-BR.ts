@@ -240,6 +240,8 @@ notSaved: 'A decisão vale somente para esta operação: não foi possível lemb
       addRepo: 'Adicionar loja…',
       storeSource: 'Origem da loja',
       storePreviewChanged: 'O ZIP selecionado mudou. Selecione-o novamente para revisar a loja.',
+      indexSource: 'Escolher índice local…',
+      indexPathError: 'Escolha o marketplace.json na pasta de configuração da loja.',
       storeDetected: 'Loja de plugins encontrada',
       storeDetectedPrompt: 'Adicionar a loja {{name}} a partir de {{origin}}?',
       searchCatalog: 'Buscar no catálogo',

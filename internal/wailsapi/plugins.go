@@ -10,6 +10,7 @@ import (
 	"assistente/internal/commandsecurity"
 	"assistente/internal/core/ports"
 	"assistente/internal/database"
+	"assistente/internal/plugincatalog"
 	"assistente/internal/pluginpackage"
 	"assistente/internal/plugins"
 	"assistente/internal/userctx"
@@ -170,8 +171,11 @@ func (api *Plugins) previewLocal(zip bool) (*PluginPreview, error) {
 			return p, err
 		}
 		indices, digest, indexErr := plugins.InspectRepositoryZIP(dir)
-		if indexErr != nil {
+		if errors.Is(indexErr, plugincatalog.ErrCatalogNotFound) {
 			return nil, err
+		}
+		if indexErr != nil {
+			return nil, indexErr
 		}
 		return api.rememberPreview(generation, &pluginSelection{owner: owner, validate: validate, preview: PluginPreview{Repository: true, Name: indices[0].Name, Origin: dir, Digest: digest}})
 
@@ -219,14 +223,15 @@ func (api *Plugins) preparePreview(ctx context.Context, inventory *plugins.Inven
 	return api.rememberPreview(generation, &pluginSelection{inspect: inspect, affected: affected, preview: p, owner: owner, validate: validate})
 }
 
-func (api *Plugins) pickArchive() (string, error) {
+func (api *Plugins) pickArchive() (string, error) { return api.pickFile("ZIP", "*.zip") }
+func (api *Plugins) pickFile(label, pattern string) (string, error) {
 	api.mu.Lock()
 	picker := api.chooseArchive
 	api.mu.Unlock()
 	if picker == nil {
 		return "", errors.New("archive picker unavailable")
 	}
-	return picker(ports.OpenFileOptions{Filters: []ports.FileFilter{{DisplayName: "ZIP", Pattern: "*.zip"}}})
+	return picker(ports.OpenFileOptions{Filters: []ports.FileFilter{{DisplayName: label, Pattern: pattern}}})
 }
 func (api *Plugins) rememberPreview(generation uint64, selection *pluginSelection) (*PluginPreview, error) {
 	token, err := uuid.NewRandom()

@@ -296,6 +296,23 @@ describe('PluginsPage', () => {
     expect(await screen.findByRole('button', { name: 'plugins.update' })).toBeEnabled();
   });
 
+  it('defers a late sync question until the store form closes', async () => {
+    let reject!: (reason: Error) => void;
+    mocks.syncJobs.mockImplementationOnce(() => new Promise((_, fail) => { reject = fail; }));
+    mocks.repos.mockResolvedValue([]);
+    const user = userEvent.setup();
+    render(<PluginsPage />);
+    await user.click(await screen.findByRole('tab',{name:'plugins.repositories'}));
+    const add = await screen.findByRole('button',{name:'plugins.addRepo'});
+    await waitFor(() => expect(add).toBeEnabled());
+    await user.click(add);
+    await act(async () => reject(new Error('offline')));
+    expect(screen.queryByRole('alertdialog',{name:'plugins.syncQuestion'})).toBeNull();
+    await user.keyboard('{Escape}');
+    const question = await screen.findByRole('alertdialog',{name:'plugins.syncQuestion'});
+    await user.click(within(question).getByRole('button',{name:'plugins.syncNow'}));
+  });
+
   it('anuncia uma vez a sincronização confirmada com falha na recarga da lista', async () => {
     const user = userEvent.setup();
     mocks.list.mockResolvedValueOnce([]).mockRejectedValueOnce(new Error('read')).mockResolvedValueOnce([]);

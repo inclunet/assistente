@@ -76,9 +76,28 @@ func ArchivePrefix(archive *pluginpackage.Archive) string {
 	return wrapper
 }
 
+// IndexDirectory resolves a native picker selection to its marketplace root.
+func IndexDirectory(filename string) (string, error) {
+	if !filepath.IsAbs(filename) {
+		return "", fs.ErrInvalid
+	}
+	for _, index := range indices {
+		root := filename
+		for range strings.Split(index.file, "/") {
+			root = filepath.Dir(root)
+		}
+		if filepath.Join(root, filepath.FromSlash(index.file)) == filename {
+			return root, nil
+		}
+	}
+	return "", errors.New("PLUGIN_REPOSITORY_INDEX_PATH")
+}
+
 func ReadRoot(root *os.Root) ([]Index, error) {
 	return ReadIndices(func(name string) ([]byte, error) { return pluginpackage.ReadFile(root, name, 10<<20) })
 }
+
+var ErrCatalogNotFound = errors.New("PLUGIN_CATALOG_NOT_FOUND")
 
 func ReadIndices(read func(string) ([]byte, error)) ([]Index, error) {
 	var result []Index
@@ -97,7 +116,7 @@ func ReadIndices(read func(string) ([]byte, error)) ([]Index, error) {
 		result = append(result, parsed)
 	}
 	if len(result) == 0 {
-		return nil, errors.New("PLUGIN_CATALOG_NOT_FOUND")
+		return nil, ErrCatalogNotFound
 	}
 	return result, nil
 }

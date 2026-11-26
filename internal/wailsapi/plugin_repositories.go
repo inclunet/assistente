@@ -64,6 +64,25 @@ func (api *Plugins) AddLocalRepository() (bool, error) {
 	})
 	return selected && err == nil, err
 }
+func (api *Plugins) AddIndexRepository() (bool, error) {
+	selected := false
+	err := api.withRepositorySession(func(ctx context.Context, i *plugins.Inventory, _ func() (string, error), admit commandsecurity.Admission) error {
+		file, err := api.pickFile("marketplace.json", "marketplace.json")
+		if err != nil || file == "" {
+			return err
+		}
+		if err = admit.Check(); err != nil {
+			return err
+		}
+		root, err := plugincatalog.IndexDirectory(file)
+		if err != nil {
+			return err
+		}
+		selected = true
+		return i.SaveRepository(ctx, root, "", "", admit)
+	})
+	return selected && err == nil, err
+}
 func (api *Plugins) AddArchiveRepository() (bool, error) {
 	selected := false
 	err := api.withRepositorySession(func(ctx context.Context, i *plugins.Inventory, _ func() (string, error), admit commandsecurity.Admission) error {

@@ -239,6 +239,8 @@ notSaved: 'La decisión vale solo para esta operación: no se pudo recordar. Ser
       addRepo: 'Añadir tienda…',
       storeSource: 'Origen de la tienda',
       storePreviewChanged: 'El ZIP seleccionado ha cambiado. Vuelve a seleccionarlo para revisar la tienda.',
+      indexSource: 'Elegir índice local…',
+      indexPathError: 'Elige marketplace.json en la carpeta de configuración de la tienda.',
       storeDetected: 'Tienda de plugins encontrada',
       storeDetectedPrompt: '¿Añadir la tienda {{name}} desde {{origin}}?',
       searchCatalog: 'Buscar en el catálogo',

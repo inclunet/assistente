@@ -116,6 +116,25 @@ func TestPluginPreviewUsesSelectedDirectoryAndSession(t *testing.T) {
 		}
 		calls := 0
 		AttachPluginDialogs(api, func(ports.OpenFileOptions) (string, error) { calls++; return file, nil }, nil)
+		var malformed bytes.Buffer
+		z := zip.NewWriter(&malformed)
+		entry, err := z.Create(".cursor-plugin/marketplace.json")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err = entry.Write([]byte("{")); err != nil {
+			t.Fatal(err)
+		}
+		if err = z.Close(); err != nil {
+			t.Fatal(err)
+		}
+		if err = os.WriteFile(file, malformed.Bytes(), 0600); err != nil {
+			t.Fatal(err)
+		}
+		if _, err = api.PreviewLocalZIP(); err == nil || errors.Is(err, pluginpackage.ErrMissingManifest) {
+			t.Fatal("lost catalog error", err)
+		}
+		calls = 0
 		writeZIP("1")
 		p, err := api.PreviewLocalZIP()
 		if err != nil || !p.Repository {

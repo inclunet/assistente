@@ -113,3 +113,16 @@ func TestArchivePrefixExcludesGitMetadata(t *testing.T) {
 		t.Fatal(prefix)
 	}
 }
+
+func TestIndexDirectoryUsesKnownMarketplaceLocations(t *testing.T) {
+	root := t.TempDir()
+	for _, i := range indices {
+		got, err := IndexDirectory(filepath.Join(root, filepath.FromSlash(i.file)))
+		if err != nil || got != root {
+			t.Fatal(got, err)
+		}
+	}
+	if _, err := IndexDirectory(filepath.Join(root, "marketplace.json")); err == nil {
+		t.Fatal("accepted unknown index location")
+	}
+}

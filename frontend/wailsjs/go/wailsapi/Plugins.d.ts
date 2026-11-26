@@ -6,6 +6,8 @@ import {wailsapi} from '../models';
 
 export function AddArchiveRepository():Promise<boolean>;
 
+export function AddIndexRepository():Promise<boolean>;
+
 export function AddLocalRepository():Promise<boolean>;
 
 export function AddRemoteRepository(arg1:string,arg2:boolean):Promise<void>;

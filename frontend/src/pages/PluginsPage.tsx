@@ -231,7 +231,8 @@ function InstalledPlugins({ session }: { session: string }) {
   const reloadButton = useRef<HTMLButtonElement>(null);
   const [choosingSource, setChoosingSource] = useState(false);
   const cancelSource = () => { restoreFocus.current = true; setChoosingSource(false); };
-  const syncDialogOpen = newPending && !choosingSource && !busy && !preview && !providerRemoval && !chatGPTSlug;
+  const [storeFormOpen,setStoreFormOpen] = useState(false);
+  const syncDialogOpen = newPending && !storeFormOpen && !choosingSource && !busy && !preview && !providerRemoval && !chatGPTSlug;
   const activeTab = () => tabList.current?.querySelector<HTMLElement>('[aria-selected="true"]');
   useEffect(() => {
     if (!busy && details && lifecycleOpener.current?.isConnected) lifecycleOpener.current.focus();
@@ -558,7 +559,7 @@ function InstalledPlugins({ session }: { session: string }) {
       columns={[{ key: 'name', label: t('plugins.name') }, { key: 'version', label: t('plugins.version') }, { key: 'origin', label: t('plugins.origin') }]} />
       : items && !busy && !error && !listError && <p>{t('plugins.empty')}</p>}
       </>}</TabPanel>
-      {['catalog','repositories'].map(value => <TabPanel key={value} value={value}>{section === value && <PluginRepositories key={value} session={session} parentBusy={busy} catalog={value === 'catalog'} onPreview={(selection, opener) => { catalogOpener.current = opener; openToken.current = selection.token; setError(''); setPreview(selection); }} />}</TabPanel>)}
+      {['catalog','repositories'].map(value => <TabPanel key={value} value={value}>{section === value && <PluginRepositories onFormOpenChange={setStoreFormOpen} key={value} session={session} parentBusy={busy} catalog={value === 'catalog'} onPreview={(selection, opener) => { catalogOpener.current = opener; openToken.current = selection.token; setError(''); setPreview(selection); }} />}</TabPanel>)}
       <TabPanel value="builder">{section === 'builder' && <PluginBuilder formRef={builderForm} />}</TabPanel>
     </Tabs>
     {!preview && !details && error && <p>{errorText}</p>}

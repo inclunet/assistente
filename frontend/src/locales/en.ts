@@ -240,6 +240,8 @@ notSaved: 'The decision applies only to this operation: it could not be remember
       addRepo: 'Add store…',
       storeSource: 'Store source',
       storePreviewChanged: 'The selected ZIP has changed. Select it again to review the store.',
+      indexSource: 'Choose local index…',
+      indexPathError: 'Choose marketplace.json in the store configuration directory.',
       storeDetected: 'Plugin store found',
       storeDetectedPrompt: 'Add the store {{name}} from {{origin}}?',
       searchCatalog: 'Search catalog',
