@@ -3736,7 +3736,7 @@ notSaved: 'A decisão vale somente para esta operação: não foi possível lemb
             { type: 'h4', text: 'Exemplos de Uso' },
             { type: 'p', text: 'Com o servidor de filesystem conectado, você pode pedir:' },
             { type: 'ul', items: [
-              '*"Lista os arquivos do pacote Documents"*',
+              '*"Lista os arquivos da pasta Documents"*',
               '*"Lê o conteúdo do arquivo config.json"*',
               '*"Cria um arquivo README.md com..."*',
             ] },
@@ -4469,7 +4469,7 @@ notSaved: 'A decisão vale somente para esta operação: não foi possível lemb
       activeStatus: 'Aberto',
       inactiveStatus: 'Não está em uso',
       remove: 'Remover workspace',
-      removeConfirmation: 'Remover o workspace “{{name}}”? Apenas seu arquivo de workspace será removido. Conversas e outros arquivos do pacote serão preservados.',
+      removeConfirmation: 'Remover o workspace “{{name}}”? Apenas seu arquivo de workspace será removido. Conversas e outros arquivos da pasta serão preservados.',
       directory: 'Pasta do workspace',
       createInDirectory: 'Criar workspace',
       noTabs: 'Nenhuma aba aberta',

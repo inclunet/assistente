@@ -182,6 +182,33 @@ func TestPluginPreviewUsesSelectedDirectoryAndSession(t *testing.T) {
 		}
 	})
 
+	t.Run("não substitui índice selecionado por outro formato", func(t *testing.T) {
+		store := t.TempDir()
+		body := []byte(`{"name":"store","owner":{"name":"author"},"plugins":[]}`)
+		for _, dir := range []string{".claude-plugin", ".cursor-plugin"} {
+			if err := os.Mkdir(filepath.Join(store, dir), 0700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(store, dir, "marketplace.json"), body, 0600); err != nil {
+				t.Fatal(err)
+			}
+		}
+		selected := filepath.Join(store, ".claude-plugin", "marketplace.json")
+		AttachPluginDialogs(api, func(ports.OpenFileOptions) (string, error) {
+			if err := os.Remove(selected); err != nil {
+				t.Fatal(err)
+			}
+			return selected, nil
+		}, nil)
+		if saved, err := api.AddIndexRepository(); err == nil || saved {
+			t.Fatal(saved, err)
+		}
+		rows, err := api.ListRepositories()
+		if err != nil || len(rows) != 0 {
+			t.Fatal(rows, err)
+		}
+	})
+
 	syncErr = errors.New("runtime unavailable")
 	for _, wrongSession := range []string{"", "previous"} {
 		if err := api.SyncMCP(wrongSession); !errors.Is(err, database.ErrUserScopeRequired) {
