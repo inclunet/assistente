@@ -318,7 +318,34 @@ func TestWaitForMarkerPreservesReadFailureAndCancellation(t *testing.T) {
 			if !errors.Is(err, tc.wantErr) || (tc.readerErr != io.EOF && !errors.Is(err, tc.readerErr)) || code != tc.code || output != "parcial" {
 				t.Fatalf("output=%q code=%d err=%v", output, code, err)
 			}
+			if tc.wantErr == context.DeadlineExceeded && (!strings.Contains(err.Error(), "moldura=comando") || !strings.Contains(err.Error(), "antes da drenagem: bytes=0 início=false") || !strings.Contains(err.Error(), "início=true") || strings.Contains(err.Error(), "parcial")) {
+				t.Fatalf("diagnóstico do prazo: %v", err)
+			}
 		})
+	}
+}
+
+func TestPowerShellProbeTimeoutWithSeparatedMarkers(t *testing.T) {
+	marker := newCommandMarkerForShell("powershell")
+	marker.probeInterrupt = make(chan struct{})
+	done := make(chan struct{})
+	close(done)
+	s := &Session{readerDone: done}
+	s.beginMarkerCapture(marker)
+	s.recordOutput(marker.startTag + "secret" + marker.endTag + "0!")
+	ctx, cancel := context.WithDeadline(t.Context(), time.Time{})
+	defer cancel()
+	_, _, err := s.waitForMarker(ctx, marker, "cmd")
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("esperava prazo vencido, obteve %v", err)
+	}
+	for _, field := range []string{"moldura=consulta PowerShell", "início=false", "marca inicial presente=true", "marca final presente=true", "rodapé na drenagem=false"} {
+		if !strings.Contains(err.Error(), field) {
+			t.Errorf("campo %q ausente em %v", field, err)
+		}
+	}
+	if strings.Contains(err.Error(), "secret") || strings.Contains(err.Error(), marker.id) {
+		t.Errorf("diagnóstico expôs dados do PTY")
 	}
 }
 
