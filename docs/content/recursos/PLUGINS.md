@@ -101,7 +101,7 @@ Marque os jobs que deseja distribuir. O builder inclui a definição YAML do job
 
 Se o job usa um pipeline, crie ou escolha no destino um pipeline com o mesmo slug antes de preparar o job. A preparação cria um job desativado.
 
-Escolha **Revisar pacote**, confira os arquivos e escolha **Salvar ZIP**. Se um recurso mudou desde a prévia, revise novamente. Se a gravação falhar, escolha outro destino em **Salvar ZIP** para tentar de novo com a mesma prévia. Para instalar o arquivo em outra conta, abra **Instalar plugin… → ZIP…** no gerenciador de Plugins. Você também pode colocar a pasta em um repositório de plugins para publicar a revisão.
+Escolha **Revisar pacote**, confira os arquivos e escolha **Salvar ZIP**. Se um recurso mudou desde a prévia, revise novamente. Se a gravação falhar, escolha outro destino em **Salvar ZIP** para tentar de novo com a mesma prévia. Para instalar o arquivo em outra conta, abra **Instalar plugin… → ZIP…** no gerenciador de Plugins. Para publicar a revisão em um repositório de plugins baseado em pastas, extraia o ZIP e coloque a pasta do pacote no local indicado pelo índice.
 
 Se o catálogo de perfis de plugins estiver indisponível, o seletor da conversa avisa e oferece os perfis locais. Reabra o seletor para consultar o catálogo novamente. Se a lista local também falhar, use **Tentar novamente** no seletor.
 
