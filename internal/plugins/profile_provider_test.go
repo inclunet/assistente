@@ -124,6 +124,67 @@ func TestNativeProfileUsesDestinationProviderBySlug(t *testing.T) {
 	}
 }
 
+func TestProfileOnlyUsesExistingProvidersByRole(t *testing.T) {
+	db := managedJobTestDB(t)
+	if err := db.AutoMigrate(&database.LLMProvider{}, &database.PluginProfileActivation{}); err != nil {
+		t.Fatal(err)
+	}
+	author := database.WithUserID(t.Context(), "author")
+	target := database.WithUserID(t.Context(), "recipient")
+	repo := database.NewProviderRepository(db)
+	profile := profiles.DefaultProfile()
+	roles := []struct {
+		name string
+		ref  *string
+	}{
+		{"chat", &profile.Chat.LLMProvider},
+		{"assistant", &profile.Voice.Assistant.LLMProviderID},
+		{"user", &profile.Voice.User.LLMProviderID},
+		{"input", &profile.Input.LLMProviderID},
+	}
+	for _, role := range roles {
+		for _, account := range []struct {
+			ctx    context.Context
+			prefix string
+		}{{author, "author-"}, {target, "local-"}} {
+			row := database.LLMProvider{ID: account.prefix + role.name, Name: role.name, Type: "openai", BaseURL: "https://example.test/v1"}
+			if err := repo.SaveLLMProvider(account.ctx, &row); err != nil {
+				t.Fatal(err)
+			}
+		}
+		*role.ref = "author-" + role.name
+	}
+	profile.Voice.System.LLMProviderID = profiles.DefaultProviderSentinel
+	store := NewInventory(db).WithProfileDefinitions(func() (profiles.PortableDefinitions, error) {
+		return profiles.PortableDefinitions{"autor": func() ([]byte, error) { return json.Marshal(profile) }}, nil
+	})
+	_, snap, err := store.BuildPackage(author, BuilderRequest{Name: "perfil", Profiles: []string{"autor"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	allow := func(_ *gorm.DB, commit func() error) error { return commit() }
+	row, err := store.InstallSource(target, "perfil", snap.Digest, "", nil, allow, func() (*pluginpackage.LocalSnapshot, error) { return snap, nil })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetProfileActive(target, row.ID, row.Digest, "profiles/autor", true, allow); err != nil {
+		t.Fatal(err)
+	}
+	items, err := store.ListPluginProfiles(target)
+	if err != nil || len(items) != 1 {
+		t.Fatal(items, err)
+	}
+	got, err := store.GetPluginProfile(target, items[0].Slug)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gotIDs := [5]string{got.Chat.LLMProvider, got.Voice.Assistant.LLMProviderID, got.Voice.User.LLMProviderID, got.Input.LLMProviderID, got.Voice.System.LLMProviderID}
+	want := [5]string{"local-chat", "local-assistant", "local-user", "local-input", profiles.DefaultProviderSentinel}
+	if gotIDs != want {
+		t.Fatalf("provedores no destino: %v, esperados %v", gotIDs, want)
+	}
+}
+
 func TestProfileActivationRequiresLocalShellPolicy(t *testing.T) {
 	db := managedJobTestDB(t)
 	if err := db.AutoMigrate(&database.AuthorizationPolicy{}, &database.PluginProfileActivation{}); err != nil {

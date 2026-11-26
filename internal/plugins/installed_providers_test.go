@@ -48,6 +48,21 @@ func TestRegisterProviderFromReviewedPackage(t *testing.T) {
 	if err := inventory.RegisterProvider(source, install(source), snapshot.Digest, key, allow); !errors.Is(err, ErrProviderSlugTaken) {
 		t.Fatalf("provedor preexistente: %v", err)
 	}
+	homonymAccount := database.WithUserID(t.Context(), "recipient-with-provider")
+	homonym := database.LLMProvider{ID: "other-local-id", Name: original.Name, BaseURL: "https://local.test/v1", Type: "openai", CredentialPattern: "local-secret-reference"}
+	if err := repo.SaveLLMProvider(homonymAccount, &homonym); err != nil {
+		t.Fatal(err)
+	}
+	if err := inventory.RegisterProvider(homonymAccount, install(homonymAccount), snapshot.Digest, key, allow); !errors.Is(err, ErrProviderSlugTaken) {
+		t.Fatalf("colisão no destino: %v", err)
+	}
+	preserved, err := repo.GetBySlug(homonymAccount, original.Slug)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if preserved.ID != homonym.ID || preserved.BaseURL != homonym.BaseURL || preserved.CredentialPattern != homonym.CredentialPattern || len(synced) != 0 {
+		t.Fatal("o cadastro com colisão alterou ou sincronizou o provedor local")
+	}
 	if err := inventory.RegisterProvider(target, id, snapshot.Digest, key, func(_ *gorm.DB, _ func() error) error { return unavailable }); !errors.Is(err, unavailable) {
 		t.Fatalf("admissão recusada: %v", err)
 	}
