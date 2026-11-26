@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"assistente/internal/commandsecurity"
+	"assistente/internal/configdir"
 	"assistente/internal/database"
 	"assistente/internal/pluginpackage"
 	"assistente/internal/profiles"
@@ -91,6 +92,52 @@ func TestNativeProfileUsesDestinationProviderBySlug(t *testing.T) {
 		t.Fatalf("dependência ausente: %q", missing)
 	}
 	if _, err := store.GetPluginProfile(user, items[0].Slug); !errors.Is(err, gorm.ErrRecordNotFound) {
+		t.Fatal(err)
+	}
+}
+
+func TestProfileActivationRequiresLocalShellPolicy(t *testing.T) {
+	db := managedJobTestDB(t)
+	if err := db.AutoMigrate(&database.AuthorizationPolicy{}, &database.PluginProfileActivation{}); err != nil {
+		t.Fatal(err)
+	}
+	ctx := database.WithUserID(t.Context(), "reader")
+	store := NewInventory(db)
+	p := profiles.DefaultProfile()
+	p.Chat.CommandAllowlist = "equipe"
+	raw, err := json.Marshal(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store = store.WithProfileDefinitions(func() (profiles.PortableDefinitions, error) {
+		return profiles.PortableDefinitions{"autor": func() ([]byte, error) { return raw, nil }}, nil
+	})
+	_, snap, err := store.BuildPackage(ctx, BuilderRequest{Name: "perfil", Profiles: []string{"autor"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	allow := func(_ *gorm.DB, fn func() error) error { return fn() }
+	row, err := store.InstallSource(ctx, "perfil", snap.Digest, "", nil, allow, func() (*pluginpackage.LocalSnapshot, error) { return snap, nil })
+	if err != nil {
+		t.Fatal(err)
+	}
+	activate := func() error { return store.SetProfileActive(ctx, row.ID, row.Digest, "profiles/autor", true, allow) }
+	if err := activate(); !errors.Is(err, missingProfileAllowlist("equipe")) {
+		t.Fatal(err)
+	}
+	policy := database.AuthorizationPolicy{ID: "other-policy", UserID: "other", Domain: "shell", Slug: "equipe", Source: configdir.NewResolver("allowlists").GetHomeDir(), DefaultEffect: "deny"}
+	if err := db.Create(&policy).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := activate(); !errors.Is(err, missingProfileAllowlist("equipe")) {
+		t.Fatal(err)
+	}
+	policy.ID = "reader-policy"
+	policy.UserID = "reader"
+	if err := db.Create(&policy).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := activate(); err != nil {
 		t.Fatal(err)
 	}
 }

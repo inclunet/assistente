@@ -204,6 +204,10 @@ func (m *Manager) policies(ctx context.Context) ([]database.AuthorizationPolicy,
 	if err := m.prepare(ctx); err != nil {
 		return nil, err
 	}
+	return m.storedPolicies(ctx)
+}
+
+func (m *Manager) storedPolicies(ctx context.Context) ([]database.AuthorizationPolicy, error) {
 	rows, err := m.repo.Policies(ctx, "shell")
 	if err != nil {
 		return nil, err
@@ -484,4 +488,22 @@ func slugify(name string) string {
 	}
 
 	return result.String()
+}
+
+// HasProfilePolicy verifica a dependência do perfil sem importar políticas
+// nem criar concessões durante a inspeção do pacote.
+func (m *Manager) HasProfilePolicy(ctx context.Context, slug string) (bool, error) {
+	if slug == defaultSlug {
+		return true, nil
+	}
+	rows, err := m.storedPolicies(ctx)
+	if err != nil {
+		return false, err
+	}
+	for _, row := range rows {
+		if row.Slug == slug {
+			return true, nil
+		}
+	}
+	return false, nil
 }

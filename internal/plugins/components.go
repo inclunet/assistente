@@ -16,6 +16,7 @@ import (
 // Component identifies a contribution within a revision; runtime keys are
 // allocated separately, so the same skill name can occur in several packages.
 type Component struct {
+	MissingAllowlist  string   `json:"missingAllowlist,omitempty"`
 	MissingProvider   string   `json:"missingProvider,omitempty"`
 	ProfileDefinition string   `json:"profileDefinition,omitempty"`
 	ProcessArgs       []string `json:"processArgs,omitempty"`

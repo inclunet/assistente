@@ -6,6 +6,8 @@ import (
 
 	"time"
 
+	"assistente/internal/allowlist"
+	"assistente/internal/authorization"
 	"assistente/internal/commandsecurity"
 	"assistente/internal/database"
 	"assistente/internal/profiles"
@@ -106,6 +108,16 @@ func resolveProfile(ctx context.Context, db *gorm.DB, raw []byte) (*profiles.Pro
 	if err != nil {
 		return nil, err
 	}
+	if slug := p.Chat.CommandAllowlist; slug != "" {
+		policies := allowlist.NewManager(allowlist.Options{Repository: authorization.NewRepository(func() *gorm.DB { return db })})
+		ok, err := policies.HasProfilePolicy(ctx, slug)
+		if err != nil {
+			return nil, err
+		}
+		if !ok {
+			return nil, missingProfileAllowlist(slug)
+		}
+	}
 	repo := database.NewProviderRepository(db)
 	err = p.MapProviderReferences(func(slug string) (string, error) {
 		row, err := repo.GetBySlug(ctx, slug)
@@ -129,3 +141,10 @@ func (e missingProfileProvider) Error() string {
 	return "PLUGIN_PROFILE_PROVIDER_MISSING: " + string(e)
 }
 func (e missingProfileProvider) Unwrap() error { return gorm.ErrRecordNotFound }
+
+type missingProfileAllowlist string
+
+func (e missingProfileAllowlist) Error() string {
+	return "PLUGIN_PROFILE_ALLOWLIST_MISSING: " + string(e)
+}
+func (e missingProfileAllowlist) Unwrap() error { return gorm.ErrRecordNotFound }

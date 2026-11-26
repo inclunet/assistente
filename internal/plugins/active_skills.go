@@ -95,10 +95,15 @@ func (i *Inventory) InstalledComponents(ctx context.Context, id, digest string) 
 			_, err := resolveProfile(ctx, i.db, snapshot.Files[components[n].Entry])
 			if err != nil {
 				var missing missingProfileProvider
-				if !errors.As(err, &missing) {
+				var policy missingProfileAllowlist
+				switch {
+				case errors.As(err, &missing):
+					components[n].MissingProvider = string(missing)
+				case errors.As(err, &policy):
+					components[n].MissingAllowlist = string(policy)
+				default:
 					return nil, err
 				}
-				components[n].MissingProvider = string(missing)
 			}
 		}
 		components[n].EditedServer = edited[components[n].Key]
