@@ -14,7 +14,7 @@ function connectionFailureKey(failure: unknown): string {
     ? 'chatgpt.vaultUnavailable' : 'chatgpt.connectionError';
 }
 
-interface Props { id?: string; profileSlug?: string; onChanged: () => void; onClose: () => void; onCloseBlockedChange?: (closeBlocked: boolean) => void }
+interface Props { id?: string; profileSlug?: string; onChanged?: () => void; onClose: () => void; onCloseBlockedChange?: (closeBlocked: boolean) => void }
 export function ChatGPTConnection({ id, profileSlug, onChanged, onClose, onCloseBlockedChange }: Props) {
   const { t } = useTranslation();
   const { announce } = useAnnouncer();
@@ -58,7 +58,7 @@ export function ChatGPTConnection({ id, profileSlug, onChanged, onClose, onClose
         } finally {
           if (mounted.current) { setCloseBlocked(false); onCloseBlockedChange?.(false); }
         }
-        if (!mounted.current) { onChanged(); return; }
+        if (!mounted.current) { onChanged?.(); return; }
       }
       announce(t('chatgpt.waiting'));
       const result = await AuthorizeChatGPT(currentID.current, t('chatgpt.browserReturn'));
@@ -90,13 +90,13 @@ export function ChatGPTConnection({ id, profileSlug, onChanged, onClose, onClose
       }
     }
     finally {
-      if (mounted.current) { setBusy(false); setCloseBlocked(false); onCloseBlockedChange?.(false); onChanged(); }
+      if (mounted.current) { setBusy(false); setCloseBlocked(false); onCloseBlockedChange?.(false); onChanged?.(); }
     }
   };
   const close = () => {
     if (closeBlocked || settingsBusy) return;
     if (currentID.current) void CancelChatGPT(currentID.current).catch(() => undefined);
-    onClose(); onChanged();
+    onClose(); onChanged?.();
   };
   if (welcome) return <div>
     <h3>{t('chatgpt.usingPlan')}</h3><p>{t('chatgpt.planNotice')}</p>

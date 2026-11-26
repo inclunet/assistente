@@ -316,12 +316,13 @@ function InstalledPlugins({ session }: { session: string }) {
     const components = await InstalledComponents(installation.id, installation.digest);
     if (mounted.current) setDetails({ installation, components: components ?? [] });
   };
-  const reloadProfileDependencies = () => {
-    if (!details) return;
-    const {installation} = details;
-    void InstalledComponents(installation.id, installation.digest).then(components => {
-      if (mounted.current) setDetails(current => current?.installation === installation ? {installation, components: components ?? []} : current);
-    }).catch(() => { if (mounted.current) setError('plugins.componentReloadError'); });
+  const closeChatGPT = async () => {
+    if (!details || chatGPTCloseBlocked) return;
+    setChatGPTSlug('');
+    setBusy(true);
+    try { await refreshDetails(details.installation); }
+    catch { if (mounted.current) setError('plugins.listError'); }
+    finally { if (mounted.current) setBusy(false); }
   };
   const [createdList, setCreatedList] = useState('');
   const changeComponent = async (component: plugins.Component, preserve = false) => {
@@ -551,9 +552,9 @@ function InstalledPlugins({ session }: { session: string }) {
       </li>)}</ul>}
     </Modal>}
     {chatGPTSlug && details && <Modal isOpen title={t('chatgpt.title')} allowClose={!chatGPTCloseBlocked}
-      onClose={() => { if (!chatGPTCloseBlocked) { setChatGPTSlug(''); reloadProfileDependencies(); } }}>
+      onClose={() => void closeChatGPT()}>
       <ChatGPTConnection profileSlug={chatGPTSlug} onCloseBlockedChange={setChatGPTCloseBlocked}
-        onClose={() => setChatGPTSlug('')} onChanged={reloadProfileDependencies} />
+        onClose={() => void closeChatGPT()} />
     </Modal>}
     {providerRemoval && details && <DecisionDialog isOpen
       title={t('plugins.uninstall', {name: details.installation.name})}

@@ -341,7 +341,13 @@ describe('PluginsPage', () => {
     expect(screen.getByText('{"chat":{"llm_provider":"equipe"}}')).toBeVisible();
     await user.click(screen.getByRole('button', {name:'plugins.createProfileChatGPT'}));
     expect(screen.getByLabelText('chatgpt.label')).toHaveValue('equipe');
+    let failReload!: () => void;
+    mocks.components.mockReturnValueOnce(new Promise((_resolve, reject) => {failReload = () => reject(new Error('offline'));}));
     await user.keyboard('{Escape}');
+    await user.keyboard('{Escape}');
+    expect(screen.getByRole('button',{name:'plugins.activate'})).toBeDisabled();
+    await act(async () => failReload());
+    expect(await screen.findByText('plugins.listError')).toBeVisible();
     await waitFor(() => expect(screen.queryByLabelText('chatgpt.label')).not.toBeInTheDocument());
     await user.keyboard('{Escape}');
     await waitFor(() => expect(screen.getByRole('gridcell', {name:/Demo/})).toHaveFocus());
