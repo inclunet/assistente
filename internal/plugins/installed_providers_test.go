@@ -84,4 +84,49 @@ func TestRegisterProviderFromReviewedPackage(t *testing.T) {
 	if len(synced) != 3 || synced[2] == local.ID {
 		t.Fatalf("recadastro após exclusão: %v", synced)
 	}
+	for _, choice := range []string{"detach", "remove"} {
+		t.Run(choice, func(t *testing.T) {
+			account := database.WithUserID(t.Context(), choice)
+			plugin := install(account)
+			if err := inventory.RegisterProvider(account, plugin, snapshot.Digest, key, allow); err != nil {
+				t.Fatal(err)
+			}
+			preview, err := inventory.ProviderRemovalPreview(account, plugin, snapshot.Digest)
+			if err != nil || len(preview) != 1 {
+				t.Fatal(preview, err)
+			}
+			local, err := repo.GetBySlug(account, original.Slug)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := inventory.ChangeInstallation(account, plugin, snapshot.Digest, "uninstall", allow); !errors.Is(err, ErrInstallationChanged) {
+				t.Fatalf("sem decisão: %v", err)
+			}
+			local.Name = "Renomeado"
+			if err := repo.SaveLLMProvider(account, local); err != nil {
+				t.Fatal(err)
+			}
+			if err := inventory.UninstallReviewed(account, plugin, snapshot.Digest, choice, preview, allow); !errors.Is(err, ErrInstallationChanged) {
+				t.Fatalf("prévia anterior à edição: %v", err)
+			}
+			preview, err = inventory.ProviderRemovalPreview(account, plugin, snapshot.Digest)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := inventory.UninstallReviewed(account, plugin, snapshot.Digest, choice, preview, allow); err != nil {
+				t.Fatal(err)
+			}
+			after, err := repo.GetBySlug(account, original.Slug)
+			if choice == "detach" && (err != nil || after.ID != local.ID) {
+				t.Fatal(after, err)
+			}
+			if choice == "remove" && !errors.Is(err, gorm.ErrRecordNotFound) {
+				t.Fatal(after, err)
+			}
+			var count int64
+			if err := db.Model(&database.PluginProviderBinding{}).Where("installation_id=?", plugin).Count(&count).Error; err != nil || count != 0 {
+				t.Fatal(count, err)
+			}
+		})
+	}
 }
