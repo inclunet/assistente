@@ -244,6 +244,7 @@ notSaved: 'The decision applies only to this operation: it could not be remember
       indexPathError: 'Choose marketplace.json in the store configuration directory.',
       gitURL: 'Git repository HTTPS URL',
       addGit: 'Add Git repository',
+      gitSizeError: 'The repository exceeds the size limit for plugin stores.',
       gitError: 'Could not read the Git store. Check the clone URL, connection and credentials.',
       storeDetected: 'Plugin store found',
       storeDetectedPrompt: 'Add the store {{name}} from {{origin}}?',

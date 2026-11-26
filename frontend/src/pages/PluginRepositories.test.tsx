@@ -3,8 +3,8 @@ import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import PluginRepositories from './PluginRepositories';
 
-const mocks = vi.hoisted(() => ({ add: vi.fn(), addRemote: vi.fn(), list: vi.fn(), preview: vi.fn(), refresh: vi.fn(), remove: vi.fn(), confirm: vi.fn(), announce: vi.fn() }));
-vi.mock('@wailsjs/go/wailsapi/Plugins', () => ({ AddLocalRepository: mocks.add, AddRemoteRepository: mocks.addRemote, ListRepositories: mocks.list, RefreshRepository: mocks.refresh, PreviewRepositoryEntry: mocks.preview, RemoveRepository: mocks.remove }));
+const mocks = vi.hoisted(() => ({ add: vi.fn(), addRemote: vi.fn(), addGit: vi.fn(), list: vi.fn(), preview: vi.fn(), refresh: vi.fn(), remove: vi.fn(), confirm: vi.fn(), announce: vi.fn() }));
+vi.mock('@wailsjs/go/wailsapi/Plugins', () => ({ AddLocalRepository: mocks.add, AddGitRepository: mocks.addGit, AddRemoteRepository: mocks.addRemote, ListRepositories: mocks.list, RefreshRepository: mocks.refresh, PreviewRepositoryEntry: mocks.preview, RemoveRepository: mocks.remove }));
 vi.mock('../hooks/useAnnouncer', () => ({ useAnnouncer: () => ({ announce: mocks.announce }) }));
 vi.mock('../hooks/useConfirm', () => ({ useConfirm: () => mocks.confirm }));
 vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key, i18n: { language: 'en' } }) }));
@@ -65,6 +65,20 @@ describe('PluginRepositories', () => {
     expect(mocks.addRemote).toHaveBeenCalledWith('https://second.example/store.zip', true);
     await waitFor(() => expect(mocks.announce).toHaveBeenCalledWith('plugins.repoUpdated'));
     expect(address).not.toBeInTheDocument();
+  });
+
+  it('sends a Git clone URL to the Git reader', async () => {
+    mocks.list.mockResolvedValue([]);
+    mocks.addGit.mockResolvedValue(undefined);
+    const user=userEvent.setup();
+    render(<PluginRepositories session="git" catalog={false} onPreview={vi.fn()} />);
+    const add=screen.getByRole('button',{name:'plugins.addRepo'});
+    await waitFor(()=>expect(add).toBeEnabled());
+    await user.click(add);
+    await user.selectOptions(screen.getByRole('combobox'),'git');
+    await user.type(screen.getByRole('textbox',{name:'plugins.gitURL'}),'https://git.example.com/team/store.git');
+    await user.click(screen.getByRole('button',{name:'plugins.addGit'}));
+    expect(mocks.addGit).toHaveBeenCalledWith('https://git.example.com/team/store.git',false);
   });
 
   it('does not announce a publication after the folder picker is cancelled', async () => {

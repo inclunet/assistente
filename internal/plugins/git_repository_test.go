@@ -2,8 +2,11 @@ package plugins
 
 import (
 	"archive/zip"
+	"assistente/internal/database"
+	httpclient "assistente/internal/tools/http"
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -99,5 +102,32 @@ func TestGitStoreRejectsOtherContainersBeforeDecoding(t *testing.T) {
 	}
 	if err := checkGitPack(context.Background(), data.Bytes()); err == nil {
 		t.Fatal("accepted non-pack")
+	}
+}
+
+func TestGitStoreBoundsZIPDirectory(t *testing.T) {
+	var output bytes.Buffer
+	writer := zip.NewWriter(&gitArchiveWriter{out: &output, remaining: 64})
+	if _, err := writer.CreateHeader(&zip.FileHeader{Name: "directory/with/a/long/name/repeated-in-the-central-directory"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.Close(); !errors.Is(err, pluginpackage.ErrTooLarge) {
+		t.Fatal(err)
+	}
+	if output.Len() > 64 {
+		t.Fatal(output.Len())
+	}
+}
+func TestGitStoreClassifiesHTTPAuthenticationFailure(t *testing.T) {
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusUnauthorized) }))
+	defer server.Close()
+	i := NewInventory(nil).WithRemoteClient(func(string) *httpclient.Client {
+		client := RepositoryHTTPClient(nil, "", nil)
+		client.GetBaseClient().Transport = server.Client().Transport
+		return client
+	}, nil)
+	_, _, err := i.download(database.WithUserID(context.Background(), "owner"), server.URL, "", true)
+	if err == nil || err.Error() != "PLUGIN_REPOSITORY_CREDENTIAL" {
+		t.Fatal(err)
 	}
 }

@@ -243,6 +243,7 @@ notSaved: 'La decisión vale solo para esta operación: no se pudo recordar. Ser
       indexPathError: 'Elige marketplace.json en la carpeta de configuración de la tienda.',
       gitURL: 'URL HTTPS del repositorio Git',
       addGit: 'Añadir repositorio Git',
+      gitSizeError: 'El repositorio supera el límite de tamaño de las tiendas.',
       gitError: 'No se pudo leer la tienda Git. Comprueba la URL de clonación, la conexión y las credenciales.',
       storeDetected: 'Tienda de plugins encontrada',
       storeDetectedPrompt: '¿Añadir la tienda {{name}} desde {{origin}}?',

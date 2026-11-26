@@ -12,6 +12,7 @@ import (
 	"path"
 	"strings"
 
+	"assistente/internal/credentials"
 	"assistente/internal/pluginpackage"
 	httpclient "assistente/internal/tools/http"
 	"github.com/go-git/go-git/v5/plumbing"
@@ -41,7 +42,11 @@ func (t gitHTTPTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer func() { _ = res.Body.Close() }()
+	body := res.Body
+	defer func() { _ = body.Close() }()
+	if res.StatusCode == http.StatusUnauthorized || res.StatusCode == http.StatusForbidden {
+		return nil, credentials.ErrCredentialResolution
+	}
 	if res.StatusCode != http.StatusOK {
 		return nil, errGitFormat
 	}
@@ -63,6 +68,25 @@ func (t gitHTTPTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	return res, nil
 }
 
+// go-git v5 stores transport failures in Err without implementing Unwrap.
+func gitFailure(err error) error {
+	var wrapped *plumbing.UnexpectedError
+	if errors.As(err, &wrapped) {
+		err = wrapped.Err
+	}
+	var blocked *httpclient.BlockedDestinationError
+	switch {
+	case errors.As(err, &blocked):
+		return errors.New("PLUGIN_REPOSITORY_NETWORK_DENIED")
+	case errors.Is(err, credentials.ErrCredentialResolution):
+		return errors.New("PLUGIN_REPOSITORY_CREDENTIAL")
+	case errors.Is(err, pluginpackage.ErrTooLarge):
+		return errors.New("PLUGIN_REPOSITORY_TOO_LARGE")
+	default:
+		return errGitFormat
+	}
+}
+
 func readGitRepository(ctx context.Context, client *httpclient.Client, origin string) (*pluginpackage.Archive, string, error) {
 	endpoint, err := transport.NewEndpoint(origin)
 	if err != nil {
@@ -82,6 +106,9 @@ func readGitRepository(ctx context.Context, client *httpclient.Client, origin st
 		return nil, "", errGitFormat
 	}
 	request := packp.NewUploadPackRequest()
+	if err := request.Capabilities.Set(capability.Shallow); err != nil {
+		return nil, "", err
+	}
 	request.Wants = []plumbing.Hash{*refs.Head}
 	request.Depth = packp.DepthCommits(1)
 	response, err := session.UploadPack(ctx, request)
@@ -166,11 +193,25 @@ func checkGitPack(ctx context.Context, data []byte) error {
 	return err
 }
 
+type gitArchiveWriter struct {
+	out       io.Writer
+	remaining int
+}
+
+func (w *gitArchiveWriter) Write(data []byte) (int, error) {
+	if len(data) > w.remaining {
+		return 0, pluginpackage.ErrTooLarge
+	}
+	n, err := w.out.Write(data)
+	w.remaining -= n
+	return n, err
+}
+
 // Materialize the commit in memory with the existing portable archive reader.
 // Tree reuse still counts towards the expanded byte and entry budgets.
 func gitTreeArchive(ctx context.Context, storage *memory.Storage, root plumbing.Hash) (*pluginpackage.Archive, error) {
 	var data bytes.Buffer
-	writer := zip.NewWriter(&data)
+	writer := zip.NewWriter(&gitArchiveWriter{out: &data, remaining: gitTreeLimit})
 	var total int64
 	var entries int
 	var walk func(plumbing.Hash, string, int) error
@@ -195,6 +236,9 @@ func gitTreeArchive(ctx context.Context, storage *memory.Storage, root plumbing.
 			}
 			if strings.EqualFold(e.Name, ".git") {
 				continue
+			}
+			if len(dir)+len(e.Name)+1 > 4096 {
+				return pluginpackage.ErrTooLarge
 			}
 			name := path.Join(dir, e.Name)
 			if e.Mode == filemode.Dir {

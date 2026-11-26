@@ -136,7 +136,7 @@ func (i *Inventory) download(ctx context.Context, origin, reference string, git 
 			if ctx.Err() != nil {
 				return nil, "", ctx.Err()
 			}
-			return nil, "", errGitFormat
+			return nil, "", gitFailure(err)
 		}
 		return archive, revision, nil
 	}

@@ -244,6 +244,7 @@ notSaved: 'A decisão vale somente para esta operação: não foi possível lemb
       indexPathError: 'Escolha o marketplace.json na pasta de configuração da loja.',
       gitURL: 'URL HTTPS do repositório Git',
       addGit: 'Adicionar repositório Git',
+      gitSizeError: 'O repositório excede o limite de tamanho para lojas.',
       gitError: 'Não foi possível ler a loja Git. Confira a URL de clone, a conexão e a credencial.',
       storeDetected: 'Loja de plugins encontrada',
       storeDetectedPrompt: 'Adicionar a loja {{name}} a partir de {{origin}}?',
