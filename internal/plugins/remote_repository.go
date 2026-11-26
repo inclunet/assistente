@@ -110,7 +110,7 @@ func remoteURL(raw string) (*url.URL, error) {
 	return u, nil
 }
 
-func (i *Inventory) download(ctx context.Context, origin, reference string) (*pluginpackage.Archive, string, error) {
+func (i *Inventory) download(ctx context.Context, origin, reference string, git bool) (*pluginpackage.Archive, string, error) {
 	if _, err := database.RequireUserID(ctx); err != nil {
 		return nil, "", err
 	}
@@ -129,6 +129,16 @@ func (i *Inventory) download(ctx context.Context, origin, reference string) (*pl
 	client := i.remote(reference)
 	if client == nil {
 		return nil, "", errors.New("PLUGIN_REPOSITORY_DOWNLOAD")
+	}
+	if git {
+		archive, revision, err := readGitRepository(ctx, client, u.String())
+		if err != nil {
+			if ctx.Err() != nil {
+				return nil, "", ctx.Err()
+			}
+			return nil, "", errGitFormat
+		}
+		return archive, revision, nil
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
 	if err != nil {
@@ -166,6 +176,12 @@ func (i *Inventory) download(ctx context.Context, origin, reference string) (*pl
 }
 
 func (i *Inventory) SaveRemoteRepository(ctx context.Context, raw string, authenticated bool, admit commandsecurity.Admission) error {
+	return i.addRemote(ctx, raw, authenticated, false, admit)
+}
+func (i *Inventory) SaveGitRepository(ctx context.Context, raw string, authenticated bool, admit commandsecurity.Admission) error {
+	return i.addRemote(ctx, raw, authenticated, true, admit)
+}
+func (i *Inventory) addRemote(ctx context.Context, raw string, authenticated, git bool, admit commandsecurity.Admission) error {
 	u, err := remoteURL(raw)
 	if err != nil {
 		return err
@@ -175,7 +191,7 @@ func (i *Inventory) SaveRemoteRepository(ctx context.Context, raw string, authen
 		ref = u.Host
 	}
 	u.Host = addressHost(u, false)
-	return i.saveRemote(ctx, u.String(), ref, "", "", admit)
+	return i.saveRemote(ctx, u.String(), ref, "", "", git, admit)
 }
 
 // The canonical origin identifies a store; network authorization distinguishes an
@@ -192,7 +208,7 @@ func repositoryDownloadURL(row database.PluginRepository) string {
 	return u.String()
 }
 
-func (i *Inventory) saveRemote(ctx context.Context, origin, ref, id, expected string, admit commandsecurity.Admission) error {
+func (i *Inventory) saveRemote(ctx context.Context, origin, ref, id, expected string, git bool, admit commandsecurity.Admission) error {
 	owner, err := database.RequireUserID(ctx)
 	if err != nil {
 		return err
@@ -203,7 +219,7 @@ func (i *Inventory) saveRemote(ctx context.Context, origin, ref, id, expected st
 	if err := admit.Check(); err != nil {
 		return err
 	}
-	archive, digest, err := i.download(ctx, origin, ref)
+	archive, digest, err := i.download(ctx, origin, ref, git)
 	if err != nil {
 		return err
 	}
@@ -235,7 +251,7 @@ func (i *Inventory) repositoryPackage(ctx context.Context, row database.PluginRe
 	if !strings.HasPrefix(row.Origin, "https://") {
 		return pluginpackage.InspectRepositoryPackage(row.Origin, row.RootID, entry)
 	}
-	archive, digest, err := i.download(ctx, repositoryDownloadURL(row), row.CredentialRef)
+	archive, digest, err := i.download(ctx, repositoryDownloadURL(row), row.CredentialRef, strings.HasPrefix(row.RootID, gitRevisionPrefix))
 	if err != nil {
 		return nil, err
 	}

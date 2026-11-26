@@ -6,6 +6,10 @@ export function AddArchiveRepository() {
   return window['go']['wailsapi']['Plugins']['AddArchiveRepository']();
 }
 
+export function AddGitRepository(arg1, arg2) {
+  return window['go']['wailsapi']['Plugins']['AddGitRepository'](arg1, arg2);
+}
+
 export function AddIndexRepository() {
   return window['go']['wailsapi']['Plugins']['AddIndexRepository']();
 }

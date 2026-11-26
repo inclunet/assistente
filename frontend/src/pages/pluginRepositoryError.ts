@@ -1,5 +1,6 @@
 const remoteErrors: Record<string, string> = {
   PLUGIN_REPOSITORY_PREVIEW_CHANGED: 'plugins.storePreviewChanged',
+  PLUGIN_REPOSITORY_GIT: 'plugins.gitError',
   PLUGIN_REPOSITORY_INDEX_PATH: 'plugins.indexPathError',
   PLUGIN_REPOSITORY_ACCESS_CHANGED: 'plugins.archiveAccessChanged',
   PLUGIN_REPOSITORY_URL: 'plugins.archiveURLError',
