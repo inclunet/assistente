@@ -14,7 +14,7 @@ Todas as tabelas do SQLite que usam `uint` auto-increment como chave primária s
 
 2. **Conflito em cenários futuros**: Com a perspectiva de migrar recursos em disco para o banco (profiles, skills, jobs, allowlists, MCP configs, channels, contacts) — e possivelmente sincronizar dados entre dispositivos no futuro — IDs sequenciais gerados localmente colidem inevitavelmente.
 
-3. **Inconsistência no codebase**: Algumas entidades já usam string como PK (`LLMProvider` usa slug, `EditorDocument` usa string, `Workspace` usa UUID, `Tab` usa string gerada), enquanto as entidades core de chat e tarefas usam `uint`. Isso cria dois regimes de tratamento de IDs no frontend e backend.
+3. **Inconsistência no codebase**: Algumas entidades já usam string como PK (`LLMProvider` usa ID textual, `EditorDocument` usa string, `Workspace` usa UUID, `Tab` usa string gerada), enquanto as entidades core de chat e tarefas usam `uint`. Isso cria dois regimes de tratamento de IDs no frontend e backend.
 
 4. **Fragilidade do FTS5 sync**: Os triggers de full-text search referenciam `chat_messages.id` como integer. Unificar o padrão de IDs simplifica a manutenção.
 
@@ -78,7 +78,7 @@ O hook gera o UUID automaticamente se `ID` estiver vazio. Permite também atribu
 > status permanecem numéricos (`int`) e não são migrados para UUIDv7.
 
 Tabelas **fora do escopo** (já usam string PK):
-- `llm_providers` — slug string (sem mudança)
+- `llm_providers` — ID textual preservado como chave primária. O [AEP-0119](0119-plugins-e-repositorios.md) prevê um slug adicional, único por conta, para referências entre recursos.
 - `editor_documents` — string 128 (sem mudança)
 - `editor_session_states` — string 64 (sem mudança)
 

@@ -227,6 +227,8 @@ Os IDs UUID persistidos no banco **são incluídos no export**. Motivos:
 - referências internas entre recursos ficam mais simples e explícitas
 - o importador deixa de depender de heurísticas frágeis por título/slug/data
 
+O contrato de backup conserva o ID da instância e a política de restauração descrita em D7. Para distribuir definições entre contas em plugins, o [AEP-0119](0119-plugins-e-repositorios.md) prevê referências por slug. Uma dependência obrigatória ausente impede a ativação do perfil.
+
 **Relações entre recursos** são resolvidas por IDs estáveis sempre que o recurso persistido já existir no banco:
 
 | Relação | Chave natural no export |
