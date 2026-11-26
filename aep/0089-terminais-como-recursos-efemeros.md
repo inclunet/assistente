@@ -324,6 +324,8 @@ Pendente ou parcial:
   quando o corpo não produz texto visível. O leitor reconhece as duas marcas
   da mesma execução nesse caso, preserva espaços do corpo e aguarda o status
   terminado. `TestConPTYFooterWithoutStartLineBreak` cobre cortes entre leituras.
+  No [ensaio em Windows PowerShell 5.1](https://github.com/inclunet/assistente/actions/runs/45731808818/job/139615467673),
+  os dois casos intermitentes passaram na suíte e nas 12 repetições adicionais.
   A consulta emite as duas marcas e o status em uma única escrita do PowerShell.
   O diagnóstico de prazo distingue consulta e comando e o progresso do leitor
   antes e depois da drenagem, sem incluir a saída.
