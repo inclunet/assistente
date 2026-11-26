@@ -91,6 +91,16 @@ func (i *Inventory) InstalledComponents(ctx context.Context, id, digest string) 
 		slugs[job.PluginComponentKey] = job.Slug
 	}
 	for n := range components {
+		if components[n].Kind == "profile" && components[n].Reason == "" {
+			_, err := resolveProfile(ctx, i.db, snapshot.Files[components[n].Entry])
+			if err != nil {
+				var missing missingProfileProvider
+				if !errors.As(err, &missing) {
+					return nil, err
+				}
+				components[n].MissingProvider = string(missing)
+			}
+		}
 		components[n].EditedServer = edited[components[n].Key]
 		slug, ok := slugs[components[n].Key]
 		if components[n].Kind == "provider" {

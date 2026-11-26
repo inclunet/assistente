@@ -180,7 +180,7 @@ func (i *Inventory) BuildPackage(ctx context.Context, request BuilderRequest) ([
 	err := i.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		for _, key := range extension.Profiles {
 			file := path.Join(nativeExtension, "profiles", key+".json")
-			p, err := profiles.ReadPortableDefinition(files[file])
+			p, err := readPackageProfile(files[file])
 			if err != nil {
 				return fmt.Errorf("PLUGIN_BUILDER_PROFILE_UNAVAILABLE:%s", key)
 			}

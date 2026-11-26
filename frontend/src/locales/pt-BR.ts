@@ -175,6 +175,8 @@ notSaved: 'A decisão vale somente para esta operação: não foi possível lemb
       builderSourcesError: 'Alguns recursos não puderam ser carregados. Os recursos disponíveis podem ser selecionados.',
       provider: 'Provedor',
       builderProviderError: 'O provedor {{name}} não pode ser incluído no pacote com a configuração atual.',
+      profileSettings: 'Conferir configuração do perfil',
+      missingProfileProvider: 'Cadastre o provedor {{name}} para usar este perfil.',
       registerProvider: 'Cadastrar {{name}}',
       providerRegistered: 'Provedor {{name}} cadastrado.',
       providerSlugTaken: 'O slug já pertence a outro provedor nesta conta.',

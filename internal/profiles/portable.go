@@ -116,6 +116,7 @@ func encodePortableProfile(data []byte) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+	normalizeRoutingFields(&p)
 	p.Active = false
 	p.BuiltinVersion = ""
 	raw, err := json.Marshal(&p)

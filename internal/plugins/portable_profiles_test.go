@@ -27,7 +27,7 @@ func TestDiscoverPortableProfile(t *testing.T) {
 	if !p.Chat.DisableSkills || !p.Chat.DisableTools || p.Chat.LLMProvider != profiles.DefaultProviderSentinel || *p.Chat.Temperature != 0 || *p.Chat.MaxTokens != 250 || *p.Chat.TopP != 0.8 {
 		t.Fatalf("unexpected projected profile: %+v", p.Chat)
 	}
-	for _, raw := range []string{"", `{"name":" "}`, `{"name":"x","maxTokens":-1}`, `{"name":"x","topP":2}`, `{"name":"x","command_allowlist":"local"}`, `{"name":"x"} {}`, "\xff"} {
+	for _, raw := range []string{"", `{"name":" "}`, `{"name":"x","chat":{"llm_provider":"$default","response_timeout":60,"max_tokens":-1}}`, `{"name":"x","chat":{"llm_provider":"$default","response_timeout":60,"top_p":2}}`, `{"name":"x","chat":{"llm_provider":"$default","response_timeout":60,"enabled_skills":["plugin:local"]}}`, `{"name":"x"} {}`, "\xff"} {
 		snap.Files[entry] = []byte(raw)
 		c := DiscoverComponents(snap)
 		if len(c) != 1 || c[0].Reason != "invalidProfile" {

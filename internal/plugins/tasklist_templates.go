@@ -15,6 +15,7 @@ import (
 	"assistente/internal/portability"
 	"assistente/internal/profiles"
 	"assistente/internal/providers"
+	"assistente/internal/skills"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 )
@@ -70,11 +71,12 @@ func nativeComponents(snap *pluginpackage.LocalSnapshot) []Component {
 		seen[key] = true
 		entry := path.Join(nativeExtension, key+".json")
 		c := Component{Key: key, Kind: "profile", Name: name, Entry: entry}
-		definition, err := profiles.ReadPortableDefinition(snap.Files[entry])
+		definition, err := readPackageProfile(snap.Files[entry])
 		if err != nil {
 			c.Reason = "invalidProfile"
 		} else {
 			c.Name = definition.Name
+			c.ProfileDefinition = string(snap.Files[entry])
 		}
 		result = append(result, c)
 	}
@@ -207,4 +209,17 @@ func (i *Inventory) CreateListFromTemplate(ctx context.Context, id, digest, key,
 		i.listCreated(ctx, created, admit)
 	}
 	return listID, nil
+}
+
+func readPackageProfile(raw []byte) (*profiles.Profile, error) {
+	p, err := profiles.ReadPortableDefinition(raw)
+	if err != nil {
+		return nil, err
+	}
+	for _, slug := range p.Chat.EnabledSkills {
+		if strings.HasPrefix(slug, skills.PluginPrefix) {
+			return nil, errors.New("PLUGIN_PROFILE_INSTALLATION_SKILL")
+		}
+	}
+	return p, nil
 }

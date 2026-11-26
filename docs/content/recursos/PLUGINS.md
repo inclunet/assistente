@@ -73,7 +73,7 @@ A prévia identifica o nome do job, a ferramenta solicitada e os tipos de aciona
 
 ## Conferir perfis incluídos no pacote
 
-A prévia e os detalhes identificam os perfis de conversa fornecidos pelo plugin. Nos detalhes do plugin instalado, escolha **Ativar** no perfil desejado. Abra o seletor **Perfil** na barra da conversa e escolha seu nome. O perfil mantém a configuração de chat, voz e transcrição definida pelo autor. Cada provedor indicado pelo slug precisa estar cadastrado na sua conta antes da ativação. Se ele vier no mesmo pacote, cadastre primeiro o provedor. A escolha explícita `$default` acompanha o provedor padrão da sua conta. A ativação vale para sua conta. Se o plugin for atualizado, desativado ou removido, a aba que usava o perfil precisará de uma nova seleção.
+A prévia e os detalhes identificam os perfis de conversa fornecidos pelo plugin. Nos detalhes do plugin instalado, escolha **Ativar** no perfil desejado. Abra o seletor **Perfil** na barra da conversa e escolha seu nome. O perfil mantém a configuração de chat, voz e transcrição definida pelo autor. Abra **Conferir configuração do perfil** para verificar os provedores, a lista de comandos e a seleção de skills e ferramentas. Perfis que selecionam uma skill pelo identificador específico de outra instalação precisam retirar essa referência antes de gerar o pacote. Cada provedor indicado pelo slug precisa estar cadastrado na sua conta antes da ativação. Se ele vier no mesmo pacote, cadastre primeiro o provedor. A escolha explícita `$default` acompanha o provedor padrão da sua conta. A ativação vale para sua conta. Se o plugin for atualizado, desativado ou removido, a aba que usava o perfil precisará de uma nova seleção.
 
 ## Preparar um job no Assistente
 

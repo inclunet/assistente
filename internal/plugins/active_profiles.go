@@ -3,6 +3,7 @@ package plugins
 import (
 	"context"
 	"errors"
+
 	"time"
 
 	"assistente/internal/commandsecurity"
@@ -101,13 +102,16 @@ func (i *Inventory) ListPluginProfiles(ctx context.Context) ([]profiles.ProfileI
 }
 
 func resolveProfile(ctx context.Context, db *gorm.DB, raw []byte) (*profiles.Profile, error) {
-	p, err := profiles.ReadPortableDefinition(raw)
+	p, err := readPackageProfile(raw)
 	if err != nil {
 		return nil, err
 	}
 	repo := database.NewProviderRepository(db)
 	err = p.MapProviderReferences(func(slug string) (string, error) {
 		row, err := repo.GetBySlug(ctx, slug)
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return "", missingProfileProvider(slug)
+		}
 		if err != nil {
 			return "", err
 		}
@@ -118,3 +122,10 @@ func resolveProfile(ctx context.Context, db *gorm.DB, raw []byte) (*profiles.Pro
 	}
 	return p, nil
 }
+
+type missingProfileProvider string
+
+func (e missingProfileProvider) Error() string {
+	return "PLUGIN_PROFILE_PROVIDER_MISSING: " + string(e)
+}
+func (e missingProfileProvider) Unwrap() error { return gorm.ErrRecordNotFound }

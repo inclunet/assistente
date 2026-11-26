@@ -74,4 +74,23 @@ func TestNativeProfileUsesDestinationProviderBySlug(t *testing.T) {
 	if got.Chat.Model != profile.Chat.Model {
 		t.Fatal("modelo escolhido para o chat foi perdido")
 	}
+	if err := repo.DeleteLLMProvider(user, dest.ID); err != nil {
+		t.Fatal(err)
+	}
+	components, err := store.InstalledComponents(user, row.ID, row.Digest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var missing string
+	for _, c := range components {
+		if c.Kind == "profile" {
+			missing = c.MissingProvider
+		}
+	}
+	if missing != p.Slug {
+		t.Fatalf("dependência ausente: %q", missing)
+	}
+	if _, err := store.GetPluginProfile(user, items[0].Slug); !errors.Is(err, gorm.ErrRecordNotFound) {
+		t.Fatal(err)
+	}
 }

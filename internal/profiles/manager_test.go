@@ -857,7 +857,7 @@ func TestBuilderKeepsExactProfileFromReadableRoot(t *testing.T) {
 			if err := os.MkdirAll(dir, 0700); err != nil {
 				t.Fatal(err)
 			}
-			if err := os.WriteFile(filepath.Join(dir, "writer.json"), []byte(`{"name":"Home","chat":{"llm_provider":"$default","response_timeout":60}}`), 0600); err != nil {
+			if err := os.WriteFile(filepath.Join(dir, "writer.json"), []byte(`{"name":"Home","chat":{"response_timeout":60}}`), 0600); err != nil {
 				t.Fatal(err)
 			}
 			wd := filepath.Join(work, ".assistente", "profiles")
@@ -885,7 +885,7 @@ func TestBuilderKeepsExactProfileFromReadableRoot(t *testing.T) {
 				t.Fatal(err)
 			}
 			profile, err := ReadPortableDefinition(raw)
-			if err != nil || profile.Name != "Home" {
+			if err != nil || profile.Name != "Home" || profile.Chat.LLMProvider != DefaultProviderSentinel {
 				t.Fatal(profile, err)
 			}
 		})

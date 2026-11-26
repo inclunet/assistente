@@ -507,7 +507,7 @@ function InstalledPlugins({ session }: { session: string }) {
       {details.components.length === 0 ? <p>{t('plugins.noComponents')}</p> : <ul>{details.components.map(component => <li key={component.key}>
         <strong>{component.name}</strong> · {t(componentLabel(component.kind))}<JobRequirements component={component} />
         {component.editedServer && <p>{t('plugins.editedServer', { name: component.editedServer })}</p>}
-        {(component.kind === 'mcp' || component.kind === 'provider') && <p>{connectionLabel(component)}</p>}
+        {component.missingProvider && <p>{t('plugins.missingProfileProvider',{name:component.missingProvider})}</p>}{component.profileDefinition && <details><summary>{t('plugins.profileSettings')}</summary><pre>{component.profileDefinition}</pre></details>}{(component.kind === 'mcp' || component.kind === 'provider') && <p>{connectionLabel(component)}</p>}
         {component.kind === 'skill' && component.requestsShell && <p>{t('plugins.commandPolicy')}</p>}
         {component.kind === 'provider' && !component.reason ?
           component.active && error !== 'plugins.providerSyncPending' ? <p>{t('plugins.providerRegistered',{name:component.name})}</p> :
@@ -544,7 +544,7 @@ function InstalledPlugins({ session }: { session: string }) {
         {preview.authentication && <><dt>{t('plugins.authentication')}</dt><dd>{preview.authentication}</dd></>}
         <dt>SHA-256</dt><dd>{preview.digest}</dd>
       </dl>
-      {(preview.components ?? []).length > 0 && <ul aria-label={t('plugins.components')}>{preview.components.map(component => <li key={component.key}>{component.name} · {t(componentLabel(component.kind))}<JobRequirements component={component} />{component.requestsShell && <span> · {t('plugins.commandPolicy')}</span>}{(component.kind === 'mcp' || component.kind === 'provider') && <p>{connectionLabel(component)}</p>}{componentRequirement(component) && <p>{t(componentRequirement(component)!, { path: component.entry })}</p>}</li>)}</ul>}
+      {(preview.components ?? []).length > 0 && <ul aria-label={t('plugins.components')}>{preview.components.map(component => <li key={component.key}>{component.name} · {t(componentLabel(component.kind))}<JobRequirements component={component} />{component.requestsShell && <span> · {t('plugins.commandPolicy')}</span>}{component.missingProvider && <p>{t('plugins.missingProfileProvider',{name:component.missingProvider})}</p>}{component.profileDefinition && <details><summary>{t('plugins.profileSettings')}</summary><pre>{component.profileDefinition}</pre></details>}{(component.kind === 'mcp' || component.kind === 'provider') && <p>{connectionLabel(component)}</p>}{componentRequirement(component) && <p>{t(componentRequirement(component)!, { path: component.entry })}</p>}</li>)}</ul>}
       {(preview.diagnostics ?? []).length > 0 && <details>
         <summary>{t('plugins.warnings', { count: preview.diagnostics.length })}</summary>
         <ul>{preview.diagnostics.map(warning => {
