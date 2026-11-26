@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
@@ -110,7 +111,12 @@ func remoteURL(raw string) (*url.URL, error) {
 	return u, nil
 }
 
-func (i *Inventory) download(ctx context.Context, origin, reference string, git bool) (*pluginpackage.Archive, string, error) {
+// Validators describe the saved index. Package previews always read and hash the body.
+type repositoryValidators struct {
+	etag, modified, root string
+}
+
+func (i *Inventory) download(ctx context.Context, origin, reference string, git bool, cache *repositoryValidators) (*pluginpackage.Archive, string, error) {
 	if _, err := database.RequireUserID(ctx); err != nil {
 		return nil, "", err
 	}
@@ -131,7 +137,7 @@ func (i *Inventory) download(ctx context.Context, origin, reference string, git 
 		return nil, "", errors.New("PLUGIN_REPOSITORY_DOWNLOAD")
 	}
 	if git {
-		archive, revision, err := readGitRepository(ctx, client, u.String())
+		archive, revision, err := readGitRepository(ctx, client, u.String(), cache.root)
 		if err != nil {
 			if ctx.Err() != nil {
 				return nil, "", ctx.Err()
@@ -143,6 +149,12 @@ func (i *Inventory) download(ctx context.Context, origin, reference string, git 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
 	if err != nil {
 		return nil, "", errors.New("PLUGIN_REPOSITORY_URL")
+	}
+	if cache.etag != "" {
+		req.Header.Set("If-None-Match", cache.etag)
+	}
+	if cache.modified != "" {
+		req.Header.Set("If-Modified-Since", cache.modified)
 	}
 	res, err := client.Do(ctx, req)
 	if errors.Is(err, credentials.ErrCredentialResolution) {
@@ -159,6 +171,9 @@ func (i *Inventory) download(ctx context.Context, origin, reference string, git 
 	if (res.StatusCode == http.StatusUnauthorized || res.StatusCode == http.StatusForbidden) && reference != "" {
 		return nil, "", errors.New("PLUGIN_REPOSITORY_CREDENTIAL")
 	}
+	if res.StatusCode == http.StatusNotModified && cache.root != "" && (cache.etag != "" || cache.modified != "") {
+		return nil, cache.root, nil
+	}
 	const maxDownload = 32 << 20
 	if res.StatusCode != http.StatusOK || res.ContentLength > maxDownload {
 		return nil, "", errors.New("PLUGIN_REPOSITORY_DOWNLOAD")
@@ -170,6 +185,14 @@ func (i *Inventory) download(ctx context.Context, origin, reference string, git 
 	archive, err := pluginpackage.OpenArchive(data)
 	if err != nil {
 		return nil, "", err
+	}
+	cache.etag = res.Header.Get("ETag")
+	if len(cache.etag) > 1024 {
+		cache.etag = ""
+	}
+	cache.modified = res.Header.Get("Last-Modified")
+	if _, err := http.ParseTime(cache.modified); err != nil {
+		cache.modified = ""
 	}
 	sum := sha256.Sum256(data)
 	return archive, hex.EncodeToString(sum[:]), nil
@@ -191,7 +214,7 @@ func (i *Inventory) addRemote(ctx context.Context, raw string, authenticated, gi
 		ref = u.Host
 	}
 	u.Host = addressHost(u, false)
-	return i.saveRemote(ctx, u.String(), ref, "", "", git, admit)
+	return i.saveRemote(ctx, u.String(), ref, nil, git, admit)
 }
 
 // The canonical origin identifies a store; network authorization distinguishes an
@@ -208,7 +231,7 @@ func repositoryDownloadURL(row database.PluginRepository) string {
 	return u.String()
 }
 
-func (i *Inventory) saveRemote(ctx context.Context, origin, ref, id, expected string, git bool, admit commandsecurity.Admission) error {
+func (i *Inventory) saveRemote(ctx context.Context, origin, ref string, previous *database.PluginRepository, git bool, admit commandsecurity.Admission) error {
 	owner, err := database.RequireUserID(ctx)
 	if err != nil {
 		return err
@@ -219,12 +242,23 @@ func (i *Inventory) saveRemote(ctx context.Context, origin, ref, id, expected st
 	if err := admit.Check(); err != nil {
 		return err
 	}
-	archive, digest, err := i.download(ctx, origin, ref, git)
+	var cache repositoryValidators
+	var id, expected string
+	if previous != nil {
+		cache = repositoryValidators{etag: previous.ArchiveETag, modified: previous.ArchiveLastModified, root: previous.RootID}
+		id, expected = previous.ID, previous.Revision
+	}
+	archive, digest, err := i.download(ctx, origin, ref, git, &cache)
 	if err != nil {
 		return err
 	}
-	prefix := remoteCatalogPrefix(archive, digest)
-	indices, err := plugincatalog.ReadIndices(func(name string) ([]byte, error) { return archive.Read(prefix+name, 10<<20) })
+	var indices []plugincatalog.Index
+	if archive == nil && previous != nil {
+		err = json.Unmarshal(previous.Indices, &indices)
+	} else {
+		prefix := remoteCatalogPrefix(archive, digest)
+		indices, err = plugincatalog.ReadIndices(func(name string) ([]byte, error) { return archive.Read(prefix+name, 10<<20) })
+	}
 	if err != nil {
 		return err
 	}
@@ -234,7 +268,7 @@ func (i *Inventory) saveRemote(ctx context.Context, origin, ref, id, expected st
 	}
 	explicitHTTPSPort := u.Port() == "443"
 	u.Host = addressHost(u, true)
-	return i.publishRepository(ctx, owner, u.String(), digest, ref, explicitHTTPSPort, id, expected, indices, admit)
+	return i.publishRepository(ctx, owner, u.String(), digest, ref, explicitHTTPSPort, id, expected, indices, cache, admit)
 }
 
 func (i *Inventory) repositoryPackage(ctx context.Context, row database.PluginRepository, entry string) (*pluginpackage.LocalSnapshot, error) {
@@ -251,7 +285,7 @@ func (i *Inventory) repositoryPackage(ctx context.Context, row database.PluginRe
 	if !strings.HasPrefix(row.Origin, "https://") {
 		return pluginpackage.InspectRepositoryPackage(row.Origin, row.RootID, entry)
 	}
-	archive, digest, err := i.download(ctx, repositoryDownloadURL(row), row.CredentialRef, strings.HasPrefix(row.RootID, gitRevisionPrefix))
+	archive, digest, err := i.download(ctx, repositoryDownloadURL(row), row.CredentialRef, strings.HasPrefix(row.RootID, gitRevisionPrefix), &repositoryValidators{})
 	if err != nil {
 		return nil, err
 	}

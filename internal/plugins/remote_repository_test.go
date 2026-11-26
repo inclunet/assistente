@@ -59,6 +59,7 @@ func TestRemoteStoreRetainsReviewedArchiveAndVaultOrigin(t *testing.T) {
 	defer target.Close()
 	var changed atomic.Bool
 	var requests atomic.Int32
+	var conditional atomic.Int32
 	var redirect atomic.Bool
 	var reject atomic.Bool
 	var block atomic.Bool
@@ -82,6 +83,15 @@ func TestRemoteStoreRetainsReviewedArchiveAndVaultOrigin(t *testing.T) {
 		if redirect.Load() {
 			http.Redirect(w, r, target.URL, http.StatusFound)
 			return
+		}
+		if !changed.Load() {
+			w.Header().Set("ETag", `"r1"`)
+			w.Header().Set("Last-Modified", "Mon, 02 Jan 2006 15:04:05 GMT")
+			if r.Header.Get("If-None-Match") == `"r1"` && r.Header.Get("If-Modified-Since") != "" {
+				conditional.Add(1)
+				w.WriteHeader(http.StatusNotModified)
+				return
+			}
 		}
 		if changed.Load() {
 			// ZIP comments can change the archive revision while preserving index entries.
@@ -150,6 +160,14 @@ func TestRemoteStoreRetainsReviewedArchiveAndVaultOrigin(t *testing.T) {
 		t.Fatal(rows, err)
 	}
 	row := rows[0]
+	if err := store.SaveRepository(ctx, "", row.ID, row.Revision, admit); err != nil || conditional.Load() != 1 {
+		t.Fatalf("expected cached index on 304, got %v (%d)", err, conditional.Load())
+	}
+	refreshed, err := store.Repositories(ctx)
+	if err != nil || len(refreshed) != 1 || len(refreshed[0].Indices) != 1 || refreshed[0].Revision != row.Revision {
+		t.Fatal(refreshed, err)
+	}
+
 	snap, err := store.InspectRepositoryEntry(ctx, row.ID, row.Revision, plugincatalog.Claude, "sample")
 	if err != nil || snap.Manifest.Name != "sample" || snap.DiscoveryRepositoryID != row.ID {
 		t.Fatal(snap, err)

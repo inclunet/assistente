@@ -87,7 +87,7 @@ func gitFailure(err error) error {
 	}
 }
 
-func readGitRepository(ctx context.Context, client *httpclient.Client, origin string) (*pluginpackage.Archive, string, error) {
+func readGitRepository(ctx context.Context, client *httpclient.Client, origin, known string) (*pluginpackage.Archive, string, error) {
 	endpoint, err := transport.NewEndpoint(origin)
 	if err != nil {
 		return nil, "", errGitFormat
@@ -104,6 +104,10 @@ func readGitRepository(ctx context.Context, client *httpclient.Client, origin st
 	}
 	if refs.Head == nil || !refs.Capabilities.Supports(capability.Shallow) {
 		return nil, "", errGitFormat
+	}
+	revision := gitRevisionPrefix + refs.Head.String()
+	if revision == known {
+		return nil, revision, nil
 	}
 	request := packp.NewUploadPackRequest()
 	if err := request.Capabilities.Set(capability.Shallow); err != nil {
@@ -135,7 +139,7 @@ func readGitRepository(ctx context.Context, client *httpclient.Client, origin st
 		return nil, "", err
 	}
 	archive, err := gitTreeArchive(ctx, storage, commit.TreeHash)
-	return archive, gitRevisionPrefix + refs.Head.String(), err
+	return archive, revision, err
 }
 
 // A delta's pack header bounds its instructions, not the resulting blob.

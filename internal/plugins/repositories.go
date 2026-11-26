@@ -120,7 +120,7 @@ func (i *Inventory) saveRepository(ctx context.Context, absolute, id, expected s
 			return i.saveLocalArchive(ctx, owner, row.Origin, id, expected, "", admit)
 		}
 		if strings.HasPrefix(row.Origin, "https://") {
-			return i.saveRemote(ctx, repositoryDownloadURL(row), row.CredentialRef, id, expected, strings.HasPrefix(row.RootID, gitRevisionPrefix), admit)
+			return i.saveRemote(ctx, repositoryDownloadURL(row), row.CredentialRef, &row, strings.HasPrefix(row.RootID, gitRevisionPrefix), admit)
 		}
 		absolute = row.Origin
 		expectedRoot = row.RootID
@@ -154,7 +154,7 @@ func (i *Inventory) saveRepository(ctx context.Context, absolute, id, expected s
 	if required != "" && !slices.ContainsFunc(indices, func(index plugincatalog.Index) bool { return index.Format == required }) {
 		return errors.New("PLUGIN_REPOSITORY_INDEX_PATH")
 	}
-	return i.publishRepository(ctx, owner, origin, rootID, "", false, id, expected, indices, admit)
+	return i.publishRepository(ctx, owner, origin, rootID, "", false, id, expected, indices, repositoryValidators{}, admit)
 }
 
 const localZIPPrefix = "zip:"
@@ -189,10 +189,10 @@ func (i *Inventory) saveLocalArchive(ctx context.Context, owner, filename, id, e
 	if reviewed != "" && digest != reviewed {
 		return errors.Join(ErrPackageChanged, errors.New("PLUGIN_REPOSITORY_PREVIEW_CHANGED"))
 	}
-	return i.publishRepository(ctx, owner, filename, localZIPPrefix+digest, "", false, id, expected, indices, admit)
+	return i.publishRepository(ctx, owner, filename, localZIPPrefix+digest, "", false, id, expected, indices, repositoryValidators{}, admit)
 }
 
-func (i *Inventory) publishRepository(ctx context.Context, owner, origin, rootID, ref string, explicitHTTPSPort bool, id, expected string, indices []plugincatalog.Index, admit commandsecurity.Admission) error {
+func (i *Inventory) publishRepository(ctx context.Context, owner, origin, rootID, ref string, explicitHTTPSPort bool, id, expected string, indices []plugincatalog.Index, cache repositoryValidators, admit commandsecurity.Admission) error {
 	data, err := json.Marshal(indices)
 	if err != nil {
 		return err
@@ -224,9 +224,9 @@ func (i *Inventory) publishRepository(ctx context.Context, owner, origin, rootID
 			if !errors.Is(lookup, gorm.ErrRecordNotFound) {
 				return lookup
 			}
-			return tx.Create(&database.PluginRepository{UserID: owner, Origin: origin, ExplicitHTTPSPort: explicitHTTPSPort, RootID: rootID, CredentialRef: ref, Indices: data, Revision: revision}).Error
+			return tx.Create(&database.PluginRepository{ArchiveETag: cache.etag, ArchiveLastModified: cache.modified, UserID: owner, Origin: origin, ExplicitHTTPSPort: explicitHTTPSPort, RootID: rootID, CredentialRef: ref, Indices: data, Revision: revision}).Error
 		}
-		result := tx.Model(&database.PluginRepository{}).Where("id=? AND user_id=? AND revision=?", id, owner, expected).Updates(map[string]any{"indices": data, "revision": revision, "root_id": rootID})
+		result := tx.Model(&database.PluginRepository{}).Where("id=? AND user_id=? AND revision=?", id, owner, expected).Updates(map[string]any{"indices": data, "revision": revision, "root_id": rootID, "archive_etag": cache.etag, "archive_last_modified": cache.modified})
 		if result.Error != nil {
 			return result.Error
 		}

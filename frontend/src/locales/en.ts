@@ -245,6 +245,7 @@ notSaved: 'The decision applies only to this operation: it could not be remember
       gitURL: 'Git repository HTTPS URL',
       addGit: 'Add Git repository',
       gitSizeError: 'The repository exceeds the size limit for plugin stores.',
+      catalogOffline: 'Some stores could not be refreshed. The catalog shows the last available copy.',
       gitError: 'Could not read the Git store. Check the clone URL, connection and credentials.',
       storeDetected: 'Plugin store found',
       storeDetectedPrompt: 'Add the store {{name}} from {{origin}}?',
