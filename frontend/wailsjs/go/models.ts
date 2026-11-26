@@ -8132,6 +8132,7 @@ export namespace plugins {
 	    }
 	}
 	export class BuilderRequest {
+	    providers?: string[];
 	    jobs?: string[];
 	    profiles?: string[];
 	    skills?: string[];
@@ -8145,6 +8146,7 @@ export namespace plugins {
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.providers = source["providers"];
 	        this.jobs = source["jobs"];
 	        this.profiles = source["profiles"];
 	        this.skills = source["skills"];
@@ -8187,6 +8189,7 @@ export namespace plugins {
 	}
 	
 	export class Component {
+	    processArgs?: string[];
 	    tool?: string;
 	    jobMaxRunsPerHour?: number;
 	    jobTriggers?: jobs.Trigger[];
@@ -8208,6 +8211,7 @@ export namespace plugins {
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.processArgs = source["processArgs"];
 	        this.tool = source["tool"];
 	        this.jobMaxRunsPerHour = source["jobMaxRunsPerHour"];
 	        this.jobTriggers = this.convertValues(source["jobTriggers"], jobs.Trigger);

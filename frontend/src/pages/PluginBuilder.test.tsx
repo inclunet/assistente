@@ -6,11 +6,24 @@ import PluginBuilder from './PluginBuilder';
 const mock = vi.hoisted(() => ({list:vi.fn(),profiles:vi.fn(async()=>({names:['writer'],partial:false})),skills:vi.fn(async()=>({names:['notes'],partial:false})),preview:vi.fn(),save:vi.fn(),announce:vi.fn()}));
 
 vi.mock('@wailsjs/go/wailsapi/Tasklist', () => ({GetAllTaskLists:mock.list}));
-vi.mock('@wailsjs/go/wailsapi/Plugins', () => ({BuilderJobNames:vi.fn(async()=>['reminder']),BuilderProfileNames:mock.profiles,BuilderSkillNames:mock.skills,PreviewBuilder:mock.preview,SaveBuilder:mock.save}));
+vi.mock('@wailsjs/go/wailsapi/Plugins', () => ({BuilderProviderSlugs: async () => ['equipe'], BuilderJobNames:vi.fn(async()=>['reminder']),BuilderProfileNames:mock.profiles,BuilderSkillNames:mock.skills,PreviewBuilder:mock.preview,SaveBuilder:mock.save}));
 vi.mock('../hooks/useAnnouncer', () => ({useAnnouncer:()=>({announce:mock.announce})}));
 vi.mock('react-i18next', () => ({useTranslation:()=>({t:(key:string, args?: {name?: string, position?: number})=>key === 'plugins.builderListPosition' ? args?.name + ' #' + args?.position : (key === 'plugins.builderNamedSkillError' || key === 'plugins.builderNamedProfileError') ? key + ': ' + args?.name : key})}));
 
 describe('PluginBuilder', () => {
+  it('allows preview with only a provider selected', async () => {
+    mock.list.mockResolvedValue([]);
+    mock.preview.mockResolvedValueOnce({name: 'equipe-kit', digest: 'revision', files: [], contents: {}});
+    const user = userEvent.setup();
+    render(<PluginBuilder />);
+    const name = screen.getByRole('textbox', {name: 'plugins.packageName'});
+    await waitFor(() => expect(name).toBeEnabled());
+    await user.type(name, 'equipe-kit');
+    await user.click(await screen.findByRole('checkbox', {name: 'equipe'}));
+    await user.click(screen.getByRole('button', {name: 'plugins.builderReview'}));
+    expect(mock.preview).toHaveBeenCalledWith(expect.objectContaining({providers: ['equipe']}));
+    mock.preview.mockClear();
+  });
   it('keeps skills selectable alongside a partial-discovery warning', async () => {
     mock.list.mockResolvedValue([]);
     mock.skills.mockResolvedValueOnce({names:['notes'],partial:true});

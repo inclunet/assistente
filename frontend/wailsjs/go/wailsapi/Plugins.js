@@ -18,6 +18,10 @@ export function BuilderProfileNames() {
   return window['go']['wailsapi']['Plugins']['BuilderProfileNames']();
 }
 
+export function BuilderProviderSlugs() {
+  return window['go']['wailsapi']['Plugins']['BuilderProviderSlugs']();
+}
+
 export function BuilderSkillNames() {
   return window['go']['wailsapi']['Plugins']['BuilderSkillNames']();
 }

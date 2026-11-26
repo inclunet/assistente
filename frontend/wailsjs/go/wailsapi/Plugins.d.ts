@@ -12,6 +12,8 @@ export function BuilderJobNames():Promise<Array<string>>;
 
 export function BuilderProfileNames():Promise<plugins.BuilderResourceCatalog>;
 
+export function BuilderProviderSlugs():Promise<Array<string>>;
+
 export function BuilderSkillNames():Promise<plugins.BuilderResourceCatalog>;
 
 export function ChangeInstallation(arg1:string,arg2:string,arg3:string):Promise<void>;
