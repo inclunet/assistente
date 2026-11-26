@@ -1,6 +1,9 @@
 package plugincatalog
 
 import (
+	"archive/zip"
+	"assistente/internal/pluginpackage"
+	"bytes"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -43,7 +46,7 @@ func TestCatalogAdaptersReadLocalIndices(t *testing.T) {
 	}
 }
 func TestCatalogRejectsEscapeAndRetainsUnavailableEntries(t *testing.T) {
-	for _, source := range []string{"./../other", "https://example.com", "C:/outside", "dir\\other"} {
+	for _, source := range []string{"./../other", "./x/.GiT/p", "https://example.com", "C:/outside", "dir\\other"} {
 		data, _ := json.Marshal(map[string]any{"name": "store", "owner": map[string]string{"name": "a"}, "plugins": []any{map[string]string{"name": "p", "source": source}}})
 		if _, err := Decode(Claude, data); err == nil {
 			t.Fatal(source)
@@ -90,5 +93,23 @@ func TestCodexProductRestrictionAndDeferredAuthentication(t *testing.T) {
 	}
 	if index.Entries[0].Diagnostic != "" || index.Entries[1].Diagnostic != "policy" || len(index.Entries[1].Products) != 1 {
 		t.Fatal(index)
+	}
+}
+
+func TestArchivePrefixExcludesGitMetadata(t *testing.T) {
+	var data bytes.Buffer
+	writer := zip.NewWriter(&data)
+	if _, err := writer.Create(".Git/.claude-plugin/marketplace.json"); err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	archive, err := pluginpackage.OpenArchive(data.Bytes())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if prefix := ArchivePrefix(archive); prefix != "" {
+		t.Fatal(prefix)
 	}
 }

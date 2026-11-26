@@ -2,7 +2,7 @@ import { repositoryError } from './pluginRepositoryError';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { plugins, wailsapi } from '@wailsjs/go/models';
-import { AddRemoteRepository, AddLocalRepository, ListRepositories, PreviewRepositoryEntry, RefreshRepository, RemoveRepository, DiscardPreview } from '@wailsjs/go/wailsapi/Plugins';
+import { AddArchiveRepository, AddRemoteRepository, AddLocalRepository, ListRepositories, PreviewRepositoryEntry, RefreshRepository, RemoveRepository, DiscardPreview } from '@wailsjs/go/wailsapi/Plugins';
 import { useAnnouncer } from '../hooks/useAnnouncer';
 import { useConfirm } from '../hooks/useConfirm';
 import { Button } from '../components/ui/Button';
@@ -10,8 +10,11 @@ import { Input } from '../components/ui/Input';
 import { Toolbar } from '../components/ui/Toolbar';
 import { DataGrid } from '../components/ui/DataGrid';
 
+import { Modal } from '../components/ui/Modal';
+import { DialogActions } from '../components/ui/DialogActions';
+
 const pageSize = 50;
-const pendingWrites = new Map<string, Promise<boolean>>();
+import { pendingRepositoryWrites, trackRepositoryWrite } from './pluginRepositoryWrites';
 
 interface Props {
   session: string;
@@ -25,6 +28,8 @@ export default function PluginRepositories({ session, catalog, parentBusy, onPre
   const { announce } = useAnnouncer();
   const confirm = useConfirm();
   const [repositories, setRepositories] = useState<plugins.Repository[]>([]);
+  const [adding, setAdding] = useState(false);
+  const [source, setSource] = useState<'add' | 'zip' | 'remote'>('add');
   const [url, setUrl] = useState('');
   const [authenticated, setAuthenticated] = useState(false);
   const [page, setPage] = useState(0);
@@ -39,6 +44,7 @@ export default function PluginRepositories({ session, catalog, parentBusy, onPre
     focusAfterRemoval.current = false;
     if (document.activeElement === document.body) addButton.current?.focus();
   }, [busy]);
+  const cancelAdd = () => { setAdding(false); requestAnimationFrame(() => { if (document.activeElement === document.body) addButton.current?.focus(); }); };
   const refresh = async () => {
     const result = await ListRepositories();
     if (mounted.current) setRepositories(result ?? []);
@@ -48,7 +54,7 @@ export default function PluginRepositories({ session, catalog, parentBusy, onPre
     let active = true;
     async function load() {
       let failure = '';
-      try { await pendingWrites.get(session); } catch (cause) { failure = repositoryError(cause, 'plugins.repositoryReadError'); }
+      try { await pendingRepositoryWrites.get(session); } catch (cause) { failure = repositoryError(cause, 'plugins.repositoryReadError'); }
       if (!active) return;
       try {
         const rows = await ListRepositories();
@@ -61,7 +67,7 @@ export default function PluginRepositories({ session, catalog, parentBusy, onPre
   }, [session]);
   useEffect(() => { if (error) announce(t(error), 'assertive'); }, [error, t, announce]);
 
-  const change = async (action: 'remote' | 'add' | 'refresh' | 'remove', repo?: plugins.Repository) => {
+  const change = async (action: 'zip' | 'remote' | 'add' | 'refresh' | 'remove', repo?: plugins.Repository) => {
     if (busy) return;
     setBusy(true);
     setError('');
@@ -71,16 +77,13 @@ export default function PluginRepositories({ session, catalog, parentBusy, onPre
         if (!accepted || !mounted.current) return;
       }
       const pending = action === 'add' ? AddLocalRepository()
+        : action === 'zip' ? AddArchiveRepository()
         : action === 'remote' ? AddRemoteRepository(url.trim(), authenticated).then(() => true)
         : repo ? (action === 'remove' ? RemoveRepository : RefreshRepository)(repo.id, repo.revision).then(() => true)
         : undefined;
       if (!pending) return;
-      pendingWrites.set(session, pending);
-      try {
-        if (!await pending || !mounted.current) return;
-      } finally {
-        if (pendingWrites.get(session) === pending) pendingWrites.delete(session);
-      }
+      if (!await trackRepositoryWrite(session,pending) || !mounted.current) return;
+      if (['add','zip','remote'].includes(action)) { setAdding(false); focusAfterRemoval.current = true; }
       if (action === 'remote') { setUrl(''); setAuthenticated(false); }
       if (action === 'remove' && repo) {
         focusAfterRemoval.current = repositories.length === 1;
@@ -120,13 +123,25 @@ export default function PluginRepositories({ session, catalog, parentBusy, onPre
   return <>
     <Toolbar ariaLabel={t(catalog ? 'plugins.catalog' : 'plugins.repositories')} left={<h2>{t(catalog ? 'plugins.catalog' : 'plugins.repositories')}</h2>}
       right={catalog ? <Input label={t('plugins.searchCatalog')} value={search} onChange={event => { setSearch(event.target.value); setPage(0); }} /> :
-        <Button ref={addButton} disabled={busy} onClick={() => void change('add')}>{t('plugins.addRepo')}</Button>} />
-    {!catalog && <form onSubmit={event => { event.preventDefault(); void change('remote'); }}>
+        <Button ref={addButton} disabled={busy} onClick={() => { setSource('add'); setUrl(''); setAuthenticated(false); setError(''); setAdding(true); }}>{t('plugins.addRepo')}</Button>} />
+    {adding && <Modal isOpen title={t('plugins.addRepo')} allowClose={!busy} onClose={cancelAdd}>
+      <form onSubmit={event => { event.preventDefault(); void change(source); }}>
+      <label htmlFor="plugin-store-source">{t('plugins.storeSource')}</label>
+      <select id="plugin-store-source" disabled={busy} value={source}
+        onChange={event => { setSource(event.target.value as typeof source); setAuthenticated(false); setError(''); }}>
+        <option value="add">{t('plugins.folderSource')}</option>
+        <option value="zip">{t('plugins.zipSource')}</option>
+        <option value="remote">{t('plugins.archiveURL')}</option>
+      </select>
+      {source === 'remote' && <>
       <Input type="url" required label={t('plugins.archiveURL')} value={url} disabled={busy} onChange={event => { setUrl(event.target.value); setAuthenticated(false); }} />
       <label htmlFor="plugin-use-host-credential"><input id="plugin-use-host-credential" type="checkbox" checked={authenticated} disabled={busy} onChange={event => setAuthenticated(event.target.checked)} />{t('plugins.archiveCredential')}</label>
-      <Button type="submit" disabled={busy || !url.trim()}>{t('plugins.addRemoteRepo')}</Button>
-    </form>}
-    {error && <p>{t(error)}</p>}
+      </>}
+      {error && <p>{t(error)}</p>}
+      <DialogActions primary={<Button type="submit" disabled={busy || (source === 'remote' && !url.trim())}>{t(source === 'remote' ? 'plugins.addRemoteRepo' : source === 'zip' ? 'plugins.zipSource' : 'plugins.folderSource')}</Button>}
+        secondary={<Button type="button" disabled={busy} onClick={cancelAdd}>{t('common.cancel')}</Button>} />
+    </form></Modal>}
+    {!adding && error && <p>{t(error)}</p>}
     {catalog ? <>
       {entries.length > 0 ? <DataGrid items={entries.slice(currentPage * pageSize, (currentPage + 1) * pageSize)} getItemId={item => item.id} autoFocusOnMount={false} label={t('plugins.catalog')} onActivate={entry => void preview(entry)}
         columns={[

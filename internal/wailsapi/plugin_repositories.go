@@ -64,6 +64,36 @@ func (api *Plugins) AddLocalRepository() (bool, error) {
 	})
 	return selected && err == nil, err
 }
+func (api *Plugins) AddArchiveRepository() (bool, error) {
+	selected := false
+	err := api.withRepositorySession(func(ctx context.Context, i *plugins.Inventory, _ func() (string, error), admit commandsecurity.Admission) error {
+		file, err := api.pickArchive()
+		if err != nil || file == "" {
+			return err
+		}
+		selected = true
+		return i.AddRepositoryZIP(ctx, file, "", admit)
+	})
+	return selected && err == nil, err
+}
+
+func (api *Plugins) AddReviewedRepository(token string) error {
+	return api.withRepositorySession(func(ctx context.Context, i *plugins.Inventory, _ func() (string, error), _ commandsecurity.Admission) error {
+		owner, err := database.RequireUserID(ctx)
+		if err != nil {
+			return err
+		}
+		api.mu.Lock()
+		selected := api.selection
+		if selected == nil || !selected.preview.Repository || selected.preview.Token != token || selected.owner != owner {
+			api.mu.Unlock()
+			return errPreviewSuperseded
+		}
+		api.selection = nil
+		api.mu.Unlock()
+		return i.AddRepositoryZIP(ctx, selected.preview.Origin, selected.preview.Digest, selected.validate)
+	})
+}
 func (api *Plugins) RefreshRepository(id, revision string) error {
 	return api.withRepositorySession(func(ctx context.Context, i *plugins.Inventory, _ func() (string, error), admit commandsecurity.Admission) error {
 		return i.SaveRepository(ctx, "", id, revision, admit)

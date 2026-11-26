@@ -5,12 +5,13 @@ import { useResourceEditRequest } from '../hooks/useResourceEditRequest';
 import { useNavigationStore } from '../store/navigationStore';
 import { create } from 'zustand';
 import { useTranslation } from 'react-i18next';
-import { ProviderRemovalPreview, UninstallReviewed, CreateListFromTemplate, ChangeInstallation, DiscardPreview, InstalledComponents, InstallReviewed, ListInstalled, PreviewLocal, PreviewLocalZIP, RegisterProvider, RegisterMCP, RemoveMCP, PrepareJob, SetProfileActive, SetSkillActive, SyncMCP, SyncPendingJobs } from '@wailsjs/go/wailsapi/Plugins';
+import { AddReviewedRepository, ProviderRemovalPreview, UninstallReviewed, CreateListFromTemplate, ChangeInstallation, DiscardPreview, InstalledComponents, InstallReviewed, ListInstalled, PreviewLocal, PreviewLocalZIP, RegisterProvider, RegisterMCP, RemoveMCP, PrepareJob, SetProfileActive, SetSkillActive, SyncMCP, SyncPendingJobs } from '@wailsjs/go/wailsapi/Plugins';
 import type { database, jobs, plugins, wailsapi } from '@wailsjs/go/models';
 import { Button } from '../components/ui/Button';
 import { DataGrid } from '../components/ui/DataGrid';
 import { ChatGPTConnection } from '../components/settings/ChatGPTConnection';
 import { Modal } from '../components/ui/Modal';
+import { trackRepositoryWrite } from './pluginRepositoryWrites';
 import PluginRepositories from './PluginRepositories';
 import PluginBuilder from './PluginBuilder';
 import { Tabs, Tab, TabList, TabPanel } from '../components/ui/tabs/Tabs';
@@ -625,7 +626,19 @@ function InstalledPlugins({ session }: { session: string }) {
         setProviderRemoval(null);
         if (choice === 'detach' || choice === 'remove') void changeInstallation('uninstall', providerRemoval.opener, {choice, versions:providerRemoval.versions});
       }} />}
-    {preview && <DecisionDialog isOpen title={t('plugins.preview', { name: preview.name })}
+    {preview?.repository && <DecisionDialog isOpen title={t('plugins.storeDetected')} description={[t('plugins.storeDetectedPrompt',{name:preview.name,origin:preview.origin}),error && errorText].filter(Boolean).join('\n')}
+      allowClose={!busy} actions={[{id:'add',label:t('plugins.addRepo'),primary:true,disabled:busy},{id:'cancel',label:t('common.cancel'),disabled:busy}]}
+      onCancel={() => void discard()} onAction={async id => {
+        if (id !== 'add') { await discard(); return; }
+        setBusy(true);
+        openToken.current = null;
+        try {
+          await trackRepositoryWrite(session,AddReviewedRepository(preview.token).then(() => true));
+          if (mounted.current) { announce(t('plugins.repoUpdated')); setSection('repositories'); }
+        } catch (cause) { if (mounted.current) setError(repositoryError(cause,'plugins.repositoryReadError')); }
+        finally { if (mounted.current) { restoreFocus.current = true; setPreview(null); setBusy(false); } }
+      }} />}
+    {preview && !preview.repository && <DecisionDialog isOpen title={t('plugins.preview', { name: preview.name })}
       description={preview.previousDigest && !sameRevision ? t(previewDescription) + ' ' + t('plugins.preserveJobNotice') : t(previewDescription)} allowClose={!busy} size="lg"
       actions={[
         { id: 'install', label: t(preview.previousDigest ? 'plugins.update' : 'plugins.install'), primary: true, polarity: 'affirmative', disabled: busy || sameRevision || editedServers.length > 0 },

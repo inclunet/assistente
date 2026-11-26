@@ -105,6 +105,9 @@ func (i *Inventory) SaveRepository(ctx context.Context, absolute, id, expected s
 		if err := i.db.WithContext(ctx).Where("id=? AND user_id=? AND revision=?", id, owner, expected).Take(&row).Error; err != nil {
 			return err
 		}
+		if strings.HasPrefix(row.RootID, localZIPPrefix) {
+			return i.saveLocalArchive(ctx, owner, row.Origin, id, expected, "", admit)
+		}
 		if strings.HasPrefix(row.Origin, "https://") {
 			return i.saveRemote(ctx, repositoryDownloadURL(row), row.CredentialRef, id, expected, admit)
 		}
@@ -140,13 +143,48 @@ func (i *Inventory) SaveRepository(ctx context.Context, absolute, id, expected s
 	return i.publishRepository(ctx, owner, origin, rootID, "", false, id, expected, indices, admit)
 }
 
+const localZIPPrefix = "zip:"
+
+func InspectRepositoryZIP(filename string) ([]plugincatalog.Index, string, error) {
+	archive, digest, err := pluginpackage.OpenLocalArchive(filename)
+	if err != nil {
+		return nil, "", err
+	}
+	prefix := plugincatalog.ArchivePrefix(archive)
+	indices, err := plugincatalog.ReadIndices(func(name string) ([]byte, error) { return archive.Read(prefix+name, 10<<20) })
+	return indices, digest, err
+}
+func (i *Inventory) AddRepositoryZIP(ctx context.Context, filename, reviewed string, admit commandsecurity.Admission) error {
+	owner, err := database.RequireUserID(ctx)
+	if err != nil {
+		return err
+	}
+	return i.saveLocalArchive(ctx, owner, filename, "", "", reviewed, admit)
+}
+func (i *Inventory) saveLocalArchive(ctx context.Context, owner, filename, id, expected, reviewed string, admit commandsecurity.Admission) error {
+	if admit == nil {
+		return database.ErrUserScopeRequired
+	}
+	if err := admit.Check(); err != nil {
+		return err
+	}
+	indices, digest, err := InspectRepositoryZIP(filename)
+	if err != nil {
+		return err
+	}
+	if reviewed != "" && digest != reviewed {
+		return errors.Join(ErrPackageChanged, errors.New("PLUGIN_REPOSITORY_PREVIEW_CHANGED"))
+	}
+	return i.publishRepository(ctx, owner, filename, localZIPPrefix+digest, "", false, id, expected, indices, admit)
+}
+
 func (i *Inventory) publishRepository(ctx context.Context, owner, origin, rootID, ref string, explicitHTTPSPort bool, id, expected string, indices []plugincatalog.Index, admit commandsecurity.Admission) error {
 	data, err := json.Marshal(indices)
 	if err != nil {
 		return err
 	}
 	hashInput := data
-	if strings.HasPrefix(origin, "https://") {
+	if strings.HasPrefix(origin, "https://") || strings.HasPrefix(rootID, localZIPPrefix) {
 		hashInput = append(append([]byte(rootID), 0), data...)
 	}
 	digest := sha256.Sum256(hashInput)

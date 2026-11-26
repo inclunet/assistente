@@ -17,6 +17,7 @@ import (
 )
 
 type PluginPreview struct {
+	Repository         bool                `json:"repository,omitempty"`
 	Authentication     string              `json:"authentication,omitempty"`
 	EditedMCPServers   []string            `json:"editedMcpServers,omitempty"`
 	AffectedMCPServers []string            `json:"affectedMcpServers,omitempty"`
@@ -151,15 +152,7 @@ func (api *Plugins) previewLocal(zip bool) (*PluginPreview, error) {
 		}
 		inspect := pluginpackage.InspectLocal
 		if zip {
-			api.mu.Lock()
-			picker := api.chooseArchive
-			api.mu.Unlock()
-			if picker == nil {
-				return nil, errors.New("archive picker unavailable")
-			}
-			choose = func() (string, error) {
-				return picker(ports.OpenFileOptions{Filters: []ports.FileFilter{{DisplayName: "ZIP", Pattern: "*.zip"}}})
-			}
+			choose = api.pickArchive
 			inspect = pluginpackage.InspectLocalZIP
 		}
 		dir, err := choose()
@@ -172,7 +165,16 @@ func (api *Plugins) previewLocal(zip bool) (*PluginPreview, error) {
 		if err := validate.Check(); err != nil {
 			return nil, err
 		}
-		return api.preparePreview(ctx, inventory, owner, generation, validate, func(context.Context) (*pluginpackage.LocalSnapshot, error) { return inspect(dir) })
+		p, err := api.preparePreview(ctx, inventory, owner, generation, validate, func(context.Context) (*pluginpackage.LocalSnapshot, error) { return inspect(dir) })
+		if !zip || !errors.Is(err, pluginpackage.ErrMissingManifest) {
+			return p, err
+		}
+		indices, digest, indexErr := plugins.InspectRepositoryZIP(dir)
+		if indexErr != nil {
+			return nil, err
+		}
+		return api.rememberPreview(generation, &pluginSelection{owner: owner, validate: validate, preview: PluginPreview{Repository: true, Name: indices[0].Name, Origin: dir, Digest: digest}})
+
 	})
 }
 
@@ -214,21 +216,34 @@ func (api *Plugins) preparePreview(ctx context.Context, inventory *plugins.Inven
 		p.Files = append(p.Files, path)
 	}
 	sort.Strings(p.Files)
+	return api.rememberPreview(generation, &pluginSelection{inspect: inspect, affected: affected, preview: p, owner: owner, validate: validate})
+}
+
+func (api *Plugins) pickArchive() (string, error) {
+	api.mu.Lock()
+	picker := api.chooseArchive
+	api.mu.Unlock()
+	if picker == nil {
+		return "", errors.New("archive picker unavailable")
+	}
+	return picker(ports.OpenFileOptions{Filters: []ports.FileFilter{{DisplayName: "ZIP", Pattern: "*.zip"}}})
+}
+func (api *Plugins) rememberPreview(generation uint64, selection *pluginSelection) (*PluginPreview, error) {
 	token, err := uuid.NewRandom()
 	if err != nil {
 		return nil, err
 	}
-	p.Token = token.String()
+	selection.preview.Token = token.String()
 	api.mu.Lock()
 	defer api.mu.Unlock()
-	if err := validate.Check(); err != nil {
+	if err := selection.validate.Check(); err != nil {
 		return nil, err
 	}
 	if generation != api.previewGeneration {
 		return nil, errPreviewSuperseded
 	}
-	api.selection = &pluginSelection{inspect: inspect, affected: affected, preview: p, owner: owner, validate: validate}
-	return &p, nil
+	api.selection = selection
+	return &selection.preview, nil
 }
 
 // Runtime synchronization can fail after the inventory transaction has committed.
@@ -248,7 +263,7 @@ func (api *Plugins) InstallReviewed(token string) (database.PluginInstallation, 
 		}
 		api.mu.Lock()
 		selection := api.selection
-		if selection == nil || selection.owner != owner || selection.preview.Token != token || strings.TrimSpace(token) == "" {
+		if selection == nil || selection.preview.Repository || selection.owner != owner || selection.preview.Token != token || strings.TrimSpace(token) == "" {
 			api.mu.Unlock()
 			return database.PluginInstallation{}, errors.New("plugin preview expired")
 		}

@@ -69,7 +69,11 @@ func ArchivePrefix(archive *pluginpackage.Archive) string {
 			return ""
 		}
 	}
-	return archive.Wrapper()
+	wrapper := archive.Wrapper()
+	if strings.EqualFold(wrapper, ".git/") {
+		return ""
+	}
+	return wrapper
 }
 
 func ReadRoot(root *os.Root) ([]Index, error) {
@@ -102,6 +106,11 @@ func portablePath(value string) (string, bool) {
 	value = strings.TrimPrefix(value, "./")
 	if value == "." || !fs.ValidPath(value) || strings.ContainsAny(value, "\\:\x00") {
 		return "", false
+	}
+	for _, part := range strings.Split(value, "/") {
+		if strings.EqualFold(part, ".git") {
+			return "", false
+		}
 	}
 	_, err := filepath.Localize(value)
 	return value, err == nil
