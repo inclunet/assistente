@@ -535,7 +535,7 @@ function InstalledPlugins({ session }: { session: string }) {
     </Modal>}
     {providerRemoval && details && <DecisionDialog isOpen
       title={t('plugins.uninstall', {name: details.installation.name})}
-      description={t('plugins.providerRemovalPrompt', {providers: Object.keys(providerRemoval.versions).sort().join(', ')})}
+      description={[t('plugins.uninstallConfirm'), t('plugins.origin') + ': ' + details.installation.origin, t('plugins.providerRemovalPrompt', {providers: Object.keys(providerRemoval.versions).sort().join(', ')})].join('\n')}
       actions={[
         {id:'detach', label:t('plugins.detachProviders'), primary:true},
         {id:'remove', label:t('plugins.removeProviders')},

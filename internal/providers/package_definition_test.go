@@ -79,3 +79,45 @@ func TestPackagedProviderStaysExplicitAfterReload(t *testing.T) {
 		t.Fatalf("escolha explícita: %+v %v", def, err)
 	}
 }
+
+func TestRemovePackagedProviderSerializesConcurrentEdit(t *testing.T) {
+	ctx := t.Context()
+	store := NewMemoryStore()
+	p := &llm.ProviderConfig{ID: "local-id", Name: "Original", Type: "openai", BaseURL: "https://example.test/v1", RequiresExplicitDefault: true}
+	if err := store.Save(ctx, []*llm.ProviderConfig{p}); err != nil {
+		t.Fatal(err)
+	}
+	svc := NewService(ServiceConfig{Store: store, Registry: llm.NewProviderRegistry()})
+	if err := svc.Load(ctx); err != nil {
+		t.Fatal(err)
+	}
+	started := make(chan struct{})
+	edited := make(chan error, 1)
+	err := svc.RemovePackagedProviders(func() ([]string, error) {
+		if err := store.Delete(ctx, p.ID); err != nil {
+			return nil, err
+		}
+		go func() {
+			close(started)
+			_, err := svc.Update(ctx, p.ID, UpdateRequest{Name: "Edição concorrente"})
+			edited <- err
+		}()
+		<-started
+		return []string{p.ID}, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := <-edited; err == nil {
+		t.Fatal("edição recriou o cadastro removido")
+	}
+	if svc.registry.Get(p.ID) != nil {
+		t.Fatal("provedor removido ficou no registro")
+	}
+	if err := svc.Save(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if rows, err := store.Load(ctx); err != nil || len(rows) != 0 {
+		t.Fatal(rows, err)
+	}
+}
