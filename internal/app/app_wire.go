@@ -66,6 +66,11 @@ func (a *App) wirePlugins() {
 				return fmt.Errorf("gerenciador de jobs indisponível")
 			}
 			return a.jobMgr.RefreshPluginJob(ctx, slug, admit)
+		}).WithProviderRefresh(func(ctx context.Context, id string, admit commandsecurity.Admission) error {
+			if a.providerSvc == nil {
+				return fmt.Errorf("gerenciador de provedores indisponível")
+			}
+			return a.providerSvc.RefreshPackagedProvider(ctx, id, admit)
 		}).WithProfileDefinitions(a.profileManager.DiscoverPortableDefinitions).WithSkillDefinitions(a.skillMgr.DiscoverPortableDefinitions).WithListCreated(a.taskSvc.NotifyTemplateListCreated), a.dialogPort.OpenDirectoryDialog, a.captureDialogAdmission, func() { a.emitter.Emit("plugins:skills_changed", nil) })
 	}
 }

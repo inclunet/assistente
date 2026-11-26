@@ -7,16 +7,16 @@ import { useWorkspaceStore } from '../store/workspaceStore';
 import { useAuthStore } from '../store/authStore';
 import * as navigation from '../lib/commandLandmarkNavigation';
 
-const mocks = vi.hoisted(() => ({ prepareJob: vi.fn(), syncJobs: vi.fn().mockResolvedValue(undefined), profile: vi.fn(), createList: vi.fn(), repos: vi.fn(), catalogPreview: vi.fn(), lifecycle: vi.fn(), sync: vi.fn(), register: vi.fn(), remove: vi.fn(), confirm: vi.fn(), list: vi.fn(), components: vi.fn(), toggle: vi.fn(), preview: vi.fn(), install: vi.fn(), discard: vi.fn(), announce: vi.fn(), announceRequest: vi.fn() }));
+const mocks = vi.hoisted(() => ({ registerProvider: vi.fn(), prepareJob: vi.fn(), syncJobs: vi.fn().mockResolvedValue(undefined), profile: vi.fn(), createList: vi.fn(), repos: vi.fn(), catalogPreview: vi.fn(), lifecycle: vi.fn(), sync: vi.fn(), register: vi.fn(), remove: vi.fn(), confirm: vi.fn(), list: vi.fn(), components: vi.fn(), toggle: vi.fn(), preview: vi.fn(), install: vi.fn(), discard: vi.fn(), announce: vi.fn(), announceRequest: vi.fn() }));
 vi.mock('@wailsjs/go/wailsapi/Tasklist', () => ({GetAllTaskLists: async () => []}));
-vi.mock('@wailsjs/go/wailsapi/Plugins', () => ({ BuilderProviderSlugs: async () => ['equipe'], BuilderJobNames: async () => [], BuilderProfileNames: async () => ({names:[],partial:false}), BuilderSkillNames: async () => ({names:[],partial:false}), CreateListFromTemplate: mocks.createList, ListRepositories: mocks.repos, PreviewRepositoryEntry: mocks.catalogPreview, ChangeInstallation: mocks.lifecycle, PrepareJob: mocks.prepareJob, SyncPendingJobs: mocks.syncJobs, SyncMCP: mocks.sync, RegisterMCP: mocks.register, RemoveMCP: mocks.remove, InstalledComponents: mocks.components, SetProfileActive: mocks.profile, SetSkillActive: mocks.toggle, DiscardPreview: mocks.discard, ListInstalled: mocks.list, PreviewLocal: mocks.preview, InstallReviewed: mocks.install }));
+vi.mock('@wailsjs/go/wailsapi/Plugins', () => ({ BuilderProviderSlugs: async () => ['equipe'], BuilderJobNames: async () => [], BuilderProfileNames: async () => ({names:[],partial:false}), BuilderSkillNames: async () => ({names:[],partial:false}), CreateListFromTemplate: mocks.createList, ListRepositories: mocks.repos, PreviewRepositoryEntry: mocks.catalogPreview, ChangeInstallation: mocks.lifecycle, PrepareJob: mocks.prepareJob, SyncPendingJobs: mocks.syncJobs, SyncMCP: mocks.sync, RegisterProvider: mocks.registerProvider, RegisterMCP: mocks.register, RemoveMCP: mocks.remove, InstalledComponents: mocks.components, SetProfileActive: mocks.profile, SetSkillActive: mocks.toggle, DiscardPreview: mocks.discard, ListInstalled: mocks.list, PreviewLocal: mocks.preview, InstallReviewed: mocks.install }));
 vi.mock('../hooks/useConfirm', () => ({ useConfirm: () => mocks.confirm }));
 vi.mock('../store/authStore', async importOriginal => {
   const actual = await importOriginal<typeof import('../store/authStore')>();
   return { ...actual, useAuthStore: Object.assign(() => 'session', actual.useAuthStore) };
 });
 vi.mock('../hooks/useAnnouncer', () => ({ announce: mocks.announce, useAnnouncer: () => ({ announce: mocks.announce, announceRequest: mocks.announceRequest }) }));
-vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string, options?: {name?: string; limit?: number}) => key === 'plugins.jobRate' ? key + ' ' + options?.limit : ['plugins.registerServer','plugins.keepServer','plugins.removeServer'].includes(key) ? key + ' ' + options?.name : key }) }));
+vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string, options?: {name?: string; limit?: number}) => key === 'plugins.jobRate' ? key + ' ' + options?.limit : ['plugins.registerProvider','plugins.registerServer','plugins.keepServer','plugins.removeServer'].includes(key) ? key + ' ' + options?.name : key }) }));
 
 describe('PluginsPage', () => {
   beforeEach(() => {
@@ -295,6 +295,23 @@ describe('PluginsPage', () => {
     await waitFor(() => expect(mocks.announce).toHaveBeenCalledWith('plugins.synchronized'));
     expect(mocks.register).toHaveBeenCalledOnce();
     expect(mocks.sync).toHaveBeenCalledOnce();
+  });
+
+  it('confirma o endereço antes de cadastrar o provedor da revisão selecionada', async () => {
+    const user = userEvent.setup();
+    mocks.list.mockResolvedValue([{ id: 'one', name: 'Demo', digest: 'sha' }]);
+    const provider = { kind: 'provider', key: 'providers/equipe', name: 'Equipe', slug: 'equipe', endpoint: 'https://equipe.example/v1' };
+    mocks.components.mockResolvedValue([provider]);
+    mocks.confirm.mockResolvedValueOnce(false).mockResolvedValueOnce(true);
+    render(<PluginsPage />);
+    (await screen.findByRole('gridcell', { name: /Demo/ })).focus();
+    await user.keyboard('{Enter}');
+    const register = await screen.findByRole('button', { name: 'plugins.registerProvider Equipe' });
+    await user.click(register);
+    expect(mocks.confirm.mock.calls[0][0].message).toContain(provider.endpoint);
+    expect(mocks.registerProvider).not.toHaveBeenCalled();
+    await user.click(register);
+    expect(mocks.registerProvider).toHaveBeenCalledWith('one', 'sha', provider.key);
   });
 
   it('registers an MCP and preserves the native configuration only after confirmation', async () => {

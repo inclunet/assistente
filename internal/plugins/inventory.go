@@ -22,6 +22,7 @@ var ErrPackageChanged = errors.New("o pacote mudou desde a prévia")
 var ErrInstallationChanged = errors.New("a instalação mudou desde a prévia")
 
 type Inventory struct {
+	refreshProvider    func(context.Context, string, commandsecurity.Admission) error
 	refreshJob         func(context.Context, string, commandsecurity.Admission) error
 	profileDefinitions func() (profiles.PortableDefinitions, error)
 	skillDefinitions   func() (skills.PortableDefinitions, error)

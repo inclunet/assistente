@@ -59,6 +59,13 @@ type PluginJobCopyReceipt struct {
 	CopySlug       string `gorm:"not null"`
 }
 
+type PluginProviderBinding struct {
+	InstallationID string `gorm:"primaryKey"`
+	ComponentKey   string `gorm:"primaryKey"`
+	Digest         string `gorm:"not null"`
+	ProviderID     string `gorm:"uniqueIndex;not null"`
+}
+
 type PluginMCPBinding struct {
 	InstallationID string `gorm:"primaryKey"`
 	ComponentKey   string `gorm:"primaryKey"`

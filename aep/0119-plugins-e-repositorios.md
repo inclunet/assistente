@@ -38,6 +38,8 @@ A prévia identificará o provedor, a origem do pacote e o endereço ou processo
 
 O builder já serializa a configuração nativa e a prévia identifica o endpoint ou o processo com seus argumentos. O builder recusa a exportação de provedores ACP com ambiente explícito ou vínculos de cofre e de contas ChatGPT nesta etapa. `TestBuildNativeProviderOnly` cobre a separação entre os dados da conta e o recurso distribuído.
 
+O cadastro explícito de um provedor revisado grava sua configuração nativa e o vínculo com a instalação na mesma transação, após revalidar a conta e a revisão. Se a sincronização da sessão falhar, repetir o cadastro usa o mesmo ID local. `TestRegisterProviderFromReviewedPackage` cobre essa repetição, a colisão de slug e o rollback quando a sessão perde a admissão.
+
 O pacote usará os modelos nativos do provedor e do perfil. O perfil poderá apontar por slug para um provedor já configurado ou fornecido pelo mesmo pacote. A seleção explícita `$default` continuará vinculada ao padrão do destino. A ativação resolverá todas as referências de chat, voz e transcrição antes de disponibilizar o perfil. Os consumidores locais que precisam de uma instância específica poderão continuar a usar seu ID. A resolução de slug e a busca de ID serão explícitas, inclusive quando um slug coincidir com o ID de outra instância.
 
 ### Contribuições e execução

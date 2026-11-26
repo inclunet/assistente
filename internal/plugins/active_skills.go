@@ -93,8 +93,14 @@ func (i *Inventory) InstalledComponents(ctx context.Context, id, digest string) 
 	for n := range components {
 		components[n].EditedServer = edited[components[n].Key]
 		slug, ok := slugs[components[n].Key]
+		if components[n].Kind == "provider" {
+			continue
+		}
 		components[n].Active = ok
 		components[n].Slug = slug
+	}
+	if err := i.markExistingProviders(ctx, components, owner, id, digest); err != nil {
+		return nil, err
 	}
 	return components, nil
 }

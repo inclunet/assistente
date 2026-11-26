@@ -5,7 +5,7 @@ import { useResourceEditRequest } from '../hooks/useResourceEditRequest';
 import { useNavigationStore } from '../store/navigationStore';
 import { create } from 'zustand';
 import { useTranslation } from 'react-i18next';
-import { CreateListFromTemplate, ChangeInstallation, DiscardPreview, InstalledComponents, InstallReviewed, ListInstalled, PreviewLocal, RegisterMCP, RemoveMCP, PrepareJob, SetProfileActive, SetSkillActive, SyncMCP, SyncPendingJobs } from '@wailsjs/go/wailsapi/Plugins';
+import { CreateListFromTemplate, ChangeInstallation, DiscardPreview, InstalledComponents, InstallReviewed, ListInstalled, PreviewLocal, RegisterProvider, RegisterMCP, RemoveMCP, PrepareJob, SetProfileActive, SetSkillActive, SyncMCP, SyncPendingJobs } from '@wailsjs/go/wailsapi/Plugins';
 import type { database, jobs, plugins, wailsapi } from '@wailsjs/go/models';
 import { Button } from '../components/ui/Button';
 import { DataGrid } from '../components/ui/DataGrid';
@@ -33,7 +33,7 @@ function triggerParameter(trigger: jobs.Trigger) {
   }
 }
 
-function mcpConnectionLabel(component: plugins.Component) {
+function connectionLabel(component: plugins.Component) {
   const endpoint = component.processArgs?.length ? JSON.stringify([component.endpoint, ...component.processArgs]) : component.endpoint;
   return [component.transport, endpoint].filter(Boolean).join(' · ');
 }
@@ -51,6 +51,7 @@ function componentLabel(kind: string) {
 }
 
 function componentRequirement(component: plugins.Component) {
+  if (component.reason === 'providerSlugTaken') return 'plugins.providerSlugTaken';
   if (component.reason === 'invalidProvider') return 'plugins.invalidProvider';
   if (component.reason === 'invalidJob') return 'plugins.invalidJob';
   if (component.reason === 'invalidProfile') return 'plugins.invalidProfile';
@@ -63,7 +64,7 @@ function componentRequirement(component: plugins.Component) {
   if (component.reason === 'rootSkill') return 'plugins.rootSkillPending';
   if (component.reason === 'frontmatter') return 'plugins.fieldsPending';
   if (component.reason === 'configuration') return 'plugins.mcpConfigRequired';
-  if ((component.kind === 'mcp' || component.kind === 'profile' || component.kind === 'job' || component.kind === 'tasklistTemplate') && !component.reason) return undefined;
+  if ((component.kind === 'mcp' || component.kind === 'profile' || component.kind === 'job' || component.kind === 'provider' || component.kind === 'tasklistTemplate') && !component.reason) return undefined;
   return component.kind === 'skill' ? undefined : 'plugins.unavailable';
 }
 
@@ -80,6 +81,8 @@ function JobRequirements({component}: {component: plugins.Component}) {
 function installationError(cause: unknown, fallback = 'plugins.installError') {
   const message = String(cause);
   if (message.includes('PLUGIN_MCP_SYNC_PENDING') || message.includes('PLUGIN_JOB_SYNC_PENDING')) return 'plugins.syncPending';
+  if (message.includes('PLUGIN_PROVIDER_SLUG_TAKEN')) return 'plugins.providerSlugTaken';
+  if (message.includes('PLUGIN_PROVIDER_SYNC_PENDING')) return 'plugins.providerSyncPending';
   if (message.includes('PLUGIN_COMPONENT_EDITED')) return 'plugins.edited';
   return repositoryError(cause, fallback);
 }
@@ -337,6 +340,11 @@ function InstalledPlugins({ session }: { session: string }) {
         } else {
           await reconcile(session, 'mcp', RegisterMCP(installation.id, installation.digest, component.key));
         }
+      } else if (component.kind === 'provider') {
+        const title = t('plugins.registerProvider', { name: component.name });
+        const accepted = await confirm({ title, message: connectionLabel(component), confirmText: title, cancelText: t('common.cancel') });
+        if (!accepted || !mounted.current) return;
+        await RegisterProvider(installation.id, installation.digest, component.key);
       } else if (component.kind === 'job') {
         await PrepareJob(installation.id, installation.digest, component.key);
       } else if (component.kind === 'profile') {
@@ -348,7 +356,7 @@ function InstalledPlugins({ session }: { session: string }) {
       try {
         await refreshDetails(installation);
         if (mounted.current) {
-          announce(t(component.kind === 'job' ? 'plugins.jobPrepared' : component.kind === 'mcp' ? 'plugins.serverChanged' : component.active ? 'plugins.deactivated' : 'plugins.activated', { name: component.name }));
+          announce(t(component.kind === 'provider' ? 'plugins.providerRegistered' : component.kind === 'job' ? 'plugins.jobPrepared' : component.kind === 'mcp' ? 'plugins.serverChanged' : component.active ? 'plugins.deactivated' : 'plugins.activated', { name: component.name }));
         }
       } catch {
         if (mounted.current) {
@@ -499,9 +507,12 @@ function InstalledPlugins({ session }: { session: string }) {
       {details.components.length === 0 ? <p>{t('plugins.noComponents')}</p> : <ul>{details.components.map(component => <li key={component.key}>
         <strong>{component.name}</strong> · {t(componentLabel(component.kind))}<JobRequirements component={component} />
         {component.editedServer && <p>{t('plugins.editedServer', { name: component.editedServer })}</p>}
-        {(component.kind === 'mcp' || component.kind === 'provider') && <p>{mcpConnectionLabel(component)}</p>}
+        {(component.kind === 'mcp' || component.kind === 'provider') && <p>{connectionLabel(component)}</p>}
         {component.kind === 'skill' && component.requestsShell && <p>{t('plugins.commandPolicy')}</p>}
-        {component.kind === 'job' && !component.reason ?
+        {component.kind === 'provider' && !component.reason ?
+          component.active && error !== 'plugins.providerSyncPending' ? <p>{t('plugins.providerRegistered',{name:component.name})}</p> :
+            <Button disabled={busy || details.installation.disabled} onClick={() => void changeComponent(component)}>{t('plugins.registerProvider',{name:component.name})}</Button>
+          : component.kind === 'job' && !component.reason ?
           (component.active && component.slug ?
             <Link to="/jobs" onClick={() => useNavigationStore.getState().requestResourceEdit('jobs', component.slug!)}>{t('plugins.editJob', {name:component.name})}</Link> :
             <Button disabled={busy || details.installation.disabled || error === 'plugins.syncPendingStale'} onClick={() => void changeComponent(component)}>{t('plugins.prepareJob', {name:component.name})}</Button>)
@@ -533,7 +544,7 @@ function InstalledPlugins({ session }: { session: string }) {
         {preview.authentication && <><dt>{t('plugins.authentication')}</dt><dd>{preview.authentication}</dd></>}
         <dt>SHA-256</dt><dd>{preview.digest}</dd>
       </dl>
-      {(preview.components ?? []).length > 0 && <ul aria-label={t('plugins.components')}>{preview.components.map(component => <li key={component.key}>{component.name} · {t(componentLabel(component.kind))}<JobRequirements component={component} />{component.requestsShell && <span> · {t('plugins.commandPolicy')}</span>}{(component.kind === 'mcp' || component.kind === 'provider') && <p>{mcpConnectionLabel(component)}</p>}{componentRequirement(component) && <p>{t(componentRequirement(component)!, { path: component.entry })}</p>}</li>)}</ul>}
+      {(preview.components ?? []).length > 0 && <ul aria-label={t('plugins.components')}>{preview.components.map(component => <li key={component.key}>{component.name} · {t(componentLabel(component.kind))}<JobRequirements component={component} />{component.requestsShell && <span> · {t('plugins.commandPolicy')}</span>}{(component.kind === 'mcp' || component.kind === 'provider') && <p>{connectionLabel(component)}</p>}{componentRequirement(component) && <p>{t(componentRequirement(component)!, { path: component.entry })}</p>}</li>)}</ul>}
       {(preview.diagnostics ?? []).length > 0 && <details>
         <summary>{t('plugins.warnings', { count: preview.diagnostics.length })}</summary>
         <ul>{preview.diagnostics.map(warning => {

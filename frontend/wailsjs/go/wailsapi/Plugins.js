@@ -82,6 +82,10 @@ export function RegisterMCP(arg1, arg2, arg3) {
   return window['go']['wailsapi']['Plugins']['RegisterMCP'](arg1, arg2, arg3);
 }
 
+export function RegisterProvider(arg1, arg2, arg3) {
+  return window['go']['wailsapi']['Plugins']['RegisterProvider'](arg1, arg2, arg3);
+}
+
 export function RemoveMCP(arg1, arg2, arg3, arg4) {
   return window['go']['wailsapi']['Plugins']['RemoveMCP'](arg1, arg2, arg3, arg4);
 }

@@ -320,6 +320,12 @@ func (api *Plugins) SetSkillActive(id, digest, key string, active bool) error {
 	return err
 }
 
+func (api *Plugins) RegisterProvider(id, digest, key string) error {
+	return api.mutateComponent(func(ctx context.Context, i *plugins.Inventory, admit commandsecurity.Admission) error {
+		return i.RegisterProvider(ctx, id, digest, key, admit)
+	})
+}
+
 func (api *Plugins) RegisterMCP(id, digest, key string) error {
 	return api.mutateComponent(func(ctx context.Context, i *plugins.Inventory, admit commandsecurity.Admission) error {
 		return i.RegisterMCP(ctx, id, digest, key, admit)

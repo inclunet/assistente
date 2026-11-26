@@ -44,6 +44,8 @@ export function RefreshRepository(arg1:string,arg2:string):Promise<void>;
 
 export function RegisterMCP(arg1:string,arg2:string,arg3:string):Promise<void>;
 
+export function RegisterProvider(arg1:string,arg2:string,arg3:string):Promise<void>;
+
 export function RemoveMCP(arg1:string,arg2:string,arg3:string,arg4:boolean):Promise<void>;
 
 export function RemoveRepository(arg1:string,arg2:string):Promise<void>;
