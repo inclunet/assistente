@@ -34,7 +34,8 @@ function triggerParameter(trigger: jobs.Trigger) {
 }
 
 function mcpConnectionLabel(component: plugins.Component) {
-  return [component.transport, component.endpoint].filter(Boolean).join(' · ');
+  const endpoint = component.processArgs?.length ? JSON.stringify([component.endpoint, ...component.processArgs]) : component.endpoint;
+  return [component.transport, endpoint].filter(Boolean).join(' · ');
 }
 
 function componentLabel(kind: string) {
@@ -43,12 +44,14 @@ function componentLabel(kind: string) {
     case 'mcp': return 'plugins.mcp';
     case 'tasklistTemplate': return 'plugins.tasklistTemplate';
     case 'job': return 'plugins.job';
+    case 'provider': return 'plugins.provider';
     case 'profile': return 'plugins.profile';
     default: return 'plugins.invalid';
   }
 }
 
 function componentRequirement(component: plugins.Component) {
+  if (component.reason === 'invalidProvider') return 'plugins.invalidProvider';
   if (component.reason === 'invalidJob') return 'plugins.invalidJob';
   if (component.reason === 'invalidProfile') return 'plugins.invalidProfile';
   if (component.reason === 'shellCommands') return 'plugins.shellPending';
@@ -496,7 +499,7 @@ function InstalledPlugins({ session }: { session: string }) {
       {details.components.length === 0 ? <p>{t('plugins.noComponents')}</p> : <ul>{details.components.map(component => <li key={component.key}>
         <strong>{component.name}</strong> · {t(componentLabel(component.kind))}<JobRequirements component={component} />
         {component.editedServer && <p>{t('plugins.editedServer', { name: component.editedServer })}</p>}
-        {component.kind === 'mcp' && <p>{mcpConnectionLabel(component)}</p>}
+        {(component.kind === 'mcp' || component.kind === 'provider') && <p>{mcpConnectionLabel(component)}</p>}
         {component.kind === 'skill' && component.requestsShell && <p>{t('plugins.commandPolicy')}</p>}
         {component.kind === 'job' && !component.reason ?
           (component.active && component.slug ?
@@ -530,7 +533,7 @@ function InstalledPlugins({ session }: { session: string }) {
         {preview.authentication && <><dt>{t('plugins.authentication')}</dt><dd>{preview.authentication}</dd></>}
         <dt>SHA-256</dt><dd>{preview.digest}</dd>
       </dl>
-      {(preview.components ?? []).length > 0 && <ul aria-label={t('plugins.components')}>{preview.components.map(component => <li key={component.key}>{component.name} · {t(componentLabel(component.kind))}<JobRequirements component={component} />{component.requestsShell && <span> · {t('plugins.commandPolicy')}</span>}{component.kind === 'mcp' && <p>{mcpConnectionLabel(component)}</p>}{componentRequirement(component) && <p>{t(componentRequirement(component)!, { path: component.entry })}</p>}</li>)}</ul>}
+      {(preview.components ?? []).length > 0 && <ul aria-label={t('plugins.components')}>{preview.components.map(component => <li key={component.key}>{component.name} · {t(componentLabel(component.kind))}<JobRequirements component={component} />{component.requestsShell && <span> · {t('plugins.commandPolicy')}</span>}{(component.kind === 'mcp' || component.kind === 'provider') && <p>{mcpConnectionLabel(component)}</p>}{componentRequirement(component) && <p>{t(componentRequirement(component)!, { path: component.entry })}</p>}</li>)}</ul>}
       {(preview.diagnostics ?? []).length > 0 && <details>
         <summary>{t('plugins.warnings', { count: preview.diagnostics.length })}</summary>
         <ul>{preview.diagnostics.map(warning => {

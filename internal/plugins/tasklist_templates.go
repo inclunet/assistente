@@ -14,6 +14,7 @@ import (
 	"assistente/internal/pluginpackage"
 	"assistente/internal/portability"
 	"assistente/internal/profiles"
+	"assistente/internal/providers"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 )
@@ -23,6 +24,7 @@ const nativeVersion = 1
 const nativeExtension = "br.com.inclunet.assistente"
 
 type nativeResources struct {
+	Providers []string `json:"providers,omitempty"`
 	Version   int      `json:"version"`
 	Jobs      []string `json:"jobs,omitempty"`
 	Profiles  []string `json:"profiles,omitempty"`
@@ -37,7 +39,7 @@ func nativeComponents(snap *pluginpackage.LocalSnapshot) []Component {
 	var def nativeResources
 	decoder := json.NewDecoder(strings.NewReader(string(raw)))
 	decoder.DisallowUnknownFields()
-	if decoder.Decode(&def) != nil || def.Version != nativeVersion || len(def.TaskLists)+len(def.Profiles)+len(def.Jobs) > 2048 {
+	if decoder.Decode(&def) != nil || def.Version != nativeVersion || len(def.Providers)+len(def.TaskLists)+len(def.Profiles)+len(def.Jobs) > 2048 {
 		return []Component{{Kind: "invalidNative", Key: nativeExtension, Name: nativeExtension, Reason: "manifestConfiguration"}}
 	}
 	var result []Component
@@ -73,6 +75,28 @@ func nativeComponents(snap *pluginpackage.LocalSnapshot) []Component {
 			c.Reason = "invalidProfile"
 		} else {
 			c.Name = definition.Name
+		}
+		result = append(result, c)
+	}
+	for _, name := range def.Providers {
+		key := "providers/" + name
+		if !portableSkillName.MatchString(name) || len(name) > 63 || seen[key] {
+			return []Component{{Kind: "invalidNative", Key: nativeExtension, Name: nativeExtension, Reason: "manifestConfiguration"}}
+		}
+		seen[key] = true
+		entry := path.Join(nativeExtension, "providers", "provider-"+name+".json")
+		c := Component{Kind: "provider", Key: key, Name: name, Entry: entry, Slug: name}
+		p, err := providers.ReadPackageDefinition(snap.Files[entry], name)
+		if err != nil {
+			c.Reason = "invalidProvider"
+		} else {
+			c.Name = p.Name
+			c.Endpoint = p.BaseURL
+			c.Transport = string(p.GetAPIFormat())
+			if p.IsACP() {
+				c.Endpoint = p.ACPCommand
+				c.ProcessArgs = p.ACPArgs
+			}
 		}
 		result = append(result, c)
 	}

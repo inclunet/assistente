@@ -1,6 +1,6 @@
 import { type Ref, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { BuilderJobNames, BuilderProfileNames, BuilderSkillNames, PreviewBuilder, SaveBuilder } from '@wailsjs/go/wailsapi/Plugins';
+import { BuilderProviderSlugs, BuilderJobNames, BuilderProfileNames, BuilderSkillNames, PreviewBuilder, SaveBuilder } from '@wailsjs/go/wailsapi/Plugins';
 import { GetAllTaskLists } from '@wailsjs/go/wailsapi/Tasklist';
 import { plugins, type database, type wailsapi } from '@wailsjs/go/models';
 import { useAnnouncer } from '../hooks/useAnnouncer';
@@ -12,6 +12,8 @@ export default function PluginBuilder({ formRef }: { formRef?: Ref<HTMLFormEleme
   const { t } = useTranslation();
   const { announce } = useAnnouncer();
   const [lists, setLists] = useState<database.TaskList[]>([]);
+  const [providerOptions, setProviderOptions] = useState<string[]>([]);
+  const [providerSelection, setProviderSelection] = useState<string[]>([]);
   const [jobNames, setJobNames] = useState<string[]>([]);
   const [jobSelection, setJobSelection] = useState<string[]>([]);
   const [profileOptions, setProfileOptions] = useState<string[]>([]);
@@ -29,13 +31,14 @@ export default function PluginBuilder({ formRef }: { formRef?: Ref<HTMLFormEleme
   const mounted = useRef(false);
   useEffect(() => {
     mounted.current = true;
-    void Promise.allSettled([GetAllTaskLists(), BuilderSkillNames(), BuilderProfileNames(), BuilderJobNames()]).then(([items, names, profileList, jobList]) => {
+    void Promise.allSettled([GetAllTaskLists(), BuilderSkillNames(), BuilderProfileNames(), BuilderJobNames(), BuilderProviderSlugs()]).then(([items, names, profileList, jobList, providerList]) => {
       if (!mounted.current) return;
       if (items.status === 'fulfilled') setLists(items.value ?? []);
       if (profileList.status === 'fulfilled') setProfileOptions(profileList.value.names ?? []);
       if (names.status === 'fulfilled') setSkillNames(names.value.names ?? []);
       if (jobList.status === 'fulfilled') setJobNames(jobList.value ?? []);
-      setSourcesIncomplete(jobList.status === 'rejected' || profileList.status === 'rejected' || profileList.value.partial || items.status === 'rejected' || names.status === 'rejected' || names.value.partial);
+      if (providerList.status === 'fulfilled') setProviderOptions(providerList.value ?? []);
+      setSourcesIncomplete(providerList.status === 'rejected' || jobList.status === 'rejected' || profileList.status === 'rejected' || profileList.value.partial || items.status === 'rejected' || names.status === 'rejected' || names.value.partial);
       setBusy(false);
     });
     return () => { mounted.current = false; };
@@ -56,7 +59,7 @@ export default function PluginBuilder({ formRef }: { formRef?: Ref<HTMLFormEleme
     if (busy) return;
     setBusy(true);
     setStatus('');
-    const request = new plugins.BuilderRequest({name, version, jobs:jobSelection, skills:skillSelection, profiles:profileSelection, tasklists: Object.values(selected)});
+    const request = new plugins.BuilderRequest({name, version, providers:providerSelection, jobs:jobSelection, skills:skillSelection, profiles:profileSelection, tasklists: Object.values(selected)});
     try {
       if (preview) {
         const saved = await SaveBuilder(request, preview.digest);
@@ -74,6 +77,10 @@ export default function PluginBuilder({ formRef }: { formRef?: Ref<HTMLFormEleme
         setPreview(null);
         if (message.includes('PLUGIN_BUILDER_CHANGED')) setStatus('plugins.builderChanged');
         else if (message.includes('PLUGIN_BUILDER_KEY')) setStatus('plugins.builderInvalidKey');
+        else if (message.includes('PLUGIN_BUILDER_PROVIDER_UNAVAILABLE:')) {
+          setFailedResource(providerSelection.find(slug => message.endsWith('PLUGIN_BUILDER_PROVIDER_UNAVAILABLE: ' + slug)) ?? '');
+          setStatus('plugins.builderProviderError');
+        }
         else if (message.includes('PLUGIN_BUILDER_PROFILE_UNAVAILABLE:')) {
           setFailedResource(/PLUGIN_BUILDER_PROFILE_UNAVAILABLE:([a-z0-9-]+)/.exec(message)?.[1] ?? '');
           setStatus('plugins.builderNamedProfileError');
@@ -103,6 +110,14 @@ export default function PluginBuilder({ formRef }: { formRef?: Ref<HTMLFormEleme
     {sourcesIncomplete && <p>{t('plugins.builderSourcesError')}</p>}
     <Input label={t('plugins.packageName')} value={name} required disabled={busy} onChange={event => {invalidate(); setName(event.target.value);}} />
     <Input label={t('plugins.version')} value={version} disabled={busy} onChange={event => {invalidate(); setVersion(event.target.value);}} />
+    <fieldset disabled={busy}>
+      <legend>{t('plugins.builderProviders')}</legend>
+      {providerOptions.map(slug => <Checkbox key={slug} label={slug} checked={providerSelection.includes(slug)} onChange={event => {
+        invalidate();
+        const checked = event.target.checked;
+        setProviderSelection(previous => checked ? [...previous, slug] : previous.filter(value => value !== slug));
+      }} />)}
+    </fieldset>
     <fieldset disabled={busy}>
       <legend>{t('plugins.builderJobs')}</legend>
       <p>{t('plugins.builderJobInputs')}</p>
@@ -149,7 +164,7 @@ export default function PluginBuilder({ formRef }: { formRef?: Ref<HTMLFormEleme
       <p>{preview.name}</p><p>SHA-256 · {preview.digest}</p>
       <ul>{preview.files.map(file => <li key={file}><details><summary>{file}</summary><pre>{preview.contents[file]}</pre></details></li>)}</ul>
     </section>}
-    <Button type="submit" disabled={busy || (Object.keys(selected).length === 0 && skillSelection.length === 0 && profileSelection.length === 0 && jobSelection.length === 0)}>{t(preview ? 'plugins.builderSave' : 'plugins.builderReview')}</Button>
+    <Button type="submit" disabled={busy || (Object.keys(selected).length === 0 && skillSelection.length === 0 && profileSelection.length === 0 && providerSelection.length === 0 && jobSelection.length === 0)}>{t(preview ? 'plugins.builderSave' : 'plugins.builderReview')}</Button>
     {status && <p>{t(status, {name: failedResource})}</p>}
   </form>;
 }

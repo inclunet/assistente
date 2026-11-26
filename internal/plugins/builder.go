@@ -19,6 +19,7 @@ import (
 	"assistente/internal/jobs"
 	"assistente/internal/pluginpackage"
 	"assistente/internal/portability"
+	"assistente/internal/providers"
 	"gorm.io/gorm"
 )
 
@@ -29,6 +30,7 @@ type BuilderTaskList struct {
 }
 
 type BuilderRequest struct {
+	Providers []string          `json:"providers,omitempty"`
 	Jobs      []string          `json:"jobs,omitempty"`
 	Profiles  []string          `json:"profiles,omitempty"`
 	Skills    []string          `json:"skills,omitempty"`
@@ -113,7 +115,7 @@ func (i *Inventory) BuildPackage(ctx context.Context, request BuilderRequest) ([
 	if _, err := database.RequireUserID(ctx); err != nil {
 		return nil, nil, err
 	}
-	count := len(request.TaskLists) + len(request.Skills) + len(request.Profiles) + len(request.Jobs)
+	count := len(request.Providers) + len(request.TaskLists) + len(request.Skills) + len(request.Profiles) + len(request.Jobs)
 	if count == 0 || count > 100 || strings.TrimSpace(request.Name) == "" || reservedDevice(request.Name) {
 		return nil, nil, errors.New("PLUGIN_BUILDER_SELECTION")
 	}
@@ -176,6 +178,30 @@ func (i *Inventory) BuildPackage(ctx context.Context, request BuilderRequest) ([
 		files[file] = raw
 	}
 	err := i.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		for _, slug := range request.Providers {
+			if !portableSkillName.MatchString(slug) || len(slug) > 63 {
+				return errors.New("PLUGIN_BUILDER_KEY")
+			}
+			file := path.Join(nativeExtension, "providers", "provider-"+slug+".json")
+			if _, dup := files[file]; dup {
+				return errors.New("PLUGIN_BUILDER_KEY")
+			}
+			p, err := database.NewProviderRepository(tx).GetBySlug(ctx, slug)
+			if err != nil {
+				return err
+			}
+			raw, err := providers.MarshalPackageDefinition(p)
+			if err != nil {
+				return fmt.Errorf("PLUGIN_BUILDER_PROVIDER_UNAVAILABLE: %s", slug)
+			}
+			total += len(raw)
+			if total > 31<<20 {
+				return errors.New("PLUGIN_BUILDER_SIZE")
+			}
+			files[file] = raw
+			extension.Providers = append(extension.Providers, slug)
+		}
+		sort.Strings(extension.Providers)
 		jobKeys := builderJobKeys(request.Jobs)
 		for _, slug := range request.Jobs {
 			key := jobKeys[slug]
@@ -235,7 +261,7 @@ func (i *Inventory) BuildPackage(ctx context.Context, request BuilderRequest) ([
 	}
 	sort.Strings(extension.TaskLists)
 	manifest := map[string]any{"$schema": pluginpackage.ManifestSchema, "name": request.Name}
-	if len(extension.TaskLists)+len(extension.Profiles)+len(extension.Jobs) > 0 {
+	if len(extension.Providers)+len(extension.TaskLists)+len(extension.Profiles)+len(extension.Jobs) > 0 {
 		manifest["extensions"] = map[string]nativeResources{nativeExtension: extension}
 	}
 	if request.Version != "" {
@@ -277,7 +303,7 @@ func (i *Inventory) BuildPackage(ctx context.Context, request BuilderRequest) ([
 		if (c.Kind == "skill" && c.Reason != "") || c.Kind == "invalidSkill" {
 			return nil, nil, fmt.Errorf("PLUGIN_BUILDER_SKILL_UNAVAILABLE:%s", strings.TrimPrefix(c.Key, "skills/"))
 		}
-		if c.Reason != "" || (c.Kind != "tasklistTemplate" && c.Kind != "skill" && c.Kind != "profile" && c.Kind != "job") {
+		if c.Reason != "" || (c.Kind != "tasklistTemplate" && c.Kind != "skill" && c.Kind != "profile" && c.Kind != "job" && c.Kind != "provider") {
 			return nil, nil, ErrComponentUnavailable
 		}
 	}
@@ -307,4 +333,15 @@ func (i *Inventory) BuilderJobNames(ctx context.Context) ([]string, error) {
 	var names []string
 	err = i.db.WithContext(ctx).Model(&database.Job{}).Where("user_id=?", owner).Order("slug").Pluck("slug", &names).Error
 	return names, err
+}
+
+// BuilderProviderSlugs lista apenas as identidades que a conta pode distribuir.
+func (i *Inventory) BuilderProviderSlugs(ctx context.Context) ([]string, error) {
+	owner, err := database.RequireUserID(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var slugs []string
+	err = i.db.WithContext(ctx).Model(&database.LLMProvider{}).Where("user_id = ? AND slug <> ''", owner).Order("slug").Pluck("slug", &slugs).Error
+	return slugs, err
 }
