@@ -14,7 +14,7 @@ func TestDiscoverPortableProfile(t *testing.T) {
 		Manifest: pluginpackage.Manifest{Extensions: map[string]json.RawMessage{
 			nativeExtension: json.RawMessage(`{"version":1,"profiles":["writer"]}`),
 		}},
-		Files: map[string][]byte{entry: []byte(`{"name":"Writer","temperature":0,"maxTokens":250,"topP":0.8}`)},
+		Files: map[string][]byte{entry: []byte(`{"name":"Writer","chat":{"llm_provider":"$default","response_timeout":60,"disable_tools":true,"disable_skills":true,"temperature":0,"max_tokens":250,"top_p":0.8}}`)},
 	}
 	components := DiscoverComponents(snap)
 	if len(components) != 1 || components[0].Kind != "profile" || components[0].Name != "Writer" || components[0].Reason != "" {
@@ -27,7 +27,7 @@ func TestDiscoverPortableProfile(t *testing.T) {
 	if !p.Chat.DisableSkills || !p.Chat.DisableTools || p.Chat.LLMProvider != profiles.DefaultProviderSentinel || *p.Chat.Temperature != 0 || *p.Chat.MaxTokens != 250 || *p.Chat.TopP != 0.8 {
 		t.Fatalf("unexpected projected profile: %+v", p.Chat)
 	}
-	for _, raw := range []string{"", `{"name":" "}`, `{"name":"x","maxTokens":-1}`, `{"name":"x","topP":2}`, `{"name":"x","command_allowlist":"local"}`, `{"name":"x"} {}`, "\xff"} {
+	for _, raw := range []string{"", `{"name":" "}`, `{"name":"x","chat":{"llm_provider":"$default","response_timeout":60,"max_tokens":-1}}`, `{"name":"x","chat":{"llm_provider":"$default","response_timeout":60,"top_p":2}}`, `{"name":"x","chat":{"llm_provider":"$default","response_timeout":60,"enabled_skills":["plugin:local"]}}`, `{"name":"x"} {}`, "\xff"} {
 		snap.Files[entry] = []byte(raw)
 		c := DiscoverComponents(snap)
 		if len(c) != 1 || c[0].Reason != "invalidProfile" {

@@ -178,6 +178,35 @@ func (i *Inventory) BuildPackage(ctx context.Context, request BuilderRequest) ([
 		files[file] = raw
 	}
 	err := i.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		for _, key := range extension.Profiles {
+			file := path.Join(nativeExtension, "profiles", key+".json")
+			p, err := readPackageProfile(files[file])
+			if err != nil {
+				return fmt.Errorf("PLUGIN_BUILDER_PROFILE_UNAVAILABLE:%s", key)
+			}
+			repo := database.NewProviderRepository(tx)
+			if err := p.MapProviderReferences(func(id string) (string, error) {
+				row, err := repo.GetLLMProvider(ctx, id)
+				if err != nil {
+					return "", err
+				}
+				if row.Slug == "" {
+					return "", ErrComponentUnavailable
+				}
+				return row.Slug, nil
+			}); err != nil {
+				return fmt.Errorf("PLUGIN_BUILDER_PROFILE_UNAVAILABLE:%s: %w", key, err)
+			}
+			raw, err := json.Marshal(p)
+			if err != nil {
+				return err
+			}
+			total += len(raw) - len(files[file])
+			if total > 31<<20 {
+				return errors.New("PLUGIN_BUILDER_SIZE")
+			}
+			files[file] = raw
+		}
 		for _, slug := range request.Providers {
 			if !portableSkillName.MatchString(slug) || len(slug) > 63 {
 				return errors.New("PLUGIN_BUILDER_KEY")

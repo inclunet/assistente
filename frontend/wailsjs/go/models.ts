@@ -8189,6 +8189,9 @@ export namespace plugins {
 	}
 	
 	export class Component {
+	    missingAllowlist?: string;
+	    missingProvider?: string;
+	    profileDefinition?: string;
 	    processArgs?: string[];
 	    tool?: string;
 	    jobMaxRunsPerHour?: number;
@@ -8211,6 +8214,9 @@ export namespace plugins {
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.missingAllowlist = source["missingAllowlist"];
+	        this.missingProvider = source["missingProvider"];
+	        this.profileDefinition = source["profileDefinition"];
 	        this.processArgs = source["processArgs"];
 	        this.tool = source["tool"];
 	        this.jobMaxRunsPerHour = source["jobMaxRunsPerHour"];

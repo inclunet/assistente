@@ -91,7 +91,7 @@ func TestBuilderExportsOnlySelectedDefinitionsToAnotherAccount(t *testing.T) {
 	req.Skills = []string{"notes"}
 	req.Profiles = []string{"writer"}
 	store = store.WithProfileDefinitions(func() (profiles.PortableDefinitions, error) {
-		return profiles.PortableDefinitions{"writer": func() ([]byte, error) { return []byte(`{"name":"Writer","maxTokens":350}`), nil }}, nil
+		return profiles.PortableDefinitions{"writer": func() ([]byte, error) { return []byte(`{"name":"Writer","chat":{"llm_provider":"$default","response_timeout":60,"disable_tools":true,"max_tokens":350}}`), nil }}, nil
 	})
 	if _, _, err := store.BuildPackage(ctx, BuilderRequest{Name: "writer", Profiles: []string{"gone"}}); err == nil || err.Error() != "PLUGIN_BUILDER_PROFILE_UNAVAILABLE:gone" {
 		t.Fatal("missing profile", err)

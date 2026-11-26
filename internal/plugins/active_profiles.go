@@ -3,8 +3,11 @@ package plugins
 import (
 	"context"
 	"errors"
+
 	"time"
 
+	"assistente/internal/allowlist"
+	"assistente/internal/authorization"
 	"assistente/internal/commandsecurity"
 	"assistente/internal/database"
 	"assistente/internal/profiles"
@@ -50,6 +53,9 @@ func (i *Inventory) SetProfileActive(ctx context.Context, id, digest, key string
 		if installed.Disabled {
 			return ErrInstallationDisabled
 		}
+		if _, err := resolveProfile(ctx, tx, row.Definition); err != nil {
+			return err
+		}
 		return tx.Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "installation_id"}, {Name: "component_key"}}, DoNothing: true}).Create(&row).Error
 	}, admit)
 }
@@ -71,7 +77,7 @@ func (i *Inventory) GetPluginProfile(ctx context.Context, slug string) (*profile
 	if err := q.Where("plugin_profile_activations.slug=?", slug).Take(&row).Error; err != nil {
 		return nil, err
 	}
-	return profiles.ReadPortableDefinition(row.Definition)
+	return resolveProfile(ctx, i.db, row.Definition)
 }
 
 func (i *Inventory) ListPluginProfiles(ctx context.Context) ([]profiles.ProfileInfo, error) {
@@ -85,7 +91,10 @@ func (i *Inventory) ListPluginProfiles(ctx context.Context) ([]profiles.ProfileI
 	}
 	result := make([]profiles.ProfileInfo, 0, len(rows))
 	for _, row := range rows {
-		p, err := profiles.ReadPortableDefinition(row.Definition)
+		p, err := resolveProfile(ctx, i.db, row.Definition)
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			continue
+		}
 		if err != nil {
 			return nil, errors.Join(ErrComponentUnavailable, err)
 		}
@@ -93,3 +102,49 @@ func (i *Inventory) ListPluginProfiles(ctx context.Context) ([]profiles.ProfileI
 	}
 	return result, nil
 }
+
+func resolveProfile(ctx context.Context, db *gorm.DB, raw []byte) (*profiles.Profile, error) {
+	p, err := readPackageProfile(raw)
+	if err != nil {
+		return nil, err
+	}
+	if slug := p.Chat.CommandAllowlist; slug != "" {
+		policies := allowlist.NewManager(allowlist.Options{Repository: authorization.NewRepository(func() *gorm.DB { return db })})
+		ok, err := policies.HasProfilePolicy(ctx, slug)
+		if err != nil {
+			return nil, err
+		}
+		if !ok {
+			return nil, missingProfileAllowlist(slug)
+		}
+	}
+	repo := database.NewProviderRepository(db)
+	err = p.MapProviderReferences(func(slug string) (string, error) {
+		row, err := repo.GetBySlug(ctx, slug)
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return "", missingProfileProvider(slug)
+		}
+		if err != nil {
+			return "", err
+		}
+		return row.ID, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return p, nil
+}
+
+type missingProfileProvider string
+
+func (e missingProfileProvider) Error() string {
+	return "PLUGIN_PROFILE_PROVIDER_MISSING: " + string(e)
+}
+func (e missingProfileProvider) Unwrap() error { return gorm.ErrRecordNotFound }
+
+type missingProfileAllowlist string
+
+func (e missingProfileAllowlist) Error() string {
+	return "PLUGIN_PROFILE_ALLOWLIST_MISSING: " + string(e)
+}
+func (e missingProfileAllowlist) Unwrap() error { return gorm.ErrRecordNotFound }

@@ -328,6 +328,19 @@ describe('PluginsPage', () => {
     expect(mocks.registerProvider).toHaveBeenCalledWith('one','sha','providers/equipe');
   });
 
+  it('mostra a configuração pedida e mantém a ativação bloqueada enquanto o provedor faltar', async () => {
+    const user = userEvent.setup();
+    mocks.list.mockResolvedValue([{id:'one',name:'Demo',digest:'sha'}]);
+    mocks.components.mockResolvedValue([{name:'Perfil',key:'profiles/voz',kind:'profile',missingProvider:'equipe',profileDefinition:'{"chat":{"llm_provider":"equipe"}}'}]);
+    render(<PluginsPage />);
+    (await screen.findByRole('gridcell',{name:/Demo/})).focus();
+    await user.keyboard('{Enter}');
+    expect(await screen.findByRole('button',{name:'plugins.activate'})).toBeDisabled();
+    expect(screen.getByText('plugins.missingProfileProvider')).toBeInTheDocument();
+    await user.click(screen.getByText('plugins.profileSettings'));
+    expect(screen.getByText('{"chat":{"llm_provider":"equipe"}}')).toBeVisible();
+  });
+
   it.each(['cancel','detach','remove'] as const)('respeita a escolha %s ao desinstalar com provedor', async choice => {
     const user = userEvent.setup();
     mocks.list.mockResolvedValue([{id:'one',name:'Demo',digest:'sha'}]);
