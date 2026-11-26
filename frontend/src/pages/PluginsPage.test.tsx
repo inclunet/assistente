@@ -314,6 +314,18 @@ describe('PluginsPage', () => {
     expect(mocks.registerProvider).toHaveBeenCalledWith('one', 'sha', provider.key);
   });
 
+  it('permite sincronizar um provedor cadastrado após reabrir os detalhes', async () => {
+    const user = userEvent.setup();
+    mocks.list.mockResolvedValue([{ id: 'one', name: 'Demo', digest: 'sha' }]);
+    mocks.components.mockResolvedValue([{ kind:'provider', active:true, key:'providers/equipe', name:'Equipe', endpoint:'https://equipe.example/v1' }]);
+    mocks.confirm.mockResolvedValue(true);
+    render(<PluginsPage />);
+    (await screen.findByRole('gridcell', { name: /Demo/ })).focus();
+    await user.keyboard('{Enter}');
+    await user.click(await screen.findByRole('button', {name:'plugins.syncProvider'}));
+    expect(mocks.registerProvider).toHaveBeenCalledWith('one','sha','providers/equipe');
+  });
+
   it('registers an MCP and preserves the native configuration only after confirmation', async () => {
     const user = userEvent.setup();
     mocks.list.mockResolvedValue([{ id: 'one', name: 'Demo', digest: 'sha' }]);

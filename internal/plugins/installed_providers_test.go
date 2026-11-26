@@ -61,7 +61,7 @@ func TestRegisterProviderFromReviewedPackage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if local.ID == original.ID || local.CredentialPattern == original.CredentialPattern || local.IsDefault {
+	if local.ID == original.ID || local.CredentialPattern == original.CredentialPattern || local.IsDefault || !local.RequiresExplicitDefault {
 		t.Fatalf("cadastro herdou o estado da origem")
 	}
 	refreshErr = nil
@@ -74,5 +74,14 @@ func TestRegisterProviderFromReviewedPackage(t *testing.T) {
 	components, err := inventory.InstalledComponents(target, id, snapshot.Digest)
 	if err != nil || len(components) != 1 || !components[0].Active || components[0].Slug != original.Slug {
 		t.Fatalf("componentes após o cadastro: %+v, %v", components, err)
+	}
+	if err := repo.DeleteLLMProvider(target, local.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := inventory.RegisterProvider(target, id, snapshot.Digest, key, allow); err != nil {
+		t.Fatal(err)
+	}
+	if len(synced) != 3 || synced[2] == local.ID {
+		t.Fatalf("recadastro após exclusão: %v", synced)
 	}
 }

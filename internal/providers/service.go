@@ -204,12 +204,16 @@ func (s *Service) EnsureDefault(ctx context.Context) {
 		return
 	}
 
-	all := s.registry.List()
-	if len(all) == 0 {
+	var first *llm.ProviderConfig
+	for _, candidate := range s.registry.List() {
+		if !candidate.RequiresExplicitDefault {
+			first = candidate
+			break
+		}
+	}
+	if first == nil {
 		return
 	}
-
-	first := all[0]
 	logging.Warnf(ctx, "providers.service", "[providers] Nenhum provedor default — marcando '%s' como default", first.Name)
 
 	if err := s.store.SetDefault(ctx, first.ID); err != nil {
@@ -880,6 +884,9 @@ func (s *Service) profileDefaultProvider(ctx context.Context) (*llm.ProviderConf
 		// O desktop pode ter escolhido o padrão entre as duas leituras.
 		if p.IsDefault {
 			return p, nil
+		}
+		if p.RequiresExplicitDefault {
+			continue
 		}
 		// Load inclui no registro os cadastros válidos e os mantidos para
 		// autorizar HTTP ou corrigir a URL. Os demais ficam fora da seleção.

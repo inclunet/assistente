@@ -177,6 +177,7 @@ notSaved: 'The decision applies only to this operation: it could not be remember
       builderProviderError: 'Provider {{name}} cannot be packaged with its current configuration.',
       profileSettings: 'Inspect profile configuration',
       missingProfileProvider: 'Register provider {{name}} to use this profile.',
+      syncProvider: 'Sync {{name}}',
       registerProvider: 'Register {{name}}',
       providerRegistered: 'Provider {{name}} registered.',
       providerSlugTaken: 'This slug already belongs to another provider in this account.',

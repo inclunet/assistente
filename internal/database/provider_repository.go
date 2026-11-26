@@ -84,6 +84,7 @@ func SaveLLMProviderTx(ctx context.Context, tx *gorm.DB, provider *LLMProvider) 
 			}
 			provider.Slug = existing.Slug
 		}
+		provider.RequiresExplicitDefault = existing.RequiresExplicitDefault
 		provider.CompatibilityRevision = existing.CompatibilityRevision
 		if provider.CompatibilityRevision < 1 {
 			provider.CompatibilityRevision = 1
