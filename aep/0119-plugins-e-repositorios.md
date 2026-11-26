@@ -185,8 +185,8 @@ Um nome igual em duas lojas pode induzir troca de origem. Uma tradução incompl
 - [x] A instalação local aceita pasta ou arquivo ZIP. `TestInspectLocalZIPFindsPackageRoot` verifica a raiz e os formatos. Em `TestPluginPreviewUsesSelectedDirectoryAndSession`, o caso “ZIP alterado requer outra prévia” exige nova confirmação se a origem mudar.
 
 - [x] `TestProviderSlugResolvesInOwnerAfterRenameAndMigration` verifica a migração, o isolamento entre contas e as colisões entre nomes e IDs. Preencher e persistir slugs únicos por conta, preservando os vínculos por ID após renomear um provedor e ao reabrir uma instalação existente.
-- [ ] Gerar e instalar um pacote contendo apenas um provedor, conferir a prévia e preservar um provedor local homônimo. Verificar que a instalação não conecta, não executa processos e não transporta credenciais nem aprovações da origem.
-- [ ] Instalar provedor e perfil em outra conta com IDs diferentes e verificar as referências de chat, voz e transcrição. Cobrir o padrão explícito e a dependência obrigatória ausente antes da ativação.
+- [x] `TestBuildNativeProviderOnly` e `TestRegisterProviderFromReviewedPackage` verificam o pacote, o cadastro e a preservação do homônimo após colisão. Gerar e instalar um pacote contendo apenas um provedor, conferir a prévia e preservar um provedor local homônimo. Verificar que a instalação não conecta, não executa processos e não transporta credenciais nem aprovações da origem.
+- [x] `TestNativeProfileUsesDestinationProviderBySlug` verifica a dependência ausente e o pacote conjunto. `TestProfileOnlyUsesExistingProvidersByRole` verifica provedores já existentes por papel e o padrão explícito. Instalar provedor e perfil em outra conta com IDs diferentes e verificar as referências de chat, voz e transcrição. Cobrir o padrão explícito e a dependência obrigatória ausente antes da ativação.
 
 
 - [ ] Carregar fixtures de Claude Code, Cursor, Codex e Agent Plugins, identificar componentes incompatíveis e explicar o efeito na instalação. Mostrar o último índice válido quando uma loja ficar offline.
