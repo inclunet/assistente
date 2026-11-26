@@ -221,9 +221,9 @@ describe('PluginRepositories', () => {
       expect(mocks.preview).toHaveBeenCalledWith('one', 'reviewed', 'cursor', 'sample-239');
       await user.keyboard('{Control>}{Home}{/Control}');
       await waitFor(() => expect(screen.getByText('sample-0')).toHaveFocus());
-      await user.keyboard('{Control>}{PageDown}{/Control}');
+      await user.keyboard('{PageDown}');
       await waitFor(() => expect(screen.getByText('sample-10')).toHaveFocus());
-      await user.keyboard('{Control>}{PageUp}{/Control}');
+      await user.keyboard('{PageUp}');
       await waitFor(() => expect(screen.getByText('sample-0')).toHaveFocus());
       await user.keyboard('{ArrowDown}');
       await waitFor(() => expect(screen.getByText('sample-1')).toHaveFocus());
