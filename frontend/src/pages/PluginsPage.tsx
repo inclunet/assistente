@@ -342,7 +342,7 @@ function InstalledPlugins({ session }: { session: string }) {
         }
       } else if (component.kind === 'provider') {
         const title = t(component.active ? 'plugins.syncProvider' : 'plugins.registerProvider', { name: component.name });
-        const accepted = await confirm({ title, message: connectionLabel(component), confirmText: title, cancelText: t('common.cancel') });
+        const accepted = await confirm({ title, message: component.active ? t('plugins.syncLocalProvider', { name: component.name }) : connectionLabel(component), confirmText: title, cancelText: t('common.cancel') });
         if (!accepted || !mounted.current) return;
         await RegisterProvider(installation.id, installation.digest, component.key);
       } else if (component.kind === 'job') {

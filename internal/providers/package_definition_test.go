@@ -57,6 +57,13 @@ func TestPackagedProviderStaysExplicitAfterReload(t *testing.T) {
 	if err := svc.Load(t.Context()); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := svc.Update(t.Context(), p.ID, UpdateRequest{Name: "Equipe nova"}); err != nil {
+		t.Fatal(err)
+	}
+	updated := svc.registry.Get(p.ID)
+	if updated == nil || !updated.RequiresExplicitDefault {
+		t.Fatal("edição tornou provedor elegível a padrão automático")
+	}
 	for _, skip := range []bool{false, true} {
 		svc.skipBootRepairs = skip
 		def, err := svc.profileDefaultProvider(t.Context())

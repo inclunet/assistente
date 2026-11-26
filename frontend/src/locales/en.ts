@@ -177,6 +177,7 @@ notSaved: 'The decision applies only to this operation: it could not be remember
       builderProviderError: 'Provider {{name}} cannot be packaged with its current configuration.',
       profileSettings: 'Inspect profile configuration',
       missingProfileProvider: 'Register provider {{name}} to use this profile.',
+      syncLocalProvider: 'Reload the current configuration for {{name}} saved in your account?',
       syncProvider: 'Sync {{name}}',
       registerProvider: 'Register {{name}}',
       providerRegistered: 'Provider {{name}} registered.',

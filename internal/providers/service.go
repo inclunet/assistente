@@ -609,6 +609,7 @@ func (s *Service) Update(ctx context.Context, id string, req UpdateRequest) (*Up
 		BaseURL:                   existing.BaseURL,
 		Model:                     existing.Model,
 		DefaultModel:              existing.DefaultModel,
+		RequiresExplicitDefault:   existing.RequiresExplicitDefault,
 		IsDefault:                 existing.IsDefault,
 		Timeout:                   existing.Timeout,
 		StreamIdleTimeoutSeconds:  existing.StreamIdleTimeoutSeconds,

@@ -177,6 +177,7 @@ notSaved: 'A decisão vale somente para esta operação: não foi possível lemb
       builderProviderError: 'O provedor {{name}} não pode ser incluído no pacote com a configuração atual.',
       profileSettings: 'Conferir configuração do perfil',
       missingProfileProvider: 'Cadastre o provedor {{name}} para usar este perfil.',
+      syncLocalProvider: 'Recarregar a configuração atual de {{name}} salva na sua conta?',
       syncProvider: 'Sincronizar {{name}}',
       registerProvider: 'Cadastrar {{name}}',
       providerRegistered: 'Provedor {{name}} cadastrado.',

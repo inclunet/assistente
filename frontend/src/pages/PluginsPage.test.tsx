@@ -323,6 +323,7 @@ describe('PluginsPage', () => {
     (await screen.findByRole('gridcell', { name: /Demo/ })).focus();
     await user.keyboard('{Enter}');
     await user.click(await screen.findByRole('button', {name:'plugins.syncProvider'}));
+    expect(mocks.confirm.mock.calls[0][0].message).toBe('plugins.syncLocalProvider');
     expect(mocks.registerProvider).toHaveBeenCalledWith('one','sha','providers/equipe');
   });
 

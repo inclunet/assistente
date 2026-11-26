@@ -176,6 +176,7 @@ notSaved: 'La decisión vale solo para esta operación: no se pudo recordar. Ser
       builderProviderError: 'El proveedor {{name}} no se puede incluir con su configuración actual.',
       profileSettings: 'Revisar la configuración del perfil',
       missingProfileProvider: 'Registra el proveedor {{name}} para usar este perfil.',
+      syncLocalProvider: '¿Volver a cargar la configuración actual de {{name}} guardada en tu cuenta?',
       syncProvider: 'Sincronizar {{name}}',
       registerProvider: 'Registrar {{name}}',
       providerRegistered: 'Proveedor {{name}} registrado.',
