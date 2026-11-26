@@ -24,7 +24,7 @@ func TestMissingProviderChatGPTForTextOnly(t *testing.T) {
 		name, chat, audio string
 		want              bool
 	}{
-		{"chat", "work", "", true}, {"transcription", "", "work", false}, {"shared", "work", "work", false},
+		{"chat", "work", "", true}, {"transcription", profiles.DefaultProviderSentinel, "work", false}, {"shared", "work", "work", false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			p := profiles.DefaultProfile()
