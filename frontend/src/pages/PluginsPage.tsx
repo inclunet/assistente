@@ -5,7 +5,7 @@ import { useResourceEditRequest } from '../hooks/useResourceEditRequest';
 import { useNavigationStore } from '../store/navigationStore';
 import { create } from 'zustand';
 import { useTranslation } from 'react-i18next';
-import { ProviderRemovalPreview, UninstallReviewed, CreateListFromTemplate, ChangeInstallation, DiscardPreview, InstalledComponents, InstallReviewed, ListInstalled, PreviewLocal, RegisterProvider, RegisterMCP, RemoveMCP, PrepareJob, SetProfileActive, SetSkillActive, SyncMCP, SyncPendingJobs } from '@wailsjs/go/wailsapi/Plugins';
+import { ProviderRemovalPreview, UninstallReviewed, CreateListFromTemplate, ChangeInstallation, DiscardPreview, InstalledComponents, InstallReviewed, ListInstalled, PreviewLocal, PreviewLocalZIP, RegisterProvider, RegisterMCP, RemoveMCP, PrepareJob, SetProfileActive, SetSkillActive, SyncMCP, SyncPendingJobs } from '@wailsjs/go/wailsapi/Plugins';
 import type { database, jobs, plugins, wailsapi } from '@wailsjs/go/models';
 import { Button } from '../components/ui/Button';
 import { DataGrid } from '../components/ui/DataGrid';
@@ -228,7 +228,9 @@ function InstalledPlugins({ session }: { session: string }) {
   const restoreAfterSync = useRef(false);
   const restoreAfterReload = useRef(false);
   const reloadButton = useRef<HTMLButtonElement>(null);
-  const syncDialogOpen = newPending && !busy && !preview && !providerRemoval && !chatGPTSlug;
+  const [choosingSource, setChoosingSource] = useState(false);
+  const cancelSource = () => { restoreFocus.current = true; setChoosingSource(false); };
+  const syncDialogOpen = newPending && !choosingSource && !busy && !preview && !providerRemoval && !chatGPTSlug;
   const activeTab = () => tabList.current?.querySelector<HTMLElement>('[aria-selected="true"]');
   useEffect(() => {
     if (!busy && details && lifecycleOpener.current?.isConnected) lifecycleOpener.current.focus();
@@ -238,7 +240,7 @@ function InstalledPlugins({ session }: { session: string }) {
       detailsOpener.current = null;
       if (opener.isConnected) opener.focus(); else chooseButton.current?.focus();
     }
-    if (!preview && !busy && restoreFocus.current) {
+    if (!preview && !choosingSource && !syncDialogOpen && !busy && restoreFocus.current) {
       restoreFocus.current = false;
       if (catalogOpener.current?.isConnected) catalogOpener.current.focus(); else (chooseButton.current ?? activeTab())?.focus();
       catalogOpener.current = null;
@@ -256,7 +258,7 @@ function InstalledPlugins({ session }: { session: string }) {
         (retryButton.current ?? detailsAction.current ?? chooseButton.current ?? activeTab())?.focus();
       }
     }
-  }, [preview, details, busy, syncDialogOpen]);
+  }, [preview, details, busy, syncDialogOpen, choosingSource]);
   const refresh = useCallback(async (failureMessage = 'plugins.listError') => {
     const pending = publications.get(session);
     if (pending) {
@@ -296,11 +298,12 @@ function InstalledPlugins({ session }: { session: string }) {
     try { await refresh(); }
     finally { if (mounted.current) setBusy(false); }
   };
-  const inspect = async () => {
+  const inspect = async (zip: boolean) => {
+    setChoosingSource(false);
     setBusy(true);
     setError('');
     try {
-      const next = await PreviewLocal();
+      const next = await (zip ? PreviewLocalZIP() : PreviewLocal());
       if (!mounted.current) {
         if (next) discardAbandonedPreview(next.token);
         return;
@@ -548,7 +551,7 @@ function InstalledPlugins({ session }: { session: string }) {
       <TabList listRef={tabList} ariaLabel={t('menu.plugins')}>{['installed','catalog','repositories','builder'].map(value => <Tab value={value} key={value}>{t('plugins.' + value)}</Tab>)}</TabList>
       <TabPanel value="installed">{section === 'installed' && <>
     <Toolbar ariaLabel={t('plugins.installed')} left={<h2>{t('plugins.installed')}</h2>}
-      right={<><Button ref={chooseButton} onClick={() => void inspect()} disabled={busy}>{t('plugins.choose')}</Button>{!details && !preview && syncAction}
+      right={<><Button ref={chooseButton} onClick={() => setChoosingSource(true)} disabled={busy}>{t('plugins.choose')}</Button>{!details && !preview && syncAction}
         {listError && <Button ref={reloadButton} disabled={busy} onClick={() => void reloadList()}>{t('plugins.reloadList')}</Button>}</>} />
     {items && items.length > 0 ? <DataGrid items={items} onActivate={row => void openDetails(row)} getItemId={row => row.id} label={t('plugins.installed')}
       columns={[{ key: 'name', label: t('plugins.name') }, { key: 'version', label: t('plugins.version') }, { key: 'origin', label: t('plugins.origin') }]} />
@@ -595,6 +598,10 @@ function InstalledPlugins({ session }: { session: string }) {
         </> : <p>{t(componentRequirement(component) ?? 'plugins.unavailable', { path: component.entry })}</p>}
       </li>)}</ul>}
     </Modal>}
+    {choosingSource && <DecisionDialog isOpen title={t('plugins.choose')} description={t('plugins.sourcePrompt')}
+      actions={[{id:'folder', label:t('plugins.folderSource'), primary:true}, {id:'zip',label:t('plugins.zipSource')}, {id:'cancel', label:t('common.cancel')}]}
+      onAction={id => { if (id === 'cancel') cancelSource(); else void inspect(id === 'zip'); }}
+      onCancel={cancelSource} />}
     {syncDialogOpen && <DecisionDialog isOpen
       title={t('plugins.syncQuestion')} description={t('plugins.syncPrompt')}
       actions={[{id:'retry', label:t('plugins.syncNow'), primary:true}, {id:'later', label:t('plugins.syncLater')}]}

@@ -4,6 +4,8 @@ import (
 	"archive/zip"
 	"bytes"
 	"encoding/binary"
+	"os"
+	"path/filepath"
 	"slices"
 	"testing"
 )
@@ -69,6 +71,42 @@ func TestDirectoryCandidateUniqueness(t *testing.T) {
 			err := uniqueDirectory(slices.Values(tc.candidates))
 			if (err == nil) != tc.accept {
 				t.Fatalf("expected acceptance %v, error=%v", tc.accept, err)
+			}
+		})
+	}
+}
+
+func TestInspectLocalZIPFindsPackageRoot(t *testing.T) {
+	for _, name := range []string{"plugin.json", "release/plugin.json", ".Git/plugin.json", ".cursor-plugin/plugin.json"} {
+		t.Run(name, func(t *testing.T) {
+			filename := filepath.Join(t.TempDir(), "example.zip")
+			var buf bytes.Buffer
+			writer := zip.NewWriter(&buf)
+			member, err := writer.Create(name)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err = member.Write([]byte(`{"$schema":"` + ManifestSchema + `","name":"demo","version":"1.0.0"}`)); err != nil {
+				t.Fatal(err)
+			}
+			if err = writer.Close(); err != nil {
+				t.Fatal(err)
+			}
+			if err = os.WriteFile(filename, buf.Bytes(), 0600); err != nil {
+				t.Fatal(err)
+			}
+			snapshot, err := InspectLocalZIP(filename)
+			if name == ".Git/plugin.json" {
+				if err == nil {
+					t.Fatal("accepted .git as package root")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if snapshot.Manifest.Name != "demo" || snapshot.Origin != filename {
+				t.Fatalf("unexpected package %s from %s", snapshot.Manifest.Name, snapshot.Origin)
 			}
 		})
 	}

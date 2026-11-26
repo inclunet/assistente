@@ -38,6 +38,8 @@ export function PreviewBuilder(arg1:plugins.BuilderRequest):Promise<wailsapi.Bui
 
 export function PreviewLocal():Promise<wailsapi.PluginPreview>;
 
+export function PreviewLocalZIP():Promise<wailsapi.PluginPreview>;
+
 export function PreviewRepositoryEntry(arg1:string,arg2:string,arg3:string,arg4:string):Promise<wailsapi.PluginPreview>;
 
 export function ProviderRemovalPreview(arg1:string,arg2:string):Promise<Record<string, string>>;

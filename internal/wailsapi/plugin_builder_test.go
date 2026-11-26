@@ -57,7 +57,7 @@ func TestBuilderSaveRechecksRevisionAndSessionBeforePublishing(t *testing.T) {
 	if err := db.Model(&list).Update("title", "Launch").Error; err != nil {
 		t.Fatal(err)
 	}
-	AttachPluginSaveDialog(api, func(ports.SaveFileOptions) (string, error) { t.Fatal("stale preview opened picker"); return "", nil })
+	AttachPluginDialogs(api, nil, func(ports.SaveFileOptions) (string, error) { t.Fatal("stale preview opened picker"); return "", nil })
 	if _, err := api.SaveBuilder(req, first.Digest); !errors.Is(err, plugins.ErrPackageChanged) {
 		t.Fatal(err)
 	}
@@ -65,11 +65,11 @@ func TestBuilderSaveRechecksRevisionAndSessionBeforePublishing(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	AttachPluginSaveDialog(api, func(ports.SaveFileOptions) (string, error) { return "", nil })
+	AttachPluginDialogs(api, nil, func(ports.SaveFileOptions) (string, error) { return "", nil })
 	if saved, err := api.SaveBuilder(req, current.Digest); err != nil || saved {
 		t.Fatal(saved, err)
 	}
-	AttachPluginSaveDialog(api, func(ports.SaveFileOptions) (string, error) { return filepath.Join(dir, "absent", "output.zip"), nil })
+	AttachPluginDialogs(api, nil, func(ports.SaveFileOptions) (string, error) { return filepath.Join(dir, "absent", "output.zip"), nil })
 	if saved, err := api.SaveBuilder(req, current.Digest); saved || !errors.Is(err, errBuilderDestination) {
 		t.Fatal(saved, err)
 	}
@@ -77,7 +77,7 @@ func TestBuilderSaveRechecksRevisionAndSessionBeforePublishing(t *testing.T) {
 	if err := os.WriteFile(target, []byte("previous"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	AttachPluginSaveDialog(api, func(ports.SaveFileOptions) (string, error) { valid = false; return target, nil })
+	AttachPluginDialogs(api, nil, func(ports.SaveFileOptions) (string, error) { valid = false; return target, nil })
 	if saved, err := api.SaveBuilder(req, current.Digest); err == nil || saved {
 		t.Fatal(saved, err)
 	}
@@ -86,7 +86,7 @@ func TestBuilderSaveRechecksRevisionAndSessionBeforePublishing(t *testing.T) {
 		t.Fatal("changed destination", err)
 	}
 	valid = true
-	AttachPluginSaveDialog(api, func(ports.SaveFileOptions) (string, error) { return target, nil })
+	AttachPluginDialogs(api, nil, func(ports.SaveFileOptions) (string, error) { return target, nil })
 	if saved, err := api.SaveBuilder(req, current.Digest); err != nil || !saved {
 		t.Fatal(saved, err)
 	}

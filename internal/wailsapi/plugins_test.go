@@ -1,7 +1,10 @@
 package wailsapi
 
 import (
+	"archive/zip"
+	"assistente/internal/core/ports"
 	"assistente/internal/plugincatalog"
+	"bytes"
 	"context"
 	"errors"
 	"os"
@@ -51,6 +54,41 @@ func TestPluginPreviewUsesSelectedDirectoryAndSession(t *testing.T) {
 			return handoff()
 		}, nil
 	}, func() { notifications++ })
+	t.Run("ZIP alterado requer outra prévia", func(t *testing.T) {
+		filename := filepath.Join(dir, "review.zip")
+		writeRevision := func(version string) {
+			t.Helper()
+			var data bytes.Buffer
+			w := zip.NewWriter(&data)
+			f, err := w.Create("plugin.json")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err = f.Write([]byte(`{"$schema":"` + pluginpackage.ManifestSchema + `","name":"test","version":"` + version + `"}`)); err != nil {
+				t.Fatal(err)
+			}
+			if err = w.Close(); err != nil {
+				t.Fatal(err)
+			}
+			if err = os.WriteFile(filename, data.Bytes(), 0600); err != nil {
+				t.Fatal(err)
+			}
+		}
+		AttachPluginDialogs(api, func(ports.OpenFileOptions) (string, error) { return filename, nil }, nil)
+		writeRevision("1")
+		p, err := api.PreviewLocalZIP()
+		if err != nil {
+			t.Fatal(err)
+		}
+		writeRevision("2")
+		if _, err = api.InstallReviewed(p.Token); !errors.Is(err, plugins.ErrPackageChanged) {
+			t.Fatalf("expected changed revision, got %v", err)
+		}
+		if err = os.Remove(filename); err != nil {
+			t.Fatal(err)
+		}
+	})
+
 	syncErr = errors.New("runtime unavailable")
 	for _, wrongSession := range []string{"", "previous"} {
 		if err := api.SyncMCP(wrongSession); !errors.Is(err, database.ErrUserScopeRequired) {
