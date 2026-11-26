@@ -1,7 +1,8 @@
 import { logger } from '../../utils/logger';
-import { useState, useEffect, forwardRef, useImperativeHandle, useCallback, useRef, type ReactNode } from 'react';
+import { useState, useEffect, forwardRef, useImperativeHandle, useLayoutEffect, useCallback, useRef, type ReactNode } from 'react';
 import { MessageOutlined, WarningOutlined } from '@ant-design/icons';
 import { ComboboxItem } from './Combobox';
+import { Button } from '../ui/Button';
 import { BasePicker } from './BasePicker';
 import { GetConversationProfiles, GetProfiles, GetActiveProfileSlug, SetActiveProfile } from '@wailsjs/go/wailsapi/Profiles';
 import { EventsOn } from '@wailsjs/runtime/runtime';
@@ -62,6 +63,15 @@ export const ProfilePicker = forwardRef<ProfilePickerRef, ProfilePickerProps>(
     useEffect(() => {
       if (partial) onAnnounce?.(t('profiles.pluginCatalogUnavailable'));
     }, [partial, onAnnounce, t]);
+    const triggerRef = useRef<HTMLButtonElement>(null);
+    const retryRef = useRef<HTMLButtonElement>(null);
+    const restoreRetryFocus = useRef(false);
+    useLayoutEffect(() => {
+      if (loading || !restoreRetryFocus.current) return;
+      restoreRetryFocus.current = false;
+      if (document.activeElement === document.body) (retryRef.current ?? triggerRef.current)?.focus();
+    }, [loading, error, profileList]);
+
     const requestId = useRef(0);
     const loadProfiles = useCallback(async (background = false) => {
       const request = ++requestId.current;
@@ -194,6 +204,10 @@ export const ProfilePicker = forwardRef<ProfilePickerRef, ProfilePickerProps>(
       <div className="voice-picker voice-picker--error">
         <span className="voice-picker__icon"><WarningOutlined aria-hidden="true" /></span>
         <span className="voice-picker__error">{error}</span>
+        <Button ref={retryRef} onClick={event => {
+          restoreRetryFocus.current = document.activeElement === event.currentTarget;
+          void loadProfiles();
+        }}>{t('pickers.base.retry', 'Tentar novamente')}</Button>
       </div>
     );
 
@@ -211,6 +225,7 @@ export const ProfilePicker = forwardRef<ProfilePickerRef, ProfilePickerProps>(
         variant={variant ?? 'form'}
         items={buildItems()}
         onOpen={includePluginProfiles ? () => void loadProfiles(true) : undefined}
+        triggerRef={triggerRef}
         selected={selectedSlug}
         onSelect={handleSelect}
         label={resolvedLabel}

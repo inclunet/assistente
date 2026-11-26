@@ -22,15 +22,18 @@ vi.mock('@wailsjs/runtime/runtime', () => ({
 vi.mock('./BasePicker', () => ({
   BasePicker: (props: {
     items: Array<{ value: string }>;
+    triggerRef?: React.Ref<HTMLButtonElement>;
     onOpen?: () => void;
     onSelect: (value: string) => void;
+    error?: string;
+    errorState?: React.ReactNode;
     emptyState?: React.ReactNode;
     loading?: boolean;
     loadingState?: React.ReactNode;
     label?: string;
-  }) => (
+  }) => props.error ? props.errorState : props.loading ? props.loadingState : (
     <div>
-      {props.onOpen && <button onClick={props.onOpen}>Abrir</button>}
+      {props.onOpen && <button ref={props.triggerRef} onClick={props.onOpen}>Abrir</button>}
       <span data-testid="picker-label">{props.label}</span>
       {props.loading ? props.loadingState : null}
       {!props.loading && props.items.length === 0 ? props.emptyState : null}
@@ -52,6 +55,20 @@ describe('ProfilePicker', () => {
     fireEvent.click(await screen.findByRole('button', {name: 'Selecionar-plugin--12345678-1234-4234-8234-123456789abc'}));
     expect(change).toHaveBeenCalledWith('plugin--12345678-1234-4234-8234-123456789abc');
     expect(setActiveSpy).not.toHaveBeenCalled();
+  });
+
+  it('permite tentar novamente após falha de ambas as fontes ao reabrir', async () => {
+    const installed = [{name:'Writer', slug:'installed'}];
+    getConversationProfilesSpy.mockResolvedValueOnce(installed).mockRejectedValueOnce(new Error('offline')).mockResolvedValueOnce(installed);
+    getProfilesSpy.mockRejectedValueOnce(new Error('offline'));
+    render(<ProfilePicker includePluginProfiles value="" />);
+    await screen.findByRole('button', {name:'Selecionar-installed'});
+    fireEvent.click(screen.getByRole('button', {name:'Abrir'}));
+    const retry = await screen.findByRole('button', {name:'Tentar novamente'});
+    retry.focus();
+    fireEvent.click(retry);
+    expect(await screen.findByRole('button', {name:'Selecionar-installed'})).toBeVisible();
+    expect(screen.getByRole('button', {name:'Abrir'})).toHaveFocus();
   });
 
   it('mantém os perfis locais e recupera a lista de plugins ao reabrir', async () => {
