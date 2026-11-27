@@ -16,20 +16,32 @@ Toda feature ou correção não-trivial segue este fluxo, sem exceções:
 1. **Consulte os AEPs** relevantes em `aep/` antes de implementar (veja a seção AEPs).
 2. **Isole o trabalho**: crie um git worktree próprio com branch descritiva a partir de `origin/main` (ex.: `git worktree add ../assistente-wt-<tema> -b <tipo>/<tema> origin/main`). Não trabalhe direto na `main`.
 3. **Commits temáticos em português**, um assunto por commit.
-4. **Valide localmente antes do push**: backend `go build ./...`, `go vet ./...`, `go test ./...` (e `golangci-lint run` se disponível); frontend `tsc --noEmit`, eslint, stylelint e `npm test` (vitest).
+4. **Valide localmente antes do push**: backend `go build ./...`, `go vet ./...`, `go test ./...` conforme a seção Validação no Windows (e `golangci-lint run` se disponível); frontend `tsc --noEmit`, eslint, stylelint e `npm test` (vitest).
 5. **Zere o review local do Bugbot ou recurso equivalente antes do primeiro push**: rode o Bugbot ou um revisor independente equivalente sobre o diff completo (por exemplo, outro agente que não implementou as mudanças), corrija ou justifique tecnicamente todos os achados e repita até não haver pendências. Registre qual revisor foi usado, as rodadas e o resultado. A revisão não substitui os testes. Não abra o PR nem acione review remota enquanto houver pendências locais.
 6. **Abra um PR para `main`** com título e corpo em português (motivação, mudanças, testes). Um PR por assunto; prefira PRs pequenos. Se um PR depende de outro ainda aberto, empilhe (base = branch do PR dependido) e informe a ordem de merge no corpo.
 7. **Acompanhe o CI até ficar verde** (`gh pr checks <n> --watch`). Corrija falhas e repita.
-8. **Loop de review até zerar, preservando a cota remota**: a review do Copilot é solicitada automaticamente pelo ruleset, inclusive após novos pushes. Para cada rodada, reúna todos os comentários, corrija ou justifique tecnicamente cada um (de preferência com teste que prove), valide localmente e zere novamente o Bugbot ou recurso equivalente **antes de fazer um único push consolidado**. Responda e resolva todas as threads e acompanhe o novo CI até ficar verde. Só solicite review manual via `gh api repos/<owner>/<repo>/pulls/<n>/requested_reviewers -X POST -f "reviewers[]=copilot-pull-request-reviewer[bot]"` quando não houver review automática após o push; nunca use commits vazios nem pedidos repetidos apenas para disparar review. Encerre somente com **zero threads não resolvidas e CI verde**.
+8. **Loop de review até zerar, preservando a cota remota**: a review do Copilot é solicitada automaticamente pelo ruleset, inclusive após novos pushes. Para cada rodada, reúna todos os comentários, corrija ou justifique tecnicamente cada um (de preferência com teste que prove), repita as validações do item 4, incluindo a seção Validação no Windows, e zere novamente o Bugbot ou recurso equivalente **antes de fazer um único push consolidado**. Responda e resolva todas as threads e acompanhe o novo CI até ficar verde. Só solicite review manual via `gh api repos/<owner>/<repo>/pulls/<n>/requested_reviewers -X POST -f "reviewers[]=copilot-pull-request-reviewer[bot]"` quando não houver review automática após o push; nunca use commits vazios nem pedidos repetidos apenas para disparar review. Encerre somente com **zero threads não resolvidas e CI verde**.
 9. **Nunca faça merge do PR.** O merge é decisão do dono do projeto.
 10. Ao final, reporte: número/URL do PR, o que mudou, resultado de testes/checks e rodadas do revisor local (Bugbot ou equivalente, identificado) e review remota.
 
 ## Testes (não deixar feature descoberta)
 - Sempre verificar se a mudança/feature está coberta por testes.
   - Frontend: preferir **Vitest** para utilitários, hooks e componentes.
-  - Backend: preferir `go test ./...` com testes de unidade/integração onde fizer sentido.
+  - Backend: preferir testes de unidade/integração onde fizer sentido. Use `go test ./...` conforme a seção Validação no Windows.
 - Se não houver teste cobrindo o comportamento alterado (ou se a cobertura estiver fraca), criar/atualizar testes junto com a mudança.
 - Ao adicionar testes, manter o escopo focado na feature tocada (evitar "mass refactor" de testes).
+
+### Validação no Windows
+
+- Execute os testes de integração que dependem de ACP, ConPTY ou Windows
+  PowerShell 5.1 reais exclusivamente no job `windows-installer` do GitHub
+  Actions. A regra se aplica antes do primeiro push e em cada rodada de review.
+- No Windows local, não execute `go test ./...` sem filtro se a suíte incluir
+  essas integrações. Para os demais testes, selecione pacotes ou casos seguros e
+  execute-os localmente só quando for possível garantir que nem os testes nem
+  seus subprocessos criem ou executem `.exe` em `%TEMP%`, `%TMP%` ou outra pasta
+  temporária do sistema. Quando não houver essa garantia, deixe a validação para
+  a CI. Siga as regras de diretórios de build abaixo em toda execução local.
 
 ### Regras rígidas
 - Nunca deletar testes para "resolver" falhas.
