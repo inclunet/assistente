@@ -46,6 +46,7 @@ Além disso, hoje uma falha de streaming tende a simplesmente “parar”, sem (
   conteúdo e efeitos de ferramentas. Recuperação automática segura do parcial
   fica pendente de contrato e prova específicos.
 - O número de tentativas é **configurável por perfil**. Quando o provedor HTTP já esgotou suas tentativas internas de streaming, sinaliza erro terminal ao agente. A recuperação automática respeita esse limite para evitar multiplicar chamadas. O watchdog continua medindo inatividade por tentativa.
+- Cada tentativa de streaming da Responses API registra o identificador da conexão e o modelo solicitado no payload final, inclusive quando há override na aba. Quando a resposta HTTP fornece identificadores de correlação reconhecidos em `x-request-id` ou `x-litellm-call-id`, o log associa esses IDs à tentativa e ao turno.
 - Na Responses API, timeout registra estágio, tipo do último evento completo (`none` antes do primeiro e `unknown` para tipos não reconhecidos), contagens e tempos de leitura e
   processamento sem incluir conteúdo, credenciais ou payload. O diagnóstico não
   comprova entrega fim a fim nem muda o limite de inatividade.

@@ -1,7 +1,9 @@
 package llm
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -9,6 +11,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"assistente/internal/tools/invocationctx"
 )
 
 type diagnosticCloseTransport struct{ closed bool }
@@ -127,5 +131,84 @@ func TestResponsesIdleDiagnosticPreservesPartialAndOmitsContent(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("diagnóstico ausente: %+v", logs.snapshot())
+	}
+}
+
+func TestResponsesAttemptLogsWireModelAndGatewayIDs(t *testing.T) {
+	const model = "anthropic/test-override"
+	const gatewayID = "ff73cd06-c880-4b83-879d-35c81dfb3764"
+	const requestID = "req_0123456789abcdef0123456789abcdef"
+	var output bytes.Buffer
+	old := slog.Default()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&output, nil)))
+	t.Cleanup(func() { slog.SetDefault(old) })
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body struct{ Model string }
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Model != model {
+			t.Errorf("modelo no HTTP=%q erro=%v", body.Model, err)
+		}
+		w.Header().Set("X-Litellm-Call-Id", gatewayID)
+		w.Header().Set("X-Request-Id", requestID)
+		w.Header().Set("X-Private", "private-header-value")
+		w.WriteHeader(http.StatusBadRequest)
+	}))
+	defer server.Close()
+	p := NewOpenAIResponsesProvider(&ProviderConfig{ID: "test-gateway", DefaultModel: "unused-default", BaseURL: server.URL, AuthMode: AuthModeNone}, nil)
+	ctx := invocationctx.With(t.Context(), invocationctx.InvocationContext{TurnID: "turn-fixture"})
+	h := &spyHandler{}
+	p.StreamChat(ctx, []Message{{Role: "user", Content: "private-prompt-value"}}, ChatParams{Model: model}, h)
+	if h.err == "" {
+		t.Fatal("esperava falha do provedor")
+	}
+	if strings.Contains(output.String(), "private-header-value") || strings.Contains(output.String(), "private-prompt-value") {
+		t.Fatal("conteúdo privado nos logs")
+	}
+	var started, correlated bool
+	for _, line := range strings.Split(strings.TrimSpace(output.String()), "\n") {
+		var record map[string]any
+		if err := json.Unmarshal([]byte(line), &record); err != nil {
+			t.Fatal(err)
+		}
+		if record["turn_id"] != "turn-fixture" || record["stream_attempt"] != float64(1) || record["provider_id"] != "test-gateway" || record["requested_model"] != model {
+			continue
+		}
+		msg, _ := record["msg"].(string)
+		if strings.Contains(msg, "Responses API:") {
+			started = true
+		}
+		if msg == "stream_response_ids" && record["x-litellm-call-id"] == gatewayID && record["x-request-id"] == requestID {
+			correlated = true
+		}
+	}
+	if !started || !correlated {
+		t.Fatalf("início=%v resposta correlacionada=%v", started, correlated)
+	}
+}
+
+func TestStreamCorrelationOmitsAmbiguousOrUnrecognizedIDs(t *testing.T) {
+	logs := &logCaptureHandler{}
+	old := slog.Default()
+	slog.SetDefault(slog.New(logs))
+	defer slog.SetDefault(old)
+	header := http.Header{}
+	header.Add("X-Request-Id", "0123456789abcdef0123456789abcdef")
+	header.Add("X-Request-Id", "0123456789abcdef0123456789abcdef")
+	header.Set("X-Litellm-Call-Id", "arbitrary-server-content")
+	logStreamCorrelation(t.Context(), header)
+	if len(logs.snapshot()) != 0 {
+		t.Fatal("identificadores ambíguos ou desconhecidos aceitos")
+	}
+}
+
+func TestDiagnosticRouteLabelOmitsCredentialShapes(t *testing.T) {
+	for _, label := range []string{"sk-proj-fixture", "proxy/sk-ant-fixture", "ghp_fixture", "user:password@example.org", "https://host/model", "token\nmodel"} {
+		if got := diagnosticRouteLabel(label); got != "unknown" {
+			t.Error("rótulo sensível aceito para diagnóstico")
+		}
+	}
+	for _, label := range []string{"anthropic/opus-5.5", "model:latest", "publisher/model@20260101"} {
+		if got := diagnosticRouteLabel(label); got != label {
+			t.Errorf("rótulo válido omitido: %q", label)
+		}
 	}
 }
