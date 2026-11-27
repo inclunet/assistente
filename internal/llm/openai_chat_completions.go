@@ -82,11 +82,11 @@ func (p *OpenAIProvider) streamChatCompletions(ctx context.Context, model string
 		sdkParams.ToolChoice = makeToolChoice(toolChoice)
 	}
 
-	const maxAttempts = 10
 	bk := 500 * time.Millisecond
 	maxBk := 8 * time.Second
 
-	for attempt := 1; attempt <= maxAttempts; attempt++ {
+	for attempt := 1; attempt <= maxStreamAttempts; attempt++ {
+		markFinalStreamAttempt(handler, attempt)
 		select {
 		case <-ctx.Done():
 			handler.OnError("Streaming cancelado: " + ctx.Err().Error())
@@ -99,7 +99,7 @@ func (p *OpenAIProvider) streamChatCompletions(ctx context.Context, model string
 			return
 		}
 		if res.compatibilityRetry {
-			if attempt >= maxAttempts {
+			if attempt >= maxStreamAttempts {
 				discardStreamReasoning(handler)
 				handler.OnError(res.compatibilityError)
 				return
@@ -108,7 +108,7 @@ func (p *OpenAIProvider) streamChatCompletions(ctx context.Context, model string
 			continue
 		}
 
-		if attempt < maxAttempts {
+		if attempt < maxStreamAttempts {
 			if res.plainRetry {
 				// Visibilidade: nunca deixar a pessoa no silêncio do backoff.
 				// Só para falha transitória real; auto-ajustes de parâmetro

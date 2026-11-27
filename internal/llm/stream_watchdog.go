@@ -195,6 +195,16 @@ const streamIdleErrorMessage = "streaming_idle_timeout"
 // sem fixar idioma no backend.
 const streamRetriesExhaustedError = "streaming_retries_exhausted"
 
+const maxStreamAttempts = 10
+
+// Na última tentativa, inclusive um erro emitido diretamente pelo transporte
+// deve encerrar a recuperação automática. O agente só consulta a marca em erro.
+func markFinalStreamAttempt(handler StreamHandler, attempt int) {
+	if attempt == maxStreamAttempts {
+		markErrorNotRetryable(handler)
+	}
+}
+
 const streamPromptCacheHintRejectedError = "streaming_prompt_cache_hint_rejected"
 
 // streamTokenRateLimitError identifica um 429 por estouro de cota de tokens do

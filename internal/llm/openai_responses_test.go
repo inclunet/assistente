@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"testing/synctest"
 
 	"assistente/internal/credentials"
 	"assistente/internal/database"
@@ -839,5 +840,41 @@ func TestOpenAIProvider_StreamChatResponses_NativeMCPUnsupportedAbortsWhenFallba
 	}
 	if handler.done != 0 {
 		t.Fatalf("não deveria emitir done (abortou para retry upstream): %d", handler.done)
+	}
+}
+
+func TestResponsesExhaustionMarksTerminalError(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		key  string
+		last mcpStreamAttemptResult
+		want string
+	}{
+		{"direct error", "", mcpStreamAttemptResult{done: true}, "provider_error"},
+		{"transport", "", mcpStreamAttemptResult{retry: true}, streamRetriesExhaustedError},
+		{"cache with key", "key", mcpStreamAttemptResult{promptCacheHintUnsupported: true}, streamPromptCacheHintRejectedError},
+		{"cache without key", "", mcpStreamAttemptResult{promptCacheHintUnsupported: true}, streamPromptCacheHintRejectedError},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				p := &OpenAIProvider{provider: &ProviderConfig{ID: "fixture"}, useResponses: true}
+				calls := 0
+				p.responsesAttemptFn = func(_ context.Context, _ responses.ResponseNewParams, handler StreamHandler, _ []MCPServerConfig, _ ChatParams, _ *DebugDumpHandle) mcpStreamAttemptResult {
+					calls++
+					if calls == 10 {
+						if tc.last.done {
+							handler.OnError(tc.want)
+						}
+						return tc.last
+					}
+					return mcpStreamAttemptResult{retry: true}
+				}
+				h := &espiaoAvisos{}
+				p.streamChatResponses(t.Context(), "model", []Message{{Role: "user", Content: "teste"}}, ChatParams{PromptCacheKey: tc.key, PromptCacheHintFallback: &PromptCacheHintFallback{}}, h)
+				if calls != 10 || len(h.avisos) != 9 || h.err != tc.want || !h.naoRetentavel {
+					t.Fatalf("tentativas=%d avisos=%d erro=%q terminal=%v", calls, len(h.avisos), h.err, h.naoRetentavel)
+				}
+			})
+		})
 	}
 }
