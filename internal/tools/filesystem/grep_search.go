@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"assistente/internal/docextract"
@@ -39,6 +40,8 @@ func NewGrepSearch(workDir string, caches ...*docextract.ProjectionCache) *GrepS
 }
 
 func (t *GrepSearch) Name() string { return "grep_search" }
+
+func (*GrepSearch) SearchTimeBudget() time.Duration { return localSearchBudget }
 
 // CatalogMetadata declara os metadados de catálogo da tool (AEP-0077, Fase 1).
 func (t *GrepSearch) CatalogMetadata() tools.CatalogMetadata {

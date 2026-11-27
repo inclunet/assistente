@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"assistente/internal/tools"
 )
@@ -28,6 +29,10 @@ func NewSearchFiles(workDir string) *SearchFiles {
 }
 
 func (t *SearchFiles) Name() string { return "search_files" }
+
+const localSearchBudget = 30 * time.Second
+
+func (*SearchFiles) SearchTimeBudget() time.Duration { return localSearchBudget }
 
 // CatalogMetadata declara os metadados de catálogo da tool (AEP-0077, Fase 1).
 func (t *SearchFiles) CatalogMetadata() tools.CatalogMetadata {
