@@ -1268,7 +1268,7 @@ de cancelamento de release na dependência; o AEP permanece **In Progress**.
 | [0072](0072-skill-catalog-and-loading.md) | Skill Loading Runtime | ✅ Done |
 | [0073](0073-tasklist-conversation-linking.md) | Vínculo de Tasks e Tasklists a Conversas | ✅ Done |
 | [0074-A](0074-prompt-cache-e-contexto-dinamico.md) | Prompt Cache, Custo de LLM e Layout da Request ⚠️ | 🚧 In Progress |
-| [0074-B](0074-database-compaction-and-retention.md) | Compactação e Retenção do Banco de Dados ⚠️ — legado concluído; qualificação das extensões pendente | 🚧 In Progress |
+| [0074-B](0074-database-compaction-and-retention.md) | Compactação e Retenção do Banco de Dados ⚠️ — legado concluído; qualificação das extensões pendente; índices da outbox v49 | 🚧 In Progress |
 | [0075](0075-context-providers.md) | Context Providers | ✅ Done |
 | [0076](0076-schema-versioning-migrations.md) | Versionamento de Schema do Banco (schema_migrations) | ✅ Done |
 | [0077](0077-tool-planner-and-tools-subsystem-evolution.md) | ToolPlanner e Evolução do Subsistema de Tools | ✅ Done |

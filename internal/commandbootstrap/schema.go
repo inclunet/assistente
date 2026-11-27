@@ -145,7 +145,19 @@ func Migrate(ctx context.Context, db *gorm.DB) error {
 		if err := database.ApplyCommandInstanceMigration(ctx, tx, apply); err != nil {
 			return err
 		}
-		return database.ApplyCommandDecisionExternalContextMigration(ctx, tx, apply)
+		if err := database.ApplyCommandDecisionExternalContextMigration(ctx, tx, apply); err != nil {
+			return err
+		}
+		return database.ApplyCommandRetentionIndexMigration(ctx, tx, func(tx *gorm.DB) error {
+			for _, name := range []string{"ix_outbox_state_deadline", "ix_outbox_owner_state_run"} {
+				if !tx.Migrator().HasIndex(&commandjobevents.ActivationOutbox{}, name) {
+					if err := tx.Migrator().CreateIndex(&commandjobevents.ActivationOutbox{}, name); err != nil {
+						return err
+					}
+				}
+			}
+			return check(tx, true)
+		})
 	})
 	if err != nil {
 		if ctx.Err() != nil {
