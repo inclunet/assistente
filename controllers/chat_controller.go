@@ -140,6 +140,7 @@ func (c *ChatController) RetryMessage(ctx context.Context, conversationID string
 
 // SendMessageFromChannel é chamado pelo Gateway de mensageria (Telegram, Signal, etc.).
 func (c *ChatController) SendMessageFromChannel(ctx context.Context, conversationID string, content, media string, params llm.ChatParams, source string) (string, error) {
+	ctx = invocationctx.WithVerifiedWorkspaceID(ctx, "")
 	ctx = invocationctx.WithWorkspace(ctx, "")
 	return c.sendMsgUC.Execute(usecases.SendMessageRequest{
 		Ctx:            ctx,
