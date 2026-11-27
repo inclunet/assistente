@@ -30,6 +30,8 @@ export function CopyJob(arg1:string,arg2:string,arg3:string,arg4:string):Promise
 
 export function CreateListFromTemplate(arg1:string,arg2:string,arg3:string,arg4:string):Promise<string>;
 
+export function DecidePreToolHook(arg1:string,arg2:string,arg3:string,arg4:string,arg5:string,arg6:string,arg7:string):Promise<void>;
+
 export function DiscardPreview(arg1:string):Promise<void>;
 
 export function InstallReviewed(arg1:string):Promise<database.PluginInstallation>;
