@@ -42,6 +42,7 @@ function connectionLabel(component: plugins.Component) {
 
 function componentLabel(kind: string) {
   switch (kind) {
+    case 'hook': return 'plugins.hook';
     case 'agent': return 'plugins.agent';
     case 'skill': return 'plugins.skill';
     case 'mcp': return 'plugins.mcp';
@@ -54,6 +55,9 @@ function componentLabel(kind: string) {
 }
 
 function componentRequirement(component: plugins.Component) {
+  if (component.reason === 'hookExecutionPending') return 'plugins.hookExecutionPending';
+  if (component.reason === 'hookInspectionLimit') return 'plugins.hookInspectionLimit';
+  if (component.reason === 'hookConfiguration') return 'plugins.hookConfiguration';
   if (component.reason === 'providerSlugTaken') return 'plugins.providerSlugTaken';
   if (component.reason === 'invalidProvider') return 'plugins.invalidProvider';
   if (component.reason === 'invalidJob') return 'plugins.invalidJob';

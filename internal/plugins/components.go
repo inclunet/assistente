@@ -1,10 +1,12 @@
 package plugins
 
 import (
+	"encoding/json"
 	"path"
 	"regexp"
 	"sort"
 	"strings"
+	"unicode"
 	"unicode/utf8"
 
 	"assistente/internal/jobs"
@@ -69,6 +71,10 @@ func DiscoverComponents(snapshot *pluginpackage.LocalSnapshot) []Component {
 	}
 	for entry := range snapshot.Files {
 		parts := strings.Split(entry, "/")
+		if (claude || snapshot.Manifest.Format == pluginpackage.Cursor) && entry == "hooks/hooks.json" ||
+			snapshot.Manifest.Format == pluginpackage.Cursor && entry == ".cursor/hooks.json" {
+			components = append(components, hookFileComponents(entry, snapshot.Files[entry])...)
+		}
 		if claude && parts[0] == "agents" && len(parts) > 1 && path.Ext(entry) == ".md" {
 			c := Component{Key: entry, Entry: entry, Name: strings.TrimPrefix(entry, "agents/"), Kind: "agent"}
 			def, field, err := readClaudeAgent(snapshot.Files[entry])
@@ -171,6 +177,50 @@ func DiscoverComponents(snapshot *pluginpackage.LocalSnapshot) []Component {
 	}
 	sort.Slice(components, func(i, j int) bool { return components[i].Key < components[j].Key })
 	return components
+}
+
+// Describe event declarations without interpreting or executing their handlers.
+// Unmapped configurations keep the same package-wide activation guard.
+func hookFileComponents(entry string, raw []byte) []Component {
+	file := Component{Key: entry, Name: entry, Entry: entry, Kind: "hook", Reason: "hookConfiguration"}
+	var declared struct {
+		Hooks map[string]json.RawMessage
+	}
+	if len(raw) > 64<<10 {
+		file.Reason = "hookInspectionLimit"
+		return []Component{file}
+	}
+	if json.Unmarshal(raw, &declared) != nil || len(declared.Hooks) == 0 {
+		return []Component{file}
+	}
+	if len(declared.Hooks) > 64 {
+		file.Reason = "hookInspectionLimit"
+		return []Component{file}
+	}
+	invalidName := false
+	events := make([]Component, 0, len(declared.Hooks))
+	for event, group := range declared.Hooks {
+		if len(event) > 80 {
+			file.Reason = "hookInspectionLimit"
+			return []Component{file}
+		}
+		if len(event) == 0 || strings.IndexFunc(event, unicode.IsControl) >= 0 {
+			invalidName = true
+			continue
+		}
+		component := file
+		component.Key = entry + "#" + event
+		component.Name = event
+		var handlers []json.RawMessage
+		if json.Unmarshal(group, &handlers) == nil && len(handlers) > 0 {
+			component.Reason = "hookExecutionPending"
+		}
+		events = append(events, component)
+	}
+	if invalidName {
+		return []Component{file}
+	}
+	return events
 }
 
 var portableSkillName = regexp.MustCompile("^[a-z0-9]+(-[a-z0-9]+)*$")

@@ -354,3 +354,56 @@ func TestClaudeAgentDefinitionDiagnostics(t *testing.T) {
 		t.Fatal(field, err)
 	}
 }
+
+func TestHookDeclarationsAppearWithoutActivation(t *testing.T) {
+	for _, tc := range []struct{ format, entry string }{
+		{pluginpackage.ClaudeCode, "hooks/hooks.json"},
+		{pluginpackage.Cursor, "hooks/hooks.json"},
+		{pluginpackage.Cursor, ".cursor/hooks.json"},
+	} {
+		snap := &pluginpackage.LocalSnapshot{Manifest: pluginpackage.Manifest{Format: tc.format},
+			Files: map[string][]byte{tc.entry: []byte(`{"hooks":{"PreToolUse":[{"hooks":[{"type":"command","command":"private command"}]}],"PostToolUse":null}}`),
+				"skills/read/SKILL.md": []byte("---\nname: read\ndescription: Read\n---\nRead")}}
+		got := DiscoverComponents(snap)
+		if len(got) != 3 {
+			t.Fatal(tc, got)
+		}
+		for _, c := range got {
+			switch c.Kind {
+			case "hook":
+				want := map[string]string{"PreToolUse": "hookExecutionPending", "PostToolUse": "hookConfiguration"}
+				if c.Active || c.Entry != tc.entry || c.Key != tc.entry+"#"+c.Name || want[c.Name] != c.Reason {
+					t.Fatal(tc, c)
+				}
+			case "skill":
+				if c.Reason != "manifestConfiguration" {
+					t.Fatal(tc, c)
+				}
+			default:
+				t.Fatal(tc, c)
+			}
+		}
+		snap.Files = map[string][]byte{tc.entry: []byte("invalid")}
+		got = DiscoverComponents(snap)
+		if len(got) != 1 || got[0].Reason != "hookConfiguration" || got[0].Entry != tc.entry {
+			t.Fatal(tc, got)
+		}
+	}
+}
+
+func TestHookInspectionSizeBoundary(t *testing.T) {
+	const doc = `{"hooks":{"PreToolUse":[{}]}}`
+	raw := []byte(doc + strings.Repeat(" ", (64<<10)-len(doc)))
+	for _, tc := range []struct {
+		data   []byte
+		reason string
+	}{
+		{raw, "hookExecutionPending"}, {append(raw, ' '), "hookInspectionLimit"},
+		{[]byte(`{"hooks":{"":[],"` + strings.Repeat("a", 81) + `":[]}}`), "hookInspectionLimit"},
+	} {
+		got := hookFileComponents("hooks/hooks.json", tc.data)
+		if len(got) != 1 || got[0].Reason != tc.reason {
+			t.Fatalf("tamanho %d: %+v", len(tc.data), got)
+		}
+	}
+}

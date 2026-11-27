@@ -17,6 +17,10 @@ Se sair da página antes de confirmar, selecione a origem novamente para instala
 
 Se os arquivos mudarem depois da prévia, selecione a origem novamente para examinar a nova revisão. Para atualizar um pacote, selecione a mesma pasta ou arquivo ZIP. A prévia mostra o digest instalado e o novo digest. Escolha **Atualizar revisão** para confirmar. Se ambos forem iguais, a tela informa que essa revisão já está instalada. A nova revisão começa com os componentes inativos.
 
+### Hooks declarados pelo plugin
+
+Na prévia de plugins Claude Code ou Cursor, cada evento declarado em `hooks/hooks.json` aparece com o caminho de origem. O Cursor também admite `.cursor/hooks.json`. A inspeção apenas lê o arquivo e aceita até 64 KiB, 64 eventos por arquivo e 80 bytes por nome de evento. A prévia avisa quando a declaração ultrapassa esses limites. Enquanto a execução estiver indisponível, a prévia informa a limitação e os componentes dependentes continuam bloqueados.
+
 ## Ativar uma skill
 
 Na grade de plugins instalados, selecione o pacote e pressione Enter. Os detalhes listam as skills e os servidores MCP encontrados. Para uma skill de instruções compatível, escolha **Ativar**. O identificador exibido após a ativação pode ser usado no chat como comando de barra, desde que o perfil permita a skill. Use **Desativar** para removê-la das próximas seleções. O seletor de skills de um perfil aberto acompanha essas mudanças. Ao atualizar a revisão, confira e ative os componentes desejados novamente.
