@@ -25,6 +25,7 @@ type InvocationContext struct {
 
 type ctxKey struct{}
 type workspaceKey struct{}
+type workspaceIDKey struct{}
 type persistentShellKey struct{}
 type shellCommandMetadataKey struct{}
 type protectedDirectoryKey struct{}
@@ -111,6 +112,18 @@ func PersistentShell(ctx context.Context) bool {
 
 type maskedInvocationContext struct{}
 
+// WithVerifiedWorkspaceID transporta a identidade do workspace validado na admissão do turno.
+// A raiz usada para autorizar acesso a arquivos pode ser compartilhada por vários workspaces.
+func WithVerifiedWorkspaceID(ctx context.Context, id string) context.Context {
+	return context.WithValue(ctx, workspaceIDKey{}, id)
+}
+
+// VerifiedWorkspaceID retorna vazio quando a origem da chamada não foi validada.
+func VerifiedWorkspaceID(ctx context.Context) string {
+	id, _ := ctx.Value(workspaceIDKey{}).(string)
+	return id
+}
+
 // WithWorkspace captura no backend a raiz de origem antes de enfileirar o
 // turno. Vazio significa origem sem workspace, nunca o workspace atual da UI.
 func WithWorkspace(ctx context.Context, root string) context.Context {
@@ -137,5 +150,6 @@ func Get(ctx context.Context) (InvocationContext, bool) {
 // Without cria uma fronteira de execução que não herda conversa, turno,
 // superfície nem profile-pai do contexto que originou um evento.
 func Without(ctx context.Context) context.Context {
+	ctx = WithVerifiedWorkspaceID(ctx, "")
 	return WithWorkspace(context.WithValue(ctx, ctxKey{}, maskedInvocationContext{}), "")
 }

@@ -10,6 +10,7 @@ import (
 	"assistente/internal/commandui"
 	"assistente/internal/database"
 	"assistente/internal/llm"
+	"assistente/internal/tools/invocationctx"
 	"assistente/internal/workspace"
 	"gorm.io/gorm"
 )
@@ -119,7 +120,7 @@ func (a *App) commitChatSubmission(turnCtx context.Context, metadata *llm.ChatCo
 			// Acceptance is the command effect. The existing pipeline owns the turn
 			// thereafter, using the Wails session lifetime, never the broker deadline.
 			var submitErr error
-			result, submitErr = next(turnCtx)
+			result, submitErr = next(invocationctx.WithVerifiedWorkspaceID(turnCtx, expected.WorkspaceID))
 			if submitErr != nil {
 				return commandui.ErrOutcomeUnknown
 			} // The pipeline may already have persisted. Never persist its raw error.
