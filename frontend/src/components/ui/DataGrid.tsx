@@ -20,6 +20,8 @@ export interface DataGridColumn<T = unknown> {
   action?: boolean;
   /** Executa onCellAction por Enter/Espaço sem substituir o conteúdo formatado da célula. */
   keyboardAction?: boolean;
+  /** Render the cell value as a button that activates its row. */
+  activatesRow?: (item: T) => boolean;
   actionIcon?: string;
   actionLabel?: string; // Texto acessível para leitores de tela (ex: "Abrir", "Editar", "Excluir")
   editable?: boolean;
@@ -1010,6 +1012,16 @@ export function DataGrid<T = unknown>({
 
     const value = item[column.key as keyof T];
     
+    if (column.activatesRow?.(item)) {
+      return <button type="button" className="action-button" tabIndex={-1} onClick={event => {
+        event.stopPropagation();
+        requestGridFocus({ rowIndex, colIndex });
+        // Commit focus before opening the next surface; a delayed focus would steal it back.
+        clearScheduledCellFocus();
+        focusCell(rowIndex, colIndex);
+        onActivate?.(item, rowIndex);
+      }}>{String(value ?? '')}</button>;
+    }
     if (column.action) {
       return (
         <button

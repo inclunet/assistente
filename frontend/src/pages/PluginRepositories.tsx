@@ -195,11 +195,7 @@ export default function PluginRepositories({ session, catalog, parentBusy, onFor
         label={t('plugins.chooseCatalogFormat', { name: choice.row.name })}
         onActivate={variant => void preview(choice.row.repo, variant, choice.opener)}
         columns={[
-          { key: 'format', label: t('plugins.format'), format: (_, variant) => variant.diagnostic ? variant.format :
-            <Button tabIndex={-1} disabled={busy || parentBusy} onClick={event => {
-              event.stopPropagation();
-              void preview(choice.row.repo, variant, choice.opener);
-            }}>{variant.format}</Button> },
+          { key: 'format', label: t('plugins.format'), activatesRow: variant => !busy && !parentBusy && !variant.diagnostic },
           { key: 'diagnostic', label: t('common.status'), format: (_, variant) => t(catalogStatus(variant.diagnostic)) },
           { key: 'store', label: t('plugins.store') },
           { key: 'version', label: t('plugins.version') },
@@ -211,13 +207,7 @@ export default function PluginRepositories({ session, catalog, parentBusy, onFor
     {catalog ? <>
       {entries.length > 0 ? <DataGrid key={needle} virtualizeRows items={entries} getItemId={item => item.id} autoFocusOnMount={false} label={t('plugins.catalog')} onActivate={row => openRow(row, document.activeElement instanceof HTMLElement ? document.activeElement : null)}
         columns={[
-          { key: 'name', label: t('plugins.name'), format: (_, row) => row.variants.length === 1 && row.variants[0].diagnostic ? row.name :
-            <Button tabIndex={-1} disabled={busy || parentBusy} onClick={event => {
-              event.stopPropagation();
-              const opener = event.currentTarget.closest<HTMLElement>('[role="gridcell"]');
-              opener?.focus();
-              openRow(row, opener);
-            }}>{row.name}</Button> },
+          { key: 'name', label: t('plugins.name'), activatesRow: row => !busy && !parentBusy && (row.variants.length > 1 || !row.variants[0].diagnostic) },
           { key: 'store', label: t('plugins.store'), format: (_, row) => variantValues(row.variants, 'store') },
           { key: 'format', label: t('plugins.format'), format: (_, row) => variantValues(row.variants, 'format') }, { key: 'repo', label: t('plugins.origin'), format: (_, item) => item.repo.origin },
           { key: 'category', label: t('plugins.category'), format: (_, row) => variantValues(row.variants, 'category') }, { key: 'authentication', label: t('plugins.authentication'), format: (_, row) => variantValues(row.variants, 'authentication') },

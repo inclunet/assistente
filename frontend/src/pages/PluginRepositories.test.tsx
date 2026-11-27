@@ -53,6 +53,8 @@ describe('PluginRepositories', () => {
     await user.type(screen.getByLabelText('plugins.searchCatalog'), 'ana');
     const cell = screen.getByRole('gridcell', { name: 'shared' });
     cell.focus();
+    await user.keyboard('{Control>}c{/Control}');
+    expect(await navigator.clipboard.readText()).toBe('shared');
     await user.keyboard('{Enter}');
     expect(formChanged).toHaveBeenLastCalledWith(true);
     const formats = within(screen.getByRole('dialog')).getByRole('grid');
@@ -72,7 +74,15 @@ describe('PluginRepositories', () => {
     expect(mocks.preview).toHaveBeenCalledTimes(1);
     expect(mocks.preview).toHaveBeenCalledWith('one', 'reviewed', 'cursor', 'shared');
     expect(onPreview).toHaveBeenCalledWith({ token: 'chosen' }, cell);
-    await user.click(within(cell).getByRole('button', { name: 'shared' }));
+    await user.clear(screen.getByLabelText('plugins.searchCatalog'));
+    const rows = screen.getAllByRole('gridcell', { name: 'shared' });
+    rows[0].focus();
+    await user.keyboard('{ArrowDown}');
+    await waitFor(() => expect(rows[1]).toHaveFocus());
+    await user.click(within(rows[0]).getByRole('button', { name: 'shared' }));
+    await user.keyboard('{Escape}');
+    await waitFor(() => expect(rows[0]).toHaveFocus());
+    await user.keyboard('{Enter}');
     await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'claude' }));
     expect(mocks.preview).toHaveBeenLastCalledWith('one', 'reviewed', 'claude', 'shared');
     visibleGrid.mockRestore();
