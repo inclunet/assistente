@@ -144,7 +144,7 @@ const (
 	grepMaxWarnings         = 20
 )
 
-func (t *GrepSearch) Execute(ctx context.Context, args json.RawMessage) (tools.ToolResult, error) {
+func (t *GrepSearch) Execute(ctx context.Context, args json.RawMessage) (out tools.ToolResult, runErr error) {
 	var a grepSearchArgs
 	if err := json.Unmarshal(args, &a); err != nil {
 		return tools.ToolResult{Content: "Erro ao parsear argumentos: " + err.Error(), IsError: true}, nil
@@ -208,6 +208,8 @@ func (t *GrepSearch) Execute(ctx context.Context, args json.RawMessage) (tools.T
 		return tools.ToolResult{Content: err.Error(), IsError: true}, nil
 	}
 
+	ctx, finish := startSearchBudget(ctx)
+	defer finish(&out, &runErr)
 	// Verifica se é arquivo ou diretório
 	info, err := os.Stat(fullBase)
 	if err != nil {
