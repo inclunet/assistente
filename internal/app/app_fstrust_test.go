@@ -1,6 +1,7 @@
 package app
 
 import (
+	"assistente/internal/tools/invocationctx"
 	"testing"
 
 	"assistente/internal/fstrust"
@@ -61,5 +62,13 @@ func TestPathConfirmationPayloadIsDecision(t *testing.T) {
 	}
 	if !seenDenyWorkspace {
 		t.Fatal("faltou ação de negar e lembrar no workspace")
+	}
+}
+
+func TestPathConfirmationRecordsRefusalAtAcceptance(t *testing.T) {
+	receipt := new(invocationctx.ConfirmationReceipt)
+	payload := pathConfirmationPayload(fstrust.PromptRequest{Receipt: receipt, AvailableScopes: allAuthorizationScopesForTest()})
+	if !payload.TryAcceptResponse(questionnaire.Response{Cancelled: true}) || !receipt.Close() {
+		t.Fatal("recusa aceita não chegou ao recibo")
 	}
 }

@@ -6,6 +6,7 @@ import (
 
 	"assistente/internal/questionnaire"
 	"assistente/internal/shelltrust"
+	"assistente/internal/tools/invocationctx"
 )
 
 // Diálogos de decisão crítica das tools: o que a pessoa lê antes de deixar o
@@ -24,18 +25,23 @@ const (
 
 func askShellConfirmation(ctx context.Context, router *questionnaire.Router, surface questionnaire.Surface, req shelltrust.PromptRequest) (shelltrust.PromptDecision, error) {
 	payload, actions := shellConfirmationPayload(req)
-	if receipt := shelltrust.ConfirmationReceipt(ctx); receipt != nil {
-		payload = payload.WithAcceptGuard(func(resp questionnaire.Response) bool {
-			choice, err := actions.Parse(resp)
-			return receipt.TryAccept(err == nil && choice.Effect == "deny" && choice.Scope == "once")
-		})
-	}
+	payload = withAuthorizationReceipt(payload, actions, shelltrust.ConfirmationReceipt(ctx))
 	resp, err := router.Ask(ctx, surface, payload)
 	if err != nil {
 		return shelltrust.PromptDecision{}, err
 	}
 	choice, err := actions.Parse(resp)
 	return shelltrust.PromptDecision{Approve: choice.Effect == "allow", Scope: choice.Scope}, err
+}
+
+func withAuthorizationReceipt(payload questionnaire.RequestPayload, actions questionnaire.AuthorizationActions, receipt *invocationctx.ConfirmationReceipt) questionnaire.RequestPayload {
+	if receipt == nil {
+		return payload
+	}
+	return payload.WithAcceptGuard(func(resp questionnaire.Response) bool {
+		choice, err := actions.Parse(resp)
+		return receipt.TryAccept(err == nil && choice.Effect == "deny" && choice.Scope == "once")
+	})
 }
 
 // shellConfirmationPayload monta a confirmação de execução de comando (AEP-0091).

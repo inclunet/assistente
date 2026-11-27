@@ -474,7 +474,7 @@ func (e *Executor) finishExecution(ctx, toolCtx context.Context, call ToolCall, 
 		interrupted = true
 	}
 	if result != nil && confirmation != nil && toolCtx.Err() != nil {
-		interrupted = errors.Is(result.Error, toolCtx.Err()) ||
+		interrupted = result.Result.IsError && result.Result.Failure == nil || errors.Is(result.Error, toolCtx.Err()) ||
 			confirmation.status != confirmationPending || result.ErrorCode == confirmation.result.Failure.Code
 	}
 	if !interrupted {

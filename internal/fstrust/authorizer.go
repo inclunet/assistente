@@ -11,11 +11,13 @@ import (
 
 	"assistente/internal/logging"
 	"assistente/internal/tools"
+	"assistente/internal/tools/invocationctx"
 )
 
 // PromptRequest é o pedido de consentimento quando um path fora do sandbox não
 // está em nenhuma allowlist.
 type PromptRequest struct {
+	Receipt         *invocationctx.ConfirmationReceipt `json:"-"`
 	AvailableScopes []Scope
 	Path            string // path solicitado (antes ou além da resolução de symlink)
 	Operation       string
@@ -76,7 +78,7 @@ func (a *Authorizer) Authorize(ctx context.Context, absPath, operation string) e
 			return err
 		}
 	}
-	prompted := false
+	var resolvePrompt func(*tools.ToolResult)
 	if a.ScopeFilter != nil {
 		scopes = a.ScopeFilter(ctx, scopes)
 	}
@@ -110,6 +112,17 @@ func (a *Authorizer) Authorize(ctx context.Context, absPath, operation string) e
 			logging.Errorf(ctx, "fstrust.authorizer", "[FsTrust] falha ao lembrar decisão path=%s op=%s: %v — válida somente nesta tentativa", resolved, operation, err)
 		},
 	}
+	flow.Resolved = func(decision authorization.Decision, err error) {
+		if resolvePrompt == nil {
+			return
+		}
+		if err == nil && decision.Effect == "allow" && ctx.Err() == nil {
+			resolvePrompt(nil)
+		} else if err == nil && decision.Effect == "deny" {
+			denied := newDeniedPathError(requested, operation, "autorização negada pelo usuário", true)
+			resolvePrompt(&tools.ToolResult{IsError: true, Content: denied.Error(), Failure: &tools.ToolFailure{Code: "filesystem_access_denied", Kind: tools.ErrorKindAuthorization}})
+		}
+	}
 	if a.mgr != nil {
 		flow.Remember = func(ctx context.Context, choice authorization.Consent[AllowlistEntry]) error {
 			return a.mgr.Add(ctx, choice.Value)
@@ -117,8 +130,10 @@ func (a *Authorizer) Authorize(ctx context.Context, absPath, operation string) e
 	}
 	if a.prompt != nil {
 		flow.Ask = func(ctx context.Context) (authorization.Consent[AllowlistEntry], error) {
-			prompted = true
-			choice, err := a.prompt.PromptPathAuthorization(ctx, PromptRequest{AvailableScopes: scopes, Path: requested, Operation: operation, ResolvedPath: resolved, SkillSlug: skillSlug})
+			var receipt *invocationctx.ConfirmationReceipt
+			denied := newDeniedPathError(requested, operation, "autorização negada pelo usuário", true)
+			resolvePrompt, receipt = tools.PendingConfirmation(ctx, "filesystem_confirmation_unavailable", "filesystem_access_denied", denied.Error())
+			choice, err := a.prompt.PromptPathAuthorization(ctx, PromptRequest{Receipt: receipt, AvailableScopes: scopes, Path: requested, Operation: operation, ResolvedPath: resolved, SkillSlug: skillSlug})
 			if err != nil {
 				return authorization.Consent[AllowlistEntry]{}, fmt.Errorf("falha ao solicitar autorização de path %s (%s): %w", requested, operation, err)
 			}
@@ -151,13 +166,13 @@ func (a *Authorizer) Authorize(ctx context.Context, absPath, operation string) e
 	}
 	if result.Effect != "allow" {
 		reason, source := "autorização negada pelo usuário", "user"
-		if !prompted {
+		if resolvePrompt == nil {
 			reason, source = "sem prompter de consentimento", "no_prompter"
 		}
 		tools.RecordSecuritySignal(ctx, tools.SecuritySignal{Version: 1, Domain: "filesystem", Outcome: "blocked", Source: source, Scope: string(result.Scope), Operation: operation})
-		return newDeniedPathError(requested, operation, reason, prompted)
+		return newDeniedPathError(requested, operation, reason, resolvePrompt != nil)
 	}
-	if prompted {
+	if resolvePrompt != nil {
 		tools.RecordSecuritySignal(ctx, tools.SecuritySignal{Version: 1, Domain: "filesystem", Outcome: "approved", Source: "user", Scope: string(result.Scope), Operation: operation})
 	}
 	logging.Infof(ctx, "fstrust.authorizer", "[FsTrust] autorização concedida: path=%s op=%s escopo=%s", resolved, operation, result.Scope)
