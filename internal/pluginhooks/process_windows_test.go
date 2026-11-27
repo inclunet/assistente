@@ -3,6 +3,7 @@ package pluginhooks
 import (
 	"context"
 	"errors"
+
 	"os"
 	"path/filepath"
 	"strconv"
@@ -55,7 +56,7 @@ func TestWindowsHookIsolation(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 7*time.Second)
 	defer cancel()
 	out, _, err = Run(ctx, root, map[string][]byte{"wait.ps1": []byte("[Console]::Out.Write('iniciado'); [Console]::Out.Flush(); while ($true) { }")}, "wait.ps1", nil)
-	if string(out) != "iniciado" || !errors.Is(err, context.DeadlineExceeded) {
+	if string(out) != "iniciado" || !errors.Is(err, context.DeadlineExceeded) || err.Error() != context.DeadlineExceeded.Error() {
 		t.Fatalf("prazo: %v, saída %q", err, out)
 	}
 	entries, err := os.ReadDir(root)

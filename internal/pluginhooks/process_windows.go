@@ -31,24 +31,42 @@ type securityCapabilities struct {
 	count, reserved uint32
 }
 
-var deriveSID = windows.NewLazySystemDLL("userenv.dll").NewProc("DeriveAppContainerSidFromAppContainerName")
+var userenv = windows.NewLazySystemDLL("userenv.dll")
+var createProfile = userenv.NewProc("CreateAppContainerProfile")
+var deleteProfile = userenv.NewProc("DeleteAppContainerProfile")
 
-func containerSID(name string) (*windows.SID, error) {
-	if err := deriveSID.Find(); err != nil {
-		return nil, err
+func createContainer(name string) (*windows.SID, func() error, error) {
+	if err := createProfile.Find(); err != nil {
+		return nil, nil, err
+	}
+	if err := deleteProfile.Find(); err != nil {
+		return nil, nil, err
 	}
 	encoded, err := windows.UTF16PtrFromString(name)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	var sid *windows.SID
-	hr, _, _ := deriveSID.Call(uintptr(unsafe.Pointer(encoded)), uintptr(unsafe.Pointer(&sid)))
+	hr, _, _ := createProfile.Call(uintptr(unsafe.Pointer(encoded)), uintptr(unsafe.Pointer(encoded)), uintptr(unsafe.Pointer(encoded)), 0, 0, uintptr(unsafe.Pointer(&sid)))
 	runtime.KeepAlive(encoded)
 	if hr != 0 {
-		return nil, fmt.Errorf("derivar identidade de AppContainer: HRESULT %#x", hr)
+		return nil, nil, fmt.Errorf("CreateAppContainerProfile: HRESULT %#x", hr)
 	}
-	defer func() { _ = windows.FreeSid(sid) }()
-	return sid.Copy()
+	return sid, func() error {
+		_ = windows.FreeSid(sid)
+		var hr uintptr
+		for attempt := 0; attempt < 3; attempt++ {
+			if attempt > 0 {
+				time.Sleep(50 * time.Millisecond)
+			}
+			hr, _, _ = deleteProfile.Call(uintptr(unsafe.Pointer(encoded)))
+			runtime.KeepAlive(encoded)
+			if hr == 0 {
+				return nil
+			}
+		}
+		return fmt.Errorf("DeleteAppContainerProfile %s: HRESULT %#x", name, hr)
+	}, nil
 }
 
 // Cada execução recebe um SID novo. Somente o usuário hospedeiro grava os arquivos
@@ -105,10 +123,11 @@ func Run(ctx context.Context, parent string, files map[string][]byte, entry stri
 		return nil, 0, err
 	}
 	name := "Assistente.Hook." + uuid.NewString()
-	sid, err := containerSID(name)
+	sid, cleanup, err := createContainer(name)
 	if err != nil {
 		return nil, 0, err
 	}
+	defer func() { err = errors.Join(err, cleanup()) }()
 	dir, err := makePackageDir(parent, name, sid)
 	if err != nil {
 		return nil, 0, err
@@ -282,7 +301,7 @@ func start(ctx context.Context, dir, entry string, sid *windows.SID, job windows
 	err = windows.CreateProcess(app, args, nil, nil, true, windows.EXTENDED_STARTUPINFO_PRESENT|windows.CREATE_NO_WINDOW|windows.CREATE_UNICODE_ENVIRONMENT, &env[0], cwd, &startup.StartupInfo, &process)
 	runtime.KeepAlive(sid)
 	if err != nil {
-		return 0, err
+		return 0, fmt.Errorf("CreateProcess de Windows PowerShell: %w", err)
 	}
 	_ = windows.CloseHandle(process.Thread)
 	return process.Process, nil
