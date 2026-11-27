@@ -623,6 +623,7 @@ describe("ProviderForm - Salvar", () => {
       expect(screen.getByText(/conectado/i)).toBeInTheDocument();
     });
 
+    await user.type(screen.getByRole("spinbutton", { name: "providerForm.streamIdleTimeout" }), "120");
     const createButton = screen.getByRole("button", { name: /criar/i });
     await user.click(createButton);
 
@@ -631,6 +632,7 @@ describe("ProviderForm - Salvar", () => {
         type: 'ollama',
         api_format: 'openai',
         reasoning_content_mode: "disabled",
+        stream_idle_timeout_seconds: 120,
         server_profile_id: "ollama",
       }));
       expect(mockOnSave).toHaveBeenCalled();

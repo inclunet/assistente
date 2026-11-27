@@ -333,7 +333,7 @@ export function ProfileEditorTabs({
             maxContextMessages={editingProfile.chat?.max_context_messages ?? 0}
             minContextMessages={editingProfile.chat?.min_context_messages ?? 0}
             topP={editingProfile.chat?.top_p ?? null}
-            responseTimeout={editingProfile.chat?.response_timeout ?? 180}
+            responseTimeout={editingProfile.chat?.response_timeout ?? 0}
             rateLimitEnabled={editingProfile.chat?.rate_limit_enabled ?? true}
             rateLimitRpm={editingProfile.chat?.rate_limit_rpm ?? 60}
             rateLimitBurst={editingProfile.chat?.rate_limit_burst ?? 30}
@@ -391,7 +391,7 @@ export function ProfileEditorTabs({
               commandAllowlist={editingProfile.chat?.command_allowlist || ''}
               availableAllowlists={availableAllowlists}
               maxAgenticIterations={editingProfile.chat?.max_agentic_iterations ?? 0}
-              responseTimeout={editingProfile.chat?.response_timeout ?? 180}
+              responseTimeout={editingProfile.chat?.response_timeout ?? 0}
               nativeMcp={editingProfile.chat?.native_mcp ?? null}
               onChange={(field, value) => updateField(`chat.${field}`, value)}
               onPolicyChange={(policy, extras) => updateFields({

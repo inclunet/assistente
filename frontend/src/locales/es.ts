@@ -2480,8 +2480,6 @@ notSaved: 'La decisión vale solo para esta operación: no se pudo recordar. Ser
         agenticIterationsConversational: 'Conversacional',
         agenticIterationsModerate: 'Moderado',
         agenticIterationsAggressive: 'Agresivo (Análisis Profundo)',
-        responseTimeout: 'Tiempo de Espera de Respuesta (segundos)',
-        responseTimeoutHint: '2ª capa de protección contra bucles infinitos. Las respuestas que superan este tiempo se interrumpen.',
 
         streamingRecoveryEnabled: 'Intentar recuperar respuestas interrumpidas automáticamente',
         streamingRecoveryEnabledHint: 'Cuando una respuesta falla o se interrumpe, intenta recuperarla automáticamente antes de marcarla como fallida.',
@@ -2800,6 +2798,10 @@ notSaved: 'La decisión vale solo para esta operación: no se pudo recordar. Ser
     },
 
     providerForm: {
+      streamIdleTimeout: 'Inactividad del streaming (segundos)',
+      streamIdleProfileHint: 'Tiempo máximo sin recibir un evento. Deje el campo vacío para usar el valor del proveedor.',
+      streamIdleProviderHint: 'Tiempo máximo sin un evento cuando el perfil no define un plazo. Deje el campo vacío para usar 60 segundos.',
+
       aliases: {
         invalidID: "El ID remoto debe tener entre 1 y 512 caracteres, no puede contener solo espacios ni el carácter NUL.",
         emptyID: "Los IDs remoto y canónico del vínculo no pueden estar vacíos.",

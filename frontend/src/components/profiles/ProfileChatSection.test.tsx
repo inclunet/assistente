@@ -30,7 +30,7 @@ vi.mock('react-i18next', () => ({
         'profiles.chatSection.minPreserved': 'Mín. Mensagens Preservadas',
         'profiles.chatSection.minPreservedHint': 'Mínimo de mensagens mantidas após sumarização. 0 = padrão (10).',
         'profiles.chatSection.topP': 'Top P',
-        'profiles.chatSection.timeout': 'Timeout (segundos)',
+        'providerForm.streamIdleTimeout': 'Timeout (segundos)',
         'profiles.chatSection.reasoning': 'Raciocínio (Reasoning)',
         'profiles.chatSection.reasoningOllama': 'Ativado (Ollama)',
         'profiles.chatSection.reasoningOff': 'Desativado',

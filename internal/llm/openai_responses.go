@@ -272,7 +272,7 @@ func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses
 	// conexão, cancela a leitura e transforma em erro retryable (quando nada
 	// foi emitido). Cada evento recebido reinicia a contagem.
 	diagnostics := newStreamDiagnostics()
-	watchCtx, wd := startStreamWatchdog(ctx, streamIdleTimeoutForProvider(p.provider), func() { diagnostics.logTimeout(ctx) })
+	watchCtx, wd := startStreamWatchdog(ctx, streamIdleTimeout(chatParams.ResponseTimeout, p.provider), func() { diagnostics.logTimeout(ctx) })
 	watchCtx = context.WithValue(watchCtx, streamDiagnosticsKey{}, diagnostics)
 	defer wd.Stop()
 

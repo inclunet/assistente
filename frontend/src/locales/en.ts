@@ -2477,8 +2477,6 @@ notSaved: 'The decision applies only to this operation: it could not be remember
         agenticIterationsConversational: 'Conversational',
         agenticIterationsModerate: 'Moderate',
         agenticIterationsAggressive: 'Aggressive (Deep Analysis)',
-        responseTimeout: 'Response Timeout (seconds)',
-        responseTimeoutHint: '2nd layer of protection against infinite loops. Responses exceeding this time are interrupted.',
 
         streamingRecoveryEnabled: 'Try to automatically recover interrupted responses',
         streamingRecoveryEnabledHint: 'When a response fails or is interrupted, tries to recover automatically before marking it as failed.',
@@ -2797,6 +2795,10 @@ notSaved: 'The decision applies only to this operation: it could not be remember
     },
 
     providerForm: {
+      streamIdleTimeout: 'Streaming idle timeout (seconds)',
+      streamIdleProfileHint: 'Maximum time without an event. Leave blank to use the provider setting.',
+      streamIdleProviderHint: 'Maximum time without an event when the profile has no override. Leave blank to use 60 seconds.',
+
       aliases: {
         invalidID: "The remote ID must contain 1 to 512 characters, must not be whitespace-only, and must not contain a NUL character.",
         emptyID: "The remote and canonical model binding IDs cannot be empty.",

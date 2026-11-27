@@ -1142,6 +1142,7 @@ export namespace apidto {
 	    type: string;
 	    base_url: string;
 	    api_key?: string;
+	    stream_idle_timeout_seconds?: number;
 	    default_model?: string;
 	    api_format?: string;
 	    server_profile_id?: string;
@@ -1167,6 +1168,7 @@ export namespace apidto {
 	        this.type = source["type"];
 	        this.base_url = source["base_url"];
 	        this.api_key = source["api_key"];
+	        this.stream_idle_timeout_seconds = source["stream_idle_timeout_seconds"];
 	        this.default_model = source["default_model"];
 	        this.api_format = source["api_format"];
 	        this.server_profile_id = source["server_profile_id"];
@@ -2695,6 +2697,7 @@ export namespace apidto {
 	    type?: string;
 	    base_url?: string;
 	    api_key?: string;
+	    stream_idle_timeout_seconds?: number;
 	    default_model?: string;
 	    api_format?: string;
 	    server_profile_id?: string;
@@ -2718,6 +2721,7 @@ export namespace apidto {
 	        this.type = source["type"];
 	        this.base_url = source["base_url"];
 	        this.api_key = source["api_key"];
+	        this.stream_idle_timeout_seconds = source["stream_idle_timeout_seconds"];
 	        this.default_model = source["default_model"];
 	        this.api_format = source["api_format"];
 	        this.server_profile_id = source["server_profile_id"];

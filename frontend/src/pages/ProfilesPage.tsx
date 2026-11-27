@@ -331,7 +331,7 @@ export default function ProfilesPage() {
             temperature: null,
             max_tokens: null,
             top_p: null,
-            response_timeout: 180,
+            response_timeout: 0,
             rate_limit_enabled: true,
             rate_limit_rpm: 60,
             rate_limit_burst: 30,

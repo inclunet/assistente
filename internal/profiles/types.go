@@ -67,7 +67,7 @@ type ChatConfig struct {
 	MaxContextMessages int               `json:"max_context_messages,omitempty"` // Máx de mensagens no contexto (0 = padrão 50)
 	MinContextMessages int               `json:"min_context_messages,omitempty"` // Mín de mensagens preservadas após sumarização (0 = padrão 10)
 	TopP               *float64          `json:"top_p"`                          // 0.0 a 1.0
-	ResponseTimeout    int               `json:"response_timeout"`               // Timeout em segundos
+	ResponseTimeout    int               `json:"response_timeout"`               // Inatividade SSE em segundos; zero herda o provedor.
 	ReasoningEffort    *string           `json:"reasoning_effort"`               // off, low, medium, high (vazio = off)
 	EnabledTools       []string          `json:"enabled_tools"`                  // Ferramentas habilitadas (nil = seleção dinâmica/catalogo quando disponível)
 	ToolPolicy         map[string]string `json:"tool_policy,omitempty"`          // Política tri-state por tool: disabled, on_demand, preloaded
@@ -117,7 +117,6 @@ type ChatConfig struct {
 	// Cada tool call conta como uma iteração
 	// 0 = usar padrão (25 iterações)
 	// >0 = limite customizado (ex: 100 para code generation, 500 para análise profunda)
-	// Pode ser combinado com ResponseTimeout para dupla proteção
 	MaxAgenticIterations int `json:"max_agentic_iterations,omitempty"`
 
 	// RateLimitEnabled controla o limitador local de chamadas LLM deste perfil.
@@ -370,7 +369,7 @@ func DefaultProfile() *Profile {
 		Chat: ChatConfig{
 			LLMProvider:                   DefaultProviderSentinel,
 			Model:                         DefaultProviderSentinel,
-			ResponseTimeout:               180,
+			ResponseTimeout:               0,
 			ToolPolicyDefault:             DefaultToolPolicyDefault,
 			ToolPolicy:                    DefaultToolPolicy(),
 			RateLimitEnabled:              boolPtr(true),
@@ -465,8 +464,8 @@ func (p *Profile) Validate() error {
 	if p.Chat.Debug != nil && (p.Chat.Debug.MaxFiles < 0 || p.Chat.Debug.MaxFiles > ChatDebugMaxFilesLimit) {
 		return fmt.Errorf("chat.debug.max_files must be between 0 (default) and %d", ChatDebugMaxFilesLimit)
 	}
-	if p.Chat.ResponseTimeout < 10 {
-		return fmt.Errorf("chat.response_timeout must be at least 10 seconds")
+	if p.Chat.ResponseTimeout != 0 && p.Chat.ResponseTimeout < 10 {
+		return fmt.Errorf("chat.response_timeout must be 0 (inherit) or at least 10 seconds")
 	}
 	if p.Chat.RateLimitRPM < 0 || p.Chat.RateLimitRPM > MaxLLMRateLimitValue {
 		return fmt.Errorf("chat.rate_limit_rpm must be between 0 (default) and %d", MaxLLMRateLimitValue)

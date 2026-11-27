@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
 import { CreateLLMProvider, UpdateLLMProvider, ListModelsRaw } from '@wailsjs/go/wailsapi/LLMProviders';
 import { GetLLMCatalog } from '@wailsjs/go/wailsapi/LLMCatalog';
+import { StreamIdleTimeoutInput } from '../ui/StreamIdleTimeoutInput';
 import { Input, Select, Button, FormField } from '../';
 import { DialogActions } from '../ui/DialogActions';
 import { DecisionDialog } from '../ui/DecisionDialog';
@@ -97,6 +98,7 @@ export interface ProviderFormData {
   auth_mode?: string;
   credential_pattern?: string;
   default_model?: string;
+  stream_idle_timeout_seconds?: number;
   api_format?: string;
   server_profile_id?: string;
   model_aliases?: Record<string, string>;
@@ -441,6 +443,7 @@ export const ProviderForm = ({ provider, kind = provider && isAgentForm(provider
         auth_mode: provider.auth_mode || defaultAuthMode(provider.type),
         credential_pattern: provider.credential_pattern,
         insecure_http_authorized_url: provider.insecure_http_authorized_url,
+        stream_idle_timeout_seconds: provider.stream_idle_timeout_seconds,
         default_model: provider.default_model || '',
         api_format: provider.api_format ?? provConfig.apiFormat ?? '',
         server_profile_id: provider.server_profile_id,
@@ -536,7 +539,8 @@ export const ProviderForm = ({ provider, kind = provider && isAgentForm(provider
         ?? 'disabled',
       base_url: provider.base_url,
       insecure_http_authorized_url: provider.insecure_http_authorized_url,
-      default_model: provider.default_model || '',
+      stream_idle_timeout_seconds: provider.stream_idle_timeout_seconds,
+        default_model: provider.default_model || '',
       api_key: '',
       auth_mode: provider.auth_mode || defaultAuthMode(provider.type),
       credential_pattern: provider.credential_pattern,
@@ -839,6 +843,7 @@ export const ProviderForm = ({ provider, kind = provider && isAgentForm(provider
             base_url: canonicalUrl,
             credential: credentialDraft ? credentialInput(credentialDraft) : undefined,
             auth_mode: formData.auth_mode || defaultAuthMode(formData.type),
+            stream_idle_timeout_seconds: formData.stream_idle_timeout_seconds,
             default_model: formData.default_model || undefined,
             api_format: formData.api_format || undefined,
             server_profile_id: formData.server_profile_id !== undefined ? formData.server_profile_id : provider?.server_profile_id,
@@ -860,6 +865,7 @@ export const ProviderForm = ({ provider, kind = provider && isAgentForm(provider
             base_url: canonicalUrl,
             credential: credentialDraft ? credentialInput(credentialDraft) : undefined,
             auth_mode: formData.auth_mode || defaultAuthMode(formData.type),
+            stream_idle_timeout_seconds: formData.stream_idle_timeout_seconds,
             default_model: formData.default_model || suggestedDefault || undefined,
             api_format: formData.api_format || undefined,
             server_profile_id: formData.server_profile_id || undefined,
@@ -1060,6 +1066,9 @@ export const ProviderForm = ({ provider, kind = provider && isAgentForm(provider
           allowedTypes={formData.api_format === 'google' ? undefined : HTTP_CREDENTIAL_TYPES}
           onChange={handleCredentialChange} />
       </>}
+
+      {!isAgent && <StreamIdleTimeoutInput scope="provider" value={formData.stream_idle_timeout_seconds}
+        onChange={seconds => setFormData(prev => ({ ...prev, stream_idle_timeout_seconds: seconds }))} />}
 
       {/* Default Model — loads models list which also validates the provider */}
       {defaultModelPolicy?.policy !== 'hidden' && (

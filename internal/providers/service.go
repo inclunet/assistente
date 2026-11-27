@@ -263,6 +263,7 @@ type CreateRequest struct {
 	InsecureHTTPAuthorizedURL string
 	BaseURL                   string
 	APIKey                    string
+	StreamIdleTimeoutSeconds  int
 	DefaultModel              string
 	ReasoningContentMode      string
 	// ACPCommand, ACPArgs e ACPEnv valem quando APIFormat é acp: é assim que
@@ -386,6 +387,9 @@ func normalizeProviderRuntimeDefaults(p *llm.ProviderConfig) {
 
 // Create cria e registra um novo provedor LLM.
 func (s *Service) Create(ctx context.Context, req CreateRequest) (*CreateResult, error) {
+	if req.StreamIdleTimeoutSeconds < 0 || req.StreamIdleTimeoutSeconds > llm.MaxStreamIdleTimeoutSeconds {
+		return nil, fmt.Errorf("stream_idle_timeout_seconds must be between 0 and %d", llm.MaxStreamIdleTimeoutSeconds)
+	}
 	generation := s.registry.Generation()
 	if req.Credential == nil && req.APIKey == "" {
 		s.publicationMu.Lock()
@@ -463,6 +467,7 @@ func (s *Service) Create(ctx context.Context, req CreateRequest) (*CreateResult,
 		InsecureHTTPAuthorizedURL: strings.TrimSpace(req.InsecureHTTPAuthorizedURL),
 		BaseURL:                   baseURL,
 		DefaultModel:              req.DefaultModel,
+		StreamIdleTimeoutSeconds:  req.StreamIdleTimeoutSeconds,
 		ReasoningContentMode:      llm.ReasoningContentMode(strings.TrimSpace(req.ReasoningContentMode)),
 		IsDefault:                 isFirst,
 		Timeout:                   180,
@@ -552,6 +557,7 @@ type UpdateRequest struct {
 	InsecureHTTPAuthorizedURL *string
 	BaseURL                   string
 	APIKey                    string
+	StreamIdleTimeoutSeconds  *int
 	DefaultModel              string
 	ReasoningContentMode      string
 	// ACPCommand segue a convenção dos demais: vazio é "não mexer".
@@ -582,6 +588,9 @@ type UpdateResult struct {
 
 // Update atualiza um provedor LLM existente.
 func (s *Service) Update(ctx context.Context, id string, req UpdateRequest) (*UpdateResult, error) {
+	if req.StreamIdleTimeoutSeconds != nil && (*req.StreamIdleTimeoutSeconds < 0 || *req.StreamIdleTimeoutSeconds > llm.MaxStreamIdleTimeoutSeconds) {
+		return nil, fmt.Errorf("stream_idle_timeout_seconds must be between 0 and %d", llm.MaxStreamIdleTimeoutSeconds)
+	}
 	generation := s.registry.Generation()
 	// Draft saves acquire this lock around their transaction after preflight.
 	// Other edits must serialize their entire snapshot/read/write/publication.
@@ -653,6 +662,9 @@ func (s *Service) Update(ctx context.Context, id string, req UpdateRequest) (*Up
 	}
 	if req.ModelAliases != nil {
 		updated.ModelAliases = copyStringMap(*req.ModelAliases)
+	}
+	if req.StreamIdleTimeoutSeconds != nil {
+		updated.StreamIdleTimeoutSeconds = *req.StreamIdleTimeoutSeconds
 	}
 	if req.DefaultModel != "" {
 		updated.DefaultModel = req.DefaultModel

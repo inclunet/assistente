@@ -889,7 +889,7 @@ func TestAnthropicProvider_StreamChatWithMCP_ReportsFailureWithoutRemovingTools(
 			{Name: "Slack", Slug: "slack", URL: "https://mcp.slack.com/mcp"},
 		},
 	}
-	provider.betaAttemptFn = func(_ context.Context, _ anthropic.BetaMessageNewParams, handler StreamHandler, servers []MCPServerConfig) mcpStreamAttemptResult {
+	provider.betaAttemptFn = func(_ context.Context, _ anthropic.BetaMessageNewParams, handler StreamHandler, servers []MCPServerConfig, _ int) mcpStreamAttemptResult {
 		attempts++
 		slugs := make([]string, 0, len(servers))
 		for _, srv := range servers {
@@ -938,7 +938,7 @@ func TestAnthropicProvider_NativeMCPUnsupportedWithoutAdapterReportsError(t *tes
 		provider:   &ProviderConfig{ID: "a", BaseURL: "https://api.anthropic.com"},
 		mcpServers: []MCPServerConfig{{Name: "server", Slug: "server", URL: "https://example.com/mcp"}},
 	}
-	provider.betaAttemptFn = func(_ context.Context, _ anthropic.BetaMessageNewParams, _ StreamHandler, servers []MCPServerConfig) mcpStreamAttemptResult {
+	provider.betaAttemptFn = func(_ context.Context, _ anthropic.BetaMessageNewParams, _ StreamHandler, servers []MCPServerConfig, _ int) mcpStreamAttemptResult {
 		attempts++
 		if len(servers) != 1 {
 			t.Fatalf("servidores removidos: %v", servers)

@@ -133,6 +133,7 @@ func mergeBuiltinPreservingRuntime(embedded profiles.Profile, existing *profiles
 		return merged
 	}
 	merged.Active = existing.Active
+	merged.Chat.ResponseTimeout = existing.Chat.ResponseTimeout
 	if existing.MediaSupport != nil {
 		merged.MediaSupport = existing.MediaSupport
 	}
