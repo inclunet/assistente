@@ -1231,13 +1231,7 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 	// MESMA SendMessageUseCase (sem fluxo alternativo de envio — AEP-0040).
 	a.subagentMgr = subagent.NewManager(subagent.ManagerConfig{
 		ResolveAgent: func(ctx context.Context, slug string) (string, subagent.RunParams, error) {
-			inventory := plugins.NewInventory(database.DB())
-			generation, err := inventory.AgentGeneration(ctx, slug)
-			if err != nil {
-				return "", subagent.RunParams{}, err
-			}
-			def, err := inventory.ResolveAgent(ctx, generation)
-			return generation, def, err
+			return plugins.NewInventory(database.DB()).ResolveAgentSlug(ctx, slug)
 		},
 		Repo:     subagent.NewDBRepository(database.DB()),
 		Notifier: a.responseNotifier,
