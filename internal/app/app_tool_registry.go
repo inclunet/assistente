@@ -287,6 +287,16 @@ func (a *App) initToolRegistry() {
 		}
 		return plugins.NewInventory(db).BeforeTool(ctx, call)
 	}
+	cfg.AfterTool = func(ctx context.Context, call tools.ToolCall, result tools.ToolResult, duration int64) error {
+		if call.Function.Name != "run_command" {
+			return nil
+		}
+		db := database.DB()
+		if db == nil {
+			return database.ErrUserScopeRequired
+		}
+		return plugins.NewInventory(db).AfterTool(ctx, call, result, duration)
+	}
 	a.toolExecutor = tools.NewExecutor(a.toolRegistry, cfg)
 	a.toolRegistry.MustRegister(tools.NewReadToolResult())
 	a.toolRegistry.MustRegister(commandtool.NewCatalog(commandAgentTools{app: a}))

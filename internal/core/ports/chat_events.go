@@ -195,6 +195,7 @@ type ToolStartEvent struct {
 
 // ToolEndEvent is the payload for chat:tool_end.
 type ToolEndEvent struct {
+	PostToolHookFailed bool               `json:"postToolHookFailed,omitempty"`
 	ErrorCode          string             `json:"errorCode,omitempty"`
 	ConversationID     string             `json:"conversationId"`
 	TurnID             string             `json:"turnId,omitempty"`

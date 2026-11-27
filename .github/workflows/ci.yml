@@ -574,7 +574,7 @@ jobs:
         shell: pwsh
         run: |
           $env:ASSISTENTE_CI_WINDOWS_HOOKS = '1'
-          go test -v ./internal/plugins -run '^TestInstalledHookDispatch$' -count=1
+          go test -v ./internal/plugins -run '^TestInstalled(HookDispatch|PostToolHook)$' -count=1
       - name: Testar registro isolado e comando interno
         shell: pwsh
         run: |

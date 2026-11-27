@@ -31,6 +31,12 @@ No Windows, a permissão do plugin também depende da política de execução de
 
 Quando o prazo termina, o Assistente interrompe o interpretador do hook e bloqueia o comando solicitado. Processos iniciados pelo próprio script podem continuar em execução. Considere esse comportamento ao ativar um plugin que inicia programas externos.
 
+### Avisar um plugin depois do comando
+
+Um pacote Cursor também pode declarar um único evento `postToolUse` com `matcher: "Shell"` e um script relativo. Nos detalhes do plugin, confira o script e escolha onde permitir seu uso. Essa permissão dá ao script acesso aos argumentos **e à saída** de comandos concluídos com sucesso naquele escopo.
+
+O script recebe o ID da chamada, a duração em milissegundos e `tool_output`, uma string JSON cujo campo `content` contém o resultado apresentado pela ferramenta. Para indicar conclusão, deixe a saída vazia ou escreva `{}`. Cada observador autorizado tem dez segundos. Os demais recebem o resultado mesmo quando um deles falha. Se houver erro ou se o prazo acabar, o chat avisa que o hook falhou. O resultado do comando continua disponível e o Assistente só executa o comando uma vez.
+
 ## Ativar uma skill
 
 Na grade de plugins instalados, selecione o pacote e pressione Enter. Os detalhes listam as skills e os servidores MCP encontrados. Para uma skill de instruções compatível, escolha **Ativar**. O identificador exibido após a ativação pode ser usado no chat como comando de barra, desde que o perfil permita a skill. Use **Desativar** para removê-la das próximas seleções. O seletor de skills de um perfil aberto acompanha essas mudanças. Ao atualizar a revisão, confira e ative os componentes desejados novamente.

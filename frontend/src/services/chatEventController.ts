@@ -1,3 +1,4 @@
+import { useUIStore } from '../store/uiStore';
 import { chatGPTErrorKey } from '../lib/chatgptErrors';
 import { logger } from '../utils/logger';
 import i18next from 'i18next';
@@ -113,6 +114,7 @@ interface ChatToolStartEvent {
 }
 
 interface ChatToolEndEvent {
+  postToolHookFailed?: boolean;
   errorCode?: string;
   conversationId: string;
   assistantMessageId?: string;
@@ -500,6 +502,11 @@ export function startChatEventController({
   unsubToolEnd = turnEvents.on('chat:tool_end', (event: ChatToolEndEvent) => {
     if (event.conversationId !== conversationId) return;
     if (!isActive()) return;
+    if (event.postToolHookFailed) {
+      const warning = i18next.t('plugins.postHookFailed');
+      useUIStore.getState().addToast(warning, 'warning', undefined, undefined, { suppressAnnounce: true });
+      announceForActiveChatConversation(conversationId, warning, 'polite', getEventOrigin(event));
+    }
     const terminalStatus = terminalToolStatus(event);
     const cancelled = terminalStatus === 'cancelled';
     const startedCall = announcementTools.get(event.callId);

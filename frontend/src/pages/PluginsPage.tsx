@@ -23,7 +23,7 @@ import { useAnnouncer } from '../hooks/useAnnouncer';
 import { logger } from '../utils/logger';
 import { useAuthStore } from '../store/authStore';
 import { useWorkspaceStore } from '../store/workspaceStore';
-import { DecidePreToolHook } from '@wailsjs/go/wailsapi/Plugins';
+import { DecideToolHook } from '@wailsjs/go/wailsapi/Plugins';
 
 type InstallationRow = Pick<database.PluginInstallation, 'id' | 'origin' | 'name' | 'version' | 'digest' | 'disabled'>;
 
@@ -631,7 +631,7 @@ function InstalledPlugins({ session }: { session: string }) {
       </li>)}</ul>}
     </Modal>}
     {hookDecision && <DecisionDialog isOpen title={t('plugins.hookPermission')}
-      description={t('plugins.hookConsent', {name:hookDecision.installation.name, version:hookDecision.installation.version, origin:hookDecision.installation.origin, digest:hookDecision.installation.digest, script:hookDecision.component.hookScript, workspace:hookDecision.workspaceName})}
+      description={t(hookDecision.component.name === 'postToolUse' ? 'plugins.postHookConsent' : 'plugins.hookConsent', {name:hookDecision.installation.name, version:hookDecision.installation.version, origin:hookDecision.installation.origin, digest:hookDecision.installation.digest, script:hookDecision.component.hookScript, workspace:hookDecision.workspaceName})}
       actions={[{id:'workspace',label:t('plugins.hookHere'),primary:true}, {id:'global',label:t('plugins.hookGlobal')}, {id:'denyWorkspace',label:t('plugins.hookDenyHere')}, {id:'cancel',label:t('common.cancel')}]}
       onCancel={() => setHookDecision(null)} onAction={async choice => {
         const decision = hookDecision;
@@ -640,7 +640,7 @@ function InstalledPlugins({ session }: { session: string }) {
         setError('');
         setBusy(true);
         try {
-          await DecidePreToolHook(decision.installation.id, decision.installation.digest, decision.component.key, decision.component.hookGeneration!, session, decision.workspaceId, choice);
+          await DecideToolHook(decision.installation.id, decision.installation.digest, decision.component.key, decision.component.hookGeneration!, session, decision.workspaceId, choice);
           if (mounted.current) announce(t('plugins.hookSaved'));
         } catch {
           if (mounted.current) setError('plugins.hookSaveFailed');

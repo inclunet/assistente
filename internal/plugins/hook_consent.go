@@ -10,8 +10,8 @@ import (
 	"gorm.io/gorm"
 )
 
-// DecidePreToolHook vincula a escolha à geração exibida no diálogo de ativação.
-func (i *Inventory) DecidePreToolHook(ctx context.Context, id, digest, key, generation, workspace, choice string, admit commandsecurity.Admission) error {
+// DecideToolHook vincula a escolha à geração exibida no diálogo de ativação.
+func (i *Inventory) DecideToolHook(ctx context.Context, id, digest, key, generation, workspace, choice string, admit commandsecurity.Admission) error {
 	owner, err := database.RequireUserID(ctx)
 	if err != nil {
 		return err
@@ -20,14 +20,14 @@ func (i *Inventory) DecidePreToolHook(ctx context.Context, id, digest, key, gene
 	if err := i.db.WithContext(ctx).Where("id=? AND user_id=? AND digest=? AND disabled=?", id, owner, digest, false).Take(&row).Error; err != nil {
 		return err
 	}
-	if key != cursorPreToolKey || strconv.FormatUint(row.HookGeneration, 10) != generation {
+	if (key != cursorPreToolKey && key != cursorPostToolKey) || strconv.FormatUint(row.HookGeneration, 10) != generation {
 		return ErrInstallationChanged
 	}
 	snapshot, err := i.installedSnapshot(ctx, id, digest)
 	if err != nil {
 		return err
 	}
-	if _, ok := preToolScript(snapshot); !ok {
+	if _, ok := toolHookScript(snapshot, key); !ok {
 		return ErrComponentUnavailable
 	}
 	scope := authorization.ScopeWorkspace

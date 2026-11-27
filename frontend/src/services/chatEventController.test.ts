@@ -354,6 +354,13 @@ describe('chatEventController', () => {
     await view.presentation.close();
   });
 
+  it('anuncia separadamente a falha do hook de um comando concluído', () => {
+    const { adapter } = createAdapter(['conversation-1']);
+    startChatEventController({ conversationId: 'conversation-1', adapter });
+    emitEvent('chat:tool_end', {conversationId:'conversation-1', callId:'one', name:'run_command', status:'ok', postToolHookFailed:true});
+    expect(mockAnnounceForActiveChatConversation).toHaveBeenCalledWith('conversation-1','plugins.postHookFailed','polite',undefined);
+  });
+
   it('não promove status terminal legado ou desconhecido a anúncio de sucesso', () => {
     const { adapter } = createAdapter(['conversation-1']);
     startChatEventController({ conversationId: 'conversation-1', adapter });

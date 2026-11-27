@@ -113,6 +113,7 @@ type ExecutorConfig struct {
 	// BeforeTool avalia hooks anteriores no workspace verificado. Um erro impede o despacho.
 	// O adaptador revalida as concessões e observa o contexto durante a execução.
 	BeforeTool func(context.Context, ToolCall) error
+	AfterTool  func(context.Context, ToolCall, ToolResult, int64) error
 
 	// ExpectedToolGeneration, quando diferente de zero, fixa a identidade da
 	// tool capturada pelo chamador. Zero preserva o comportamento legado.
@@ -270,7 +271,7 @@ func (e *Executor) executeSingle(ctx context.Context, call ToolCall) (execution 
 	toolCtx, cancel := context.WithTimeout(ctx, e.config.ToolTimeout)
 	defer cancel()
 	if before := e.config.BeforeTool; before != nil && invocationctx.VerifiedWorkspaceID(ctx) != "" {
-		err := awaitBeforeTool(toolCtx, before, call)
+		err := awaitToolHook(toolCtx, func() error { return before(toolCtx, call) })
 		if err == nil {
 			err = ValidateExecutionContextToolAccess(toolCtx, toolName)
 		}
@@ -475,7 +476,16 @@ func (e *Executor) executeSingle(ctx context.Context, call ToolCall) (execution 
 		completed = &result
 	case <-toolCtx.Done():
 	}
-	return e.finishExecution(ctx, toolCtx, call, start, completed, pending.Load(), collector)
+	outcome := e.finishExecution(ctx, toolCtx, call, start, completed, pending.Load(), collector)
+	if after := e.config.AfterTool; after != nil && completed != nil && outcome.Error == nil && !outcome.Result.IsError && invocationctx.VerifiedWorkspaceID(ctx) != "" {
+		err := callToolHook(func() error { return after(ctx, call, outcome.Result, outcome.DurationMs) })
+		if err != nil {
+			// O aviso é independente do conteúdo e da classificação da ferramenta.
+			outcome.PostToolHookFailed = true
+			logging.Warnf(ctx, "plugin_hook", "tool_call_id=%s reason=post_tool_hook_failed", call.ID)
+		}
+	}
+	return outcome
 }
 
 func (e *Executor) finishExecution(ctx, toolCtx context.Context, call ToolCall, start time.Time, result *ToolExecutionResult, confirmation *confirmationState, collector *securitySignalCollector) ToolExecutionResult {

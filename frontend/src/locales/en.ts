@@ -160,6 +160,8 @@ notSaved: 'The decision applies only to this operation: it could not be remember
       agentNoTools: 'Agent without tools',
       hook: 'Hook',
       hookPermission: 'Manage shell hook permission',
+      postHookConsent: 'Plugin {{name}}, version {{version}}, from {{origin}} (revision {{digest}}). After run_command succeeds, {{script}} receives the arguments, output, duration and call ID. It runs with your permissions and can access files outside {{workspace}}. A block in this workspace overrides a global grant.',
+      postHookFailed: 'The command finished. Its post-execution hook failed. The result was preserved.',
       hookConsent: 'Plugin {{name}}, version {{version}}, from {{origin}} (revision {{digest}}). Before run_command, {{script}} receives the call ID, tool name and command arguments. The script runs with your operating system permissions and can access files outside {{workspace}}. It can block the command. The local rule applies in this workspace. Manage the global grant in Settings → Permissions. A local block overrides it. The command still requires its usual authorization.',
       hookHere: 'Allow in this workspace',
       hookGlobal: 'Allow in all my workspaces, including future ones',

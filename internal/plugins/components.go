@@ -177,9 +177,9 @@ func DiscoverComponents(snapshot *pluginpackage.LocalSnapshot) []Component {
 			}
 		}
 	}
-	if script, ok := preToolScript(snapshot); ok {
-		for n := range components {
-			if components[n].Key == cursorPreToolKey {
+	for n := range components {
+		if components[n].Kind == "hook" {
+			if script, ok := toolHookScript(snapshot, components[n].Key); ok {
 				components[n].Reason = ""
 				components[n].HookScript = script
 			}

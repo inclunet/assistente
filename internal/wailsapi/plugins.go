@@ -56,8 +56,8 @@ type Plugins struct {
 
 func NewPlugins() *Plugins { return &Plugins{} }
 
-// DecidePreToolHook confirma a identidade da sessão e do workspace apresentados na UI.
-func (api *Plugins) DecidePreToolHook(id, digest, key, generation, expectedSession, workspace, choice string) error {
+// DecideToolHook confirma a identidade da sessão e do workspace apresentados na UI.
+func (api *Plugins) DecideToolHook(id, digest, key, generation, expectedSession, workspace, choice string) error {
 	session, _, _, _, err := api.wired()
 	if err != nil {
 		return err
@@ -71,7 +71,7 @@ func (api *Plugins) DecidePreToolHook(id, digest, key, generation, expectedSessi
 		if !ok || current != expectedSession || workspace == "" || workspace != source.ActiveWorkspaceID() {
 			return database.ErrUserScopeRequired
 		}
-		return i.DecidePreToolHook(ctx, id, digest, key, generation, workspace, choice, admit)
+		return i.DecideToolHook(ctx, id, digest, key, generation, workspace, choice, admit)
 	})
 }
 
