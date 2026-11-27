@@ -23,6 +23,13 @@ Na prévia de plugins Claude Code ou Cursor, cada evento declarado em `hooks/hoo
 
 Em **Configurações → Permissões**, o filtro **Hooks de plugins** reúne as decisões de hooks registradas para sua conta. Desinstalar o plugin, desativá-lo ou trocar sua revisão remove as permissões e as negativas dessa instalação, inclusive as exceções por workspace. As permissões dos demais plugins e as regras de shell, rede e arquivos continuam válidas. Reinstalar a mesma versão exige um novo aceite.
 
+Nos detalhes de um plugin Cursor instalado, **Gerenciar permissão do hook de shell** permite ativar o script no workspace apresentado, permiti-lo em todos os seus workspaces ou bloqueá-lo naquele workspace. O script recebe os argumentos de chamadas a `run_command` de conversas autorizadas e roda com suas permissões no sistema. O workspace define quais conversas disparam o hook. O script pode acessar arquivos fora dele. Se liberar a chamada, a política de comandos ainda pode pedir confirmação ou vetar o comando.
+
+O formato inicial usa `hooks/hooks.json` na versão 1, um evento `preToolUse` e um único handler com `matcher: "Shell"`, `failClosed: true` e `command` apontando para um script relativo, como `./hooks/check.ps1` no Windows ou `./hooks/check.sh` em sistemas com `/bin/sh`. A execução usa a cópia instalada, com a raiz do plugin como diretório de trabalho. O hook recebe JSON com `hook_event_name`, `tool_name`, `tool_input` e `tool_use_id`. Em PowerShell 5.1, leia o evento de `$input`. A resposta `{"permission":"allow"}` libera a chamada. A resposta `{"permission":"deny"}`, falha, saída inválida, saída superior a 16 KiB ou prazo de dez segundos esgotado bloqueiam o despacho.
+
+No Windows, a permissão do plugin também depende da política de execução de scripts do Windows PowerShell 5.1. Se essa política impedir a execução do arquivo, a chamada da ferramenta fica bloqueada. O Assistente usa a política vigente.
+
+Quando o prazo termina, o Assistente interrompe o interpretador do hook e bloqueia o comando solicitado. Processos iniciados pelo próprio script podem continuar em execução. Considere esse comportamento ao ativar um plugin que inicia programas externos.
 
 ## Ativar uma skill
 

@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/google/uuid"
+	"strconv"
 	"strings"
 
 	"assistente/internal/commandsecurity"
@@ -98,6 +99,13 @@ func (i *Inventory) InstalledComponents(ctx context.Context, id, digest string) 
 		slugs[job.PluginComponentKey] = job.Slug
 	}
 	for n := range components {
+		if components[n].HookScript != "" {
+			var row database.PluginInstallation
+			if err := i.db.WithContext(ctx).Select("hook_generation").Where("id = ? AND user_id = ? AND digest = ?", id, owner, digest).Take(&row).Error; err != nil {
+				return nil, err
+			}
+			components[n].HookGeneration = strconv.FormatUint(row.HookGeneration, 10)
+		}
 		if components[n].Kind == "profile" && components[n].Reason == "" {
 			_, err := resolveProfile(ctx, i.db, snapshot.Files[components[n].Entry])
 			if err != nil {

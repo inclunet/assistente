@@ -110,6 +110,10 @@ const (
 
 // ExecutorConfig contém configurações do executor de ferramentas.
 type ExecutorConfig struct {
+	// BeforeTool avalia hooks anteriores no workspace verificado. Um erro impede o despacho.
+	// O adaptador revalida as concessões e observa o contexto durante a execução.
+	BeforeTool func(context.Context, ToolCall) error
+
 	// ExpectedToolGeneration, quando diferente de zero, fixa a identidade da
 	// tool capturada pelo chamador. Zero preserva o comportamento legado.
 	ExpectedToolGeneration uint64
@@ -263,10 +267,29 @@ func (e *Executor) executeSingle(ctx context.Context, call ToolCall) (execution 
 		}
 	}
 
-	// Cria contexto com timeout para esta execução
 	toolCtx, cancel := context.WithTimeout(ctx, e.config.ToolTimeout)
 	defer cancel()
-
+	if before := e.config.BeforeTool; before != nil && invocationctx.VerifiedWorkspaceID(ctx) != "" {
+		err := awaitBeforeTool(toolCtx, before, call)
+		if err == nil {
+			err = ValidateExecutionContextToolAccess(toolCtx, toolName)
+		}
+		if err == nil {
+			err = toolCtx.Err()
+		}
+		if err == nil {
+			if _, current, found := e.registry.GetWithGeneration(toolName); !found || current != generation {
+				err = errors.New("a ferramenta mudou durante a verificação do hook")
+			}
+		}
+		if err != nil {
+			const message = "A verificação anterior do plugin impediu a execução da ferramenta."
+			failure := &ToolFailure{Code: "plugin_hook_blocked", Kind: ErrorKindAuthorization, NotDispatched: true}
+			return ToolExecutionResult{CallID: call.ID, ToolName: toolName, Error: errors.New("despacho bloqueado na verificação anterior do plugin"),
+				Result:    ToolResult{Content: message, IsError: true, Failure: failure},
+				ErrorCode: failure.Code, ErrorKind: failure.Kind, RetryabilityKnown: true, DurationMs: time.Since(start).Milliseconds()}
+		}
+	}
 	// Executa com recover para capturar panics
 	// O coletor pertence à execução, e não à goroutine: assim sinais emitidos
 	// antes de timeout/cancelamento também podem ser anexados ao resultado que
@@ -301,6 +324,10 @@ func (e *Executor) executeSingle(ctx context.Context, call ToolCall) (execution 
 		// Expõe à tool o limite efetivo de resultado deste executor, para que
 		// tools com saída estruturada possam falhar de forma controlada em vez de
 		// serem truncadas (o que invalidaria, p.ex., um JSON canônico).
+		if execCtx.Err() != nil {
+			// finishExecution já observa o prazo. Uma autorização tardia não despacha a ferramenta.
+			return
+		}
 		result, err := tool.Execute(execCtx, args)
 		attachSecuritySignals(&result, collector)
 		if err != nil {

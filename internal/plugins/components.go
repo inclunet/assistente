@@ -18,6 +18,8 @@ import (
 // Component identifies a contribution within a revision; runtime keys are
 // allocated separately, so the same skill name can occur in several packages.
 type Component struct {
+	HookGeneration    string    `json:"hookGeneration,omitempty"`
+	HookScript        string    `json:"hookScript,omitempty"`
 	AgentProblemField string    `json:"agentProblemField,omitempty"`
 	AgentInstructions string    `json:"agentInstructions,omitempty"`
 	AgentTools        *[]string `json:"agentTools,omitempty"`
@@ -172,6 +174,14 @@ func DiscoverComponents(snapshot *pluginpackage.LocalSnapshot) []Component {
 		for n := range components {
 			if components[n].Reason == "" {
 				components[n].Reason = "manifestConfiguration"
+			}
+		}
+	}
+	if script, ok := preToolScript(snapshot); ok {
+		for n := range components {
+			if components[n].Key == cursorPreToolKey {
+				components[n].Reason = ""
+				components[n].HookScript = script
 			}
 		}
 	}

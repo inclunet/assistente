@@ -16,6 +16,7 @@ import (
 	"assistente/internal/fstrust"
 	"assistente/internal/jobprofilegrant"
 	"assistente/internal/nettrust"
+	"assistente/internal/plugins"
 	"assistente/internal/profileaccess"
 	"assistente/internal/profiles"
 	"assistente/internal/questionnaire"
@@ -275,7 +276,18 @@ func (e *appDeepLinkEmitter) EmitDeepLink(uri string) {
 // initToolRegistry inicializa o registro de ferramentas disponíveis
 func (a *App) initToolRegistry() {
 	a.toolRegistry = tools.NewRegistry()
-	a.toolExecutor = tools.NewExecutor(a.toolRegistry, tools.DefaultExecutorConfig())
+	cfg := tools.DefaultExecutorConfig()
+	cfg.BeforeTool = func(ctx context.Context, call tools.ToolCall) error {
+		if call.Function.Name != "run_command" {
+			return nil
+		}
+		db := database.DB()
+		if db == nil {
+			return database.ErrUserScopeRequired
+		}
+		return plugins.NewInventory(db).BeforeTool(ctx, call)
+	}
+	a.toolExecutor = tools.NewExecutor(a.toolRegistry, cfg)
 	a.toolRegistry.MustRegister(tools.NewReadToolResult())
 	a.toolRegistry.MustRegister(commandtool.NewCatalog(commandAgentTools{app: a}))
 	a.toolRegistry.MustRegister(commandtool.NewConfig(commandAgentTools{app: a}))
