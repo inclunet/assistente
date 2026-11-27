@@ -48,6 +48,10 @@ func ApplyCommandDecisionExternalContextMigration(ctx context.Context, db *gorm.
 	return applyCommandMigration(ctx, db, 32, "command_decision_external_token_context", apply)
 }
 
+func ApplyCommandRetentionIndexMigration(ctx context.Context, db *gorm.DB, apply func(*gorm.DB) error) error {
+	return applyCommandMigration(ctx, db, 49, "command_outbox_retention_indexes", apply)
+}
+
 func applyCommandMigration(ctx context.Context, db *gorm.DB, version int, name string, apply func(*gorm.DB) error) error {
 	if ctx == nil || db == nil || apply == nil {
 		return errors.New("migração de comandos inválida")

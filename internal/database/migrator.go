@@ -484,6 +484,7 @@ var schemaMigrations = []migration{
 	}},
 	{Version: 47, Name: "llm_provider_slugs", Phase: phasePostAutoMigrate, Run: migrateProviderSlugs},
 	{Version: 48, Name: "plugin_provider_delete_binding", Phase: phasePostAutoMigrate, Run: installProviderBindingCleanup},
+	{Version: 49, Name: "command_outbox_retention_indexes", Phase: phasePostAutoMigrate, Run: func(*gorm.DB) error { return errMigrationDeferred }},
 }
 
 // runMigrations aplica, na ordem de Version, todas as migrações da fase

@@ -3,6 +3,7 @@ package commandjobevents
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -104,4 +105,32 @@ func TestPurgeExpiredRollbackZeraContadoresEPreservaFonte(t *testing.T) {
 			t.Fatalf("rollback removeu fonte %s: %v", fact.SourceEventID, err)
 		}
 	}
+}
+
+func TestActivationOutboxRetentionIndexes(t *testing.T) {
+	store, now, _ := preparePurgeFixture(t)
+	db := store.DB()
+	var sql string
+	var args []any
+	if err := db.Callback().Query().After("gorm:query").Register("test:capture_purge", func(tx *gorm.DB) {
+		if tx.Statement.Table == "command_job_activation_outbox" {
+			sql = tx.Statement.SQL.String()
+			args = append([]any(nil), tx.Statement.Vars...)
+		}
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := store.PurgeExpiredAt(t.Context(), now, 2); err != nil {
+		t.Fatal(err)
+	}
+	var plan []struct{ Detail string }
+	if err := db.Raw("EXPLAIN QUERY PLAN "+sql, args...).Scan(&plan).Error; err != nil {
+		t.Fatal(err)
+	}
+	for _, row := range plan {
+		if strings.Contains(row.Detail, "ix_outbox_state_deadline") {
+			return
+		}
+	}
+	t.Fatalf("índice do lote de purga ausente: %v", plan)
 }

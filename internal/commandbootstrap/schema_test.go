@@ -403,3 +403,29 @@ func assertCommandStampAbsent(t *testing.T, db *gorm.DB) {
 		}
 	}
 }
+
+func TestOutboxRetentionIndexUpgrade(t *testing.T) {
+	db := openBootstrapTestDB(t, ":memory:")
+	if err := Migrate(t.Context(), db); err != nil {
+		t.Fatal(err)
+	}
+	layer := seedBootstrapLayer(t, db)
+	for _, sql := range []string{"DROP INDEX ix_outbox_state_deadline", "DROP INDEX ix_outbox_owner_state_run", "DELETE FROM schema_migrations WHERE version = 49"} {
+		if err := db.Exec(sql).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := Migrate(t.Context(), db); err != nil {
+		t.Fatal(err)
+	}
+	var count int64
+	if err := db.Table("command_layers").Where("id = ?", layer).Count(&count).Error; err != nil || count != 1 {
+		t.Fatalf("layer após upgrade: %d, %v", count, err)
+	}
+	if err := db.Exec("DROP INDEX ix_outbox_state_deadline").Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := Migrate(t.Context(), db); !errors.Is(err, ErrStorage) {
+		t.Fatalf("drift após v49: %v", err)
+	}
+}
