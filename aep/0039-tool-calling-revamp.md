@@ -481,3 +481,7 @@ Evidências: `internal/toolinvocations/service.go`, `service_test.go`,
 
 Além de evoluções aditivas de UX ou novos tipos de origem, as duas pendências
 acima pertencem ao escopo aceito e mantêm esta AEP `In Progress`.
+
+## Atualização de 27/11/2026
+
+As buscas locais por nome e conteúdo usam um orçamento cooperativo de 30 segundos para a varredura após a autorização do diretório. O esgotamento do orçamento é classificado como timeout com retry automático desabilitado. A orientação devolvida ao modelo é restringir o escopo. O teste `TestSearchBudgetStopsWithoutAutomaticRetry` verifica a duração e a classificação.
