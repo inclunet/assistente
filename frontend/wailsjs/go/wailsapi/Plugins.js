@@ -54,6 +54,10 @@ export function CreateListFromTemplate(arg1, arg2, arg3, arg4) {
   return window['go']['wailsapi']['Plugins']['CreateListFromTemplate'](arg1, arg2, arg3, arg4);
 }
 
+export function DecidePreToolHook(arg1, arg2, arg3, arg4, arg5, arg6, arg7) {
+  return window['go']['wailsapi']['Plugins']['DecidePreToolHook'](arg1, arg2, arg3, arg4, arg5, arg6, arg7);
+}
+
 export function DiscardPreview(arg1) {
   return window['go']['wailsapi']['Plugins']['DiscardPreview'](arg1);
 }

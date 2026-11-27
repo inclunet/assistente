@@ -7,6 +7,13 @@ type wailsSession struct {
 	app *App
 }
 
+func (s wailsSession) ActiveWorkspaceID() string {
+	if s.app.workspaceMgr == nil {
+		return ""
+	}
+	return s.app.workspaceMgr.ActiveID()
+}
+
 func (s wailsSession) AuthenticatedContext() (context.Context, error) {
 	return s.app.requireAuthenticatedContext()
 }

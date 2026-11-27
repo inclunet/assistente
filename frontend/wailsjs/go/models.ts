@@ -8189,6 +8189,8 @@ export namespace plugins {
 	}
 	
 	export class Component {
+	    hookGeneration?: string;
+	    hookScript?: string;
 	    agentProblemField?: string;
 	    agentInstructions?: string;
 	    agentTools?: string[];
@@ -8218,6 +8220,8 @@ export namespace plugins {
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.hookGeneration = source["hookGeneration"];
+	        this.hookScript = source["hookScript"];
 	        this.agentProblemField = source["agentProblemField"];
 	        this.agentInstructions = source["agentInstructions"];
 	        this.agentTools = source["agentTools"];

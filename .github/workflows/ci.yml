@@ -570,6 +570,11 @@ jobs:
             throw "Windows PowerShell 5.1 indisponível: $version"
           }
           go test -v ./internal/terminal/... -count=1 -timeout 20m
+      - name: Verificar veto de hook instalado no Windows PowerShell 5.1
+        shell: pwsh
+        run: |
+          $env:ASSISTENTE_CI_WINDOWS_HOOKS = '1'
+          go test -v ./internal/plugins -run '^TestInstalledHookDispatch$' -count=1
       - name: Testar registro isolado e comando interno
         shell: pwsh
         run: |

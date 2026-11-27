@@ -56,6 +56,25 @@ type Plugins struct {
 
 func NewPlugins() *Plugins { return &Plugins{} }
 
+// DecidePreToolHook confirma a identidade da sessão e do workspace apresentados na UI.
+func (api *Plugins) DecidePreToolHook(id, digest, key, generation, expectedSession, workspace, choice string) error {
+	session, _, _, _, err := api.wired()
+	if err != nil {
+		return err
+	}
+	source, ok := session.(interface{ ActiveWorkspaceID() string })
+	if !ok {
+		return database.ErrUserScopeRequired
+	}
+	return api.mutateComponent(func(ctx context.Context, i *plugins.Inventory, admit commandsecurity.Admission) error {
+		current, ok := userctx.SessionIDFromContext(ctx)
+		if !ok || current != expectedSession || workspace == "" || workspace != source.ActiveWorkspaceID() {
+			return database.ErrUserScopeRequired
+		}
+		return i.DecidePreToolHook(ctx, id, digest, key, generation, workspace, choice, admit)
+	})
+}
+
 func AttachPlugins(api *Plugins, session Session, inventory *plugins.Inventory, choose func() (string, error), capture func(context.Context) (commandsecurity.Admission, error), skillsChanged func()) {
 	api.mu.Lock()
 	defer api.mu.Unlock()

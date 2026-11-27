@@ -22,6 +22,8 @@ import { useConfirm } from '../hooks/useConfirm';
 import { useAnnouncer } from '../hooks/useAnnouncer';
 import { logger } from '../utils/logger';
 import { useAuthStore } from '../store/authStore';
+import { useWorkspaceStore } from '../store/workspaceStore';
+import { DecidePreToolHook } from '@wailsjs/go/wailsapi/Plugins';
 
 type InstallationRow = Pick<database.PluginInstallation, 'id' | 'origin' | 'name' | 'version' | 'digest' | 'disabled'>;
 
@@ -55,6 +57,7 @@ function componentLabel(kind: string) {
 }
 
 function componentRequirement(component: plugins.Component) {
+  if (component.hookScript && !component.reason) return undefined;
   if (component.reason === 'hookExecutionPending') return 'plugins.hookExecutionPending';
   if (component.reason === 'hookInspectionLimit') return 'plugins.hookInspectionLimit';
   if (component.reason === 'hookConfiguration') return 'plugins.hookConfiguration';
@@ -189,6 +192,8 @@ export default function PluginsPage() {
 }
 
 function InstalledPlugins({ session }: { session: string }) {
+  const workspace = useWorkspaceStore(state => state.workspace);
+  const [hookDecision, setHookDecision] = useState<{component: plugins.Component; installation: InstallationRow; workspaceId: string; workspaceName: string} | null>(null);
   const { t } = useTranslation();
   const [section, setSection] = useState('installed');
   const builderForm = useRef<HTMLFormElement>(null);
@@ -598,11 +603,13 @@ function InstalledPlugins({ session }: { session: string }) {
       {createdList && <p>{t('plugins.createdList', { name: createdList })}</p>}
       <h2>{t('plugins.components')}</h2>
       {details.components.length === 0 ? <p>{t('plugins.noComponents')}</p> : <ul>{details.components.map(component => <li key={component.key}>
-        <strong>{component.name}</strong> · {t(componentLabel(component.kind))}<AgentDefinition component={component} /><JobRequirements component={component} />
+        <strong>{component.name}</strong> · {t(componentLabel(component.kind))}{component.hookScript && <code>{component.hookScript}</code>}<AgentDefinition component={component} /><JobRequirements component={component} />
         {component.editedServer && <p>{t('plugins.editedServer', { name: component.editedServer })}</p>}
         {component.missingAllowlist && <p>{t('plugins.missingProfileAllowlist',{name:component.missingAllowlist})}</p>}{component.missingProvider && <p>{t('plugins.missingProfileProvider',{name:component.missingProvider})}</p>}{component.profileDefinition && <details><summary>{t('plugins.profileSettings')}</summary><pre>{component.profileDefinition}</pre></details>}{(component.kind === 'mcp' || component.kind === 'provider') && <p>{connectionLabel(component)}</p>}
         {component.kind === 'skill' && component.requestsShell && <p>{t('plugins.commandPolicy')}</p>}
-        {component.kind === 'provider' && !component.reason ?
+        {component.kind === 'hook' && component.hookScript && !component.reason ?
+          <Button disabled={busy || details.installation.disabled || !workspace} onClick={() => workspace && setHookDecision({component,installation:details.installation,workspaceId:workspace.id,workspaceName:workspace.name})}>{t('plugins.hookPermission')}</Button>
+          : component.kind === 'provider' && !component.reason ?
           <>{component.active && <p>{t('plugins.providerRegistered', { name: component.name })}</p>}
             <Button disabled={busy || details.installation.disabled || error === 'plugins.syncPendingStale'} onClick={() => void changeComponent(component)}>{t(component.active ? 'plugins.syncProvider' : 'plugins.registerProvider', { name: component.name })}</Button></>
           : component.kind === 'job' && !component.reason ?
@@ -623,6 +630,21 @@ function InstalledPlugins({ session }: { session: string }) {
         </> : <p>{t(componentRequirement(component) ?? 'plugins.unavailable', { path: component.entry })}</p>}
       </li>)}</ul>}
     </Modal>}
+    {hookDecision && <DecisionDialog isOpen title={t('plugins.hookPermission')}
+      description={t('plugins.hookConsent', {name:hookDecision.installation.name, version:hookDecision.installation.version, origin:hookDecision.installation.origin, digest:hookDecision.installation.digest, script:hookDecision.component.hookScript, workspace:hookDecision.workspaceName})}
+      actions={[{id:'workspace',label:t('plugins.hookHere'),primary:true}, {id:'global',label:t('plugins.hookGlobal')}, {id:'denyWorkspace',label:t('plugins.hookDenyHere')}, {id:'cancel',label:t('common.cancel')}]}
+      onCancel={() => setHookDecision(null)} onAction={async choice => {
+        const decision = hookDecision;
+        setHookDecision(null);
+        if (choice === 'cancel') return;
+        setBusy(true);
+        try {
+          await DecidePreToolHook(decision.installation.id, decision.installation.digest, decision.component.key, decision.component.hookGeneration!, session, decision.workspaceId, choice);
+          if (mounted.current) announce(t('plugins.hookSaved'));
+        } catch {
+          if (mounted.current) setError('plugins.hookSaveFailed');
+        } finally { if (mounted.current) setBusy(false); }
+      }} />}
     {choosingSource && <DecisionDialog isOpen title={t('plugins.choose')} description={t('plugins.sourcePrompt')}
       actions={[{id:'folder', label:t('plugins.folderSource'), primary:true}, {id:'zip',label:t('plugins.zipSource')}, {id:'cancel', label:t('common.cancel')}]}
       onAction={id => { if (id === 'cancel') cancelSource(); else void inspect(id === 'zip'); }}
@@ -679,7 +701,7 @@ function InstalledPlugins({ session }: { session: string }) {
         {preview.authentication && <><dt>{t('plugins.authentication')}</dt><dd>{preview.authentication}</dd></>}
         <dt>SHA-256</dt><dd>{preview.digest}</dd>
       </dl>
-      {(preview.components ?? []).length > 0 && <ul aria-label={t('plugins.components')}>{preview.components.map(component => <li key={component.key}>{component.name} · {t(componentLabel(component.kind))}<AgentDefinition component={component} /><JobRequirements component={component} />{component.requestsShell && <span> · {t('plugins.commandPolicy')}</span>}{component.missingAllowlist && <p>{t('plugins.missingProfileAllowlist',{name:component.missingAllowlist})}</p>}{component.missingProvider && <p>{t('plugins.missingProfileProvider',{name:component.missingProvider})}</p>}{component.profileDefinition && <details><summary>{t('plugins.profileSettings')}</summary><pre>{component.profileDefinition}</pre></details>}{(component.kind === 'mcp' || component.kind === 'provider') && <p>{connectionLabel(component)}</p>}{componentRequirement(component) && <p>{t(componentRequirement(component)!, { path: component.entry })}</p>}</li>)}</ul>}
+      {(preview.components ?? []).length > 0 && <ul aria-label={t('plugins.components')}>{preview.components.map(component => <li key={component.key}>{component.name} · {t(componentLabel(component.kind))}{component.hookScript && <code>{component.hookScript}</code>}<AgentDefinition component={component} /><JobRequirements component={component} />{component.requestsShell && <span> · {t('plugins.commandPolicy')}</span>}{component.missingAllowlist && <p>{t('plugins.missingProfileAllowlist',{name:component.missingAllowlist})}</p>}{component.missingProvider && <p>{t('plugins.missingProfileProvider',{name:component.missingProvider})}</p>}{component.profileDefinition && <details><summary>{t('plugins.profileSettings')}</summary><pre>{component.profileDefinition}</pre></details>}{(component.kind === 'mcp' || component.kind === 'provider') && <p>{connectionLabel(component)}</p>}{componentRequirement(component) && <p>{t(componentRequirement(component)!, { path: component.entry })}</p>}</li>)}</ul>}
       {(preview.diagnostics ?? []).length > 0 && <details>
         <summary>{t('plugins.warnings', { count: preview.diagnostics.length })}</summary>
         <ul>{preview.diagnostics.map(warning => {
