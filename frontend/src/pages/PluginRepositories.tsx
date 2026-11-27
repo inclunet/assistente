@@ -8,7 +8,7 @@ import { useConfirm } from '../hooks/useConfirm';
 import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
 import { Toolbar } from '../components/ui/Toolbar';
-import { DataGrid } from '../components/ui/DataGrid';
+import { DataGrid, DATAGRID_ENTRY_SELECTOR } from '../components/ui/DataGrid';
 
 import { Modal } from '../components/ui/Modal';
 import { DialogActions } from '../components/ui/DialogActions';
@@ -180,16 +180,22 @@ export default function PluginRepositories({ session, catalog, parentBusy, onFor
         secondary={<Button type="button" disabled={busy} onClick={cancelAdd}>{t('common.cancel')}</Button>} />
     </form></Modal>}
     {offline && <p>{t('plugins.catalogOffline')}</p>}
-    {choice && <Modal isOpen readingMode title={t('plugins.chooseCatalogFormat', { name: choice.row.name })} allowClose={!busy} onClose={() => {
+    {choice && <Modal isOpen initialFocusSelector={DATAGRID_ENTRY_SELECTOR} title={t('plugins.chooseCatalogFormat', { name: choice.row.name })} allowClose={!busy} onClose={() => {
       setChoice(null);
       setError('');
       const opener = choice.opener;
       requestAnimationFrame(() => opener?.focus());
     }}>
-      {choice.row.variants.map(variant => <p key={variant.format}>
-        <Button aria-describedby={'catalog-format-' + variant.format} aria-disabled={!!variant.diagnostic} disabled={busy || parentBusy} onClick={() => void preview(choice.row.repo, variant, choice.opener)}>{variant.format}</Button>
-        {' '}<span id={'catalog-format-' + variant.format}>{[variant.store, variant.version, variant.authentication, t(catalogStatus(variant.diagnostic))].filter(Boolean).join(' · ')}</span>
-      </p>)}
+      <DataGrid items={choice.row.variants} getItemId={variant => variant.format}
+        label={t('plugins.chooseCatalogFormat', { name: choice.row.name })}
+        onActivate={variant => void preview(choice.row.repo, variant, choice.opener)}
+        columns={[
+          { key: 'format', label: t('plugins.format') },
+          { key: 'diagnostic', label: t('common.status'), format: (_, variant) => t(catalogStatus(variant.diagnostic)) },
+          { key: 'store', label: t('plugins.store') },
+          { key: 'version', label: t('plugins.version') },
+          { key: 'authentication', label: t('plugins.authentication') },
+        ]} />
       {error && <p>{t(error)}</p>}
     </Modal>}
     {!choice && !adding && error && <p>{t(error)}</p>}

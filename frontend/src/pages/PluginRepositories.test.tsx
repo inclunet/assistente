@@ -1,5 +1,5 @@
-import { describe, expect, it, vi } from 'vitest';
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { describe, expect, it, onTestFinished, vi } from 'vitest';
+import { act, fireEvent, render, screen, within, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import PluginRepositories from './PluginRepositories';
 
@@ -31,6 +31,11 @@ describe('PluginRepositories', () => {
   });
 
   it('groups declarations of one package and previews only the chosen index', async () => {
+    // jsdom has no layout. The modal verifies visibility before assigning initial focus.
+    const visibleGrid = vi.spyOn(HTMLElement.prototype, 'offsetParent', 'get').mockImplementation(function (this: HTMLElement) {
+      return this.closest('[role="grid"]') ? this.parentElement : null;
+    });
+    onTestFinished(() => visibleGrid.mockRestore());
     const entry = { name: 'shared', path: 'plugins/shared' };
     const index = (format: string, overrides = {}) => ({
       format, name: format + '-store', entries: [{ ...entry, ...overrides }],
@@ -50,19 +55,24 @@ describe('PluginRepositories', () => {
     cell.focus();
     await user.keyboard('{Enter}');
     expect(formChanged).toHaveBeenLastCalledWith(true);
-    const blocked = screen.getByRole('button', { name: 'codex' });
-    expect(blocked).toHaveAttribute('aria-disabled', 'true');
-    expect(blocked).toHaveAccessibleDescription(/plugins.catalogPolicy/);
-    blocked.focus();
+    const formats = within(screen.getByRole('dialog')).getByRole('grid');
+    const blocked = within(formats).getByRole('gridcell', { name: 'codex' });
+    await waitFor(() => expect(within(formats).getByText('claude')).toHaveFocus());
+    await user.keyboard('{ArrowDown}{ArrowDown}');
+    expect(blocked).toHaveFocus();
+    await user.keyboard('{ArrowRight}');
+    expect(within(formats).getByText('plugins.catalogPolicy')).toHaveFocus();
     await user.keyboard('{Enter}');
     expect(mocks.preview).not.toHaveBeenCalled();
     await user.keyboard('{Escape}');
     await waitFor(() => expect(cell).toHaveFocus());
     await user.keyboard('{Enter}');
-    await user.click(screen.getByRole('button', { name: 'cursor' }));
+    await waitFor(() => expect(within(screen.getByRole('dialog')).getByText('claude')).toHaveFocus());
+    await user.keyboard('{ArrowDown}{Enter}');
     expect(mocks.preview).toHaveBeenCalledTimes(1);
     expect(mocks.preview).toHaveBeenCalledWith('one', 'reviewed', 'cursor', 'shared');
     expect(onPreview).toHaveBeenCalledWith({ token: 'chosen' }, cell);
+    visibleGrid.mockRestore();
   });
 
   it('keeps the saved index visible after refresh failure and honors declined removal', async () => {
