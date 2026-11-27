@@ -29,7 +29,8 @@ func pathConfirmationPayload(req fstrust.PromptRequest) questionnaire.RequestPay
 		fmt.Fprintf(&details, "skill: %s\n", req.SkillSlug)
 	}
 
-	return questionnaire.RequestPayload{
+	actions := questionnaire.AuthorizationActions{Scopes: req.AvailableScopes, Directory: true, RememberDenial: true, PersistentShortcut: authorization.ScopeWorkspace}
+	payload := questionnaire.RequestPayload{
 		Kind:     questionnaire.KindDecision,
 		Severity: questionnaire.DecisionSeverityPermission,
 		Title: questionnaire.Keyed(
@@ -47,8 +48,9 @@ func pathConfirmationPayload(req fstrust.PromptRequest) questionnaire.RequestPay
 			"Caminho e detalhes solicitados",
 		),
 		AllowCancel: true,
-		Actions:     (questionnaire.AuthorizationActions{Scopes: req.AvailableScopes, Directory: true, RememberDenial: true, PersistentShortcut: authorization.ScopeWorkspace}).Actions(),
+		Actions:     actions.Actions(),
 	}
+	return withAuthorizationReceipt(payload, actions, req.Receipt)
 }
 
 func (p *appFSPrompter) PromptPathAuthorization(ctx context.Context, req fstrust.PromptRequest) (fstrust.PromptDecision, error) {

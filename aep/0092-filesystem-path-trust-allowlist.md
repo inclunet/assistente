@@ -2,6 +2,8 @@
 
 **Status:** ✅ Done — Fase 1 + 1b + 2
 
+Se o prazo da ferramenta expirar durante a confirmação de acesso, o executor encerra a chamada com falha de autorização sem repetição automática. O teste `TestReadFileConfirmationTimeoutDoesNotRetry` cobre o percurso de leitura fora do sandbox.
+
 Evolução aprovada: [AEP-0117](0117-autorizacoes-unificadas-em-banco.md) migra a
 persistência para o banco e unifica autorização/gestão com rede, shell e ACP.
 As proteções de caminhos e operações deste AEP permanecem obrigatórias. O store

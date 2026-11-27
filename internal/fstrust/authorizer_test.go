@@ -2,13 +2,18 @@ package fstrust
 
 import (
 	"assistente/internal/testutil/authorizationfixture"
+	"assistente/internal/tools"
+	"assistente/internal/tools/filesystem"
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
+	"testing/synctest"
+	"time"
 )
 
 type spyPrompter struct {
@@ -373,5 +378,45 @@ func TestAuthorizer_DanglingFinalSymlinkPersistsRealTarget(t *testing.T) {
 	}
 	if prompt.called != 1 {
 		t.Fatalf("entrada do alvo real deveria evitar novo prompt, got %d prompts", prompt.called)
+	}
+}
+
+type waitingPathPrompter struct{ refuse bool }
+
+func (p waitingPathPrompter) PromptPathAuthorization(ctx context.Context, req PromptRequest) (PromptDecision, error) {
+	if p.refuse {
+		req.Receipt.TryAccept(true)
+	}
+	<-ctx.Done()
+	return PromptDecision{}, ctx.Err()
+}
+
+func TestReadFileConfirmationTimeoutDoesNotRetry(t *testing.T) {
+	workDir, outside := t.TempDir(), filepath.Join(t.TempDir(), "outside.txt")
+	if err := os.WriteFile(outside, []byte("privado"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	args, err := json.Marshal(map[string]string{"path": outside})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		refuse bool
+		want   string
+	}{{false, "filesystem_confirmation_unavailable"}, {true, "filesystem_access_denied"}} {
+		t.Run(tc.want, func(t *testing.T) {
+			filesystem.SetPathAuthorizer(NewAuthorizer(nil, waitingPathPrompter{refuse: tc.refuse}))
+			t.Cleanup(func() { filesystem.SetPathAuthorizer(nil) })
+			registry := tools.NewRegistry()
+			registry.MustRegister(filesystem.NewReadFile(workDir))
+			cfg := tools.DefaultExecutorConfig()
+			cfg.ToolTimeout = time.Minute
+			synctest.Test(t, func(t *testing.T) {
+				got := tools.NewExecutor(registry, cfg).ExecuteOne(authorizationfixture.Context(), tools.ToolCall{ID: "read", Function: tools.FunctionCall{Name: "read_file", Arguments: string(args)}})
+				if !got.Result.IsError || got.ErrorKind != tools.ErrorKindAuthorization || got.ErrorCode != tc.want || got.Retryable || !got.RetryabilityKnown {
+					t.Fatalf("resultado inesperado: %+v", got)
+				}
+			})
+		})
 	}
 }

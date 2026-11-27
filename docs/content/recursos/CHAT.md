@@ -158,6 +158,8 @@ O aviso de configuração continua sendo o motivo apresentado para a falha.
 
 ## Retry e persistência
 
+Quando o prazo para autorizar o acesso a um arquivo termina, a chamada falha. O chat não repete automaticamente essa chamada nem abre uma segunda confirmação para ela.
+
 Se o provedor esgotar as tentativas de recuperar o streaming, o chat apresenta o erro e encerra aquela resposta. Você pode repetir a mensagem pelo histórico.
 
 **Continuar resposta** usa a conclusão salva da resposta selecionada e depende

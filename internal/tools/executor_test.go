@@ -766,6 +766,7 @@ func TestPendingConfirmationRequiresClassifiedDecision(t *testing.T) {
 			call := ToolCall{ID: "decision", Function: FunctionCall{Name: "ask"}}
 			for _, callback := range []*ToolExecutionResult{
 				nil,
+				{Result: ToolResult{IsError: true}, ErrorKind: ErrorKindUnknown},
 				{Error: ctx.Err(), ErrorKind: ErrorKindTimeout, Result: ToolResult{IsError: true}, Retryable: true, RetryabilityKnown: true},
 			} {
 				got := e.finishExecution(parent, ctx, call, time.Now(), callback, state.Load(), &securitySignalCollector{})
