@@ -112,7 +112,7 @@ func TestActivatedPluginAgentPromptAndDispatch(t *testing.T) {
 	registry := tools.NewRegistry()
 	registry.MustRegister(read)
 	registry.MustRegister(write)
-	var requests atomic.Int32
+	var requests, revokedCall atomic.Int32
 	var afterRevocation, holdNextRequest atomic.Bool
 	advertised, release := make(chan struct{}), make(chan struct{})
 	releaseRequest := sync.OnceFunc(func() { close(release) })
@@ -140,6 +140,7 @@ func TestActivatedPluginAgentPromptAndDispatch(t *testing.T) {
 		}
 		atDispatch := holdNextRequest.CompareAndSwap(true, false)
 		if atDispatch {
+			revokedCall.Store(turn)
 			if request.Model != "modelo-herdado" || len(request.Tools) != 1 || request.Tools[0].Function.Name != read.name {
 				t.Errorf("restrições na retomada ativa: %s", raw)
 			}
@@ -159,7 +160,7 @@ func TestActivatedPluginAgentPromptAndDispatch(t *testing.T) {
 			} else if !atDispatch {
 				name = write.name
 			}
-			if _, err := fmt.Fprintf(w, "data: "+`{"id":"chatcmpl-test","object":"chat.completion.chunk","model":"teste","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call-%s","type":"function","function":{"name":"%s","arguments":"{}"}}]}}]}`+"\n\n", name, name); err != nil {
+			if _, err := fmt.Fprintf(w, "data: "+`{"id":"chatcmpl-test","object":"chat.completion.chunk","model":"teste","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call-%d","type":"function","function":{"name":"%s","arguments":"{}"}}]}}]}`+"\n\n", turn, name); err != nil {
 				t.Error(err)
 				return
 			}
@@ -223,8 +224,8 @@ func TestActivatedPluginAgentPromptAndDispatch(t *testing.T) {
 	case <-time.After(10 * time.Second):
 		t.Fatal("delegação em segundo plano não terminou")
 	}
-	if _, err := manager.Run(stranger, subagent.RunParams{ConversationID: run.ConversationID, Prompt: "retomar"}); err == nil {
-		t.Fatal("outra conta retomou a conversa")
+	if _, err := manager.Run(stranger, subagent.RunParams{ConversationID: run.ConversationID, Prompt: "retomar"}); !errors.Is(err, gorm.ErrRecordNotFound) {
+		t.Fatalf("retomada por outra conta: %v", err)
 	}
 	if requests.Load() < 3 || read.calls.Load() != 1 || write.calls.Load() != 0 {
 		var turns []database.ChatTurn
@@ -283,6 +284,13 @@ func TestActivatedPluginAgentPromptAndDispatch(t *testing.T) {
 	}
 	if read.calls.Load() != 1 || write.calls.Load() != 0 {
 		t.Fatal("a revisão anterior despachou a ferramenta após a revogação")
+	}
+	var denied database.ToolInvocation
+	if err := db.Where("tool_call_id = ? AND conversation_id = ?", fmt.Sprintf("call-%d", revokedCall.Load()), run.ConversationID).Take(&denied).Error; err != nil {
+		t.Fatal(err)
+	}
+	if denied.Status != "failed" || !strings.Contains(denied.ErrorMessage, gorm.ErrRecordNotFound.Error()) {
+		t.Fatalf("resultado da invocação revogada: status=%s erro=%q", denied.Status, denied.ErrorMessage)
 	}
 	afterRevocation.Store(true)
 	resumed := make(chan struct{})
