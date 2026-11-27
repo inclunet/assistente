@@ -1,6 +1,6 @@
 # AEP-0064 — Recuperação explícita de resposta interrompida (continuação) e cancelamento de geração
 
-Status: In Progress — retry seguro e persistência implementados; recuperação automática de parcial pendente
+Status: In Progress — retry seguro, limite de repetição do provedor e persistência implementados; recuperação automática de parcial pendente
 Data: 2026-05-21
 Autor: Leonardo Gleison (Inclunet) + GitHub Copilot
 
@@ -45,7 +45,7 @@ Além disso, hoje uma falha de streaming tende a simplesmente “parar”, sem (
   a pessoa pode usar a continuação explícita quando aplicável. Isso evita duplicar
   conteúdo e efeitos de ferramentas. Recuperação automática segura do parcial
   fica pendente de contrato e prova específicos.
-- O número de tentativas é **configurável por perfil**.
+- O número de tentativas é **configurável por perfil**. Quando o provedor HTTP já esgotou suas tentativas internas de streaming, sinaliza erro terminal ao agente. A recuperação automática respeita esse limite para evitar multiplicar chamadas. O watchdog continua medindo inatividade por tentativa.
 - Na Responses API, timeout registra estágio, contagens e tempos de leitura e
   processamento sem incluir conteúdo, credenciais ou payload. O diagnóstico não
   comprova entrega fim a fim nem muda o limite de inatividade.

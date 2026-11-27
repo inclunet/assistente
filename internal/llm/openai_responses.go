@@ -100,11 +100,11 @@ func (p *OpenAIProvider) streamChatResponses(
 	currentServers := cloneMCPServers(p.mcpServers)
 	logging.Infof(ctx, "llm.openai-responses", "[OpenAIProvider] Responses API: %d MCP servers, %d tools locais", len(currentServers), len(tools))
 
-	const maxAttempts = 10
 	bk := 500 * time.Millisecond
 	maxBk := 8 * time.Second
 
-	for attempt := 1; attempt <= maxAttempts; attempt++ {
+	for attempt := 1; attempt <= maxStreamAttempts; attempt++ {
+		markFinalStreamAttempt(handler, attempt)
 		select {
 		case <-ctx.Done():
 			if p.provider.Type == ProviderChatGPT {
@@ -130,7 +130,7 @@ func (p *OpenAIProvider) streamChatResponses(
 			return
 		}
 		if result.compatibilityRetry {
-			if attempt >= maxAttempts {
+			if attempt >= maxStreamAttempts {
 				discardStreamReasoning(handler)
 				handler.OnError(result.compatibilityError)
 				return
@@ -164,8 +164,10 @@ func (p *OpenAIProvider) streamChatResponses(
 					params.OnPromptCacheHintUnsupported()
 				}
 				params.PromptCacheKey = ""
-				resetStreamAttempt(handler)
-				continue
+				if attempt < maxStreamAttempts {
+					resetStreamAttempt(handler)
+					continue
+				}
 			}
 			discardStreamReasoning(handler)
 			handler.OnError(streamPromptCacheHintRejectedError)
@@ -178,7 +180,7 @@ func (p *OpenAIProvider) streamChatResponses(
 			return
 		}
 		if result.retry {
-			if attempt < maxAttempts {
+			if attempt < maxStreamAttempts {
 				// Visibilidade: nunca deixar a pessoa no silêncio do backoff.
 				notifyTurnNotice(handler, TurnNotice{Kind: TurnNoticeStreamRetry, Count: attempt})
 				resetStreamAttempt(handler)

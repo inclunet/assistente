@@ -1257,7 +1257,7 @@ de cancelamento de release na dependência; o AEP permanece **In Progress**.
 | [0061](0061-credential-loss-incident-and-defenses.md) | Incidente de Perda de Credenciais e Defesas | ✔️ Accepted |
 | [0062](0062-profile-application-and-local-provider-auth.md) | Aplicação de Perfil por conversa/aba, padrão do app e Auth de Provider Local | ✅ Done |
 | [0063](0063-tool-invocations-and-common-executor.md) | Tool Invocations e Executor Comum | ✅ Done |
-| [0064](0064-streaming-recovery-explicito.md) | Recuperação explícita de resposta interrompida (continuação) e cancelamento de geração | 🚧 In Progress — retry seguro e persistência implementados; recuperação automática de parcial pendente |
+| [0064](0064-streaming-recovery-explicito.md) | Recuperação explícita de resposta interrompida (continuação) e cancelamento de geração | 🚧 In Progress — retry seguro, limite de repetição do provedor e persistência implementados; recuperação automática de parcial pendente |
 | [0065](0065-llm-rate-limiting.md) | Rate Limiting nas Chamadas ao Provedor LLM | ✅ Done |
 | [0066](0066-connection-status-indicator.md) | Indicador de Status de Conexão com a API LLM | ✅ Done |
 | [0067](0067-tasklist-domain-events-and-custom-actions.md) | Eventos de Domínio de Tasklists e Custom Actions | 🚧 In Progress |
