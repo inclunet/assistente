@@ -805,8 +805,14 @@ describe('PluginsPage', () => {
       await user.click(await screen.findByRole('button',{name:'plugins.hookPermission'}));
       const dialog = await screen.findByRole('alertdialog');
       expect(mocks.hook).not.toHaveBeenCalled();
+      mocks.hook.mockRejectedValueOnce(new Error('indisponível')).mockResolvedValueOnce(undefined);
       await user.click(within(dialog).getByRole('button',{name:'plugins.hookHere'}));
       expect(mocks.hook).toHaveBeenCalledWith('one','sha','hooks/hooks.json#preToolUse','3','session','w','workspace');
+      expect(await screen.findByText('plugins.hookSaveFailed')).toBeVisible();
+      await user.click(screen.getByRole('button',{name:'plugins.hookPermission'}));
+      await user.click(within(await screen.findByRole('alertdialog')).getByRole('button',{name:'plugins.hookHere'}));
+      await waitFor(() => expect(mocks.announce).toHaveBeenCalledWith('plugins.hookSaved'));
+      expect(screen.queryByText('plugins.hookSaveFailed')).not.toBeInTheDocument();
     } finally { useWorkspaceStore.setState({workspace:old}); }
   });
 

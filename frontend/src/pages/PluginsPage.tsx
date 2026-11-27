@@ -637,6 +637,7 @@ function InstalledPlugins({ session }: { session: string }) {
         const decision = hookDecision;
         setHookDecision(null);
         if (choice === 'cancel') return;
+        setError('');
         setBusy(true);
         try {
           await DecidePreToolHook(decision.installation.id, decision.installation.digest, decision.component.key, decision.component.hookGeneration!, session, decision.workspaceId, choice);
