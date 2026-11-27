@@ -262,6 +262,7 @@ notSaved: 'A decisão vale somente para esta operação: não foi possível lemb
       catalogPolicy: 'Bloqueado pela política da loja',
       catalogConfig: 'A entrada da loja acrescenta configurações que exigem suporte do adaptador.',
       catalogSource: 'Origem ainda sem adaptador',
+      chooseCatalogFormat: 'Escolher formato de {{name}}',
       catalogAvailable: 'Abrir prévia',
       catalogEmpty: 'Nenhum plugin encontrado no catálogo.',
       lastIndexLabel: 'Última leitura',

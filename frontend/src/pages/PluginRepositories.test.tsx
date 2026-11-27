@@ -30,6 +30,41 @@ describe('PluginRepositories', () => {
     expect(onPreview).toHaveBeenCalledWith({ token: 'once' }, cell);
   });
 
+  it('groups declarations of one package and previews only the chosen index', async () => {
+    const entry = { name: 'shared', path: 'plugins/shared' };
+    const index = (format: string, overrides = {}) => ({
+      format, name: format + '-store', entries: [{ ...entry, ...overrides }],
+    });
+    mocks.list.mockResolvedValue([
+      { ...repo, indices: [index('claude'), index('cursor', { author: 'ana' }), index('codex', { diagnostic: 'policy' })] },
+      { ...repo, id: 'two', indices: [index('claude'), index('cursor', { path: 'other/shared' })] },
+    ]);
+    mocks.preview.mockClear().mockResolvedValue({ token: 'chosen' });
+    const onPreview = vi.fn();
+    const user = userEvent.setup();
+    const formChanged = vi.fn();
+    render(<PluginRepositories session="multi-index" catalog onFormOpenChange={formChanged} onPreview={onPreview} />);
+    await waitFor(() => expect(screen.getAllByRole('gridcell', { name: 'shared' })).toHaveLength(3));
+    await user.type(screen.getByLabelText('plugins.searchCatalog'), 'ana');
+    const cell = screen.getByRole('gridcell', { name: 'shared' });
+    cell.focus();
+    await user.keyboard('{Enter}');
+    expect(formChanged).toHaveBeenLastCalledWith(true);
+    const blocked = screen.getByRole('button', { name: 'codex' });
+    expect(blocked).toHaveAttribute('aria-disabled', 'true');
+    expect(blocked).toHaveAccessibleDescription(/plugins.catalogPolicy/);
+    blocked.focus();
+    await user.keyboard('{Enter}');
+    expect(mocks.preview).not.toHaveBeenCalled();
+    await user.keyboard('{Escape}');
+    await waitFor(() => expect(cell).toHaveFocus());
+    await user.keyboard('{Enter}');
+    await user.click(screen.getByRole('button', { name: 'cursor' }));
+    expect(mocks.preview).toHaveBeenCalledTimes(1);
+    expect(mocks.preview).toHaveBeenCalledWith('one', 'reviewed', 'cursor', 'shared');
+    expect(onPreview).toHaveBeenCalledWith({ token: 'chosen' }, cell);
+  });
+
   it('keeps the saved index visible after refresh failure and honors declined removal', async () => {
     mocks.list.mockResolvedValue([repo]);
     mocks.refresh.mockRejectedValue(new Error('offline'));

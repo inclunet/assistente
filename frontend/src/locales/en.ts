@@ -262,6 +262,7 @@ notSaved: 'The decision applies only to this operation: it could not be remember
       catalogPolicy: 'Blocked by store policy',
       catalogConfig: 'The store entry includes additional configuration that requires adapter support.',
       catalogSource: 'Unsupported source',
+      chooseCatalogFormat: 'Choose a format for {{name}}',
       catalogAvailable: 'Open preview',
       catalogEmpty: 'No plugins found in the catalog.',
       lastIndexLabel: 'Last saved index',
