@@ -3,6 +3,7 @@ package usecases_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -10,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -20,13 +22,16 @@ import (
 	"assistente/internal/database"
 
 	"assistente/internal/llm"
+	"assistente/internal/messaging"
 	"assistente/internal/pluginpackage"
 	"assistente/internal/plugins"
 	"assistente/internal/prompt"
 	"assistente/internal/providers"
 	"assistente/internal/skills"
+	"assistente/internal/subagent"
 	"assistente/internal/toolinvocations"
 	"assistente/internal/tools"
+	"assistente/internal/tools/invocationctx"
 	"gorm.io/gorm"
 )
 
@@ -43,6 +48,13 @@ func (p *countedAgentTool) Parameters() json.RawMessage {
 func (p *countedAgentTool) Execute(context.Context, json.RawMessage) (tools.ToolResult, error) {
 	p.calls.Add(1)
 	return tools.ToolResult{Content: "feito"}, nil
+}
+
+type pluginAgentDelivery chan subagent.ParentNotice
+
+func (d pluginAgentDelivery) Deliver(_ context.Context, notice subagent.ParentNotice) error {
+	d <- notice
+	return nil
 }
 
 func TestActivatedPluginAgentPromptAndDispatch(t *testing.T) {
@@ -87,9 +99,12 @@ func TestActivatedPluginAgentPromptAndDispatch(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	conv, err := database.NewConversationRepository(db).CreateDelegatedConversation(ctx, "Revisor", parent.ID, generation, "local-test", "modelo-herdado", instructions)
-	if err != nil {
-		t.Fatal(err)
+	stranger := database.WithUserID(t.Context(), "other-user")
+	if _, err := inv.ResolveAgent(stranger, generation); !errors.Is(err, plugins.ErrAgentInactive) {
+		t.Fatalf("outra conta resolveu a geração: %v", err)
+	}
+	if err := inv.CheckAgent(stranger, generation); !errors.Is(err, gorm.ErrRecordNotFound) {
+		t.Fatalf("outra conta recebeu autorização: %v", err)
 	}
 
 	read := &countedAgentTool{name: "read_file"}
@@ -98,7 +113,9 @@ func TestActivatedPluginAgentPromptAndDispatch(t *testing.T) {
 	registry.MustRegister(read)
 	registry.MustRegister(write)
 	var requests atomic.Int32
-	var afterRevocation atomic.Bool
+	var afterRevocation, holdNextRequest atomic.Bool
+	advertised, release := make(chan struct{}), make(chan struct{})
+	releaseRequest := sync.OnceFunc(func() { close(release) })
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		raw, err := io.ReadAll(r.Body)
 		if err != nil {
@@ -121,13 +138,25 @@ func TestActivatedPluginAgentPromptAndDispatch(t *testing.T) {
 				t.Errorf("retomada após revogação: %s", raw)
 			}
 		}
-		if turn <= 2 {
+		atDispatch := holdNextRequest.CompareAndSwap(true, false)
+		if atDispatch {
+			if request.Model != "modelo-herdado" || len(request.Tools) != 1 || request.Tools[0].Function.Name != read.name {
+				t.Errorf("restrições na retomada ativa: %s", raw)
+			}
+			close(advertised)
+			select {
+			case <-release:
+			case <-r.Context().Done():
+				return
+			}
+		}
+		if turn <= 2 || atDispatch {
 			name := read.name
 			if turn == 1 {
 				if request.Model != "modelo-herdado" || !strings.Contains(string(raw), instructions) || len(request.Tools) != 1 || request.Tools[0].Function.Name != read.name {
 					t.Errorf("prompt ou catálogo incorretos: %s", raw)
 				}
-			} else {
+			} else if !atDispatch {
 				name = write.name
 			}
 			if _, err := fmt.Fprintf(w, "data: "+`{"id":"chatcmpl-test","object":"chat.completion.chunk","model":"teste","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call-%s","type":"function","function":{"name":"%s","arguments":"{}"}}]}}]}`+"\n\n", name, name); err != nil {
@@ -150,6 +179,7 @@ func TestActivatedPluginAgentPromptAndDispatch(t *testing.T) {
 		}
 	}))
 	defer server.Close()
+	defer releaseRequest()
 	provider := &llm.ProviderConfig{ID: "local-test", Name: "Local", Type: llm.ProviderOpenAI, APIFormat: llm.APIFormatOpenAI, BaseURL: server.URL + "/v1"}
 	llms := llm.NewProviderRegistry()
 	if err := llms.Register(provider); err != nil {
@@ -167,33 +197,50 @@ func TestActivatedPluginAgentPromptAndDispatch(t *testing.T) {
 	messages := chat.NewDBMessageStore()
 	interactor := chat.NewInteractor(chat.InteractorConfig{Emitter: emitter, Repo: messages, ConvRepo: chat.NewDBConversationStore(), ProviderSvc: prov, ProfileMgr: profileMgr, SkillMgr: skills.NewManager(), PromptBuilder: &prompt.Builder{Tools: registry}})
 	exec := tools.NewExecutor(registry, tools.DefaultExecutorConfig())
-	service := agent.NewService(agent.ServiceConfig{Emitter: emitter, MsgRepo: messages, Turns: database.NewChatTurnRepository(db), Timeline: chat.NewDBTimelineReader(db), ToolExecutor: exec, ToolInvocations: toolinvocations.NewService(toolinvocations.NewDBRepository(db), exec)})
+	notifier := messaging.NewResponseNotifier()
+	t.Cleanup(notifier.Stop)
+	service := agent.NewService(agent.ServiceConfig{ResponseNotifier: notifier, Emitter: emitter, MsgRepo: messages, Turns: database.NewChatTurnRepository(db), Timeline: chat.NewDBTimelineReader(db), ToolExecutor: exec, ToolInvocations: toolinvocations.NewService(toolinvocations.NewDBRepository(db), exec)})
 	uc := usecases.NewSendMessageUseCase(usecases.SendMessageConfig{Emitter: emitter, StreamMgr: chat.NewStreamingManager(nil), ChatInteractor: interactor, ToolRegistry: registry, ProviderSvc: prov, AgentSvc: service})
-	finished := make(chan struct{})
-	_, err = uc.Execute(usecases.SendMessageRequest{Ctx: ctx, ConversationID: conv.ID, UserContent: "Analise.", Source: "subagent", OnFinished: func() { close(finished) }})
-	if err != nil {
-		t.Fatal(err)
+	delivered := make(pluginAgentDelivery, 1)
+	manager := subagent.NewManager(subagent.ManagerConfig{
+		Repo: subagent.NewDBRepository(db), Notifier: notifier, Delivery: delivered,
+		ResolveAgent: inv.ResolveAgentSlug,
+		Send: func(ctx context.Context, p subagent.SendParams) (string, error) {
+			return uc.Execute(usecases.SendMessageRequest{Ctx: ctx, ConversationID: p.ConversationID, UserContent: p.Prompt,
+				Source: p.Source, ClearPluginHistory: p.ClearPluginHistory, Params: llm.ChatParams{ProfileSlug: p.ProfileSlug, Model: p.Model}})
+		},
+	})
+	ctx = invocationctx.WithTurnModel(ctx, provider.ID, "modelo-herdado")
+	run, err := manager.Run(ctx, subagent.RunParams{ParentConversationID: parent.ID, AgentSlug: components[0].Slug, Prompt: "Analise.", Background: true})
+	if err != nil || run.Status != subagent.StatusRunning {
+		t.Fatal(run, err)
 	}
 	select {
-	case <-finished:
+	case notice := <-delivered:
+		if notice.RunID != run.RunID || notice.Status != subagent.StatusSucceeded || notice.ParentConversationID != parent.ID {
+			t.Fatal(notice)
+		}
 	case <-time.After(10 * time.Second):
-		t.Fatal("turno não terminou")
+		t.Fatal("delegação em segundo plano não terminou")
+	}
+	if _, err := manager.Run(stranger, subagent.RunParams{ConversationID: run.ConversationID, Prompt: "retomar"}); err == nil {
+		t.Fatal("outra conta retomou a conversa")
 	}
 	if requests.Load() < 3 || read.calls.Load() != 1 || write.calls.Load() != 0 {
 		var turns []database.ChatTurn
-		db.Find(&turns, "conversation_id = ?", conv.ID)
+		db.Find(&turns, "conversation_id = ?", run.ConversationID)
 		t.Fatalf("pedidos=%d leitura=%d escrita=%d erros=%+v turnos=%+v", requests.Load(), read.calls.Load(), write.calls.Load(), emitter.errors, turns)
 	}
 	var before, after int64
-	history := db.Model(&database.ChatMessage{}).Where("conversation_id = ?", conv.ID)
+	history := db.Model(&database.ChatMessage{}).Where("conversation_id = ?", run.ConversationID)
 	if err := history.Count(&before).Error; err != nil || before == 0 {
 		t.Fatal(before, err)
 	}
-	_, err = uc.Execute(usecases.SendMessageRequest{Ctx: ctx, ConversationID: conv.ID, UserContent: "Reset", Source: "subagent", ClearPluginHistory: true, Params: llm.ChatParams{Model: "outro"}})
+	_, err = uc.Execute(usecases.SendMessageRequest{Ctx: ctx, ConversationID: run.ConversationID, UserContent: "Reset", Source: "subagent", ClearPluginHistory: true, Params: llm.ChatParams{Model: "outro"}})
 	if err == nil || !strings.Contains(err.Error(), "modelo do turno de origem") {
 		t.Fatal("retomada incompatível", err)
 	}
-	_, err = uc.Execute(usecases.SendMessageRequest{Ctx: ctx, ConversationID: conv.ID, UserContent: "/plugin:missing", Source: "subagent", ClearPluginHistory: true})
+	_, err = uc.Execute(usecases.SendMessageRequest{Ctx: ctx, ConversationID: run.ConversationID, UserContent: "/plugin:missing", Source: "subagent", ClearPluginHistory: true})
 	if err == nil || !strings.Contains(err.Error(), "skill de plugin indisponível") {
 		t.Fatal("skill indisponível", err)
 	}
@@ -201,6 +248,19 @@ func TestActivatedPluginAgentPromptAndDispatch(t *testing.T) {
 		t.Fatalf("histórico passou de %d para %d: %v", before, after, err)
 	}
 
+	// The active revision advertises Read. Change the revision before the model sends
+	// its tool call, so the real dispatcher must revalidate the grant.
+	holdNextRequest.Store(true)
+	activeTurnDone := make(chan struct{})
+	_, err = uc.Execute(usecases.SendMessageRequest{Ctx: ctx, ConversationID: run.ConversationID, UserContent: "Confira novamente.", Source: "wails", OnFinished: func() { close(activeTurnDone) }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-advertised:
+	case <-time.After(10 * time.Second):
+		t.Fatal("a retomada ativa não chegou ao provedor")
+	}
 	if err := os.WriteFile(filepath.Join(dir, "agents", "check.md"), []byte("---\nname: review\ndescription: Review\n---\n"+replacement), 0600); err != nil {
 		t.Fatal(err)
 	}
@@ -215,10 +275,19 @@ func TestActivatedPluginAgentPromptAndDispatch(t *testing.T) {
 	if err = inv.SetAgentActive(ctx, next.ID, next.Digest, "agents/check.md", true, admit); err != nil {
 		t.Fatal(err)
 	}
+	releaseRequest()
+	select {
+	case <-activeTurnDone:
+	case <-time.After(10 * time.Second):
+		t.Fatal("o turno em andamento não terminou após a revogação")
+	}
+	if read.calls.Load() != 1 || write.calls.Load() != 0 {
+		t.Fatal("a revisão anterior despachou a ferramenta após a revogação")
+	}
 	afterRevocation.Store(true)
 	resumed := make(chan struct{})
 	earlier := requests.Load()
-	_, err = uc.Execute(usecases.SendMessageRequest{Ctx: ctx, ConversationID: conv.ID, UserContent: "Continue a conversa.", Source: "wails", OnFinished: func() { close(resumed) }})
+	_, err = uc.Execute(usecases.SendMessageRequest{Ctx: ctx, ConversationID: run.ConversationID, UserContent: "Continue a conversa.", Source: "wails", OnFinished: func() { close(resumed) }})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -245,7 +314,7 @@ func TestActivatedPluginAgentPromptAndDispatch(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = uc.Execute(usecases.SendMessageRequest{Ctx: ctx, ConversationID: conv.ID, UserContent: "Continue.", Source: "wails", Params: llm.ChatParams{ProfileSlug: alternative}})
+	_, err = uc.Execute(usecases.SendMessageRequest{Ctx: ctx, ConversationID: run.ConversationID, UserContent: "Continue.", Source: "wails", Params: llm.ChatParams{ProfileSlug: alternative}})
 	if err == nil || !strings.Contains(err.Error(), "herdar o modelo") || requests.Load() != earlier+1 {
 		t.Fatal("retomada mudou de provedor", err)
 	}

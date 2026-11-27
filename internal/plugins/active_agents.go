@@ -81,6 +81,16 @@ func (i *Inventory) AgentGeneration(ctx context.Context, slug string) (string, e
 	return grant.Generation, nil
 }
 
+// ResolveAgentSlug resolves a new delegation within the caller's account and current revision.
+func (i *Inventory) ResolveAgentSlug(ctx context.Context, slug string) (string, subagent.RunParams, error) {
+	generation, err := i.AgentGeneration(ctx, slug)
+	if err != nil {
+		return "", subagent.RunParams{}, err
+	}
+	def, err := i.ResolveAgent(ctx, generation)
+	return generation, def, err
+}
+
 // CheckAgent verifies the current grant before a delegated operation.
 func (i *Inventory) CheckAgent(ctx context.Context, generation string) error {
 	q, err := i.agentGrants(ctx)
