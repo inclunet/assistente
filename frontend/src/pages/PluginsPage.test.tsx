@@ -792,6 +792,19 @@ describe('PluginsPage', () => {
     }
   });
 
+  it('describes a hook event in the passive preview', async () => {
+    const user = userEvent.setup();
+    mocks.preview.mockResolvedValueOnce({token: 'hooks', name: 'demo', digest: 'new', files: [], components: [
+      {key: 'hooks/hooks.json#PreToolUse', entry: 'hooks/hooks.json', name: 'PreToolUse', kind: 'hook', reason: 'hookExecutionPending'},
+    ]});
+    render(<PluginsPage />);
+    await user.click(await screen.findByRole('button', {name: 'plugins.choose'}));
+    await user.click(screen.getByRole('button', {name: 'plugins.folderSource'}));
+    const item = (await screen.findByText(/PreToolUse.*plugins.hook/)).closest('li')!;
+    expect(within(item).getByText('plugins.hookExecutionPending')).toBeVisible();
+    expect(within(item).queryByRole('button')).toBeNull();
+  });
+
   it('identifies a Claude agent file and explains its availability in the preview', async () => {
     const user = userEvent.setup();
     mocks.preview.mockResolvedValueOnce({token: 'agent', name: 'demo', digest: 'new', files: [], components: [
