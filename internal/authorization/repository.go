@@ -109,6 +109,10 @@ func (r *Repository) ListScopes(ctx context.Context, domain string, scopes map[s
 	if err != nil {
 		return nil, err
 	}
+	return listScopes(db, user, domain, scopes, "")
+}
+
+func listScopes(db *gorm.DB, user, domain string, scopes map[string]string, selectorKey string) ([]database.AuthorizationRule, error) {
 	var rules []database.AuthorizationRule
 	conditions := db.Where("1 = 0")
 	for _, scope := range []string{"profile", "workspace", "global"} {
@@ -116,7 +120,10 @@ func (r *Repository) ListScopes(ctx context.Context, domain string, scopes map[s
 			conditions = conditions.Or("scope = ? AND scope_key = ?", scope, key)
 		}
 	}
-	err = db.Where("user_id = ? AND domain = ? AND revoked_at IS NULL", user, domain).Where(conditions).
+	if selectorKey != "" {
+		db = db.Where("selector_key = ?", selectorKey)
+	}
+	err := db.Where("user_id = ? AND domain = ? AND revoked_at IS NULL", user, domain).Where(conditions).
 		Where("expires_at IS NULL OR expires_at > ?", time.Now().UTC()).Order("CASE scope WHEN 'profile' THEN 0 WHEN 'workspace' THEN 1 ELSE 2 END, id").Find(&rules).Error
 	return rules, err
 }

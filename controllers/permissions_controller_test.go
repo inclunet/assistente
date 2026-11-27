@@ -12,6 +12,7 @@ import (
 	"assistente/internal/testutil/authorizationfixture"
 	"assistente/internal/tools/invocationctx"
 	"assistente/internal/trustscope"
+	"gorm.io/gorm"
 )
 
 func TestPermissionsNetworkManagementIsolatesAndRevokesSessions(t *testing.T) {
@@ -78,5 +79,62 @@ func TestPermissionsMigrationFailureDoesNotHideKnownRules(t *testing.T) {
 	}
 	if err := c.Revoke(ctx, result.Rules[0].ID); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestPermissionsManagePluginHookAlongsideNetwork(t *testing.T) {
+	repo, db := authorizationfixture.Open(t, t.TempDir())
+	if err := db.AutoMigrate(&database.PluginInstallation{}); err != nil {
+		t.Fatal(err)
+	}
+	ctx := authorizationfixture.Context()
+	owner, err := database.RequireUserID(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	row := database.PluginInstallation{UserID: owner, Name: "revisor", Origin: "catalogo", Digest: "teste"}
+	if err := db.Create(&row).Error; err != nil {
+		t.Fatal(err)
+	}
+	hook := authorization.PluginHook{Name: row.Name, Origin: row.Origin, InstallationID: row.ID, Digest: row.Digest, Component: "PreToolUse"}
+	if err := repo.RememberPluginHook(ctx, hook, authorization.ScopeGlobal, "", "allow", func(_ *gorm.DB, commit func() error) error { return commit() }); err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.Upsert(ctx, database.AuthorizationRule{Domain: "network", Scope: "global", Effect: "allow", Origin: "consent", SelectorKey: "known", SelectorVersion: 1, Selector: `{"host":"known.internal"}`}); err != nil {
+		t.Fatal(err)
+	}
+	c := PermissionsController{Repository: repo}
+	other := row
+	other.ID = ""
+	other.Origin = "outra loja"
+	if err := db.Create(&other).Error; err != nil {
+		t.Fatal(err)
+	}
+	sibling := hook
+	sibling.Origin, sibling.InstallationID = other.Origin, other.ID
+	if err := repo.RememberPluginHook(ctx, sibling, authorization.ScopeGlobal, "", "allow", func(_ *gorm.DB, commit func() error) error { return commit() }); err != nil {
+		t.Fatal(err)
+	}
+	result, err := c.List(ctx)
+	if err != nil || len(result.Rules) != 3 {
+		t.Fatalf("listagem: %+v, %v", result, err)
+	}
+	for _, view := range result.Rules {
+		if view.Domain == authorization.PluginHookDomain && view.Resource != "revisor (outra loja) — PreToolUse" {
+			if view.Resource != "revisor (catalogo) — PreToolUse" || view.ResourceKind != row.Digest {
+				t.Fatalf("identidade: %+v", view)
+			}
+			if err := c.Revoke(ctx, view.ID); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	ok, err := repo.PluginHookAllowed(invocationctx.WithVerifiedWorkspaceID(ctx, "w"), hook)
+	if err != nil || ok {
+		t.Fatalf("hook revogado: %v, %v", ok, err)
+	}
+	ok, err = repo.PluginHookAllowed(invocationctx.WithVerifiedWorkspaceID(ctx, "w"), sibling)
+	if err != nil || !ok {
+		t.Fatalf("outra instalação: %v, %v", ok, err)
 	}
 }

@@ -21,7 +21,7 @@ import { PathPermissionForm } from '../components/permissions/PathPermissionForm
 import './PermissionsPage.css';
 
 type Permission = controllers.PermissionView;
-const domains = ['network', 'filesystem', 'shell', 'acp'];
+const domains = ['network', 'filesystem', 'shell', 'acp', 'plugin_hook'];
 const scopes = ['session', 'workspace', 'profile', 'global'];
 const origins = ['consent', 'migration'];
 const effects = ['allow', 'deny', 'ask'];

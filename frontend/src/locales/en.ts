@@ -34,6 +34,7 @@ notSaved: 'The decision applies only to this operation: it could not be remember
   "confirmDenyRemoval": "Remove the prohibition on {{resource}}, in scope {{scope}} ({{scopeName}})? This may allow previously blocked operations.",
   "legacyAgent": "Legacy rule without agent identity",
   "domain": {
+    "plugin_hook": "Plugin hooks",
     "network": "Network",
     "filesystem": "Files",
     "shell": "Shell",

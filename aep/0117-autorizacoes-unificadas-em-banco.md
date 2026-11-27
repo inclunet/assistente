@@ -48,6 +48,8 @@ mantêm cópias de stores, controle de sessão ou fluxos paralelos de consentime
 Pontos de verificação junto à execução continuam necessários: decisão central
 não substitui defesa no momento de abrir conexão/arquivo ou executar comando.
 
+O adaptador de hooks previsto no [AEP-0119](0119-plugins-e-repositorios.md) usa as regras centrais de consentimento com os escopos de workspace e global. Cada seletor identifica instalação, revisão e componente. O ciclo de vida da instalação remove essas decisões na própria transação. A retirada individual pelo usuário segue o mecanismo comum de revogação.
+
 ### D2. Cinco escopos
 
 - `once`: só a operação apresentada; não cria regra reutilizável. O resultado

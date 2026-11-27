@@ -92,6 +92,15 @@ describe('PermissionsPage — gestão', () => {
     expect(screen.queryByText('api.internal')).not.toBeInTheDocument();
     expect(screen.getByText('conversation-123')).toBeInTheDocument();
   });
+  it('filtra hooks sem ocultar as permissões dos demais domínios na lista inicial', async () => {
+    const hook = { ...entradaDeWorkspace, id: 'hook', domain: 'plugin_hook', resource: 'revisor — PreToolUse' };
+    mockGetPermissions.mockResolvedValue({ rules: [entradaDeWorkspace, hook], migrationErrors: [] });
+    renderPermissions();
+    await screen.findByText('api.internal');
+    fireEvent.change(screen.getByLabelText('permissions.domainLabel'), { target: { value: 'plugin_hook' } });
+    expect(screen.getByText(hook.resource)).toBeInTheDocument();
+    expect(screen.queryByText('api.internal')).not.toBeInTheDocument();
+  });
   it('informa falha de leitura sem dizer que a lista está vazia', async () => {
     mockGetPermissions.mockRejectedValue(new Error('db unavailable'));
     renderPermissions();

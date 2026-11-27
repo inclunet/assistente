@@ -8,9 +8,11 @@ import (
 	"path/filepath"
 	"testing"
 
+	"assistente/internal/authorization"
 	"assistente/internal/database"
 	"assistente/internal/pluginpackage"
 	"assistente/internal/sqlite"
+	"assistente/internal/tools/invocationctx"
 	"gorm.io/gorm"
 )
 
@@ -27,7 +29,7 @@ func TestLocalInventoryPublishesReviewedRevisionPerAccount(t *testing.T) {
 	if err := db.Exec("PRAGMA journal_mode=WAL").Error; err != nil {
 		t.Fatal(err)
 	}
-	if err := db.AutoMigrate(&database.PluginInstallation{}, &database.PluginRevision{}, &database.PluginSkillActivation{}, &database.PluginAgentActivation{}, &database.PluginProfileActivation{}, &database.Job{}, &database.PluginProviderBinding{}, &database.LLMProvider{}, &database.PluginMCPBinding{}, &database.MCPServer{}); err != nil {
+	if err := db.AutoMigrate(&database.PluginInstallation{}, &database.PluginRevision{}, &database.PluginSkillActivation{}, &database.PluginAgentActivation{}, &database.AuthorizationRule{}, &database.PluginProfileActivation{}, &database.Job{}, &database.PluginProviderBinding{}, &database.LLMProvider{}, &database.PluginMCPBinding{}, &database.MCPServer{}); err != nil {
 		t.Fatal(err)
 	}
 	store := NewInventory(db)
@@ -88,6 +90,19 @@ func TestLocalInventoryPublishesReviewedRevisionPerAccount(t *testing.T) {
 	if _, err := store.InstallLocal(alice, seed.Origin, update.Digest, "stale"); !errors.Is(err, ErrInstallationChanged) {
 		t.Fatal(err)
 	}
+	rules := authorization.NewRepository(func() *gorm.DB { return db })
+	hook := authorization.PluginHook{Name: first.Name, Origin: first.Origin, InstallationID: first.ID, Digest: first.Digest, Generation: first.HookGeneration, Component: "hooks/hooks.json#PreToolUse"}
+	admit := func(_ *gorm.DB, commit func() error) error { return commit() }
+	if err := rules.RememberPluginHook(alice, hook, authorization.ScopeGlobal, "", "allow", admit); err != nil {
+		t.Fatal(err)
+	}
+	checkGrant := func(want bool) {
+		t.Helper()
+		allowed, err := rules.PluginHookAllowed(invocationctx.WithVerifiedWorkspaceID(alice, "w"), hook)
+		if err != nil || allowed != want {
+			t.Fatalf("permissão da revisão anterior: %v, esperado %v, erro: %v", allowed, want, err)
+		}
+	}
 	if err := db.Exec("CREATE TRIGGER reject_revision BEFORE INSERT ON plugin_revisions BEGIN SELECT RAISE(ABORT, 'simulated interruption'); END").Error; err != nil {
 		t.Fatal(err)
 	}
@@ -98,6 +113,7 @@ func TestLocalInventoryPublishesReviewedRevisionPerAccount(t *testing.T) {
 	if err != nil || len(rows) != 1 || rows[0].Digest != seed.Digest {
 		t.Fatal(rows, err)
 	}
+	checkGrant(true)
 	if err := db.Exec("DROP TRIGGER reject_revision").Error; err != nil {
 		t.Fatal(err)
 	}
@@ -109,10 +125,12 @@ func TestLocalInventoryPublishesReviewedRevisionPerAccount(t *testing.T) {
 	if err != nil || len(rows) != 1 || rows[0].Digest != seed.Digest {
 		t.Fatalf("publicação recusada alterou a revisão: %v %v", rows, err)
 	}
+	checkGrant(true)
 	updated, err := store.InstallLocal(alice, seed.Origin, update.Digest, seed.Digest)
 	if err != nil || updated.Digest != update.Digest {
 		t.Fatal(updated, err)
 	}
+	checkGrant(false)
 	var revisions []database.PluginRevision
 	if err := db.Where("installation_id = ?", first.ID).Find(&revisions).Error; err != nil || len(revisions) != 2 {
 		t.Fatal(revisions, err)

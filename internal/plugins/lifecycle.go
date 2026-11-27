@@ -1,6 +1,7 @@
 package plugins
 
 import (
+	"assistente/internal/authorization"
 	"assistente/internal/commandsecurity"
 	"assistente/internal/database"
 	"context"
@@ -61,6 +62,9 @@ func (i *Inventory) changeInstallation(ctx context.Context, id, digest, action, 
 			if action == "enable" {
 				return tx.Model(&row).Update("disabled", false).Error
 			}
+			if err := authorization.DeleteInstallationHookRules(tx, owner, id); err != nil {
+				return err
+			}
 			var bindings int64
 			if err := tx.Model(&database.PluginMCPBinding{}).Where("installation_id=?", id).Count(&bindings).Error; err != nil {
 				return err
@@ -83,7 +87,7 @@ func (i *Inventory) changeInstallation(ctx context.Context, id, digest, action, 
 				return err
 			}
 			if action == "disable" {
-				return tx.Model(&row).Update("disabled", true).Error
+				return tx.Model(&row).Where("disabled = ?", false).Updates(map[string]any{"disabled": true, "hook_generation": gorm.Expr("hook_generation + 1")}).Error
 			}
 			removedProviders, err = applyProviderRemoval(tx, publishCtx, owner, id, choice, reviewed)
 			if err != nil {
