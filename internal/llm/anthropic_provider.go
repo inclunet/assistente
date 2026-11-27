@@ -225,11 +225,11 @@ func (p *AnthropicProvider) StreamChat(ctx context.Context, messages []Message, 
 		sdkParams.ToolChoice = makeAnthropicToolChoice(toolChoice)
 	}
 
-	const maxAttempts = 10
 	bk := 500 * time.Millisecond
 	maxBk := 8 * time.Second
 
-	for attempt := 1; attempt <= maxAttempts; attempt++ {
+	for attempt := 1; attempt <= maxStreamAttempts; attempt++ {
+		markFinalStreamAttempt(handler, attempt)
 		select {
 		case <-ctx.Done():
 			handler.OnError("Streaming cancelado: " + ctx.Err().Error())
@@ -242,7 +242,7 @@ func (p *AnthropicProvider) StreamChat(ctx context.Context, messages []Message, 
 			return
 		}
 
-		if attempt < maxAttempts {
+		if attempt < maxStreamAttempts {
 			// Visibilidade: nunca deixar a pessoa no silêncio do backoff.
 			notifyTurnNotice(handler, TurnNotice{Kind: TurnNoticeStreamRetry, Count: attempt})
 			resetStreamAttempt(handler)
@@ -272,11 +272,11 @@ func (p *AnthropicProvider) streamChatWithMCP(
 	currentServers := cloneMCPServers(p.mcpServers)
 	logging.Infof(ctx, "llm.anthropic-provider", "[AnthropicProvider] MCP nativo: %d servers, %d tools locais", len(currentServers), len(tools))
 
-	const maxAttempts = 10
 	bk := 500 * time.Millisecond
 	maxBk := 8 * time.Second
 
-	for attempt := 1; attempt <= maxAttempts; attempt++ {
+	for attempt := 1; attempt <= maxStreamAttempts; attempt++ {
+		markFinalStreamAttempt(handler, attempt)
 		select {
 		case <-ctx.Done():
 			handler.OnError("Streaming cancelado: " + ctx.Err().Error())
@@ -319,7 +319,7 @@ func (p *AnthropicProvider) streamChatWithMCP(
 			return
 		}
 		if result.retry {
-			if attempt < maxAttempts {
+			if attempt < maxStreamAttempts {
 				// Visibilidade: nunca deixar a pessoa no silêncio do backoff.
 				notifyTurnNotice(handler, TurnNotice{Kind: TurnNoticeStreamRetry, Count: attempt})
 				resetStreamAttempt(handler)
