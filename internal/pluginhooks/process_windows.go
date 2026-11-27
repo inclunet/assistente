@@ -255,10 +255,20 @@ func start(ctx context.Context, dir, entry string, sid *windows.SID, job windows
 	if err != nil {
 		return 0, err
 	}
-	env, err := windows.UTF16FromString("SystemRoot=" + winDir)
+	// CreateProcess resolves the AppContainer profile using LOCALAPPDATA.
+	local, err := windows.KnownFolderPath(windows.FOLDERID_LocalAppData, 0)
 	if err != nil {
 		return 0, err
 	}
+	env, err := windows.UTF16FromString("LOCALAPPDATA=" + local)
+	if err != nil {
+		return 0, err
+	}
+	systemEnv, err := windows.UTF16FromString("SystemRoot=" + winDir)
+	if err != nil {
+		return 0, err
+	}
+	env = append(env, systemEnv...)
 	env = append(env, 0)
 	attrs, err := windows.NewProcThreadAttributeList(4)
 	if err != nil {
