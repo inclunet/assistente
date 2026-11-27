@@ -57,7 +57,7 @@ describe('PluginRepositories', () => {
     expect(formChanged).toHaveBeenLastCalledWith(true);
     const formats = within(screen.getByRole('dialog')).getByRole('grid');
     const blocked = within(formats).getByRole('gridcell', { name: 'codex' });
-    await waitFor(() => expect(within(formats).getByText('claude')).toHaveFocus());
+    await waitFor(() => expect(within(formats).getByRole('gridcell', { name: 'claude' })).toHaveFocus());
     await user.keyboard('{ArrowDown}{ArrowDown}');
     expect(blocked).toHaveFocus();
     await user.keyboard('{ArrowRight}');
@@ -67,11 +67,14 @@ describe('PluginRepositories', () => {
     await user.keyboard('{Escape}');
     await waitFor(() => expect(cell).toHaveFocus());
     await user.keyboard('{Enter}');
-    await waitFor(() => expect(within(screen.getByRole('dialog')).getByText('claude')).toHaveFocus());
+    await waitFor(() => expect(within(screen.getByRole('dialog')).getByRole('gridcell', { name: 'claude' })).toHaveFocus());
     await user.keyboard('{ArrowDown}{Enter}');
     expect(mocks.preview).toHaveBeenCalledTimes(1);
     expect(mocks.preview).toHaveBeenCalledWith('one', 'reviewed', 'cursor', 'shared');
     expect(onPreview).toHaveBeenCalledWith({ token: 'chosen' }, cell);
+    await user.click(within(cell).getByRole('button', { name: 'shared' }));
+    await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'claude' }));
+    expect(mocks.preview).toHaveBeenLastCalledWith('one', 'reviewed', 'claude', 'shared');
     visibleGrid.mockRestore();
   });
 
@@ -253,7 +256,7 @@ describe('PluginRepositories', () => {
       expect(grid).toHaveAttribute('aria-rowcount', '241');
       expect(screen.queryByText('sample-239')).toBeNull();
       act(() => grid.focus());
-      const first = await screen.findByText('sample-0');
+      const first = await screen.findByRole('gridcell', { name: 'sample-0' });
       await waitFor(() => expect(first).toHaveFocus());
       const scroller = first.closest('.datagrid-body')!;
       fireEvent.scroll(scroller, { target: { scrollTop: 4800 } });
@@ -265,13 +268,13 @@ describe('PluginRepositories', () => {
       await user.keyboard('{Enter}');
       expect(mocks.preview).toHaveBeenCalledWith('one', 'reviewed', 'cursor', 'sample-239');
       await user.keyboard('{Control>}{Home}{/Control}');
-      await waitFor(() => expect(screen.getByText('sample-0')).toHaveFocus());
+      await waitFor(() => expect(screen.getByRole('gridcell', { name: 'sample-0' })).toHaveFocus());
       await user.keyboard('{PageDown}');
-      await waitFor(() => expect(screen.getByText('sample-10')).toHaveFocus());
+      await waitFor(() => expect(screen.getByRole('gridcell', { name: 'sample-10' })).toHaveFocus());
       await user.keyboard('{PageUp}');
-      await waitFor(() => expect(screen.getByText('sample-0')).toHaveFocus());
+      await waitFor(() => expect(screen.getByRole('gridcell', { name: 'sample-0' })).toHaveFocus());
       await user.keyboard('{ArrowDown}');
-      await waitFor(() => expect(screen.getByText('sample-1')).toHaveFocus());
+      await waitFor(() => expect(screen.getByRole('gridcell', { name: 'sample-1' })).toHaveFocus());
       await user.type(screen.getByLabelText('plugins.searchCatalog'), 'sample-231');
       expect(screen.getByText('sample-231')).toBeVisible();
       expect(screen.getByRole('grid')).toHaveAttribute('aria-rowcount', '2');
