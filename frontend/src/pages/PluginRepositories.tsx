@@ -1,14 +1,14 @@
 import { repositoryError } from './pluginRepositoryError';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import type { plugins, wailsapi } from '@wailsjs/go/models';
+import type { plugincatalog, plugins, wailsapi } from '@wailsjs/go/models';
 import { AddGitRepository, AddIndexRepository, AddArchiveRepository, AddRemoteRepository, AddLocalRepository, ListRepositories, PreviewRepositoryEntry, RefreshRepository, RemoveRepository, DiscardPreview } from '@wailsjs/go/wailsapi/Plugins';
 import { useAnnouncer } from '../hooks/useAnnouncer';
 import { useConfirm } from '../hooks/useConfirm';
 import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
 import { Toolbar } from '../components/ui/Toolbar';
-import { DataGrid } from '../components/ui/DataGrid';
+import { DataGrid, DATAGRID_ENTRY_SELECTOR } from '../components/ui/DataGrid';
 
 import { Modal } from '../components/ui/Modal';
 import { DialogActions } from '../components/ui/DialogActions';
@@ -25,16 +25,47 @@ interface Props {
   onPreview: (preview: wailsapi.PluginPreview, opener: HTMLElement | null) => void;
 }
 
+type CatalogVariant = plugincatalog.Entry & { format: string; store: string };
+
+function catalogRows(repositories: plugins.Repository[]) {
+  return repositories.flatMap(repo => {
+    const groups = new Map<string, CatalogVariant[]>();
+    for (const index of repo.indices) {
+      for (const entry of index.entries) {
+        // Only a resolved package path identifies the same source across indices.
+        const id = JSON.stringify([repo.id, entry.name, entry.path ?? null, entry.path ? null : index.format]);
+        const variant = { ...entry, format: index.format, store: index.name };
+        const group = groups.get(id);
+        if (group) group.push(variant);
+        else groups.set(id, [variant]);
+      }
+    }
+    return Array.from(groups, ([id, variants]) => ({ id, repo, name: variants[0].name, variants }));
+  });
+}
+
+function variantValues(variants: CatalogVariant[], field: 'store' | 'format' | 'category' | 'authentication' | 'version' | 'author' | 'license') {
+  return [...new Set(variants.map(variant => variant[field]).filter(Boolean))].join(', ');
+}
+
+function catalogStatus(diagnostic?: string) {
+  if (diagnostic === 'policy') return 'plugins.catalogPolicy';
+  if (diagnostic === 'configuration') return 'plugins.catalogConfig';
+  return diagnostic ? 'plugins.catalogSource' : 'plugins.catalogAvailable';
+}
+
 export default function PluginRepositories({ session, catalog, parentBusy, onFormOpenChange, onPreview }: Props) {
   const { t, i18n } = useTranslation();
   const { announce } = useAnnouncer();
   const confirm = useConfirm();
   const [repositories, setRepositories] = useState<plugins.Repository[]>([]);
   const [adding, setAdding] = useState(false);
+  const [choice, setChoice] = useState<{ row: ReturnType<typeof catalogRows>[number]; opener: HTMLElement | null } | null>(null);
+  const formOpen = adding || !!choice;
   useEffect(() => {
-    onFormOpenChange?.(adding);
+    onFormOpenChange?.(formOpen);
     return () => onFormOpenChange?.(false);
-  }, [adding,onFormOpenChange]);
+  }, [formOpen,onFormOpenChange]);
   const [source, setSource] = useState<'add' | 'index' | 'zip' | 'remote' | 'git'>('add');
   const [url, setUrl] = useState('');
   const [authenticated, setAuthenticated] = useState(false);
@@ -56,7 +87,7 @@ export default function PluginRepositories({ session, catalog, parentBusy, onFor
     const result = await ListRepositories();
     if (mounted.current && generation === listGeneration.current) setRepositories(result ?? []);
   }, []);
-  const offline = useCatalogRefresh(session,repositories,busy || !!parentBusy || adding,refresh);
+  const offline = useCatalogRefresh(session,repositories,busy || !!parentBusy || formOpen,refresh);
   useEffect(() => {
     mounted.current = true;
     let active = true;
@@ -109,23 +140,26 @@ export default function PluginRepositories({ session, catalog, parentBusy, onFor
     finally { if (mounted.current) setBusy(false); }
   };
 
-  const allEntries = useMemo(() => repositories.flatMap(repo => repo.indices.flatMap(index => index.entries.map(entry => ({
-    ...entry, repo, format: index.format, store: index.name,
-    id: JSON.stringify([repo.id, index.format, entry.name]),
-  })))), [repositories]);
+  const allEntries = useMemo(() => catalogRows(repositories), [repositories]);
   const needle = search.toLocaleLowerCase();
-  const entries = useMemo(() => allEntries.filter(entry => [entry.name, entry.description, entry.store, entry.author, entry.license, entry.repo.origin].some(text => text?.toLocaleLowerCase().includes(needle))), [allEntries, needle]);
-  const preview = async (entry: typeof entries[number]) => {
+  const entries = useMemo(() => allEntries.filter(row => row.variants.some(variant =>
+    [variant.name, variant.description, variant.store, variant.format, variant.author, variant.license, row.repo.origin]
+      .some(text => text?.toLocaleLowerCase().includes(needle)))), [allEntries, needle]);
+  const preview = async (repo: plugins.Repository, entry: CatalogVariant, opener: HTMLElement | null) => {
     if (busy || parentBusy || entry.diagnostic) return;
-    const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     setBusy(true);
     setError('');
     try {
-      const result = await PreviewRepositoryEntry(entry.repo.id, entry.repo.revision, entry.format, entry.name);
-      if (mounted.current) onPreview(result, opener);
+      const result = await PreviewRepositoryEntry(repo.id, repo.revision, entry.format, entry.name);
+      if (mounted.current) { setChoice(null); onPreview(result, opener); }
       else await DiscardPreview(result.token);
     } catch (cause) { if (mounted.current) setError(repositoryError(cause, 'plugins.catalogPreviewError')); }
     finally { if (mounted.current) setBusy(false); }
+  };
+  const openRow = (row: typeof entries[number], opener: HTMLElement | null) => {
+    if (busy || parentBusy) return;
+    if (row.variants.length === 1) void preview(row.repo, row.variants[0], opener);
+    else { setError(''); setChoice({ row, opener }); }
   };
   return <>
     <Toolbar ariaLabel={t(catalog ? 'plugins.catalog' : 'plugins.repositories')} left={<h2>{t(catalog ? 'plugins.catalog' : 'plugins.repositories')}</h2>}
@@ -151,15 +185,34 @@ export default function PluginRepositories({ session, catalog, parentBusy, onFor
         secondary={<Button type="button" disabled={busy} onClick={cancelAdd}>{t('common.cancel')}</Button>} />
     </form></Modal>}
     {offline && <p>{t('plugins.catalogOffline')}</p>}
-    {!adding && error && <p>{t(error)}</p>}
-    {catalog ? <>
-      {entries.length > 0 ? <DataGrid key={needle} virtualizeRows items={entries} getItemId={item => item.id} autoFocusOnMount={false} label={t('plugins.catalog')} onActivate={entry => void preview(entry)}
+    {choice && <Modal isOpen initialFocusSelector={DATAGRID_ENTRY_SELECTOR} title={t('plugins.chooseCatalogFormat', { name: choice.row.name })} allowClose={!busy} onClose={() => {
+      setChoice(null);
+      setError('');
+      const opener = choice.opener;
+      requestAnimationFrame(() => opener?.focus());
+    }}>
+      <DataGrid items={choice.row.variants} getItemId={variant => variant.format}
+        label={t('plugins.chooseCatalogFormat', { name: choice.row.name })}
+        onActivate={variant => void preview(choice.row.repo, variant, choice.opener)}
         columns={[
-          { key: 'name', label: t('plugins.name') }, { key: 'store', label: t('plugins.store') },
-          { key: 'format', label: t('plugins.format') }, { key: 'repo', label: t('plugins.origin'), format: (_, item) => item.repo.origin },
-          { key: 'category', label: t('plugins.category') }, { key: 'authentication', label: t('plugins.authentication') },
-          { key: 'version', label: t('plugins.version') }, { key: 'author', label: t('plugins.author') }, { key: 'license', label: t('plugins.license') },
-          { key: 'diagnostic', label: t('common.status'), format: (_, item) => t(item.diagnostic === 'policy' ? 'plugins.catalogPolicy' : item.diagnostic === 'configuration' ? 'plugins.catalogConfig' : item.diagnostic ? 'plugins.catalogSource' : 'plugins.catalogAvailable') },
+          { key: 'format', label: t('plugins.format'), activatesRow: variant => !busy && !parentBusy && !variant.diagnostic },
+          { key: 'diagnostic', label: t('common.status'), format: (_, variant) => t(catalogStatus(variant.diagnostic)) },
+          { key: 'store', label: t('plugins.store') },
+          { key: 'version', label: t('plugins.version') },
+          { key: 'authentication', label: t('plugins.authentication') },
+        ]} />
+      {error && <p>{t(error)}</p>}
+    </Modal>}
+    {!choice && !adding && error && <p>{t(error)}</p>}
+    {catalog ? <>
+      {entries.length > 0 ? <DataGrid key={needle} virtualizeRows items={entries} getItemId={item => item.id} autoFocusOnMount={false} label={t('plugins.catalog')} onActivate={row => openRow(row, document.activeElement instanceof HTMLElement ? document.activeElement : null)}
+        columns={[
+          { key: 'name', label: t('plugins.name'), activatesRow: row => !busy && !parentBusy && (row.variants.length > 1 || !row.variants[0].diagnostic) },
+          { key: 'store', label: t('plugins.store'), format: (_, row) => variantValues(row.variants, 'store') },
+          { key: 'format', label: t('plugins.format'), format: (_, row) => variantValues(row.variants, 'format') }, { key: 'repo', label: t('plugins.origin'), format: (_, item) => item.repo.origin },
+          { key: 'category', label: t('plugins.category'), format: (_, row) => variantValues(row.variants, 'category') }, { key: 'authentication', label: t('plugins.authentication'), format: (_, row) => variantValues(row.variants, 'authentication') },
+          { key: 'version', label: t('plugins.version'), format: (_, row) => variantValues(row.variants, 'version') }, { key: 'author', label: t('plugins.author'), format: (_, row) => variantValues(row.variants, 'author') }, { key: 'license', label: t('plugins.license'), format: (_, row) => variantValues(row.variants, 'license') },
+          { key: 'diagnostic', label: t('common.status'), format: (_, item) => [...new Set(item.variants.map(variant => t(catalogStatus(variant.diagnostic))))].join(' · ') },
         ]} /> : !busy && !error && <p>{t('plugins.catalogEmpty')}</p>}
 
     </> : repositories.length === 0 && (busy || error) ? null : <DataGrid

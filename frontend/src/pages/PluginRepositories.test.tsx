@@ -1,5 +1,5 @@
-import { describe, expect, it, vi } from 'vitest';
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { describe, expect, it, onTestFinished, vi } from 'vitest';
+import { act, fireEvent, render, screen, within, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import PluginRepositories from './PluginRepositories';
 
@@ -28,6 +28,64 @@ describe('PluginRepositories', () => {
     await user.keyboard('{Enter}');
     expect(mocks.preview).toHaveBeenCalledWith('one','reviewed','cursor','first');
     expect(onPreview).toHaveBeenCalledWith({ token: 'once' }, cell);
+  });
+
+  it('groups declarations of one package and previews only the chosen index', async () => {
+    // jsdom has no layout. The modal verifies visibility before assigning initial focus.
+    const visibleGrid = vi.spyOn(HTMLElement.prototype, 'offsetParent', 'get').mockImplementation(function (this: HTMLElement) {
+      return this.closest('[role="grid"]') ? this.parentElement : null;
+    });
+    onTestFinished(() => visibleGrid.mockRestore());
+    const entry = { name: 'shared', path: 'plugins/shared' };
+    const index = (format: string, overrides = {}) => ({
+      format, name: format + '-store', entries: [{ ...entry, ...overrides }],
+    });
+    mocks.list.mockResolvedValue([
+      { ...repo, indices: [index('claude'), index('cursor', { author: 'ana' }), index('codex', { diagnostic: 'policy' })] },
+      { ...repo, id: 'two', indices: [index('claude'), index('cursor', { path: 'other/shared' })] },
+    ]);
+    mocks.preview.mockClear().mockResolvedValue({ token: 'chosen' });
+    const onPreview = vi.fn();
+    const user = userEvent.setup();
+    const formChanged = vi.fn();
+    render(<PluginRepositories session="multi-index" catalog onFormOpenChange={formChanged} onPreview={onPreview} />);
+    await waitFor(() => expect(screen.getAllByRole('gridcell', { name: 'shared' })).toHaveLength(3));
+    await user.type(screen.getByLabelText('plugins.searchCatalog'), 'ana');
+    const cell = screen.getByRole('gridcell', { name: 'shared' });
+    cell.focus();
+    await user.keyboard('{Control>}c{/Control}');
+    expect(await navigator.clipboard.readText()).toBe('shared');
+    await user.keyboard('{Enter}');
+    expect(formChanged).toHaveBeenLastCalledWith(true);
+    const formats = within(screen.getByRole('dialog')).getByRole('grid');
+    const blocked = within(formats).getByRole('gridcell', { name: 'codex' });
+    await waitFor(() => expect(within(formats).getByRole('gridcell', { name: 'claude' })).toHaveFocus());
+    await user.keyboard('{ArrowDown}{ArrowDown}');
+    expect(blocked).toHaveFocus();
+    await user.keyboard('{ArrowRight}');
+    expect(within(formats).getByText('plugins.catalogPolicy')).toHaveFocus();
+    await user.keyboard('{Enter}');
+    expect(mocks.preview).not.toHaveBeenCalled();
+    await user.keyboard('{Escape}');
+    await waitFor(() => expect(cell).toHaveFocus());
+    await user.keyboard('{Enter}');
+    await waitFor(() => expect(within(screen.getByRole('dialog')).getByRole('gridcell', { name: 'claude' })).toHaveFocus());
+    await user.keyboard('{ArrowDown}{Enter}');
+    expect(mocks.preview).toHaveBeenCalledTimes(1);
+    expect(mocks.preview).toHaveBeenCalledWith('one', 'reviewed', 'cursor', 'shared');
+    expect(onPreview).toHaveBeenCalledWith({ token: 'chosen' }, cell);
+    await user.clear(screen.getByLabelText('plugins.searchCatalog'));
+    const rows = screen.getAllByRole('gridcell', { name: 'shared' });
+    rows[0].focus();
+    await user.keyboard('{ArrowDown}');
+    await waitFor(() => expect(rows[1]).toHaveFocus());
+    await user.click(within(rows[0]).getByRole('button', { name: 'shared' }));
+    await user.keyboard('{Escape}');
+    await waitFor(() => expect(rows[0]).toHaveFocus());
+    await user.keyboard('{Enter}');
+    await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'claude' }));
+    expect(mocks.preview).toHaveBeenLastCalledWith('one', 'reviewed', 'claude', 'shared');
+    visibleGrid.mockRestore();
   });
 
   it('keeps the saved index visible after refresh failure and honors declined removal', async () => {
@@ -208,7 +266,7 @@ describe('PluginRepositories', () => {
       expect(grid).toHaveAttribute('aria-rowcount', '241');
       expect(screen.queryByText('sample-239')).toBeNull();
       act(() => grid.focus());
-      const first = await screen.findByText('sample-0');
+      const first = await screen.findByRole('gridcell', { name: 'sample-0' });
       await waitFor(() => expect(first).toHaveFocus());
       const scroller = first.closest('.datagrid-body')!;
       fireEvent.scroll(scroller, { target: { scrollTop: 4800 } });
@@ -220,13 +278,13 @@ describe('PluginRepositories', () => {
       await user.keyboard('{Enter}');
       expect(mocks.preview).toHaveBeenCalledWith('one', 'reviewed', 'cursor', 'sample-239');
       await user.keyboard('{Control>}{Home}{/Control}');
-      await waitFor(() => expect(screen.getByText('sample-0')).toHaveFocus());
+      await waitFor(() => expect(screen.getByRole('gridcell', { name: 'sample-0' })).toHaveFocus());
       await user.keyboard('{PageDown}');
-      await waitFor(() => expect(screen.getByText('sample-10')).toHaveFocus());
+      await waitFor(() => expect(screen.getByRole('gridcell', { name: 'sample-10' })).toHaveFocus());
       await user.keyboard('{PageUp}');
-      await waitFor(() => expect(screen.getByText('sample-0')).toHaveFocus());
+      await waitFor(() => expect(screen.getByRole('gridcell', { name: 'sample-0' })).toHaveFocus());
       await user.keyboard('{ArrowDown}');
-      await waitFor(() => expect(screen.getByText('sample-1')).toHaveFocus());
+      await waitFor(() => expect(screen.getByRole('gridcell', { name: 'sample-1' })).toHaveFocus());
       await user.type(screen.getByLabelText('plugins.searchCatalog'), 'sample-231');
       expect(screen.getByText('sample-231')).toBeVisible();
       expect(screen.getByRole('grid')).toHaveAttribute('aria-rowcount', '2');
