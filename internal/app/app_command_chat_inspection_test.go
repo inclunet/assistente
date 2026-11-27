@@ -18,7 +18,7 @@ func TestCommandChatInspectionLocalPresentation(t *testing.T) {
 		t.Run(tc.id, func(t *testing.T) {
 			a, decisions := settingsSecurityFixture(t)
 			p := a.commandProduct.Load()
-			if len(p.registry.List()) != 158 || commandProductRegistryVersion != "product-v46-workspace-list-actions" {
+			if len(p.registry.List()) != 159 || commandProductRegistryVersion != "product-v47-plugin-projects" {
 				t.Fatal("catalog/version")
 			}
 			d, ok := p.registry.Lookup(tc.id)
@@ -45,7 +45,7 @@ func TestCommandChatInspectionLocalPresentation(t *testing.T) {
 				}
 			}
 			view, err := a.GetLocalCommandKeyboardMap()
-			if err != nil || len(view.LocalPaletteCommands) != 69 || !containsString(view.LocalPaletteCommands, tc.id) {
+			if err != nil || len(view.LocalPaletteCommands) != 70 || !containsString(view.LocalPaletteCommands, tc.id) {
 				t.Fatalf("palette: %+v %v", view, err)
 			}
 			layer, _ := settingsActivationSecurityLayerAndRule(t, a, decisions)

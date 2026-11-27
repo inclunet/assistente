@@ -20,6 +20,8 @@ export function BuilderJobNames():Promise<Array<string>>;
 
 export function BuilderProfileNames():Promise<plugins.BuilderResourceCatalog>;
 
+export function BuilderProjects(arg1:string):Promise<Array<plugins.BuilderProject>>;
+
 export function BuilderProviderSlugs():Promise<Array<string>>;
 
 export function BuilderSkillNames():Promise<plugins.BuilderResourceCatalog>;
@@ -65,6 +67,8 @@ export function RemoveMCP(arg1:string,arg2:string,arg3:string,arg4:boolean):Prom
 export function RemoveRepository(arg1:string,arg2:string):Promise<void>;
 
 export function SaveBuilder(arg1:plugins.BuilderRequest,arg2:string):Promise<boolean>;
+
+export function SaveBuilderProject(arg1:string,arg2:plugins.BuilderProject):Promise<plugins.BuilderProject>;
 
 export function SetAgentActive(arg1:string,arg2:string,arg3:string,arg4:boolean):Promise<void>;
 

@@ -7,9 +7,15 @@ import { useWorkspaceStore } from '../store/workspaceStore';
 import { useAuthStore } from '../store/authStore';
 import * as navigation from '../lib/commandLandmarkNavigation';
 
-const mocks = vi.hoisted(() => ({ hook: vi.fn(), providerRemovalPreview: vi.fn(), uninstallReviewed: vi.fn(), registerProvider: vi.fn(), prepareJob: vi.fn(), syncJobs: vi.fn().mockResolvedValue(undefined), profile: vi.fn(), createList: vi.fn(), repos: vi.fn(), catalogPreview: vi.fn(), lifecycle: vi.fn(), sync: vi.fn(), register: vi.fn(), remove: vi.fn(), confirm: vi.fn(), list: vi.fn(), components: vi.fn(), toggle: vi.fn(), agent: vi.fn(), preview: vi.fn(), archive: vi.fn(), addReviewed: vi.fn(), install: vi.fn(), discard: vi.fn(), announce: vi.fn(), announceRequest: vi.fn() }));
+const mocks = vi.hoisted(() => ({ projects: vi.fn(), saveProject: vi.fn(), hook: vi.fn(), providerRemovalPreview: vi.fn(), uninstallReviewed: vi.fn(), registerProvider: vi.fn(), prepareJob: vi.fn(), syncJobs: vi.fn().mockResolvedValue(undefined), profile: vi.fn(), createList: vi.fn(), repos: vi.fn(), catalogPreview: vi.fn(), lifecycle: vi.fn(), sync: vi.fn(), register: vi.fn(), remove: vi.fn(), confirm: vi.fn(), list: vi.fn(), components: vi.fn(), toggle: vi.fn(), agent: vi.fn(), preview: vi.fn(), archive: vi.fn(), addReviewed: vi.fn(), install: vi.fn(), discard: vi.fn(), announce: vi.fn(), announceRequest: vi.fn() }));
 vi.mock('@wailsjs/go/wailsapi/Tasklist', () => ({GetAllTaskLists: async () => []}));
-vi.mock('@wailsjs/go/wailsapi/Plugins', () => ({ DecidePreToolHook: mocks.hook, BuilderProviderSlugs: async () => ['equipe'], BuilderJobNames: async () => [], BuilderProfileNames: async () => ({names:[],partial:false}), BuilderSkillNames: async () => ({names:[],partial:false}), CreateListFromTemplate: mocks.createList, ListRepositories: mocks.repos, PreviewRepositoryEntry: mocks.catalogPreview, ChangeInstallation: mocks.lifecycle, PrepareJob: mocks.prepareJob, SyncPendingJobs: mocks.syncJobs, SyncMCP: mocks.sync, ProviderRemovalPreview: mocks.providerRemovalPreview, UninstallReviewed: mocks.uninstallReviewed, RegisterProvider: mocks.registerProvider, RegisterMCP: mocks.register, RemoveMCP: mocks.remove, InstalledComponents: mocks.components, SetProfileActive: mocks.profile, SetSkillActive: mocks.toggle, SetAgentActive: mocks.agent, DiscardPreview: mocks.discard, ListInstalled: mocks.list, PreviewLocal: mocks.preview, PreviewLocalZIP: mocks.archive, AddReviewedRepository: mocks.addReviewed, InstallReviewed: mocks.install }));
+vi.mock('@wailsjs/go/wailsapi/Plugins', () => ({ BuilderProjects: mocks.projects, SaveBuilderProject: mocks.saveProject, DecidePreToolHook: mocks.hook, BuilderProviderSlugs: async () => ['equipe'], BuilderJobNames: async () => [], BuilderProfileNames: async () => ({names:[],partial:false}), BuilderSkillNames: async () => ({names:[],partial:false}), CreateListFromTemplate: mocks.createList, ListRepositories: mocks.repos, PreviewRepositoryEntry: mocks.catalogPreview, ChangeInstallation: mocks.lifecycle, PrepareJob: mocks.prepareJob, SyncPendingJobs: mocks.syncJobs, SyncMCP: mocks.sync, ProviderRemovalPreview: mocks.providerRemovalPreview, UninstallReviewed: mocks.uninstallReviewed, RegisterProvider: mocks.registerProvider, RegisterMCP: mocks.register, RemoveMCP: mocks.remove, InstalledComponents: mocks.components, SetProfileActive: mocks.profile, SetSkillActive: mocks.toggle, SetAgentActive: mocks.agent, DiscardPreview: mocks.discard, ListInstalled: mocks.list, PreviewLocal: mocks.preview, PreviewLocalZIP: mocks.archive, AddReviewedRepository: mocks.addReviewed, InstallReviewed: mocks.install }));
+vi.mock('../lib/commandPagePresentation', async importOriginal => {
+  const actual = await importOriginal<typeof import('../lib/commandPagePresentation')>();
+  return {...actual, usePagePresentationCommands: (options: Parameters<typeof actual.usePagePresentationCommands>[0]) => ({
+    request: (id: Parameters<typeof options.open>[0]) => options.canOpen(id) && options.open(id),
+  })};
+});
 vi.mock('../hooks/useConfirm', () => ({ useConfirm: () => mocks.confirm }));
 vi.mock('../store/authStore', async importOriginal => {
   const actual = await importOriginal<typeof import('../store/authStore')>();
@@ -21,6 +27,7 @@ vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string, opti
 describe('PluginsPage', () => {
   beforeEach(() => {
     vi.resetAllMocks();
+    mocks.projects.mockResolvedValue([]);
     mocks.providerRemovalPreview.mockResolvedValue({});
     mocks.lifecycle.mockResolvedValue(undefined);
     mocks.list.mockResolvedValue([]);
@@ -29,7 +36,7 @@ describe('PluginsPage', () => {
     mocks.discard.mockResolvedValue(undefined);
   });
 
-  it('registers a focus target only while the builder form is available', async () => {
+  it('moves focus to the authors toolbar and skips its empty grid', async () => {
     const auth = useAuthStore.getState();
     const ws = useWorkspaceStore.getState().workspace;
     useAuthStore.setState({isAuthenticated:true, user:{userId:'owner',sessionId:'session',role:'admin'}});
@@ -55,19 +62,62 @@ describe('PluginsPage', () => {
         expect(target).toHaveFocus();
       }
       await user.click(await screen.findByRole('tab', {name:'plugins.builder'}));
-      const name = await screen.findByRole('textbox', {name:'plugins.packageName'});
+      const name = await screen.findByRole('button', {name:'plugins.newProject'});
       await waitFor(() => expect(name).toBeEnabled());
-      expect(screen.queryByRole('toolbar')).toBeNull();
+      expect(screen.getAllByRole('toolbar')).toHaveLength(1);
       screen.getByRole('button',{name:'Topbar'}).focus();
       next();
       expect(name).toHaveFocus();
       next();
-      expect(screen.getByRole('button',{name:'Topbar'})).toHaveFocus();
-      next();
-      expect(name).toHaveFocus();
+      expect(screen.getByRole('textbox',{name:'plugins.searchProjects'})).toHaveFocus();
       await user.click(screen.getByRole('tab', {name:'plugins.installed'}));
       expect(name.isConnected).toBe(false);
     } finally { focused.mockRestore(); useAuthStore.setState(auth, true); useWorkspaceStore.setState({workspace:ws}); }
+  });
+
+  it('salva um plugin, reabre pela grade e permite retirar um recurso', async () => {
+    const user = userEvent.setup();
+    mocks.saveProject.mockImplementation(async (_session, project) => ({ ...project, id:'created', revision:project.revision + 1 }));
+    render(<PluginsPage />);
+    await user.click(await screen.findByRole('tab', {name:'plugins.builder'}));
+    await user.click(await screen.findByRole('button', {name:'plugins.newProject'}));
+    const name = await screen.findByRole('textbox', {name:'plugins.packageName'});
+    await waitFor(() => expect(name).toBeEnabled());
+    await user.type(name,'Minha equipe');
+    await user.click(screen.getByRole('tab',{name:'plugins.builderProviders'}));
+    await user.click(await screen.findByRole('checkbox',{name:'equipe'}));
+    await user.click(screen.getByRole('button',{name:'plugins.saveProject'}));
+    const cell = await screen.findByRole('gridcell',{name:'Minha equipe'});
+    cell.focus();
+    await user.keyboard('{Enter}');
+    await user.click(await screen.findByRole('tab',{name:'plugins.builderProviders'}));
+    const provider = await screen.findByRole('checkbox',{name:'equipe'});
+    expect(provider).toBeChecked();
+    await user.click(provider);
+    await user.click(screen.getByRole('button',{name:'plugins.saveProject'}));
+    expect(mocks.saveProject).toHaveBeenLastCalledWith('session', expect.objectContaining({id:'created',revision:1,selection:expect.objectContaining({name:'Minha equipe',providers:[]})}));
+  });
+
+  it('aguarda a revisão atualizada antes de reabrir um projeto em conflito', async () => {
+    const user = userEvent.setup();
+    const row = {id:'kit', revision:1, selection:{name:'Inicial'}};
+    let finishReload!: (rows: typeof row[]) => void;
+    mocks.projects.mockResolvedValueOnce([row]).mockImplementationOnce(() => new Promise(resolve => {finishReload = resolve;}));
+    mocks.saveProject.mockRejectedValueOnce('PLUGIN_PROJECT_CHANGED');
+    render(<PluginsPage />);
+    await user.click(await screen.findByRole('tab', {name:'plugins.builder'}));
+    const cell = await screen.findByRole('gridcell', {name:'Inicial'});
+    cell.focus();
+    await user.keyboard('{Enter}');
+    const save = await screen.findByRole('button',{name:'plugins.saveProject'});
+    await waitFor(() => expect(save).toBeEnabled());
+    await user.click(save);
+    await screen.findByText('plugins.projectChanged');
+    await user.click(screen.getByRole('button',{name:'common.cancel'}));
+    expect(screen.queryByRole('grid')).toBeNull();
+    expect(screen.getByRole('button',{name:'plugins.newProject'})).toBeDisabled();
+    await act(async () => finishReload([{...row, revision:2, selection:{name:'Atualizado'}}]));
+    expect(await screen.findByRole('gridcell',{name:'Atualizado'})).toBeVisible();
   });
 
   it('opens a preview from the keyboard and installs only after confirmation', async () => {

@@ -2303,6 +2303,8 @@ do novo executor nem migração dos atalhos nesta entrega.
 AEP-0048, AEP-0052, AEP-0058, AEP-0060, AEP-0063, AEP-0067, AEP-0074-B,
 AEP-0080, AEP-0091, AEP-0101
 
+**Meus plugins (AEP-0119):** o catálogo `product-v47-plugin-projects` oferece `plugins.create.open` por Ctrl+N na página Plugins. Somente a lista de autoria montada recebe a ação. Modais preservam o foco e a edição.
+
 **Lista de workspaces (AEP-0118):** catálogo `product-v46-workspace-list-actions`,
 158 comandos, 69 apresentações locais e 72 defaults. F2 e Delete entram na
 whitelist de teclas sem modificador somente através do mapa central; bindings

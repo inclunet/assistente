@@ -13,7 +13,7 @@ import { ChatGPTConnection } from '../components/settings/ChatGPTConnection';
 import { Modal } from '../components/ui/Modal';
 import { trackRepositoryWrite } from './pluginRepositoryWrites';
 import PluginRepositories from './PluginRepositories';
-import PluginBuilder from './PluginBuilder';
+import PluginProjects from './PluginProjects';
 import { Tabs, Tab, TabList, TabPanel } from '../components/ui/tabs/Tabs';
 import { DecisionDialog } from '../components/ui/DecisionDialog';
 import { useGridPageLandmarks } from '../hooks/useGridPageLandmarks';
@@ -196,18 +196,7 @@ function InstalledPlugins({ session }: { session: string }) {
   const [hookDecision, setHookDecision] = useState<{component: plugins.Component; installation: InstallationRow; workspaceId: string; workspaceName: string} | null>(null);
   const { t } = useTranslation();
   const [section, setSection] = useState('installed');
-  const builderForm = useRef<HTMLFormElement>(null);
-  useGridPageLandmarks({ pageClass: 'plugins-page', contentLandmark: section === 'builder' ? {
-    id: 'plugin-builder', label: t('plugins.builder'),
-    isAvailable: () => !!builderForm.current?.querySelector('input:enabled'),
-    contains: () => !!builderForm.current?.contains(document.activeElement),
-    focus: () => {
-      const input = builderForm.current?.querySelector('input:enabled');
-      if (!(input instanceof HTMLInputElement)) return false;
-      input.focus();
-      return document.activeElement === input;
-    },
-  } : undefined });
+  useGridPageLandmarks({ pageClass: 'plugins-page' });
   const { announce } = useAnnouncer();
   const confirm = useConfirm();
   const catalogOpener = useRef<HTMLElement | null>(null);
@@ -587,7 +576,7 @@ function InstalledPlugins({ session }: { session: string }) {
       : items && !busy && !error && !listError && <p>{t('plugins.empty')}</p>}
       </>}</TabPanel>
       {['catalog','repositories'].map(value => <TabPanel key={value} value={value}>{section === value && <PluginRepositories onFormOpenChange={setStoreFormOpen} key={value} session={session} parentBusy={busy} catalog={value === 'catalog'} onPreview={(selection, opener) => { catalogOpener.current = opener; openToken.current = selection.token; setError(''); setPreview(selection); }} />}</TabPanel>)}
-      <TabPanel value="builder">{section === 'builder' && <PluginBuilder formRef={builderForm} />}</TabPanel>
+      <TabPanel value="builder">{section === 'builder' && <PluginProjects session={session} />}</TabPanel>
     </Tabs>
     {!preview && !details && error && <p>{errorText}</p>}
     {listErrorText && <p>{listErrorText}</p>}

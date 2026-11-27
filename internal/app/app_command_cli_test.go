@@ -32,7 +32,7 @@ func TestCommandCLIListsFullCatalogAndDescribesUnavailableWorkspaceCommand(t *te
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
-	if got := len(items); got != 158 {
+	if got := len(items); got != 159 {
 		t.Fatalf("catálogo CLI = %d itens, esperado 158", got)
 	}
 

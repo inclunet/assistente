@@ -90,7 +90,7 @@ func TestCommandOSObservationRecoversBootstrapBeforeFirstObservation(t *testing.
 		t.Fatalf("configurações: %+v err=%v", settings, err)
 	}
 	items, err := a.commandCatalogAPI.ListCommands(apidto.CommandCatalogFilter{Source: "palette", Locale: "pt-BR"})
-	if err != nil || len(items) != 158 {
+	if err != nil || len(items) != 159 {
 		t.Fatalf("catálogo: %+v err=%v", items, err)
 	}
 	for _, item := range items {
