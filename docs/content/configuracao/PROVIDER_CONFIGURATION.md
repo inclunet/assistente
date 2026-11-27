@@ -336,11 +336,7 @@ foco a um campo sem alterar o valor mantém o teste de conexão válido.
 Cada provedor possui:
 - **Timeout**: 180s (padrão) ou 300s (Ollama, para modelos grandes) para
   requisições comuns; não funciona como teto total de uma resposta SSE ativa.
-- **Timeout de inatividade do streaming**: 60s por padrão. Cada evento
-  entregue ao consumidor reinicia a contagem, portanto uma geração ativa pode durar mais que
-  o timeout geral sem ser interrompida. O formulário ainda não oferece esse
-  ajuste; arquivos de exportação/importação podem preservar um override legado
-  em `streamIdleTimeoutSeconds`.
+- **Timeout de inatividade do streaming**: no editor de perfil, informe os segundos em **Inatividade do streaming** ou deixe em branco para herdar o prazo da conexão. No editor do provedor, o mesmo campo define o padrão da conexão. Com ambos em branco, o Assistente usa 60 segundos. Cada evento recebido reinicia a contagem. Um perfil existente com 180 segundos passa a usar esse valor, inclusive quando o modelo é escolhido pela toolbar.
   Na Responses API, `stream_idle_diagnostic` registra no log contagens de bytes
   e eventos e tempos da etapa em que houve inatividade, sem conteúdo do stream.
 - **Headers customizados**: Para autenticação alternativa ou proxy

@@ -1270,8 +1270,8 @@ describe('ProfileToolsSection', () => {
       const input = screen.getByTestId('response-timeout-input');
       expect(input).toBeInTheDocument();
       expect(input).toHaveAttribute('type', 'number');
-      expect(input).toHaveAttribute('min', '5');
-      expect(input).toHaveAttribute('max', '600');
+      expect(input).toHaveAttribute('min', '10');
+      expect(input).not.toHaveAttribute('max');
     });
 
     it('exibe valor padrão de maxAgenticIterations', () => {
@@ -1368,11 +1368,11 @@ describe('ProfileToolsSection', () => {
         />
       );
       const input = screen.getByTestId('response-timeout-input');
-      fireEvent.change(input, { target: { value: '250' } });
+      fireEvent.change(input, { target: { value: '250.5' } });
       expect(onChange).toHaveBeenCalledWith('response_timeout', 250);
     });
 
-    it('aplica fallback para 180 com valor vazio no responseTimeout', () => {
+    it('herda o prazo do provedor com valor vazio no responseTimeout', () => {
       const onChange = vi.fn();
       render(
         <ProfileToolsSection
@@ -1386,7 +1386,7 @@ describe('ProfileToolsSection', () => {
       );
       const input = screen.getByTestId('response-timeout-input');
       fireEvent.change(input, { target: { value: '' } });
-      expect(onChange).toHaveBeenCalledWith('response_timeout', 180);
+      expect(onChange).toHaveBeenCalledWith('response_timeout', 0);
     });
 
     it('desabilita campos agentic loop quando disabled é true', () => {
@@ -1408,7 +1408,7 @@ describe('ProfileToolsSection', () => {
       expect(input).toHaveAttribute('disabled');
     });
 
-    it('respeita limites de responseTimeout (min=5, max=600)', () => {
+    it('respeita limites de responseTimeout (mínimo de 10 segundos)', () => {
       const onChange = vi.fn();
       render(
         <ProfileToolsSection
@@ -1421,8 +1421,8 @@ describe('ProfileToolsSection', () => {
         />
       );
       const input = screen.getByTestId('response-timeout-input');
-      expect(input).toHaveAttribute('min', '5');
-      expect(input).toHaveAttribute('max', '600');
+      expect(input).toHaveAttribute('min', '10');
+      expect(input).not.toHaveAttribute('max');
     });
   });
 

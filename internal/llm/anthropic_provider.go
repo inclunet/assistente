@@ -31,7 +31,7 @@ type AnthropicProvider struct {
 	streamClient  *anthropic.Client
 	provider      *ProviderConfig
 	mcpServers    []MCPServerConfig // MCP servers HTTP para native connector
-	betaAttemptFn func(context.Context, anthropic.BetaMessageNewParams, StreamHandler, []MCPServerConfig) mcpStreamAttemptResult
+	betaAttemptFn func(context.Context, anthropic.BetaMessageNewParams, StreamHandler, []MCPServerConfig, int) mcpStreamAttemptResult
 }
 
 // NewAnthropicProvider cria um provider Anthropic com a SDK oficial.
@@ -237,7 +237,7 @@ func (p *AnthropicProvider) StreamChat(ctx context.Context, messages []Message, 
 		default:
 		}
 
-		done := p.doStream(ctx, sdkParams, handler)
+		done := p.doStream(ctx, sdkParams, handler, params.ResponseTimeout)
 		if done {
 			return
 		}
@@ -290,7 +290,7 @@ func (p *AnthropicProvider) streamChatWithMCP(
 			attemptFn = p.doStreamBeta
 		}
 		logging.Debugf(ctx, "llm.anthropic-provider", "[AnthropicProvider] tools da tentativa %d: locais=%v MCP=%v", attempt, toolDefinitionNames(tools, validAnthropicBetaToolParameters), mcpServerToolNames(currentServers))
-		result := attemptFn(ctx, betaParams, handler, currentServers)
+		result := attemptFn(ctx, betaParams, handler, currentServers, params.ResponseTimeout)
 		if result.done {
 			return
 		}
@@ -443,10 +443,10 @@ func (p *AnthropicProvider) buildBetaMCPParams(
 // Eventos de MCP (mcp_tool_use, mcp_tool_result) sÃ£o transparentes â€” o Anthropic
 // executa as tool calls MCP server-side. Tool calls locais (tool_use) continuam
 // sendo reportadas via OnToolCalls para execuÃ§Ã£o local.
-func (p *AnthropicProvider) doStreamBeta(ctx context.Context, params anthropic.BetaMessageNewParams, handler StreamHandler, mcpServers []MCPServerConfig) mcpStreamAttemptResult {
+func (p *AnthropicProvider) doStreamBeta(ctx context.Context, params anthropic.BetaMessageNewParams, handler StreamHandler, mcpServers []MCPServerConfig, profileTimeout int) mcpStreamAttemptResult {
 	// Watchdog de ociosidade (ver stream_watchdog.go): servidor que para de
 	// enviar sem fechar a conexão não pode prender a leitura até o timeout.
-	watchCtx, wd := startStreamWatchdog(ctx, streamIdleTimeoutForProvider(p.provider), nil)
+	watchCtx, wd := startStreamWatchdog(ctx, streamIdleTimeout(profileTimeout, p.provider), nil)
 	defer wd.Stop()
 
 	stream := p.streamClient.Beta.Messages.NewStreaming(watchCtx, params)
@@ -825,10 +825,10 @@ func makeBetaAnthropicToolChoice(choice string) anthropic.BetaToolChoiceUnionPar
 	}
 }
 
-func (p *AnthropicProvider) doStream(ctx context.Context, params anthropic.MessageNewParams, handler StreamHandler) bool {
+func (p *AnthropicProvider) doStream(ctx context.Context, params anthropic.MessageNewParams, handler StreamHandler, profileTimeout int) bool {
 	// Watchdog de ociosidade (ver stream_watchdog.go): servidor que para de
 	// enviar sem fechar a conexão não pode prender a leitura até o timeout.
-	watchCtx, wd := startStreamWatchdog(ctx, streamIdleTimeoutForProvider(p.provider), nil)
+	watchCtx, wd := startStreamWatchdog(ctx, streamIdleTimeout(profileTimeout, p.provider), nil)
 	defer wd.Stop()
 
 	stream := p.streamClient.Messages.NewStreaming(watchCtx, params)

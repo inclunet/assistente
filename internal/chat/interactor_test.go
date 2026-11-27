@@ -670,6 +670,7 @@ func TestPrepareContext_ProfileSlugDoesNotInheritFromGlobalActiveProfile(t *test
 	panel.Voice.Assistant.LLMProviderID = ""
 	panel.Input.LLMProviderID = ""
 	panel.Chat.Temperature = testParameterPointer(0.2)
+	panel.Chat.ResponseTimeout = 180
 	panelSlug := "perfil-editor-legado"
 	panelData, err := json.Marshal(panel)
 	if err != nil {
@@ -716,6 +717,10 @@ func TestPrepareContext_ProfileSlugDoesNotInheritFromGlobalActiveProfile(t *test
 	}
 	if resp.ActiveProfile.Input.LLMProviderID != profiles.DefaultProviderSentinel {
 		t.Fatalf("Input.LLMProviderID = %q, want %q (cross-profile leak detected)", resp.ActiveProfile.Input.LLMProviderID, profiles.DefaultProviderSentinel)
+	}
+
+	if resp.Params.ResponseTimeout != 180 {
+		t.Fatalf("timeout na chamada = %d, esperado 180", resp.Params.ResponseTimeout)
 	}
 
 	// E os campos não-routing do panel preservados intactos.

@@ -204,6 +204,7 @@ func TestUpgradeBuiltinAplicaWildcardMCPPreservandoRuntime(t *testing.T) {
 
 			existing := embedded
 			existing.BuiltinVersion = tc.installedBefore
+			existing.Chat.ResponseTimeout = 180
 			existing.Active = true
 			existing.Chat.ToolPolicy = make(map[string]string, len(embedded.Chat.ToolPolicy))
 			for name, state := range embedded.Chat.ToolPolicy {
@@ -214,6 +215,9 @@ func TestUpgradeBuiltinAplicaWildcardMCPPreservandoRuntime(t *testing.T) {
 			upgraded := mergeBuiltinPreservingRuntime(embedded, &existing)
 			if upgraded.Chat.ToolPolicy["mcp/*"] != string(chat.ToolPolicyOnDemand) {
 				t.Fatalf("upgrade não aplicou mcp/*: %#v", upgraded.Chat.ToolPolicy)
+			}
+			if upgraded.Chat.ResponseTimeout != 180 {
+				t.Fatal("upgrade perdeu o timeout do perfil instalado")
 			}
 			if !upgraded.Active {
 				t.Fatal("upgrade deve preservar estado runtime Active")

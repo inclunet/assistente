@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { GetLLMProvider, SetDefaultProvider, UpdateLLMProvider } from '@wailsjs/go/wailsapi/LLMProviders';
 import { GetModelsByProvider } from '@wailsjs/go/wailsapi/LLMModels';
+import { StreamIdleTimeoutInput } from '../ui/StreamIdleTimeoutInput';
 import { Input } from '../ui/Input';
 import { Select } from '../ui/Select';
 import { Button } from '../ui/Button';
@@ -20,6 +21,7 @@ export function ChatGPTProviderSettings({ providerId, connected, disabled, onBus
   const { t } = useTranslation();
   const { announce } = useAnnouncer();
   const [name, setName] = useState('');
+  const [idleTimeout, setIdleTimeout] = useState<number>();
   const [model, setModel] = useState('');
   const [models, setModels] = useState<string[]>([]);
   const [isDefault, setIsDefault] = useState(false);
@@ -36,6 +38,7 @@ export function ChatGPTProviderSettings({ providerId, connected, disabled, onBus
     setLoading(true); setLoadFailed(false); setError('');
     void GetLLMProvider(providerId).then(provider => {
       if (current !== generation.current) return;
+      setIdleTimeout(provider.stream_idle_timeout_seconds);
       setName(provider.name); setModel(provider.default_model || ''); setIsDefault(!!provider.is_default);
     }).catch(() => {
       if (current !== generation.current) return;
@@ -63,7 +66,7 @@ export function ChatGPTProviderSettings({ providerId, connected, disabled, onBus
         if (current !== generation.current) return;
         setIsDefault(true);
       } else {
-        await UpdateLLMProvider(providerId, apidto.UpdateLLMProviderRequest.createFrom({ name: name.trim(), default_model: model || undefined }));
+        await UpdateLLMProvider(providerId, apidto.UpdateLLMProviderRequest.createFrom({ name: name.trim(), default_model: model || undefined, stream_idle_timeout_seconds: idleTimeout }));
         if (current !== generation.current) return;
       }
       announce(t(makeDefault ? 'chatgpt.defaultSaved' : 'chatgpt.preferencesSaved'));
@@ -81,10 +84,11 @@ export function ChatGPTProviderSettings({ providerId, connected, disabled, onBus
     {loading && <p>{t('common.loading')}</p>}
     {error && <p>{t(error)}</p>}
     <Input label={t('chatgpt.providerName')} value={name} maxLength={100} onChange={event => setName(event.target.value)} />
+    <StreamIdleTimeoutInput scope="provider" value={idleTimeout} onChange={setIdleTimeout} />
     <Select label={t('providerForm.defaultModel')} value={model} options={[{ value: '', label: t('chatgpt.chooseModel'), disabled: true }, ...options]}
       disabled={unavailable || !connected || modelsLoading} onChange={event => setModel(event.target.value)} />
     {modelsLoading && <p>{t('chatgpt.loadingModels')}</p>}
-    <Button disabled={unavailable || !name.trim()} onClick={() => void save(false)}>{t('chatgpt.savePreferences')}</Button>
+    <Button disabled={unavailable || !name.trim() || (idleTimeout !== undefined && (!Number.isInteger(idleTimeout) || idleTimeout < 0 || idleTimeout > 86400))} onClick={() => void save(false)}>{t('chatgpt.savePreferences')}</Button>
     {isDefault ? <p>{t('providers.badge.default')}</p> :
       <Button disabled={unavailable} onClick={() => void save(true)}>{t('providers.actions.setDefault')}</Button>}
   </fieldset>;

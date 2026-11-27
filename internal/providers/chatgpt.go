@@ -395,6 +395,10 @@ func (s *Service) updateChatGPTPreferences(ctx context.Context, id string, req U
 			current.DefaultModel = req.DefaultModel
 			fields["default_model"] = current.DefaultModel
 		}
+		if req.StreamIdleTimeoutSeconds != nil {
+			current.StreamIdleTimeoutSeconds = *req.StreamIdleTimeoutSeconds
+			fields["stream_idle_timeout_seconds"] = current.StreamIdleTimeoutSeconds
+		}
 		if len(fields) > 0 {
 			result := database.ScopeByUser(ctx, tx.Model(&database.LLMProvider{}), "user_id").Where("id = ? AND credential_pattern = ?", id, provider.CredentialPattern).Updates(fields)
 			if result.Error != nil {

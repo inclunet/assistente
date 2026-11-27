@@ -61,6 +61,7 @@ interface Provider {
   credential_domain_patterns?: string[];
   is_default?: boolean;
   default_model?: string;
+  stream_idle_timeout_seconds?: number;
   /**
    * Comando e argumentos do agente de código (AEP-0084 D12). Para um provedor
    * ACP é isto que faz o papel de `base_url`: sem os dois, o que chega ao
@@ -206,6 +207,7 @@ export default function ProvidersPage() {
       auth_mode: provider.auth_mode,
       credential_pattern: provider.credential_pattern,
       reasoning_content_mode: provider.reasoning_content_mode,
+      stream_idle_timeout_seconds: provider.stream_idle_timeout_seconds,
       default_model: (provider as Provider).default_model || '',
       api_format: (provider as Provider).api_format || '',
       server_profile_id: provider.server_profile_id,
@@ -261,6 +263,7 @@ export default function ProvidersPage() {
     const request: CreateProviderRequest = {
       id: `${provider.type}-${Date.now()}`,
       name: getDuplicateName(provider.name),
+      stream_idle_timeout_seconds: provider.stream_idle_timeout_seconds,
       credential_from_provider_id: provider.api_format === AGENT_API_FORMAT ? undefined : provider.id,
       type: provider.type,
       base_url: provider.base_url,

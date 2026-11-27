@@ -2485,8 +2485,6 @@ notSaved: 'A decisão vale somente para esta operação: não foi possível lemb
         agenticIterationsConversational: 'Conversacional',
         agenticIterationsModerate: 'Moderado',
         agenticIterationsAggressive: 'Agressivo (Análise Profunda)',
-        responseTimeout: 'Timeout de Resposta (segundos)',
-        responseTimeoutHint: '2ª camada de proteção contra loops infinitos. Respostas que ultrapassam esse tempo são interrompidas.',
 
         streamingRecoveryEnabled: 'Tentar recuperar respostas interrompidas automaticamente',
         streamingRecoveryEnabledHint: 'Quando uma resposta falha ou é interrompida, tenta retomar automaticamente antes de marcar como falha.',
@@ -2805,6 +2803,10 @@ notSaved: 'A decisão vale somente para esta operação: não foi possível lemb
     },
 
     providerForm: {
+      streamIdleTimeout: 'Inatividade do streaming (segundos)',
+      streamIdleProfileHint: 'Tempo máximo sem um evento. Deixe em branco para usar o prazo do provedor.',
+      streamIdleProviderHint: 'Tempo máximo sem um evento quando o perfil não define um prazo. Em branco, usa 60 segundos.',
+
       aliases: {
         invalidID: "O ID remoto deve conter de 1 a 512 caracteres, não pode ser composto apenas de espaços nem conter o caractere NUL.",
         emptyID: "Os IDs remoto e canônico do vínculo não podem ser vazios.",
