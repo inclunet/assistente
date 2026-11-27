@@ -264,12 +264,7 @@ func (e *Executor) executeSingle(ctx context.Context, call ToolCall) (execution 
 	}
 
 	// Cria contexto com timeout para esta execução
-	timeout := e.config.ToolTimeout
-	budget, bounded := tool.(interface{ SearchTimeBudget() time.Duration })
-	if bounded {
-		timeout = min(timeout, budget.SearchTimeBudget())
-	}
-	toolCtx, cancel := context.WithTimeout(ctx, timeout)
+	toolCtx, cancel := context.WithTimeout(ctx, e.config.ToolTimeout)
 	defer cancel()
 
 	// Executa com recover para capturar panics
@@ -452,13 +447,6 @@ func (e *Executor) executeSingle(ctx context.Context, call ToolCall) (execution 
 	case result := <-resultCh:
 		completed = &result
 	case <-toolCtx.Done():
-	}
-	if bounded && ctx.Err() == nil && errors.Is(toolCtx.Err(), context.DeadlineExceeded) {
-		out := ToolExecutionResult{CallID: call.ID, ToolName: toolName, Error: context.DeadlineExceeded,
-			ErrorKind: ErrorKindTimeout, RetryabilityKnown: true, DurationMs: time.Since(start).Milliseconds(),
-			Result: ToolResult{IsError: true, Content: fmt.Sprintf("Busca excedeu o limite de %s. Restrinja o diretório ou o padrão antes de tentar novamente.", timeout)}}
-		attachSecuritySignals(&out.Result, collector)
-		return out
 	}
 	return e.finishExecution(ctx, toolCtx, call, start, completed, pending.Load(), collector)
 }

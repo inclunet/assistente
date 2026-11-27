@@ -820,21 +820,3 @@ func TestAprovacaoPorPoliticaExigeAtestadoDeNaoDespachoParaRetry(t *testing.T) {
 		}
 	}
 }
-
-type boundedSearchTestTool struct{ *mockTool }
-
-func (*boundedSearchTestTool) SearchTimeBudget() time.Duration { return time.Second }
-
-func TestSearchBudgetStopsWithoutAutomaticRetry(t *testing.T) {
-	synctest.Test(t, func(t *testing.T) {
-		tool := &boundedSearchTestTool{&mockTool{name: "bounded_search", exec: func(ctx context.Context, _ json.RawMessage) (ToolResult, error) {
-			<-ctx.Done()
-			return ToolResult{}, ctx.Err()
-		}}}
-		e := NewExecutor(newRegistry(tool), DefaultExecutorConfig())
-		result := e.ExecuteOne(t.Context(), ToolCall{ID: "search", Function: FunctionCall{Name: tool.Name(), Arguments: "{}"}})
-		if !result.Result.IsError || result.ErrorKind != ErrorKindTimeout || result.Retryable || !result.RetryabilityKnown || result.DurationMs != 1000 {
-			t.Fatalf("resultado do limite de busca: %+v", result)
-		}
-	})
-}

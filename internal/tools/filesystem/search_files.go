@@ -7,7 +7,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"assistente/internal/tools"
 )
@@ -29,10 +28,6 @@ func NewSearchFiles(workDir string) *SearchFiles {
 }
 
 func (t *SearchFiles) Name() string { return "search_files" }
-
-const localSearchBudget = 30 * time.Second
-
-func (*SearchFiles) SearchTimeBudget() time.Duration { return localSearchBudget }
 
 // CatalogMetadata declara os metadados de catálogo da tool (AEP-0077, Fase 1).
 func (t *SearchFiles) CatalogMetadata() tools.CatalogMetadata {
@@ -73,7 +68,7 @@ type searchFilesArgs struct {
 
 const defaultMaxResults = 100
 
-func (t *SearchFiles) Execute(ctx context.Context, args json.RawMessage) (tools.ToolResult, error) {
+func (t *SearchFiles) Execute(ctx context.Context, args json.RawMessage) (out tools.ToolResult, runErr error) {
 	var a searchFilesArgs
 	if err := json.Unmarshal(args, &a); err != nil {
 		return tools.ToolResult{Content: "Erro ao parsear argumentos: " + err.Error(), IsError: true}, nil
@@ -99,6 +94,8 @@ func (t *SearchFiles) Execute(ctx context.Context, args json.RawMessage) (tools.
 		return tools.ToolResult{Content: err.Error(), IsError: true}, nil
 	}
 
+	ctx, finish := startSearchBudget(ctx)
+	defer finish(&out, &runErr)
 	// Verifica se diretório existe
 	if info, err := os.Stat(fullBase); err != nil || !info.IsDir() {
 		return tools.ToolResult{Content: fmt.Sprintf("Diretório não encontrado: %s", basePath), IsError: true}, nil
@@ -210,6 +207,9 @@ func (t *SearchFiles) Execute(ctx context.Context, args json.RawMessage) (tools.
 		}
 
 		for _, match := range globMatches {
+			if ctx.Err() != nil {
+				return tools.ToolResult{IsError: true, Content: "Busca cancelada"}, nil
+			}
 			// Link apontando para fora do sandbox: não vazar nomes externos
 			if pathEscapesSandbox(ctx, match, t.workDir) {
 				continue

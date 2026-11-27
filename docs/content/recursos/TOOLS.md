@@ -7,7 +7,7 @@ weight: 12
 
 O assistente expõe 15 famílias de tools ao LLM: filesystem, shell, web, feed, http, memory, tasklist, mcpserver, history, job, questionnaire, skillloader, subagent e outras. Cada tool tem baseline operacional por perfil e é auditável no histórico do turno.
 
-As buscas locais por nome de arquivo e por conteúdo têm um limite de 30 segundos por chamada. Ao atingir o limite, o assistente recebe orientação para restringir a busca. Indicar o diretório onde estão os arquivos evita percorrer todo o workspace.
+As buscas locais por nome de arquivo e por conteúdo têm um orçamento de 30 segundos para percorrer os arquivos após a autorização da pasta. Ao atingir o limite, o assistente recebe orientação para restringir a busca. Indicar o diretório onde estão os arquivos evita percorrer todo o workspace.
 
 ## Descoberta e carregamento
 

@@ -484,4 +484,4 @@ acima pertencem ao escopo aceito e mantêm esta AEP `In Progress`.
 
 ## Atualização de 27/11/2026
 
-As buscas locais por nome e conteúdo usam até 30 segundos por chamada, respeitando prazos menores do executor. O esgotamento do orçamento é classificado como timeout com retry automático desabilitado. A orientação devolvida ao modelo é restringir o escopo. O teste `TestSearchBudgetStopsWithoutAutomaticRetry` verifica a duração e a classificação.
+As buscas locais por nome e conteúdo usam um orçamento cooperativo de 30 segundos para a varredura após a autorização do diretório. O esgotamento do orçamento é classificado como timeout com retry automático desabilitado. A orientação devolvida ao modelo é restringir o escopo. O teste `TestSearchBudgetStopsWithoutAutomaticRetry` verifica a duração e a classificação.
