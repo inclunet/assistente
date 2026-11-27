@@ -1220,6 +1220,7 @@ func TestExecuteDoesNotInheritConversationInvocationContext(t *testing.T) {
 		ConversationID: "conversation-parent", TurnID: "turn-parent", ProfileSlug: "pesquisa",
 	})
 	parent = toolinvocations.WithCurrentInvocationID(parent, "invocacao-publicadora")
+	parent = invocationctx.WithVerifiedWorkspaceID(parent, "workspace-publicador")
 	parent = toolctx.WithParentInvocationID(parent, "invocacao-ancestral")
 	rl := executor.Execute(parent, &Job{
 		ID: "job-evento", Tool: "subagent", Inputs: map[string]any{"profile": "pesquisa"},
@@ -1229,6 +1230,9 @@ func TestExecuteDoesNotInheritConversationInvocationContext(t *testing.T) {
 	}
 	if _, inherited := invocationctx.Get(ft.lastCtx); inherited {
 		t.Fatal("job herdou invocationctx da conversa que publicou o evento")
+	}
+	if id := invocationctx.VerifiedWorkspaceID(ft.lastCtx); id != "" {
+		t.Fatalf("job herdou workspace de hooks da conversa: %q", id)
 	}
 	if current := toolinvocations.CurrentInvocationID(ft.lastCtx); current == "" || current == "invocacao-publicadora" {
 		t.Fatalf("job não recebeu identidade canônica própria: %q", current)

@@ -14,6 +14,7 @@ import (
 	"assistente/internal/commandui"
 	"assistente/internal/database"
 	"assistente/internal/llm"
+	"assistente/internal/tools/invocationctx"
 	"assistente/internal/workspace"
 	"github.com/google/uuid"
 )
@@ -46,6 +47,8 @@ func TestCommandChatActionsAcceptanceLifetimeReplayAndRedaction(t *testing.T) {
 				retryID = message.ID
 			}
 			metadata, invocationID := chatActionMetadata(t, a, id)
+			ctx, cancel := context.WithCancel(ctx)
+			defer cancel()
 			calls := 0
 			var turn context.Context
 			next := func(got context.Context) (string, error) { calls++; turn = got; return cid, nil }
@@ -55,8 +58,11 @@ func TestCommandChatActionsAcceptanceLifetimeReplayAndRedaction(t *testing.T) {
 			if result := getUIResultEventually(t, a, metadata.Ticket); result.Status != "succeeded" {
 				t.Fatalf("%+v", result)
 			}
-			if turn != ctx || turn.Err() != nil {
-				t.Fatal("command finalization cancelled/replaced turn context")
+			if turn.Err() != nil || turn.Done() != ctx.Done() {
+				t.Fatal("a finalização do comando alterou o ciclo de vida do turno")
+			}
+			if id := invocationctx.VerifiedWorkspaceID(turn); id == "" || id != a.workspaceMgr.ActiveID() {
+				t.Fatalf("workspace do turno admitido = %q", id)
 			}
 			if _, err := a.commitChatSubmission(ctx, metadata, cid, retryID, next); err == nil || calls != 1 {
 				t.Fatal("replay")
