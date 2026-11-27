@@ -4,6 +4,8 @@ import (
 	"context"
 	"io"
 	"net/http"
+	"regexp"
+	"strings"
 	"sync"
 	"time"
 
@@ -129,6 +131,37 @@ func (d *streamDiagnostics) logTimeout(ctx context.Context) {
 	logging.Warnf(ctx, "llm.stream-diagnostics", "stream_idle_diagnostic phase=%s elapsed_ms=%d phase_ms=%d bytes=%d reads=%d events=%d last_read_ms=%d last_event_ms=%d last_event_type=%s", d.phase, age(d.started), age(d.phaseSince), d.bytes, d.reads, d.events, age(d.lastRead), age(d.lastEvent), d.lastEventType)
 }
 
+// Os rótulos vêm da rota configurada; nunca use a URL ou o nome livre da conexão.
+var routeLabelPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:/@+-]{0,254}$`)
+
+// Um valor colado no campo de modelo pode se parecer com um token mesmo
+// usando somente caracteres válidos de um identificador de catálogo.
+var sensitiveRoutePattern = regexp.MustCompile(`(?i)(?:^|[/@:])(?:sk-|gh[pousr]_|github_pat_|xox[baprs]-|xapp-|AIza|AKIA|ASIA|eyJ[^.]+\.[^.]+\.)|:[^/]*@`)
+
+func diagnosticRouteLabel(value string) string {
+	if routeLabelPattern.MatchString(value) && !strings.Contains(value, "://") && !sensitiveRoutePattern.MatchString(value) {
+		return value
+	}
+	return "unknown"
+}
+
+// IDs são opacos. Só copiamos formatos de correlação reconhecidos dos dois
+// cabeçalhos dedicados; conteúdo arbitrário de proxies não vai para o log.
+var correlationIDPattern = regexp.MustCompile(`^(?:[[:xdigit:]]{8}-[[:xdigit:]]{4}-[[:xdigit:]]{4}-[[:xdigit:]]{4}-[[:xdigit:]]{12}|(?:req_)?[[:xdigit:]]{32})$`)
+
+func logStreamCorrelation(ctx context.Context, header http.Header) {
+	var attrs []any
+	for _, name := range []string{"x-request-id", "x-litellm-call-id"} {
+		values := header.Values(name)
+		if len(values) == 1 && correlationIDPattern.MatchString(values[0]) {
+			attrs = append(attrs, name, values[0])
+		}
+	}
+	if len(attrs) > 0 {
+		logging.Logger(ctx, "llm.stream-diagnostics").InfoContext(ctx, "stream_response_ids", attrs...)
+	}
+}
+
 // O transport preserva autenticação e redirects e envolve somente respostas
 // solicitadas com um diagnóstico associado ao contexto da tentativa.
 type streamDiagnosticTransport struct{ base http.RoundTripper }
@@ -145,6 +178,7 @@ func (t streamDiagnosticTransport) RoundTrip(req *http.Request) (*http.Response,
 		return resp, err
 	}
 	if d, ok := req.Context().Value(streamDiagnosticsKey{}).(*streamDiagnostics); ok {
+		logStreamCorrelation(req.Context(), resp.Header)
 		resp.Body = &streamDiagnosticBody{ReadCloser: resp.Body, diagnostics: d}
 	}
 	return resp, err
