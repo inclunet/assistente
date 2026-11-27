@@ -8,6 +8,8 @@ const (
 	ChatErrorMCPPreparation = "mcp_preparation_error"
 	// ChatErrorInternal is a stable UI-facing error code for unexpected backend failures.
 	ChatErrorInternal = "internal_error"
+	// ChatErrorToolContext reports insufficient context for an already executed tool.
+	ChatErrorToolContext = "tool_context_exhausted"
 	// ChatErrorPersistence reports a response that could not be saved.
 	ChatErrorPersistence = "persistence_error"
 	// ChatErrorAssistantPlaceholder is emitted when the assistant placeholder cannot be created.

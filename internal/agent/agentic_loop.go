@@ -30,7 +30,8 @@ import (
 // O estado mutável compartilhado entre iterações (mensagens, streamer/tools
 // ativos e acumuladores de estatísticas) fica nos campos do runner.
 type agenticLoopRunner struct {
-	svc *Service
+	svc        *Service
+	compaction *TurnCompaction
 
 	// Configuração imutável do turno.
 	conversationID     string
@@ -67,6 +68,9 @@ type agenticLoopRunner struct {
 //  2. Se finish_reason="stop" → salva resposta final, emite chat:done
 //  3. Se finish_reason="tool_calls" → emite segment_done, executa tools, salva, repete
 func (r *agenticLoopRunner) run(ctx context.Context) {
+	// Algumas entradas legadas não marcam o pedido original. Fixe a âncora
+	// antes que um reparo por limite de saída acrescente um usuário sintético.
+	r.messages = markCompactionTarget(r.messages)
 	for iteration := 0; iteration < r.maxIterations; iteration++ {
 		// Verifica cancelamento
 		if ctx.Err() != nil {
@@ -454,8 +458,6 @@ func (r *agenticLoopRunner) executeToolIteration(ctx context.Context, result Age
 	for i, res := range execResults {
 		toolContents[i] = tools.ContentForModel(res.Result)
 	}
-	PreCheckContextWindow(r.params.ContextWindow, r.params.OutputTokenLimit(), r.messages, toolContents, r.replaysReasoningContent())
-	reconcileToolContentsWithContracts(ctx, execResults, toolContents)
 
 	// 5f-iii. Persiste o texto intermediário do assistant. AEP-0078 depreca o L3:
 	// novas mensagens não gravam mais o JSON tool_calls; o snapshot exibível fica
@@ -468,6 +470,18 @@ func (r *agenticLoopRunner) executeToolIteration(ctx context.Context, result Age
 		}
 		logging.Errorf(ctx, "agent.agentic-loop", "erro ao salvar mensagem intermediária: %v", err)
 		r.svc.emitFinalizationErrorDone(ctx, r.conversationID, r.turnID, r.assistantMessageID, r.surfaceOrigin)
+		return ctx, true
+	}
+
+	if iteration+1 < r.maxIterations && !r.prepareToolContext(ctx, execResults, toolContents) {
+		if ctx.Err() != nil {
+			r.svc.emitAgenticContextDone(ctx, r.conversationID, r.turnID, r.assistantMessageID, r.surfaceOrigin, iteration, r.totalToolCallCount, r.toolsUsedSet)
+			return ctx, true
+		}
+		event := r.buildErrorDoneEventWithContext(ctx, ports.ChatErrorToolContext, iteration)
+		if r.svc.persistTerminal(ctx, &event, database.TurnFailed, "internal_error") {
+			r.svc.emitter.Emit("chat:done", event)
+		}
 		return ctx, true
 	}
 
