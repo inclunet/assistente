@@ -46,7 +46,7 @@ Além disso, hoje uma falha de streaming tende a simplesmente “parar”, sem (
   conteúdo e efeitos de ferramentas. Recuperação automática segura do parcial
   fica pendente de contrato e prova específicos.
 - O número de tentativas é **configurável por perfil**. Quando o provedor HTTP já esgotou suas tentativas internas de streaming, sinaliza erro terminal ao agente. A recuperação automática respeita esse limite para evitar multiplicar chamadas. O watchdog continua medindo inatividade por tentativa.
-- Na Responses API, timeout registra estágio, contagens e tempos de leitura e
+- Na Responses API, timeout registra estágio, tipo do último evento completo (`none` antes do primeiro e `unknown` para tipos não reconhecidos), contagens e tempos de leitura e
   processamento sem incluir conteúdo, credenciais ou payload. O diagnóstico não
   comprova entrega fim a fim nem muda o limite de inatividade.
 

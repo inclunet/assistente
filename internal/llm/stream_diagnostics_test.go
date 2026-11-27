@@ -16,10 +16,10 @@ type diagnosticCloseTransport struct{ closed bool }
 func TestStreamDiagnosticDoesNotChangePhaseAfterTimeout(t *testing.T) {
 	d := newStreamDiagnostics()
 	wd := &streamWatchdog{}
-	d.setPhase("processing_event", true, wd)
+	d.setPhase("processing_event", "private-from-provider", wd)
 	wd.timedOut = true
-	d.setPhase("waiting_event", false, wd)
-	if d.phase != "processing_event" || d.events != 1 {
+	d.setPhase("waiting_event", "", wd)
+	if d.phase != "processing_event" || d.events != 1 || d.lastEventType != "unknown" {
 		t.Fatalf("fase alterada após timeout: phase=%s events=%d", d.phase, d.events)
 	}
 }
@@ -88,7 +88,7 @@ func TestResponsesIdleDiagnosticDetectsBytesWithoutCompleteEvent(t *testing.T) {
 		if strings.Contains(rec.Message, "private") {
 			t.Fatal("payload vazou")
 		}
-		if strings.Contains(rec.Message, "stream_idle_diagnostic phase=waiting_event") && strings.Contains(rec.Message, "events=0") && !strings.Contains(rec.Message, "bytes=0 ") {
+		if strings.Contains(rec.Message, "stream_idle_diagnostic phase=waiting_event") && strings.Contains(rec.Message, "events=0") && strings.Contains(rec.Message, "last_event_type=none") && !strings.Contains(rec.Message, "bytes=0 ") {
 			found = true
 		}
 	}
@@ -121,7 +121,7 @@ func TestResponsesIdleDiagnosticPreservesPartialAndOmitsContent(t *testing.T) {
 		if strings.Contains(rec.Message, secret) {
 			t.Fatal("conteúdo vazou no log")
 		}
-		if strings.Contains(rec.Message, "stream_idle_diagnostic phase=waiting_event") && strings.Contains(rec.Message, "events=1") && !strings.Contains(rec.Message, "bytes=0 ") {
+		if strings.Contains(rec.Message, "stream_idle_diagnostic phase=waiting_event") && strings.Contains(rec.Message, "events=1") && strings.Contains(rec.Message, "last_event_type=response.output_text.delta") && !strings.Contains(rec.Message, "bytes=0 ") {
 			found = true
 		}
 	}
