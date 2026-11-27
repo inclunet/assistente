@@ -34,6 +34,7 @@ notSaved: 'La decisión vale solo para esta operación: no se pudo recordar. Ser
   "confirmDenyRemoval": "¿Eliminar la prohibición de {{resource}}, en el alcance {{scope}} ({{scopeName}})? Esto puede permitir operaciones antes bloqueadas.",
   "legacyAgent": "Regla antigua sin identidad de agente",
   "domain": {
+    "plugin_hook": "Hooks de plugins",
     "network": "Red",
     "filesystem": "Archivos",
     "shell": "Shell",

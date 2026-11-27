@@ -167,6 +167,13 @@ func permissionView(row database.AuthorizationRule) (PermissionView, error) {
 		if !entry.CreatedAt.IsZero() {
 			created = entry.CreatedAt
 		}
+	case authorization.PluginHookDomain:
+		var hook authorization.PluginHook
+		if err := json.Unmarshal([]byte(row.Selector), &hook); err != nil {
+			return view, err
+		}
+		view.Resource = hook.Name + " (" + hook.Origin + ") — " + hook.Component
+		view.ResourceKind = hook.Digest
 	case "acp":
 		var entry acptrust.Entry
 		if err := json.Unmarshal([]byte(row.Selector), &entry); err != nil {

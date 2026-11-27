@@ -34,6 +34,7 @@ notSaved: 'A decisão vale somente para esta operação: não foi possível lemb
   "confirmDenyRemoval": "Remover a proibição de {{resource}}, no escopo {{scope}} ({{scopeName}})? Isso pode permitir operações antes bloqueadas.",
   "legacyAgent": "Regra legada sem identidade de agente",
   "domain": {
+    "plugin_hook": "Hooks de plugins",
     "network": "Rede",
     "filesystem": "Arquivos",
     "shell": "Shell",

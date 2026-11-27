@@ -3,6 +3,8 @@ package database
 // PluginInstallation identifies one installed package per account and origin.
 // A published revision is inert until its components are activated.
 type PluginInstallation struct {
+	// HookGeneration invalida um aceite apresentado antes de desativar ou substituir a revisão.
+	HookGeneration        uint64 `gorm:"not null;default:0" json:"-"`
 	DiscoveryRepositoryID string `json:"discoveryRepositoryId,omitempty"`
 	UUIDModel
 	Disabled bool   `gorm:"not null;default:false" json:"disabled"`

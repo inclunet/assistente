@@ -7,6 +7,7 @@ import (
 	"slices"
 	"time"
 
+	"assistente/internal/authorization"
 	"assistente/internal/commandsecurity"
 	"assistente/internal/database"
 	"assistente/internal/pluginpackage"
@@ -140,12 +141,15 @@ func (i *Inventory) InstallSource(ctx context.Context, reviewedOrigin, reviewedD
 			if !slices.Equal(actual, reviewedServers) {
 				return ErrInstallationChanged
 			}
-			update := tx.Model(&installed).Where("user_id = ? AND digest = ?", owner, previousDigest).Updates(map[string]any{"digest": snapshot.Digest, "version": snapshot.Manifest.Version})
+			update := tx.Model(&installed).Where("user_id = ? AND digest = ?", owner, previousDigest).Updates(map[string]any{"digest": snapshot.Digest, "version": snapshot.Manifest.Version, "hook_generation": installed.HookGeneration + 1})
 			if update.Error != nil {
 				return update.Error
 			}
 			if update.RowsAffected != 1 {
 				return ErrInstallationChanged
+			}
+			if err := authorization.DeleteInstallationHookRules(tx, owner, installed.ID); err != nil {
+				return err
 			}
 			var count int64
 			if err := tx.Model(&database.PluginMCPBinding{}).Where("installation_id=?", installed.ID).Count(&count).Error; err != nil {

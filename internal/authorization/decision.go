@@ -67,7 +67,7 @@ func Resolve[T any](ctx context.Context, request Request, flow Flow[T]) (out Dec
 		return Decision{}, errors.New("pedido de autorização incompleto")
 	}
 	switch request.Domain {
-	case "network", "filesystem", "shell", "acp":
+	case "network", "filesystem", "shell", "acp", PluginHookDomain:
 	default:
 		return Decision{}, errors.New("domínio de autorização inválido")
 	}
