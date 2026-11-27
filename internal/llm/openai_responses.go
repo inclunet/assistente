@@ -374,7 +374,7 @@ func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses
 
 responseEvents:
 	for {
-		diagnostics.setPhase("waiting_event", false, wd)
+		diagnostics.setPhase("waiting_event", "", wd)
 		if !stream.Next() {
 			break
 		}
@@ -394,8 +394,8 @@ responseEvents:
 			reportError(streamIdleErrorMessage)
 			return mcpStreamAttemptResult{done: true}
 		}
-		diagnostics.setPhase("processing_event", true, wd)
 		event := stream.Current()
+		diagnostics.setPhase("processing_event", event.Type, wd)
 		eventCount++
 
 		switch event.Type {
@@ -771,7 +771,7 @@ responseEvents:
 			return mcpStreamAttemptResult{done: true}
 
 		default:
-			logging.Errorf(ctx, "llm.openai-responses", "[OpenAIProvider] Unhandled event type: %s", event.Type)
+			logging.Errorf(ctx, "llm.openai-responses", "[OpenAIProvider] Unhandled event type: %s", diagnosticEventType(event.Type))
 		}
 	}
 
