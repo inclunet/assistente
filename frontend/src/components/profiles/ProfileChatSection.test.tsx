@@ -340,7 +340,7 @@ describe('ProfileChatSection', () => {
     render(<ProfileChatSection {...defaultProps} onChange={handleChange} />);
     
     const input = screen.getByLabelText('Timeout (segundos)');
-    fireEvent.change(input, { target: { value: '240' } });
+    fireEvent.change(input, { target: { value: '240.5' } });
     
     expect(handleChange).toHaveBeenCalledWith('response_timeout', 240);
   });

@@ -19,7 +19,10 @@ export function StreamIdleTimeoutInput({ scope, value, onChange, disabled, testI
       value={value || ''}
       min={scope === 'profile' ? 10 : 1}
       max={scope === 'provider' ? 86400 : undefined}
-      onChange={event => onChange(Number(event.target.value))}
+      onChange={event => {
+        const seconds = Number(event.target.value);
+        onChange(scope === 'profile' ? Math.trunc(seconds) : seconds);
+      }}
       disabled={disabled}
       data-testid={testId}
     />

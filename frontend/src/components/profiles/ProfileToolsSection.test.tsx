@@ -1368,7 +1368,7 @@ describe('ProfileToolsSection', () => {
         />
       );
       const input = screen.getByTestId('response-timeout-input');
-      fireEvent.change(input, { target: { value: '250' } });
+      fireEvent.change(input, { target: { value: '250.5' } });
       expect(onChange).toHaveBeenCalledWith('response_timeout', 250);
     });
 
