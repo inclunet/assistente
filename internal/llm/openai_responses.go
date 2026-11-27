@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"sort"
 	"strings"
 	"time"
@@ -98,7 +99,6 @@ func (p *OpenAIProvider) streamChatResponses(
 ) {
 	params.Model = model
 	currentServers := cloneMCPServers(p.mcpServers)
-	logging.Infof(ctx, "llm.openai-responses", "[OpenAIProvider] Responses API: %d MCP servers, %d tools locais", len(currentServers), len(tools))
 
 	bk := 500 * time.Millisecond
 	maxBk := 8 * time.Second
@@ -124,7 +124,11 @@ func (p *OpenAIProvider) streamChatResponses(
 			attemptFn = p.doStreamResponses
 		}
 		logging.Debugf(ctx, "llm.openai-responses", "[OpenAIProvider] tools da tentativa %d: locais=%v MCP=%v", attempt, toolDefinitionNames(tools, validOpenAIResponsesToolParameters), mcpServerToolNames(currentServers))
-		result := attemptFn(ctx, respParams, handler, currentServers, params, dumpHandle)
+		attemptCtx := logging.WithAttrs(ctx, slog.Int("stream_attempt", attempt),
+			slog.String("provider_id", diagnosticRouteLabel(p.provider.ID)),
+			slog.String("requested_model", diagnosticRouteLabel(string(respParams.Model))))
+		logging.Infof(attemptCtx, "llm.openai-responses", "[OpenAIProvider] Responses API: %d MCP servers, %d tools locais", len(currentServers), len(tools))
+		result := attemptFn(attemptCtx, respParams, handler, currentServers, params, dumpHandle)
 		pruneDebugDumpHandle(dumpHandle)
 		if result.done {
 			return
