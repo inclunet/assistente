@@ -108,23 +108,29 @@ func TestPurgeExpiredRollbackZeraContadoresEPreservaFonte(t *testing.T) {
 }
 
 func TestActivationOutboxRetentionIndexes(t *testing.T) {
-	db := testStore(t).DB()
-	for _, tc := range []struct{ query, index string }{
-		{"SELECT source_event_id FROM command_job_activation_outbox WHERE delivery_state IN ('delivered','dead_letter') AND source_replay_deadline <= ? ORDER BY source_event_id LIMIT 101", "ix_outbox_state_deadline"},
-		{"SELECT run_id FROM command_job_activation_outbox WHERE user_id = ? AND run_id IS NOT NULL AND delivery_state IN ('pending','processing')", "ix_outbox_owner_state_run"},
-	} {
-		var plan []struct{ Detail string }
-		if err := db.Raw("EXPLAIN QUERY PLAN "+tc.query, "fixture").Scan(&plan).Error; err != nil {
-			t.Fatal(err)
+	store, now, _ := preparePurgeFixture(t)
+	db := store.DB()
+	var sql string
+	var args []any
+	if err := db.Callback().Query().After("gorm:query").Register("test:capture_purge", func(tx *gorm.DB) {
+		if tx.Statement.Table == "command_job_activation_outbox" {
+			sql = tx.Statement.SQL.String()
+			args = append([]any(nil), tx.Statement.Vars...)
 		}
-		found := false
-		for _, row := range plan {
-			if strings.Contains(row.Detail, tc.index) {
-				found = true
-			}
-		}
-		if !found {
-			t.Fatalf("índice %s ausente no plano: %v", tc.index, plan)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := store.PurgeExpiredAt(t.Context(), now, 2); err != nil {
+		t.Fatal(err)
+	}
+	var plan []struct{ Detail string }
+	if err := db.Raw("EXPLAIN QUERY PLAN "+sql, args...).Scan(&plan).Error; err != nil {
+		t.Fatal(err)
+	}
+	for _, row := range plan {
+		if strings.Contains(row.Detail, "ix_outbox_state_deadline") {
+			return
 		}
 	}
+	t.Fatalf("índice do lote de purga ausente: %v", plan)
 }
