@@ -160,6 +160,8 @@ notSaved: 'A decisão vale somente para esta operação: não foi possível lemb
       agentNoTools: 'Agente sem ferramentas',
       hook: 'Hook',
       hookPermission: 'Gerenciar permissão do hook de shell',
+      postHookConsent: 'Plugin {{name}}, versão {{version}}, de {{origin}} (revisão {{digest}}). Depois que run_command concluir com sucesso, {{script}} recebe os argumentos, a saída, a duração e o ID da chamada. O script roda com suas permissões e pode acessar arquivos fora de {{workspace}}. Um bloqueio neste workspace prevalece sobre uma permissão global.',
+      postHookFailed: 'O comando terminou. O hook posterior falhou. O resultado foi preservado.',
       hookConsent: 'Plugin {{name}}, versão {{version}}, de {{origin}} (revisão {{digest}}). Antes de run_command, {{script}} recebe o ID da chamada, o nome da ferramenta e os argumentos do comando. O script roda com suas permissões do sistema e pode acessar arquivos fora de {{workspace}}. Ele pode vetar o comando. A regra local vale neste workspace. Gerencie a concessão global em Configurações → Permissões. Um bloqueio local prevalece sobre ela. O comando continua sujeito à sua autorização normal.',
       hookHere: 'Permitir neste workspace',
       hookGlobal: 'Permitir em todos os meus workspaces, inclusive os futuros',

@@ -159,6 +159,8 @@ notSaved: 'La decisión vale solo para esta operación: no se pudo recordar. Ser
       agentNoTools: 'Agente sin herramientas',
       hook: 'Hook',
       hookPermission: 'Gestionar permiso del hook de shell',
+      postHookConsent: 'Plugin {{name}}, versión {{version}}, de {{origin}} (revisión {{digest}}). Cuando run_command termina con éxito, {{script}} recibe los argumentos, la salida, la duración y el ID de la llamada. Se ejecuta con tus permisos y puede acceder a archivos fuera de {{workspace}}. Un bloqueo en este espacio prevalece sobre un permiso global.',
+      postHookFailed: 'El comando terminó. El hook posterior falló. Se conservó el resultado.',
       hookConsent: 'Plugin {{name}}, versión {{version}}, de {{origin}} (revisión {{digest}}). Antes de run_command, {{script}} recibe el ID de la llamada, el nombre de la herramienta y los argumentos del comando. El script se ejecuta con tus permisos del sistema y puede acceder a archivos fuera de {{workspace}}. Puede bloquear el comando. La regla local se aplica en este espacio. Gestiona el permiso global en Configuración → Permisos. Un bloqueo local prevalece sobre él. El comando sigue sujeto a su autorización habitual.',
       hookHere: 'Permitir en este espacio de trabajo',
       hookGlobal: 'Permitir en todos mis espacios, incluidos los futuros',

@@ -723,6 +723,7 @@ func (r *agenticLoopRunner) emitToolEndsAndAccount(execResults []tools.ToolExecu
 			Status:             status,
 			ErrorKind:          string(execResult.ErrorKind),
 			ErrorCode:          execResult.ErrorCode,
+			PostToolHookFailed: execResult.PostToolHookFailed,
 			Summary:            truncateString(execResult.Result.Content, MaxResultDisplaySize),
 			Origin:             origin,
 			ServerLabel:        serverLabel,

@@ -209,6 +209,7 @@ const (
 // ToolExecutionResult agrupa o resultado de uma execução com metadados do call original.
 // Usado pelo executor para devolver resultados ao agentic loop.
 type ToolExecutionResult struct {
+	PostToolHookFailed bool `json:"post_tool_hook_failed,omitempty"`
 	// MCPIdentity preserva a identidade da implementação capturada pelo executor.
 	MCPIdentity *MCPToolIdentity `json:"-"`
 

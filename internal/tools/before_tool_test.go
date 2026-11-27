@@ -91,3 +91,50 @@ func TestBeforeToolInVerifiedWorkspace(t *testing.T) {
 		})
 	}
 }
+
+func TestPostToolPreservesCompletedResult(t *testing.T) {
+	for _, tc := range []struct {
+		name                        string
+		workspace, toolFailed, warn bool
+		observed                    int32
+	}{
+		{"success", true, false, false, 1}, {"hook error", true, false, true, 1}, {"timeout", true, false, true, 1}, {"panic", true, false, true, 1}, {"tool failed", true, true, false, 0}, {"no workspace", false, false, false, 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				var calls, observers atomic.Int32
+				tool := &mockTool{name: "run_command", exec: func(context.Context, json.RawMessage) (ToolResult, error) {
+					calls.Add(1)
+					return ToolResult{Content: "original", IsError: tc.toolFailed}, nil
+				}}
+				cfg := DefaultExecutorConfig()
+				cfg.AfterTool = func(ctx context.Context, call ToolCall, result ToolResult, duration int64) error {
+					observers.Add(1)
+					if calls.Load() != 1 || result.Content != "original" || call.ID != "id" || invocationctx.VerifiedWorkspaceID(ctx) != "w" || duration < 0 {
+						t.Error("resultado ou origem incorretos")
+					}
+					switch tc.name {
+					case "timeout":
+						ctx, cancel := context.WithTimeout(ctx, time.Second)
+						defer cancel()
+						<-ctx.Done()
+						return ctx.Err()
+					case "panic":
+						panic("privado")
+					case "hook error":
+						return errors.New("privado")
+					}
+					return nil
+				}
+				ctx := t.Context()
+				if tc.workspace {
+					ctx = invocationctx.WithVerifiedWorkspaceID(ctx, "w")
+				}
+				result := NewExecutor(newRegistry(tool), cfg).ExecuteOne(ctx, ToolCall{ID: "id", Function: FunctionCall{Name: tool.name, Arguments: "{}"}})
+				if calls.Load() != 1 || observers.Load() != tc.observed || result.PostToolHookFailed != tc.warn || result.Retryable || result.Result.IsError != tc.toolFailed || result.Result.Content != "original" {
+					t.Fatalf("resultado=%+v chamadas=%d hooks=%d", result, calls.Load(), observers.Load())
+				}
+			})
+		})
+	}
+}

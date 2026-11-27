@@ -26,6 +26,8 @@ import (
 
 const cursorPreToolKey = "hooks/hooks.json#preToolUse"
 
+const cursorPostToolKey = "hooks/hooks.json#postToolUse"
+
 var errHookVeto = errors.New("veto do hook")
 var errHookOutput = errors.New("resposta do hook incompatível")
 
@@ -33,7 +35,7 @@ var hookPath = regexp.MustCompile(`^[A-Za-z0-9_./-]+$`)
 
 // O primeiro adaptador aceita um script relativo da revisão para a ferramenta Shell.
 // Campos adicionais podem alterar o filtro, prazo ou permissões e exigem outro adaptador.
-func preToolScript(snapshot *pluginpackage.LocalSnapshot) (string, bool) {
+func toolHookScript(snapshot *pluginpackage.LocalSnapshot, key string) (string, bool) {
 	if snapshot.Manifest.Format != pluginpackage.Cursor || len(snapshot.Manifest.Unmapped) != 0 {
 		return "", false
 	}
@@ -50,12 +52,19 @@ func preToolScript(snapshot *pluginpackage.LocalSnapshot) (string, bool) {
 	if len(doc) > 64<<10 || !strictHookJSON(doc, &config) || config.Version != 1 || len(config.Hooks) != 1 {
 		return "", false
 	}
+	if key != cursorPreToolKey && key != cursorPostToolKey {
+		return "", false
+	}
+	event := strings.TrimPrefix(key, "hooks/hooks.json#")
 	var handlers []struct {
 		Command    string `json:"command"`
 		Matcher    string `json:"matcher"`
-		FailClosed bool   `json:"failClosed"`
+		FailClosed *bool  `json:"failClosed"`
 	}
-	if !strictHookJSON(config.Hooks["preToolUse"], &handlers) || len(handlers) != 1 || handlers[0].Matcher != "Shell" || !handlers[0].FailClosed {
+	if !strictHookJSON(config.Hooks[event], &handlers) || len(handlers) != 1 || handlers[0].Matcher != "Shell" {
+		return "", false
+	}
+	if key == cursorPreToolKey && (handlers[0].FailClosed == nil || !*handlers[0].FailClosed) || key == cursorPostToolKey && handlers[0].FailClosed != nil {
 		return "", false
 	}
 	entry, ok := strings.CutPrefix(handlers[0].Command, "./")
@@ -78,6 +87,16 @@ func strictHookJSON(raw []byte, target any) bool {
 
 // BeforeTool revalida cada decisão depois de carregar a revisão e antes de iniciar o script.
 func (i *Inventory) BeforeTool(ctx context.Context, call tools.ToolCall) error {
+	return i.runToolHooks(ctx, call, cursorPreToolKey, "", 0)
+}
+func (i *Inventory) AfterTool(ctx context.Context, call tools.ToolCall, result tools.ToolResult, duration int64) error {
+	code, known := result.Metadata["exitCode"].(int)
+	if !known || code != 0 || ctx.Err() != nil {
+		return nil
+	}
+	return i.runToolHooks(ctx, call, cursorPostToolKey, result.Content, duration)
+}
+func (i *Inventory) runToolHooks(ctx context.Context, call tools.ToolCall, key, output string, duration int64) error {
 	workspace := invocationctx.VerifiedWorkspaceID(ctx)
 	if workspace == "" || call.Function.Name != "run_command" {
 		return nil
@@ -87,6 +106,7 @@ func (i *Inventory) BeforeTool(ctx context.Context, call tools.ToolCall) error {
 	if err != nil {
 		return err
 	}
+	var failures error
 	seen := map[string]bool{}
 	for _, row := range rows {
 		if row.Effect != "allow" || seen[row.SelectorKey] {
@@ -97,7 +117,7 @@ func (i *Inventory) BeforeTool(ctx context.Context, call tools.ToolCall) error {
 		if err := json.Unmarshal([]byte(row.Selector), &hook); err != nil {
 			return err
 		}
-		if hook.Component != cursorPreToolKey {
+		if hook.Component != key {
 			continue
 		}
 		ok, err := rules.PluginHookAllowed(ctx, hook)
@@ -107,12 +127,15 @@ func (i *Inventory) BeforeTool(ctx context.Context, call tools.ToolCall) error {
 		if !ok {
 			continue
 		}
-		if err := i.runGrantedHook(ctx, call, hook, rules); err != nil {
+		if err := i.runGrantedHook(ctx, call, hook, rules, output, duration); err != nil {
 			logging.Warnf(ctx, "plugin_hook", "installation=%s component=%s tool_call_id=%s reason=%s", hook.InstallationID, hook.Component, call.ID, hookFailureReason(err))
-			return err
+			if key == cursorPreToolKey || ctx.Err() != nil {
+				return err
+			}
+			failures = errors.Join(failures, err)
 		}
 	}
-	return nil
+	return failures
 }
 
 func hookFailureReason(err error) string {
@@ -132,7 +155,7 @@ func hookFailureReason(err error) string {
 	}
 }
 
-func (i *Inventory) runGrantedHook(ctx context.Context, call tools.ToolCall, hook authorization.PluginHook, rules *authorization.Repository) error {
+func (i *Inventory) runGrantedHook(ctx context.Context, call tools.ToolCall, hook authorization.PluginHook, rules *authorization.Repository, output string, duration int64) error {
 	if _, protected := invocationctx.LookupShellCommandMetadata(ctx); protected {
 		return ErrComponentUnavailable
 	}
@@ -140,14 +163,27 @@ func (i *Inventory) runGrantedHook(ctx context.Context, call tools.ToolCall, hoo
 	if err != nil {
 		return err
 	}
-	entry, ok := preToolScript(snap)
+	entry, ok := toolHookScript(snap, hook.Component)
 	if !ok {
 		return ErrComponentUnavailable
 	}
-	return runPreToolScript(ctx, snap, entry, call, func() (bool, error) { return rules.PluginHookAllowed(ctx, hook) })
+	event := map[string]any{"hook_event_name": strings.TrimPrefix(hook.Component, "hooks/hooks.json#"), "tool_name": "Shell", "tool_input": json.RawMessage(call.Function.Arguments), "tool_use_id": call.ID}
+	if hook.Component == cursorPostToolKey {
+		payload, err := json.Marshal(map[string]string{"content": output})
+		if err != nil {
+			return err
+		}
+		event["tool_output"] = string(payload)
+		event["duration"] = duration
+	}
+	input, err := json.Marshal(event)
+	if err != nil {
+		return err
+	}
+	return runToolScript(ctx, snap, entry, hook.Component, input, func() (bool, error) { return rules.PluginHookAllowed(ctx, hook) })
 }
 
-func runPreToolScript(ctx context.Context, snap *pluginpackage.LocalSnapshot, entry string, call tools.ToolCall, allowed func() (bool, error)) (err error) {
+func runToolScript(ctx context.Context, snap *pluginpackage.LocalSnapshot, entry, key string, input []byte, allowed func() (bool, error)) (err error) {
 	cache, err := os.UserCacheDir()
 	if err != nil {
 		return err
@@ -192,10 +228,6 @@ func runPreToolScript(ctx context.Context, snap *pluginpackage.LocalSnapshot, en
 	if err != nil {
 		return err
 	}
-	input, err := json.Marshal(map[string]any{"hook_event_name": "preToolUse", "tool_name": "Shell", "tool_input": json.RawMessage(call.Function.Arguments), "tool_use_id": call.ID})
-	if err != nil {
-		return err
-	}
 	cmd.Dir = dir
 	cmd.Env = append(cmd.Environ(), "CURSOR_PLUGIN_ROOT="+dir)
 	cmd.Stdin = bytes.NewReader(input)
@@ -211,10 +243,18 @@ func runPreToolScript(ctx context.Context, snap *pluginpackage.LocalSnapshot, en
 			return timeout.Err()
 		}
 		var exit *exec.ExitError
-		if errors.As(err, &exit) && exit.ExitCode() == 2 {
+		if key == cursorPreToolKey && errors.As(err, &exit) && exit.ExitCode() == 2 {
 			return errHookVeto
 		}
-		return fmt.Errorf("hook anterior terminou com falha: %w", err)
+		return fmt.Errorf("hook terminou com falha: %w", err)
+	}
+	if key == cursorPostToolKey {
+		raw := bytes.TrimSpace(stdout.buffer.Bytes())
+		var response map[string]json.RawMessage
+		if stdout.overflow || len(raw) != 0 && (!strictHookJSON(raw, &response) || response == nil || len(response) != 0) {
+			return errHookOutput
+		}
+		return nil
 	}
 	var decision struct {
 		Permission   string `json:"permission"`

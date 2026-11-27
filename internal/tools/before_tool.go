@@ -6,22 +6,17 @@ import (
 )
 
 // A goroutine do hook nunca recebe a ferramenta. Uma resposta atrasada não pode despachá-la.
-func awaitBeforeTool(ctx context.Context, before func(context.Context, ToolCall) error, call ToolCall) error {
+func awaitToolHook(ctx context.Context, run func() error) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
 	done := make(chan error, 1)
 	go func() {
-		defer func() {
-			if recover() != nil {
-				done <- errors.New("falha interna no hook anterior")
-			}
-		}()
 		if err := ctx.Err(); err != nil {
 			done <- err
 			return
 		}
-		done <- before(ctx, call)
+		done <- callToolHook(run)
 	}()
 	select {
 	case <-ctx.Done():
@@ -32,4 +27,13 @@ func awaitBeforeTool(ctx context.Context, before func(context.Context, ToolCall)
 		}
 		return ctx.Err()
 	}
+}
+
+func callToolHook(run func() error) (err error) {
+	defer func() {
+		if recover() != nil {
+			err = errors.New("falha interna no hook")
+		}
+	}()
+	return run()
 }

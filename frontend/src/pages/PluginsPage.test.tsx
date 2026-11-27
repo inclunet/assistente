@@ -9,7 +9,7 @@ import * as navigation from '../lib/commandLandmarkNavigation';
 
 const mocks = vi.hoisted(() => ({ hook: vi.fn(), providerRemovalPreview: vi.fn(), uninstallReviewed: vi.fn(), registerProvider: vi.fn(), prepareJob: vi.fn(), syncJobs: vi.fn().mockResolvedValue(undefined), profile: vi.fn(), createList: vi.fn(), repos: vi.fn(), catalogPreview: vi.fn(), lifecycle: vi.fn(), sync: vi.fn(), register: vi.fn(), remove: vi.fn(), confirm: vi.fn(), list: vi.fn(), components: vi.fn(), toggle: vi.fn(), agent: vi.fn(), preview: vi.fn(), archive: vi.fn(), addReviewed: vi.fn(), install: vi.fn(), discard: vi.fn(), announce: vi.fn(), announceRequest: vi.fn() }));
 vi.mock('@wailsjs/go/wailsapi/Tasklist', () => ({GetAllTaskLists: async () => []}));
-vi.mock('@wailsjs/go/wailsapi/Plugins', () => ({ DecidePreToolHook: mocks.hook, BuilderProviderSlugs: async () => ['equipe'], BuilderJobNames: async () => [], BuilderProfileNames: async () => ({names:[],partial:false}), BuilderSkillNames: async () => ({names:[],partial:false}), CreateListFromTemplate: mocks.createList, ListRepositories: mocks.repos, PreviewRepositoryEntry: mocks.catalogPreview, ChangeInstallation: mocks.lifecycle, PrepareJob: mocks.prepareJob, SyncPendingJobs: mocks.syncJobs, SyncMCP: mocks.sync, ProviderRemovalPreview: mocks.providerRemovalPreview, UninstallReviewed: mocks.uninstallReviewed, RegisterProvider: mocks.registerProvider, RegisterMCP: mocks.register, RemoveMCP: mocks.remove, InstalledComponents: mocks.components, SetProfileActive: mocks.profile, SetSkillActive: mocks.toggle, SetAgentActive: mocks.agent, DiscardPreview: mocks.discard, ListInstalled: mocks.list, PreviewLocal: mocks.preview, PreviewLocalZIP: mocks.archive, AddReviewedRepository: mocks.addReviewed, InstallReviewed: mocks.install }));
+vi.mock('@wailsjs/go/wailsapi/Plugins', () => ({ DecideToolHook: mocks.hook, BuilderProviderSlugs: async () => ['equipe'], BuilderJobNames: async () => [], BuilderProfileNames: async () => ({names:[],partial:false}), BuilderSkillNames: async () => ({names:[],partial:false}), CreateListFromTemplate: mocks.createList, ListRepositories: mocks.repos, PreviewRepositoryEntry: mocks.catalogPreview, ChangeInstallation: mocks.lifecycle, PrepareJob: mocks.prepareJob, SyncPendingJobs: mocks.syncJobs, SyncMCP: mocks.sync, ProviderRemovalPreview: mocks.providerRemovalPreview, UninstallReviewed: mocks.uninstallReviewed, RegisterProvider: mocks.registerProvider, RegisterMCP: mocks.register, RemoveMCP: mocks.remove, InstalledComponents: mocks.components, SetProfileActive: mocks.profile, SetSkillActive: mocks.toggle, SetAgentActive: mocks.agent, DiscardPreview: mocks.discard, ListInstalled: mocks.list, PreviewLocal: mocks.preview, PreviewLocalZIP: mocks.archive, AddReviewedRepository: mocks.addReviewed, InstallReviewed: mocks.install }));
 vi.mock('../hooks/useConfirm', () => ({ useConfirm: () => mocks.confirm }));
 vi.mock('../store/authStore', async importOriginal => {
   const actual = await importOriginal<typeof import('../store/authStore')>();
@@ -792,22 +792,23 @@ describe('PluginsPage', () => {
     }
   });
 
-  it('guarda a decisão para a revisão e o workspace mostrados apenas após confirmação', async () => {
+  it.each([['preToolUse', 'plugins.hookConsent'], ['postToolUse', 'plugins.postHookConsent']])('guarda a decisão de %s para a revisão e o workspace mostrados após confirmação', async (event, consent) => {
     const old = useWorkspaceStore.getState().workspace;
     useWorkspaceStore.setState({workspace:{id:'w',name:'Projeto',activeTabId:'',tabs:[]}});
     try {
       mocks.list.mockResolvedValue([{id:'one',name:'Demo',digest:'sha'}]);
-      mocks.components.mockResolvedValue([{kind:'hook',name:'preToolUse',key:'hooks/hooks.json#preToolUse',hookScript:'hooks/check.ps1',hookGeneration:'3'}]);
+      mocks.components.mockResolvedValue([{kind:'hook',name:event,key:`hooks/hooks.json#${event}`,hookScript:'hooks/check.ps1',hookGeneration:'3'}]);
       const user = userEvent.setup();
       render(<PluginsPage />);
       (await screen.findByRole('gridcell', {name:/Demo/})).focus();
       await user.keyboard('{Enter}');
       await user.click(await screen.findByRole('button',{name:'plugins.hookPermission'}));
       const dialog = await screen.findByRole('alertdialog');
+      expect(within(dialog).getByText(consent)).toBeVisible();
       expect(mocks.hook).not.toHaveBeenCalled();
       mocks.hook.mockRejectedValueOnce(new Error('indisponível')).mockResolvedValueOnce(undefined);
       await user.click(within(dialog).getByRole('button',{name:'plugins.hookHere'}));
-      expect(mocks.hook).toHaveBeenCalledWith('one','sha','hooks/hooks.json#preToolUse','3','session','w','workspace');
+      expect(mocks.hook).toHaveBeenCalledWith('one','sha',`hooks/hooks.json#${event}`,'3','session','w','workspace');
       expect(await screen.findByText('plugins.hookSaveFailed')).toBeVisible();
       await user.click(screen.getByRole('button',{name:'plugins.hookPermission'}));
       await user.click(within(await screen.findByRole('alertdialog')).getByRole('button',{name:'plugins.hookHere'}));
