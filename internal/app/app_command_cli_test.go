@@ -33,7 +33,7 @@ func TestCommandCLIListsFullCatalogAndDescribesUnavailableWorkspaceCommand(t *te
 		t.Fatalf("List: %v", err)
 	}
 	if got := len(items); got != 159 {
-		t.Fatalf("catálogo CLI = %d itens, esperado 158", got)
+		t.Fatalf("catálogo CLI = %d itens, esperado 159", got)
 	}
 
 	description, err := cli.Describe(context.Background(), commandProductWorkspaceListID, "en")

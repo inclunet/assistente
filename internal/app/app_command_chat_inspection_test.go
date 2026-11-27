@@ -35,7 +35,7 @@ func TestCommandChatInspectionLocalPresentation(t *testing.T) {
 				t.Fatal(err)
 			}
 			for _, layer := range projection.BuiltinLayers {
-				if layer.ID == commandKeyboardLayerID && len(layer.Defaults) != 72 {
+				if layer.ID == commandKeyboardLayerID && len(layer.Defaults) != 73 {
 					t.Fatal("default count changed")
 				}
 				for _, item := range layer.Defaults {

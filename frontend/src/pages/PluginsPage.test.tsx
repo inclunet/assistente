@@ -98,6 +98,43 @@ describe('PluginsPage', () => {
     expect(mocks.saveProject).toHaveBeenLastCalledWith('session', expect.objectContaining({id:'created',revision:1,selection:expect.objectContaining({name:'Minha equipe',providers:[]})}));
   });
 
+  it('mantém o rascunho quando a pessoa recusa descartar e fecha quando confirma', async () => {
+    const user = userEvent.setup();
+    mocks.confirm.mockResolvedValueOnce(false).mockResolvedValueOnce(true);
+    render(<PluginsPage />);
+    await user.click(await screen.findByRole('tab', {name:'plugins.builder'}));
+    await user.click(await screen.findByRole('button', {name:'plugins.newProject'}));
+    const name = await screen.findByRole('textbox',{name:'plugins.packageName'});
+    await waitFor(() => expect(name).toBeEnabled());
+    await user.type(name, 'Em edição');
+    await user.keyboard('{Escape}');
+    expect(mocks.confirm).toHaveBeenCalledTimes(1);
+    expect(name).toHaveValue('Em edição');
+    await user.click(screen.getByRole('button',{name:'common.cancel'}));
+    expect(mocks.confirm).toHaveBeenCalledTimes(2);
+    expect(name).not.toBeInTheDocument();
+    expect(mocks.saveProject).not.toHaveBeenCalled();
+  });
+
+  it('aguarda o salvamento antes de permitir fechar o editor', async () => {
+    let finishSave!: (project: unknown) => void;
+    mocks.saveProject.mockImplementationOnce(() => new Promise(resolve => {finishSave = resolve;}));
+    const user = userEvent.setup();
+    render(<PluginsPage />);
+    await user.click(await screen.findByRole('tab', {name:'plugins.builder'}));
+    await user.click(await screen.findByRole('button', {name:'plugins.newProject'}));
+    const name = await screen.findByRole('textbox',{name:'plugins.packageName'});
+    await waitFor(() => expect(name).toBeEnabled());
+    await user.type(name, 'Salvando');
+    await user.click(screen.getByRole('button',{name:'plugins.saveProject'}));
+    await user.keyboard('{Escape}');
+    expect(name).toBeInTheDocument();
+    expect(screen.getByRole('button',{name:'common.cancel'})).toBeDisabled();
+    expect(mocks.confirm).not.toHaveBeenCalled();
+    await act(async () => finishSave({id:'p',revision:1,selection:{name:'Salvando'}}));
+    expect(await screen.findByRole('gridcell',{name:'Salvando'})).toBeVisible();
+  });
+
   it('aguarda a revisão atualizada antes de reabrir um projeto em conflito', async () => {
     const user = userEvent.setup();
     const row = {id:'kit', revision:1, selection:{name:'Inicial'}};
