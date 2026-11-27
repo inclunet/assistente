@@ -19,7 +19,7 @@ func TestProviderProfileIDCreatePreserveAndClear(t *testing.T) {
 	created, err := service.Create(context.Background(), CreateRequest{
 		ID: "openrouter-connection", Name: "OpenRouter", Type: "custom",
 		APIFormat: "openai", BaseURL: "https://openrouter.ai/api/v1",
-		AuthMode: "none", ServerProfileID: " openrouter ",
+		StreamIdleTimeoutSeconds: 120, AuthMode: "none", ServerProfileID: " openrouter ",
 	})
 	if err != nil {
 		t.Fatalf("Create() error = %v", err)
@@ -36,10 +36,17 @@ func TestProviderProfileIDCreatePreserveAndClear(t *testing.T) {
 		t.Fatalf("edição parcial perdeu perfil = %q", updated.Provider.ServerProfileID)
 	}
 
+	if updated.Provider.StreamIdleTimeoutSeconds != 120 {
+		t.Fatal("edição parcial perdeu timeout do provedor")
+	}
+	clearTimeout := 0
 	clear := ""
-	updated, err = service.Update(context.Background(), created.Provider.ID, UpdateRequest{ServerProfileID: &clear})
+	updated, err = service.Update(context.Background(), created.Provider.ID, UpdateRequest{ServerProfileID: &clear, StreamIdleTimeoutSeconds: &clearTimeout})
 	if err != nil {
 		t.Fatalf("Update() para limpar perfil error = %v", err)
+	}
+	if updated.Provider.StreamIdleTimeoutSeconds != 0 {
+		t.Fatal("edição não limpou o timeout do provedor")
 	}
 	if updated.Provider.ServerProfileID != "" {
 		t.Fatalf("perfil após limpeza = %q, esperado vazio", updated.Provider.ServerProfileID)

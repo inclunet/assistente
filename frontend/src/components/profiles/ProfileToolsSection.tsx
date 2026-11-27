@@ -1,3 +1,4 @@
+import { StreamIdleTimeoutInput } from '../ui/StreamIdleTimeoutInput';
 import { useCallback, useMemo, useRef, useState } from 'react';
 import { FilterOutlined } from '@ant-design/icons';
 import { apidto, allowlist } from '@wailsjs/go/models';
@@ -93,7 +94,7 @@ export function ProfileToolsSection({
   commandAllowlist = '',
   availableAllowlists = [],
   maxAgenticIterations = 0,
-  responseTimeout = 180,
+  responseTimeout,
   nativeMcp = null,
   onChange,
   onPolicyChange,
@@ -607,25 +608,8 @@ export function ProfileToolsSection({
             </span>
       </div>
 
-      <div className="profiles-field">
-            <label htmlFor="pf-response-timeout" className="profiles-field__label">
-              {t('profiles.responseTimeout', 'Timeout de Resposta (segundos)')}
-            </label>
-            <input
-              id="pf-response-timeout"
-              type="number"
-              className="profiles-field__input"
-              min={5}
-              max={600}
-              value={responseTimeout}
-              onChange={(e) => onChange('response_timeout', parseInt(e.target.value) || 180)}
-              disabled={disabled}
-              data-testid="response-timeout-input"
-            />
-            <span className="profiles-field__hint">
-              {t('profiles.responseTimeoutHint', '2ª camada de proteção contra loops. Respostas acima desse tempo são interrompidas.')}
-            </span>
-      </div>
+      <StreamIdleTimeoutInput scope="profile" testId="response-timeout-input" value={responseTimeout} disabled={disabled}
+          onChange={seconds => onChange('response_timeout', seconds)} />
 
       <div className="profiles-field">
             <label htmlFor="pf-command-allowlist" className="profiles-field__label">

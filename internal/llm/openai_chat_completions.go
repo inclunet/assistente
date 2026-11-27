@@ -143,7 +143,7 @@ func (p *OpenAIProvider) doStream(ctx context.Context, params openai.ChatComplet
 	// Watchdog de ociosidade: se o servidor parar de enviar sem fechar a
 	// conexão, cancela a leitura e transforma em erro retryable (quando nada
 	// visível foi emitido). Cada evento recebido reinicia a contagem.
-	watchCtx, wd := startStreamWatchdog(ctx, streamIdleTimeoutForProvider(p.provider), nil)
+	watchCtx, wd := startStreamWatchdog(ctx, streamIdleTimeout(chatParams.ResponseTimeout, p.provider), nil)
 	defer wd.Stop()
 
 	stream := p.streamClient.Chat.Completions.NewStreaming(watchCtx, params)

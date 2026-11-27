@@ -1,3 +1,4 @@
+import { StreamIdleTimeoutInput } from '../ui/StreamIdleTimeoutInput';
 import { useTranslation } from 'react-i18next';
 import { LLMProviderPicker } from '../pickers/LLMProviderPicker';
 import { ModelPicker } from '../pickers/ModelPicker';
@@ -132,7 +133,6 @@ export function ProfileChatSection({
   const contextWindowInvalid = contextWindowMaximum != null && contextWindowValue > contextWindowMaximum;
   const maxContextMessagesValue = maxContextMessages ?? 0;
   const minContextMessagesValue = minContextMessages ?? 0;
-  const responseTimeoutValue = responseTimeout ?? 180;
   const rateLimitEnabledValue = rateLimitEnabled ?? true;
   const rateLimitRpmValue = rateLimitRpm ?? 0;
   const rateLimitBurstValue = rateLimitBurst ?? 0;
@@ -503,21 +503,8 @@ export function ProfileChatSection({
           </span>
         </div>
 
-        <div className="profiles-field">
-          <label htmlFor="chat-timeout" className="profiles-field__label">
-            {t('profiles.chatSection.timeout')}
-          </label>
-          <input
-            id="chat-timeout"
-            type="number"
-            className="profiles-field__input"
-            min={10}
-            max={600}
-            value={responseTimeoutValue}
-            onChange={(e) => onChange('response_timeout', parseInt(e.target.value) || 180)}
-            disabled={disabled}
-          />
-        </div>
+        <StreamIdleTimeoutInput scope="profile" value={responseTimeout} disabled={disabled}
+          onChange={seconds => onChange('response_timeout', seconds)} />
       </fieldset>
 
       {/* ── Recuperação ── */}

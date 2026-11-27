@@ -45,7 +45,7 @@ Além disso, hoje uma falha de streaming tende a simplesmente “parar”, sem (
   a pessoa pode usar a continuação explícita quando aplicável. Isso evita duplicar
   conteúdo e efeitos de ferramentas. Recuperação automática segura do parcial
   fica pendente de contrato e prova específicos.
-- O número de tentativas é **configurável por perfil**. Quando o provedor HTTP já esgotou suas tentativas internas de streaming, sinaliza erro terminal ao agente. A recuperação automática respeita esse limite para evitar multiplicar chamadas. O watchdog continua medindo inatividade por tentativa.
+- O número de tentativas é **configurável por perfil**. Quando o provedor HTTP já esgotou suas tentativas internas de streaming, sinaliza erro terminal ao agente. A recuperação automática respeita esse limite para evitar multiplicar chamadas. O watchdog mede inatividade por tentativa SSE e reinicia a contagem a cada evento. Resolve o prazo nesta ordem: `chat.response_timeout` do perfil, `stream_idle_timeout_seconds` da conexão e, por último, 60 segundos. Ausência ou zero herdam a próxima camada. Perfis já salvos com um prazo positivo preservam o valor.
 - Cada tentativa de streaming da Responses API registra o identificador da conexão e o modelo solicitado no payload final, inclusive quando há override na aba. Quando a resposta HTTP fornece identificadores de correlação reconhecidos em `x-request-id` ou `x-litellm-call-id`, o log associa esses IDs à tentativa e ao turno.
 - Na Responses API, timeout registra estágio, tipo do último evento completo (`none` antes do primeiro e `unknown` para tipos não reconhecidos), contagens e tempos de leitura e
   processamento sem incluir conteúdo, credenciais ou payload. O diagnóstico não

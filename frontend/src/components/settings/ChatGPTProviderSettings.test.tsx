@@ -11,7 +11,7 @@ const props = () => ({ providerId: 'account-1', connected: true, disabled: false
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.t = (key: string) => key;
-  mocks.get.mockResolvedValue({ name: 'Personal', default_model: 'model-a', is_default: false });
+  mocks.get.mockResolvedValue({ name: 'Personal', default_model: 'model-a', stream_idle_timeout_seconds: 120, is_default: false });
   mocks.models.mockResolvedValue(['model-a', 'model-b']);
   mocks.update.mockResolvedValue({}); mocks.setDefault.mockResolvedValue(undefined);
 });
@@ -20,11 +20,14 @@ describe('ChatGPT provider preferences', () => {
     const user = userEvent.setup(), p = props();
     render(<ChatGPTProviderSettings {...p} />);
     await screen.findByDisplayValue('Personal');
+    const timeout = screen.getByLabelText('providerForm.streamIdleTimeout');
+    expect(timeout).toHaveValue(120);
+    await user.clear(timeout);
     await user.selectOptions(screen.getByLabelText('providerForm.defaultModel'), 'model-b');
     await user.clear(screen.getByLabelText('chatgpt.providerName'));
     await user.type(screen.getByLabelText('chatgpt.providerName'), 'Work');
     await user.click(screen.getByRole('button', { name: 'chatgpt.savePreferences' }));
-    expect(mocks.update).toHaveBeenCalledWith('account-1', { name: 'Work', default_model: 'model-b' });
+    expect(mocks.update).toHaveBeenCalledWith('account-1', { name: 'Work', default_model: 'model-b', stream_idle_timeout_seconds: 0 });
     expect(p.onChanged).toHaveBeenCalledOnce();
     expect(p.onBusyChange.mock.calls.map(call => call[0])).toEqual([true, false]);
     expect(mocks.announce).toHaveBeenCalledWith('chatgpt.preferencesSaved');

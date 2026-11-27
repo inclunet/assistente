@@ -11,6 +11,7 @@ type CreateLLMProviderRequest struct {
 	Type                      string            `json:"type"`
 	BaseURL                   string            `json:"base_url"`
 	APIKey                    string            `json:"api_key,omitempty"`
+	StreamIdleTimeoutSeconds  int               `json:"stream_idle_timeout_seconds,omitempty"`
 	DefaultModel              string            `json:"default_model,omitempty"`
 	APIFormat                 string            `json:"api_format,omitempty"`
 	ServerProfileID           string            `json:"server_profile_id,omitempty"`
@@ -58,6 +59,7 @@ type UpdateLLMProviderRequest struct {
 	Type                      string             `json:"type,omitempty"`
 	BaseURL                   string             `json:"base_url,omitempty"`
 	APIKey                    string             `json:"api_key,omitempty"`
+	StreamIdleTimeoutSeconds  *int               `json:"stream_idle_timeout_seconds,omitempty"`
 	DefaultModel              string             `json:"default_model,omitempty"`
 	APIFormat                 string             `json:"api_format,omitempty"`
 	ServerProfileID           *string            `json:"server_profile_id,omitempty"`

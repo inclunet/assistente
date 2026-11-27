@@ -157,17 +157,23 @@ func TestStreamWatchdogStopLimitaEsperaDeCallbackLento(t *testing.T) {
 	}
 }
 
-func TestStreamIdleTimeoutForProvider(t *testing.T) {
-	if got := streamIdleTimeoutForProvider(nil); got != defaultStreamIdleTimeout {
+func TestStreamIdleTimeoutPrecedence(t *testing.T) {
+	if got := streamIdleTimeout(180, &ProviderConfig{StreamIdleTimeoutSeconds: 15}); got != 180*time.Second {
+		t.Fatalf("prazo do perfil: %v", got)
+	}
+	if got := streamIdleTimeout(MaxStreamIdleTimeoutSeconds+1, &ProviderConfig{StreamIdleTimeoutSeconds: 15}); got != (MaxStreamIdleTimeoutSeconds+1)*time.Second {
+		t.Fatalf("perfil legado maior que o limite do provedor: %v", got)
+	}
+	if got := streamIdleTimeout(0, nil); got != defaultStreamIdleTimeout {
 		t.Fatalf("nil provider: esperava %v, veio %v", defaultStreamIdleTimeout, got)
 	}
-	if got := streamIdleTimeoutForProvider(&ProviderConfig{}); got != defaultStreamIdleTimeout {
+	if got := streamIdleTimeout(0, &ProviderConfig{}); got != defaultStreamIdleTimeout {
 		t.Fatalf("sem override: esperava %v, veio %v", defaultStreamIdleTimeout, got)
 	}
-	if got := streamIdleTimeoutForProvider(&ProviderConfig{StreamIdleTimeoutSeconds: 15}); got != 15*time.Second {
+	if got := streamIdleTimeout(0, &ProviderConfig{StreamIdleTimeoutSeconds: 15}); got != 15*time.Second {
 		t.Fatalf("override: esperava 15s, veio %v", got)
 	}
-	if got := streamIdleTimeoutForProvider(&ProviderConfig{StreamIdleTimeoutSeconds: maxStreamIdleTimeoutSeconds + 1}); got != defaultStreamIdleTimeout {
+	if got := streamIdleTimeout(0, &ProviderConfig{StreamIdleTimeoutSeconds: MaxStreamIdleTimeoutSeconds + 1}); got != defaultStreamIdleTimeout {
 		t.Fatalf("override fora da faixa: esperava padrão %v, veio %v", defaultStreamIdleTimeout, got)
 	}
 }

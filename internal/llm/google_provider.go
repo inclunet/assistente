@@ -314,7 +314,7 @@ func (p *GoogleProvider) StreamChat(ctx context.Context, messages []Message, par
 		}
 
 		usagePresence.reset()
-		done := p.doStream(ctx, client, usagePresence, model, contents, config, handler)
+		done := p.doStream(ctx, client, usagePresence, model, contents, config, handler, params.ResponseTimeout)
 		if done {
 			return
 		}
@@ -333,10 +333,10 @@ func (p *GoogleProvider) StreamChat(ctx context.Context, messages []Message, par
 	}
 }
 
-func (p *GoogleProvider) doStream(ctx context.Context, client *genai.Client, usagePresence *googleUsagePresenceTracker, model string, contents []*genai.Content, config *genai.GenerateContentConfig, handler StreamHandler) bool {
+func (p *GoogleProvider) doStream(ctx context.Context, client *genai.Client, usagePresence *googleUsagePresenceTracker, model string, contents []*genai.Content, config *genai.GenerateContentConfig, handler StreamHandler, profileTimeout int) bool {
 	// Watchdog de ociosidade (ver stream_watchdog.go): servidor que para de
 	// enviar sem fechar a conexÃƒÂ£o nÃƒÂ£o pode prender a leitura atÃƒÂ© o timeout.
-	watchCtx, wd := startStreamWatchdog(ctx, streamIdleTimeoutForProvider(p.provider), nil)
+	watchCtx, wd := startStreamWatchdog(ctx, streamIdleTimeout(profileTimeout, p.provider), nil)
 	defer wd.Stop()
 
 	var fullResponse strings.Builder

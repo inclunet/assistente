@@ -2,6 +2,7 @@ package llm
 
 import (
 	"context"
+	"math"
 	"sync"
 	"time"
 
@@ -15,13 +16,18 @@ import (
 // até um timeout externo — que era o Timeout global do http.Client (removido
 // em favor de timeouts granulares).
 const defaultStreamIdleTimeout = 60 * time.Second
-const maxStreamIdleTimeoutSeconds = 24 * 60 * 60
+const MaxStreamIdleTimeoutSeconds = 24 * 60 * 60
 
-// streamIdleTimeoutForProvider devolve o idle timeout do provider, com
-// override opcional persistido na configuração do provider.
-func streamIdleTimeoutForProvider(p *ProviderConfig) time.Duration {
+// streamIdleTimeout resolve o prazo de inatividade por chamada: perfil, provedor e padrão.
+func streamIdleTimeout(profileSeconds int, p *ProviderConfig) time.Duration {
+	if profileSeconds > 0 {
+		if int64(profileSeconds) > math.MaxInt64/int64(time.Second) {
+			return time.Duration(math.MaxInt64)
+		}
+		return time.Duration(profileSeconds) * time.Second
+	}
 	if p != nil && p.StreamIdleTimeoutSeconds > 0 &&
-		p.StreamIdleTimeoutSeconds <= maxStreamIdleTimeoutSeconds {
+		p.StreamIdleTimeoutSeconds <= MaxStreamIdleTimeoutSeconds {
 		return time.Duration(p.StreamIdleTimeoutSeconds) * time.Second
 	}
 	return defaultStreamIdleTimeout

@@ -392,9 +392,7 @@ func (i *Interactor) PrepareContext(ctx context.Context, req PrepareContextReque
 		if activeProfile.Chat.MaxAgenticIterations > 0 {
 			params.MaxAgenticIterations = activeProfile.Chat.MaxAgenticIterations
 		}
-		if activeProfile.Chat.ResponseTimeout > 0 {
-			params.ResponseTimeout = activeProfile.Chat.ResponseTimeout
-		}
+		params.ResponseTimeout = activeProfile.Chat.ResponseTimeout
 		params.RateLimitEnabled = activeProfile.Chat.RateLimitEnabled
 		params.RateLimitRPM = activeProfile.GetLLMRateLimitRPM()
 		params.RateLimitBurst = activeProfile.GetLLMRateLimitBurst()

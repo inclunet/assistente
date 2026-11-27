@@ -58,9 +58,9 @@ func TestResponsesIdleDiagnosticDetectsSlowHandler(t *testing.T) {
 		<-r.Context().Done()
 	}))
 	defer server.Close()
-	p := NewOpenAIResponsesProvider(&ProviderConfig{ID: "diagnostic", BaseURL: server.URL + "/v1", APIFormat: APIFormatOpenAIResponses, AuthMode: AuthModeNone, StreamIdleTimeoutSeconds: 1}, nil)
+	p := NewOpenAIResponsesProvider(&ProviderConfig{ID: "diagnostic", BaseURL: server.URL + "/v1", APIFormat: APIFormatOpenAIResponses, AuthMode: AuthModeNone, StreamIdleTimeoutSeconds: 5}, nil)
 	h := &slowDiagnosticHandler{}
-	p.StreamChat(context.Background(), []Message{{Role: "user", Content: "hi"}}, ChatParams{Model: "model"}, h)
+	p.StreamChat(context.Background(), []Message{{Role: "user", Content: "hi"}}, ChatParams{Model: "model", ResponseTimeout: 1}, h)
 	if h.err != streamIdleErrorMessage || strings.Join(h.chunks, "") != "partial" {
 		t.Fatalf("erro=%q conteúdo=%q", h.err, h.chunks)
 	}
