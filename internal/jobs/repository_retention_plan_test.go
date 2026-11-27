@@ -143,6 +143,9 @@ func TestRetentionQueryPlans(t *testing.T) {
 		if !planContains(oldPlan, "CORRELATED") {
 			t.Errorf("%s baseline no longer demonstrates a correlated subquery; plan: %v", mode, oldPlan)
 		}
+		if !planContains(newPlan, "ix_outbox_owner_state_run") {
+			t.Errorf("%s: índice de proteção de runs ausente: %v", mode, newPlan)
+		}
 		if planContains(newPlan, "CORRELATED") {
 			t.Errorf("%s optimized query regressed to a correlated subquery; plan: %v", mode, newPlan)
 		}

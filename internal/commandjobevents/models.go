@@ -52,10 +52,10 @@ type ActivationOutbox struct {
 	SourceEventID                string     `gorm:"type:text;primaryKey;check:ck_command_outbox_source_event_uuid7,length(source_event_id) = 36 AND substr(source_event_id,9,1) = '-' AND substr(source_event_id,14,1) = '-' AND substr(source_event_id,15,1) = '7' AND substr(source_event_id,19,1) = '-' AND substr(source_event_id,24,1) = '-' AND lower(substr(source_event_id,20,1)) IN ('8','9','a','b')"`
 	SchemaVersion                string     `gorm:"type:text;not null"`
 	EventName                    string     `gorm:"type:text;not null;index"`
-	UserID                       string     `gorm:"type:text;not null;index;check:ck_command_outbox_user_uuid7,length(user_id) = 36 AND substr(user_id,9,1) = '-' AND substr(user_id,14,1) = '-' AND substr(user_id,15,1) = '7' AND substr(user_id,19,1) = '-' AND substr(user_id,24,1) = '-' AND lower(substr(user_id,20,1)) IN ('8','9','a','b')"`
+	UserID                       string     `gorm:"type:text;not null;index:ix_outbox_owner_state_run,priority:1;index;check:ck_command_outbox_user_uuid7,length(user_id) = 36 AND substr(user_id,9,1) = '-' AND substr(user_id,14,1) = '-' AND substr(user_id,15,1) = '7' AND substr(user_id,19,1) = '-' AND substr(user_id,24,1) = '-' AND lower(substr(user_id,20,1)) IN ('8','9','a','b')"`
 	JobDatabaseID                string     `gorm:"type:text;not null;index;check:ck_command_outbox_job_uuid7,length(job_database_id) = 36 AND substr(job_database_id,9,1) = '-' AND substr(job_database_id,14,1) = '-' AND substr(job_database_id,15,1) = '7' AND substr(job_database_id,19,1) = '-' AND substr(job_database_id,24,1) = '-' AND lower(substr(job_database_id,20,1)) IN ('8','9','a','b')"`
 	JobSlug                      string     `gorm:"type:text;not null;index"`
-	RunID                        string     `gorm:"type:text;not null;index"`
+	RunID                        string     `gorm:"type:text;not null;index:ix_outbox_owner_state_run,priority:3;index"`
 	Sequence                     int        `gorm:"not null;check:ck_command_outbox_sequence,sequence > 0"`
 	State                        string     `gorm:"type:text;not null;index;check:ck_command_outbox_state,state IN ('queued','started','retry_scheduled','completed','failed','skipped')"`
 	OccurredAt                   time.Time  `gorm:"not null;index"`
@@ -63,9 +63,9 @@ type ActivationOutbox struct {
 	RootOriginID                 string     `gorm:"type:text;not null"`
 	Provenance                   string     `gorm:"type:text"`
 	SourceReplayPolicyGeneration string     `gorm:"type:text;not null"`
-	SourceReplayDeadline         time.Time  `gorm:"not null;index"`
+	SourceReplayDeadline         time.Time  `gorm:"not null;index:ix_outbox_state_deadline,priority:2;index"`
 	EventFingerprint             string     `gorm:"type:text;not null;index;check:ck_command_outbox_fingerprint,length(event_fingerprint) = 64"`
-	DeliveryState                string     `gorm:"type:text;not null;index;check:ck_command_outbox_delivery_state,delivery_state IN ('pending','processing','delivered','dead_letter')"`
+	DeliveryState                string     `gorm:"type:text;not null;index:ix_outbox_owner_state_run,priority:2;index:ix_outbox_state_deadline,priority:1;index;check:ck_command_outbox_delivery_state,delivery_state IN ('pending','processing','delivered','dead_letter')"`
 	LeaseOwner                   *string    `gorm:"type:text"`
 	LeaseExpiresAt               *time.Time `gorm:"index"`
 	Attempts                     int        `gorm:"not null;default:0;check:ck_command_outbox_attempts,attempts >= 0"`

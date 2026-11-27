@@ -509,3 +509,7 @@ restauração após cancelamento, dados preservados e ambos os erros via `errors
 
 - Teardown completo dos campos legados do `config.json` (welcome wizard, tokens controller, `App.tsx`, bindings) — issue #299.
 - Pooling e retries de `SQLITE_BUSY` foram centralizados em `sqlite_policy.go`; a coordenação entre compactação e exclusão de conversas foi concluída pela issue #725, e a sincronização de `tool_catalog` passou a consumir essa política na issue #738.
+
+## Atualização de 27/11/2026
+
+A migração v49 acrescenta à outbox índices compostos para a purga por estado e prazo de replay e para a proteção de runs por usuário, estado e run. A passagem de manutenção mantém sua cadência e critérios de elegibilidade. `TestActivationOutboxRetentionIndexes` verifica os planos e `TestOutboxRetentionIndexUpgrade` cobre upgrade e detecção de drift.
