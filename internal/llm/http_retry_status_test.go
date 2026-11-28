@@ -146,7 +146,9 @@ func TestStreamAttemptBudgetCountsHTTPRequests(t *testing.T) {
 					w.Header().Set("Retry-After", "1")
 					w.Header().Set("Content-Type", "application/json")
 					w.WriteHeader(http.StatusServiceUnavailable)
-					fmt.Fprint(w, `{"error":{"message":"temporarily unavailable"}}`)
+					if _, err := fmt.Fprint(w, `{"error":{"message":"temporarily unavailable"}}`); err != nil {
+						t.Error(err)
+					}
 				}))
 				defer server.Close()
 				provider := NewChatProvider(&ProviderConfig{ID: "budget", APIFormat: format, AuthMode: AuthModeNone, BaseURL: server.URL + "/v1"}, credentials.NewManager(nil), nil)
