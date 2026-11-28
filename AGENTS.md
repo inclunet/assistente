@@ -293,6 +293,16 @@ ou arquivos Markdown em `aep/` e `docs/content/`, o CI valida o diff com
 `git diff --check` e publica o resultado nos quatro checks obrigatórios. Mudanças fora dessa lista, mudanças em modos de
 arquivo ou uma comparação sem base confirmada usam o CI completo.
 
+### Reaproveitamento de CI após atualização automática
+
+Após uma atualização do bot, o CI pode reaproveitar um dispatch completo e
+verde do mesmo PR nas últimas 24 horas. O SHA registrado pelo GitHub nesse
+evento identifica a árvore testada, incluindo os arquivos do workflow e as
+dependências versionadas. O CI confere a árvore e os resultados das suítes da
+tentativa original e registra o link nos checks atuais. Se a prova faltar,
+inclusive para um run de PR cujo merge sintético não é identificado pela API,
+o CI roda a suíte completa.
+
 ### A main descendo nos PRs abertos
 Check verde envelhece: ele conta o encontro entre a branch e a main de quando
 rodou. Por isso, todo push na `main` dispara o workflow `Atualizar PRs com a
