@@ -2305,7 +2305,7 @@ export function Topbar() {
       canHandleEditable: (commandID, event, bindingArguments) => {
         if (isPageMutationCommand(commandID)) return !event.repeat && !event.isComposing && pageMutationAvailable(commandID);
         if (commandID === TERMINAL_INTERRUPT_COMMAND || isTerminalSessionOperationCommand(commandID)) return !event.repeat && !event.isComposing && terminalOperationAvailable(commandID);
-        if (commandID === 'tasklists.create.open' || commandID === 'profiles.create.open' || commandID === 'workspaces.delete.open') return false;
+        if (commandID === 'plugins.create.open' || commandID === 'tasklists.create.open' || commandID === 'profiles.create.open' || commandID === 'workspaces.delete.open') return false;
         if (isLandmarkNavigationCommand(commandID)) return !event.isComposing && event.keyCode !== 229 && landmarkAvailable(commandID);
         if (isCapturedPresentationCommand(commandID)) return !event.isComposing && event.keyCode !== 229 && presentationCommandAvailable(commandID);
         if (isEditorMermaidCommand(commandID)) return !event.repeat && !event.isComposing && event.keyCode !== 229 && mermaidAvailable(commandID);

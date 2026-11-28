@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useRef } from 'react';
+import keyboardContract from '../../lib/__fixtures__/commandKeyboardMap.json';
 import { Topbar } from './Topbar';
 
 // This fixture has no native hotkeys. The shared ownership bridge is exercised
@@ -23,7 +24,7 @@ const ids = [
   'providers.create.open', 'providers.api.create.open', 'providers.acp.create.open', 'providers.chatgpt.create.open',
   'tasklist.task.create.open',
   'tasklists.create.open', 'tasklists.edit.open', 'tasklists.search.focus',
-  'profiles.create.open', 'profiles.edit.open', 'profiles.search.focus',
+  'plugins.create.open', 'profiles.create.open', 'profiles.edit.open', 'profiles.search.focus',
   'terminal.sessions.open', 'terminal.focus.input', 'terminal.focus.history',
 ] as const satisfies readonly PagePresentationCommandID[];
 const palettePreferencesKey = 'assistente.command-palette.v1.user-a.workspace-a';
@@ -40,6 +41,7 @@ const shortcuts: Record<PagePresentationCommandID, string> = {
   'tasklists.create.open': 'Ctrl+Shift+L, Ctrl+N',
   'tasklists.edit.open': 'Ctrl+Shift+I',
   'tasklists.search.focus': 'Ctrl+Shift+K',
+  'plugins.create.open': 'Ctrl+N',
   'profiles.create.open': 'Ctrl+Shift+P, Ctrl+N',
   'profiles.edit.open': 'Ctrl+Shift+E',
   'profiles.search.focus': 'Ctrl+Shift+F',
@@ -163,6 +165,7 @@ vi.mock('../../lib/commandLocalKeyboardWails', () => ({
           },
           fallback: null,
           fallbackToSequences: true,
+          ...(state.pathname === '/plugins' ? { bySurface: {}, fallbackToSequences:false, byPage: { plugins: keyboardContract.contextualBindings.find(entry => entry.byPage?.plugins && entry.shortcut.code === 'KeyN')?.byPage?.plugins } } : {}),
           ...(state.pathname === '/settings' || state.pathname.startsWith('/settings/') ? { bySurface: {}, fallbackToSequences: false, byPage: { settings: {
             shortcut: { version: 1, code: 'KeyN', modifiers: ['Control'] },
             bySurface: { allowlists: state.settingsSuppressed ? null : {
@@ -199,7 +202,7 @@ function PresentationSurface({ api }: SurfaceProps) {
     tabId: state.pathname === '/' ? 'tab-a' : undefined,
     allowedCommands: ids,
     readTarget: () => target.current,
-    isCurrent: () => ['/settings', '/settings/', '/settings/providers', '/settings/providers/'].includes(state.pathname) || state.pathname === '/profiles' || state.pathname === '/tasklists' || state.pathname === '/',
+    isCurrent: () => ['/settings', '/settings/', '/settings/providers', '/settings/providers/'].includes(state.pathname) || state.pathname === '/plugins' || state.pathname === '/profiles' || state.pathname === '/tasklists' || state.pathname === '/',
     canOpen: (id) => !state.presentationUnavailable && (id.startsWith('providers.')
       ? ['/settings', '/settings/', '/settings/providers', '/settings/providers/'].includes(state.pathname)
       : pathFor(id) === state.pathname),
@@ -457,7 +460,7 @@ describe('Topbar + registry real de apresentação contextual', () => {
   });
 
   it.each([
-    ['/profiles', 'profiles.create.open'], ['/tasklists', 'tasklists.create.open'],
+    ['/plugins', 'plugins.create.open'], ['/profiles', 'profiles.create.open'], ['/tasklists', 'tasklists.create.open'],
   ] as const)('Ctrl+N contextual em %s usa fallbackToSequences sem abrir sequência', async (path, id) => {
     state.pathname = path; mount(); await ready();
     fireEvent.keyDown(window, { key: 'n', code: 'KeyN', ctrlKey: true });

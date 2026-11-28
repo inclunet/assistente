@@ -9,7 +9,9 @@ import (
 
 	"assistente/internal/commandsecurity"
 	"assistente/internal/core/ports"
+	"assistente/internal/database"
 	"assistente/internal/plugins"
+	"assistente/internal/userctx"
 )
 
 var errBuilderDestination = errors.New("PLUGIN_BUILDER_DESTINATION")
@@ -154,4 +156,36 @@ func (api *Plugins) BuilderProviderSlugs() ([]string, error) {
 		return nil, err
 	}
 	return names, nil
+}
+
+func (api *Plugins) BuilderProjects(expectedSession string) ([]plugins.BuilderProject, error) {
+	var projects []plugins.BuilderProject
+	err := api.mutateComponent(func(ctx context.Context, i *plugins.Inventory, admit commandsecurity.Admission) error {
+		if session, ok := userctx.SessionIDFromContext(ctx); !ok || session != expectedSession {
+			return database.ErrUserScopeRequired
+		}
+		var err error
+		projects, err = i.Projects(ctx)
+		if err != nil {
+			return err
+		}
+		return admit.Check()
+	})
+	if err != nil {
+		return nil, err
+	}
+	return projects, nil
+}
+
+func (api *Plugins) SaveBuilderProject(expectedSession string, project plugins.BuilderProject) (plugins.BuilderProject, error) {
+	var saved plugins.BuilderProject
+	err := api.mutateComponent(func(ctx context.Context, i *plugins.Inventory, admit commandsecurity.Admission) error {
+		if session, ok := userctx.SessionIDFromContext(ctx); !ok || session != expectedSession {
+			return database.ErrUserScopeRequired
+		}
+		var err error
+		saved, err = i.SaveProject(ctx, project, admit)
+		return err
+	})
+	return saved, err
 }

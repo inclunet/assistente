@@ -63,7 +63,7 @@ func TestCommandPagePresentationClosedLocalCatalog(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(p.registry.List()) != 158 || len(view.LocalPaletteCommands) != 69 {
+	if len(p.registry.List()) != 159 || len(view.LocalPaletteCommands) != 70 {
 		t.Fatal("catalog counts")
 	}
 	for _, item := range commandProductPagePresentation {

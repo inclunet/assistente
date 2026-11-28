@@ -34,7 +34,7 @@ func TestCommandKeyboardDefaultsProjectStableApplicationLayer(t *testing.T) {
 			keyboardLayer = layer
 		}
 	}
-	if keyboardLayer.ID != commandKeyboardLayerID || !keyboardLayer.Active || len(keyboardLayer.Defaults) != 72 {
+	if keyboardLayer.ID != commandKeyboardLayerID || !keyboardLayer.Active || len(keyboardLayer.Defaults) != 73 {
 		t.Fatalf("defaults de teclado = %+v", keyboardLayer)
 	}
 	want := []struct {
@@ -108,6 +108,7 @@ func TestCommandKeyboardDefaultsProjectStableApplicationLayer(t *testing.T) {
 		{"builtin.keyboard.ctrl-n.allowlists.create.open", "keyboard.local:Control+KeyN", "allowlists.create.open"},
 		{"builtin.keyboard.f2.workspaces.rename.open", "keyboard.local:F2", "workspaces.rename.open"},
 		{"builtin.keyboard.delete.workspaces.delete.open", "keyboard.local:Delete", "workspaces.delete.open"},
+		{"builtin.keyboard.ctrl-n.plugins.create.open", "keyboard.local:Control+KeyN", "plugins.create.open"},
 	}
 	// Current catalog goldens: origins are executable semantics, so a catalog
 	// source-set change can require review of persisted, versioned deltas even
