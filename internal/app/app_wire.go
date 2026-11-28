@@ -76,7 +76,7 @@ func (a *App) wirePlugins() {
 				return fmt.Errorf("gerenciador de provedores indisponível")
 			}
 			return a.providerSvc.RemovePackagedProviders(commit)
-		}).WithProfileDefinitions(a.profileManager.DiscoverPortableDefinitions).WithSkillDefinitions(a.skillMgr.DiscoverPortableDefinitions).WithListCreated(a.taskSvc.NotifyTemplateListCreated), a.dialogPort.OpenDirectoryDialog, a.captureDialogAdmission, func() { a.emitter.Emit("plugins:skills_changed", nil) })
+		}).WithProviderConsumers(a.profileManager.WithProviderConsumers).WithProfileDefinitions(a.profileManager.DiscoverPortableDefinitions).WithSkillDefinitions(a.skillMgr.DiscoverPortableDefinitions).WithListCreated(a.taskSvc.NotifyTemplateListCreated), a.dialogPort.OpenDirectoryDialog, a.captureDialogAdmission, func() { a.emitter.Emit("plugins:skills_changed", nil) })
 	}
 }
 

@@ -777,6 +777,25 @@ func TestBuilderReadsNativeProfilePreferences(t *testing.T) {
 	}
 }
 
+func TestConsumerDiscoveryIncludesNonPortableFilename(t *testing.T) {
+	manager := setupProfileTestEnv(t)
+	dir := filepath.Join(configdir.GetHomeDir(), "profiles")
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "Revisor.json"), []byte(`{"name":"Revisor","chat":{"llm_provider":"equipe"}}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.WithProviderConsumers(func(refs map[string][]string, complete bool) error {
+		if !complete || len(refs["equipe"]) != 1 || refs["equipe"][0] != "Revisor" {
+			t.Errorf("referências: %v completas=%v", refs, complete)
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestBuilderRejectsLinkedProfileDirectory(t *testing.T) {
 	manager := setupProfileTestEnv(t)
 	outside := t.TempDir()

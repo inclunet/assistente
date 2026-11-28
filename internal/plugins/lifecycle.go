@@ -18,14 +18,14 @@ func (i *Inventory) ChangeInstallation(ctx context.Context, id, digest, action s
 	return i.changeInstallation(ctx, id, digest, action, "", nil, admit)
 }
 
-func (i *Inventory) UninstallReviewed(ctx context.Context, id, digest, choice string, reviewed map[string]string, admit commandsecurity.Admission) error {
+func (i *Inventory) UninstallReviewed(ctx context.Context, id, digest, choice string, reviewed map[string]ProviderRemovalItem, admit commandsecurity.Admission) error {
 	if choice != "detach" && choice != "remove" {
 		return ErrInstallationChanged
 	}
 	return i.changeInstallation(ctx, id, digest, "uninstall", choice, reviewed, admit)
 }
 
-func (i *Inventory) changeInstallation(ctx context.Context, id, digest, action, choice string, reviewed map[string]string, admit commandsecurity.Admission) error {
+func (i *Inventory) changeInstallation(ctx context.Context, id, digest, action, choice string, reviewed map[string]ProviderRemovalItem, admit commandsecurity.Admission) error {
 	owner, err := database.RequireUserID(ctx)
 	if err != nil {
 		return err
@@ -41,7 +41,7 @@ func (i *Inventory) changeInstallation(ctx context.Context, id, digest, action, 
 	var removedProviders []string
 	var revokedJobs []string
 	var syncNeeded bool
-	commit := func() error {
+	commit := func(refs map[string][]string, complete bool) error {
 		return database.WithSQLiteAdmittedCommit(publishCtx, i.db, "plugins.lifecycle", func(tx *gorm.DB) error {
 			var row database.PluginInstallation
 			err := tx.Where("user_id=? AND id=? AND digest=?", owner, id, digest).Take(&row).Error
@@ -89,7 +89,7 @@ func (i *Inventory) changeInstallation(ctx context.Context, id, digest, action, 
 			if action == "disable" {
 				return tx.Model(&row).Where("disabled = ?", false).Updates(map[string]any{"disabled": true, "hook_generation": gorm.Expr("hook_generation + 1")}).Error
 			}
-			removedProviders, err = applyProviderRemoval(tx, publishCtx, owner, id, choice, reviewed)
+			removedProviders, err = i.applyProviderRemoval(tx, publishCtx, owner, id, choice, reviewed, refs, complete)
 			if err != nil {
 				return err
 			}
@@ -104,9 +104,13 @@ func (i *Inventory) changeInstallation(ctx context.Context, id, digest, action, 
 		if i.removeProviders == nil {
 			return ErrComponentUnavailable
 		}
-		err = i.removeProviders(func() ([]string, error) { err := commit(); return removedProviders, err })
+		err = i.withProviderConsumers(func(refs map[string][]string, complete bool) error {
+			return i.removeProviders(func() ([]string, error) { err := commit(refs, complete); return removedProviders, err })
+		})
+	} else if action == "uninstall" && len(reviewed) > 0 {
+		err = i.withProviderConsumers(commit)
 	} else {
-		err = commit()
+		err = commit(map[string][]string{}, false)
 	}
 	if err != nil {
 		return err

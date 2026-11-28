@@ -352,12 +352,17 @@ func (api *Plugins) InstalledComponents(id, digest string) ([]plugins.Component,
 	})
 }
 
-func (api *Plugins) ProviderRemovalPreview(id, digest string) (map[string]string, error) {
+type ProviderRemovalEntry struct {
+	Slug string                      `json:"slug"`
+	Item plugins.ProviderRemovalItem `json:"item"`
+}
+
+func (api *Plugins) ProviderRemovalPreview(id, digest string) ([]ProviderRemovalEntry, error) {
 	session, inventory, _, capture, err := api.wired()
 	if err != nil {
 		return nil, err
 	}
-	return WithUser(session, func(ctx context.Context) (map[string]string, error) {
+	return WithUser(session, func(ctx context.Context) ([]ProviderRemovalEntry, error) {
 		admit, err := capture(ctx)
 		if err != nil {
 			return nil, err
@@ -369,7 +374,11 @@ func (api *Plugins) ProviderRemovalPreview(id, digest string) (map[string]string
 		if err := admit.Check(); err != nil {
 			return nil, err
 		}
-		return rows, nil
+		entries := make([]ProviderRemovalEntry, 0, len(rows))
+		for slug, item := range rows {
+			entries = append(entries, ProviderRemovalEntry{Slug: slug, Item: item})
+		}
+		return entries, nil
 	})
 }
 
@@ -419,6 +428,12 @@ func (api *Plugins) RegisterProvider(id, digest, key string) error {
 	})
 }
 
+func (api *Plugins) ReuseProvider(id, digest, key, revision string) error {
+	return api.mutateComponent(func(ctx context.Context, i *plugins.Inventory, admit commandsecurity.Admission) error {
+		return i.ReuseProvider(ctx, id, digest, key, revision, admit)
+	})
+}
+
 func (api *Plugins) RegisterMCP(id, digest, key string) error {
 	return api.mutateComponent(func(ctx context.Context, i *plugins.Inventory, admit commandsecurity.Admission) error {
 		return i.RegisterMCP(ctx, id, digest, key, admit)
@@ -448,9 +463,16 @@ func (api *Plugins) SyncMCP(expectedSession string) error {
 	})
 }
 
-func (api *Plugins) UninstallReviewed(id, digest, choice string, reviewed map[string]string) error {
+func (api *Plugins) UninstallReviewed(id, digest, choice string, reviewed []ProviderRemovalEntry) error {
 	err := api.mutateComponent(func(ctx context.Context, i *plugins.Inventory, admit commandsecurity.Admission) error {
-		return i.UninstallReviewed(ctx, id, digest, choice, reviewed, admit)
+		items := make(map[string]plugins.ProviderRemovalItem, len(reviewed))
+		for _, entry := range reviewed {
+			if _, exists := items[entry.Slug]; exists {
+				return plugins.ErrInstallationChanged
+			}
+			items[entry.Slug] = entry.Item
+		}
+		return i.UninstallReviewed(ctx, id, digest, choice, items, admit)
 	})
 	if pluginChangeCommitted(err) || errors.Is(err, plugins.ErrProviderSyncPending) {
 		api.notifySkillsChanged()

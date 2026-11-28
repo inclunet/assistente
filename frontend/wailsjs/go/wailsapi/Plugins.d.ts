@@ -54,7 +54,7 @@ export function PreviewLocalZIP():Promise<wailsapi.PluginPreview>;
 
 export function PreviewRepositoryEntry(arg1:string,arg2:string,arg3:string,arg4:string):Promise<wailsapi.PluginPreview>;
 
-export function ProviderRemovalPreview(arg1:string,arg2:string):Promise<Record<string, string>>;
+export function ProviderRemovalPreview(arg1:string,arg2:string):Promise<Array<wailsapi.ProviderRemovalEntry>>;
 
 export function RefreshRepository(arg1:string,arg2:string):Promise<void>;
 
@@ -65,6 +65,8 @@ export function RegisterProvider(arg1:string,arg2:string,arg3:string):Promise<vo
 export function RemoveMCP(arg1:string,arg2:string,arg3:string,arg4:boolean):Promise<void>;
 
 export function RemoveRepository(arg1:string,arg2:string):Promise<void>;
+
+export function ReuseProvider(arg1:string,arg2:string,arg3:string,arg4:string):Promise<void>;
 
 export function SaveBuilder(arg1:plugins.BuilderRequest,arg2:string):Promise<boolean>;
 
@@ -80,4 +82,4 @@ export function SyncMCP(arg1:string):Promise<void>;
 
 export function SyncPendingJobs(arg1:string):Promise<void>;
 
-export function UninstallReviewed(arg1:string,arg2:string,arg3:string,arg4:Record<string, string>):Promise<void>;
+export function UninstallReviewed(arg1:string,arg2:string,arg3:string,arg4:Array<wailsapi.ProviderRemovalEntry>):Promise<void>;

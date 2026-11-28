@@ -58,6 +58,10 @@ func (m *Manager) readPortableFile(dir, filename string) ([]byte, error) {
 	if err := m.ensurePortableSnapshotLocked(); err != nil {
 		return nil, err
 	}
+	return readProfileFile(dir, filename)
+}
+
+func readProfileFile(dir, filename string) ([]byte, error) {
 	root, err := openProfileDirectory(dir)
 	if err != nil {
 		return nil, err
@@ -133,6 +137,33 @@ func encodePortableProfile(data []byte) ([]byte, error) {
 func (m *Manager) DiscoverPortableDefinitions() (PortableDefinitions, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
+	return m.discoverDefinitionsLocked(false, m.readPortableFile)
+}
+
+// WithProviderConsumers holds the native profile read lock through the decision that uses its snapshot.
+func (m *Manager) WithProviderConsumers(use func(map[string][]string, bool) error) error {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	files, err := m.discoverDefinitionsLocked(true, readProfileFile)
+	refs := make(map[string][]string)
+	complete := err == nil
+	for slug, read := range files {
+		raw, err := read()
+		if err != nil {
+			complete = false
+			continue
+		}
+		p, err := ReadPortableDefinition(raw)
+		if err != nil {
+			complete = false
+			continue
+		}
+		_ = p.MapProviderReferences(func(ref string) (string, error) { refs[ref] = append(refs[ref], slug); return ref, nil })
+	}
+	return use(refs, complete)
+}
+
+func (m *Manager) discoverDefinitionsLocked(consumers bool, read func(string, string) ([]byte, error)) (PortableDefinitions, error) {
 	if err := m.ensurePortableSnapshotLocked(); err != nil {
 		return nil, err
 	}
@@ -155,9 +186,12 @@ func (m *Manager) DiscoverPortableDefinitions() (PortableDefinitions, error) {
 		}
 		for _, entry := range entries {
 			name, ok := strings.CutSuffix(entry.Name(), ".json")
-			if ok && entry.Type().IsRegular() && Slugify(name) == name && !IsPluginProfile(name) {
+			if consumers && ok && !entry.IsDir() && !entry.Type().IsRegular() {
+				partial = errors.Join(partial, fs.ErrInvalid)
+			}
+			if ok && entry.Type().IsRegular() && (consumers || Slugify(name) == name) && !IsPluginProfile(name) {
 				filename := entry.Name()
-				definitions[name] = func() ([]byte, error) { return m.readPortableFile(dir, filename) }
+				definitions[name] = func() ([]byte, error) { return read(dir, filename) }
 			}
 		}
 	}
