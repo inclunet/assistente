@@ -1059,7 +1059,7 @@ func TestToolContextNeedsBothEligibleSpans(t *testing.T) {
 	r := &agenticLoopRunner{messages: history, params: llm.ChatParams{ContextWindow: 190}, compaction: &TurnCompaction{MinKeep: 1, Summarize: func(context.Context, string, string, string) (string, error) { calls++; return "resumo", nil }}}
 	results := []tools.ToolExecutionResult{{Result: tools.ToolResult{Content: "resultado integral"}}}
 	contents := []string{"resultado integral"}
-	if !r.prepareToolContext(context.Background(), results, contents) || calls != 2 || contents[0] != "resultado integral" || r.messages[len(r.messages)-1].ToolCalls[0].ID != "pendente" {
+	if !r.prepareToolContext(context.Background(), 1, results, contents) || calls != 2 || contents[0] != "resultado integral" || r.messages[len(r.messages)-1].ToolCalls[0].ID != "pendente" {
 		t.Fatalf("chamadas=%d resultados=%v", calls, contents)
 	}
 }

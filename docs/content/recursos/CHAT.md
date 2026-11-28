@@ -399,3 +399,5 @@ perfil da aba ou painel em uso.
 ### Compactação durante o uso de ferramentas
 
 Se faltar espaço para receber os resultados das ferramentas, o Assistente tenta resumir as mensagens antigas da execução. O mínimo de mensagens recentes do perfil é preservado. O chat continua com o resultado da ferramenta já executada quando ele cabe, inclusive em formato paginado para ferramentas que oferecem paginação. Se o resultado tiver de ser omitido por falta de espaço, o turno termina com aviso. O resumo da execução não altera o histórico exibido.
+
+Se houver pressão de contexto, o log `tool_context_outcome` identifica a conversa, o turno e a iteração. Ele mostra o orçamento estimado antes e depois, o número de resumos aplicados e o tempo gasto na compactação. O desfecho indica se os resultados ficaram prontos para a próxima chamada (`prepared_full` ou `prepared_reduced`), se faltou espaço (`context_exhausted`) ou se houve cancelamento (`cancelled`). Esse registro local não confirma o recebimento pelo provedor.

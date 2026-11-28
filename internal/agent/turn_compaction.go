@@ -3,7 +3,9 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"slices"
 	"strings"
+	"time"
 
 	"assistente/internal/llm"
 	"assistente/internal/logging"
@@ -18,7 +20,7 @@ type TurnCompaction struct {
 	Summarize func(context.Context, string, string, string) (string, error)
 }
 
-func (r *agenticLoopRunner) prepareToolContext(ctx context.Context, executions []tools.ToolExecutionResult, contents []string) bool {
+func (r *agenticLoopRunner) prepareToolContext(ctx context.Context, iteration int, executions []tools.ToolExecutionResult, contents []string) (ready bool) {
 	if r.params.ContextWindow <= 0 {
 		return true
 	}
@@ -29,13 +31,46 @@ func (r *agenticLoopRunner) prepareToolContext(ctx context.Context, executions [
 		return PreCheckContextWindow(r.params.ContextWindow, r.params.OutputTokenLimit(), messages, contents, reasoning)
 	}
 	budget := check(r.messages)
-	if budget.Truncated && r.compaction != nil && r.compaction.Summarize != nil {
+	if budget.OriginalTokens <= budget.AvailableTokens {
+		return true
+	}
+	var elapsed time.Duration
+	attempts, applied, failures, summarized := 0, 0, 0, 0
+	before := budget
+	defer func() {
+		outcome := "context_exhausted"
+		switch {
+		case !ready && ctx.Err() != nil:
+			outcome = "cancelled"
+		case ready && slices.Equal(contents, original):
+			outcome = "prepared_full"
+		case ready:
+			outcome = "prepared_reduced"
+		}
+		logging.Logger(ctx, "agent.context").InfoContext(ctx, "tool_context_outcome",
+			"iteration", iteration, "outcome", outcome,
+			"context_limit_tokens", r.params.ContextWindow, "output_reserve_tokens", r.params.OutputTokenLimit(),
+			"tool_result_tokens_estimate", before.OriginalTokens,
+			"available_tokens_before", before.AvailableTokens, "available_tokens_after", budget.AvailableTokens,
+			"summary_attempts", attempts, "summaries_applied", applied, "summary_failures", failures, "messages_summarized", summarized,
+			"compaction_ms", elapsed.Milliseconds())
+	}()
+	if r.compaction != nil && r.compaction.Summarize != nil {
 		spans := compactableRanges(r.messages, r.compaction.MinKeep, reasoning)
 		for i, span := range spans {
-			if !budget.Truncated || ctx.Err() != nil {
+			if budget.OriginalTokens <= budget.AvailableTokens || ctx.Err() != nil {
 				break
 			}
-			if next := r.compactToolHistory(ctx, span, reasoning); next != nil {
+			start := time.Now()
+			attempts++
+			next, unavailable := r.compactToolHistory(ctx, span, reasoning)
+			if unavailable && ctx.Err() == nil {
+				failures++
+			}
+			elapsed += time.Since(start)
+			if next != nil {
+				applied++
+				summarized += span.end - span.start
 				if i == 0 && len(spans) == 2 && span.end <= spans[1].start {
 					shift := len(next) - len(r.messages)
 					spans[1].start += shift
@@ -62,7 +97,7 @@ func (r *agenticLoopRunner) prepareToolContext(ctx context.Context, executions [
 
 type historySpan struct{ start, end int }
 
-func (r *agenticLoopRunner) compactToolHistory(ctx context.Context, span historySpan, reasoning bool) []llm.Message {
+func (r *agenticLoopRunner) compactToolHistory(ctx context.Context, span historySpan, reasoning bool) (next []llm.Message, unavailable bool) {
 	start, end := span.start, span.end
 	history := append([]llm.Message(nil), r.messages[start:end]...)
 	for i := range history {
@@ -71,12 +106,11 @@ func (r *agenticLoopRunner) compactToolHistory(ctx context.Context, span history
 	}
 	raw, err := json.Marshal(history)
 	if err != nil {
-		return nil
+		return nil, true
 	}
 	summary, err := r.compaction.Summarize(ctx, r.params.Model, summarization.SummaryPrompt, string(raw))
 	if err != nil || strings.TrimSpace(summary) == "" {
-		logging.Warnf(ctx, "agent.context", "resumo no turno indisponível")
-		return nil
+		return nil, true
 	}
 	var replacement []llm.Message
 	if history[0].Role == "user" {
@@ -85,13 +119,12 @@ func (r *agenticLoopRunner) compactToolHistory(ctx context.Context, span history
 	}
 	replacement = append(replacement, llm.Message{Role: "assistant", Content: "Resumo do histórico anterior:\n" + summary})
 	if estimateMessageTokens(replacement, reasoning) >= estimateMessageTokens(r.messages[start:end], reasoning) {
-		return nil
+		return nil, false
 	}
-	next := append([]llm.Message(nil), r.messages[:start]...)
+	next = append([]llm.Message(nil), r.messages[:start]...)
 	next = append(next, replacement...)
 	next = append(next, r.messages[end:]...)
-	logging.Infof(ctx, "agent.context", "compactação no turno: %d mensagens resumidas", end-start)
-	return next
+	return next, false
 }
 
 func markCompactionTarget(messages []llm.Message) []llm.Message {

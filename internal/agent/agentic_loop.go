@@ -473,7 +473,7 @@ func (r *agenticLoopRunner) executeToolIteration(ctx context.Context, result Age
 		return ctx, true
 	}
 
-	if iteration+1 < r.maxIterations && !r.prepareToolContext(ctx, execResults, toolContents) {
+	if iteration+1 < r.maxIterations && !r.prepareToolContext(ctx, iteration, execResults, toolContents) {
 		if ctx.Err() != nil {
 			r.svc.emitAgenticContextDone(ctx, r.conversationID, r.turnID, r.assistantMessageID, r.surfaceOrigin, iteration, r.totalToolCallCount, r.toolsUsedSet)
 			return ctx, true
