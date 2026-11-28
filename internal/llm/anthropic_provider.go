@@ -726,7 +726,7 @@ func (p *AnthropicProvider) doStreamBeta(ctx context.Context, params anthropic.B
 			reportCurrentDiagnostics()
 			return mcpStreamAttemptResult{mcpFailure: failure}
 		}
-		if !emittedNonRetryableEffect && isRetryableError(errStr, providerError) {
+		if !emittedNonRetryableEffect && retrySDKStreamHTTPError(p.provider, err, providerError, handler) {
 			reportCurrentDiagnostics()
 			return mcpStreamAttemptResult{retry: true, retryAfter: streamRetryAfter(err)}
 		}
@@ -1010,7 +1010,6 @@ func (p *AnthropicProvider) doStream(ctx context.Context, params anthropic.Messa
 
 	wd.Stop()
 	if err := stream.Err(); err != nil {
-		errStr := err.Error()
 		providerError, recognizedProviderError := RecognizeProviderError(p.provider, err)
 		if !recognizedProviderError {
 			providerError = ProviderErrorDiagnostic(p.provider, err)
@@ -1044,7 +1043,7 @@ func (p *AnthropicProvider) doStream(ctx context.Context, params anthropic.Messa
 			return mcpStreamAttemptResult{done: true}
 		}
 
-		if !emittedNonRetryableEffect && isRetryableError(errStr, providerError) {
+		if !emittedNonRetryableEffect && retrySDKStreamHTTPError(p.provider, err, providerError, handler) {
 			reportCurrentDiagnostics()
 			return mcpStreamAttemptResult{retry: true, retryAfter: streamRetryAfter(err)}
 		}

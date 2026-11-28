@@ -24,10 +24,6 @@ func TestAnthropicStreamRetryAvisoEFinalizacao(t *testing.T) {
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if tentativas.Add(1) == 1 {
-			// Falha transitória de verdade; x-should-retry=false impede o
-			// retry interno da SDK anthropic de consumir o erro antes do
-			// laço do provider.
-			w.Header().Set("x-should-retry", "false")
 			w.WriteHeader(http.StatusBadGateway)
 			return
 		}

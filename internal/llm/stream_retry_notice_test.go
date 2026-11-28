@@ -52,9 +52,6 @@ func TestStreamRetryAvisoSoEmFalhaTransitoria(t *testing.T) {
 		}
 		if tentativas.Add(1) == 1 {
 			// Falha transitÃ³ria de verdade na primeira tentativa limpa.
-			// x-should-retry=false impede o retry interno da SDK openai-go
-			// (senÃ£o ele consome o erro antes do laÃ§o do provider).
-			w.Header().Set("x-should-retry", "false")
 			w.WriteHeader(http.StatusBadGateway)
 			return
 		}

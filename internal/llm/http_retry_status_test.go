@@ -12,6 +12,8 @@ import (
 	"time"
 
 	"assistente/internal/credentials"
+	"github.com/anthropics/anthropic-sdk-go"
+	"github.com/openai/openai-go"
 )
 
 func TestResponsesFailureUsesTerminalCategoryBeforeText(t *testing.T) {
@@ -128,10 +130,25 @@ func TestHTTPRejectionDoesNotRetryNumbersInURL(t *testing.T) {
 	}
 }
 
+func TestStreamRetryAfterLongProviderDelay(t *testing.T) {
+	resp := &http.Response{Header: http.Header{"Retry-After": []string{"60"}}}
+	if got := streamRetryAfter(&anthropic.Error{Response: resp}); got != time.Minute {
+		t.Fatalf("Anthropic: %s", got)
+	}
+	if got := streamRetryAfter(&openai.Error{Response: resp}); got != 0 {
+		t.Fatalf("OpenAI: %s", got)
+	}
+}
+
 func TestStreamAttemptBudgetCountsHTTPRequests(t *testing.T) {
 	for _, format := range []APIFormat{APIFormatOpenAI, APIFormatOpenAIResponses, APIFormatAnthropic} {
-		for _, limit := range []int{1, 2} {
-			t.Run(fmt.Sprintf("%s/%d", format, limit), func(t *testing.T) {
+		for _, tc := range []struct {
+			limit, status int
+			hint          string
+		}{{1, 503, ""}, {2, 500, ""}, {2, 529, ""}, {2, 409, ""}, {2, 500, "false"}, {2, 423, "true"}, {2, 401, "true"}} {
+			t.Run(fmt.Sprintf("%s/%d/%d/hint=%s", format, tc.limit, tc.status, tc.hint), func(t *testing.T) {
+				t.Parallel()
+				limit := tc.limit
 				var calls atomic.Int32
 				var first time.Time
 				var mu sync.Mutex
@@ -143,9 +160,12 @@ func TestStreamAttemptBudgetCountsHTTPRequests(t *testing.T) {
 						t.Error("nova chamada antes do prazo Retry-After")
 					}
 					mu.Unlock()
+					if tc.hint != "" {
+						w.Header().Set("x-should-retry", tc.hint)
+					}
 					w.Header().Set("Retry-After", "1")
 					w.Header().Set("Content-Type", "application/json")
-					w.WriteHeader(http.StatusServiceUnavailable)
+					w.WriteHeader(tc.status)
 					if _, err := fmt.Fprint(w, `{"error":{"message":"temporarily unavailable"}}`); err != nil {
 						t.Error(err)
 					}
@@ -154,8 +174,15 @@ func TestStreamAttemptBudgetCountsHTTPRequests(t *testing.T) {
 				provider := NewChatProvider(&ProviderConfig{ID: "budget", APIFormat: format, AuthMode: AuthModeNone, BaseURL: server.URL + "/v1"}, credentials.NewManager(nil), nil)
 				h := &providerRetryHandler{}
 				provider.StreamChat(t.Context(), []Message{{Role: "user", Content: "oi"}}, ChatParams{Model: "m", MaxTokens: testParameterPointer(32), StreamAttempts: NewStreamAttemptBudget(limit)}, h)
-				if got := int(calls.Load()); got != limit {
-					t.Fatalf("HTTP requests=%d, want %d", got, limit)
+				want := limit
+				if tc.hint == "false" || tc.status == 401 {
+					want = 1
+					if len(h.errorsMarked) != 1 || !h.errorsMarked[0] {
+						t.Fatal("a rejeição terminal deve encerrar a recuperação do agente")
+					}
+				}
+				if got := int(calls.Load()); got != want {
+					t.Fatalf("HTTP requests=%d, want %d", got, want)
 				}
 			})
 		}

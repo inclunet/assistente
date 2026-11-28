@@ -854,7 +854,7 @@ responseEvents:
 			reportError(providerError.DisplayMessage())
 			return mcpStreamAttemptResult{done: true}
 		}
-		if !emittedNonRetryableEffect && isRetryableError(errStr, providerError) {
+		if !emittedNonRetryableEffect && retrySDKStreamHTTPError(p.provider, err, providerError, handler) {
 			reportCurrentDiagnostics()
 			return mcpStreamAttemptResult{retry: true, retryAfter: streamRetryAfter(err)}
 		}
