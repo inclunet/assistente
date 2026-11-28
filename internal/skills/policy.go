@@ -11,6 +11,7 @@ const (
 )
 
 type SelectionPolicy struct {
+	Err      error
 	Base     []Skill
 	OnDemand []Skill
 	Disabled []Skill
@@ -76,7 +77,10 @@ func ResolveSelectionPolicy(allSkills []Skill, enabledSkills []string, disableSk
 		return SelectionPolicy{Disabled: append([]Skill{}, allSkills...)}
 	}
 
-	ordered := FilterByNamesOrdered(allSkills, enabledSkills)
+	ordered, err := FilterByNamesOrdered(allSkills, enabledSkills)
+	if err != nil {
+		return SelectionPolicy{Err: err, Disabled: allSkills}
+	}
 	enabled := make(map[string]bool, len(ordered)*2)
 	for _, s := range ordered {
 		enabled[s.Slug] = true

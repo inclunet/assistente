@@ -210,8 +210,11 @@ type MCPToolDef struct {
 
 // Skill representa um skill completo com metadados, conteúdo e localização.
 type Skill struct {
-	CheckCommandActivation func(context.Context) error `json:"-"`
-	PackageFormat          string                      `json:"-"`
+	DefinitionDigest string `json:"-"`
+	// SelectionGrants maps an installation-specific selector to its dispatch-time check.
+	SelectionGrants        map[string]func(context.Context) error `json:"-"`
+	CheckCommandActivation func(context.Context) error            `json:"-"`
+	PackageFormat          string                                 `json:"-"`
 	SkillMetadata
 	Slug    string `json:"slug"`    // nome do diretório
 	Source  string `json:"source"`  // "exe", "home", "workdir"

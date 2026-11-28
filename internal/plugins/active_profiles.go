@@ -29,7 +29,7 @@ func (i *Inventory) SetProfileActive(ctx context.Context, id, digest, key string
 		return database.ErrUserScopeRequired
 	}
 	var row database.PluginProfileActivation
-	var requirements map[string]string
+	var requirements, requiredSkills map[string]string
 	if active {
 		snap, err := i.installedSnapshot(ctx, id, digest)
 		if err != nil {
@@ -40,6 +40,17 @@ func (i *Inventory) SetProfileActive(ctx context.Context, id, digest, key string
 			if c.Kind == "profile" && c.Key == key && c.Reason == "" {
 				row = database.PluginProfileActivation{InstallationID: id, Digest: digest, ComponentKey: key, Slug: profiles.PluginPrefix + uuid.NewString(), Definition: snap.Files[c.Entry]}
 				requirements = packageProviderRequirements(snap, components)
+				p, err := readPackageProfile(row.Definition)
+				if err != nil {
+					return err
+				}
+				requiredSkills = bundledProfileSkills(p, profileSkillRevisions(snap, components, p.Chat.EnabledSkills))
+				if len(requiredSkills) > 0 {
+					row.SkillRequirements, err = json.Marshal(requiredSkills)
+					if err != nil {
+						return err
+					}
+				}
 				break
 			}
 		}
@@ -49,22 +60,32 @@ func (i *Inventory) SetProfileActive(ctx context.Context, id, digest, key string
 	}
 	publish, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	return database.WithSQLiteAdmittedCommit(publish, i.db, "plugins.profile.activation", func(tx *gorm.DB) error {
-		var installed database.PluginInstallation
-		if err := tx.Where("id=? AND user_id=? AND digest=?", id, owner, digest).Take(&installed).Error; err != nil {
-			return err
-		}
-		if !active {
-			return tx.Where("installation_id=? AND component_key=?", id, key).Delete(&database.PluginProfileActivation{}).Error
-		}
-		if installed.Disabled {
-			return ErrInstallationDisabled
-		}
-		if _, err := resolveProfile(ctx, tx, row.Definition, requirements, id, digest); err != nil {
-			return err
-		}
-		return tx.Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "installation_id"}, {Name: "component_key"}}, DoNothing: true}).Create(&row).Error
-	}, admit)
+	return i.withProfileSkills(ctx, id, digest, requiredSkills, func(native map[string]bool) error {
+		return database.WithSQLiteAdmittedCommit(publish, i.db, "plugins.profile.activation", func(tx *gorm.DB) error {
+			var installed database.PluginInstallation
+			if err := tx.Where("id=? AND user_id=? AND digest=?", id, owner, digest).Take(&installed).Error; err != nil {
+				return err
+			}
+			if !active {
+				return tx.Where("installation_id=? AND component_key=?", id, key).Delete(&database.PluginProfileActivation{}).Error
+			}
+			if installed.Disabled {
+				return ErrInstallationDisabled
+			}
+			p, err := resolveProfile(ctx, tx, row.Definition, requirements, id, digest)
+			if err != nil {
+				return err
+			}
+			bindings, err := profileSkillBindings(ctx, tx, requiredSkills, native, id, digest)
+			if err != nil {
+				return err
+			}
+			if err := applyProfileSkillBindings(p, requiredSkills, bindings); err != nil {
+				return err
+			}
+			return tx.Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "installation_id"}, {Name: "component_key"}}, DoNothing: true}).Create(&row).Error
+		}, admit)
+	})
 }
 
 func (i *Inventory) profileQuery(ctx context.Context) (*gorm.DB, error) {
@@ -84,7 +105,11 @@ func (i *Inventory) GetPluginProfile(ctx context.Context, slug string) (*profile
 	if err := q.Where("plugin_profile_activations.slug=?", slug).Take(&row).Error; err != nil {
 		return nil, err
 	}
-	return i.resolveActivation(ctx, row, make(map[string]map[string]string))
+	groups, err := i.profileSkillCatalog(ctx, []database.PluginProfileActivation{row})
+	if err != nil {
+		return nil, err
+	}
+	return i.resolveActivation(ctx, row, make(map[string]map[string]string), groups[row.InstallationID])
 }
 
 func (i *Inventory) ListPluginProfiles(ctx context.Context) ([]profiles.ProfileInfo, error) {
@@ -98,8 +123,12 @@ func (i *Inventory) ListPluginProfiles(ctx context.Context) ([]profiles.ProfileI
 	}
 	result := make([]profiles.ProfileInfo, 0, len(rows))
 	cached := make(map[string]map[string]string)
+	groups, err := i.profileSkillCatalog(ctx, rows)
+	if err != nil {
+		return nil, err
+	}
 	for _, row := range rows {
-		p, err := i.resolveActivation(ctx, row, cached)
+		p, err := i.resolveActivation(ctx, row, cached, groups[row.InstallationID])
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			continue
 		}
@@ -123,9 +152,18 @@ func packageProviderRequirements(snap *pluginpackage.LocalSnapshot, components [
 	return required
 }
 
-func (i *Inventory) resolveActivation(ctx context.Context, row database.PluginProfileActivation, cached map[string]map[string]string) (*profiles.Profile, error) {
+func (i *Inventory) resolveActivation(ctx context.Context, row database.PluginProfileActivation, cached map[string]map[string]string, skillBindings installationSkillBindings) (*profiles.Profile, error) {
 	p, err := readPackageProfile(row.Definition)
 	if err != nil {
+		return nil, err
+	}
+	var requiredSkills map[string]string
+	if len(row.SkillRequirements) > 0 {
+		if err := json.Unmarshal(row.SkillRequirements, &requiredSkills); err != nil {
+			return nil, err
+		}
+	}
+	if err := applyProfileSkillBindings(p, requiredSkills, skillBindings.resolved); err != nil {
 		return nil, err
 	}
 	explicit := false
@@ -251,15 +289,46 @@ func (e missingProfileAllowlist) Unwrap() error { return gorm.ErrRecordNotFound 
 // DescribeProfileDependencies resolves the displayed revision without activating a profile.
 func (i *Inventory) DescribeProfileDependencies(ctx context.Context, components []Component, snapshot *pluginpackage.LocalSnapshot, id string) error {
 	required := packageProviderRequirements(snapshot, components)
+	var names []string
+	for _, c := range components {
+		if c.Kind != "profile" || c.Reason != "" {
+			continue
+		}
+		p, err := readPackageProfile(snapshot.Files[c.Entry])
+		if err != nil {
+			return err
+		}
+		if !p.Chat.DisableSkills {
+			names = append(names, p.Chat.EnabledSkills...)
+		}
+	}
+	skillRevs := profileSkillRevisions(snapshot, components, names)
+	wanted := map[string]string{}
+	for _, name := range names {
+		if revision, ok := skillRevs["skills/"+name]; ok {
+			wanted[name] = revision
+		}
+	}
+	bindings, err := i.readProfileSkillBindings(ctx, id, snapshot.Digest, wanted)
+	if err != nil {
+		return err
+	}
 	for n := range components {
 		if components[n].Kind == "profile" && components[n].Reason == "" {
 			definition := snapshot.Files[components[n].Entry]
-			_, err := resolveProfile(ctx, i.db, definition, required, id, snapshot.Digest)
+			p, err := resolveProfile(ctx, i.db, definition, required, id, snapshot.Digest)
+			if err == nil {
+				deps := bundledProfileSkills(p, skillRevs)
+				err = applyProfileSkillBindings(p, deps, bindings)
+			}
 			if err != nil {
+				var skill pendingProfileSkill
 				var missing missingProfileProvider
 				var pending unavailableProfileProvider
 				var policy missingProfileAllowlist
 				switch {
+				case errors.As(err, &skill):
+					components[n].PendingSkill = string(skill)
 				case errors.As(err, &missing):
 					components[n].MissingProvider = missing.slug
 					components[n].CanCreateChatGPT = missing.chatOnly

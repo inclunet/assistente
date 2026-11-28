@@ -3,6 +3,7 @@ package skills
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io/fs"
 	"slices"
 	"sort"
@@ -199,7 +200,10 @@ func (p *ContextProvider) Build(ctx context.Context, req contextprovider.BuildRe
 }
 
 func (p *ContextProvider) build(ctx context.Context, req contextprovider.BuildRequest, allSkills []Skill) ([]contextprovider.Block, error) {
-	baseSkills, onDemandSkills := selectPromptSkills(allSkills, req)
+	baseSkills, onDemandSkills, err := selectPromptSkills(allSkills, req)
+	if err != nil {
+		return nil, err
+	}
 	if len(baseSkills) == 0 && len(onDemandSkills) == 0 {
 		return nil, nil
 	}
@@ -253,8 +257,11 @@ func (p *ContextProvider) build(ctx context.Context, req contextprovider.BuildRe
 	return blocks, nil
 }
 
-func selectPromptSkills(allSkills []Skill, req contextprovider.BuildRequest) ([]Skill, []Skill) {
+func selectPromptSkills(allSkills []Skill, req contextprovider.BuildRequest) ([]Skill, []Skill, error) {
 	policy := ResolveSelectionPolicy(allSkills, req.EnabledSkills, req.DisableSkills, req.DisableOnDemand)
+	if policy.Err != nil {
+		return nil, nil, policy.Err
+	}
 	baseSkills := policy.Base
 	availableSkills := policy.OnDemand
 	if !req.ToolCallingEnabled {
@@ -269,7 +276,7 @@ func selectPromptSkills(allSkills []Skill, req contextprovider.BuildRequest) ([]
 		}
 		availableSkills = nil
 	}
-	return baseSkills, availableSkills
+	return baseSkills, availableSkills, nil
 }
 
 func buildBaseSkillBlock(ctx context.Context, baseSkills []Skill, source ContextProviderSource, budget int) (string, error) {
@@ -298,6 +305,11 @@ func buildBaseSkillBlock(ctx context.Context, baseSkills []Skill, source Context
 	filesComplete := true
 	for i := range baseSkills {
 		skill := &baseSkills[i]
+		if skill.Source != "plugin" && skill.CheckCommandActivation != nil {
+			if err := skill.CheckCommandActivation(ctx); err != nil {
+				return "", fmt.Errorf("%w: %w", contextprovider.ErrRequiredSkillUnavailable, err)
+			}
+		}
 		part := &sections[i]
 		var heading, files strings.Builder
 		if i > 0 {

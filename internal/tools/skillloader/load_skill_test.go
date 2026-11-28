@@ -26,7 +26,7 @@ type fakeProfileManager struct {
 	active *profiles.Profile
 }
 
-func (m fakeProfileManager) Get(slug string) (*profiles.Profile, error) {
+func (m fakeProfileManager) GetForContext(_ context.Context, slug string) (*profiles.Profile, error) {
 	if p, ok := m.bySlug[slug]; ok {
 		return p, nil
 	}
@@ -122,5 +122,22 @@ func TestLoadedClaudeSkillExplainsLiteralCommands(t *testing.T) {
 	text := formatLoadedSkill(skill, "")
 	if !strings.Contains(text, skill.Content) || !strings.Contains(text, "base or slash invocation") {
 		t.Fatal(text)
+	}
+}
+
+func TestLoadSkillDoesNotFallBackAfterPluginProfileRevocation(t *testing.T) {
+	p := profiles.DefaultProfile()
+	p.Chat.EnabledSkills = []string{"base", "review"}
+	const slug = "plugin--a15ff040-b1e7-4bb6-9621-94ab61eb71ec"
+	bySlug := map[string]*profiles.Profile{slug: p}
+	tool := New(fakeSkillManager{skills: []skills.Skill{testSkill("base"), testSkill("review")}}, fakeProfileManager{bySlug: bySlug, active: p})
+	ctx := invocationctx.With(t.Context(), invocationctx.InvocationContext{ProfileSlug: slug})
+	request := json.RawMessage(`{"skill":"review"}`)
+	if result, err := tool.Execute(ctx, request); err != nil || result.IsError {
+		t.Fatal(result, err)
+	}
+	delete(bySlug, slug)
+	if result, err := tool.Execute(ctx, request); err != nil || !result.IsError || strings.Contains(result.Content, "<loaded_skill>") {
+		t.Fatal(result, err)
 	}
 }

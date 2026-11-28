@@ -30,6 +30,7 @@ type Component struct {
 	AgentTools        *[]string `json:"agentTools,omitempty"`
 	CanCreateChatGPT  bool      `json:"canCreateChatGPT,omitempty"`
 	MissingAllowlist  string    `json:"missingAllowlist,omitempty"`
+	PendingSkill      string    `json:"pendingSkill,omitempty"`
 	PendingProvider   string    `json:"pendingProvider,omitempty"`
 	MissingProvider   string    `json:"missingProvider,omitempty"`
 	ProfileDefinition string    `json:"profileDefinition,omitempty"`

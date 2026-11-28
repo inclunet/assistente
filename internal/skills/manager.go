@@ -2,7 +2,9 @@ package skills
 
 import (
 	"assistente/internal/configdir"
+	"assistente/internal/contextprovider"
 	"assistente/internal/logging"
+	"assistente/internal/pluginpackage"
 	"assistente/internal/slug"
 	"context"
 	"errors"
@@ -28,7 +30,7 @@ type discoveredSkill struct {
 // Manager gerencia skills no formato: .assistente/skills/{slug}/SKILL.md
 // Usa configdir.Resolver para resolução multi-diretório.
 type Manager struct {
-	installedSkills func(context.Context) ([]Skill, error)
+	installedSkills func(context.Context, []Skill) ([]Skill, error)
 	resolver        *configdir.Resolver
 	definitionsMu   sync.RWMutex
 	mu              sync.Mutex
@@ -128,11 +130,12 @@ func loadSkill(ds discoveredSkill) (*Skill, error) {
 	meta.ExpandTemplateVars(projectRoot)
 
 	return &Skill{
-		SkillMetadata: *meta,
-		Slug:          ds.slug,
-		Source:        string(ds.source),
-		Content:       content,
-		Path:          ds.path,
+		DefinitionDigest: pluginpackage.FilesDigest(map[string][]byte{skillFile: data}),
+		SkillMetadata:    *meta,
+		Slug:             ds.slug,
+		Source:           string(ds.source),
+		Content:          content,
+		Path:             ds.path,
 	}, nil
 }
 
@@ -451,27 +454,34 @@ func FilterByNames(allSkills []Skill, names []string) []Skill {
 }
 
 // FilterByNamesOrdered retorna skills na mesma ordem do slice names.
-func FilterByNamesOrdered(allSkills []Skill, names []string) []Skill {
+func FilterByNamesOrdered(allSkills []Skill, names []string) ([]Skill, error) {
 	if names == nil {
-		return allSkills
+		return allSkills, nil
 	}
 	if len(names) == 0 {
-		return nil
+		return nil, nil
 	}
 
 	skillMap := make(map[string]Skill, len(allSkills))
 	for _, s := range allSkills {
 		skillMap[s.Slug] = s
 		skillMap[s.Name] = s
+		for selector, guard := range s.SelectionGrants {
+			scoped := s
+			scoped.CheckCommandActivation = guard
+			skillMap[selector] = scoped
+		}
 	}
 
 	var result []Skill
 	for _, name := range names {
 		if s, ok := skillMap[name]; ok {
 			result = append(result, s)
+		} else if strings.HasPrefix(name, PluginGrantPrefix) {
+			return nil, contextprovider.ErrRequiredSkillUnavailable
 		}
 	}
-	return result
+	return result, nil
 }
 
 // FilterExcludeNames retorna skills cujo slug NÃO está na lista.
@@ -524,7 +534,7 @@ func nextCopyName(baseSlug string, existing map[string]bool) string {
 
 // NewManagerWithInstalledSkills includes account-scoped plugin skills only on
 // reads that have an authenticated caller. The filesystem cache stays local.
-func NewManagerWithInstalledSkills(installed func(context.Context) ([]Skill, error)) *Manager {
+func NewManagerWithInstalledSkills(installed func(context.Context, []Skill) ([]Skill, error)) *Manager {
 	m := NewManager()
 	m.installedSkills = installed
 	return m
@@ -546,10 +556,6 @@ func (m *Manager) GetAllSkillsForContext(ctx context.Context) ([]Skill, error) {
 	if err != nil || m.installedSkills == nil {
 		return local, err
 	}
-	installed, err := m.installedSkills(ctx)
-	if err != nil {
-		return nil, err
-	}
 	visible := local[:0]
 	for _, skill := range local {
 		if strings.HasPrefix(skill.Slug, PluginPrefix) {
@@ -561,7 +567,9 @@ func (m *Manager) GetAllSkillsForContext(ctx context.Context) ([]Skill, error) {
 		}
 		visible = append(visible, skill)
 	}
-	return append(visible, installed...), nil
+	return m.installedSkills(ctx, visible)
 }
 
 const PluginPrefix = "plugin:"
+
+const PluginGrantPrefix = PluginPrefix + "grant:"

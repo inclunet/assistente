@@ -219,6 +219,7 @@ notSaved: 'The decision applies only to this operation: it could not be remember
       reuseMcp: 'Use existing server {{name}}',
       mcpAlreadyAvailable: 'An equivalent MCP server is available in this account.',
       mcpConflict: 'The account has a different or ambiguous MCP registration. Review the existing servers to resolve this dependency.',
+      pendingProfileSkill: 'Confirm the link or activate skill {{name}} in this installation to use the profile.',
       pendingProfileProvider: 'Review provider {{name}}. This profile requires the configuration supplied by the plugin and a confirmed link.',
       missingProfileProvider: 'Register provider {{name}} to use this profile.',
       syncLocalProvider: 'Reload the current configuration for {{name}} saved in your account?',

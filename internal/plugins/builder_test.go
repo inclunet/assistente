@@ -2,6 +2,7 @@ package plugins
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -92,7 +93,7 @@ func TestBuilderExportsOnlySelectedDefinitionsToAnotherAccount(t *testing.T) {
 	req.Profiles = []string{"writer"}
 	store = store.WithProfileDefinitions(func() (profiles.PortableDefinitions, error) {
 		return profiles.PortableDefinitions{"writer": func() ([]byte, error) {
-			return []byte(`{"name":"Writer","chat":{"llm_provider":"$default","response_timeout":60,"disable_tools":true,"max_tokens":350}}`), nil
+			return []byte(`{"name":"Writer","chat":{"llm_provider":"$default","response_timeout":60,"disable_tools":true,"enabled_skills":["notes","external"],"max_tokens":350}}`), nil
 		}}, nil
 	})
 	if _, _, err := store.BuildPackage(ctx, BuilderRequest{Name: "writer", Profiles: []string{"gone"}}); err == nil || err.Error() != "PLUGIN_BUILDER_PROFILE_UNAVAILABLE:gone" {
@@ -139,6 +140,9 @@ func TestBuilderExportsOnlySelectedDefinitionsToAnotherAccount(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if err := store.SetProfileActive(reader, installed.ID, installed.Digest, "profiles/writer", true, admit); !errors.Is(err, gorm.ErrRecordNotFound) {
+		t.Fatalf("perfil ainda sem concessão da skill: %v", err)
+	}
 	if err := store.SetSkillActive(reader, installed.ID, installed.Digest, "skills/notes", true, admit); err != nil {
 		t.Fatal(err)
 	}
@@ -153,9 +157,18 @@ func TestBuilderExportsOnlySelectedDefinitionsToAnotherAccount(t *testing.T) {
 	if err != nil || profile.Name != "Writer" || *profile.Chat.MaxTokens != 350 || !profile.Chat.DisableTools {
 		t.Fatal(profile, err)
 	}
-	active, err := store.ActiveSkills(reader)
+	active, err := store.ActiveSkills(reader, nil)
 	if err != nil || len(active) != 1 || active[0].Content != "Read the list." {
 		t.Fatal(active, err)
+	}
+	if len(profile.Chat.EnabledSkills) != 2 || active[0].SelectionGrants[profile.Chat.EnabledSkills[0]] == nil || profile.Chat.EnabledSkills[1] != "external" {
+		t.Fatal(profile.Chat.EnabledSkills)
+	}
+	if err := store.SetSkillActive(reader, installed.ID, installed.Digest, "skills/notes", false, admit); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.GetPluginProfile(reader, entries[0].Slug); !errors.Is(err, gorm.ErrRecordNotFound) {
+		t.Fatalf("perfil ainda publicado após revogação: %v", err)
 	}
 	var receivedList database.TaskList
 	if err := db.Where("id=? AND user_id=? AND slug=?", id, "reader", "releases").Take(&receivedList).Error; err != nil {

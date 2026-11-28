@@ -2057,3 +2057,14 @@ func TestBaseRefusalPrecedesSlashCommand(t *testing.T) {
 		t.Fatalf("barra incompatível: calls=%v err=%v", calls, result.Err)
 	}
 }
+
+func TestPrepareMessagesStopsWhenRequiredSkillIsRevoked(t *testing.T) {
+	src := staticSkillRuntimeManager{skills: map[string]*skills.Skill{"other": {Slug: "other", Content: "secondary instructions"}}}
+	i := NewInteractor(InteractorConfig{SkillMgr: src, PromptBuilder: &capturingPromptBuilder{}})
+	profile := &profiles.Profile{}
+	profile.Chat.EnabledSkills = []string{skills.PluginGrantPrefix + "revoked", "other"}
+	res := i.PrepareMessages(t.Context(), PrepareMessagesRequest{Messages: []llm.Message{{Role: "user", Content: "hello"}}, UserContent: "hello", ConversationID: "conv", TurnID: "turn", ActiveProfile: profile})
+	if !errors.Is(res.Err, contextprovider.ErrRequiredSkillUnavailable) {
+		t.Fatalf("turno com concessão revogada: %v", res.Err)
+	}
+}

@@ -46,6 +46,14 @@ func TestRegistryBuildSortsByVolatilityPriorityAndProvider(t *testing.T) {
 	}
 }
 
+func TestRegistryBuildRequiresSelectedSkill(t *testing.T) {
+	registry := NewRegistry(testProvider{name: "workspace", blocks: []Block{{Content: "workspace"}}}, testProvider{name: "skills", err: ErrRequiredSkillUnavailable})
+	blocks, err := registry.Build(t.Context(), BuildRequest{})
+	if len(blocks) != 0 || !errors.Is(err, ErrRequiredSkillUnavailable) {
+		t.Fatal(blocks, err)
+	}
+}
+
 func TestRegistryBuildSkipsFailedProvider(t *testing.T) {
 	registry := NewRegistry(
 		testProvider{name: "memory", err: errors.New("boom")},
