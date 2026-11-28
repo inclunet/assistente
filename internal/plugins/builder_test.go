@@ -129,6 +129,8 @@ func TestBuilderExportsOnlySelectedDefinitionsToAnotherAccount(t *testing.T) {
 	}
 	inspect := func() (*pluginpackage.LocalSnapshot, error) { return archive.Package("release-kit", ".") }
 	admit := commandsecurity.Admission(func(_ *gorm.DB, fn func() error) error { return fn() })
+	// O destinatário usa o arquivo exportado em outra instalação, sem o diretório de skills do autor.
+	store = NewInventory(db)
 	installed, err := store.InstallSource(reader, "release-kit", snap.Digest, "", nil, admit, inspect)
 	if err != nil {
 		t.Fatal(err)

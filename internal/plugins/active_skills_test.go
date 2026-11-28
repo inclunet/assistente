@@ -263,3 +263,68 @@ func TestSkillRevisionCoversOnlyItsTreeAndInterpreter(t *testing.T) {
 		t.Fatal("mudança de interpretação não alterou a revisão")
 	}
 }
+
+func TestNativeSkillLinkNeverPublishesAPackageFallback(t *testing.T) {
+	ctx := database.WithUserID(t.Context(), "reader")
+	raw := "---\nname: notes\ndescription: Notes\n---\nReviewed instructions."
+	local := raw
+	var discoveryErr error
+	available := true
+	store := NewInventory(managedJobTestDB(t)).WithSkillDefinitions(func() (skills.PortableDefinitions, error) {
+		files := skills.PortableDefinitions{}
+		if available {
+			files["notes"] = func() ([]byte, error) { return []byte(local), nil }
+		}
+		return files, discoveryErr
+	})
+	_, snap, err := store.BuildPackage(ctx, BuilderRequest{Name: "example", Skills: []string{"notes"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	allow := func(_ *gorm.DB, commit func() error) error { return commit() }
+	install, err := store.InstallSource(ctx, snap.Origin, snap.Digest, "", nil, allow, func() (*pluginpackage.LocalSnapshot, error) { return snap, nil })
+	if err != nil {
+		t.Fatal(err)
+	}
+	details := func() Component {
+		t.Helper()
+		items, err := store.InstalledComponents(ctx, install.ID, snap.Digest)
+		if err != nil || len(items) != 1 {
+			t.Fatal(items, err)
+		}
+		return items[0]
+	}
+	discoveryErr = errors.New("inaccessible directory")
+	if c := details(); c.Reason != "localSkillDiscoveryUnavailable" || c.SkillReuseToken != "" {
+		t.Fatal(c)
+	}
+	discoveryErr = nil
+	c := details()
+	if c.Reason != "nativeSkillAvailable" || c.SkillReuseToken == "" {
+		t.Fatal(c)
+	}
+	local = raw + "changed"
+	if err := store.ReuseSkill(ctx, install.ID, snap.Digest, c.Key, c.SkillReuseToken, allow); !errors.Is(err, ErrInstallationChanged) {
+		t.Fatal(err)
+	}
+	local = raw
+	if err := store.ReuseSkill(ctx, install.ID, snap.Digest, c.Key, c.SkillReuseToken, allow); err != nil {
+		t.Fatal(err)
+	}
+	if c := details(); !c.Active || c.Slug != "notes" || c.Reason != "" {
+		t.Fatal(c)
+	}
+	available = false
+	if err := store.ReuseSkill(ctx, install.ID, snap.Digest, c.Key, c.SkillReuseToken, allow); !errors.Is(err, ErrInstallationChanged) {
+		t.Fatal(err)
+	}
+	if c := details(); c.Reason != "localSkillUnavailable" || !c.Active {
+		t.Fatal(c)
+	}
+	if rows, err := store.ActiveSkills(ctx); err != nil || len(rows) != 0 {
+		t.Fatal(rows, err)
+	}
+	if err := store.SetSkillActive(ctx, install.ID, snap.Digest, c.Key, false, allow); err != nil {
+		t.Fatal(err)
+	}
+}
