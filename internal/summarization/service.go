@@ -641,7 +641,7 @@ func (s *Service) summarize(
 
 	defer func() {
 		if r := recover(); r != nil {
-			logging.Errorf(ctx, "summarization.service", "Panic ao executar sumarização da conversa %s: %v", conversationID, r)
+			logging.Errorf(ctx, "summarization.service", "🔴 [PANIC RECOVERED] executeSummarization (conversa %s): %v", conversationID, r)
 		}
 	}()
 	s.executeSummarization(ctx, conversationID, profile, existingSummary, newMessages, lastSummarizedMsgID)
