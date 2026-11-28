@@ -210,7 +210,8 @@ func (r *agenticLoopRunner) streamIteration(ctx context.Context, iteration int) 
 	if r.streamingRecoveryEnabled {
 		attempts = r.maxRecoveryAttempts
 	}
-	for attempt := 1; attempt <= attempts; attempt++ {
+	budget := llm.NewStreamAttemptBudget(attempts)
+	for {
 		if ctx.Err() != nil {
 			r.svc.emitAgenticContextDone(ctx, r.conversationID, r.turnID, r.assistantMessageID, r.surfaceOrigin, iteration-1, r.totalToolCallCount, r.toolsUsedSet)
 			return result, "", true
@@ -226,6 +227,7 @@ func (r *agenticLoopRunner) streamIteration(ctx context.Context, iteration int) 
 			setInitialResponse = prefillSetter.SetInitialResponse
 		}
 		params := r.params
+		params.StreamAttempts = budget
 		if r.continuationPrefixCommitted {
 			params.AllowAssistantPrefill = false
 			params.ContinueViaUserMessage = false
@@ -252,7 +254,6 @@ func (r *agenticLoopRunner) streamIteration(ctx context.Context, iteration int) 
 			if resetter, ok := handler.(interface{ ResetStreamAttempt() }); ok {
 				resetter.ResetStreamAttempt()
 			}
-			attempt--
 			continue
 		}
 		result = handler.Result()
@@ -296,7 +297,7 @@ func (r *agenticLoopRunner) streamIteration(ctx context.Context, iteration int) 
 			logging.Errorf(ctx, "agent.agentic-loop", "[Agent] streaming interrompido sem repetição possível (iteração %d): %s", iteration, result.Error)
 			break
 		}
-		if attempt == attempts {
+		if !budget.CanRetry() {
 			if finisher, ok := handler.(interface{ FinishThinkingIfActive() }); ok {
 				finisher.FinishThinkingIfActive()
 			}
@@ -304,14 +305,13 @@ func (r *agenticLoopRunner) streamIteration(ctx context.Context, iteration int) 
 				r.svc.emitFinalizationErrorDone(ctx, r.conversationID, r.turnID, r.assistantMessageID, r.surfaceOrigin)
 				return result, "", true
 			}
+			break
 		}
-		if attempt < attempts {
-			logging.Errorf(ctx, "agent.agentic-loop", "[Agent] streaming interrompido (iteração %d, tentativa %d/%d): %s", iteration, attempt, attempts, result.Error)
-			if resetter, ok := handler.(interface{ ResetStreamAttempt() }); ok {
-				resetter.ResetStreamAttempt()
-			}
-			continue
+		logging.Errorf(ctx, "agent.agentic-loop", "[Agent] streaming interrompido (iteração %d, tentativa %d/%d): %s", iteration, budget.Current(), attempts, result.Error)
+		if resetter, ok := handler.(interface{ ResetStreamAttempt() }); ok {
+			resetter.ResetStreamAttempt()
 		}
+		budget.Retry()
 	}
 	return result, lastStreamErr, false
 }

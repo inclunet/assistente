@@ -304,8 +304,12 @@ func (p *GoogleProvider) StreamChat(ctx context.Context, messages []Message, par
 	bk := 500 * time.Millisecond
 	maxBk := 8 * time.Second
 
-	for attempt := 1; attempt <= maxStreamAttempts; attempt++ {
-		markFinalStreamAttempt(handler, attempt)
+	budget := params.streamBudget()
+	for {
+		attempt := budget.Current()
+		if !budget.CanRetry() {
+			markErrorNotRetryable(handler)
+		}
 		select {
 		case <-ctx.Done():
 			handler.OnError("Streaming cancelado: " + ctx.Err().Error())
@@ -319,7 +323,7 @@ func (p *GoogleProvider) StreamChat(ctx context.Context, messages []Message, par
 			return
 		}
 
-		if attempt < maxStreamAttempts {
+		if budget.Retry() {
 			// Visibilidade: nunca deixar a pessoa no silÃƒÂªncio do backoff.
 			notifyTurnNotice(handler, TurnNotice{Kind: TurnNoticeStreamRetry, Count: attempt})
 			resetStreamAttempt(handler)
@@ -330,6 +334,7 @@ func (p *GoogleProvider) StreamChat(ctx context.Context, messages []Message, par
 
 		discardStreamReasoning(handler)
 		handler.OnError(streamRetriesExhaustedError)
+		return
 	}
 }
 

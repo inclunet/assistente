@@ -132,7 +132,9 @@ func (s *Service) StreamSimpleWithRecovery(
 		attempts = maxAttempts
 	}
 
-	for attempt := 1; attempt <= attempts; attempt++ {
+	budget := llm.NewStreamAttemptBudget(attempts)
+	params.StreamAttempts = budget
+	for {
 		if ctx.Err() != nil {
 			s.emitSimpleContextDone(ctx, conversationID, turnID, "", surfaceOrigin)
 			return
@@ -149,7 +151,7 @@ func (s *Service) StreamSimpleWithRecovery(
 		h.deferAgentTerminal = true
 		messages = s.applyContinuationPrefill(ctx, messages, params, h.AssistantMessageID, h.SetInitialResponse)
 		// Só a última tentativa deve finalizar o streaming com erro.
-		h.SuppressTerminalError(attempt < attempts)
+		h.SuppressTerminalError(budget.CanRetry())
 		streamer.StreamChat(ctx, messages, params, h)
 		h.closePendingAgentTools(h.pendingToolErrorKind())
 		if err := h.flushAgentTools(); err != nil {
@@ -191,7 +193,7 @@ func (s *Service) StreamSimpleWithRecovery(
 			logging.Errorf(ctx, "agent.service", "[Chat] streaming interrompido sem repetição possível (conversa %s): %s", conversationID, h.LastError())
 			return
 		}
-		if attempt == attempts {
+		if !budget.CanRetry() {
 			partialContent, partialReasoning := h.Finalize()
 			if err := s.persistAssistantPartial(ctx, h.AssistantMessageID, partialContent, partialReasoning); err != nil {
 				s.emitFinalizationErrorDone(ctx, conversationID, turnID, h.AssistantMessageID, surfaceOrigin)
@@ -202,10 +204,10 @@ func (s *Service) StreamSimpleWithRecovery(
 				return
 			}
 			h.emitAgentErrorDone()
+			return
 		}
-		if attempt < attempts {
-			logging.Errorf(context.Background(), "agent.service", "[Chat] streaming interrompido (conversa %s, tentativa %d/%d): %s", conversationID, attempt, attempts, h.LastError())
-		}
+		logging.Errorf(ctx, "agent.service", "[Chat] streaming interrompido (conversa %s, tentativa %d/%d): %s", conversationID, budget.Current(), attempts, h.LastError())
+		budget.Retry()
 	}
 }
 

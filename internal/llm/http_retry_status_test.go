@@ -6,8 +6,10 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"assistente/internal/credentials"
 )
@@ -120,6 +122,38 @@ func TestHTTPRejectionDoesNotRetryNumbersInURL(t *testing.T) {
 				provider.StreamChat(ctx, []Message{{Role: "user", Content: "oi"}}, ChatParams{Model: "m", MaxTokens: testParameterPointer(32)}, h)
 				if len(h.avisos) != 0 || calls.Load() != 1 || h.err == "" || ctx.Err() != nil {
 					t.Fatalf("HTTP rejection must finish once: calls=%d notices=%v error=%q context=%v", calls.Load(), h.avisos, h.err, ctx.Err())
+				}
+			})
+		}
+	}
+}
+
+func TestStreamAttemptBudgetCountsHTTPRequests(t *testing.T) {
+	for _, format := range []APIFormat{APIFormatOpenAI, APIFormatOpenAIResponses, APIFormatAnthropic} {
+		for _, limit := range []int{1, 2} {
+			t.Run(fmt.Sprintf("%s/%d", format, limit), func(t *testing.T) {
+				var calls atomic.Int32
+				var first time.Time
+				var mu sync.Mutex
+				server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+					mu.Lock()
+					if calls.Add(1) == 1 {
+						first = time.Now()
+					} else if time.Since(first) < time.Second {
+						t.Error("nova chamada antes do prazo Retry-After")
+					}
+					mu.Unlock()
+					w.Header().Set("Retry-After", "1")
+					w.Header().Set("Content-Type", "application/json")
+					w.WriteHeader(http.StatusServiceUnavailable)
+					fmt.Fprint(w, `{"error":{"message":"temporarily unavailable"}}`)
+				}))
+				defer server.Close()
+				provider := NewChatProvider(&ProviderConfig{ID: "budget", APIFormat: format, AuthMode: AuthModeNone, BaseURL: server.URL + "/v1"}, credentials.NewManager(nil), nil)
+				h := &providerRetryHandler{}
+				provider.StreamChat(t.Context(), []Message{{Role: "user", Content: "oi"}}, ChatParams{Model: "m", MaxTokens: testParameterPointer(32), StreamAttempts: NewStreamAttemptBudget(limit)}, h)
+				if got := int(calls.Load()); got != limit {
+					t.Fatalf("HTTP requests=%d, want %d", got, limit)
 				}
 			})
 		}

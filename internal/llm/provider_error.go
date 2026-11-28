@@ -7,7 +7,9 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"strconv"
 	"strings"
+	"time"
 
 	"assistente/internal/credentials"
 	"assistente/internal/llmcapabilities"
@@ -15,6 +17,45 @@ import (
 	"github.com/openai/openai-go"
 	"google.golang.org/genai"
 )
+
+// streamRetryAfter lê somente o prazo anunciado em erros HTTP dos SDKs.
+// O limite de um minuto preserva a política dos clientes de streaming anteriores.
+func streamRetryAfter(err error) time.Duration {
+	var open *openai.Error
+	var ant *anthropic.Error
+	var resp *http.Response
+	switch {
+	case errors.As(err, &open):
+		resp = open.Response
+	case errors.As(err, &ant):
+		resp = ant.Response
+	}
+	if resp == nil {
+		return 0
+	}
+	for _, hint := range []struct {
+		name string
+		unit time.Duration
+	}{
+		{"Retry-After-Ms", time.Millisecond}, {"Retry-After", time.Second},
+	} {
+		raw := resp.Header.Get(hint.name)
+		if raw == "" {
+			continue
+		}
+		if value, e := strconv.ParseFloat(raw, 64); e == nil && value >= 0 && value < float64(time.Minute)/float64(hint.unit) {
+			return time.Duration(value * float64(hint.unit))
+		}
+		if hint.unit == time.Second {
+			if date, e := http.ParseTime(raw); e == nil {
+				if d := time.Until(date); d > 0 && d < time.Minute {
+					return d
+				}
+			}
+		}
+	}
+	return 0
+}
 
 // ProviderErrorCategory é a classificação sanitizada de um erro de API.
 type ProviderErrorCategory string

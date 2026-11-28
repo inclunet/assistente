@@ -612,11 +612,15 @@ func TestAgenticLoopBlocksCompatibilityRetryAfterEarlierIterationOutput(t *testi
 // multiIterToolStreamer emite tool_calls em toolIters iterações e depois conclui.
 type multiIterToolStreamer struct {
 	toolIters    int
+	beforeStream func(llm.ChatParams)
 	calls        int
 	lastMessages []llm.Message
 }
 
-func (s *multiIterToolStreamer) StreamChat(_ context.Context, messages []llm.Message, _ llm.ChatParams, handler llm.StreamHandler, _ ...llm.ToolDefinition) {
+func (s *multiIterToolStreamer) StreamChat(_ context.Context, messages []llm.Message, p llm.ChatParams, handler llm.StreamHandler, _ ...llm.ToolDefinition) {
+	if s.beforeStream != nil {
+		s.beforeStream(p)
+	}
 	s.lastMessages = messages
 	if s.calls < s.toolIters {
 		id := fmt.Sprintf("call-%d", s.calls)
@@ -801,10 +805,14 @@ func TestRunAgenticLoop_MultipleToolIterations_EmitsEventsInOrder(t *testing.T) 
 	msgRepo := &toolMsgRepo{conversationID: conv.ID}
 	svc := newTestAgentService(ServiceConfig{Emitter: em, MsgRepo: msgRepo, ToolExecutor: exec, ToolInvocations: inv})
 
-	streamer := &multiIterToolStreamer{toolIters: 2}
+	streamer := &multiIterToolStreamer{toolIters: 2, beforeStream: func(p llm.ChatParams) {
+		if p.StreamAttempts.Current() != 1 || !p.StreamAttempts.Retry() || p.StreamAttempts.Retry() {
+			t.Fatal("cada chamada ao modelo deve receber as duas tentativas do perfil")
+		}
+	}}
 	svc.RunAgenticLoop(ctx, nil, []llm.Message{{Role: "user", Content: "hi"}}, llm.ChatParams{MaxAgenticIterations: 5}, conv.ID, turn.ID, nil, streamer, nil, func(string, int) IterationHandler {
 		return &testIterationHandler{}
-	}, nil, false, 0)
+	}, nil, true, 2)
 
 	if got := len(em.find("chat:tool_start")); got != 2 {
 		t.Fatalf("tool_start=%d, want 2", got)

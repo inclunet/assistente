@@ -85,8 +85,12 @@ func (p *OpenAIProvider) streamChatCompletions(ctx context.Context, model string
 	bk := 500 * time.Millisecond
 	maxBk := 8 * time.Second
 
-	for attempt := 1; attempt <= maxStreamAttempts; attempt++ {
-		markFinalStreamAttempt(handler, attempt)
+	budget := params.streamBudget()
+	for {
+		attempt := budget.Current()
+		if !budget.CanRetry() {
+			markErrorNotRetryable(handler)
+		}
 		select {
 		case <-ctx.Done():
 			handler.OnError("Streaming cancelado: " + ctx.Err().Error())
@@ -99,7 +103,7 @@ func (p *OpenAIProvider) streamChatCompletions(ctx context.Context, model string
 			return
 		}
 		if res.compatibilityRetry {
-			if attempt >= maxStreamAttempts {
+			if !budget.Retry() {
 				discardStreamReasoning(handler)
 				handler.OnError(res.compatibilityError)
 				return
@@ -108,7 +112,7 @@ func (p *OpenAIProvider) streamChatCompletions(ctx context.Context, model string
 			continue
 		}
 
-		if attempt < maxStreamAttempts {
+		if budget.Retry() {
 			if res.plainRetry {
 				// Visibilidade: nunca deixar a pessoa no silêncio do backoff.
 				// Só para falha transitória real; auto-ajustes de parâmetro
@@ -116,13 +120,14 @@ func (p *OpenAIProvider) streamChatCompletions(ctx context.Context, model string
 				notifyTurnNotice(handler, TurnNotice{Kind: TurnNoticeStreamRetry, Count: attempt})
 			}
 			resetStreamAttempt(handler)
-			sleepWithJitter(ctx, bk)
+			sleepWithJitter(ctx, max(bk, res.retryAfter))
 			bk = nextBackoff(bk, maxBk)
 			continue
 		}
 
 		discardStreamReasoning(handler)
 		handler.OnError(streamRetriesExhaustedError)
+		return
 	}
 }
 
@@ -132,6 +137,7 @@ func (p *OpenAIProvider) streamChatCompletions(ctx context.Context, model string
 // e avisa quem assiste. Nem done nem plainRetry = auto-ajuste de parâmetros,
 // que retenta sem aviso de falha.
 type chatStreamAttempt struct {
+	retryAfter         time.Duration
 	done               bool
 	plainRetry         bool
 	compatibilityRetry bool
@@ -393,7 +399,7 @@ func (p *OpenAIProvider) doStream(ctx context.Context, params openai.ChatComplet
 
 			if isRetryableError(errStr, providerError) {
 				reportCurrentDiagnostics()
-				return chatStreamAttempt{plainRetry: true}
+				return chatStreamAttempt{plainRetry: true, retryAfter: streamRetryAfter(err)}
 			}
 		}
 

@@ -201,14 +201,33 @@ const streamIdleErrorMessage = "streaming_idle_timeout"
 // sem fixar idioma no backend.
 const streamRetriesExhaustedError = "streaming_retries_exhausted"
 
-const maxStreamAttempts = 10
+// StreamAttemptBudget pertence a uma chamada síncrona ao modelo, incluindo a primeira tentativa.
+type StreamAttemptBudget struct {
+	current int
+	limit   int
+}
 
-// Na última tentativa, inclusive um erro emitido diretamente pelo transporte
-// deve encerrar a recuperação automática. O agente só consulta a marca em erro.
-func markFinalStreamAttempt(handler StreamHandler, attempt int) {
-	if attempt == maxStreamAttempts {
-		markErrorNotRetryable(handler)
+func NewStreamAttemptBudget(limit int) *StreamAttemptBudget {
+	return &StreamAttemptBudget{current: 1, limit: max(1, limit)}
+}
+
+func (b *StreamAttemptBudget) Current() int   { return b.current }
+func (b *StreamAttemptBudget) CanRetry() bool { return b.current < b.limit }
+
+func (b *StreamAttemptBudget) Retry() bool {
+	if !b.CanRetry() {
+		return false
 	}
+	b.current++
+	return true
+}
+
+func (p ChatParams) streamBudget() *StreamAttemptBudget {
+	if p.StreamAttempts != nil {
+		return p.StreamAttempts
+	}
+	// Chamadas avulsas sem perfil preservam o limite histórico do transporte.
+	return NewStreamAttemptBudget(10)
 }
 
 const streamPromptCacheHintRejectedError = "streaming_prompt_cache_hint_rejected"

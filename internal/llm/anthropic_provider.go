@@ -43,6 +43,7 @@ func NewAnthropicProvider(provider *ProviderConfig, credMgr *credentials.Manager
 		anthropicoption.WithHTTPClient(httpClient),
 	}
 	streamOpts := []anthropicoption.RequestOption{
+		anthropicoption.WithMaxRetries(0),
 		anthropicoption.WithHTTPClient(streamHTTPClient),
 	}
 	if providerUsesPlaceholderAPIKey(provider) {
@@ -228,8 +229,12 @@ func (p *AnthropicProvider) StreamChat(ctx context.Context, messages []Message, 
 	bk := 500 * time.Millisecond
 	maxBk := 8 * time.Second
 
-	for attempt := 1; attempt <= maxStreamAttempts; attempt++ {
-		markFinalStreamAttempt(handler, attempt)
+	budget := params.streamBudget()
+	for {
+		attempt := budget.Current()
+		if !budget.CanRetry() {
+			markErrorNotRetryable(handler)
+		}
 		select {
 		case <-ctx.Done():
 			handler.OnError("Streaming cancelado: " + ctx.Err().Error())
@@ -237,22 +242,23 @@ func (p *AnthropicProvider) StreamChat(ctx context.Context, messages []Message, 
 		default:
 		}
 
-		done := p.doStream(ctx, sdkParams, handler, params.ResponseTimeout)
-		if done {
+		result := p.doStream(ctx, sdkParams, handler, params.ResponseTimeout)
+		if result.done {
 			return
 		}
 
-		if attempt < maxStreamAttempts {
+		if budget.Retry() {
 			// Visibilidade: nunca deixar a pessoa no silêncio do backoff.
 			notifyTurnNotice(handler, TurnNotice{Kind: TurnNoticeStreamRetry, Count: attempt})
 			resetStreamAttempt(handler)
-			sleepWithJitter(ctx, bk)
+			sleepWithJitter(ctx, max(bk, result.retryAfter))
 			bk = nextBackoff(bk, maxBk)
 			continue
 		}
 
 		discardStreamReasoning(handler)
 		handler.OnError(streamRetriesExhaustedError)
+		return
 	}
 }
 
@@ -275,8 +281,12 @@ func (p *AnthropicProvider) streamChatWithMCP(
 	bk := 500 * time.Millisecond
 	maxBk := 8 * time.Second
 
-	for attempt := 1; attempt <= maxStreamAttempts; attempt++ {
-		markFinalStreamAttempt(handler, attempt)
+	budget := params.streamBudget()
+	for {
+		attempt := budget.Current()
+		if !budget.CanRetry() {
+			markErrorNotRetryable(handler)
+		}
 		select {
 		case <-ctx.Done():
 			handler.OnError("Streaming cancelado: " + ctx.Err().Error())
@@ -319,11 +329,11 @@ func (p *AnthropicProvider) streamChatWithMCP(
 			return
 		}
 		if result.retry {
-			if attempt < maxStreamAttempts {
+			if budget.Retry() {
 				// Visibilidade: nunca deixar a pessoa no silêncio do backoff.
 				notifyTurnNotice(handler, TurnNotice{Kind: TurnNoticeStreamRetry, Count: attempt})
 				resetStreamAttempt(handler)
-				sleepWithJitter(ctx, bk)
+				sleepWithJitter(ctx, max(bk, result.retryAfter))
 				bk = nextBackoff(bk, maxBk)
 				continue
 			}
@@ -718,7 +728,7 @@ func (p *AnthropicProvider) doStreamBeta(ctx context.Context, params anthropic.B
 		}
 		if !emittedNonRetryableEffect && isRetryableError(errStr, providerError) {
 			reportCurrentDiagnostics()
-			return mcpStreamAttemptResult{retry: true}
+			return mcpStreamAttemptResult{retry: true, retryAfter: streamRetryAfter(err)}
 		}
 		reportCurrentDiagnostics()
 		if emittedNonRetryableEffect {
@@ -825,7 +835,7 @@ func makeBetaAnthropicToolChoice(choice string) anthropic.BetaToolChoiceUnionPar
 	}
 }
 
-func (p *AnthropicProvider) doStream(ctx context.Context, params anthropic.MessageNewParams, handler StreamHandler, profileTimeout int) bool {
+func (p *AnthropicProvider) doStream(ctx context.Context, params anthropic.MessageNewParams, handler StreamHandler, profileTimeout int) mcpStreamAttemptResult {
 	// Watchdog de ociosidade (ver stream_watchdog.go): servidor que para de
 	// enviar sem fechar a conexão não pode prender a leitura até o timeout.
 	watchCtx, wd := startStreamWatchdog(ctx, streamIdleTimeout(profileTimeout, p.provider), nil)
@@ -867,17 +877,17 @@ func (p *AnthropicProvider) doStream(ctx context.Context, params anthropic.Messa
 			if fullReasoning.Len() > 0 {
 				handler.OnThinkingDone(fullReasoning.String())
 			}
-			return true
+			return mcpStreamAttemptResult{done: true}
 		}
 		if wd.TimedOut() {
 			if !emittedNonRetryableEffect {
 				reportCurrentDiagnostics()
-				return false
+				return mcpStreamAttemptResult{retry: true}
 			}
 			reportCurrentDiagnostics()
 			markErrorNotRetryable(handler)
 			handler.OnError(streamIdleErrorMessage)
-			return true
+			return mcpStreamAttemptResult{done: true}
 		}
 		event := stream.Current()
 
@@ -920,17 +930,17 @@ func (p *AnthropicProvider) doStream(ctx context.Context, params anthropic.Messa
 						if fullReasoning.Len() > 0 {
 							handler.OnThinkingDone(fullReasoning.String())
 						}
-						return true
+						return mcpStreamAttemptResult{done: true}
 					}
 					if wd.TimedOut() {
 						if !emittedNonRetryableEffect {
 							reportCurrentDiagnostics()
-							return false
+							return mcpStreamAttemptResult{retry: true}
 						}
 						reportCurrentDiagnostics()
 						markErrorNotRetryable(handler)
 						handler.OnError(streamIdleErrorMessage)
-						return true
+						return mcpStreamAttemptResult{done: true}
 					}
 					fullResponse.WriteString(delta.Text)
 					emittedNonRetryableEffect = true
@@ -942,23 +952,23 @@ func (p *AnthropicProvider) doStream(ctx context.Context, params anthropic.Messa
 						if fullReasoning.Len() > 0 {
 							handler.OnThinkingDone(fullReasoning.String())
 						}
-						return true
+						return mcpStreamAttemptResult{done: true}
 					}
 					if wd.TimedOut() {
 						if !emittedNonRetryableEffect {
 							reportCurrentDiagnostics()
-							return false
+							return mcpStreamAttemptResult{retry: true}
 						}
 						reportCurrentDiagnostics()
 						markErrorNotRetryable(handler)
 						handler.OnError(streamIdleErrorMessage)
-						return true
+						return mcpStreamAttemptResult{done: true}
 					}
 					fullReasoning.WriteString(delta.Thinking)
 					handler.OnThinking(delta.Thinking)
 					if ctx.Err() != nil {
 						handler.OnThinkingDone(fullReasoning.String())
-						return true
+						return mcpStreamAttemptResult{done: true}
 					}
 				}
 			case "input_json_delta":
@@ -1018,7 +1028,7 @@ func (p *AnthropicProvider) doStream(ctx context.Context, params anthropic.Messa
 			}
 			reportCurrentDiagnostics()
 			handler.OnError("Streaming cancelado: " + ctx.Err().Error())
-			return true
+			return mcpStreamAttemptResult{done: true}
 		}
 
 		// Watchdog de ociosidade estourou. Sem conteúdo emitido, a tentativa
@@ -1026,17 +1036,17 @@ func (p *AnthropicProvider) doStream(ctx context.Context, params anthropic.Messa
 		if wd.TimedOut() {
 			if !emittedNonRetryableEffect {
 				reportCurrentDiagnostics()
-				return false
+				return mcpStreamAttemptResult{retry: true}
 			}
 			reportCurrentDiagnostics()
 			markErrorNotRetryable(handler)
 			handler.OnError(streamIdleErrorMessage)
-			return true
+			return mcpStreamAttemptResult{done: true}
 		}
 
 		if !emittedNonRetryableEffect && isRetryableError(errStr, providerError) {
 			reportCurrentDiagnostics()
-			return false
+			return mcpStreamAttemptResult{retry: true, retryAfter: streamRetryAfter(err)}
 		}
 
 		reportCurrentDiagnostics()
@@ -1044,7 +1054,7 @@ func (p *AnthropicProvider) doStream(ctx context.Context, params anthropic.Messa
 			markErrorNotRetryable(handler)
 		}
 		handler.OnError(providerError.DisplayMessage())
-		return true
+		return mcpStreamAttemptResult{done: true}
 	}
 
 	// Guarda de corrida: o watchdog pode estourar exatamente quando o
@@ -1054,18 +1064,18 @@ func (p *AnthropicProvider) doStream(ctx context.Context, params anthropic.Messa
 		logging.Errorf(ctx, "llm.anthropic-provider", "[AnthropicProvider] Stream encerrou junto com timeout de inatividade: %d bytes parciais", fullResponse.Len())
 		if !emittedNonRetryableEffect {
 			reportCurrentDiagnostics()
-			return false
+			return mcpStreamAttemptResult{retry: true}
 		}
 		reportCurrentDiagnostics()
 		markErrorNotRetryable(handler)
 		handler.OnError(streamIdleErrorMessage)
-		return true
+		return mcpStreamAttemptResult{done: true}
 	}
 	if ctx.Err() != nil {
 		if fullReasoning.Len() > 0 {
 			handler.OnThinkingDone(fullReasoning.String())
 		}
-		return true
+		return mcpStreamAttemptResult{done: true}
 	}
 
 	if fullReasoning.Len() > 0 {
@@ -1101,11 +1111,11 @@ func (p *AnthropicProvider) doStream(ctx context.Context, params anthropic.Messa
 
 	if len(finishedToolCalls) > 0 {
 		handler.OnToolCalls(finishedToolCalls, fullResponse.String(), lastUsage, lastModel)
-		return true
+		return mcpStreamAttemptResult{done: true}
 	}
 
 	handler.OnDone(fullResponse.String(), lastUsage, lastModel)
-	return true
+	return mcpStreamAttemptResult{done: true}
 }
 
 // convertToAnthropicMessages converte mensagens internas para o formato Anthropic.
