@@ -126,6 +126,10 @@ export function RemoveRepository(arg1, arg2) {
   return window['go']['wailsapi']['Plugins']['RemoveRepository'](arg1, arg2);
 }
 
+export function ReuseMCP(arg1, arg2, arg3, arg4) {
+  return window['go']['wailsapi']['Plugins']['ReuseMCP'](arg1, arg2, arg3, arg4);
+}
+
 export function ReuseProvider(arg1, arg2, arg3, arg4) {
   return window['go']['wailsapi']['Plugins']['ReuseProvider'](arg1, arg2, arg3, arg4);
 }

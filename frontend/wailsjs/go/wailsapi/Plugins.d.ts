@@ -66,6 +66,8 @@ export function RemoveMCP(arg1:string,arg2:string,arg3:string,arg4:boolean):Prom
 
 export function RemoveRepository(arg1:string,arg2:string):Promise<void>;
 
+export function ReuseMCP(arg1:string,arg2:string,arg3:string,arg4:string):Promise<void>;
+
 export function ReuseProvider(arg1:string,arg2:string,arg3:string,arg4:string):Promise<void>;
 
 export function SaveBuilder(arg1:plugins.BuilderRequest,arg2:string):Promise<boolean>;

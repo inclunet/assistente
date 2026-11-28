@@ -85,7 +85,8 @@ type PluginMCPBinding struct {
 	InstallationID string `gorm:"primaryKey"`
 	ComponentKey   string `gorm:"primaryKey"`
 	Digest         string `gorm:"not null"`
-	ServerID       string `gorm:"uniqueIndex;not null"`
+	ServerID       string `gorm:"index:idx_plugin_mcp_users;uniqueIndex:ux_plugin_mcp_source,where:consumer_only=0;not null"`
+	ConsumerOnly   bool   `gorm:"not null;default:false"`
 	Slug           string `gorm:"not null"`
 	ConfigDigest   string `gorm:"not null"`
 }
