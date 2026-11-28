@@ -611,11 +611,13 @@ func TestAgenticLoopBlocksCompatibilityRetryAfterEarlierIterationOutput(t *testi
 
 // multiIterToolStreamer emite tool_calls em toolIters iterações e depois conclui.
 type multiIterToolStreamer struct {
-	toolIters int
-	calls     int
+	toolIters    int
+	calls        int
+	lastMessages []llm.Message
 }
 
-func (s *multiIterToolStreamer) StreamChat(_ context.Context, _ []llm.Message, _ llm.ChatParams, handler llm.StreamHandler, _ ...llm.ToolDefinition) {
+func (s *multiIterToolStreamer) StreamChat(_ context.Context, messages []llm.Message, _ llm.ChatParams, handler llm.StreamHandler, _ ...llm.ToolDefinition) {
+	s.lastMessages = messages
 	if s.calls < s.toolIters {
 		id := fmt.Sprintf("call-%d", s.calls)
 		handler.OnToolCalls([]llm.ToolCall{{ID: id, Type: "function", Function: llm.FunctionCall{Name: "ok_tool", Arguments: `{}`}}}, "", llm.Usage{}, "m")
@@ -800,7 +802,7 @@ func TestRunAgenticLoop_MultipleToolIterations_EmitsEventsInOrder(t *testing.T) 
 	svc := newTestAgentService(ServiceConfig{Emitter: em, MsgRepo: msgRepo, ToolExecutor: exec, ToolInvocations: inv})
 
 	streamer := &multiIterToolStreamer{toolIters: 2}
-	svc.RunAgenticLoop(ctx, []llm.Message{{Role: "user", Content: "hi"}}, llm.ChatParams{MaxAgenticIterations: 5}, conv.ID, turn.ID, nil, streamer, nil, func(string, int) IterationHandler {
+	svc.RunAgenticLoop(ctx, nil, []llm.Message{{Role: "user", Content: "hi"}}, llm.ChatParams{MaxAgenticIterations: 5}, conv.ID, turn.ID, nil, streamer, nil, func(string, int) IterationHandler {
 		return &testIterationHandler{}
 	}, nil, false, 0)
 
@@ -929,7 +931,7 @@ func TestRunAgenticLoop_PartialToolError_ContinuesAndCompletes(t *testing.T) {
 	svc := newTestAgentService(ServiceConfig{Emitter: em, MsgRepo: msgRepo, ToolExecutor: exec, ToolInvocations: inv})
 
 	streamer := &twoToolsThenDoneStreamer{}
-	svc.RunAgenticLoop(ctx, []llm.Message{{Role: "user", Content: "hi"}}, llm.ChatParams{MaxAgenticIterations: 5}, conv.ID, turn.ID, nil, streamer, nil, func(string, int) IterationHandler {
+	svc.RunAgenticLoop(ctx, nil, []llm.Message{{Role: "user", Content: "hi"}}, llm.ChatParams{MaxAgenticIterations: 5}, conv.ID, turn.ID, nil, streamer, nil, func(string, int) IterationHandler {
 		return &testIterationHandler{}
 	}, nil, false, 0)
 
@@ -980,5 +982,84 @@ func TestAgentNaoRepeteLimiteDeTerminaisDesabilitado(t *testing.T) {
 	retried := r.retryRetryableTools(t.Context(), calls, results, map[string]bool{}, 0)
 	if len(retried) != 0 || reads != 1 || results[0].ErrorCode != shell.FailureSessionStart || results[0].Retryable {
 		t.Fatalf("repetições=%v leituras=%d resultado=%+v", retried, reads, results[0])
+	}
+}
+
+func TestToolContextCompactionContinuesWithoutReexecutingTool(t *testing.T) {
+	for _, tc := range []struct {
+		name                    string
+		keep, calls, iterations int
+		reason                  string
+	}{
+		{"resume o histórico anterior", 1, 2, 3, "completed"},
+		{"última iteração", 1, 1, 1, "limit_reached"},
+		{"preserva mínimo do perfil", 10, 1, 3, "error"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			em := &captureEmitter{}
+			registry := tools.NewRegistry()
+			registry.MustRegister(okTool{})
+			svc := newTestAgentService(ServiceConfig{Emitter: em, MsgRepo: &toolMsgRepo{conversationID: "c1"},
+				ToolExecutor: tools.NewExecutor(registry, tools.DefaultExecutorConfig()), ToolInvocations: newAgentTestToolInvocations(registry)})
+			r := newSeamRunner(svc, "c1", "t1")
+			r.assistantMessageID = "a1"
+			r.params.ContextWindow = 120
+			r.params.Model = "modelo-da-aba"
+			r.messages = []llm.Message{{Role: "system", Content: "instrução"}, {Role: "user", Content: "pedido antigo"},
+				{Role: "assistant", Content: strings.Repeat("x", 450)}, {Role: "user", Content: "pedido atual"}}
+			summaries := 0
+			r.compaction = &TurnCompaction{MinKeep: tc.keep, Summarize: func(_ context.Context, model, _, source string) (string, error) {
+				summaries++
+				if model != "modelo-da-aba" || !strings.Contains(source, "pedido antigo") || strings.Contains(source, "pedido atual") {
+					t.Fatal("intervalo ou modelo incorreto")
+				}
+				return "contexto anterior", nil
+			}}
+			streamer := &multiIterToolStreamer{toolIters: 1}
+			r.activeStreamer = streamer
+			r.newHandler = func(string, int) IterationHandler { return &testIterationHandler{} }
+			r.maxIterations = tc.iterations
+			r.run(context.Background())
+			done := em.find("chat:done")
+			if len(done) != 1 || done[0].data.(ports.DoneEvent).Reason != tc.reason || streamer.calls != tc.calls || len(em.find("chat:tool_start")) != 1 || len(em.find("chat:tool_end")) != 1 {
+				t.Fatalf("eventos=%v chamadas=%d", done, streamer.calls)
+			}
+			if tc.calls == 2 {
+				got := streamer.lastMessages
+				last := got[len(got)-1]
+				if summaries != 1 || last.Role != "tool" || last.Content != "ok" || last.ToolCallID != "call-0" || got[len(got)-3].Content != "pedido atual" {
+					t.Fatalf("resumo ou resultado da tool perdido: %#v", got)
+				}
+			} else if summaries != 0 {
+				t.Fatal("resumiu as mensagens protegidas")
+			}
+		})
+	}
+}
+
+func TestCompactionPreservesRequestAndOutputRepair(t *testing.T) {
+	r := &agenticLoopRunner{maxIterations: 4, messages: markCompactionTarget([]llm.Message{
+		{Role: "user", Content: "pergunta antiga"}, {Role: "assistant", Content: "resposta antiga"}, {Role: "user", Content: "pedido original"},
+	})}
+	if !r.recoverOutputLimitedToolCalls(context.Background(), AgenticResult{ToolCalls: []llm.ToolCall{{Function: llm.FunctionCall{Name: "tool"}}}}, 0) {
+		t.Fatal("faltou instrução de reparo")
+	}
+	r.messages = append(r.messages, llm.Message{Role: "assistant", ToolCalls: []llm.ToolCall{{ID: "reparada"}}})
+	spans := compactableRanges(r.messages, 1, false)
+	if len(spans) != 1 || spans[0] != (historySpan{0, 2}) {
+		t.Fatalf("intervalos %v devem preservar pedido, reparo e chamada pendente", spans)
+	}
+}
+
+func TestToolContextNeedsBothEligibleSpans(t *testing.T) {
+	history := []llm.Message{{Role: "user", Content: strings.Repeat("a", 850)}, {Role: "assistant", Content: "anterior"},
+		{Role: "user", Content: "pedido", TurnContextTarget: true}, {Role: "assistant", ToolCalls: []llm.ToolCall{{ID: "antiga"}}},
+		{Role: "tool", ToolCallID: "antiga", Content: strings.Repeat("b", 800)}, {Role: "assistant", ToolCalls: []llm.ToolCall{{ID: "pendente"}}}}
+	calls := 0
+	r := &agenticLoopRunner{messages: history, params: llm.ChatParams{ContextWindow: 190}, compaction: &TurnCompaction{MinKeep: 1, Summarize: func(context.Context, string, string, string) (string, error) { calls++; return "resumo", nil }}}
+	results := []tools.ToolExecutionResult{{Result: tools.ToolResult{Content: "resultado integral"}}}
+	contents := []string{"resultado integral"}
+	if !r.prepareToolContext(context.Background(), 1, results, contents) || calls != 2 || contents[0] != "resultado integral" || r.messages[len(r.messages)-1].ToolCalls[0].ID != "pendente" {
+		t.Fatalf("chamadas=%d resultados=%v", calls, contents)
 	}
 }
