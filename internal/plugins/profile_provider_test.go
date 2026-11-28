@@ -33,7 +33,7 @@ func TestMissingProviderChatGPTForTextOnly(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			_, err = resolveProfile(ctx, db, raw)
+			_, err = resolveProfile(ctx, db, raw, nil, "", "")
 			var missing missingProfileProvider
 			if !errors.As(err, &missing) || missing.slug != "work" || missing.chatOnly != tc.want {
 				t.Fatalf("missing=%+v err=%v", missing, err)
@@ -80,6 +80,33 @@ func TestNativeProfileUsesDestinationProviderBySlug(t *testing.T) {
 	if err := store.RegisterProvider(user, row.ID, row.Digest, "providers/"+p.Slug, allow); err != nil {
 		t.Fatal(err)
 	}
+	preview := DiscoverComponents(snap)
+	if err := store.DescribeProfileDependencies(user, preview, snap, ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Model(&database.PluginProviderBinding{}).Where("installation_id=?", row.ID).UpdateColumn("consumer_only", true).Error; err != nil {
+		t.Fatal(err)
+	}
+	update := *snap
+	update.Digest = "nova-revisao"
+	pendingUpdate := DiscoverComponents(&update)
+	if err := store.DescribeProfileDependencies(user, pendingUpdate, &update, row.ID); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range pendingUpdate {
+		if c.Kind == "profile" && c.PendingProvider != p.Slug {
+			t.Fatalf("prévia reutilizou o vínculo anterior: %+v", c)
+		}
+	}
+	var pendingPreview bool
+	for _, c := range preview {
+		if c.Kind == "profile" {
+			pendingPreview = c.PendingProvider == p.Slug
+		}
+	}
+	if !pendingPreview {
+		t.Fatalf("a prévia de outra instalação deve pedir conferência de uso: %+v", preview)
+	}
 	if err := activate(); err != nil {
 		t.Fatal(err)
 	}
@@ -102,6 +129,52 @@ func TestNativeProfileUsesDestinationProviderBySlug(t *testing.T) {
 	}
 	if got.Chat.Model != profile.Chat.Model {
 		t.Fatal("modelo escolhido para o chat foi perdido")
+	}
+	if err := db.Model(&database.PluginRevision{}).Where("installation_id=? AND digest=?", row.ID, row.Digest).UpdateColumn("provider_requirements", nil).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Exec("CREATE TRIGGER refuse_index BEFORE UPDATE OF provider_requirements ON plugin_revisions BEGIN SELECT RAISE(ABORT,'index unavailable'); END").Error; err != nil {
+		t.Fatal(err)
+	}
+	if got, err := store.GetPluginProfile(user, items[0].Slug); err != nil || got.Chat.LLMProvider != dest.ID {
+		t.Fatal(got, err)
+	}
+	if err := db.Exec("DROP TRIGGER refuse_index").Error; err != nil {
+		t.Fatal(err)
+	}
+	dest.BaseURL = "https://diferente.example/v1"
+	if err := repo.SaveLLMProvider(user, dest); err != nil {
+		t.Fatal(err)
+	}
+	for _, legacy := range []bool{false, true} {
+		if legacy {
+			if err := db.Model(&database.PluginRevision{}).Where("installation_id=? AND digest=?", row.ID, row.Digest).UpdateColumn("provider_requirements", nil).Error; err != nil {
+				t.Fatal(err)
+			}
+		}
+		var pending unavailableProfileProvider
+		if err := activate(); !errors.As(err, &pending) {
+			t.Fatalf("ativação com configuração divergente: %v", err)
+		}
+		if _, err := store.GetPluginProfile(user, items[0].Slug); !errors.As(err, &pending) {
+			t.Fatalf("perfil ativo após edição do provedor: %v", err)
+		}
+		if listed, err := store.ListPluginProfiles(user); err != nil || len(listed) != 0 {
+			t.Fatal(listed, err)
+		}
+		details, err := store.InstalledComponents(user, row.ID, row.Digest)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var seen bool
+		for _, c := range details {
+			if c.Kind == "profile" {
+				seen = c.Active && c.PendingProvider == p.Slug && !c.CanCreateChatGPT
+			}
+		}
+		if !seen {
+			t.Fatal(details)
+		}
 	}
 	if err := repo.DeleteLLMProvider(user, dest.ID); err != nil {
 		t.Fatal(err)

@@ -206,6 +206,7 @@ notSaved: 'La decisión vale solo para esta operación: no se pudo recordar. Ser
       missingProfileAllowlist: 'Configura la lista de comandos {{name}} para usar este perfil.',
       profileSettings: 'Revisar la configuración del perfil',
       createProfileChatGPT: 'Crear una conexión local de ChatGPT para {{name}}',
+      pendingProfileProvider: 'Revisa el proveedor {{name}}. Este perfil requiere la configuración del plugin y un vínculo confirmado.',
       missingProfileProvider: 'Registra el proveedor {{name}} para usar este perfil.',
       syncLocalProvider: '¿Volver a cargar la configuración actual de {{name}} guardada en tu cuenta?',
       syncProvider: 'Sincronizar {{name}}',
