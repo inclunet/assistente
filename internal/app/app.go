@@ -1401,6 +1401,9 @@ func (a *App) waitBackground(timeout time.Duration) {
 func (a *App) Shutdown() {
 	wailsapi.CloseChatTimeline(a.chatTimelineAPI)
 	a.startupResult.finish(context.Canceled)
+	if a.summarySvc != nil {
+		a.summarySvc.Shutdown()
+	}
 	// Cancela e aguarda a única recuperação de hot-swap antes de desmontar
 	// lifecycle/adapters. A rotina não pode republicar após o início do shutdown.
 	recoveryCtx, cancelRecovery := context.WithTimeout(context.Background(), shutdownBackgroundTimeout)
