@@ -7,6 +7,7 @@ set -euo pipefail
 raiz=$(mktemp -d)
 script=$raiz/atualizar-prs-com-main.sh
 cp "$(dirname "$0")/atualizar-prs-com-main.sh" "$script"
+cp "$(dirname "$0")/ci-efetivo-pr.sh" "$raiz/"
 chmod +x "$script"
 
 export GIT_AUTHOR_NAME=teste GIT_AUTHOR_EMAIL=teste@exemplo
@@ -74,6 +75,13 @@ case "${1:-}" in
   pr)
     cat "$RAIZ_TESTE/prs.tsv"
     ;;
+  api)
+    sha=$(git rev-parse HEAD)
+    [[ $2 == "repos/owner/repo/actions/workflows/ci.yml/runs?event=pull_request&head_sha=$sha&per_page=100" ]] || exit 1
+    if [[ $(git branch --show-current) == atualizar/filho ]]; then
+      printf '50\tpull_request\t%s\tnone\t11\tqueued\taprovador\n' "$sha"
+    fi
+    ;;
   workflow)
     prev=''
     branch=''
@@ -101,7 +109,7 @@ printf '%s\n' \
   $'12\tconflitante\tmain' \
   $'13\tem-dia\tmain' > "$raiz/prs.tsv"
 
-export RAIZ_TESTE=$raiz
+export RAIZ_TESTE=$raiz GITHUB_REPOSITORY=owner/repo
 export PATH=$raiz/bin:$PATH
 export GITHUB_STEP_SUMMARY=$raiz/resumo.md
 : > "$GITHUB_STEP_SUMMARY"
@@ -151,8 +159,11 @@ orfa_tem_main=nao
 git -C "$raiz/trabalho" merge-base --is-ancestor origin/main origin/orfa && orfa_tem_main=sim
 conferir 'PR com base apagada recebeu a main assim mesmo' sim "$orfa_tem_main"
 
-conferir 'CI associa cada branch alterada ao PR correto e ignora as demais' \
-  'filho:11 orfa:14 pai:10' "$(sort "$raiz/ci-pedido.txt" | tr '\n' ' ' | sed 's/ *$//')"
+conferir 'só pede CI para as branches sem run de PR' \
+  'orfa:14 pai:10' "$(sort "$raiz/ci-pedido.txt" | tr '\n' ' ' | sed 's/ *$//')"
+
+grep -q 'PR #11 (filho): atualizado e coberto pelo CI 50.' "$raiz/log.txt" && encontrou=sim || encontrou=nao
+conferir 'reutilizou o CI do filho' sim "$encontrou"
 
 conferir 'conflito é notícia, não falha do run' 0 "$saida"
 
