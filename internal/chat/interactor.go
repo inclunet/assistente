@@ -1194,7 +1194,11 @@ func (i *Interactor) buildDynamicContext(ctx context.Context, data TemplateData,
 		return nil, nil
 	}
 	req := i.dynamicContextRequest(data, currentUserText, conversationSummary, slashSkillContent, linkedTaskLists, taskListContextEnabled, activeProfile)
-	return i.contextProviders.Build(ctx, req)
+	blocks, err := i.contextProviders.Build(ctx, req)
+	if err != nil && !errors.Is(err, contextprovider.ErrCommandRefused) {
+		logging.Errorf(ctx, "chat.interactor", "[context/providers] erro ao montar blocos dinâmicos: %v", err)
+	}
+	return blocks, err
 }
 
 func (i *Interactor) dynamicContextRequest(data TemplateData, currentUserText, conversationSummary, slashSkillContent string, linkedTaskLists []contextprovider.LinkedTaskList, taskListContextEnabled bool, activeProfile *profiles.Profile) contextprovider.BuildRequest {
