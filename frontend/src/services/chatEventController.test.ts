@@ -1976,6 +1976,18 @@ describe('chatEventController', () => {
     await view.presentation.close();
   });
 
+  it('anuncia que o contexto esgotou após executar as ferramentas', () => {
+    const { adapter } = createAdapter(['conversation-2']);
+    startChatEventController({ conversationId: 'conversation-2', adapter });
+    emitEvent('chat:done', {
+      conversationId: 'conversation-2', turnId: 't1', assistantMessageId: 'a1',
+      reason: 'error', hadToolCalls: true, errorMessage: 'tool_context_exhausted',
+    });
+    expect(mockAnnounceWithOrigin).toHaveBeenCalledWith(expect.objectContaining({
+      message: 'chat.errors.toolContextExhausted', eventType: 'error',
+    }));
+  });
+
   it('traduz streaming_idle_timeout', () => {
     const { adapter } = createAdapter(['conversation-2']);
     startChatEventController({ conversationId: 'conversation-2', adapter });

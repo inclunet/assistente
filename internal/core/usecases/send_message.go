@@ -865,7 +865,8 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 				r := recover()
 				uc.agentSvc.HandleRecoveredPanic(agentCtx, req.ConversationID, userMsg.ID, "runAgenticLoop", r, surfaceOrigin)
 			}()
-			uc.agentSvc.RunAgenticLoop(agentCtx, messages, params, req.ConversationID, userMsg.ID, llmToolDefs, requestStreamer, surfaceOrigin,
+			compaction := &agent.TurnCompaction{MinKeep: activeProfile.GetMinContextMessages(), Summarize: adapterStreamer.SimpleChat}
+			uc.agentSvc.RunAgenticLoop(agentCtx, compaction, messages, params, req.ConversationID, userMsg.ID, llmToolDefs, requestStreamer, surfaceOrigin,
 				func(convID string, iter int) agent.IterationHandler {
 					return agent.NewAgenticStreamHandler(uc.emitter, convID, iter, surfaceOrigin, userMsg.ID)
 				},
