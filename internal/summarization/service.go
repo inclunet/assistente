@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"sync"
+	"time"
 	"unicode/utf8"
 
 	"assistente/internal/chat"
@@ -400,14 +402,29 @@ type ServiceConfig struct {
 // Service encapsula a lógica de sumarização de conversas, sem depender de Wails.
 type Service struct {
 	cfg ServiceConfig
+
+	mu          sync.Mutex
+	workers     sync.WaitGroup
+	shutdownCtx context.Context
+	cancel      context.CancelFunc
 }
 
 // NewService cria um Service com as dependências fornecidas.
 func NewService(cfg ServiceConfig) *Service {
-	return &Service{cfg: cfg}
+	ctx, cancel := context.WithCancel(context.Background())
+	return &Service{cfg: cfg, shutdownCtx: ctx, cancel: cancel}
 }
 
-// CheckAndTriggerSummarization verifica se a conversa precisa de sumarização e dispara em background.
+// Shutdown cancela e drena as verificações e execuções admitidas antes do encerramento.
+func (s *Service) Shutdown() {
+	s.mu.Lock()
+	s.cancel()
+	s.mu.Unlock()
+	s.workers.Wait()
+}
+
+// CheckAndTriggerSummarization verifica e, se necessário, executa a sumarização.
+// O chamador já executa este trabalho em segundo plano, fora do contexto do turno.
 // Deve ser chamado APÓS a resposta do LLM ser salva.
 //
 // profileSlug é o slug do perfil DA CONVERSA (o mesmo resolvido no envio de
@@ -417,6 +434,23 @@ func NewService(cfg ServiceConfig) *Service {
 // resolvido — mesmo padrão de fallback de `chat.Interactor.PrepareContext`.
 func (s *Service) CheckAndTriggerSummarization(ctx context.Context, conversationID string, profileSlug string, outputTokenLimit int) {
 	if conversationID == "" {
+		return
+	}
+
+	s.mu.Lock()
+	if s.shutdownCtx.Err() != nil {
+		s.mu.Unlock()
+		return
+	}
+	s.workers.Add(1)
+	s.mu.Unlock()
+	defer s.workers.Done()
+
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	stop := context.AfterFunc(s.shutdownCtx, cancel)
+	defer stop()
+	if ctx.Err() != nil {
 		return
 	}
 
@@ -489,7 +523,7 @@ func (s *Service) CheckAndTriggerSummarization(ctx context.Context, conversation
 	profile = &resolvedProfile
 	invocationResults := loadSummarizationToolInvocationResults(ctx, contextMessages)
 	if shouldTriggerSummarizationWithHydratedToolResults(profile, contextMessages, existingSummary, invocationResults) {
-		s.TriggerSummarizationInBackground(ctx, conversationID, profile, allRootMessages)
+		s.summarize(ctx, conversationID, profile, allRootMessages)
 	}
 }
 
@@ -536,9 +570,8 @@ func (s *Service) isAgentDrivenProfile(profile *profiles.Profile) bool {
 	return s.cfg.LLMRegistry.Get(profile.Chat.LLMProvider).IsACP()
 }
 
-// TriggerSummarizationInBackground lança uma goroutine para sumarizar mensagens antigas.
-// Respeita MinContextMessages: só mensagens além do threshold mínimo são sumarizadas.
-func (s *Service) TriggerSummarizationInBackground(
+// summarize preserva pelo menos MinContextMessages de histórico recente.
+func (s *Service) summarize(
 	ctx context.Context,
 	conversationID string,
 	profile *profiles.Profile,
@@ -606,15 +639,12 @@ func (s *Service) TriggerSummarizationInBackground(
 		return
 	}
 
-	go func() {
-		defer func() {
-			if r := recover(); r != nil {
-				logging.Errorf(ctx, "summarization.service", "🔴 [PANIC RECOVERED] executeSummarization (conversa %s): %v", conversationID, r)
-				_ = s.cfg.Repo.SetSummarizingInProgress(ctx, conversationID, false)
-			}
-		}()
-		s.executeSummarization(ctx, conversationID, profile, existingSummary, newMessages, lastSummarizedMsgID)
+	defer func() {
+		if r := recover(); r != nil {
+			logging.Errorf(ctx, "summarization.service", "🔴 [PANIC RECOVERED] executeSummarization (conversa %s): %v", conversationID, r)
+		}
 	}()
+	s.executeSummarization(ctx, conversationID, profile, existingSummary, newMessages, lastSummarizedMsgID)
 }
 
 // executeSummarization chama o LLM para gerar o resumo das mensagens fornecidas.
@@ -626,15 +656,23 @@ func (s *Service) executeSummarization(
 	newMessages []chat.Message,
 	upToMessageID string,
 ) {
+	defer func() {
+		// O cancelamento do trabalho não deve deixar a conversa marcada como ocupada.
+		cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		defer cancel()
+		if err := s.cfg.Repo.SetSummarizingInProgress(cleanupCtx, conversationID, false); err != nil {
+			logging.Errorf(cleanupCtx, "summarization.service", "[Summary] Erro ao desmarcar summarizing_in_progress: %v", err)
+		}
+	}()
+	if ctx.Err() != nil {
+		return
+	}
 	if s.cfg.ProfileResolver != nil {
 		profile = s.cfg.ProfileResolver(ctx, profile)
 	}
-
-	defer func() {
-		if err := s.cfg.Repo.SetSummarizingInProgress(ctx, conversationID, false); err != nil {
-			logging.Errorf(ctx, "summarization.service", "[Summary] Erro ao desmarcar summarizing_in_progress: %v", err)
-		}
-	}()
+	if profile == nil || ctx.Err() != nil {
+		return
+	}
 
 	// Só aqui o sentinela `$default` do perfil vira provider concreto, então a
 	// recusa do D14 (AEP-0084) precisa existir também neste ponto — antes de
