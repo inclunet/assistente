@@ -29,11 +29,11 @@ import (
 
 // initSkills inicializa o gerenciador de skills
 func (a *App) initSkills() {
-	a.skillMgr = skills.NewManagerWithInstalledSkills(func(ctx context.Context) ([]skills.Skill, error) {
+	a.skillMgr = skills.NewManagerWithInstalledSkills(func(ctx context.Context, local []skills.Skill) ([]skills.Skill, error) {
 		if _, ok := database.UserIDFromContext(ctx); !ok {
-			return nil, nil
+			return local, nil
 		}
-		return plugins.NewInventory(database.DB()).ActiveSkills(ctx)
+		return plugins.NewInventory(database.DB()).WithLocalSkillReview(a.skillMgr.WithLinkableDefinitions).ActiveSkills(ctx, local)
 	})
 	if err := a.skillMgr.EnsureDir(); err != nil {
 		logging.Errorf(context.Background(), "app.app-skills", "[Skills] Erro ao garantir diretório de skills: %v", err)
@@ -68,7 +68,7 @@ func (a *App) runSkillCommand(ctx context.Context, skill *skills.Skill, command 
 		}
 	}
 	ec := tools.ExecutionContext{InvokedSkillSlug: skill.Slug}
-	if skill.Source == "plugin" {
+	if skill.Source == "plugin" || skill.CheckCommandActivation != nil {
 		if skill.CheckCommandActivation == nil {
 			return "", plugins.ErrComponentUnavailable
 		}

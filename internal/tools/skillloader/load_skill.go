@@ -19,7 +19,7 @@ type SkillManager interface {
 }
 
 type ProfileManager interface {
-	Get(slug string) (*profiles.Profile, error)
+	GetForContext(context.Context, string) (*profiles.Profile, error)
 	GetActive() (*profiles.Profile, error)
 }
 
@@ -103,6 +103,11 @@ func (t *Tool) Execute(ctx context.Context, args json.RawMessage) (tools.ToolRes
 	if !ok {
 		return tools.ToolResult{Content: fmt.Sprintf("skill %q não encontrada", name), IsError: true}, nil
 	}
+	if loaded.CheckCommandActivation != nil {
+		if err := loaded.CheckCommandActivation(ctx); err != nil {
+			return tools.ToolResult{Content: fmt.Sprintf("skill indisponível: %v", err), IsError: true}, nil
+		}
+	}
 	if !loaded.IsModelInvocable() {
 		return tools.ToolResult{Content: fmt.Sprintf("skill %q não permite autoativação pelo modelo", loaded.Slug), IsError: true}, nil
 	}
@@ -139,8 +144,8 @@ func (t *Tool) Execute(ctx context.Context, args json.RawMessage) (tools.ToolRes
 func (t *Tool) resolveProfile(ctx context.Context) (*profiles.Profile, error) {
 	if inv, ok := invocationctx.Get(ctx); ok {
 		if slug := strings.TrimSpace(inv.ProfileSlug); slug != "" {
-			if profile, err := t.profiles.Get(slug); err == nil {
-				return profile, nil
+			if profile, err := t.profiles.GetForContext(ctx, slug); err == nil || profiles.IsPluginProfile(slug) {
+				return profile, err
 			}
 		}
 	}

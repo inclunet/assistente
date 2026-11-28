@@ -96,6 +96,11 @@ func InvokeContext(ctx context.Context, userContent string, mgr InvokerManager, 
 		return nil, false, nil
 	}
 
+	if skill.CheckCommandActivation != nil {
+		if err := skill.CheckCommandActivation(ctx); err != nil {
+			return nil, true, err
+		}
+	}
 	if !skill.IsUserInvocable() {
 		return nil, false, nil
 	}
@@ -207,7 +212,7 @@ func invocationFrame(skill *Skill, supplementary []string) (string, string) {
 func (p SelectionPolicy) PluginSkill(slug string) *Skill {
 	for _, group := range [][]Skill{p.Base, p.OnDemand, p.Disabled} {
 		for n := range group {
-			if group[n].Source == "plugin" && group[n].Slug == slug {
+			if (group[n].Source == "plugin" || group[n].CheckCommandActivation != nil) && group[n].Slug == slug {
 				return &group[n]
 			}
 		}

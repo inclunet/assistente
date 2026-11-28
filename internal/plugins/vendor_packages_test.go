@@ -78,7 +78,7 @@ func TestVendorPackagesUseRetainedFormatAndCommandRunner(t *testing.T) {
 				t.Fatal(err)
 			}
 			policy := skills.ResolveSelectionPolicy(catalog, nil, false, false)
-			active, err := store.ActiveSkills(owner)
+			active, err := store.ActiveSkills(owner, nil)
 			if err != nil || len(active) != 1 {
 				t.Fatal(active, err)
 			}

@@ -230,7 +230,7 @@ func (i *Inventory) setSkillActive(ctx context.Context, id, digest, key string, 
 	})
 }
 
-func (i *Inventory) ActiveSkills(ctx context.Context) ([]skills.Skill, error) {
+func (i *Inventory) ActiveSkills(ctx context.Context, local []skills.Skill) ([]skills.Skill, error) {
 	owner, err := database.RequireUserID(ctx)
 	if err != nil {
 		return nil, err
@@ -240,22 +240,47 @@ func (i *Inventory) ActiveSkills(ctx context.Context) ([]skills.Skill, error) {
 	if err != nil {
 		return nil, err
 	}
-	result := make([]skills.Skill, 0, len(rows))
-	seen := map[string]bool{}
+	result := append([]skills.Skill(nil), local...)
+	nativeBySlug := make(map[string]int, len(local))
+	for idx, s := range local {
+		nativeBySlug[s.Slug] = idx
+	}
+	bySlug := map[string]int{}
 	for _, row := range rows {
 		public := row.Slug
 		if row.SharedSlug != "" {
 			public = row.SharedSlug
 		}
 		if row.SharedSlug != "" && !strings.HasPrefix(public, skills.PluginPrefix) {
-			// A native skill remains subject to its own profile selection and command policy.
-			// A stale or missing native definition must never fall back to the package body.
+			idx, found := nativeBySlug[public]
+			if !found || row.SkillRevision != row.PackageFormat+":"+result[idx].DefinitionDigest {
+				continue
+			}
+			if result[idx].SelectionGrants == nil {
+				result[idx].SelectionGrants = map[string]func(context.Context) error{}
+			}
+			grantGuard := i.skillGrantGuard(owner, row)
+			result[idx].SelectionGrants[profileSkillSelector(row)] = func(ctx context.Context) error {
+				if err := grantGuard(ctx); err != nil {
+					return err
+				}
+				return i.reviewLocalSkills(func(files skills.PortableDefinitions, discoveryErr error) error {
+					candidate := localSkillMatch(files, discoveryErr, row.ComponentKey, row.PackageFormat, row.SkillRevision)
+					if candidate.conflict || candidate.slug != public {
+						return ErrComponentUnavailable
+					}
+					return nil
+				})
+			}
 			continue
 		}
-		if seen[public] {
+		guard := i.skillGrantGuard(owner, row)
+		selector := profileSkillSelector(row)
+		if idx, ok := bySlug[public]; ok {
+			result[idx].SelectionGrants[selector] = guard
 			continue
 		}
-		seen[public] = true
+		bySlug[public] = len(result)
 		meta, body, err := skills.Parse(row.Definition)
 		if err != nil {
 			return nil, fmt.Errorf("plugin skill %s: %w", row.Slug, err)
@@ -265,25 +290,28 @@ func (i *Inventory) ActiveSkills(ctx context.Context) ([]skills.Skill, error) {
 		}
 		meta.DisplayName = meta.Name
 		meta.Name = public
-		check := func(ctx context.Context) error {
-			current, err := database.RequireUserID(ctx)
-			if err != nil || current != owner {
-				return ErrComponentUnavailable
-			}
-			var count int64
-			err = i.db.WithContext(ctx).Model(&database.PluginSkillActivation{}).
-				Joins("JOIN plugin_installations p ON p.id = plugin_skill_activations.installation_id AND p.digest = plugin_skill_activations.digest").
-				Where("p.user_id = ? AND p.disabled = ? AND p.id = ? AND p.digest = ? AND plugin_skill_activations.component_key = ? AND plugin_skill_activations.generation = ?", owner, false, row.InstallationID, row.Digest, row.ComponentKey, row.Generation).
-				Count(&count).Error
-			if err != nil {
-				return err
-			}
-			if count != 1 {
-				return ErrComponentUnavailable
-			}
-			return nil
-		}
-		result = append(result, skills.Skill{CheckCommandActivation: check, SkillMetadata: *meta, Slug: public, Source: "plugin", PackageFormat: row.PackageFormat, Content: body})
+		result = append(result, skills.Skill{SelectionGrants: map[string]func(context.Context) error{selector: guard}, CheckCommandActivation: guard, SkillMetadata: *meta, Slug: public, Source: "plugin", PackageFormat: row.PackageFormat, Content: body})
 	}
 	return result, nil
+}
+
+func (i *Inventory) skillGrantGuard(owner string, row database.PluginSkillActivation) func(context.Context) error {
+	return func(ctx context.Context) error {
+		current, err := database.RequireUserID(ctx)
+		if err != nil || current != owner {
+			return ErrComponentUnavailable
+		}
+		var count int64
+		err = i.db.WithContext(ctx).Model(&database.PluginSkillActivation{}).
+			Joins("JOIN plugin_installations p ON p.id = plugin_skill_activations.installation_id AND p.digest = plugin_skill_activations.digest").
+			Where("p.user_id = ? AND p.disabled = ? AND p.id = ? AND p.digest = ? AND plugin_skill_activations.component_key = ? AND plugin_skill_activations.generation = ?", owner, false, row.InstallationID, row.Digest, row.ComponentKey, row.Generation).
+			Count(&count).Error
+		if err != nil {
+			return err
+		}
+		if count != 1 {
+			return ErrComponentUnavailable
+		}
+		return nil
+	}
 }

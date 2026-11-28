@@ -137,7 +137,7 @@ func (p *ContextProvider) Build(ctx context.Context, req contextprovider.BuildRe
 	if turn == nil {
 		skills, err := ListForContext(ctx, p.source)
 		if err != nil {
-			return nil, err
+			return nil, CatalogReadError(err, req.EnabledSkills, req.DisableSkills)
 		}
 		return p.build(ctx, req, skills)
 	}
@@ -175,10 +175,13 @@ func (p *ContextProvider) Build(ctx context.Context, req contextprovider.BuildRe
 	}
 	prepared := turn.prepared
 	if prepared.err != nil {
-		return nil, prepared.err
+		return nil, CatalogReadError(prepared.err, req.EnabledSkills, req.DisableSkills)
 	}
 	budget := req.Budget(p.Name(), defaultContextProviderBudget)
 	if ctx.Err() == nil && prepared.last.matches(req, budget) {
+		if _, _, err := selectPromptSkills(ctx, prepared.skills, req); err != nil {
+			return nil, err
+		}
 		return slices.Clone(prepared.last.blocks), nil
 	}
 	prepared.listingFailed = false
@@ -199,7 +202,10 @@ func (p *ContextProvider) Build(ctx context.Context, req contextprovider.BuildRe
 }
 
 func (p *ContextProvider) build(ctx context.Context, req contextprovider.BuildRequest, allSkills []Skill) ([]contextprovider.Block, error) {
-	baseSkills, onDemandSkills := selectPromptSkills(allSkills, req)
+	baseSkills, onDemandSkills, err := selectPromptSkills(ctx, allSkills, req)
+	if err != nil {
+		return nil, err
+	}
 	if len(baseSkills) == 0 && len(onDemandSkills) == 0 {
 		return nil, nil
 	}
@@ -253,8 +259,20 @@ func (p *ContextProvider) build(ctx context.Context, req contextprovider.BuildRe
 	return blocks, nil
 }
 
-func selectPromptSkills(allSkills []Skill, req contextprovider.BuildRequest) ([]Skill, []Skill) {
+func selectPromptSkills(ctx context.Context, allSkills []Skill, req contextprovider.BuildRequest) ([]Skill, []Skill, error) {
 	policy := ResolveSelectionPolicy(allSkills, req.EnabledSkills, req.DisableSkills, req.DisableOnDemand)
+	if policy.Err != nil {
+		return nil, nil, policy.Err
+	}
+	for _, group := range [][]Skill{policy.Base, policy.OnDemand} {
+		for _, skill := range group {
+			if skill.selectedByGrant {
+				if err := skill.CheckCommandActivation(ctx); err != nil {
+					return nil, nil, errors.Join(contextprovider.ErrRequiredSkillUnavailable, err)
+				}
+			}
+		}
+	}
 	baseSkills := policy.Base
 	availableSkills := policy.OnDemand
 	if !req.ToolCallingEnabled {
@@ -269,7 +287,7 @@ func selectPromptSkills(allSkills []Skill, req contextprovider.BuildRequest) ([]
 		}
 		availableSkills = nil
 	}
-	return baseSkills, availableSkills
+	return baseSkills, availableSkills, nil
 }
 
 func buildBaseSkillBlock(ctx context.Context, baseSkills []Skill, source ContextProviderSource, budget int) (string, error) {

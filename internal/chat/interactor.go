@@ -874,7 +874,7 @@ func (i *Interactor) PrepareMessages(ctx context.Context, req PrepareMessagesReq
 	_, _, isSlashCommand := skills.ParseSlashCommand(req.UserContent)
 	skillPolicy, policyReady, policyErr := i.BuildSkillSelectionPolicy(ctx, req.ActiveProfile)
 	if policyErr != nil {
-		if !isSlashCommand {
+		if !isSlashCommand && !errors.Is(policyErr, contextprovider.ErrRequiredSkillUnavailable) {
 			logging.Errorf(ctx, "chat.interactor", "[chat] erro ao carregar política de skills; seguindo sem autoativação/contexto de skills: %v", policyErr)
 		} else {
 			if i.emitter != nil {
@@ -910,7 +910,7 @@ func (i *Interactor) PrepareMessages(ctx context.Context, req PrepareMessagesReq
 						baseRequest := i.dynamicContextRequest(skillTplData, req.UserContent, req.ConversationSummary, "", nil, taskListContextEnabled, req.ActiveProfile)
 						for _, provider := range i.contextProviders.Providers() {
 							if provider.Name() == skills.ContextProviderName && baseRequest.Enabled(skills.ContextProviderName) {
-								if _, err := provider.Build(ctx, baseRequest); errors.Is(err, contextprovider.ErrCommandNotAuthorized) {
+								if _, err := provider.Build(ctx, baseRequest); errors.Is(err, contextprovider.ErrCommandNotAuthorized) || errors.Is(err, contextprovider.ErrRequiredSkillUnavailable) {
 									return "", err
 								}
 							}
@@ -972,8 +972,11 @@ func (i *Interactor) PrepareMessages(ctx context.Context, req PrepareMessagesReq
 		disableSkills = req.ActiveProfile.Chat.DisableSkills
 	}
 
-	contextBlocks := i.buildDynamicContext(ctx, skillTplData, req.UserContent, req.ConversationSummary, slashSkillContent, linkedTaskLists, taskListContextEnabled, req.ActiveProfile)
-	if err := skills.CommandTurnError(ctx); err != nil {
+	contextBlocks, buildErr := i.buildDynamicContext(ctx, skillTplData, req.UserContent, req.ConversationSummary, slashSkillContent, linkedTaskLists, taskListContextEnabled, req.ActiveProfile)
+	if buildErr == nil {
+		buildErr = skills.CommandTurnError(ctx)
+	}
+	if err := buildErr; err != nil {
 		if i.emitter != nil {
 			i.emitter.Emit("chat:error", ports.ErrorEvent{ConversationID: req.ConversationID, Error: err.Error(), SurfaceOrigin: req.SurfaceOrigin})
 		}
@@ -1004,7 +1007,13 @@ func (i *Interactor) PrepareMessages(ctx context.Context, req PrepareMessagesReq
 				// blocos (inclusive slash_skill) independem dela, então rebuildar
 				// aqui mantém slashSkillInjected válido e apenas reprojeta o
 				// protocolo/lista de tools conforme o escopo do skill.
-				contextBlocks = i.buildDynamicContext(ctx, skillTplData, req.UserContent, req.ConversationSummary, slashSkillContent, linkedTaskLists, taskListContextEnabled, req.ActiveProfile)
+				contextBlocks, buildErr = i.buildDynamicContext(ctx, skillTplData, req.UserContent, req.ConversationSummary, slashSkillContent, linkedTaskLists, taskListContextEnabled, req.ActiveProfile)
+				if buildErr != nil {
+					if i.emitter != nil {
+						i.emitter.Emit("chat:error", ports.ErrorEvent{ConversationID: req.ConversationID, Error: buildErr.Error(), SurfaceOrigin: req.SurfaceOrigin})
+					}
+					return PrepareMessagesResponse{Messages: req.Messages, Err: buildErr}
+				}
 			}
 		}
 		if strings.TrimSpace(slashSkillContent) != "" && i.emitter != nil {
@@ -1129,10 +1138,6 @@ func (i *Interactor) BuildSkillSelectionPolicy(ctx context.Context, activeProfil
 	if i.skillMgr == nil {
 		return skills.SelectionPolicy{}, false, nil
 	}
-	allSkills, err := skills.ListForContext(ctx, i.skillMgr)
-	if err != nil {
-		return skills.SelectionPolicy{}, false, fmt.Errorf("erro ao carregar política de skills: %w", err)
-	}
 	var enabledSkills []string
 	var disableOnDemand bool
 	var disableSkills bool
@@ -1141,7 +1146,12 @@ func (i *Interactor) BuildSkillSelectionPolicy(ctx context.Context, activeProfil
 		disableOnDemand = activeProfile.Chat.DisableOnDemandSkills
 		disableSkills = activeProfile.Chat.DisableSkills
 	}
-	return skills.ResolveSelectionPolicy(allSkills, enabledSkills, disableSkills, disableOnDemand), true, nil
+	allSkills, err := skills.ListForContext(ctx, i.skillMgr)
+	if err != nil {
+		return skills.SelectionPolicy{}, false, fmt.Errorf("erro ao carregar política de skills: %w", skills.CatalogReadError(err, enabledSkills, disableSkills))
+	}
+	policy := skills.ResolveSelectionPolicy(allSkills, enabledSkills, disableSkills, disableOnDemand)
+	return policy, true, policy.Err
 }
 
 func (i *Interactor) ValidateSkillInvocation(ctx context.Context, activeProfile *profiles.Profile, userContent string, conversationID string, surfaceOrigin *ports.ChatSurfaceOrigin) error {
@@ -1179,19 +1189,16 @@ func (i *Interactor) ValidateSkillInvocation(ctx context.Context, activeProfile 
 	return nil
 }
 
-func (i *Interactor) buildDynamicContext(ctx context.Context, data TemplateData, currentUserText string, conversationSummary string, slashSkillContent string, linkedTaskLists []contextprovider.LinkedTaskList, taskListContextEnabled bool, activeProfile *profiles.Profile) []contextprovider.Block {
+func (i *Interactor) buildDynamicContext(ctx context.Context, data TemplateData, currentUserText string, conversationSummary string, slashSkillContent string, linkedTaskLists []contextprovider.LinkedTaskList, taskListContextEnabled bool, activeProfile *profiles.Profile) ([]contextprovider.Block, error) {
 	if i.contextProviders == nil {
-		return nil
+		return nil, nil
 	}
 	req := i.dynamicContextRequest(data, currentUserText, conversationSummary, slashSkillContent, linkedTaskLists, taskListContextEnabled, activeProfile)
 	blocks, err := i.contextProviders.Build(ctx, req)
-	if err != nil {
-		if !errors.Is(err, contextprovider.ErrCommandRefused) {
-			logging.Errorf(ctx, "chat.interactor", "[context/providers] erro ao montar blocos dinâmicos: %v", err)
-		}
-		return nil
+	if err != nil && !errors.Is(err, contextprovider.ErrCommandRefused) {
+		logging.Errorf(ctx, "chat.interactor", "[context/providers] erro ao montar blocos dinâmicos: %v", err)
 	}
-	return blocks
+	return blocks, err
 }
 
 func (i *Interactor) dynamicContextRequest(data TemplateData, currentUserText, conversationSummary, slashSkillContent string, linkedTaskLists []contextprovider.LinkedTaskList, taskListContextEnabled bool, activeProfile *profiles.Profile) contextprovider.BuildRequest {
