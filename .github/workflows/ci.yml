@@ -31,14 +31,37 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && inputs.pr_number > 0) }}
 
 jobs:
-  # O guard descarta o dispatch antes de reservar runners para jobs pesados.
-  scripts:
-    outputs:
-      modo: ${{ steps.escopo.outputs.modo }}
+  # Só o guard do dispatch recebe permissão para cancelar seu próprio run.
+  guarda-dispatch:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.pr_number > 0 }}
     permissions:
       contents: read
-      pull-requests: read # Consulta a base do PR no dispatch.
-      actions: write # Somente este job pode cancelar seu dispatch redundante.
+      actions: write
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Preservar o CI do PR e cancelar dispatch redundante
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CI_PR_NUMBER: ${{ inputs.pr_number }}
+        run: bash .github/scripts/cancelar-dispatch-redundante.sh
+
+  # Jobs de suíte verificam suas dependências diretas. O guard é omitido em
+  # eventos de PR, e o success() implícito propagaria esse skip na cadeia.
+  scripts:
+    needs: guarda-dispatch
+    if: ${{ !cancelled() && (needs.guarda-dispatch.result == 'success' || needs.guarda-dispatch.result == 'skipped') }}
+    outputs:
+      modo: ${{ steps.reutilizar.outputs.execucao && 'reutilizado' || steps.escopo.outputs.modo }}
+      execucao: ${{ steps.reutilizar.outputs.execucao }}
+    permissions:
+      contents: read
+      pull-requests: read
+      actions: read
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -47,33 +70,62 @@ jobs:
           persist-credentials: false
           fetch-depth: ${{ inputs.pr_number > 0 && '0' || github.event_name == 'pull_request' && '2' || '1' }}
 
-      - name: Preservar o CI do PR e cancelar dispatch redundante
-        if: ${{ github.event_name == 'workflow_dispatch' && inputs.pr_number > 0 }}
-        env:
-          GH_TOKEN: ${{ github.token }}
-          CI_PR_NUMBER: ${{ inputs.pr_number }}
-        run: bash .github/scripts/cancelar-dispatch-redundante.sh
-
       - name: Classificar e validar o diff
         id: escopo
         env:
           GH_TOKEN: ${{ github.event_name == 'workflow_dispatch' && inputs.pr_number > 0 && github.token || '' }}
-          PR_NUMBER: ${{ inputs.pr_number }}
+          PR_NUMBER: ${{ github.event.pull_request.number || inputs.pr_number }}
           PR_HEAD: ${{ github.event.pull_request.head.sha }}
+          PR_BRANCH: ${{ github.event.pull_request.head.ref }}
+          PR_REPOSITORIO: ${{ github.event.pull_request.head.repo.full_name }}
         run: |
           base=
+          branch=
           if [[ "$GITHUB_EVENT_NAME" == pull_request ]]; then
             if [[ $(git rev-parse --verify 'HEAD^2') == "$PR_HEAD" ]]; then
               base=$(git rev-parse --verify 'HEAD^1')
+              if [[ "$PR_REPOSITORIO" == "$GITHUB_REPOSITORY" ]]; then branch=$PR_BRANCH; fi
             fi
           elif [[ "$GITHUB_EVENT_NAME" == workflow_dispatch && "$PR_NUMBER" =~ ^[1-9][0-9]*$ ]]; then
             if dados=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" \
-              --jq '[.base.sha, .head.sha, .state] | @tsv'); then
-              IFS=$'\t' read -r pr_base pr_head pr_state <<< "$dados"
-              if [[ "$pr_head" == "$GITHUB_SHA" && "$pr_state" == open ]]; then base=$pr_base; fi
+              --jq '[.base.sha, .head.sha, .state, .head.ref, .head.repo.full_name] | @tsv'); then
+              IFS=$'\t' read -r pr_base pr_head pr_state pr_branch pr_repositorio <<< "$dados"
+              if [[ "$pr_head" == "$GITHUB_SHA" && "$pr_state" == open ]]; then
+                base=$pr_base
+                if [[ "$pr_repositorio" == "$GITHUB_REPOSITORY" && "$pr_branch" == "$GITHUB_REF_NAME" ]]; then
+                  branch=$pr_branch
+                fi
+              fi
             fi
           fi
           bash .github/scripts/validar-diff-ci.sh "$base" "$GITHUB_SHA"
+          if [[ "$PR_NUMBER" =~ ^[1-9][0-9]*$ && -n "$branch" && -n "$base" ]] &&
+             git check-ref-format "refs/heads/$branch" &&
+             git merge-base --is-ancestor "$base" "$GITHUB_SHA"; then
+            arvore=$(git rev-parse --verify 'HEAD^{tree}')
+            printf 'pr=%s\nbranch=%s\narvore=%s\n' "$PR_NUMBER" "$branch" "$arvore" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Procurar CI completo para a mesma árvore
+        id: reutilizar
+        if: steps.escopo.outputs.modo == 'completo' && steps.escopo.outputs.pr != '' && github.actor == 'github-actions[bot]'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ steps.escopo.outputs.pr }}
+          PR_BRANCH: ${{ steps.escopo.outputs.branch }}
+          ARVORE: ${{ steps.escopo.outputs.arvore }}
+        run: |
+          if ! execucao=$(timeout 30s bash .github/scripts/reutilizar-ci-arvore.sh "$PR_NUMBER" "$PR_BRANCH" "$ARVORE"); then
+            echo '::warning::Não foi possível verificar CI anterior. A suíte completa será executada.'
+          elif [[ "$execucao" =~ ^[1-9][0-9]*/attempts/[1-9][0-9]*$ ]]; then
+            echo "execucao=$execucao" >> "$GITHUB_OUTPUT"
+            printf 'Árvore `%s` validada pelo [CI completo #%s](%s/%s/actions/runs/%s).\n' \
+              "$ARVORE" "$execucao" "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$execucao" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Teste da busca de CI por árvore
+        if: steps.escopo.outputs.modo == 'completo'
+        run: bash .github/scripts/reutilizar-ci-arvore.teste.sh
 
       - name: Teste da classificação documental
         if: steps.escopo.outputs.modo == 'completo'
@@ -101,7 +153,7 @@ jobs:
 
   backend-checks:
     needs: scripts
-    if: needs.scripts.outputs.modo == 'completo'
+    if: ${{ !cancelled() && needs.scripts.result == 'success' && needs.scripts.outputs.modo == 'completo' }}
     # Validação e compilações rodam em paralelo com a suíte de cobertura.
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -153,7 +205,7 @@ jobs:
 
   backend-tests:
     needs: scripts
-    if: needs.scripts.outputs.modo == 'completo'
+    if: ${{ !cancelled() && needs.scripts.result == 'success' && needs.scripts.outputs.modo == 'completo' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -226,18 +278,24 @@ jobs:
         env:
           PREPARACAO: ${{ needs.scripts.result }}
           MODO: ${{ needs.scripts.outputs.modo }}
+          EXECUCAO: ${{ needs.scripts.outputs.execucao }}
           CHECKS_RESULT: ${{ needs.backend-checks.result }}
           TESTS_RESULT: ${{ needs.backend-tests.result }}
         run: |
           test "$PREPARACAO" = success
           if [[ "$MODO" == documentacao ]]; then echo 'Diff documental validado.'; exit 0; fi
+          if [[ "$MODO" == reutilizado ]]; then
+            [[ "$EXECUCAO" =~ ^[1-9][0-9]*/attempts/[1-9][0-9]*$ ]]
+            echo "CI completo reaproveitado: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$EXECUCAO"
+            exit 0
+          fi
           test "$MODO" = completo
           test "$CHECKS_RESULT" = success
           test "$TESTS_RESULT" = success
 
   backend-race-build:
     needs: scripts
-    if: needs.scripts.outputs.modo == 'completo'
+    if: ${{ !cancelled() && needs.scripts.result == 'success' && needs.scripts.outputs.modo == 'completo' }}
     # Um único binário race do App, compartilhado somente neste run/revisão.
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -280,7 +338,7 @@ jobs:
 
   backend-race-tests:
     needs: scripts
-    if: needs.scripts.outputs.modo == 'completo'
+    if: ${{ !cancelled() && needs.scripts.result == 'success' && needs.scripts.outputs.modo == 'completo' }}
     runs-on: ubuntu-latest
     # Inclui preparação e upload; o teste Go continua limitado a 20 minutos.
     timeout-minutes: 45
@@ -337,6 +395,7 @@ jobs:
 
   backend-race-app:
     needs: backend-race-build
+    if: ${{ !cancelled() && needs.backend-race-build.result == 'success' }}
     runs-on: ubuntu-latest
     # Inclui preparação e upload; o teste Go continua limitado a 20 minutos.
     timeout-minutes: 45
@@ -412,12 +471,18 @@ jobs:
         env:
           PREPARACAO: ${{ needs.scripts.result }}
           MODO: ${{ needs.scripts.outputs.modo }}
+          EXECUCAO: ${{ needs.scripts.outputs.execucao }}
           BUILD_RESULT: ${{ needs.backend-race-build.result }}
           RACE_RESULT: ${{ needs.backend-race-tests.result }}
           APP_RESULT: ${{ needs.backend-race-app.result }}
         run: |
           test "$PREPARACAO" = success
           if [[ "$MODO" == documentacao ]]; then echo 'Diff documental validado.'; exit 0; fi
+          if [[ "$MODO" == reutilizado ]]; then
+            [[ "$EXECUCAO" =~ ^[1-9][0-9]*/attempts/[1-9][0-9]*$ ]]
+            echo "CI completo reaproveitado: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$EXECUCAO"
+            exit 0
+          fi
           test "$MODO" = completo
           test "$BUILD_RESULT" = success
           test "$RACE_RESULT" = success
@@ -425,7 +490,7 @@ jobs:
 
   bindings:
     needs: scripts
-    if: needs.scripts.outputs.modo == 'completo'
+    if: ${{ !cancelled() && needs.scripts.result == 'success' && needs.scripts.outputs.modo == 'completo' }}
     # Os tipos de `frontend/wailsjs/` são gerados a partir das assinaturas dos
     # métodos do App e ficam versionados no repositório. Isso abre uma fresta: o
     # `tsc` do job frontend lê o arquivo que está no git, nunca o que o gerador
@@ -507,16 +572,22 @@ jobs:
         env:
           PREPARACAO: ${{ needs.scripts.result }}
           MODO: ${{ needs.scripts.outputs.modo }}
+          EXECUCAO: ${{ needs.scripts.outputs.execucao }}
           SUITE: ${{ needs.frontend-tests.result }}
         run: |
           test "$PREPARACAO" = success
           if [[ "$MODO" == documentacao ]]; then echo 'Diff documental validado.'; exit 0; fi
+          if [[ "$MODO" == reutilizado ]]; then
+            [[ "$EXECUCAO" =~ ^[1-9][0-9]*/attempts/[1-9][0-9]*$ ]]
+            echo "CI completo reaproveitado: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$EXECUCAO"
+            exit 0
+          fi
           test "$MODO" = completo
           test "$SUITE" = success
 
   frontend-tests:
     needs: scripts
-    if: needs.scripts.outputs.modo == 'completo'
+    if: ${{ !cancelled() && needs.scripts.result == 'success' && needs.scripts.outputs.modo == 'completo' }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     defaults:
@@ -563,16 +634,22 @@ jobs:
         env:
           PREPARACAO: ${{ needs.scripts.result }}
           MODO: ${{ needs.scripts.outputs.modo }}
+          EXECUCAO: ${{ needs.scripts.outputs.execucao }}
           SUITE: ${{ needs.e2e-tests.result }}
         run: |
           test "$PREPARACAO" = success
           if [[ "$MODO" == documentacao ]]; then echo 'Diff documental validado.'; exit 0; fi
+          if [[ "$MODO" == reutilizado ]]; then
+            [[ "$EXECUCAO" =~ ^[1-9][0-9]*/attempts/[1-9][0-9]*$ ]]
+            echo "CI completo reaproveitado: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$EXECUCAO"
+            exit 0
+          fi
           test "$MODO" = completo
           test "$SUITE" = success
 
   e2e-tests:
     needs: scripts
-    if: needs.scripts.outputs.modo == 'completo'
+    if: ${{ !cancelled() && needs.scripts.result == 'success' && needs.scripts.outputs.modo == 'completo' }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     defaults:
@@ -630,7 +707,7 @@ jobs:
   windows-installer:
     name: Terminal, instalador Windows e PATH do usuário
     needs: scripts
-    if: needs.scripts.outputs.modo == 'completo'
+    if: ${{ !cancelled() && needs.scripts.result == 'success' && needs.scripts.outputs.modo == 'completo' }}
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
