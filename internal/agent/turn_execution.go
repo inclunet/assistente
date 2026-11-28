@@ -35,11 +35,12 @@ func terminalKey(ctx context.Context, conversationID, turnID string) pendingTurn
 }
 
 type turnExecution struct {
-	mu         sync.Mutex
-	id         string
-	finished   bool
-	lease      *turnlease.Lease
-	projection *chat.ExecutionProjection
+	restartResults []database.RestartToolResult
+	mu             sync.Mutex
+	id             string
+	finished       bool
+	lease          *turnlease.Lease
+	projection     *chat.ExecutionProjection
 }
 
 func executionFrom(ctx context.Context) *turnExecution {
@@ -56,6 +57,13 @@ func executionID(ctx context.Context) string {
 
 // TurnExecutionID identifies the admitted attempt, including during prompt preparation.
 func TurnExecutionID(ctx context.Context) string { return executionID(ctx) }
+
+func RestartResults(ctx context.Context) []database.RestartToolResult {
+	if execution := executionFrom(ctx); execution != nil {
+		return execution.restartResults
+	}
+	return nil
+}
 
 // Somente handlers isolados sem admissão têm proveniência legada nil.
 func executionIDRef(ctx context.Context) *string {
@@ -80,6 +88,7 @@ func (s *Service) BeginTurn(ctx context.Context, conversationID, turnID, mode st
 	if err != nil {
 		return ctx, err
 	}
+	var admitted *database.ChatTurnAttempt
 	projection, err := s.projection.Admit(ctx, conversationID, turnID, id.String(), func() (database.ChatTimelineVersion, error) {
 		version, err := s.timeline.ReadVersion(ctx, conversationID)
 		if err != nil {
@@ -94,7 +103,7 @@ func (s *Service) BeginTurn(ctx context.Context, conversationID, turnID, mode st
 			}
 			s.pendingTerminals.CompareAndDelete(key, pending)
 		}
-		_, err = s.turns.BeginExecution(ctx, conversationID, turnID, "", mode, id.String(), lease.Path)
+		admitted, err = s.turns.BeginExecution(ctx, conversationID, turnID, "", mode, id.String(), lease.Path)
 		return version, err
 	})
 	if err != nil {
@@ -106,7 +115,7 @@ func (s *Service) BeginTurn(ctx context.Context, conversationID, turnID, mode st
 		}
 		return ctx, errors.Join(err, releaseErr)
 	}
-	return context.WithValue(ctx, turnExecutionKey{}, &turnExecution{id: id.String(), lease: lease, projection: projection}), nil
+	return context.WithValue(ctx, turnExecutionKey{}, &turnExecution{id: id.String(), lease: lease, projection: projection, restartResults: admitted.RestartResults}), nil
 }
 
 func (s *Service) EnsureTurnResponse(ctx context.Context, conversationID, turnID string) (string, error) {

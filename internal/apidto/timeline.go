@@ -71,6 +71,7 @@ type CanonicalSegment struct {
 }
 
 type CanonicalMetadata struct {
+	CanResumeTools   bool   `json:"canResumeTools,omitempty"`
 	Thinking         bool   `json:"thinking,omitempty"`
 	TerminalReason   string `json:"terminalReason,omitempty"`
 	CreatedAt        string `json:"createdAt"`

@@ -20,6 +20,23 @@ describe('elegibilidade de continuação da fonte canônica', () => {
     } finally { await fixture.client.dispose(); }
   });
 
+  it('permite continuar após reinício com ferramenta persistida e sem texto', async () => {
+    const item = canonicalTestItem('response', '', {
+      state: 'interrupted', turnId: persisted, representativeMessageId: persisted,
+    });
+    item.metadata.terminalReason = 'restart';
+    item.metadata.canResumeTools = true;
+    item.segments.push({ kind: 'tool_invocations', segmentId: 'tools', invocations: [{
+      invocationId: persisted, callId: 'call', name: 'write_file', status: 'succeeded',
+      hasDetails: true, resultAvailability: 'available',
+    }] });
+    const fixture = canonicalTestFixture([item]);
+    try {
+      const presentation = fixture.presentation(); await presentation.open();
+      expect(canContinueChatMessage(presentation.getMessage('response'))).toBe(true);
+    } finally { await fixture.client.dispose(); }
+  });
+
   it.each<Partial<TimelineItem>>([
     { state: 'preparing' }, { state: 'streaming' }, { state: 'completed' }, { state: 'historical_unknown' },
     { durability: 'volatile' },

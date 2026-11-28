@@ -434,6 +434,8 @@ const (
 	ChatNoticeKindModeAsksPermission = "agent_mode_asks_permission"
 )
 
+const ChatNoticeKindAgentRestart = "agent_restart_unverified"
+
 // ChatNoticeEvent is the payload for chat:notice — um aviso sobre o turno que
 // não é a resposta, não é falha e não encerra nada.
 //

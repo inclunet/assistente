@@ -1050,3 +1050,64 @@ func TestSendMessageUseCase_RetryImageWithoutServerSTTPreservesEmptyText(t *test
 		})
 	}
 }
+
+func TestSendMessageContinuesToolOnlyRestartFromSavedResult(t *testing.T) {
+	setupTestDB(t)
+	ctx := database.WithUserID(t.Context(), "test-user")
+	mgr := setupProfileDir(t)
+	profile := minValidProfile("Retomada", "resume-chat")
+	setupProfileWith(t, mgr, profile)
+	var received atomic.Bool
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var request struct{ Messages []llm.Message }
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Error(err)
+		}
+		for _, msg := range request.Messages {
+			if msg.Role == "user" && strings.Contains(msg.GetContentAsString(), "resultado-gravado-123") {
+				received.Store(true)
+			}
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte("data: {\"choices\":[{\"delta\":{\"content\":\"Confirmado\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n"))
+	}))
+	defer server.Close()
+	uc := newTestUseCaseWithProviders(t, mgr, &llm.ProviderConfig{ID: "resume-chat", Name: "Resume", Type: llm.ProviderOpenAI, APIFormat: llm.APIFormatOpenAI, BaseURL: server.URL + "/v1"})
+	conv, turn := createRetryableUserMessage(t, ctx)
+	db := database.DB()
+	repo := database.NewChatTurnRepository(db)
+	first, err := repo.Begin(ctx, conv, turn, "", database.TurnModeNew)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = repo.EnsureResponse(ctx, conv, turn, first.ExecutionID); err != nil {
+		t.Fatal(err)
+	}
+	catalog := database.ToolCatalog{Name: "record_restart_test", DisplayName: "Teste", Origin: "builtin"}
+	if err := db.Create(&catalog).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Table("tool_invocations").Create(map[string]any{
+		"id": "inv-restart", "user_id": "test-user", "tool_catalog_id": catalog.ID, "origin_type": "chat", "origin_id": turn,
+		"conversation_id": conv, "turn_id": turn, "chat_execution_id": first.ExecutionID, "status": "succeeded", "queued_at": time.Now(),
+		"result_availability": "available", "output": `{"content":"resultado-gravado-123"}`,
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.Finish(ctx, conv, turn, first.ExecutionID, database.TurnInterrupted, "restart"); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan struct{})
+	_, err = uc.Execute(usecases.SendMessageRequest{Ctx: ctx, ConversationID: conv, RetryMessageID: turn, Params: llm.ChatParams{AllowAssistantPrefill: true}, OnFinished: func() { close(done) }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-done:
+	case <-time.After(10 * time.Second):
+		t.Fatal("retomada não encerrou")
+	}
+	if !received.Load() {
+		t.Fatal("resultado persistido ausente no request ao provedor")
+	}
+}

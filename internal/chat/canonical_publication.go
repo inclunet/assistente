@@ -48,6 +48,7 @@ func canonicalItem(item *TimelineItem) CanonicalItem {
 	}
 	view.Metadata.Thinking = item.Thinking
 	view.Metadata.TerminalReason = item.TerminalReason
+	view.Metadata.CanResumeTools = item.CanResumeTools
 	view.ExecutionID = item.ExecutionID
 	if item.RecoveryReference != nil {
 		reference := *item.RecoveryReference

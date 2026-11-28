@@ -45,6 +45,7 @@ const KIND_KEYS: Record<string, string> = {
   [CHAT_NOTICE_MODEL_NOT_OFFERED]: 'app.chatNotice.modelNotOffered',
   [CHAT_NOTICE_MODEL_NOT_APPLIED]: 'app.chatNotice.modelNotApplied',
   [CHAT_NOTICE_AGENT_MEMORY_LOST]: 'app.chatNotice.agentMemoryLost',
+  agent_restart_unverified: 'app.chatNotice.agentRestartUnverified',
   [CHAT_NOTICE_AGENT_SESSION_RECOVERED]: 'app.chatNotice.agentSessionRecovered',
   [CHAT_NOTICE_MODE_SKIPS_PERMISSION]: 'app.chatNotice.modeSkipsPermission',
   [CHAT_NOTICE_MODE_ASKS_PERMISSION]: 'app.chatNotice.modeAsksPermission',

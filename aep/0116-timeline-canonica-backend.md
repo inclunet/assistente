@@ -3797,6 +3797,13 @@ de janela nem acrescenta SQL por delta. Testes ACP permanecem excluídos localme
 
 ## Resumo
 
+A elegibilidade de **Continuar resposta** após um reinício inclui o campo
+opcional `metadata.canResumeTools`. O backend o calcula a partir da cadeia
+selecionada e das invocações persistidas no snapshot. A interface pode oferecer
+a ação mesmo antes de haver texto. A admissão revalida a base na transação do
+retry conforme o AEP-0064. O campo não autoriza executar uma ferramenta.
+
+
 Unificar a representação da conversa entregue pelo backend para abertura,
 paginação, streaming e conclusão. O frontend aplica atualizações e apresenta
 itens; não reconstrói a identidade, a ordem ou a composição conversacional.

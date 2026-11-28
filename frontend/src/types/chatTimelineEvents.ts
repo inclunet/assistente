@@ -50,6 +50,7 @@ export interface TimelineItem {
   metadata: {
     thinking?: boolean;
     terminalReason?: string;
+    canResumeTools?: boolean;
     createdAt: string;
     source: string;
     childCount: number;

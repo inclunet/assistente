@@ -5,6 +5,7 @@ import "time"
 // ChatTurn contém apenas lifecycle e referências. Conteúdo continua em chat_messages.
 // Autoridade de lifecycle do pipeline; a projeção visual migra separadamente (AEP-0116).
 type ChatTurn struct {
+	RestartInChain     bool    `gorm:"->;-:migration"`
 	TerminalReason     string  `gorm:"->;-:migration"`
 	CurrentExecutionID *string `gorm:"->;-:migration"`
 	UserMessageID      string  `gorm:"primaryKey"`
@@ -16,10 +17,11 @@ type ChatTurn struct {
 }
 
 type ChatTurnAttempt struct {
-	ResponseMessageID     *string `gorm:"->;-:migration"`
-	BaseExecutionID       *string `gorm:"->;-:migration"`
-	BaseResponseMessageID *string `gorm:"->;-:migration"`
-	ExecutionID           string  `gorm:"primaryKey"`
+	RestartResults        []RestartToolResult `gorm:"-" json:"-"`
+	ResponseMessageID     *string             `gorm:"->;-:migration"`
+	BaseExecutionID       *string             `gorm:"->;-:migration"`
+	BaseResponseMessageID *string             `gorm:"->;-:migration"`
+	ExecutionID           string              `gorm:"primaryKey"`
 	TurnID                string
 	Mode                  string
 	State                 string

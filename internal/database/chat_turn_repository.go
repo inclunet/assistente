@@ -67,7 +67,8 @@ func (r *ChatTurnRepository) getMany(ctx context.Context, conversationID string,
 		turns := make([]ChatTurn, 0, min(batchSize, len(turnIDs)-start))
 		query := r.db.WithContext(ctx).Table("chat_turns").Select("chat_turns.*")
 		if presentation {
-			query = query.Select("chat_turns.*, COALESCE(current_attempt.terminal_reason, '') AS terminal_reason").Joins("LEFT JOIN chat_turn_attempts current_attempt ON current_attempt.execution_id = chat_turns.current_execution_id AND current_attempt.turn_id = chat_turns.user_message_id")
+			restart := hasRestartInChainSQL("SELECT current_attempt.execution_id,NULL,0", "chat_turns.user_message_id")
+			query = query.Select("chat_turns.*, COALESCE(current_attempt.terminal_reason, '') AS terminal_reason, CASE WHEN current_attempt.terminal_reason='restart' THEN 1 WHEN current_attempt.mode='continue' AND chat_turns.state IN ('failed','interrupted') THEN "+restart+" ELSE 0 END AS restart_in_chain").Joins("LEFT JOIN chat_turn_attempts current_attempt ON current_attempt.execution_id = chat_turns.current_execution_id AND current_attempt.turn_id = chat_turns.user_message_id")
 		}
 		if err := query.
 			Joins("JOIN conversations c ON c.id=chat_turns.conversation_id").
@@ -153,6 +154,12 @@ func (r *ChatTurnRepository) BeginExecution(ctx context.Context, conversationID,
 			}
 			attempt.BaseExecutionID = turn.CurrentExecutionID
 			attempt.BaseResponseMessageID = turn.ResponseMessageID
+			if attempt.BaseExecutionID != nil {
+				attempt.RestartResults, err = readRestartToolResults(tx, userID, conversationID, turnID, *attempt.BaseExecutionID)
+				if err != nil {
+					return err
+				}
+			}
 		}
 
 		if err := tx.Table("chat_turn_attempts").Create(&struct {
