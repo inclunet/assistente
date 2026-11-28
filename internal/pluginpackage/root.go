@@ -13,7 +13,27 @@ import (
 // Package paths use slashes on every platform. The caller supplies the byte
 // budget for this component, including when the file grows during the read.
 func ReadFile(root *os.Root, name string, limit int64) ([]byte, error) {
-	if limit < 0 || name == "." || !fs.ValidPath(name) {
+	if limit < 0 {
+		return nil, fs.ErrInvalid
+	}
+	file, err := OpenRegularFile(root, name)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = file.Close() }()
+	info, err := file.Stat()
+	if err != nil {
+		return nil, err
+	}
+	if info.Size() > limit {
+		return nil, ErrTooLarge
+	}
+	return readLimited(file, limit)
+}
+
+// OpenRegularFile opens a package-relative regular file. The caller closes it.
+func OpenRegularFile(root *os.Root, name string) (*os.File, error) {
+	if name == "." || !fs.ValidPath(name) {
 		return nil, fs.ErrInvalid
 	}
 	path, err := filepath.Localize(name)
@@ -31,18 +51,17 @@ func ReadFile(root *os.Root, name string, limit int64) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer func() { _ = file.Close() }()
+
 	info, err = file.Stat()
 	if err != nil {
+		_ = file.Close()
 		return nil, err
 	}
 	if !info.Mode().IsRegular() {
+		_ = file.Close()
 		return nil, fs.ErrInvalid
 	}
-	if info.Size() > limit {
-		return nil, ErrTooLarge
-	}
-	return readLimited(file, limit)
+	return file, nil
 }
 
 func readLimited(file io.Reader, limit int64) ([]byte, error) {

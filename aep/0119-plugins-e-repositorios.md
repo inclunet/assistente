@@ -44,6 +44,8 @@ Para MCP HTTP/SSE, a prévia verifica o slug, o nome e a chave de vínculos ante
 
 Para skills de pacotes, a revisão inclui os nomes e os bytes dos arquivos da pasta da skill e a semântica do formato do pacote. Uma segunda instalação só pode usar o mesmo comando após confirmação e recebe sua própria geração de ativação. `TestInstalledSkillActivationAndSlashIsolation` verifica que o catálogo lista um comando e que, ao revogar a primeira instalação, a outra mantém o comando disponível.
 
+Uma skill local de instruções simples e definição equivalente pode atender ao componente mediante vínculo explícito. O catálogo usa a seleção e as permissões do recurso local. A remoção ou alteração do arquivo aparece nos detalhes da instalação e não permite usar o corpo do pacote como substituto. `TestNativeSkillLinkNeverPublishesAPackageFallback` cobre a confirmação e a perda do arquivo local.
+
 Entregar em sequência: vínculos e prévia de provedores, MCP, skills, perfis, jobs e modelos de lista. Cobrir dois pacotes usando o mesmo recurso, instalação sobre um cadastro manual, mudança local entre prévia e confirmação, remoção em ambas as ordens, revisões incompatíveis e isolamento de contas. Para pacotes externos sem identidade compartilhada explícita, usar a origem reconhecida do plugin e a chave do componente para acompanhar revisões.
 
 ### Identidade, armazenamento e dependências

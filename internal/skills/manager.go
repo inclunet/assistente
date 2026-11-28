@@ -30,6 +30,7 @@ type discoveredSkill struct {
 type Manager struct {
 	installedSkills func(context.Context) ([]Skill, error)
 	resolver        *configdir.Resolver
+	definitionsMu   sync.RWMutex
 	mu              sync.Mutex
 	cache           cachedFullSkills
 }
@@ -175,6 +176,8 @@ func (m *Manager) Get(slug string) (*Skill, error) {
 
 // Create cria um novo skill: ~/.assistente/skills/{slug}/SKILL.md
 func (m *Manager) Create(meta *SkillMetadata, content string) (string, error) {
+	m.definitionsMu.Lock()
+	defer m.definitionsMu.Unlock()
 	if err := validateMetadata(meta); err != nil {
 		return "", err
 	}
@@ -239,6 +242,8 @@ func (m *Manager) Duplicate(slug string) (string, error) {
 
 // Update atualiza um skill existente.
 func (m *Manager) Update(slug string, meta *SkillMetadata, content string) error {
+	m.definitionsMu.Lock()
+	defer m.definitionsMu.Unlock()
 	if err := validateMetadata(meta); err != nil {
 		return err
 	}
@@ -263,6 +268,8 @@ func (m *Manager) Update(slug string, meta *SkillMetadata, content string) error
 
 // Delete remove o skill (diretório inteiro).
 func (m *Manager) Delete(slug string) error {
+	m.definitionsMu.Lock()
+	defer m.definitionsMu.Unlock()
 	discovered := m.discoverAll()
 	for _, ds := range discovered {
 		if ds.slug == slug {

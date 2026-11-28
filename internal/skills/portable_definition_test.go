@@ -147,3 +147,42 @@ func TestPortableDefinitionUsesNativeWorkdirPrecedence(t *testing.T) {
 	}
 
 }
+
+func TestNativeSkillLinkRejectsDisplayNameCollision(t *testing.T) {
+	root := t.TempDir()
+	for _, slug := range []string{"notes", "other"} {
+		dir := filepath.Join(root, slug)
+		if err := os.Mkdir(dir, 0700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, skillFile), []byte("---\nname: notes\ndescription: Notes\n---\nRead."), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.MkdirAll(filepath.Join(root, "not-file", skillFile), 0700); err != nil {
+		t.Fatal(err)
+	}
+	manual := filepath.Join(root, "manual")
+	if err := os.Mkdir(manual, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(manual, skillFile), []byte("---\nname: guide\n---\n"+strings.Repeat("a", 1<<20)), 0600); err != nil {
+		t.Fatal(err)
+	}
+	manager := &Manager{resolver: configdir.NewResolverWithBase(root)}
+	if err := manager.WithLinkableDefinitions(func(files PortableDefinitions, err error) error {
+		if err != nil {
+			return err
+		}
+		if _, err := files["notes"](); err == nil {
+			t.Error("ambiguous selection offered")
+		}
+		if manager.definitionsMu.TryLock() {
+			manager.definitionsMu.Unlock()
+			t.Error("edits possible during acceptance")
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
