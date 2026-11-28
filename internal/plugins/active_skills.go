@@ -73,9 +73,11 @@ func (i *Inventory) InstalledComponents(ctx context.Context, id, digest string) 
 	if err != nil {
 		return nil, err
 	}
+	preserved := map[string]bool{}
 	edited := make(map[string]string)
 	for _, server := range bound {
 		slugs[server.ComponentKey] = server.Slug
+		preserved[server.ComponentKey] = server.Preserved
 		if server.Edited {
 			edited[server.ComponentKey] = server.Name
 		}
@@ -110,6 +112,7 @@ func (i *Inventory) InstalledComponents(ctx context.Context, id, digest string) 
 			components[n].HookGeneration = strconv.FormatUint(row.HookGeneration, 10)
 		}
 		components[n].EditedServer = edited[components[n].Key]
+		components[n].PreserveServer = preserved[components[n].Key]
 		slug, ok := slugs[components[n].Key]
 		if components[n].Kind == "provider" {
 			continue
@@ -118,6 +121,9 @@ func (i *Inventory) InstalledComponents(ctx context.Context, id, digest string) 
 		components[n].Slug = slug
 	}
 	if err := i.DescribeExistingProviders(ctx, components, snapshot, id); err != nil {
+		return nil, err
+	}
+	if err := i.DescribeExistingMCP(ctx, components, snapshot, id, nil); err != nil {
 		return nil, err
 	}
 	return components, nil

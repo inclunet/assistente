@@ -404,7 +404,7 @@ func fullAutoMigrate(t *testing.T, database *gorm.DB) {
 	t.Helper()
 	if err := database.AutoMigrate(
 		&User{}, &Session{}, &Conversation{}, &ChatMessage{}, &MemoryRecord{},
-		&CredentialEntry{}, &CredentialKeyWrap{}, &LLMProvider{}, &PluginProviderBinding{}, &ACPSession{}, &TaskListWorkflow{},
+		&CredentialEntry{}, &CredentialKeyWrap{}, &LLMProvider{}, &PluginProviderBinding{}, &PluginMCPBinding{}, &ACPSession{}, &TaskListWorkflow{},
 		&TaskList{}, &Task{}, &TaskNote{}, &MCPServer{}, &MCPServerLog{}, &ToolCatalog{},
 		&Tag{}, &TagAssignment{}, &JobPipeline{}, &Job{}, &JobProfileGrant{}, &JobProfileGrantEpoch{}, &ProfileGrantRevocationIntent{}, &JobTrigger{}, &JobRun{},
 		&JobEvent{}, &JobRunEvent{}, &ToolInvocation{}, &ToolLedgerMigrationState{}, &SubAgentRun{},
