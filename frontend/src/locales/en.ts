@@ -207,6 +207,7 @@ notSaved: 'The decision applies only to this operation: it could not be remember
       missingProfileAllowlist: 'Configure command policy {{name}} to use this profile.',
       profileSettings: 'Inspect profile configuration',
       createProfileChatGPT: 'Create a local ChatGPT connection for {{name}}',
+      pendingProfileProvider: 'Review provider {{name}}. This profile requires the configuration supplied by the plugin and a confirmed link.',
       missingProfileProvider: 'Register provider {{name}} to use this profile.',
       syncLocalProvider: 'Reload the current configuration for {{name}} saved in your account?',
       syncProvider: 'Sync {{name}}',

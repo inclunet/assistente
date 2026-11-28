@@ -98,6 +98,10 @@ func (i *Inventory) InstallSource(ctx context.Context, reviewedOrigin, reviewedD
 	if err != nil {
 		return database.PluginInstallation{}, err
 	}
+	requirements, err := json.Marshal(packageProviderRequirements(snapshot, nativeComponents(snapshot)))
+	if err != nil {
+		return database.PluginInstallation{}, err
+	}
 	var installed database.PluginInstallation
 	if admit == nil {
 		return database.PluginInstallation{}, database.ErrUserScopeRequired
@@ -178,7 +182,7 @@ func (i *Inventory) InstallSource(ctx context.Context, reviewedOrigin, reviewedD
 				return err
 			}
 		}
-		revision := database.PluginRevision{InstallationID: installed.ID, Digest: snapshot.Digest, Files: files}
+		revision := database.PluginRevision{InstallationID: installed.ID, Digest: snapshot.Digest, Files: files, ProviderRequirements: requirements}
 		return tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&revision).Error
 	}, admit)
 	if err != nil {

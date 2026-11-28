@@ -509,6 +509,19 @@ describe('PluginsPage', () => {
     expect(mocks.registerProvider).toHaveBeenCalledWith('one','sha','providers/equipe');
   });
 
+  it.each([false,true])('permite desativar um perfil com dependência pendente quando active=%s', async active => {
+    const user = userEvent.setup();
+    mocks.list.mockResolvedValue([{id:'one',name:'Demo',digest:'sha'}]);
+    mocks.components.mockResolvedValue([{name:'Perfil',key:'profiles/voz',kind:'profile',pendingProvider:'equipe',active}]);
+    render(<PluginsPage />);
+    (await screen.findByRole('gridcell',{name:/Demo/})).focus();
+    await user.keyboard('{Enter}');
+    expect(await screen.findByText('plugins.pendingProfileProvider')).toBeVisible();
+    const action = screen.getByRole('button',{name: active ? 'plugins.deactivate' : 'plugins.activate'});
+    if (active) expect(action).toBeEnabled();
+    else expect(action).toBeDisabled();
+  });
+
   it('mostra a configuração pedida e mantém a ativação bloqueada enquanto o provedor faltar', async () => {
     const user = userEvent.setup();
     mocks.list.mockResolvedValue([{id:'one',name:'Demo',digest:'sha'}]);

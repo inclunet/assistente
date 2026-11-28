@@ -207,6 +207,7 @@ notSaved: 'A decisão vale somente para esta operação: não foi possível lemb
       missingProfileAllowlist: 'Configure a lista de comandos {{name}} para usar este perfil.',
       profileSettings: 'Conferir configuração do perfil',
       createProfileChatGPT: 'Criar uma conexão ChatGPT local para {{name}}',
+      pendingProfileProvider: 'Confira o provedor {{name}}. Este perfil precisa da configuração fornecida pelo plugin e de um vínculo confirmado.',
       missingProfileProvider: 'Cadastre o provedor {{name}} para usar este perfil.',
       syncLocalProvider: 'Recarregar a configuração atual de {{name}} salva na sua conta?',
       syncProvider: 'Sincronizar {{name}}',
