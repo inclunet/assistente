@@ -170,6 +170,30 @@ func TestBuilderExportsOnlySelectedDefinitionsToAnotherAccount(t *testing.T) {
 	if _, err := store.GetPluginProfile(reader, entries[0].Slug); !errors.Is(err, gorm.ErrRecordNotFound) {
 		t.Fatalf("perfil ainda publicado após revogação: %v", err)
 	}
+	// Uma ativação anterior mantém a seleção original mesmo quando o pacote contém o mesmo slug.
+	if err := db.Model(&database.PluginProfileActivation{}).Where("slug=?", entries[0].Slug).UpdateColumn("skill_requirements", nil).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetProfileActive(reader, installed.ID, installed.Digest, "profiles/writer", true, admit); err != nil {
+		t.Fatal(err)
+	}
+	legacy, err := store.GetPluginProfile(reader, entries[0].Slug)
+	if err != nil || legacy.Chat.EnabledSkills[0] != "notes" {
+		t.Fatal(legacy, err)
+	}
+	parts, err := store.InstalledComponents(reader, installed.ID, installed.Digest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	preserved := false
+	for _, part := range parts {
+		if part.Key == "profiles/writer" {
+			preserved = part.Active && part.RetainsSkillSelection && part.PendingSkill == ""
+		}
+	}
+	if !preserved {
+		t.Fatal(parts)
+	}
 	var receivedList database.TaskList
 	if err := db.Where("id=? AND user_id=? AND slug=?", id, "reader", "releases").Take(&receivedList).Error; err != nil {
 		t.Fatal(err)

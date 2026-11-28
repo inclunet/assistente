@@ -527,6 +527,18 @@ describe('PluginsPage', () => {
     else expect(action).toBeDisabled();
   });
 
+  it('identifica o perfil que mantém a seleção original de skills', async () => {
+    const user = userEvent.setup();
+    mocks.list.mockResolvedValue([{id:'one',name:'Demo',digest:'sha'}]);
+    mocks.components.mockResolvedValue([{name:'Perfil',key:'profiles/voz',kind:'profile',retainsSkillSelection:true,active:true}]);
+    render(<PluginsPage />);
+    (await screen.findByRole('gridcell',{name:/Demo/})).focus();
+    await user.keyboard('{Enter}');
+    expect(await screen.findByText('plugins.retainsSkillSelection')).toBeVisible();
+    expect(screen.queryByText('plugins.pendingProfileSkill')).not.toBeInTheDocument();
+    expect(screen.getByRole('button',{name:'plugins.deactivate'})).toBeEnabled();
+  });
+
   it('mostra a configuração pedida e mantém a ativação bloqueada enquanto o provedor faltar', async () => {
     const user = userEvent.setup();
     mocks.list.mockResolvedValue([{id:'one',name:'Demo',digest:'sha'}]);

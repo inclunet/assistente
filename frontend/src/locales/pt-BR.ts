@@ -219,6 +219,7 @@ notSaved: 'A decisão vale somente para esta operação: não foi possível lemb
       reuseMcp: 'Usar o servidor existente {{name}}',
       mcpAlreadyAvailable: 'Esta conta já tem um servidor MCP equivalente.',
       mcpConflict: 'Há um cadastro MCP diferente ou mais de uma correspondência. Confira os servidores da conta.',
+      retainsSkillSelection: 'Este perfil continua usando as skills que já selecionava antes da instalação dos vínculos. Uma skill do pacote com o mesmo nome não altera essa seleção.',
       pendingProfileSkill: 'Confirme o vínculo ou ative a skill {{name}} nesta instalação para usar o perfil.',
       pendingProfileProvider: 'Confira o provedor {{name}}. Este perfil precisa da configuração fornecida pelo plugin e de um vínculo confirmado.',
       missingProfileProvider: 'Cadastre o provedor {{name}} para usar este perfil.',

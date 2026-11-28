@@ -218,6 +218,7 @@ notSaved: 'La decisión vale solo para esta operación: no se pudo recordar. Ser
       reuseMcp: 'Usar el servidor existente {{name}}',
       mcpAlreadyAvailable: 'Ya hay un servidor MCP equivalente en esta cuenta.',
       mcpConflict: 'Existe una configuración MCP distinta o ambigua. Revisa los servidores de la cuenta.',
+      retainsSkillSelection: 'Este perfil conserva su selección original de skills. Una skill del paquete con el mismo nombre no cambia esa selección.',
       pendingProfileSkill: 'Confirma el vínculo o activa la skill {{name}} en esta instalación para usar el perfil.',
       pendingProfileProvider: 'Revisa el proveedor {{name}}. Este perfil requiere la configuración del plugin y un vínculo confirmado.',
       missingProfileProvider: 'Registra el proveedor {{name}} para usar este perfil.',

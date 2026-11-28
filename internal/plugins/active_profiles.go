@@ -45,11 +45,10 @@ func (i *Inventory) SetProfileActive(ctx context.Context, id, digest, key string
 					return err
 				}
 				requiredSkills = bundledProfileSkills(p, profileSkillRevisions(snap, components, p.Chat.EnabledSkills))
-				if len(requiredSkills) > 0 {
-					row.SkillRequirements, err = json.Marshal(requiredSkills)
-					if err != nil {
-						return err
-					}
+				// SQL NULL identifies activations which predate reviewed skill requirements.
+				row.SkillRequirements, err = json.Marshal(requiredSkills)
+				if err != nil {
+					return err
 				}
 				break
 			}
@@ -71,6 +70,14 @@ func (i *Inventory) SetProfileActive(ctx context.Context, id, digest, key string
 			}
 			if installed.Disabled {
 				return ErrInstallationDisabled
+			}
+			// Repeating an earlier activation is not consent to replace its selectors.
+			var legacy int64
+			if err := tx.Model(&database.PluginProfileActivation{}).Where("installation_id=? AND digest=? AND component_key=? AND skill_requirements IS NULL", id, digest, key).Count(&legacy).Error; err != nil {
+				return err
+			}
+			if legacy > 0 {
+				return nil
 			}
 			p, err := resolveProfile(ctx, tx, row.Definition, requirements, id, digest)
 			if err != nil {
@@ -289,6 +296,7 @@ func (e missingProfileAllowlist) Unwrap() error { return gorm.ErrRecordNotFound 
 // DescribeProfileDependencies resolves the displayed revision without activating a profile.
 func (i *Inventory) DescribeProfileDependencies(ctx context.Context, components []Component, snapshot *pluginpackage.LocalSnapshot, id string) error {
 	required := packageProviderRequirements(snapshot, components)
+	legacy := map[string]bool{}
 	var names []string
 	for _, c := range components {
 		if c.Kind != "profile" || c.Reason != "" {
@@ -300,6 +308,19 @@ func (i *Inventory) DescribeProfileDependencies(ctx context.Context, components 
 		}
 		if !p.Chat.DisableSkills {
 			names = append(names, p.Chat.EnabledSkills...)
+		}
+	}
+	if id != "" && len(names) > 0 {
+		query, err := i.profileQuery(ctx)
+		if err != nil {
+			return err
+		}
+		var keys []string
+		if err := query.Where("p.id=? AND p.digest=? AND plugin_profile_activations.skill_requirements IS NULL", id, snapshot.Digest).Pluck("plugin_profile_activations.component_key", &keys).Error; err != nil {
+			return err
+		}
+		for _, key := range keys {
+			legacy[key] = true
 		}
 	}
 	skillRevs := profileSkillRevisions(snapshot, components, names)
@@ -319,7 +340,11 @@ func (i *Inventory) DescribeProfileDependencies(ctx context.Context, components 
 			p, err := resolveProfile(ctx, i.db, definition, required, id, snapshot.Digest)
 			if err == nil {
 				deps := bundledProfileSkills(p, skillRevs)
-				err = applyProfileSkillBindings(p, deps, bindings)
+				if legacy[components[n].Key] && len(deps) > 0 {
+					components[n].RetainsSkillSelection = true
+				} else {
+					err = applyProfileSkillBindings(p, deps, bindings)
+				}
 			}
 			if err != nil {
 				var skill pendingProfileSkill
