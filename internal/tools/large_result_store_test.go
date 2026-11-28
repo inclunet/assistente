@@ -618,8 +618,8 @@ func TestContentForModelWithinLimitNeverRepaginatesRawResultPage(t *testing.T) {
 func TestContentForModelWithinLimitNeverExceedsTinyBudget(t *testing.T) {
 	for _, budget := range []int{0, 1, 8} {
 		got := ContentForModelWithinLimit(context.Background(), ToolResult{Content: "raw", RawExact: true}, budget, false)
-		if len(got) > budget {
-			t.Fatalf("falha raw excedeu budget %d: %q", budget, got)
+		if len(got) > budget || (got != "" && got != "raw") {
+			t.Fatalf("budget %d produziu resultado ou diagnóstico parcial: %q", budget, got)
 		}
 	}
 }
