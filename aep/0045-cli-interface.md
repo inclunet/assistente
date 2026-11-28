@@ -160,6 +160,7 @@ O `cli.EmitterAdapter` traduz eventos para output formatado:
 1. ✅ Mover ~51 arquivos `.go` da raiz para `internal/app/` (`package main` → `package app`)
 2. ✅ `main.go` permanece na raiz (restrição do `//go:embed` impede mover para `cmd/desktop/`)
 3. ✅ Exportar tipos e funções: `NewApp()`, `StartupWithAdapters()`, `Shutdown()`, `Context()`
+   O encerramento do App cancela e aguarda o trabalho auxiliar de sumarização antes de liberar o processo para uma nova instância do CLI.
 4. N/A — `wails.json` não precisa de alteração (main.go continua na raiz)
 5. ✅ `go build .` e `go build ./cmd/asst` compilam; `go test ./...` sem regressões
 
