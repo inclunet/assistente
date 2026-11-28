@@ -18,23 +18,25 @@ import (
 // Component identifies a contribution within a revision; runtime keys are
 // allocated separately, so the same skill name can occur in several packages.
 type Component struct {
-	SkillConsumers    []string  `json:"skillConsumers,omitempty"`
-	SkillReuseToken   string    `json:"skillReuseToken,omitempty"`
-	PreserveServer    bool      `json:"preserveServer,omitempty"`
-	MCPRevision       string    `json:"mcpRevision,omitempty"`
-	ProviderRevision  string    `json:"providerRevision,omitempty"`
-	HookGeneration    string    `json:"hookGeneration,omitempty"`
-	HookScript        string    `json:"hookScript,omitempty"`
-	AgentProblemField string    `json:"agentProblemField,omitempty"`
-	AgentInstructions string    `json:"agentInstructions,omitempty"`
-	AgentTools        *[]string `json:"agentTools,omitempty"`
-	CanCreateChatGPT  bool      `json:"canCreateChatGPT,omitempty"`
-	MissingAllowlist  string    `json:"missingAllowlist,omitempty"`
-	PendingProvider   string    `json:"pendingProvider,omitempty"`
-	MissingProvider   string    `json:"missingProvider,omitempty"`
-	ProfileDefinition string    `json:"profileDefinition,omitempty"`
-	ProcessArgs       []string  `json:"processArgs,omitempty"`
-	Tool              string    `json:"tool,omitempty"`
+	SkillConsumers        []string  `json:"skillConsumers,omitempty"`
+	SkillReuseToken       string    `json:"skillReuseToken,omitempty"`
+	PreserveServer        bool      `json:"preserveServer,omitempty"`
+	MCPRevision           string    `json:"mcpRevision,omitempty"`
+	ProviderRevision      string    `json:"providerRevision,omitempty"`
+	HookGeneration        string    `json:"hookGeneration,omitempty"`
+	HookScript            string    `json:"hookScript,omitempty"`
+	AgentProblemField     string    `json:"agentProblemField,omitempty"`
+	AgentInstructions     string    `json:"agentInstructions,omitempty"`
+	AgentTools            *[]string `json:"agentTools,omitempty"`
+	CanCreateChatGPT      bool      `json:"canCreateChatGPT,omitempty"`
+	MissingAllowlist      string    `json:"missingAllowlist,omitempty"`
+	RetainsSkillSelection bool      `json:"retainsSkillSelection,omitempty"`
+	PendingSkill          string    `json:"pendingSkill,omitempty"`
+	PendingProvider       string    `json:"pendingProvider,omitempty"`
+	MissingProvider       string    `json:"missingProvider,omitempty"`
+	ProfileDefinition     string    `json:"profileDefinition,omitempty"`
+	ProcessArgs           []string  `json:"processArgs,omitempty"`
+	Tool                  string    `json:"tool,omitempty"`
 
 	JobMaxRunsPerHour int            `json:"jobMaxRunsPerHour,omitempty"`
 	JobTriggers       []jobs.Trigger `json:"jobTriggers,omitempty"`
