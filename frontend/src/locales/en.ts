@@ -215,6 +215,7 @@ notSaved: 'The decision applies only to this operation: it could not be remember
       removeProviders: 'Uninstall and remove providers',
       registerProvider: 'Register {{name}}',
       providerRegistered: 'Provider {{name}} registered.',
+      providerAlreadyAvailable: 'Already available in this account. Profiles can use this provider by its slug.',
       providerSlugTaken: 'This slug already belongs to another provider in this account.',
       providerSyncPending: 'The provider was saved. Try registering it again to refresh available providers.',
       builderProviders: 'Providers',

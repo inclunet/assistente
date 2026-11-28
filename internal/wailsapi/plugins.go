@@ -211,9 +211,11 @@ func (api *Plugins) preparePreview(ctx context.Context, inventory *plugins.Inven
 		return nil, err
 	}
 	p := PluginPreview{Authentication: snap.DiscoveryAuthentication, Name: snap.Manifest.Name, Version: snap.Manifest.Version, Origin: snap.Origin, Digest: snap.Digest, Diagnostics: snap.Warnings, Components: plugins.DiscoverComponents(snap)}
+	var matchingInstallation string
 	var affected []plugins.BoundMCPServer
 	for _, row := range list {
 		if row.Origin == p.Origin && row.Name == p.Name {
+			matchingInstallation = row.ID
 			p.PreviousDigest = row.Digest
 			if row.Digest != p.Digest {
 				affected, err = inventory.BoundMCPServers(ctx, row.ID, row.Digest)
@@ -234,6 +236,9 @@ func (api *Plugins) preparePreview(ctx context.Context, inventory *plugins.Inven
 			}
 			break
 		}
+	}
+	if err := inventory.DescribeExistingProviders(ctx, p.Components, snap, matchingInstallation); err != nil {
+		return nil, err
 	}
 	for path := range snap.Files {
 		p.Files = append(p.Files, path)
