@@ -1,6 +1,11 @@
 package skills
 
-import "strings"
+import (
+	"errors"
+	"strings"
+
+	"assistente/internal/contextprovider"
+)
 
 type SkillMode string
 
@@ -135,4 +140,16 @@ func resolveLegacyAutoLoadPolicy(allSkills []Skill, disableOnDemand bool) Select
 
 func skillMatches(skill Skill, name string) bool {
 	return skill.Slug == name || skill.Name == name
+}
+
+// CatalogReadError preserves the required selection when its source cannot be read.
+func CatalogReadError(err error, selected []string, disabled bool) error {
+	if err != nil && !disabled {
+		for _, name := range selected {
+			if strings.HasPrefix(name, PluginGrantPrefix) {
+				return errors.Join(contextprovider.ErrRequiredSkillUnavailable, err)
+			}
+		}
+	}
+	return err
 }

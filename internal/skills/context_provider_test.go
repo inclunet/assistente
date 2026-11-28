@@ -415,3 +415,30 @@ func TestRestrictedDelegationDoesNotAdvertiseLoadSkill(t *testing.T) {
 		}
 	}
 }
+
+func TestRequiredGrantRecheckedBeforeReusingPrompt(t *testing.T) {
+	for _, source := range []string{"home", "plugin"} {
+		t.Run(source, func(t *testing.T) {
+			revoked := false
+			s := providerSkill("notes", "original", true)
+			s.Source = source
+			selector := PluginGrantPrefix + "notes"
+			s.SelectionGrants = map[string]func(context.Context) error{selector: func(context.Context) error {
+				if revoked {
+					return errors.New("revoked")
+				}
+				return nil
+			}}
+			provider := NewContextProvider(&contextProviderSourceStub{skills: []Skill{s}})
+			ctx := WithCommandTurn(t.Context(), nil)
+			req := contextprovider.BuildRequest{EnabledSkills: []string{selector}, ToolCallingEnabled: true}
+			if blocks, err := provider.Build(ctx, req); err != nil || len(blocks) == 0 {
+				t.Fatal(blocks, err)
+			}
+			revoked = true
+			if blocks, err := provider.Build(ctx, req); len(blocks) > 0 || !errors.Is(err, contextprovider.ErrRequiredSkillUnavailable) {
+				t.Fatal(blocks, err)
+			}
+		})
+	}
+}

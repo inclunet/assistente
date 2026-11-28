@@ -468,6 +468,7 @@ func FilterByNamesOrdered(allSkills []Skill, names []string) ([]Skill, error) {
 		skillMap[s.Name] = s
 		for selector, guard := range s.SelectionGrants {
 			scoped := s
+			scoped.selectedByGrant = true
 			scoped.CheckCommandActivation = guard
 			skillMap[selector] = scoped
 		}

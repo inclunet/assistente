@@ -2068,3 +2068,13 @@ func TestPrepareMessagesStopsWhenRequiredSkillIsRevoked(t *testing.T) {
 		t.Fatalf("turno com concessão revogada: %v", res.Err)
 	}
 }
+
+func TestPrepareMessagesRejectsUnreadableCatalogWithRequiredSkill(t *testing.T) {
+	i := NewInteractor(InteractorConfig{SkillMgr: failingSkillRuntimeManager{}, PromptBuilder: &capturingPromptBuilder{}})
+	profile := &profiles.Profile{}
+	profile.Chat.EnabledSkills = []string{skills.PluginGrantPrefix + "required"}
+	res := i.PrepareMessages(t.Context(), PrepareMessagesRequest{Messages: []llm.Message{{Role: "user", Content: "hello"}}, UserContent: "hello", ConversationID: "conv", TurnID: "turn", ActiveProfile: profile})
+	if !errors.Is(res.Err, contextprovider.ErrRequiredSkillUnavailable) {
+		t.Fatal(res.Err)
+	}
+}

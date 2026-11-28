@@ -1138,10 +1138,6 @@ func (i *Interactor) BuildSkillSelectionPolicy(ctx context.Context, activeProfil
 	if i.skillMgr == nil {
 		return skills.SelectionPolicy{}, false, nil
 	}
-	allSkills, err := skills.ListForContext(ctx, i.skillMgr)
-	if err != nil {
-		return skills.SelectionPolicy{}, false, fmt.Errorf("erro ao carregar política de skills: %w", err)
-	}
 	var enabledSkills []string
 	var disableOnDemand bool
 	var disableSkills bool
@@ -1149,6 +1145,10 @@ func (i *Interactor) BuildSkillSelectionPolicy(ctx context.Context, activeProfil
 		enabledSkills = activeProfile.Chat.EnabledSkills
 		disableOnDemand = activeProfile.Chat.DisableOnDemandSkills
 		disableSkills = activeProfile.Chat.DisableSkills
+	}
+	allSkills, err := skills.ListForContext(ctx, i.skillMgr)
+	if err != nil {
+		return skills.SelectionPolicy{}, false, fmt.Errorf("erro ao carregar política de skills: %w", skills.CatalogReadError(err, enabledSkills, disableSkills))
 	}
 	policy := skills.ResolveSelectionPolicy(allSkills, enabledSkills, disableSkills, disableOnDemand)
 	return policy, true, policy.Err

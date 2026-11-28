@@ -210,6 +210,7 @@ type MCPToolDef struct {
 
 // Skill representa um skill completo com metadados, conteúdo e localização.
 type Skill struct {
+	selectedByGrant  bool
 	DefinitionDigest string `json:"-"`
 	// SelectionGrants maps an installation-specific selector to its dispatch-time check.
 	SelectionGrants        map[string]func(context.Context) error `json:"-"`
