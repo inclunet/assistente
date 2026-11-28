@@ -26,6 +26,18 @@ func (i *Inventory) WithProviderRefresh(refresh func(context.Context, string, co
 
 // RegisterProvider só registra o recurso da revisão conferida na conta atual.
 func (i *Inventory) RegisterProvider(ctx context.Context, id, digest, key string, admit commandsecurity.Admission) error {
+	return i.registerProvider(ctx, id, digest, key, "", admit)
+}
+
+// ReuseProvider binds a reviewed existing registration without acquiring ownership.
+func (i *Inventory) ReuseProvider(ctx context.Context, id, digest, key, revision string, admit commandsecurity.Admission) error {
+	if revision == "" {
+		return ErrInstallationChanged
+	}
+	return i.registerProvider(ctx, id, digest, key, revision, admit)
+}
+
+func (i *Inventory) registerProvider(ctx context.Context, id, digest, key, revision string, admit commandsecurity.Admission) error {
 	owner, err := database.RequireUserID(ctx)
 	if err != nil {
 		return err
@@ -62,6 +74,27 @@ func (i *Inventory) RegisterProvider(ctx context.Context, id, digest, key string
 		repo := database.NewProviderRepository(tx)
 		local, err := repo.GetBySlug(ctx, p.Slug)
 		if err == nil {
+			if revision != "" {
+				token, err := providerReviewToken(local)
+				if err != nil {
+					return err
+				}
+				if token != revision || !providers.MatchesPackageDefinition(local, snap.Files[entry]) {
+					return ErrInstallationChanged
+				}
+				var binding database.PluginProviderBinding
+				err = tx.Where("installation_id=? AND component_key=?", id, key).Take(&binding).Error
+				if err == nil {
+					if !binding.ConsumerOnly || binding.ProviderID != local.ID {
+						return ErrInstallationChanged
+					}
+					return tx.Model(&binding).Update("digest", digest).Error
+				}
+				if !errors.Is(err, gorm.ErrRecordNotFound) {
+					return err
+				}
+				return tx.Create(&database.PluginProviderBinding{InstallationID: id, ComponentKey: key, Digest: digest, ProviderID: local.ID, ConsumerOnly: true}).Error
+			}
 			var receipt database.PluginProviderBinding
 			if err := tx.Where("installation_id=? AND component_key=? AND provider_id=?", id, key, local.ID).Take(&receipt).Error; err != nil {
 				if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -69,11 +102,17 @@ func (i *Inventory) RegisterProvider(ctx context.Context, id, digest, key string
 				}
 				return err
 			}
+			if receipt.ConsumerOnly {
+				return ErrInstallationChanged
+			}
 			providerID = local.ID
 			return nil
 		}
 		if !errors.Is(err, gorm.ErrRecordNotFound) {
 			return err
+		}
+		if revision != "" {
+			return ErrInstallationChanged
 		}
 		if err := tx.Where("installation_id=? AND component_key=? AND NOT EXISTS (SELECT 1 FROM llm_providers WHERE id=plugin_provider_bindings.provider_id)", id, key).Delete(&database.PluginProviderBinding{}).Error; err != nil {
 			return err
@@ -90,6 +129,9 @@ func (i *Inventory) RegisterProvider(ctx context.Context, id, digest, key string
 	}, admit)
 	if err != nil {
 		return err
+	}
+	if revision != "" {
+		return nil
 	}
 	if err := i.refreshProvider(ctx, providerID, admit); err != nil {
 		return errors.Join(ErrProviderSyncPending, err)
@@ -116,10 +158,12 @@ func (i *Inventory) DescribeExistingProviders(ctx context.Context, components []
 	}
 	var rows []struct {
 		database.LLMProvider
-		ComponentKey string
+		ComponentKey  string
+		ConsumerOnly  bool
+		BindingDigest string
 	}
 	err = i.db.WithContext(ctx).Model(&database.LLMProvider{}).
-		Select("llm_providers.*, coalesce(b.component_key, '') as component_key").
+		Select("llm_providers.*, coalesce(b.component_key, '') as component_key, coalesce(b.consumer_only,0) as consumer_only, coalesce(b.digest,'') as binding_digest").
 		Joins("LEFT JOIN plugin_provider_bindings b ON b.provider_id=llm_providers.id AND b.installation_id=?", installation).
 		Where("llm_providers.user_id=? AND llm_providers.slug IN ?", owner, slugs).Scan(&rows).Error
 	if err != nil {
@@ -127,10 +171,18 @@ func (i *Inventory) DescribeExistingProviders(ctx context.Context, components []
 	}
 	for _, row := range rows {
 		c := &components[indices[row.Slug]]
-		if row.ComponentKey == c.Key {
+		if row.ComponentKey == c.Key && !row.ConsumerOnly {
 			c.Active = true
 		} else if providers.MatchesPackageDefinition(&row.LLMProvider, snapshot.Files[c.Entry]) {
-			c.Reason = "providerAlreadyAvailable"
+			if row.ComponentKey == c.Key && row.ConsumerOnly && row.BindingDigest == snapshot.Digest {
+				c.Reason = "providerInUse"
+			} else {
+				c.Reason = "providerAlreadyAvailable"
+				c.ProviderRevision, err = providerReviewToken(&row.LLMProvider)
+				if err != nil {
+					return err
+				}
+			}
 		} else {
 			c.Reason = "providerSlugTaken"
 		}

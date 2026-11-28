@@ -485,6 +485,13 @@ var schemaMigrations = []migration{
 	{Version: 47, Name: "llm_provider_slugs", Phase: phasePostAutoMigrate, Run: migrateProviderSlugs},
 	{Version: 48, Name: "plugin_provider_delete_binding", Phase: phasePostAutoMigrate, Run: installProviderBindingCleanup},
 	{Version: 49, Name: "command_outbox_retention_indexes", Phase: phasePostAutoMigrate, Run: func(*gorm.DB) error { return errMigrationDeferred }},
+	{Version: 50, Name: "shared_plugin_provider_bindings", Phase: phasePostAutoMigrate, Run: func(db *gorm.DB) error {
+		// AutoMigrate já criou o índice único parcial para o fornecedor. Liberar múltiplos consumidores.
+		if !db.Migrator().HasIndex(&PluginProviderBinding{}, "ux_plugin_provider_source") {
+			return errMigrationDeferred
+		}
+		return db.Exec("DROP INDEX IF EXISTS idx_plugin_provider_bindings_provider_id").Error
+	}},
 }
 
 // runMigrations aplica, na ordem de Version, todas as migrações da fase

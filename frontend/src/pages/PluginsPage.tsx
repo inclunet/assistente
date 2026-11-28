@@ -5,7 +5,7 @@ import { useResourceEditRequest } from '../hooks/useResourceEditRequest';
 import { useNavigationStore } from '../store/navigationStore';
 import { create } from 'zustand';
 import { useTranslation } from 'react-i18next';
-import { AddReviewedRepository, ProviderRemovalPreview, UninstallReviewed, CreateListFromTemplate, ChangeInstallation, DiscardPreview, InstalledComponents, InstallReviewed, ListInstalled, PreviewLocal, PreviewLocalZIP, RegisterProvider, RegisterMCP, RemoveMCP, PrepareJob, SetAgentActive, SetProfileActive, SetSkillActive, SyncMCP, SyncPendingJobs } from '@wailsjs/go/wailsapi/Plugins';
+import { AddReviewedRepository, ProviderRemovalPreview, UninstallReviewed, CreateListFromTemplate, ChangeInstallation, DiscardPreview, InstalledComponents, InstallReviewed, ListInstalled, PreviewLocal, PreviewLocalZIP, RegisterProvider, ReuseProvider, RegisterMCP, RemoveMCP, PrepareJob, SetAgentActive, SetProfileActive, SetSkillActive, SyncMCP, SyncPendingJobs } from '@wailsjs/go/wailsapi/Plugins';
 import type { database, jobs, plugins, wailsapi } from '@wailsjs/go/models';
 import { Button } from '../components/ui/Button';
 import { DataGrid } from '../components/ui/DataGrid';
@@ -61,6 +61,7 @@ function componentRequirement(component: plugins.Component) {
   if (component.reason === 'hookExecutionPending') return 'plugins.hookExecutionPending';
   if (component.reason === 'hookInspectionLimit') return 'plugins.hookInspectionLimit';
   if (component.reason === 'hookConfiguration') return 'plugins.hookConfiguration';
+  if (component.reason === 'providerInUse') return 'plugins.providerInUse';
   if (component.reason === 'providerAlreadyAvailable') return 'plugins.providerAlreadyAvailable';
   if (component.reason === 'providerSlugTaken') return 'plugins.providerSlugTaken';
   if (component.reason === 'invalidProvider') return 'plugins.invalidProvider';
@@ -233,7 +234,7 @@ function InstalledPlugins({ session }: { session: string }) {
     if (listErrorText) announce(listErrorText, 'assertive');
   }, [listErrorText, announce]);
   const mounted = useRef(false);
-  const [providerRemoval, setProviderRemoval] = useState<{ versions: Record<string,string>; opener: HTMLButtonElement } | null>(null);
+  const [providerRemoval, setProviderRemoval] = useState<{ versions: Awaited<ReturnType<typeof ProviderRemovalPreview>>; opener: HTMLButtonElement } | null>(null);
   const lifecycleOpener = useRef<HTMLButtonElement | null>(null);
   const openToken = useRef<string | null>(null);
   const chooseButton = useRef<HTMLButtonElement>(null);
@@ -415,10 +416,12 @@ function InstalledPlugins({ session }: { session: string }) {
           await reconcile(session, 'mcp', RegisterMCP(installation.id, installation.digest, component.key));
         }
       } else if (component.kind === 'provider') {
-        const title = t(component.active ? 'plugins.syncProvider' : 'plugins.registerProvider', { name: component.name });
+        const reuse = component.reason === 'providerAlreadyAvailable';
+        const title = t(reuse ? 'plugins.reuseProvider' : component.active ? 'plugins.syncProvider' : 'plugins.registerProvider', { name: component.name });
         const accepted = await confirm({ title, message: component.active ? t('plugins.syncLocalProvider', { name: component.name }) : connectionLabel(component), confirmText: title, cancelText: t('common.cancel') });
         if (!accepted || !mounted.current) return;
-        await RegisterProvider(installation.id, installation.digest, component.key);
+        if (reuse) await ReuseProvider(installation.id, installation.digest, component.key, component.providerRevision ?? '');
+        else await RegisterProvider(installation.id, installation.digest, component.key);
       } else if (component.kind === 'job') {
         await PrepareJob(installation.id, installation.digest, component.key);
       } else if (component.kind === 'agent') {
@@ -494,7 +497,7 @@ function InstalledPlugins({ session }: { session: string }) {
     finally { if (mounted.current) setBusy(false); }
   };
   const syncAction = pendingSync && <Button ref={retryButton} disabled={busy} onClick={() => void retryPendingSync()}>{t('plugins.retrySync')}</Button>;
-  const changeInstallation = async (action: 'enable' | 'disable' | 'uninstall', opener: HTMLButtonElement, decision?: {choice: 'detach' | 'remove'; versions: Record<string,string>}) => {
+  const changeInstallation = async (action: 'enable' | 'disable' | 'uninstall', opener: HTMLButtonElement, decision?: {choice: 'detach' | 'remove'; versions: Awaited<ReturnType<typeof ProviderRemovalPreview>>}) => {
     if (busy || !details || error === 'plugins.syncPendingStale') return;
     setBusy(true);
     setError('');
@@ -504,7 +507,7 @@ function InstalledPlugins({ session }: { session: string }) {
       if (action === 'uninstall' && !decision) {
         const versions = await ProviderRemovalPreview(installation.id, installation.digest);
         if (!mounted.current) return;
-        if (Object.keys(versions).length > 0) { setProviderRemoval({ versions, opener }); return; }
+        if (versions.length > 0) { setProviderRemoval({ versions, opener }); return; }
       }
       const accepted = decision || await confirm({
         title: t('plugins.' + action, { name: installation.name }),
@@ -599,6 +602,8 @@ function InstalledPlugins({ session }: { session: string }) {
         {component.kind === 'skill' && component.requestsShell && <p>{t('plugins.commandPolicy')}</p>}
         {component.kind === 'hook' && component.hookScript && !component.reason ?
           <Button disabled={busy || details.installation.disabled || !workspace} onClick={() => workspace && setHookDecision({component,installation:details.installation,workspaceId:workspace.id,workspaceName:workspace.name})}>{t('plugins.hookPermission')}</Button>
+          : component.kind === 'provider' && component.reason === 'providerAlreadyAvailable' ?
+          <><p>{t('plugins.providerAlreadyAvailable')}</p><Button disabled={busy || details.installation.disabled || !component.providerRevision} onClick={() => void changeComponent(component)}>{t('plugins.reuseProvider',{name:component.name})}</Button></>
           : component.kind === 'provider' && !component.reason ?
           <>{component.active && <p>{t('plugins.providerRegistered', { name: component.name })}</p>}
             <Button disabled={busy || details.installation.disabled || error === 'plugins.syncPendingStale'} onClick={() => void changeComponent(component)}>{t(component.active ? 'plugins.syncProvider' : 'plugins.registerProvider', { name: component.name })}</Button></>
@@ -652,10 +657,10 @@ function InstalledPlugins({ session }: { session: string }) {
     </Modal>}
     {providerRemoval && details && <DecisionDialog isOpen
       title={t('plugins.uninstall', {name: details.installation.name})}
-      description={[t('plugins.uninstallConfirm'), t('plugins.origin') + ': ' + details.installation.origin, t('plugins.providerRemovalPrompt', {providers: Object.keys(providerRemoval.versions).sort().join(', ')})].join('\n')}
+      description={[t('plugins.uninstallConfirm'), t('plugins.origin') + ': ' + details.installation.origin, ...[...providerRemoval.versions].sort((a,b) => a.slug.localeCompare(b.slug)).map(({slug,item}) => t(item.preserve ? (item.consumers?.length ? 'plugins.providerUsedBy' : 'plugins.providerKept') : 'plugins.providerExclusive', {name:slug, consumers:item.consumers?.join(', ')}))].join('\n')}
       actions={[
         {id:'detach', label:t('plugins.detachProviders'), primary:true},
-        {id:'remove', label:t('plugins.removeProviders')},
+        {id:'remove', label:t('plugins.removeProviders'), disabled: providerRemoval.versions.every(({item}) => item.preserve)},
         {id:'cancel', label:t('common.cancel')},
       ]}
       onCancel={() => setProviderRemoval(null)}
