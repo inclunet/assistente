@@ -7,9 +7,9 @@ import { useWorkspaceStore } from '../store/workspaceStore';
 import { useAuthStore } from '../store/authStore';
 import * as navigation from '../lib/commandLandmarkNavigation';
 
-const mocks = vi.hoisted(() => ({ projects: vi.fn(), saveProject: vi.fn(), hook: vi.fn(), providerRemovalPreview: vi.fn(), uninstallReviewed: vi.fn(), reuseMcp: vi.fn(), reuseProvider: vi.fn(), registerProvider: vi.fn(), prepareJob: vi.fn(), syncJobs: vi.fn().mockResolvedValue(undefined), profile: vi.fn(), createList: vi.fn(), repos: vi.fn(), catalogPreview: vi.fn(), lifecycle: vi.fn(), sync: vi.fn(), register: vi.fn(), remove: vi.fn(), confirm: vi.fn(), list: vi.fn(), components: vi.fn(), toggle: vi.fn(), agent: vi.fn(), preview: vi.fn(), archive: vi.fn(), addReviewed: vi.fn(), install: vi.fn(), discard: vi.fn(), announce: vi.fn(), announceRequest: vi.fn() }));
+const mocks = vi.hoisted(() => ({ projects: vi.fn(), saveProject: vi.fn(), hook: vi.fn(), providerRemovalPreview: vi.fn(), uninstallReviewed: vi.fn(), reuseSkill: vi.fn(), reuseMcp: vi.fn(), reuseProvider: vi.fn(), registerProvider: vi.fn(), prepareJob: vi.fn(), syncJobs: vi.fn().mockResolvedValue(undefined), profile: vi.fn(), createList: vi.fn(), repos: vi.fn(), catalogPreview: vi.fn(), lifecycle: vi.fn(), sync: vi.fn(), register: vi.fn(), remove: vi.fn(), confirm: vi.fn(), list: vi.fn(), components: vi.fn(), toggle: vi.fn(), agent: vi.fn(), preview: vi.fn(), archive: vi.fn(), addReviewed: vi.fn(), install: vi.fn(), discard: vi.fn(), announce: vi.fn(), announceRequest: vi.fn() }));
 vi.mock('@wailsjs/go/wailsapi/Tasklist', () => ({GetAllTaskLists: async () => []}));
-vi.mock('@wailsjs/go/wailsapi/Plugins', () => ({ BuilderProjects: mocks.projects, SaveBuilderProject: mocks.saveProject, DecidePreToolHook: mocks.hook, BuilderProviderSlugs: async () => ['equipe'], BuilderJobNames: async () => [], BuilderProfileNames: async () => ({names:[],partial:false}), BuilderSkillNames: async () => ({names:[],partial:false}), CreateListFromTemplate: mocks.createList, ListRepositories: mocks.repos, PreviewRepositoryEntry: mocks.catalogPreview, ChangeInstallation: mocks.lifecycle, PrepareJob: mocks.prepareJob, SyncPendingJobs: mocks.syncJobs, SyncMCP: mocks.sync, ProviderRemovalPreview: mocks.providerRemovalPreview, UninstallReviewed: mocks.uninstallReviewed, ReuseProvider: mocks.reuseProvider, ReuseMCP: mocks.reuseMcp, RegisterProvider: mocks.registerProvider, RegisterMCP: mocks.register, RemoveMCP: mocks.remove, InstalledComponents: mocks.components, SetProfileActive: mocks.profile, SetSkillActive: mocks.toggle, SetAgentActive: mocks.agent, DiscardPreview: mocks.discard, ListInstalled: mocks.list, PreviewLocal: mocks.preview, PreviewLocalZIP: mocks.archive, AddReviewedRepository: mocks.addReviewed, InstallReviewed: mocks.install }));
+vi.mock('@wailsjs/go/wailsapi/Plugins', () => ({ BuilderProjects: mocks.projects, SaveBuilderProject: mocks.saveProject, DecidePreToolHook: mocks.hook, BuilderProviderSlugs: async () => ['equipe'], BuilderJobNames: async () => [], BuilderProfileNames: async () => ({names:[],partial:false}), BuilderSkillNames: async () => ({names:[],partial:false}), CreateListFromTemplate: mocks.createList, ListRepositories: mocks.repos, PreviewRepositoryEntry: mocks.catalogPreview, ChangeInstallation: mocks.lifecycle, PrepareJob: mocks.prepareJob, SyncPendingJobs: mocks.syncJobs, SyncMCP: mocks.sync, ProviderRemovalPreview: mocks.providerRemovalPreview, UninstallReviewed: mocks.uninstallReviewed, ReuseProvider: mocks.reuseProvider, ReuseMCP: mocks.reuseMcp, ReuseSkill: mocks.reuseSkill, RegisterProvider: mocks.registerProvider, RegisterMCP: mocks.register, RemoveMCP: mocks.remove, InstalledComponents: mocks.components, SetProfileActive: mocks.profile, SetSkillActive: mocks.toggle, SetAgentActive: mocks.agent, DiscardPreview: mocks.discard, ListInstalled: mocks.list, PreviewLocal: mocks.preview, PreviewLocalZIP: mocks.archive, AddReviewedRepository: mocks.addReviewed, InstallReviewed: mocks.install }));
 vi.mock('../lib/commandPagePresentation', async importOriginal => {
   const actual = await importOriginal<typeof import('../lib/commandPagePresentation')>();
   return {...actual, usePagePresentationCommands: (options: Parameters<typeof actual.usePagePresentationCommands>[0]) => ({
@@ -564,6 +564,24 @@ describe('PluginsPage', () => {
     expect(mocks.lifecycle).not.toHaveBeenCalled();
     if(choice==='cancel') expect(mocks.uninstallReviewed).not.toHaveBeenCalled();
     else expect(mocks.uninstallReviewed).toHaveBeenCalledWith('one','sha',choice,[{slug:'equipe',item:{version:'rev-local',preserve:false,consumers:[]}}]);
+  });
+
+  it('exige confirmação para compartilhar uma skill e mantém o conflito sem ação', async () => {
+    const user = userEvent.setup();
+    mocks.list.mockResolvedValue([{id:'one',name:'Demo',digest:'sha'}]);
+    mocks.components.mockResolvedValue([{kind:'skill',name:'nota',key:'skills/nota',reason:'skillAlreadyAvailable',skillReuseToken:'geracao',skillConsumers:['Equipe']},{kind:'skill',name:'outra',key:'skills/outra',reason:'skillConflict',skillConsumers:['Operações (loja interna)']}]);
+    mocks.confirm.mockResolvedValueOnce(false).mockResolvedValueOnce(true);
+    render(<PluginsPage />);
+    (await screen.findByRole('gridcell',{name:/Demo/})).focus();
+    await user.keyboard('{Enter}');
+    expect(await screen.findByText('plugins.skillConflict')).toBeVisible();
+    expect(screen.getByText('Operações (loja interna)')).toBeVisible();
+    expect(screen.queryByRole('button',{name:'plugins.activate'})).not.toBeInTheDocument();
+    const use=screen.getByRole('button',{name:'plugins.reuseSkill'});
+    await user.click(use);
+    expect(mocks.reuseSkill).not.toHaveBeenCalled();
+    await user.click(use);
+    expect(mocks.reuseSkill).toHaveBeenCalledWith('one','sha','skills/nota','geracao');
   });
 
   it('confirma o uso de um servidor equivalente sem registrar outro servidor', async () => {

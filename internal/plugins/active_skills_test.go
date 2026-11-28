@@ -85,6 +85,74 @@ func TestInstalledSkillActivationAndSlashIsolation(t *testing.T) {
 	if err := store.SetSkillActive(alice, row.ID, row.Digest, "skills/note", true, allow); err != nil {
 		t.Fatal(err)
 	}
+	t.Run("concessões independentes para uma definição", func(t *testing.T) {
+		another := t.TempDir()
+		if err := os.CopyFS(another, root.FS()); err != nil {
+			t.Fatal(err)
+		}
+		dup, err := pluginpackage.InspectLocal(another)
+		if err != nil {
+			t.Fatal(err)
+		}
+		second, err := store.InstallLocal(alice, another, dup.Digest, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		details, err := store.InstalledComponents(alice, second.ID, second.Digest)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var token string
+		for _, c := range details {
+			if c.Key == "skills/note" && c.Reason == "skillAlreadyAvailable" {
+				token = c.SkillReuseToken
+			}
+		}
+		if token == "" {
+			t.Fatal(details)
+		}
+		if err := store.SetSkillActive(alice, second.ID, second.Digest, "skills/note", true, allow); !errors.Is(err, ErrInstallationChanged) {
+			t.Fatal(err)
+		}
+		if err := store.SetSkillActive(alice, row.ID, row.Digest, "skills/note", false, allow); err != nil {
+			t.Fatal(err)
+		}
+		if err := store.SetSkillActive(alice, row.ID, row.Digest, "skills/note", true, allow); err != nil {
+			t.Fatal(err)
+		}
+		if err := store.ReuseSkill(alice, second.ID, second.Digest, "skills/note", token, allow); !errors.Is(err, ErrInstallationChanged) {
+			t.Fatal(err)
+		}
+		updated, err := store.InstalledComponents(alice, second.ID, second.Digest)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, c := range updated {
+			if c.Key == "skills/note" {
+				token = c.SkillReuseToken
+			}
+		}
+		if err := store.ReuseSkill(alice, second.ID, second.Digest, "skills/note", token, allow); err != nil {
+			t.Fatal(err)
+		}
+		live, err := store.ActiveSkills(alice)
+		if err != nil || len(live) != 1 {
+			t.Fatal(live, err)
+		}
+		if err := store.SetSkillActive(alice, row.ID, row.Digest, "skills/note", false, allow); err != nil {
+			t.Fatal(err)
+		}
+		remaining, err := store.ActiveSkills(alice)
+		if err != nil || len(remaining) != 1 || remaining[0].Slug != live[0].Slug {
+			t.Fatal(remaining, err)
+		}
+		if err := store.ChangeInstallation(alice, second.ID, second.Digest, "uninstall", allow); err != nil {
+			t.Fatal(err)
+		}
+		if err := store.SetSkillActive(alice, row.ID, row.Digest, "skills/note", true, allow); err != nil {
+			t.Fatal(err)
+		}
+	})
 	manager := skills.NewManagerWithInstalledSkills(store.ActiveSkills)
 	live, err := store.ActiveSkills(alice)
 	if err != nil || len(live) != 1 {
@@ -174,5 +242,24 @@ func TestInstalledSkillActivationAndSlashIsolation(t *testing.T) {
 	}
 	if _, err := root.Stat("plugin.json"); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestSkillRevisionCoversOnlyItsTreeAndInterpreter(t *testing.T) {
+	snap := &pluginpackage.LocalSnapshot{Files: map[string][]byte{"skills/tarefa/SKILL.md": []byte("body"), "skills/tarefa/apoio/a.txt": []byte("um")}}
+	revision := func() string { return skillRevisions(snap, []string{"skills/tarefa"})["skills/tarefa"] }
+	first := revision()
+	snap.Files["skills/tarefa-extra/apoio/a.txt"] = []byte("outro")
+	if revision() != first {
+		t.Fatal("uma skill vizinha alterou a revisão")
+	}
+	snap.Files["skills/tarefa/apoio/a.txt"] = []byte("dois")
+	second := revision()
+	if second == first {
+		t.Fatal("arquivo de apoio não alterou a revisão")
+	}
+	snap.Manifest.Format = pluginpackage.ClaudeCode
+	if revision() == second {
+		t.Fatal("mudança de interpretação não alterou a revisão")
 	}
 }

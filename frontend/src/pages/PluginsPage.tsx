@@ -5,7 +5,7 @@ import { useResourceEditRequest } from '../hooks/useResourceEditRequest';
 import { useNavigationStore } from '../store/navigationStore';
 import { create } from 'zustand';
 import { useTranslation } from 'react-i18next';
-import { AddReviewedRepository, ProviderRemovalPreview, UninstallReviewed, CreateListFromTemplate, ChangeInstallation, DiscardPreview, InstalledComponents, InstallReviewed, ListInstalled, PreviewLocal, PreviewLocalZIP, RegisterProvider, ReuseProvider, RegisterMCP, ReuseMCP, RemoveMCP, PrepareJob, SetAgentActive, SetProfileActive, SetSkillActive, SyncMCP, SyncPendingJobs } from '@wailsjs/go/wailsapi/Plugins';
+import { AddReviewedRepository, ProviderRemovalPreview, UninstallReviewed, CreateListFromTemplate, ChangeInstallation, DiscardPreview, InstalledComponents, InstallReviewed, ListInstalled, PreviewLocal, PreviewLocalZIP, RegisterProvider, ReuseProvider, RegisterMCP, ReuseMCP, RemoveMCP, ReuseSkill, PrepareJob, SetAgentActive, SetProfileActive, SetSkillActive, SyncMCP, SyncPendingJobs } from '@wailsjs/go/wailsapi/Plugins';
 import type { database, jobs, plugins, wailsapi } from '@wailsjs/go/models';
 import { Button } from '../components/ui/Button';
 import { DataGrid } from '../components/ui/DataGrid';
@@ -56,11 +56,19 @@ function componentLabel(kind: string) {
   }
 }
 
+function SkillConsumers({component}: {component: plugins.Component}) {
+  const {t} = useTranslation();
+  if (!component.skillConsumers?.length) return null;
+  return <ul aria-label={t('plugins.skillInstallations')}>{component.skillConsumers.map(name => <li key={name}>{name}</li>)}</ul>;
+}
+
 function componentRequirement(component: plugins.Component) {
   if (component.hookScript && !component.reason) return undefined;
   if (component.reason === 'hookExecutionPending') return 'plugins.hookExecutionPending';
   if (component.reason === 'hookInspectionLimit') return 'plugins.hookInspectionLimit';
   if (component.reason === 'hookConfiguration') return 'plugins.hookConfiguration';
+  if (component.reason === 'skillConflict') return 'plugins.skillConflict';
+  if (component.reason === 'skillAlreadyAvailable') return 'plugins.skillAlreadyAvailable';
   if (component.reason === 'mcpAlreadyAvailable') return 'plugins.mcpAlreadyAvailable';
   if (component.reason === 'mcpConflict') return 'plugins.mcpConflict';
   if (component.reason === 'providerInUse') return 'plugins.providerInUse';
@@ -436,6 +444,11 @@ function InstalledPlugins({ session }: { session: string }) {
         await SetAgentActive(installation.id, installation.digest, component.key, !component.active);
       } else if (component.kind === 'profile') {
         await SetProfileActive(installation.id, installation.digest, component.key, !component.active);
+       } else if (component.kind === 'skill' && component.reason === 'skillAlreadyAvailable') {
+        const title = t('plugins.reuseSkill',{name:component.name});
+        const accepted = await confirm({title,message:t('plugins.confirmReuseSkill',{name:component.name,consumers:component.skillConsumers?.join(', ')}),confirmText:title,cancelText:t('common.cancel')});
+        if (!accepted || !mounted.current) return;
+        await ReuseSkill(installation.id,installation.digest,component.key,component.skillReuseToken ?? '');
       } else {
         await SetSkillActive(installation.id, installation.digest, component.key, !component.active);
       }
@@ -604,7 +617,7 @@ function InstalledPlugins({ session }: { session: string }) {
       {createdList && <p>{t('plugins.createdList', { name: createdList })}</p>}
       <h2>{t('plugins.components')}</h2>
       {details.components.length === 0 ? <p>{t('plugins.noComponents')}</p> : <ul>{details.components.map(component => <li key={component.key}>
-        <strong>{component.name}</strong> · {t(componentLabel(component.kind))}{component.hookScript && <code>{component.hookScript}</code>}<AgentDefinition component={component} /><JobRequirements component={component} />
+        <strong>{component.name}</strong> · {t(componentLabel(component.kind))}{component.hookScript && <code>{component.hookScript}</code>}<SkillConsumers component={component} /><AgentDefinition component={component} /><JobRequirements component={component} />
         {component.editedServer && <p>{t('plugins.editedServer', { name: component.editedServer })}</p>}
         {component.pendingProvider && <p>{t('plugins.pendingProfileProvider',{name:component.pendingProvider})}</p>}{component.missingAllowlist && <p>{t('plugins.missingProfileAllowlist',{name:component.missingAllowlist})}</p>}{component.missingProvider && <p>{t('plugins.missingProfileProvider',{name:component.missingProvider})}</p>}{component.profileDefinition && <details><summary>{t('plugins.profileSettings')}</summary><pre>{component.profileDefinition}</pre></details>}{(component.kind === 'mcp' || component.kind === 'provider') && <p>{connectionLabel(component)}</p>}
         {component.kind === 'skill' && component.requestsShell && <p>{t('plugins.commandPolicy')}</p>}
@@ -621,7 +634,9 @@ function InstalledPlugins({ session }: { session: string }) {
             <Button disabled={busy || details.installation.disabled || error === 'plugins.syncPendingStale'} onClick={() => void changeComponent(component)}>{t('plugins.prepareJob', {name:component.name})}</Button>)
           : component.kind === 'tasklistTemplate' && !component.reason ?
           <Button disabled={busy || details.installation.disabled || error === 'plugins.syncPendingStale'} onClick={() => void changeComponent(component)}>{t('plugins.createList', { name: component.name })}</Button>
-          : (component.kind === 'profile' || component.kind === 'skill' || component.kind === 'agent') && !component.reason ? <>
+          : component.kind === 'skill' && component.reason === 'skillAlreadyAvailable' ?
+          <><p>{t('plugins.skillAlreadyAvailable')}</p><Button disabled={busy || details.installation.disabled || !component.skillReuseToken} onClick={() => void changeComponent(component)}>{t('plugins.reuseSkill',{name:component.name})}</Button></>
+          : (component.kind === 'profile' || component.kind === 'skill'  || component.kind === 'agent') && !component.reason ? <>
           {component.kind === 'profile' && component.canCreateChatGPT && component.missingProvider && !details.components.some(c => c.kind === 'provider' && c.slug === component.missingProvider) &&
             <Button disabled={busy || details.installation.disabled || error === 'plugins.syncPendingStale'} onClick={() => setChatGPTSlug(component.missingProvider!)}>{t('plugins.createProfileChatGPT', { name: component.missingProvider })}</Button>}
           {component.active && component.kind === 'agent' && <code>{component.slug}</code>}
@@ -707,7 +722,7 @@ function InstalledPlugins({ session }: { session: string }) {
         {preview.authentication && <><dt>{t('plugins.authentication')}</dt><dd>{preview.authentication}</dd></>}
         <dt>SHA-256</dt><dd>{preview.digest}</dd>
       </dl>
-      {(preview.components ?? []).length > 0 && <ul aria-label={t('plugins.components')}>{preview.components.map(component => <li key={component.key}>{component.name} · {t(componentLabel(component.kind))}{component.hookScript && <code>{component.hookScript}</code>}<AgentDefinition component={component} /><JobRequirements component={component} />{component.requestsShell && <span> · {t('plugins.commandPolicy')}</span>}{component.pendingProvider && <p>{t('plugins.pendingProfileProvider',{name:component.pendingProvider})}</p>}{component.missingAllowlist && <p>{t('plugins.missingProfileAllowlist',{name:component.missingAllowlist})}</p>}{component.missingProvider && <p>{t('plugins.missingProfileProvider',{name:component.missingProvider})}</p>}{component.profileDefinition && <details><summary>{t('plugins.profileSettings')}</summary><pre>{component.profileDefinition}</pre></details>}{(component.kind === 'mcp' || component.kind === 'provider') && <p>{connectionLabel(component)}</p>}{componentRequirement(component) && <p>{t(componentRequirement(component)!, { path: component.entry })}</p>}</li>)}</ul>}
+      {(preview.components ?? []).length > 0 && <ul aria-label={t('plugins.components')}>{preview.components.map(component => <li key={component.key}>{component.name} · {t(componentLabel(component.kind))}{component.hookScript && <code>{component.hookScript}</code>}<SkillConsumers component={component} /><AgentDefinition component={component} /><JobRequirements component={component} />{component.requestsShell && <span> · {t('plugins.commandPolicy')}</span>}{component.pendingProvider && <p>{t('plugins.pendingProfileProvider',{name:component.pendingProvider})}</p>}{component.missingAllowlist && <p>{t('plugins.missingProfileAllowlist',{name:component.missingAllowlist})}</p>}{component.missingProvider && <p>{t('plugins.missingProfileProvider',{name:component.missingProvider})}</p>}{component.profileDefinition && <details><summary>{t('plugins.profileSettings')}</summary><pre>{component.profileDefinition}</pre></details>}{(component.kind === 'mcp' || component.kind === 'provider') && <p>{connectionLabel(component)}</p>}{componentRequirement(component) && <p>{t(componentRequirement(component)!, { path: component.entry })}</p>}</li>)}</ul>}
       {(preview.diagnostics ?? []).length > 0 && <details>
         <summary>{t('plugins.warnings', { count: preview.diagnostics.length })}</summary>
         <ul>{preview.diagnostics.map(warning => {
