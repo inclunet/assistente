@@ -42,6 +42,8 @@ Primeira entrega parcial: a prévia de instalação e os detalhes distinguem um 
 
 Para MCP HTTP/SSE, a prévia verifica o slug, o nome e a chave de vínculos anteriores na conta. Uma correspondência única com configuração portável equivalente permite confirmar o uso do servidor existente. O vínculo de consumo preserva a configuração, a conexão e a identidade nativas. A remoção de um vínculo de consumo ou de uma fonte com outros vínculos preserva o servidor. A escolha de substituir configurações e o compartilhamento de skills, perfis, jobs e modelos de lista seguem pendentes.
 
+Para skills de pacotes, a revisão inclui os nomes e os bytes dos arquivos da pasta da skill e a semântica do formato do pacote. Uma segunda instalação só pode usar o mesmo comando após confirmação e recebe sua própria geração de ativação. `TestInstalledSkillActivationAndSlashIsolation` verifica que o catálogo lista um comando e que, ao revogar a primeira instalação, a outra mantém o comando disponível.
+
 Entregar em sequência: vínculos e prévia de provedores, MCP, skills, perfis, jobs e modelos de lista. Cobrir dois pacotes usando o mesmo recurso, instalação sobre um cadastro manual, mudança local entre prévia e confirmação, remoção em ambas as ordens, revisões incompatíveis e isolamento de contas. Para pacotes externos sem identidade compartilhada explícita, usar a origem reconhecida do plugin e a chave do componente para acompanhar revisões.
 
 ### Identidade, armazenamento e dependências

@@ -70,6 +70,8 @@ export function ReuseMCP(arg1:string,arg2:string,arg3:string,arg4:string):Promis
 
 export function ReuseProvider(arg1:string,arg2:string,arg3:string,arg4:string):Promise<void>;
 
+export function ReuseSkill(arg1:string,arg2:string,arg3:string,arg4:string):Promise<void>;
+
 export function SaveBuilder(arg1:plugins.BuilderRequest,arg2:string):Promise<boolean>;
 
 export function SaveBuilderProject(arg1:string,arg2:plugins.BuilderProject):Promise<plugins.BuilderProject>;

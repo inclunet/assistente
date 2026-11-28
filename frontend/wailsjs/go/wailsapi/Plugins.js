@@ -134,6 +134,10 @@ export function ReuseProvider(arg1, arg2, arg3, arg4) {
   return window['go']['wailsapi']['Plugins']['ReuseProvider'](arg1, arg2, arg3, arg4);
 }
 
+export function ReuseSkill(arg1, arg2, arg3, arg4) {
+  return window['go']['wailsapi']['Plugins']['ReuseSkill'](arg1, arg2, arg3, arg4);
+}
+
 export function SaveBuilder(arg1, arg2) {
   return window['go']['wailsapi']['Plugins']['SaveBuilder'](arg1, arg2);
 }

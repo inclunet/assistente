@@ -16,7 +16,6 @@ import (
 	"assistente/internal/pluginpackage"
 	"assistente/internal/skills"
 	"gorm.io/gorm"
-	"gorm.io/gorm/clause"
 )
 
 var ErrComponentUnavailable = errors.New("componente indisponível nesta revisão")
@@ -54,13 +53,17 @@ func (i *Inventory) InstalledComponents(ctx context.Context, id, digest string) 
 		return nil, err
 	}
 	var active []database.PluginSkillActivation
-	err = i.db.WithContext(ctx).Model(&database.PluginSkillActivation{}).Select("plugin_skill_activations.component_key, plugin_skill_activations.slug").Joins("JOIN plugin_installations p ON p.id=plugin_skill_activations.installation_id AND p.digest=plugin_skill_activations.digest").Where("p.id=? AND p.user_id=? AND p.digest=?", id, owner, digest).Find(&active).Error
+	err = i.db.WithContext(ctx).Model(&database.PluginSkillActivation{}).Select("plugin_skill_activations.component_key, plugin_skill_activations.slug,plugin_skill_activations.shared_slug").Joins("JOIN plugin_installations p ON p.id=plugin_skill_activations.installation_id AND p.digest=plugin_skill_activations.digest").Where("p.id=? AND p.user_id=? AND p.digest=?", id, owner, digest).Find(&active).Error
 	if err != nil {
 		return nil, err
 	}
 	slugs := map[string]string{}
 	for _, row := range active {
-		slugs[row.ComponentKey] = row.Slug
+		if row.SharedSlug != "" {
+			slugs[row.ComponentKey] = row.SharedSlug
+		} else {
+			slugs[row.ComponentKey] = row.Slug
+		}
 	}
 	var agents []database.PluginAgentActivation
 	if err := i.db.WithContext(ctx).Where("installation_id=? AND digest=?", id, digest).Find(&agents).Error; err != nil {
@@ -126,6 +129,9 @@ func (i *Inventory) InstalledComponents(ctx context.Context, id, digest string) 
 	if err := i.DescribeExistingMCP(ctx, components, snapshot, id, nil); err != nil {
 		return nil, err
 	}
+	if err := i.DescribeExistingSkills(ctx, components, snapshot, id); err != nil {
+		return nil, err
+	}
 	return components, nil
 }
 
@@ -141,6 +147,18 @@ func (i *Inventory) SetSkillActive(ctx context.Context, id, digest, key string, 
 	if admit == nil {
 		return database.ErrUserScopeRequired
 	}
+	return i.setSkillActive(ctx, id, digest, key, active, "", admit)
+}
+
+// ReuseSkill requires the reviewed identity and revision of an existing activation.
+func (i *Inventory) ReuseSkill(ctx context.Context, id, digest, key, token string, admit commandsecurity.Admission) error {
+	if token == "" || admit == nil {
+		return ErrInstallationChanged
+	}
+	return i.setSkillActive(ctx, id, digest, key, true, token, admit)
+}
+
+func (i *Inventory) setSkillActive(ctx context.Context, id, digest, key string, active bool, token string, admit commandsecurity.Admission) error {
 	owner, err := database.RequireUserID(ctx)
 	if err != nil {
 		return err
@@ -155,7 +173,8 @@ func (i *Inventory) SetSkillActive(ctx context.Context, id, digest, key string, 
 			if component.Key != key || component.Kind != "skill" || component.Reason != "" {
 				continue
 			}
-			activation = database.PluginSkillActivation{Generation: uuid.NewString(), PackageFormat: snap.Manifest.Format, InstallationID: id, ComponentKey: key, Digest: digest, Slug: pluginComponentSlug(id, key, component.Name), Definition: string(snap.Files[component.Entry])}
+			revision := skillRevisions(snap, []string{key})[key]
+			activation = database.PluginSkillActivation{SkillRevision: revision, Generation: uuid.NewString(), PackageFormat: snap.Manifest.Format, InstallationID: id, ComponentKey: key, Digest: digest, Slug: pluginComponentSlug(id, key, component.Name), Definition: string(snap.Files[component.Entry])}
 			break
 		}
 		if activation.Slug == "" {
@@ -173,7 +192,28 @@ func (i *Inventory) SetSkillActive(ctx context.Context, id, digest, key string, 
 		if !active {
 			return tx.Where("installation_id = ? AND component_key = ?", id, key).Delete(&database.PluginSkillActivation{}).Error
 		}
-		return tx.Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "installation_id"}, {Name: "component_key"}}, DoNothing: true}).Create(&activation).Error
+		var current database.PluginSkillActivation
+		found := tx.Where("installation_id=? AND component_key=?", id, key).Take(&current).Error
+		if found == nil {
+			if current.Digest != digest || current.AcceptedReuseToken != token {
+				return ErrInstallationChanged
+			}
+			return nil
+		}
+		if !errors.Is(found, gorm.ErrRecordNotFound) {
+			return found
+		}
+		groups, err := activeSkillCandidates(tx, owner, id, []string{key})
+		if err != nil {
+			return err
+		}
+		candidate := skillMatch(groups[key], activation.SkillRevision)
+		if candidate.conflict || candidate.token != token {
+			return ErrInstallationChanged
+		}
+		activation.SharedSlug = candidate.slug
+		activation.AcceptedReuseToken = token
+		return tx.Create(&activation).Error
 	}, admit)
 }
 
@@ -188,7 +228,16 @@ func (i *Inventory) ActiveSkills(ctx context.Context) ([]skills.Skill, error) {
 		return nil, err
 	}
 	result := make([]skills.Skill, 0, len(rows))
+	seen := map[string]bool{}
 	for _, row := range rows {
+		public := row.Slug
+		if row.SharedSlug != "" {
+			public = row.SharedSlug
+		}
+		if seen[public] {
+			continue
+		}
+		seen[public] = true
 		meta, body, err := skills.Parse(row.Definition)
 		if err != nil {
 			return nil, fmt.Errorf("plugin skill %s: %w", row.Slug, err)
@@ -197,7 +246,7 @@ func (i *Inventory) ActiveSkills(ctx context.Context) ([]skills.Skill, error) {
 			meta.Name = strings.TrimPrefix(row.ComponentKey, "skills/")
 		}
 		meta.DisplayName = meta.Name
-		meta.Name = row.Slug
+		meta.Name = public
 		check := func(ctx context.Context) error {
 			current, err := database.RequireUserID(ctx)
 			if err != nil || current != owner {
@@ -216,7 +265,7 @@ func (i *Inventory) ActiveSkills(ctx context.Context) ([]skills.Skill, error) {
 			}
 			return nil
 		}
-		result = append(result, skills.Skill{CheckCommandActivation: check, SkillMetadata: *meta, Slug: row.Slug, Source: "plugin", PackageFormat: row.PackageFormat, Content: body})
+		result = append(result, skills.Skill{CheckCommandActivation: check, SkillMetadata: *meta, Slug: public, Source: "plugin", PackageFormat: row.PackageFormat, Content: body})
 	}
 	return result, nil
 }
