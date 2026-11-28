@@ -45,7 +45,7 @@ JSON e não ofereciam retomada exata.
    adicional e rejeitados, em vez de parecerem respostas completas.
 9. O pre-check da janela de contexto reaplica a quota calculada ao contrato da
    tool: recompõe a janela e seus offsets, preserva a delimitação MCP e converte
-   `Structured`/`RawExact` que não caibam em falha explícita, sem segundo corte.
+   `Structured`/`RawExact` que não caibam em falha explícita, sem segundo corte. Se nem o código de diagnóstico couber, o loop encerra com aviso antes da próxima chamada.
 10. Recortes `raw` por linhas incluem o separador original entre páginas, para
     que sua concatenação reproduza o texto. Proveniência de projeção permanece
     no resultado técnico, sem ser prefixada ao conteúdo `raw` model-facing.

@@ -151,7 +151,7 @@ func TestRunAgenticLoop_ToolCalls_PersisteSomenteNoLedger(t *testing.T) {
 	})
 
 	streamer := &scriptedStreamer{call: llm.ToolCall{ID: "call-1", Type: "function", Function: llm.FunctionCall{Name: "ok_tool", Arguments: `{}`}}}
-	svc.RunAgenticLoop(ctx, []llm.Message{{Role: "user", Content: "hi"}}, llm.ChatParams{MaxAgenticIterations: 2}, conv.ID, turn.ID, nil, streamer, nil, func(string, int) IterationHandler {
+	svc.RunAgenticLoop(ctx, nil, []llm.Message{{Role: "user", Content: "hi"}}, llm.ChatParams{MaxAgenticIterations: 2}, conv.ID, turn.ID, nil, streamer, nil, func(string, int) IterationHandler {
 		return &testIterationHandler{}
 	}, nil, false, 0)
 
@@ -198,7 +198,7 @@ func TestRunAgenticLoop_ToolCalls_CriaCatalogoArchival(t *testing.T) {
 	})
 
 	streamer := &scriptedStreamer{call: llm.ToolCall{ID: "call-1", Type: "function", Function: llm.FunctionCall{Name: "ok_tool", Arguments: `{}`}}}
-	svc.RunAgenticLoop(ctx, []llm.Message{{Role: "user", Content: "hi"}}, llm.ChatParams{MaxAgenticIterations: 2}, conv.ID, turn.ID, nil, streamer, nil, func(string, int) IterationHandler {
+	svc.RunAgenticLoop(ctx, nil, []llm.Message{{Role: "user", Content: "hi"}}, llm.ChatParams{MaxAgenticIterations: 2}, conv.ID, turn.ID, nil, streamer, nil, func(string, int) IterationHandler {
 		return &testIterationHandler{}
 	}, nil, false, 0)
 
@@ -244,7 +244,7 @@ func TestRunAgenticLoop_ToolCalls_ResultLargeFicaSomenteNoLedger(t *testing.T) {
 		ID: "call-large", Type: "function",
 		Function: llm.FunctionCall{Name: "large_text_tool", Arguments: `{}`},
 	}}
-	svc.RunAgenticLoop(ctx, []llm.Message{{Role: "user", Content: "hi"}},
+	svc.RunAgenticLoop(ctx, nil, []llm.Message{{Role: "user", Content: "hi"}},
 		llm.ChatParams{MaxAgenticIterations: 2}, conv.ID, turn.ID, nil, streamer, nil,
 		func(string, int) IterationHandler { return &testIterationHandler{} },
 		nil, false, 0)

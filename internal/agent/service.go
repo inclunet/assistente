@@ -246,7 +246,7 @@ func NewService(cfg ServiceConfig) *Service {
 //  2. Se finish_reason="stop" → salva resposta final, emite chat:done
 //  3. Se finish_reason="tool_calls" → emite segment_done, executa tools, salva no banco, repete
 func (s *Service) RunAgenticLoop(
-	ctx context.Context,
+	ctx context.Context, compaction *TurnCompaction,
 	messages []llm.Message,
 	params llm.ChatParams,
 	conversationID string,
@@ -293,6 +293,7 @@ func (s *Service) RunAgenticLoop(
 	ctx = buildAgenticInvocationContext(ctx, params, conversationID, turnID)
 
 	runner := &agenticLoopRunner{
+		compaction:               compaction,
 		svc:                      s,
 		conversationID:           conversationID,
 		turnID:                   turnID,

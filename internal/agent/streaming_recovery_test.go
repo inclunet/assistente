@@ -276,7 +276,7 @@ func TestRunAgenticLoop_NaoRepeteTurnoJaAceitoPeloAgente(t *testing.T) {
 	}}
 
 	svc.RunAgenticLoop(
-		context.Background(),
+		context.Background(), nil,
 		[]llm.Message{{Role: "user", Content: "refatora"}},
 		llm.ChatParams{MaxAgenticIterations: 1},
 		"c1",
@@ -350,7 +350,7 @@ func TestRunAgenticLoop_StopsWhenAssistantPlaceholderFails(t *testing.T) {
 	}}
 
 	svc.RunAgenticLoop(
-		context.Background(),
+		context.Background(), nil,
 		nil,
 		llm.ChatParams{MaxAgenticIterations: 1},
 		"conversation-1",
@@ -579,7 +579,7 @@ func TestRunAgenticLoop_RetriesIterationBeforeChatDoneError(t *testing.T) {
 	}}
 
 	svc.RunAgenticLoop(
-		context.Background(),
+		context.Background(), nil,
 		[]llm.Message{{Role: "user", Content: "hi"}},
 		llm.ChatParams{MaxAgenticIterations: 1},
 		"c1",
@@ -625,7 +625,7 @@ func TestRunAgenticLoop_ErrorIncludesAssistantMessageIDAndPersistsPartial(t *tes
 	}}
 
 	svc.RunAgenticLoop(
-		context.Background(),
+		context.Background(), nil,
 		[]llm.Message{{Role: "user", Content: "hi"}},
 		llm.ChatParams{MaxAgenticIterations: 1},
 		"c1",
@@ -681,7 +681,7 @@ func TestRunAgenticLoop_ContextCancelPersistsPartialWithNonCanceledContext(t *te
 	}}
 
 	svc.RunAgenticLoop(
-		ctx,
+		ctx, nil,
 		[]llm.Message{{Role: "user", Content: "hi"}},
 		llm.ChatParams{MaxAgenticIterations: 1},
 		"c1",
@@ -739,7 +739,7 @@ func TestRunAgenticLoop_CanceledBeforeIterationEmitsDone(t *testing.T) {
 	}}
 
 	svc.RunAgenticLoop(
-		ctx,
+		ctx, nil,
 		[]llm.Message{{Role: "user", Content: "hi"}},
 		llm.ChatParams{MaxAgenticIterations: 1},
 		"c1",

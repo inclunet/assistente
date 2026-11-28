@@ -723,6 +723,7 @@ notSaved: 'La decisión vale solo para esta operación: no se pudo recordar. Ser
         cancelStreamingFailed: 'No se pudo cancelar la generación: {{message}}',
         assistantPlaceholder: 'No se pudo preparar el mensaje del asistente.',
         mcpPreparation: 'No se pudieron preparar las herramientas MCP. Comprueba la conexión y la autenticación del servidor.',
+        toolContextExhausted: 'Las herramientas se ejecutaron, pero faltó espacio para continuar con sus resultados. Reduzca el alcance de la solicitud o ajuste la ventana de contexto del perfil.',
         persistenceError: 'No se pudo guardar la respuesta. Copia el texto antes de cerrar o recargar la conversación.',
         internalError: 'Error interno inesperado. Inténtalo de nuevo.',
         streamingInterrupted: 'Respuesta interrumpida por el proveedor sin motivo de finalización; inténtelo de nuevo.',

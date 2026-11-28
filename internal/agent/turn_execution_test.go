@@ -299,7 +299,7 @@ func TestTurnRuntimeAgenticTerminalPaths(t *testing.T) {
 					h.OnError("rede")
 				}
 			}}}
-			svc.RunAgenticLoop(ctx, nil, llm.ChatParams{MaxAgenticIterations: 1}, conv, turn, nil, streamer, nil,
+			svc.RunAgenticLoop(ctx, nil, nil, llm.ChatParams{MaxAgenticIterations: 1}, conv, turn, nil, streamer, nil,
 				func(convID string, iter int) IterationHandler {
 					return NewAgenticStreamHandler(em, convID, iter, nil, turn)
 				}, nil, false, 1)
