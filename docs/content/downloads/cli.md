@@ -7,6 +7,8 @@ weight: 2
 
 O Assistente também funciona inteiramente via linha de comando — sem interface gráfica, sem dependências pesadas. Ideal para servidores, containers, SSH, automação e quem prefere trabalhar no terminal.
 
+Ao sair do CLI, o Assistente cancela resumos automáticos em andamento e preserva o histórico da conversa já salvo. Você pode retomar a conversa em outra instância.
+
 ## Instalação
 
 ### Linux / macOS (uma linha)
