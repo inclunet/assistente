@@ -116,8 +116,8 @@ awk '
   }
   in_jobs && /^    needs:/ { dependencies[job]=1 }
   END {
-    if (!("scripts" in jobs) || ("scripts" in dependencies)) exit 1
-    for (job in jobs) if (job != "scripts" && !(job in dependencies)) exit 1
+    if (!("guarda-dispatch" in jobs) || ("guarda-dispatch" in dependencies)) exit 1
+    for (job in jobs) if (job != "guarda-dispatch" && !(job in dependencies)) exit 1
   }
 ' "$repo_dir/.github/workflows/ci.yml" || fail 'job de trabalho pode iniciar antes do guard'
 echo 'PASS: prioridade do PR, isolamento por PR/head/evento, aprovação sem jobs e falhas visíveis'
