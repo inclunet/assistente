@@ -8238,6 +8238,7 @@ export namespace plugins {
 	    agentTools?: string[];
 	    canCreateChatGPT?: boolean;
 	    missingAllowlist?: string;
+	    pendingProvider?: string;
 	    missingProvider?: string;
 	    profileDefinition?: string;
 	    processArgs?: string[];
@@ -8270,6 +8271,7 @@ export namespace plugins {
 	        this.agentTools = source["agentTools"];
 	        this.canCreateChatGPT = source["canCreateChatGPT"];
 	        this.missingAllowlist = source["missingAllowlist"];
+	        this.pendingProvider = source["pendingProvider"];
 	        this.missingProvider = source["missingProvider"];
 	        this.profileDefinition = source["profileDefinition"];
 	        this.processArgs = source["processArgs"];

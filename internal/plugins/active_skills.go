@@ -98,6 +98,9 @@ func (i *Inventory) InstalledComponents(ctx context.Context, id, digest string) 
 	for _, job := range prepared {
 		slugs[job.PluginComponentKey] = job.Slug
 	}
+	if err := i.DescribeProfileDependencies(ctx, components, snapshot, id); err != nil {
+		return nil, err
+	}
 	for n := range components {
 		if components[n].HookScript != "" {
 			var row database.PluginInstallation
@@ -105,22 +108,6 @@ func (i *Inventory) InstalledComponents(ctx context.Context, id, digest string) 
 				return nil, err
 			}
 			components[n].HookGeneration = strconv.FormatUint(row.HookGeneration, 10)
-		}
-		if components[n].Kind == "profile" && components[n].Reason == "" {
-			_, err := resolveProfile(ctx, i.db, snapshot.Files[components[n].Entry])
-			if err != nil {
-				var missing missingProfileProvider
-				var policy missingProfileAllowlist
-				switch {
-				case errors.As(err, &missing):
-					components[n].MissingProvider = missing.slug
-					components[n].CanCreateChatGPT = missing.chatOnly
-				case errors.As(err, &policy):
-					components[n].MissingAllowlist = string(policy)
-				default:
-					return nil, err
-				}
-			}
 		}
 		components[n].EditedServer = edited[components[n].Key]
 		slug, ok := slugs[components[n].Key]

@@ -4,8 +4,10 @@ import (
 	"assistente/internal/commandsecurity"
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"gorm.io/gorm"
 	"io"
 	"net/url"
@@ -49,29 +51,36 @@ func MarshalPackageDefinition(row *database.LLMProvider) ([]byte, error) {
 // MatchesPackageDefinition compara as definições portáveis após aplicar os mesmos
 // defaults de configuração usados ao ler o cadastro nativo.
 func MatchesPackageDefinition(row *database.LLMProvider, raw []byte) bool {
-	incoming, err := ReadPackageDefinition(raw, row.Slug)
+	want, err := PackageDefinitionDigest(raw, row.Slug)
 	if err != nil {
 		return false
 	}
-	existing, err := MarshalPackageDefinition(row)
+	have, err := NativeDefinitionDigest(row)
+	return err == nil && want == have
+}
+
+// NativeDefinitionDigest fingerprints the portable portion of a local provider.
+func NativeDefinitionDigest(row *database.LLMProvider) (string, error) {
+	raw, err := MarshalPackageDefinition(row)
 	if err != nil {
-		return false
+		return "", err
 	}
-	current, err := ReadPackageDefinition(existing, row.Slug)
+	return PackageDefinitionDigest(raw, row.Slug)
+}
+
+// PackageDefinitionDigest normalizes defaults before comparing definitions across installations.
+func PackageDefinitionDigest(raw []byte, slug string) (string, error) {
+	p, err := ReadPackageDefinition(raw, slug)
 	if err != nil {
-		return false
+		return "", err
 	}
-	canonical := func(p *llm.ProviderConfig) ([]byte, error) {
-		p.APIFormat = p.GetAPIFormat()
-		p.ReasoningContentMode = p.EffectiveReasoningContentMode()
-		return MarshalPackageDefinition(toDBModel(p))
-	}
-	have, err := canonical(current)
+	p.APIFormat = p.GetAPIFormat()
+	p.ReasoningContentMode = p.EffectiveReasoningContentMode()
+	data, err := MarshalPackageDefinition(toDBModel(p))
 	if err != nil {
-		return false
+		return "", err
 	}
-	want, err := canonical(incoming)
-	return err == nil && bytes.Equal(have, want)
+	return fmt.Sprintf("%x", sha256.Sum256(data)), nil
 }
 
 // ReadPackageDefinition valida o recurso sem contato com a rede ou com o processo.
