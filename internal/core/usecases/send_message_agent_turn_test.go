@@ -1,7 +1,9 @@
 package usecases
 
 import (
+	"assistente/internal/database"
 	"context"
+	"strings"
 	"testing"
 
 	"assistente/internal/chat"
@@ -103,5 +105,17 @@ func TestPluginDelegationRejectsIncompatibleModel(t *testing.T) {
 		if _, err := delegatedModel(tc.provider, tc.model, "provider", tc.requested); err == nil {
 			t.Fatal(tc)
 		}
+	}
+}
+
+func TestRestartMessagesAsksAgentToContinueWithoutResendingOrder(t *testing.T) {
+	msgs, err := restartMessages([]llm.Message{{Role: "user", Content: "Envie o e-mail"}}, "turn",
+		[]database.RestartToolResult{{Output: "dado privado"}}, llm.ChatParams{}, nil, true)
+	if err != nil || len(msgs) != 1 || msgs[0].Role != "user" {
+		t.Fatalf("pedido de continuação: %#v %v", msgs, err)
+	}
+	content := msgs[0].GetContentAsString()
+	if !strings.Contains(content, "Continue") || strings.Contains(content, "e-mail") || strings.Contains(content, "privado") {
+		t.Fatalf("ordem retransmitida: %s", content)
 	}
 }

@@ -168,6 +168,15 @@ recebido antes de sair: a continuação não usa uma versão antiga e incompleta
 banco. Ao continuar várias vezes, o texto anterior aparece uma única vez, mesmo
 quando a nova etapa começa com uma ferramenta ou é cancelada durante sua execução.
 
+Se o aplicativo fechou durante uma ferramenta, **Continuar resposta** também
+pode aparecer antes de existir texto. A continuação usa os resultados salvos da
+tentativa interrompida. Se uma ação ficou sem confirmação, o Assistente pode
+consultar o histórico ou ler um arquivo, conforme as permissões do perfil. Se
+isso for insuficiente, ele deve indicar o que ficou incerto. Para autorizar
+outras ações, envie uma nova mensagem. Com um agente externo (ACP), a continuação segue na sessão do agente. O
+aplicativo avisa que não consegue confirmar quais ações o agente já executou
+antes do fechamento.
+
 Ao excluir uma conversa, suas mensagens deixam de aparecer também nas superfícies
 que ainda estiverem abertas. Outras conversas continuam disponíveis.
 

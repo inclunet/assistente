@@ -7,5 +7,6 @@ export function canContinueChatMessage(message: Message | undefined): message is
     && item.durability === 'persisted'
     && (item.state === 'failed' || item.state === 'interrupted') && !!item.metadata.terminalReason
     && isBackendId(item.representativeMessageId) && isBackendId(item.turnId)
-    && message.role === 'assistant' && !message.isStreaming && !!message.content.trim();
+    && message.role === 'assistant' && !message.isStreaming && (!!message.content.trim()
+      || item.metadata.canResumeTools === true);
 }

@@ -13,6 +13,7 @@ import (
 // TimelineItem é a projeção interna de mensagens e respostas. O envelope wire
 // é publicado pelo projetor, que mantém época e revisão próprias.
 type TimelineItem struct {
+	CanResumeTools    bool
 	Thinking          bool
 	TerminalReason    string
 	ExecutionID       string
@@ -79,6 +80,7 @@ func ProjectPersistedResponse(conversationID, turnID string, parentID *string, m
 		}
 		result.State, result.Origin = turn.State, turn.Origin
 		result.TerminalReason = turn.TerminalReason
+		result.CanResumeTools = turn.RestartInChain && len(calls) > 0
 		if turn.CurrentExecutionID != nil {
 			result.ExecutionID = *turn.CurrentExecutionID
 		}

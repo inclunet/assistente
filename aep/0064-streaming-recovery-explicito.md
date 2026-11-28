@@ -37,6 +37,24 @@ Além disso, hoje uma falha de streaming tende a simplesmente “parar”, sem (
 - Apenas nesse modo é permitido incluir um `assistant` trailing intencional (prefill) para retomar geração.
 - O fluxo explícito deve reutilizar o contrato existente de retry: **`RetryMessage`** (sem criar um fluxo alternativo de envio).
 
+Quando uma tentativa interrompida por reinício deixou invocações no ledger,
+a continuação consulta apenas a cadeia vinculada, na admissão transacional.
+A resposta pode estar vazia. A retomada apresenta o estado registrado e usa
+conteúdo salvo quando cabe, com consulta por leitura para detalhes. O executor
+restringe essa tentativa a leitura de histórico e arquivo permitida pelo perfil.
+A restrição também vale para retomada pós-reinício com texto parcial e sem
+registro de ferramenta, pois um efeito externo pode ter ocorrido. Comandos de
+skill e MCP nativo ficam fora dessa tentativa. Com um provedor ACP, o agente
+continua pela própria sessão (AEP-0084). O app avisa que desconhece os efeitos
+anteriores, sem alterar permissões ou exigir confirmação. O pedido enviado ao
+agente solicita a continuação na sessão para evitar reenviar a ordem original.
+
+A regressão `TestSendMessageContinuesToolOnlyRestartFromSavedResult` confere o
+payload recebido pelo provedor HTTP após o fechamento sem resposta textual.
+`TestRestartContinuationUsesSelectedLedgerAndRetryBreaksChain` cobre seleção
+e isolamento após retry. `TestRestartMessagesAsksAgentToContinueWithoutResendingOrder`
+confere o pedido ao agente sem abrir uma sessão ACP real.
+
 ### 3) Auto-recuperação padrão
 
 - Quando uma tentativa falhar sem conteúdo ou efeitos observados, o app pode
@@ -208,7 +226,7 @@ recuperação, envio normal, mídia ou protocolos de eventos.
 - [x] **Profile settings**: persistir as opções de recuperação no perfil e aplicar defaults no envio.
 - [x] **Persistência do assistant no início do turno**: criar/reusar placeholder do assistant no backend e garantir `messageId` consistente no `chat:stream`.
 - [x] **Auto-recuperação**: implementar retry interno até N tentativas (default 3).
-- [x] **Continuação explícita**: implementar “Continuar resposta” via `RetryMessage` em modo de continuação, atualizando a mesma mensagem do assistant. Quando o provider/modelo não suporta prefill, usar fallback por mensagem de usuário (Issue #124).
+- [x] **Continuação explícita**: implementar “Continuar resposta” via `RetryMessage` em modo de continuação, criando uma tentativa vinculada à execução e à resposta que serviram de base. O histórico apresenta uma única resposta para o turno (AEP-0116). Quando o provider/modelo não suporta prefill, usar fallback por mensagem de usuário (Issue #124).
 - [x] **Testes**: Go + Vitest cobrindo cancelamento, auto-recuperação, ausência de prefill acidental, retry ancorado e falha terminal de persistência.
 
 ### Evidências

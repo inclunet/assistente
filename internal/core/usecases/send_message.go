@@ -53,6 +53,15 @@ func agentTurnForDelegation(provider *llm.ProviderConfig, scope invocationctx.De
 	return true, nil
 }
 
+func restartMessages(messages []llm.Message, turnID string, results []database.RestartToolResult, params llm.ChatParams, streamer llm.ChatProvider, agentDriven bool) ([]llm.Message, error) {
+	if agentDriven {
+		// O histórico pertence à sessão do agente. Reenviar a pergunta original
+		// poderia ser interpretado como uma nova ordem de execução.
+		return []llm.Message{{Role: "user", Content: "Continue a resposta interrompida nesta sessão. Considere as ações que já executou."}}, nil
+	}
+	return messages, agent.AddRestartResults(messages, turnID, results, params, llm.ReplaysReasoningContent(streamer))
+}
+
 func resolveStreamingRecoverySettings(activeProfile *profiles.Profile) (enabled bool, maxAttempts int) {
 	// Defaults (AEP-0064): enabled + 3 tentativas
 	enabled = true
@@ -537,6 +546,14 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 		messages = rmsg.Messages
 		conversationSummary = rmsg.ConversationSummary
 		userContent = userMsg.Content
+		if agent.RestartResults(ctx) != nil {
+			if agentDrivenTurn {
+				uc.emitter.Emit("chat:notice", ports.ChatNoticeEvent{ConversationID: req.ConversationID, Kind: ports.ChatNoticeKindAgentRestart})
+			} else {
+				// O executor aplica a mesma restrição que a seleção de schemas.
+				ctx = invocationctx.WithDelegatedTools(ctx, []string{"get_messages", "read_file"})
+			}
+		}
 		if !agentDrivenTurn {
 			if err := uc.chatInteractor.ValidateSkillInvocation(ctx, activeProfile, userContent, req.ConversationID, surfaceOrigin); err != nil {
 				return "", err
@@ -624,6 +641,12 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 		return "", prepResult.Err
 	}
 	messages = prepResult.Messages
+	if results := agent.RestartResults(ctx); results != nil {
+		messages, err = restartMessages(messages, userMsg.ID, results, params, requestStreamer, agentDrivenTurn)
+		if err != nil {
+			return "", err
+		}
+	}
 	// A conversa acompanha o turno até o provider: o agente de código guarda o
 	// histórico na sessão dela, e é assim que ele sabe qual sessão usar
 	// (AEP-0084 D4).
@@ -749,7 +772,7 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 	// já que ambos resolvem o mesmo activeProfile neste pipeline. Aqui activeProfile
 	// já é não-nil (validado acima, onde LLMProvider vazio/nil retorna erro).
 	nativeMCPOverride := activeProfile.Chat.NativeMCP
-	if invocationctx.HasAgentCheck(ctx) {
+	if invocationctx.HasAgentCheck(ctx) || (!agentDrivenTurn && agent.RestartResults(ctx) != nil) {
 		adapterOnly := false
 		nativeMCPOverride = &adapterOnly
 	}

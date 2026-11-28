@@ -170,6 +170,11 @@ describe('chatNoticeMessage', () => {
     expect(message).toContain('app.chatNotice.agentMemoryLost|');
   });
 
+  it('avisa que as ações anteriores do agente não foram confirmadas', () => {
+    const message = chatNoticeMessage(t, { conversationId: 'conversa-1', kind: 'agent_restart_unverified' });
+    expect(message).toContain('app.chatNotice.agentRestartUnverified|');
+  });
+
   it('conta que a sessão perdida foi descartada e o turno segue noutra', () => {
     const message = chatNoticeMessage(t, {
       conversationId: 'conversa-1',

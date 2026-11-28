@@ -5144,6 +5144,7 @@ notSaved: 'The decision applies only to this operation: it could not be remember
         modelNotOffered: 'This agent does not offer the model chosen in the profile. The answer came from {{model}}.',
         modelNotApplied: 'The agent’s model could not be changed. The answer came from {{model}}.',
         agentMemoryLost: 'The agent could not resume this conversation’s earlier session and answered without remembering what was already said. The history on screen is still here; bring back whatever matters in your next message.',
+        agentRestartUnverified: 'The agent will continue. The app cannot confirm which actions it performed before the app closed.',
         agentSessionRecovered: 'The agent’s previous session was lost and has been discarded. The turn continues in a new session.',
         modeSkipsPermission: 'The agent is in {{mode}} mode, which does not need your authorization: from now on it reads, edits and runs things on your machine without asking. Pick another mode in the conversation selector to be consulted again.',
         modeAsksPermission: 'The agent is in {{mode}} mode, which does not waive your authorization: it asks for permission to act on your machine again, as far as that mode requires.',

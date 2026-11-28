@@ -618,6 +618,7 @@ export namespace apidto {
 	    }
 	}
 	export class CanonicalMetadata {
+	    canResumeTools?: boolean;
 	    thinking?: boolean;
 	    terminalReason?: string;
 	    createdAt: string;
@@ -639,6 +640,7 @@ export namespace apidto {
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.canResumeTools = source["canResumeTools"];
 	        this.thinking = source["thinking"];
 	        this.terminalReason = source["terminalReason"];
 	        this.createdAt = source["createdAt"];
