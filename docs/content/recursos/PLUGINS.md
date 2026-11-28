@@ -111,7 +111,7 @@ Para distribuir um perfil que usa sua conta ChatGPT, selecione o perfil no build
 
 Em **Plugins → Meus plugins → Novo plugin**, marque o slug do provedor na seção **Provedores**. Você pode criar um pacote contendo somente esse recurso. Confira o endereço antes de salvar. Para um agente local, confira também o executável e cada argumento. Os argumentos literais ficam visíveis no arquivo distribuído. Credenciais e a aprovação de envio por HTTP pertencem à conta de destino. Nesta etapa o builder recusa a exportação de uma conta ChatGPT ou de um agente ACP com ambiente explícito, inclusive vínculos de variáveis ao cofre. Para gerar o pacote com os demais componentes, desmarque esse provedor.
 
-Na conta de destino, abra os detalhes do plugin instalado e escolha **Cadastrar** ao lado do provedor. Confira o endereço ou o comando apresentado e confirme. O Assistente cria o provedor com o slug do pacote. Se esse slug já pertencer a outro cadastro, a tela informa a colisão. Configure a credencial da conta em **Provedores** antes de usar um serviço que exija autenticação.
+Na conta de destino, abra os detalhes do plugin instalado e escolha **Cadastrar** ao lado do provedor. Confira o endereço ou o comando apresentado e confirme. O Assistente cria o provedor com o slug do pacote. Se a conta já tiver o mesmo slug e a mesma definição portável, a prévia e os detalhes mostram **Já disponível nesta conta**. Os perfis podem usar esse cadastro pelo slug. Se a definição for diferente, a tela informa a colisão. A inspeção preserva os dados locais. Configure a credencial da conta em **Provedores** antes de usar um serviço que exija autenticação.
 
 ## Gerar um pacote com o builder
 

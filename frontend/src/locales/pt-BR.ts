@@ -215,6 +215,7 @@ notSaved: 'A decisão vale somente para esta operação: não foi possível lemb
       removeProviders: 'Desinstalar e remover provedores',
       registerProvider: 'Cadastrar {{name}}',
       providerRegistered: 'Provedor {{name}} cadastrado.',
+      providerAlreadyAvailable: 'Já disponível nesta conta. Perfis podem usar este provedor pelo slug.',
       providerSlugTaken: 'O slug já pertence a outro provedor nesta conta.',
       providerSyncPending: 'O cadastro foi salvo. Tente cadastrar novamente para atualizar os provedores disponíveis.',
       builderProviders: 'Provedores',

@@ -130,7 +130,7 @@ func (i *Inventory) InstalledComponents(ctx context.Context, id, digest string) 
 		components[n].Active = ok
 		components[n].Slug = slug
 	}
-	if err := i.markExistingProviders(ctx, components, owner, id); err != nil {
+	if err := i.DescribeExistingProviders(ctx, components, snapshot, id); err != nil {
 		return nil, err
 	}
 	return components, nil

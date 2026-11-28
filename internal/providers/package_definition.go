@@ -46,6 +46,34 @@ func MarshalPackageDefinition(row *database.LLMProvider) ([]byte, error) {
 	return raw, nil
 }
 
+// MatchesPackageDefinition compara as definições portáveis após aplicar os mesmos
+// defaults de configuração usados ao ler o cadastro nativo.
+func MatchesPackageDefinition(row *database.LLMProvider, raw []byte) bool {
+	incoming, err := ReadPackageDefinition(raw, row.Slug)
+	if err != nil {
+		return false
+	}
+	existing, err := MarshalPackageDefinition(row)
+	if err != nil {
+		return false
+	}
+	current, err := ReadPackageDefinition(existing, row.Slug)
+	if err != nil {
+		return false
+	}
+	canonical := func(p *llm.ProviderConfig) ([]byte, error) {
+		p.APIFormat = p.GetAPIFormat()
+		p.ReasoningContentMode = p.EffectiveReasoningContentMode()
+		return MarshalPackageDefinition(toDBModel(p))
+	}
+	have, err := canonical(current)
+	if err != nil {
+		return false
+	}
+	want, err := canonical(incoming)
+	return err == nil && bytes.Equal(have, want)
+}
+
 // ReadPackageDefinition valida o recurso sem contato com a rede ou com o processo.
 func ReadPackageDefinition(raw []byte, slug string) (*llm.ProviderConfig, error) {
 	if len(raw) > 64<<10 || slug == "" {
