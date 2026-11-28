@@ -75,7 +75,8 @@ type PluginProviderBinding struct {
 	InstallationID string `gorm:"primaryKey"`
 	ComponentKey   string `gorm:"primaryKey"`
 	Digest         string `gorm:"not null"`
-	ProviderID     string `gorm:"uniqueIndex;not null"`
+	ProviderID     string `gorm:"index:idx_plugin_provider_users;uniqueIndex:ux_plugin_provider_source,where:consumer_only=0;not null"`
+	ConsumerOnly   bool   `gorm:"not null;default:false"`
 }
 
 type PluginMCPBinding struct {
