@@ -113,6 +113,7 @@ export function buildWailsMockScript(): string {
       'tasklists.edit.open',
       'tasklists.search.focus',
       'tasklist.task.create.open',
+      'plugins.create.open',
       'profiles.create.open',
       'profiles.edit.open',
       'profiles.search.focus',

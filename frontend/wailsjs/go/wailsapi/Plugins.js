@@ -34,6 +34,10 @@ export function BuilderProfileNames() {
   return window['go']['wailsapi']['Plugins']['BuilderProfileNames']();
 }
 
+export function BuilderProjects(arg1) {
+  return window['go']['wailsapi']['Plugins']['BuilderProjects'](arg1);
+}
+
 export function BuilderProviderSlugs() {
   return window['go']['wailsapi']['Plugins']['BuilderProviderSlugs']();
 }
@@ -124,6 +128,10 @@ export function RemoveRepository(arg1, arg2) {
 
 export function SaveBuilder(arg1, arg2) {
   return window['go']['wailsapi']['Plugins']['SaveBuilder'](arg1, arg2);
+}
+
+export function SaveBuilderProject(arg1, arg2) {
+  return window['go']['wailsapi']['Plugins']['SaveBuilderProject'](arg1, arg2);
 }
 
 export function SetAgentActive(arg1, arg2, arg3, arg4) {

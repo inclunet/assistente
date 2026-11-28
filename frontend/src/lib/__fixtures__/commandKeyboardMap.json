@@ -875,7 +875,6 @@
           "fallback": null
         },
         "plugins": {
-          "fallbackToSequences": true,
           "shortcut": {
             "version": 1,
             "code": "KeyN",
@@ -884,14 +883,29 @@
             ]
           },
           "bySurface": {
-            "toolbar": null
-          },
-          "sequenceFallbacks": {
             "toolbar": {
-              "": true
+              "shortcut": {
+                "version": 1,
+                "code": "KeyN",
+                "modifiers": [
+                  "Control"
+                ]
+              },
+              "commandId": "plugins.create.open",
+              "handler": "local_ui"
             }
           },
-          "fallback": null
+          "fallback": {
+            "shortcut": {
+              "version": 1,
+              "code": "KeyN",
+              "modifiers": [
+                "Control"
+              ]
+            },
+            "commandId": "plugins.create.open",
+            "handler": "local_ui"
+          }
         },
         "profiles": {
           "fallbackToSequences": true,
@@ -1113,6 +1127,7 @@
     "navigation.settings.open",
     "navigation.tasklists.open",
     "navigation.workspace.open",
+    "plugins.create.open",
     "profiles.create.open",
     "profiles.edit.open",
     "profiles.search.focus",
