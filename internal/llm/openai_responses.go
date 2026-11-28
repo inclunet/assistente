@@ -103,8 +103,12 @@ func (p *OpenAIProvider) streamChatResponses(
 	bk := 500 * time.Millisecond
 	maxBk := 8 * time.Second
 
-	for attempt := 1; attempt <= maxStreamAttempts; attempt++ {
-		markFinalStreamAttempt(handler, attempt)
+	budget := params.streamBudget()
+	for {
+		attempt := budget.Current()
+		if !budget.CanRetry() {
+			markErrorNotRetryable(handler)
+		}
 		select {
 		case <-ctx.Done():
 			if p.provider.Type == ProviderChatGPT {
@@ -134,7 +138,7 @@ func (p *OpenAIProvider) streamChatResponses(
 			return
 		}
 		if result.compatibilityRetry {
-			if attempt >= maxStreamAttempts {
+			if !budget.Retry() {
 				discardStreamReasoning(handler)
 				handler.OnError(result.compatibilityError)
 				return
@@ -168,7 +172,7 @@ func (p *OpenAIProvider) streamChatResponses(
 					params.OnPromptCacheHintUnsupported()
 				}
 				params.PromptCacheKey = ""
-				if attempt < maxStreamAttempts {
+				if budget.Retry() {
 					resetStreamAttempt(handler)
 					continue
 				}
@@ -184,11 +188,11 @@ func (p *OpenAIProvider) streamChatResponses(
 			return
 		}
 		if result.retry {
-			if attempt < maxStreamAttempts {
+			if budget.Retry() {
 				// Visibilidade: nunca deixar a pessoa no silêncio do backoff.
 				notifyTurnNotice(handler, TurnNotice{Kind: TurnNoticeStreamRetry, Count: attempt})
 				resetStreamAttempt(handler)
-				sleepWithJitter(ctx, bk)
+				sleepWithJitter(ctx, max(bk, result.retryAfter))
 				bk = nextBackoff(bk, maxBk)
 				continue
 			}
@@ -850,9 +854,9 @@ responseEvents:
 			reportError(providerError.DisplayMessage())
 			return mcpStreamAttemptResult{done: true}
 		}
-		if !emittedNonRetryableEffect && isRetryableError(errStr, providerError) {
+		if !emittedNonRetryableEffect && retrySDKStreamHTTPError(p.provider, err, providerError, handler) {
 			reportCurrentDiagnostics()
-			return mcpStreamAttemptResult{retry: true}
+			return mcpStreamAttemptResult{retry: true, retryAfter: streamRetryAfter(err)}
 		}
 		if recognizedProviderError && providerError.Category == ProviderErrorUnsupportedParameter && providerError.Field != "" {
 			if !emittedNonRetryableEffect && fullReasoning.Len() == 0 && len(activeFuncCalls) == 0 && len(finishedToolCalls) == 0 && chatParams.Compatibility != nil &&

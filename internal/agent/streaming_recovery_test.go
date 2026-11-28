@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"fmt"
+	"slices"
 	"sync"
 	"testing"
 
@@ -803,5 +804,24 @@ func TestSimpleStreamHandler_SuppressedErrorFinishesThinking(t *testing.T) {
 	}
 	if len(em.find("chat:stream")) != 0 {
 		t.Fatalf("suppressed error should not emit terminal chat:stream")
+	}
+}
+
+type mixedRetryStreamer struct{ attempts []int }
+
+func (s *mixedRetryStreamer) StreamChat(_ context.Context, _ []llm.Message, p llm.ChatParams, h llm.StreamHandler, _ ...llm.ToolDefinition) {
+	s.attempts = append(s.attempts, p.StreamAttempts.Current())
+	if p.StreamAttempts.Retry() {
+		s.attempts = append(s.attempts, p.StreamAttempts.Current())
+	}
+	h.OnError("interrompido")
+}
+
+func TestStreamSimpleWithRecovery_TransportAndAgentShareBudget(t *testing.T) {
+	svc := newTestAgentService(ServiceConfig{Emitter: &captureEmitter{}, MsgRepo: &inMemoryMsgRepo{}})
+	streamer := &mixedRetryStreamer{}
+	svc.StreamSimpleWithRecovery(t.Context(), streamer, nil, llm.ChatParams{}, "c1", "t1", "", nil, true, 3)
+	if !slices.Equal(streamer.attempts, []int{1, 2, 3}) {
+		t.Fatalf("tentativas: %v", streamer.attempts)
 	}
 }

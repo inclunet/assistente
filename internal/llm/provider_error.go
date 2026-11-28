@@ -5,9 +5,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"net"
 	"net/http"
+	"strconv"
 	"strings"
+	"time"
 
 	"assistente/internal/credentials"
 	"assistente/internal/llmcapabilities"
@@ -15,6 +18,77 @@ import (
 	"github.com/openai/openai-go"
 	"google.golang.org/genai"
 )
+
+// retrySDKStreamHTTPError preserva o retry HTTP que os SDKs de OpenAI e
+// Anthropic faziam antes de o agente e o transporte compartilharem o limite.
+func retrySDKStreamHTTPError(provider *ProviderConfig, err error, diagnostic ProviderError, handler StreamHandler) bool {
+	resp, _ := sdkStreamResponse(err)
+	if resp != nil && resp.Header.Get("x-should-retry") == "false" {
+		markErrorNotRetryable(handler)
+		return false
+	}
+	if resp != nil && provider.Type != ProviderChatGPT {
+		switch diagnostic.Category {
+		case ProviderErrorUnsupportedParameter:
+			return false // o caller decide se é possível negociar outro payload
+		case ProviderErrorInvalidValue, ProviderErrorInvalidRequest, ProviderErrorAuthentication, ProviderErrorPermission, ProviderErrorNotFound:
+			markErrorNotRetryable(handler)
+			return false
+		}
+		switch resp.StatusCode {
+		case 400, 401, 403, 404, 413, 422:
+			markErrorNotRetryable(handler)
+			return false
+		}
+		if resp.Header.Get("x-should-retry") == "true" || resp.StatusCode == http.StatusConflict || resp.StatusCode >= 500 {
+			return true
+		}
+	}
+	return isRetryableError(err.Error(), diagnostic)
+}
+
+// OpenAI ignora prazos de um minuto ou mais. Anthropic aceita esperas maiores.
+func sdkStreamResponse(err error) (*http.Response, time.Duration) {
+	var open *openai.Error
+	var ant *anthropic.Error
+	switch {
+	case errors.As(err, &open):
+		return open.Response, time.Minute
+	case errors.As(err, &ant):
+		return ant.Response, time.Duration(math.MaxInt64)
+	default:
+		return nil, 0
+	}
+}
+
+func streamRetryAfter(err error) time.Duration {
+	resp, limit := sdkStreamResponse(err)
+	if resp == nil {
+		return 0
+	}
+	for _, hint := range []struct {
+		name string
+		unit time.Duration
+	}{
+		{"Retry-After-Ms", time.Millisecond}, {"Retry-After", time.Second},
+	} {
+		raw := resp.Header.Get(hint.name)
+		if raw == "" {
+			continue
+		}
+		if value, e := strconv.ParseFloat(raw, 64); e == nil && value >= 0 && value < float64(limit)/float64(hint.unit) {
+			return time.Duration(value * float64(hint.unit))
+		}
+		if hint.unit == time.Second {
+			if date, e := http.ParseTime(raw); e == nil {
+				if d := time.Until(date); d > 0 && d < limit {
+					return d
+				}
+			}
+		}
+	}
+	return 0
+}
 
 // ProviderErrorCategory é a classificação sanitizada de um erro de API.
 type ProviderErrorCategory string

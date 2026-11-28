@@ -6,10 +6,14 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"assistente/internal/credentials"
+	"github.com/anthropics/anthropic-sdk-go"
+	"github.com/openai/openai-go"
 )
 
 func TestResponsesFailureUsesTerminalCategoryBeforeText(t *testing.T) {
@@ -120,6 +124,65 @@ func TestHTTPRejectionDoesNotRetryNumbersInURL(t *testing.T) {
 				provider.StreamChat(ctx, []Message{{Role: "user", Content: "oi"}}, ChatParams{Model: "m", MaxTokens: testParameterPointer(32)}, h)
 				if len(h.avisos) != 0 || calls.Load() != 1 || h.err == "" || ctx.Err() != nil {
 					t.Fatalf("HTTP rejection must finish once: calls=%d notices=%v error=%q context=%v", calls.Load(), h.avisos, h.err, ctx.Err())
+				}
+			})
+		}
+	}
+}
+
+func TestStreamRetryAfterLongProviderDelay(t *testing.T) {
+	resp := &http.Response{Header: http.Header{"Retry-After": []string{"60"}}}
+	if got := streamRetryAfter(&anthropic.Error{Response: resp}); got != time.Minute {
+		t.Fatalf("Anthropic: %s", got)
+	}
+	if got := streamRetryAfter(&openai.Error{Response: resp}); got != 0 {
+		t.Fatalf("OpenAI: %s", got)
+	}
+}
+
+func TestStreamAttemptBudgetCountsHTTPRequests(t *testing.T) {
+	for _, format := range []APIFormat{APIFormatOpenAI, APIFormatOpenAIResponses, APIFormatAnthropic} {
+		for _, tc := range []struct {
+			limit, status int
+			hint          string
+		}{{1, 503, ""}, {2, 500, ""}, {2, 529, ""}, {2, 409, ""}, {2, 500, "false"}, {2, 423, "true"}, {2, 401, "true"}} {
+			t.Run(fmt.Sprintf("%s/%d/%d/hint=%s", format, tc.limit, tc.status, tc.hint), func(t *testing.T) {
+				t.Parallel()
+				limit := tc.limit
+				var calls atomic.Int32
+				var first time.Time
+				var mu sync.Mutex
+				server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+					mu.Lock()
+					if calls.Add(1) == 1 {
+						first = time.Now()
+					} else if time.Since(first) < time.Second {
+						t.Error("nova chamada antes do prazo Retry-After")
+					}
+					mu.Unlock()
+					if tc.hint != "" {
+						w.Header().Set("x-should-retry", tc.hint)
+					}
+					w.Header().Set("Retry-After", "1")
+					w.Header().Set("Content-Type", "application/json")
+					w.WriteHeader(tc.status)
+					if _, err := fmt.Fprint(w, `{"error":{"message":"temporarily unavailable"}}`); err != nil {
+						t.Error(err)
+					}
+				}))
+				defer server.Close()
+				provider := NewChatProvider(&ProviderConfig{ID: "budget", APIFormat: format, AuthMode: AuthModeNone, BaseURL: server.URL + "/v1"}, credentials.NewManager(nil), nil)
+				h := &providerRetryHandler{}
+				provider.StreamChat(t.Context(), []Message{{Role: "user", Content: "oi"}}, ChatParams{Model: "m", MaxTokens: testParameterPointer(32), StreamAttempts: NewStreamAttemptBudget(limit)}, h)
+				want := limit
+				if tc.hint == "false" || tc.status == 401 {
+					want = 1
+					if len(h.errorsMarked) != 1 || !h.errorsMarked[0] {
+						t.Fatal("a rejeição terminal deve encerrar a recuperação do agente")
+					}
+				}
+				if got := int(calls.Load()); got != want {
+					t.Fatalf("HTTP requests=%d, want %d", got, want)
 				}
 			})
 		}

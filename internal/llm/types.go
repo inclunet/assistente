@@ -273,6 +273,8 @@ func (p ChatParams) Reasoning() string {
 
 // ChatParams contém os parâmetros para uma requisição de chat
 type ChatParams struct {
+	// StreamAttempts compartilha o limite de uma chamada entre o agente e o transporte.
+	StreamAttempts  *StreamAttemptBudget `json:"-"`
 	Command         *ChatCommandMetadata `json:"command,omitempty"`
 	Model           string               `json:"model"`
 	MaxTokens       *int                 `json:"maxTokens"`

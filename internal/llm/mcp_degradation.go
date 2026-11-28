@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/url"
 	"strings"
+	"time"
 )
 
 type MCPFailureStage string
@@ -23,6 +24,7 @@ type MCPAttemptFailure struct {
 }
 
 type mcpStreamAttemptResult struct {
+	retryAfter         time.Duration
 	done               bool
 	retry              bool
 	compatibilityRetry bool

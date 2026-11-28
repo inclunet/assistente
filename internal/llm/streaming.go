@@ -2,6 +2,7 @@ package llm
 
 import (
 	"context"
+	"math"
 	"math/rand"
 	"strings"
 	"time"
@@ -290,7 +291,7 @@ func sleepWithJitter(ctx context.Context, base time.Duration) {
 	}
 
 	jitter := time.Duration(rand.Intn(250)) * time.Millisecond
-	wait := base + jitter
+	wait := base + min(jitter, time.Duration(math.MaxInt64)-base)
 
 	t := time.NewTimer(wait)
 	defer t.Stop()

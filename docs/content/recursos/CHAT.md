@@ -160,6 +160,8 @@ O aviso de configuração continua sendo o motivo apresentado para a falha.
 
 Quando o prazo para autorizar o acesso a um arquivo termina, a chamada falha. O chat não repete automaticamente essa chamada nem abre uma segunda confirmação para ela.
 
+O máximo de tentativas configurado no perfil inclui a primeira chamada. Com o padrão de três, o Assistente pode repetir a chamada até duas vezes. Renovar uma credencial rejeitada ou negociar o modo MCP pode exigir uma requisição adicional. Desativar a recuperação permite uma única tentativa. Quando uma ferramenta termina e o modelo precisa ler o resultado, essa nova chamada recebe seu próprio limite.
+
 Se o provedor esgotar as tentativas de recuperar o streaming, o chat apresenta o erro e encerra aquela resposta. Você pode repetir a mensagem pelo histórico.
 
 **Continuar resposta** usa a conclusão salva da resposta selecionada e depende

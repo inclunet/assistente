@@ -83,6 +83,7 @@ func newOpenAIProviderBase(provider *ProviderConfig, credMgr *credentials.Manage
 		option.WithHTTPClient(httpClient),
 	}
 	streamOpts := []option.RequestOption{
+		option.WithMaxRetries(0),
 		option.WithHTTPClient(streamHTTPClient),
 	}
 	if providerUsesPlaceholderAPIKey(provider) {
@@ -112,7 +113,6 @@ func newOpenAIProviderBase(provider *ProviderConfig, credMgr *credentials.Manage
 
 	if provider.Type == ProviderChatGPT {
 		opts = append(opts, option.WithMaxRetries(0))
-		streamOpts = append(streamOpts, option.WithMaxRetries(0))
 	}
 	client := openai.NewClient(opts...)
 	streamClient := openai.NewClient(streamOpts...)
