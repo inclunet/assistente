@@ -41,7 +41,11 @@ func (a *App) wireAllowlist() {
 
 func (a *App) wirePlugins() {
 	if a.profileManager != nil && database.DB() != nil {
-		a.profileManager.SetPluginSource(plugins.NewInventory(database.DB()))
+		source := plugins.NewInventory(database.DB())
+		if a.skillMgr != nil {
+			source = source.WithLocalSkillReview(a.skillMgr.WithLinkableDefinitions)
+		}
+		a.profileManager.SetPluginSource(source)
 	}
 	if a.pluginsAPI != nil && a.dialogPort != nil {
 		wailsapi.AttachPluginDialogs(a.pluginsAPI, a.dialogPort.OpenFileDialog, a.dialogPort.SaveFileDialog)

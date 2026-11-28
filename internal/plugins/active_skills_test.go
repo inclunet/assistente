@@ -6,6 +6,7 @@ import (
 	"assistente/internal/skills"
 	"assistente/internal/sqlite"
 	"context"
+	"encoding/json"
 	"errors"
 	"gorm.io/gorm"
 	"os"
@@ -70,7 +71,7 @@ func TestInstalledSkillActivationAndSlashIsolation(t *testing.T) {
 	if err := store.SetSkillActive(alice, row.ID, row.Digest, "skills/note", true, deny); err != database.ErrUserScopeRequired {
 		t.Fatal(err)
 	}
-	if rows, err := store.ActiveSkills(alice); err != nil || len(rows) != 0 {
+	if rows, err := store.ActiveSkills(alice, nil); err != nil || len(rows) != 0 {
 		t.Fatal(rows, err)
 	}
 	if err := store.SetSkillActive(bob, row.ID, row.Digest, "skills/note", true, allow); err == nil {
@@ -135,14 +136,38 @@ func TestInstalledSkillActivationAndSlashIsolation(t *testing.T) {
 		if err := store.ReuseSkill(alice, second.ID, second.Digest, "skills/note", token, allow); err != nil {
 			t.Fatal(err)
 		}
-		live, err := store.ActiveSkills(alice)
+		live, err := store.ActiveSkills(alice, nil)
 		if err != nil || len(live) != 1 {
 			t.Fatal(live, err)
+		}
+		var source, consumer database.PluginSkillActivation
+		for id, target := range map[string]*database.PluginSkillActivation{row.ID: &source, second.ID: &consumer} {
+			if err := db.Where("installation_id=?", id).Take(target).Error; err != nil {
+				t.Fatal(err)
+			}
+		}
+		prepared := func(grant database.PluginSkillActivation) skills.Skill {
+			selected := skills.ResolveSelectionPolicy(live, []string{profileSkillSelector(grant)}, false, false)
+			if len(selected.Base) != 1 || selected.Base[0].Slug != live[0].Slug {
+				t.Fatal(selected)
+			}
+			return selected.Base[0]
+		}
+		sourceSkill, consumerSkill := prepared(source), prepared(consumer)
+		missing := skills.ResolveSelectionPolicy(live, []string{skills.PluginGrantPrefix + "revogado", live[0].Slug}, false, false)
+		if missing.Err == nil || len(missing.Base) > 0 || len(missing.OnDemand) > 0 {
+			t.Fatal("concessão ausente promoveu a skill posterior", missing)
 		}
 		if err := store.SetSkillActive(alice, row.ID, row.Digest, "skills/note", false, allow); err != nil {
 			t.Fatal(err)
 		}
-		remaining, err := store.ActiveSkills(alice)
+		if err := sourceSkill.CheckCommandActivation(alice); !errors.Is(err, ErrComponentUnavailable) {
+			t.Fatalf("concessão revogada ainda válida: %v", err)
+		}
+		if err := consumerSkill.CheckCommandActivation(alice); err != nil {
+			t.Fatalf("concessão independente: %v", err)
+		}
+		remaining, err := store.ActiveSkills(alice, nil)
 		if err != nil || len(remaining) != 1 || remaining[0].Slug != live[0].Slug {
 			t.Fatal(remaining, err)
 		}
@@ -154,7 +179,7 @@ func TestInstalledSkillActivationAndSlashIsolation(t *testing.T) {
 		}
 	})
 	manager := skills.NewManagerWithInstalledSkills(store.ActiveSkills)
-	live, err := store.ActiveSkills(alice)
+	live, err := store.ActiveSkills(alice, nil)
 	if err != nil || len(live) != 1 {
 		t.Fatal(live, err)
 	}
@@ -167,14 +192,14 @@ func TestInstalledSkillActivationAndSlashIsolation(t *testing.T) {
 	if err != nil || !found || !strings.Contains(result.Content, "Reviewed instructions") {
 		t.Fatal(result, found, err)
 	}
-	foreign, err := store.ActiveSkills(bob)
+	foreign, err := store.ActiveSkills(bob, nil)
 	if err != nil || len(foreign) != 0 {
 		t.Fatal(foreign, err)
 	}
 	if err := store.SetSkillActive(alice, row.ID, row.Digest, "skills/note", false, allow); err != nil {
 		t.Fatal(err)
 	}
-	if active, err := store.ActiveSkills(alice); err != nil || len(active) != 0 {
+	if active, err := store.ActiveSkills(alice, nil); err != nil || len(active) != 0 {
 		t.Fatal(active, err)
 	}
 	if err := store.SetSkillActive(alice, row.ID, row.Digest, "skills/note", true, allow); err != nil {
@@ -190,7 +215,7 @@ func TestInstalledSkillActivationAndSlashIsolation(t *testing.T) {
 	if _, err := store.InstallLocal(alice, changed.Origin, changed.Digest, row.Digest); err != nil {
 		t.Fatal(err)
 	}
-	if active, err := store.ActiveSkills(alice); err != nil || len(active) != 0 {
+	if active, err := store.ActiveSkills(alice, nil); err != nil || len(active) != 0 {
 		t.Fatal(active, err)
 	}
 
@@ -207,13 +232,13 @@ func TestInstalledSkillActivationAndSlashIsolation(t *testing.T) {
 	if err := store.ChangeInstallation(alice, row.ID, changed.Digest, "disable", func(*gorm.DB, func() error) error { return revoked }); !errors.Is(err, revoked) {
 		t.Fatal(err)
 	}
-	if active, err := store.ActiveSkills(alice); err != nil || len(active) != 1 {
+	if active, err := store.ActiveSkills(alice, nil); err != nil || len(active) != 1 {
 		t.Fatal(active, err)
 	}
 	if err := store.ChangeInstallation(alice, row.ID, changed.Digest, "disable", allow); err != nil {
 		t.Fatal(err)
 	}
-	if active, err := store.ActiveSkills(alice); err != nil || len(active) != 0 {
+	if active, err := store.ActiveSkills(alice, nil); err != nil || len(active) != 0 {
 		t.Fatal(active, err)
 	}
 	if err := store.SetSkillActive(alice, row.ID, changed.Digest, "skills/note", true, allow); !errors.Is(err, ErrInstallationDisabled) {
@@ -222,7 +247,7 @@ func TestInstalledSkillActivationAndSlashIsolation(t *testing.T) {
 	if err := store.ChangeInstallation(alice, row.ID, changed.Digest, "enable", allow); err != nil {
 		t.Fatal(err)
 	}
-	if active, err := store.ActiveSkills(alice); err != nil || len(active) != 0 {
+	if active, err := store.ActiveSkills(alice, nil); err != nil || len(active) != 0 {
 		t.Fatal(active, err)
 	}
 	if err := store.SetSkillActive(alice, row.ID, changed.Digest, "skills/note", true, allow); err != nil {
@@ -314,6 +339,54 @@ func TestNativeSkillLinkNeverPublishesAPackageFallback(t *testing.T) {
 	if c := details(); !c.Active || c.Slug != "notes" || c.Reason != "" {
 		t.Fatal(c)
 	}
+	var grant database.PluginSkillActivation
+	if err := store.db.Where("installation_id=?", install.ID).Take(&grant).Error; err != nil {
+		t.Fatal(err)
+	}
+	requirement, err := json.Marshal(map[string]string{"notes": grant.SkillRevision})
+	if err != nil {
+		t.Fatal(err)
+	}
+	scans := 0
+	catalog := store.WithLocalSkillReview(func(use func(skills.PortableDefinitions, error) error) error {
+		scans++
+		files, err := store.skillDefinitions()
+		return use(files, err)
+	})
+	for _, key := range []string{"one", "two"} {
+		profile := database.PluginProfileActivation{InstallationID: install.ID, Digest: snap.Digest, ComponentKey: "profiles/" + key, Slug: "plugin--" + key, Definition: []byte(`{"name":"Profile","chat":{"llm_provider":"$default","response_timeout":60,"enabled_skills":["notes"]}}`), SkillRequirements: requirement}
+		if err := store.db.Create(&profile).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	if rows, err := catalog.ListPluginProfiles(ctx); err != nil || len(rows) != 2 || scans != 1 {
+		t.Fatalf("catálogo: perfis=%v scans=%d erro=%v", rows, scans, err)
+	}
+	p, err := catalog.GetPluginProfile(ctx, "plugin--one")
+	if err != nil {
+		t.Fatal(err)
+	}
+	meta, body, err := skills.Parse(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	native := skills.Skill{SkillMetadata: *meta, Slug: "notes", Source: "home", Content: body, DefinitionDigest: pluginpackage.FilesDigest(map[string][]byte{"SKILL.md": []byte(raw)})}
+	collection, err := catalog.ActiveSkills(ctx, []skills.Skill{native})
+	if err != nil {
+		t.Fatal(err)
+	}
+	policy := skills.ResolveSelectionPolicy(collection, p.Chat.EnabledSkills, false, false)
+	if len(policy.Base) != 1 || policy.Base[0].CheckCommandActivation == nil {
+		t.Fatal("vínculo local ausente")
+	}
+	if _, found, err := skills.InvokeContext(ctx, "/notes", skills.NewManager(), "conv", policy); !found || err != nil {
+		t.Fatalf("definição revisada: found=%v err=%v", found, err)
+	}
+	local = raw + "\n!echo changed"
+	if _, found, err := skills.InvokeContext(ctx, "/notes", skills.NewManager(), "conv", policy); !found || !errors.Is(err, ErrComponentUnavailable) {
+		t.Fatalf("edição após selecionar o perfil: found=%v err=%v", found, err)
+	}
+	local = raw
 	available = false
 	if err := store.ReuseSkill(ctx, install.ID, snap.Digest, c.Key, c.SkillReuseToken, allow); !errors.Is(err, ErrInstallationChanged) {
 		t.Fatal(err)
@@ -321,7 +394,7 @@ func TestNativeSkillLinkNeverPublishesAPackageFallback(t *testing.T) {
 	if c := details(); c.Reason != "localSkillUnavailable" || !c.Active {
 		t.Fatal(c)
 	}
-	if rows, err := store.ActiveSkills(ctx); err != nil || len(rows) != 0 {
+	if rows, err := store.ActiveSkills(ctx, nil); err != nil || len(rows) != 0 {
 		t.Fatal(rows, err)
 	}
 	if err := store.SetSkillActive(ctx, install.ID, snap.Digest, c.Key, false, allow); err != nil {

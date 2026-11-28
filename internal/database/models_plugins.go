@@ -50,11 +50,12 @@ type PluginAgentActivation struct {
 }
 
 type PluginProfileActivation struct {
-	InstallationID string `gorm:"primaryKey"`
-	ComponentKey   string `gorm:"primaryKey"`
-	Digest         string `gorm:"not null"`
-	Slug           string `gorm:"uniqueIndex;not null"`
-	Definition     []byte `gorm:"not null" json:"-"`
+	SkillRequirements []byte `json:"-"`
+	InstallationID    string `gorm:"primaryKey"`
+	ComponentKey      string `gorm:"primaryKey"`
+	Digest            string `gorm:"not null"`
+	Slug              string `gorm:"uniqueIndex;not null"`
+	Definition        []byte `gorm:"not null" json:"-"`
 }
 
 // PluginListReceipt records an accepted request independently of the created list.

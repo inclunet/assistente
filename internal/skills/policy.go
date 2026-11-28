@@ -1,6 +1,11 @@
 package skills
 
-import "strings"
+import (
+	"errors"
+	"strings"
+
+	"assistente/internal/contextprovider"
+)
 
 type SkillMode string
 
@@ -11,6 +16,7 @@ const (
 )
 
 type SelectionPolicy struct {
+	Err      error
 	Base     []Skill
 	OnDemand []Skill
 	Disabled []Skill
@@ -76,7 +82,10 @@ func ResolveSelectionPolicy(allSkills []Skill, enabledSkills []string, disableSk
 		return SelectionPolicy{Disabled: append([]Skill{}, allSkills...)}
 	}
 
-	ordered := FilterByNamesOrdered(allSkills, enabledSkills)
+	ordered, err := FilterByNamesOrdered(allSkills, enabledSkills)
+	if err != nil {
+		return SelectionPolicy{Err: err, Disabled: allSkills}
+	}
 	enabled := make(map[string]bool, len(ordered)*2)
 	for _, s := range ordered {
 		enabled[s.Slug] = true
@@ -131,4 +140,16 @@ func resolveLegacyAutoLoadPolicy(allSkills []Skill, disableOnDemand bool) Select
 
 func skillMatches(skill Skill, name string) bool {
 	return skill.Slug == name || skill.Name == name
+}
+
+// CatalogReadError preserves the required selection when its source cannot be read.
+func CatalogReadError(err error, selected []string, disabled bool) error {
+	if err != nil && !disabled {
+		for _, name := range selected {
+			if strings.HasPrefix(name, PluginGrantPrefix) {
+				return errors.Join(contextprovider.ErrRequiredSkillUnavailable, err)
+			}
+		}
+	}
+	return err
 }

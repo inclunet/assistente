@@ -138,7 +138,7 @@ func TestBuildDynamicContextPropagatesTypedToolSelectionStatus(t *testing.T) {
 		ContextProviders: contextprovider.NewRegistry(capture),
 	})
 
-	interactor.buildDynamicContext(
+	_, err := interactor.buildDynamicContext(
 		context.Background(),
 		TemplateData{ImplicitToolSelectionUnavailable: true},
 		"oi",
@@ -149,6 +149,9 @@ func TestBuildDynamicContextPropagatesTypedToolSelectionStatus(t *testing.T) {
 		&profiles.Profile{},
 	)
 
+	if err != nil {
+		t.Fatal(err)
+	}
 	if !capture.req.ImplicitToolSelectionUnavailable {
 		t.Fatal("BuildRequest não recebeu o estado tipado de fail-closed")
 	}
@@ -2055,5 +2058,26 @@ func TestBaseRefusalPrecedesSlashCommand(t *testing.T) {
 	result = i.PrepareMessages(t.Context(), PrepareMessagesRequest{Messages: msgs, ConversationID: "conv", TurnID: "turn", UserContent: "/helper", ActiveProfile: profile, AllowSkillShell: true})
 	if result.Err == nil || len(calls) != 0 {
 		t.Fatalf("barra incompatível: calls=%v err=%v", calls, result.Err)
+	}
+}
+
+func TestPrepareMessagesStopsWhenRequiredSkillIsRevoked(t *testing.T) {
+	src := staticSkillRuntimeManager{skills: map[string]*skills.Skill{"other": {Slug: "other", Content: "secondary instructions"}}}
+	i := NewInteractor(InteractorConfig{SkillMgr: src, PromptBuilder: &capturingPromptBuilder{}})
+	profile := &profiles.Profile{}
+	profile.Chat.EnabledSkills = []string{skills.PluginGrantPrefix + "revoked", "other"}
+	res := i.PrepareMessages(t.Context(), PrepareMessagesRequest{Messages: []llm.Message{{Role: "user", Content: "hello"}}, UserContent: "hello", ConversationID: "conv", TurnID: "turn", ActiveProfile: profile})
+	if !errors.Is(res.Err, contextprovider.ErrRequiredSkillUnavailable) {
+		t.Fatalf("turno com concessão revogada: %v", res.Err)
+	}
+}
+
+func TestPrepareMessagesRejectsUnreadableCatalogWithRequiredSkill(t *testing.T) {
+	i := NewInteractor(InteractorConfig{SkillMgr: failingSkillRuntimeManager{}, PromptBuilder: &capturingPromptBuilder{}})
+	profile := &profiles.Profile{}
+	profile.Chat.EnabledSkills = []string{skills.PluginGrantPrefix + "required"}
+	res := i.PrepareMessages(t.Context(), PrepareMessagesRequest{Messages: []llm.Message{{Role: "user", Content: "hello"}}, UserContent: "hello", ConversationID: "conv", TurnID: "turn", ActiveProfile: profile})
+	if !errors.Is(res.Err, contextprovider.ErrRequiredSkillUnavailable) {
+		t.Fatal(res.Err)
 	}
 }
