@@ -461,6 +461,18 @@ describe('PluginsPage', () => {
     expect(mocks.sync).toHaveBeenCalledOnce();
   });
 
+  it('identifica o provedor equivalente sem oferecer um cadastro duplicado', async () => {
+    const user = userEvent.setup();
+    mocks.list.mockResolvedValue([{id:'one',name:'Demo',digest:'sha'}]);
+    mocks.components.mockResolvedValue([{kind:'provider',name:'Equipe',key:'providers/equipe',slug:'equipe',reason:'providerAlreadyAvailable'}]);
+    render(<PluginsPage />);
+    (await screen.findByRole('gridcell',{name:/Demo/})).focus();
+    await user.keyboard('{Enter}');
+    expect(await screen.findByText('plugins.providerAlreadyAvailable')).toBeVisible();
+    expect(screen.queryByRole('button',{name:'plugins.registerProvider Equipe'})).toBeNull();
+    expect(mocks.registerProvider).not.toHaveBeenCalled();
+  });
+
   it('confirma o endereço antes de cadastrar o provedor da revisão selecionada', async () => {
     const user = userEvent.setup();
     mocks.list.mockResolvedValue([{ id: 'one', name: 'Demo', digest: 'sha' }]);
