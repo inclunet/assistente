@@ -255,6 +255,9 @@ func (api *Plugins) preparePreview(ctx context.Context, inventory *plugins.Inven
 	if err := inventory.DescribeProfileDependencies(ctx, p.Components, snap, matchingInstallation); err != nil {
 		return nil, err
 	}
+	if err := inventory.DescribeExistingSkills(ctx, p.Components, snap, matchingInstallation); err != nil {
+		return nil, err
+	}
 	for path := range snap.Files {
 		p.Files = append(p.Files, path)
 	}
@@ -425,6 +428,16 @@ func (api *Plugins) SetAgentActive(id, digest, key string, active bool) error {
 	return api.mutateComponent(func(ctx context.Context, inventory *plugins.Inventory, admit commandsecurity.Admission) error {
 		return inventory.SetAgentActive(ctx, id, digest, key, active, admit)
 	})
+}
+
+func (api *Plugins) ReuseSkill(id, digest, key, token string) error {
+	err := api.mutateComponent(func(ctx context.Context, i *plugins.Inventory, admit commandsecurity.Admission) error {
+		return i.ReuseSkill(ctx, id, digest, key, token, admit)
+	})
+	if err == nil {
+		api.notifySkillsChanged()
+	}
+	return err
 }
 
 func (api *Plugins) SetSkillActive(id, digest, key string, active bool) error {

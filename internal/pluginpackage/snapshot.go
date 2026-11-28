@@ -184,21 +184,26 @@ func finishSnapshot(snapshot *LocalSnapshot, manifestPath string) (*LocalSnapsho
 		return nil, fmt.Errorf("package manifest changed during inspection")
 	}
 	snapshot.Manifest, snapshot.Warnings = metadata, warnings
-	names := make([]string, 0, len(snapshot.Files))
-	for name := range snapshot.Files {
+	snapshot.Digest = FilesDigest(snapshot.Files)
+	return snapshot, nil
+}
+
+// FilesDigest fingerprints file names and full contents in a deterministic order.
+func FilesDigest(files map[string][]byte) string {
+	names := make([]string, 0, len(files))
+	for name := range files {
 		names = append(names, name)
 	}
 	sort.Strings(names)
 	h := sha256.New()
 	for _, name := range names {
-		data := snapshot.Files[name]
+		data := files[name]
 		_, _ = h.Write(binary.BigEndian.AppendUint64(nil, uint64(len(name))))
 		_, _ = io.WriteString(h, name)
 		_, _ = h.Write(binary.BigEndian.AppendUint64(nil, uint64(len(data))))
 		_, _ = h.Write(data)
 	}
-	snapshot.Digest = hex.EncodeToString(h.Sum(nil))
-	return snapshot, nil
+	return hex.EncodeToString(h.Sum(nil))
 }
 
 func RootIdentity(root *os.Root) (string, error) {

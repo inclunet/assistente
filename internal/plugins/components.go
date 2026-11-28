@@ -18,6 +18,8 @@ import (
 // Component identifies a contribution within a revision; runtime keys are
 // allocated separately, so the same skill name can occur in several packages.
 type Component struct {
+	SkillConsumers    []string  `json:"skillConsumers,omitempty"`
+	SkillReuseToken   string    `json:"skillReuseToken,omitempty"`
 	PreserveServer    bool      `json:"preserveServer,omitempty"`
 	MCPRevision       string    `json:"mcpRevision,omitempty"`
 	ProviderRevision  string    `json:"providerRevision,omitempty"`

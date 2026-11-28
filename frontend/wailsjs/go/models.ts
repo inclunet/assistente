@@ -8230,6 +8230,8 @@ export namespace plugins {
 	}
 	
 	export class Component {
+	    skillConsumers?: string[];
+	    skillReuseToken?: string;
 	    preserveServer?: boolean;
 	    mcpRevision?: string;
 	    providerRevision?: string;
@@ -8265,6 +8267,8 @@ export namespace plugins {
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.skillConsumers = source["skillConsumers"];
+	        this.skillReuseToken = source["skillReuseToken"];
 	        this.preserveServer = source["preserveServer"];
 	        this.mcpRevision = source["mcpRevision"];
 	        this.providerRevision = source["providerRevision"];
