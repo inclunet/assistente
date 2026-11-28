@@ -650,6 +650,11 @@ jobs:
         with:
           go-version-file: go.mod
           cache: false
+      - name: Verificar isolamento de scripts de hooks no Windows
+        shell: pwsh
+        run: |
+          $env:ASSISTENTE_HOOK_TEST_ROOT = $env:GOTMPDIR
+          go test -v ./internal/pluginhooks -run '^TestWindowsHookIsolation$' -count=1 -timeout 2m
       - name: Testar terminal e Windows PowerShell 5.1
         shell: pwsh
         run: |
