@@ -124,6 +124,15 @@ func packageProviderRequirements(snap *pluginpackage.LocalSnapshot, components [
 }
 
 func (i *Inventory) resolveActivation(ctx context.Context, row database.PluginProfileActivation, cached map[string]map[string]string) (*profiles.Profile, error) {
+	p, err := readPackageProfile(row.Definition)
+	if err != nil {
+		return nil, err
+	}
+	explicit := false
+	_ = p.MapProviderReferences(func(ref string) (string, error) { explicit = true; return ref, nil })
+	if !explicit {
+		return resolveParsedProfile(ctx, i.db, p, nil, row.InstallationID, row.Digest)
+	}
 	required, ok := cached[row.Digest]
 	if !ok {
 		var revision database.PluginRevision
@@ -154,7 +163,7 @@ func (i *Inventory) resolveActivation(ctx context.Context, row database.PluginPr
 		}
 		cached[row.Digest] = required
 	}
-	return resolveProfile(ctx, i.db, row.Definition, required, row.InstallationID, row.Digest)
+	return resolveParsedProfile(ctx, i.db, p, required, row.InstallationID, row.Digest)
 }
 
 func resolveProfile(ctx context.Context, db *gorm.DB, raw []byte, required map[string]string, installationID, digest string) (*profiles.Profile, error) {
@@ -162,6 +171,10 @@ func resolveProfile(ctx context.Context, db *gorm.DB, raw []byte, required map[s
 	if err != nil {
 		return nil, err
 	}
+	return resolveParsedProfile(ctx, db, p, required, installationID, digest)
+}
+
+func resolveParsedProfile(ctx context.Context, db *gorm.DB, p *profiles.Profile, required map[string]string, installationID, digest string) (*profiles.Profile, error) {
 	if slug := p.Chat.CommandAllowlist; slug != "" {
 		policies := allowlist.NewManager(allowlist.Options{Repository: authorization.NewRepository(func() *gorm.DB { return db })})
 		ok, err := policies.HasProfilePolicy(ctx, slug)
@@ -177,7 +190,7 @@ func resolveProfile(ctx context.Context, db *gorm.DB, raw []byte, required map[s
 	// Uma conexão ChatGPT só pode suprir a dependência de texto.
 	chatOnly := chatSlug != "" && chatSlug != p.Voice.Assistant.LLMProviderID && chatSlug != p.Voice.User.LLMProviderID && chatSlug != p.Voice.System.LLMProviderID && chatSlug != p.Input.LLMProviderID
 	resolved := make(map[string]string)
-	err = p.MapProviderReferences(func(slug string) (string, error) {
+	err := p.MapProviderReferences(func(slug string) (string, error) {
 		if id, ok := resolved[slug]; ok {
 			return id, nil
 		}
