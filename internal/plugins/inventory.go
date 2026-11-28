@@ -28,6 +28,7 @@ type Inventory struct {
 	refreshJob         func(context.Context, string, commandsecurity.Admission) error
 	providerConsumers  func(func(map[string][]string, bool) error) error
 	profileDefinitions func() (profiles.PortableDefinitions, error)
+	skillLinkReview    func(func(skills.PortableDefinitions, error) error) error
 	skillDefinitions   func() (skills.PortableDefinitions, error)
 	listCreated        func(context.Context, *database.TaskList, commandsecurity.Admission)
 	watchRemote        func(context.Context) (context.Context, func(), error)

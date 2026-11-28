@@ -181,40 +181,53 @@ func (i *Inventory) setSkillActive(ctx context.Context, id, digest, key string, 
 			return ErrComponentUnavailable
 		}
 	}
-	return database.WithSQLiteAdmittedCommit(ctx, i.db, "plugins.skill.activation", func(tx *gorm.DB) error {
-		var installation database.PluginInstallation
-		if err := tx.Where("user_id = ? AND id = ? AND digest = ?", owner, id, digest).Take(&installation).Error; err != nil {
-			return err
-		}
-		if active && installation.Disabled {
-			return ErrInstallationDisabled
-		}
-		if !active {
-			return tx.Where("installation_id = ? AND component_key = ?", id, key).Delete(&database.PluginSkillActivation{}).Error
-		}
-		var current database.PluginSkillActivation
-		found := tx.Where("installation_id=? AND component_key=?", id, key).Take(&current).Error
-		if found == nil {
-			if current.Digest != digest || current.AcceptedReuseToken != token {
+	commit := func(native skillCandidate) error {
+		return database.WithSQLiteAdmittedCommit(ctx, i.db, "plugins.skill.activation", func(tx *gorm.DB) error {
+			var installation database.PluginInstallation
+			if err := tx.Where("user_id = ? AND id = ? AND digest = ?", owner, id, digest).Take(&installation).Error; err != nil {
+				return err
+			}
+			if active && installation.Disabled {
+				return ErrInstallationDisabled
+			}
+			if !active {
+				return tx.Where("installation_id = ? AND component_key = ?", id, key).Delete(&database.PluginSkillActivation{}).Error
+			}
+			var current database.PluginSkillActivation
+			found := tx.Where("installation_id=? AND component_key=?", id, key).Take(&current).Error
+			if found == nil {
+				if current.SharedSlug != "" && !strings.HasPrefix(current.SharedSlug, skills.PluginPrefix) {
+					if native.conflict || native.slug != current.SharedSlug {
+						return ErrInstallationChanged
+					}
+				}
+				if current.Digest != digest || current.AcceptedReuseToken != token {
+					return ErrInstallationChanged
+				}
+				return nil
+			}
+			if !errors.Is(found, gorm.ErrRecordNotFound) {
+				return found
+			}
+			groups, err := activeSkillCandidates(tx, owner, id, []string{key})
+			if err != nil {
+				return err
+			}
+			candidate := skillMatch(groups[key], activation.SkillRevision, native)
+			if candidate.conflict || candidate.token != token {
 				return ErrInstallationChanged
 			}
-			return nil
-		}
-		if !errors.Is(found, gorm.ErrRecordNotFound) {
-			return found
-		}
-		groups, err := activeSkillCandidates(tx, owner, id, []string{key})
-		if err != nil {
-			return err
-		}
-		candidate := skillMatch(groups[key], activation.SkillRevision)
-		if candidate.conflict || candidate.token != token {
-			return ErrInstallationChanged
-		}
-		activation.SharedSlug = candidate.slug
-		activation.AcceptedReuseToken = token
-		return tx.Create(&activation).Error
-	}, admit)
+			activation.SharedSlug = candidate.slug
+			activation.AcceptedReuseToken = token
+			return tx.Create(&activation).Error
+		}, admit)
+	}
+	if !active {
+		return commit(skillCandidate{})
+	}
+	return i.reviewLocalSkills(func(files skills.PortableDefinitions, discoveryErr error) error {
+		return commit(localSkillMatch(files, discoveryErr, key, activation.PackageFormat, activation.SkillRevision))
+	})
 }
 
 func (i *Inventory) ActiveSkills(ctx context.Context) ([]skills.Skill, error) {
@@ -233,6 +246,11 @@ func (i *Inventory) ActiveSkills(ctx context.Context) ([]skills.Skill, error) {
 		public := row.Slug
 		if row.SharedSlug != "" {
 			public = row.SharedSlug
+		}
+		if row.SharedSlug != "" && !strings.HasPrefix(public, skills.PluginPrefix) {
+			// A native skill remains subject to its own profile selection and command policy.
+			// A stale or missing native definition must never fall back to the package body.
+			continue
 		}
 		if seen[public] {
 			continue
