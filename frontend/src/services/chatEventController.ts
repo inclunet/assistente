@@ -33,6 +33,9 @@ const translateBackendChatError = (message: string) => {
   if (message === 'mcp_preparation_error') {
     return i18next.t('chat.errors.mcpPreparation');
   }
+  if (message === 'tool_context_exhausted') {
+    return i18next.t('chat.errors.toolContextExhausted');
+  }
   if (message === 'persistence_error') {
     return i18next.t('chat.errors.persistenceError');
   }

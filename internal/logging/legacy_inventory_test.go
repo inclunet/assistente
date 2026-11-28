@@ -60,8 +60,9 @@ const (
 	// repositório. A gestão unificada remove mais dez formatos dos caminhos antigos.
 	// Issue #744: sondagem SSE sem suporte e standalone desabilitado passam
 	// de Infof para Debugf, preservando os 688 formatos inventariados.
-	expectedLegacyFormatCount  = 687
-	expectedLegacyFormatDigest = "889610f65d0c76eaa8e8a1f41192b9f9d87a640ca3fd03494d78269236afeb81"
+	// O desfecho estruturado tool_context_outcome substitui três formatos [Agent] do pre-check.
+	expectedLegacyFormatCount  = 684
+	expectedLegacyFormatDigest = "117aa90ef6c43e45e79d6673ec097e8ce708c1bb451a6b4ff47ca786c5b7f5c5"
 )
 
 // TestLegacyLoggingInventory mantém reproduzível o inventário da issue #675.

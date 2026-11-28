@@ -87,7 +87,7 @@ func TestRunAgenticLoop_NativeMCPUnsupportedRetriesSameTurnWithBridgeTools(t *te
 	}
 
 	svc.RunAgenticLoop(
-		context.Background(),
+		context.Background(), nil,
 		[]llm.Message{{Role: "user", Content: "hi"}},
 		params,
 		"c1",
