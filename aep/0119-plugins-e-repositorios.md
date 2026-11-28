@@ -22,6 +22,23 @@ Começar pelos repositórios documentados de [Claude Code](https://code.claude.c
 
 Permitir múltiplas lojas públicas e privadas, instalação direta por Git ou pasta local e busca com indicação de origem, versão, licença e autor quando disponíveis. Guardar o último índice válido, com data de consulta e indicação de dados em cache. Remover uma loja encerra suas consultas e preserva o registro das instalações. A autenticação da loja usa referências ao cofre da conta vinculadas à origem autorizada. Um redirecionamento ou download em outra origem exige sua própria configuração de acesso.
 
+### Compartilhamento de recursos da conta (implementação pendente)
+
+No builder, o autor poderá incluir a definição nativa de um recurso ou declarar que o pacote precisa de um recurso existente. Uma referência usa tipo e slug portátil. O vínculo com um cadastro no destino guarda a conta e a identidade local. Uma definição distribuída também registra a origem reconhecida e a revisão aceita do componente. Preservar os formatos nativos. O digest do ZIP continua identificando a revisão do pacote.
+
+Na conta de destino, a fonte de atualização é identificada pela origem efetivamente revisada do pacote e pela chave estável do componente. O builder preserva tipo e slug ao distribuir o mesmo recurso em dois pacotes. Um segundo pacote pode satisfazer a dependência usando a mesma definição; isso não o torna fonte de atualização. Para que outro pacote passe a fornecer revisões, a pessoa deve confirmar a troca de fonte vendo as duas origens e os consumidores. Metadados do autor e uma origem declarada dentro do manifesto não comprovam essa relação.
+
+A prévia deverá apresentar cada decisão e seus consumidores antes da gravação:
+
+- Uma referência compatível pode usar o cadastro da conta, inclusive um cadastro manual. Identidade de origem desconhecida exige confirmação do vínculo. Reutilizar mantém credenciais e configurações privadas no destino.
+- Definições equivalentes do mesmo recurso são exibidas como já disponíveis. Ao confirmar, cada instalação recebe seu próprio vínculo. O mesmo pedido repetido preserva o vínculo existente.
+- Uma definição diferente da mesma origem reconhecida é uma revisão candidata. Comparar a revisão anteriormente aceita com o conteúdo recebido e o estado local atual, mostrar mudanças e dependentes. A ordem de chegada e o número da versão declarado pelo pacote não autorizam substituir uma revisão. Uma edição local ou exigências incompatíveis de consumidores precisam de decisão explícita. Preservar a versão em uso ao cancelar.
+- Para origens diferentes ou sem procedência verificável, o mesmo nome, slug ou endereço apenas sugere correspondência. Oferecer vincular o cadastro local ou criar uma cópia independente quando o modelo nativo permitir. Uma cópia deve ter identidade própria.
+- Revalidar a conta, a instalação, as revisões, a configuração local e os vínculos afetados na transação de confirmação. Se a prévia estiver desatualizada, solicitar nova conferência. Remover uma instalação libera seus vínculos. Preservar o recurso usado por outros consumidores, inclusive locais, e apresentar seus nomes. Um cadastro originalmente local permanece da conta mesmo após remover o último vínculo.
+- O compartilhamento de uma definição não concede permissões de execução, conexão, credenciais ou ativação a outra instalação. Uma skill inclui os arquivos de apoio no cálculo de sua revisão. Um MCP considera transporte, endereço ou comando, argumentos e configuração portável. Um job compartilhado conserva uma única instância e seu histórico; uma cópia intencional começa desativada. Revisar um modelo de lista preserva listas já criadas.
+
+Entregar em sequência: vínculos e prévia de provedores, MCP, skills, perfis, jobs e modelos de lista. Cobrir dois pacotes usando o mesmo recurso, instalação sobre um cadastro manual, mudança local entre prévia e confirmação, remoção em ambas as ordens, revisões incompatíveis e isolamento de contas. Para pacotes externos sem identidade compartilhada explícita, usar a origem reconhecida do plugin e a chave do componente para acompanhar revisões.
+
 ### Identidade, armazenamento e dependências
 
 Guardar no banco, por conta, lojas, instalações, origem do artefato, revisão ou digest, versão declarada, escopo de ativação e vínculos entre componentes e registros locais. Guardar manifestos e arquivos distribuídos em cópia versionada. Os serviços existentes continuam responsáveis pelos recursos materializados e por suas permissões.
@@ -38,7 +55,7 @@ A prévia identificará o provedor, a origem do pacote e o endereço ou processo
 
 O builder já serializa a configuração nativa e a prévia identifica o endpoint ou o processo com seus argumentos. O builder recusa a exportação de provedores ACP com ambiente explícito ou vínculos de cofre e de contas ChatGPT nesta etapa. `TestBuildNativeProviderOnly` cobre a separação entre os dados da conta e o recurso distribuído.
 
-Ao desinstalar um plugin com provedores cadastrados, a pessoa escolhe entre desvincular os cadastros da conta ou removê-los. Desvincular preserva seus IDs, slugs e referências locais. Remover pode deixar dependências de perfis indisponíveis. Cancelar preserva a instalação e os cadastros. A escolha vale apenas para os provedores conferidos e para a revisão apresentada.
+No comportamento vigente, antes do compartilhamento, ao desinstalar um plugin com provedores cadastrados, a pessoa escolhe entre desvincular os cadastros da conta ou removê-los. Desvincular preserva seus IDs, slugs e referências locais. Remover pode deixar dependências de perfis indisponíveis. Cancelar preserva a instalação e os cadastros. A escolha vale apenas para os provedores conferidos e para a revisão apresentada. Com o novo contrato, o diálogo separará os cadastros usados por outros consumidores ou originalmente locais, que ficam na conta, dos exclusivos daquela instalação. A escolha de remover ou desvincular aplica-se somente aos exclusivos sem consumidores restantes.
 
 O cadastro explícito de um provedor revisado grava sua configuração nativa e o vínculo com a instalação na mesma transação, após revalidar a conta e a revisão. Se a sincronização da sessão falhar, repetir o cadastro usa o mesmo ID local. `TestRegisterProviderFromReviewedPackage` cobre essa repetição, a colisão de slug e o rollback quando a sessão perde a admissão.
 
