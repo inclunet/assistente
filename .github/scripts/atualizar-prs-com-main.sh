@@ -11,11 +11,14 @@
 # base é meia verdade — verde ali não diz nada sobre a integração com o pai.
 # Descendo a base, o topo passa a ser o mesmo conteúdo que o merge testaria.
 #
-# Por que pedir o CI explicitamente: push feito com o GITHUB_TOKEN não dispara
-# workflow (é a trava do GitHub contra recursão). A exceção documentada é o
-# workflow_dispatch, então é por ele que o CI é chamado.
+# Por que pedir CI como fallback: o push com GITHUB_TOKEN pode gerar um evento
+# pull_request que aguarda aprovação. Se o GitHub já tiver CI efetivo para
+# o head, reutilizamos esse run. Caso contrário, pedimos um workflow_dispatch.
 
 set -euo pipefail
+
+# shellcheck source=.github/scripts/ci-efetivo-pr.sh
+source "$(dirname -- "${BASH_SOURCE[0]}")/ci-efetivo-pr.sh"
 
 git config user.name 'github-actions[bot]'
 git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
@@ -127,9 +130,15 @@ while read -r branch; do
 
   # O push já valeu; se o pedido de CI falhar, o lote segue. Parar aqui deixaria
   # os outros PRs sem atualização e ainda comeria o resumo do run.
-  # GITHUB_TOKEN não dispara CI no push; o dispatch continua necessário.
-  # A identidade permite ao dispatch descartar seu próprio trabalho se o
-  # retarget da pilha já gerou CI efetivo do PR para este head.
+  # O dispatch confere novamente se houve CI efetivo para este head
+  # entre a consulta e o início do seu job de scripts.
+  if ! ci_pr=$(ci_efetivo_pr "$numero" "$(git rev-parse HEAD)"); then
+    echo "::warning::PR #$numero ($branch): não consegui consultar o CI do PR; pedindo fallback."
+  elif [[ -n $ci_pr ]]; then
+    echo "PR #$numero ($branch): atualizado e coberto pelo CI $ci_pr."
+    atualizados+=("#$numero ($branch)")
+    continue
+  fi
   if ! gh workflow run ci.yml --ref "$branch" -f "pr_number=$numero"; then
     echo "::warning::PR #$numero ($branch): atualizado, mas o CI não foi pedido."
     sem_ci+=("#$numero ($branch)")
@@ -150,7 +159,7 @@ done <<< "$ordem"
       printf -- '- %s\n' "$@"
     fi
   }
-  echo '### Atualizados (CI pedido)'
+  echo '### Atualizados (CI existente ou pedido)'
   lista "${atualizados[@]+"${atualizados[@]}"}"
   echo ''
   echo '### Em conflito (precisam de mão)'
