@@ -139,6 +139,12 @@ if env PREPARACAO=success MODO= BUILD_RESULT=success RACE_RESULT=success APP_RES
   fail 'gate aprovou sem classificação válida'
 fi
 
+PREPARACAO=success MODO=reutilizado EXECUCAO=123/attempts/1 GITHUB_SERVER_URL=https://github.com GITHUB_REPOSITORY=owner/repo \
+  BUILD_RESULT=skipped RACE_RESULT=skipped APP_RESULT=skipped bash -e "$test_dir/gate.sh"
+if env PREPARACAO=success MODO=reutilizado EXECUCAO= BUILD_RESULT=skipped RACE_RESULT=skipped APP_RESULT=skipped bash -e "$test_dir/gate.sh"; then
+  fail 'gate aprovou reaproveitamento sem evidência'
+fi
+
 # Testa o contrato da compilação sem executar Go real.
 run --build-app
 mapfile -t got < "$test_dir/args"
