@@ -214,6 +214,7 @@ notSaved: 'La decisión vale solo para esta operación: no se pudo recordar. Ser
       removeProviders: 'Desinstalar y eliminar proveedores',
       registerProvider: 'Registrar {{name}}',
       providerRegistered: 'Proveedor {{name}} registrado.',
+      providerAlreadyAvailable: 'Ya disponible en esta cuenta. Los perfiles pueden usar este proveedor por su slug.',
       providerSlugTaken: 'El slug ya pertenece a otro proveedor en esta cuenta.',
       providerSyncPending: 'El proveedor se guardó. Vuelva a registrarlo para actualizar los proveedores disponibles.',
       builderProviders: 'Proveedores',

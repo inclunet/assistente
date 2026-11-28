@@ -47,6 +47,28 @@ func TestPackageProviderUsesNativeConfigurationValidation(t *testing.T) {
 
 }
 
+func TestComparePortableProviderDefaults(t *testing.T) {
+	row := &database.LLMProvider{ID: "local", Slug: "team", Name: "Team", BaseURL: "https://team.example/v1", Type: "openai", AuthMode: "none"}
+	raw := []byte(`{"slug":"team","name":"Team","base_url":"https://team.example/v1","type":"openai","model_aliases":{}}`)
+	if !MatchesPackageDefinition(row, raw) {
+		t.Fatal("defaults implícitos e coleção vazia impediram reconhecer o provedor")
+	}
+	row.APIFormat = string((&llm.ProviderConfig{Type: "openai", BaseURL: row.BaseURL}).GetAPIFormat())
+	row.ReasoningContentMode = string(llm.ReasoningContentDisabled)
+	if !MatchesPackageDefinition(row, raw) {
+		t.Fatal("defaults de API e raciocínio deveriam coincidir")
+	}
+	row.APIFormat = string(llm.APIFormatAnthropic)
+	if MatchesPackageDefinition(row, raw) {
+		t.Fatal("formatos de API diferentes foram unificados")
+	}
+	row.APIFormat = ""
+	row.AuthMode = "required"
+	if MatchesPackageDefinition(row, raw) {
+		t.Fatal("ignorou o modo de autenticação")
+	}
+}
+
 func TestPackagedProviderStaysExplicitAfterReload(t *testing.T) {
 	store := NewMemoryStore()
 	p := &llm.ProviderConfig{ID: "instancia", Name: "Equipe", BaseURL: "https://equipe.example/v1", Type: "openai", RequiresExplicitDefault: true}

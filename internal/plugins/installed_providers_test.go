@@ -45,7 +45,26 @@ func TestRegisterProviderFromReviewedPackage(t *testing.T) {
 	}
 	id := install(target)
 	key := "providers/" + original.Slug
-	if err := inventory.RegisterProvider(source, install(source), snapshot.Digest, key, allow); !errors.Is(err, ErrProviderSlugTaken) {
+	sourceInstallation := install(source)
+	checkReason := func(ctx context.Context, installation, want string) {
+		t.Helper()
+		preview := DiscoverComponents(snapshot)
+		if err := inventory.DescribeExistingProviders(ctx, preview, snapshot, ""); err != nil {
+			t.Fatal(err)
+		}
+		details, err := inventory.InstalledComponents(ctx, installation, snapshot.Digest)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, list := range [][]Component{preview, details} {
+			if len(list) != 1 || list[0].Reason != want || list[0].Active {
+				t.Fatalf("esperado %q, recebeu %+v", want, list)
+			}
+		}
+	}
+	checkReason(source, sourceInstallation, "providerAlreadyAvailable")
+	checkReason(target, id, "")
+	if err := inventory.RegisterProvider(source, sourceInstallation, snapshot.Digest, key, allow); !errors.Is(err, ErrProviderSlugTaken) {
 		t.Fatalf("provedor preexistente: %v", err)
 	}
 	homonymAccount := database.WithUserID(t.Context(), "recipient-with-provider")
@@ -53,7 +72,9 @@ func TestRegisterProviderFromReviewedPackage(t *testing.T) {
 	if err := repo.SaveLLMProvider(homonymAccount, &homonym); err != nil {
 		t.Fatal(err)
 	}
-	if err := inventory.RegisterProvider(homonymAccount, install(homonymAccount), snapshot.Digest, key, allow); !errors.Is(err, ErrProviderSlugTaken) {
+	homonymInstallation := install(homonymAccount)
+	checkReason(homonymAccount, homonymInstallation, "providerSlugTaken")
+	if err := inventory.RegisterProvider(homonymAccount, homonymInstallation, snapshot.Digest, key, allow); !errors.Is(err, ErrProviderSlugTaken) {
 		t.Fatalf("colisão no destino: %v", err)
 	}
 	preserved, err := repo.GetBySlug(homonymAccount, original.Slug)

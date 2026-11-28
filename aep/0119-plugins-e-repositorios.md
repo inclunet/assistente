@@ -37,6 +37,8 @@ A prévia deverá apresentar cada decisão e seus consumidores antes da gravaç�
 - Revalidar a conta, a instalação, as revisões, a configuração local e os vínculos afetados na transação de confirmação. Se a prévia estiver desatualizada, solicitar nova conferência. Remover uma instalação libera seus vínculos. Preservar o recurso usado por outros consumidores, inclusive locais, e apresentar seus nomes. Um cadastro originalmente local permanece da conta mesmo após remover o último vínculo.
 - O compartilhamento de uma definição não concede permissões de execução, conexão, credenciais ou ativação a outra instalação. Uma skill inclui os arquivos de apoio no cálculo de sua revisão. Um MCP considera transporte, endereço ou comando, argumentos e configuração portável. Um job compartilhado conserva uma única instância e seu histórico; uma cópia intencional começa desativada. Revisar um modelo de lista preserva listas já criadas.
 
+Primeira entrega parcial: a prévia de instalação e os detalhes distinguem um provedor equivalente de uma colisão de slug, comparando a definição nativa portável na conta atual. O reconhecimento é informativo; o vínculo de consumidor e a escolha da fonte de atualização continuam pendentes.
+
 Entregar em sequência: vínculos e prévia de provedores, MCP, skills, perfis, jobs e modelos de lista. Cobrir dois pacotes usando o mesmo recurso, instalação sobre um cadastro manual, mudança local entre prévia e confirmação, remoção em ambas as ordens, revisões incompatíveis e isolamento de contas. Para pacotes externos sem identidade compartilhada explícita, usar a origem reconhecida do plugin e a chave do componente para acompanhar revisões.
 
 ### Identidade, armazenamento e dependências

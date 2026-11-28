@@ -61,6 +61,7 @@ function componentRequirement(component: plugins.Component) {
   if (component.reason === 'hookExecutionPending') return 'plugins.hookExecutionPending';
   if (component.reason === 'hookInspectionLimit') return 'plugins.hookInspectionLimit';
   if (component.reason === 'hookConfiguration') return 'plugins.hookConfiguration';
+  if (component.reason === 'providerAlreadyAvailable') return 'plugins.providerAlreadyAvailable';
   if (component.reason === 'providerSlugTaken') return 'plugins.providerSlugTaken';
   if (component.reason === 'invalidProvider') return 'plugins.invalidProvider';
   if (component.reason === 'invalidJob') return 'plugins.invalidJob';

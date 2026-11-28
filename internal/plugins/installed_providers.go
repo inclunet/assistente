@@ -3,11 +3,13 @@ package plugins
 import (
 	"context"
 	"errors"
+
 	"strings"
 	"time"
 
 	"assistente/internal/commandsecurity"
 	"assistente/internal/database"
+	"assistente/internal/pluginpackage"
 	"assistente/internal/providers"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
@@ -95,7 +97,12 @@ func (i *Inventory) RegisterProvider(ctx context.Context, id, digest, key string
 	return nil
 }
 
-func (i *Inventory) markExistingProviders(ctx context.Context, components []Component, owner, installation string) error {
+// DescribeExistingProviders compares the portable definitions without modifying local registrations.
+func (i *Inventory) DescribeExistingProviders(ctx context.Context, components []Component, snapshot *pluginpackage.LocalSnapshot, installation string) error {
+	owner, err := database.RequireUserID(ctx)
+	if err != nil {
+		return err
+	}
 	indices := make(map[string]int)
 	var slugs []string
 	for n, c := range components {
@@ -107,9 +114,12 @@ func (i *Inventory) markExistingProviders(ctx context.Context, components []Comp
 	if len(slugs) == 0 {
 		return nil
 	}
-	var rows []struct{ Slug, ComponentKey string }
-	err := i.db.WithContext(ctx).Model(&database.LLMProvider{}).
-		Select("llm_providers.slug, coalesce(b.component_key, '') as component_key").
+	var rows []struct {
+		database.LLMProvider
+		ComponentKey string
+	}
+	err = i.db.WithContext(ctx).Model(&database.LLMProvider{}).
+		Select("llm_providers.*, coalesce(b.component_key, '') as component_key").
 		Joins("LEFT JOIN plugin_provider_bindings b ON b.provider_id=llm_providers.id AND b.installation_id=?", installation).
 		Where("llm_providers.user_id=? AND llm_providers.slug IN ?", owner, slugs).Scan(&rows).Error
 	if err != nil {
@@ -119,6 +129,8 @@ func (i *Inventory) markExistingProviders(ctx context.Context, components []Comp
 		c := &components[indices[row.Slug]]
 		if row.ComponentKey == c.Key {
 			c.Active = true
+		} else if providers.MatchesPackageDefinition(&row.LLMProvider, snapshot.Files[c.Entry]) {
+			c.Reason = "providerAlreadyAvailable"
 		} else {
 			c.Reason = "providerSlugTaken"
 		}
