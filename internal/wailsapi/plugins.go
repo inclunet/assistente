@@ -223,6 +223,9 @@ func (api *Plugins) preparePreview(ctx context.Context, inventory *plugins.Inven
 					return nil, err
 				}
 				for _, server := range affected {
+					if server.Preserved {
+						continue
+					}
 					if server.Edited {
 						label := strings.TrimPrefix(server.ComponentKey, "mcp/")
 						if label != server.Name {
@@ -238,6 +241,15 @@ func (api *Plugins) preparePreview(ctx context.Context, inventory *plugins.Inven
 		}
 	}
 	if err := inventory.DescribeExistingProviders(ctx, p.Components, snap, matchingInstallation); err != nil {
+		return nil, err
+	}
+	var retiring []string
+	for _, server := range affected {
+		if !server.Preserved && !server.Edited {
+			retiring = append(retiring, server.ID)
+		}
+	}
+	if err := inventory.DescribeExistingMCP(ctx, p.Components, snap, matchingInstallation, retiring); err != nil {
 		return nil, err
 	}
 	if err := inventory.DescribeProfileDependencies(ctx, p.Components, snap, matchingInstallation); err != nil {
@@ -442,6 +454,12 @@ func (api *Plugins) RegisterMCP(id, digest, key string) error {
 		return i.RegisterMCP(ctx, id, digest, key, admit)
 	})
 }
+func (api *Plugins) ReuseMCP(id, digest, key, revision string) error {
+	return api.mutateComponent(func(ctx context.Context, i *plugins.Inventory, admit commandsecurity.Admission) error {
+		return i.ReuseMCP(ctx, id, digest, key, revision, admit)
+	})
+}
+
 func (api *Plugins) RemoveMCP(id, digest, key string, preserve bool) error {
 	return api.mutateComponent(func(ctx context.Context, i *plugins.Inventory, admit commandsecurity.Admission) error {
 		return i.RemoveMCP(ctx, id, digest, key, preserve, admit)

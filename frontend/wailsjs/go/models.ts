@@ -8230,6 +8230,8 @@ export namespace plugins {
 	}
 	
 	export class Component {
+	    preserveServer?: boolean;
+	    mcpRevision?: string;
 	    providerRevision?: string;
 	    hookGeneration?: string;
 	    hookScript?: string;
@@ -8263,6 +8265,8 @@ export namespace plugins {
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.preserveServer = source["preserveServer"];
+	        this.mcpRevision = source["mcpRevision"];
 	        this.providerRevision = source["providerRevision"];
 	        this.hookGeneration = source["hookGeneration"];
 	        this.hookScript = source["hookScript"];

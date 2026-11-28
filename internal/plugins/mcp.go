@@ -14,8 +14,123 @@ import (
 	"assistente/internal/commandsecurity"
 	"assistente/internal/database"
 	"assistente/internal/mcp"
+	"assistente/internal/pluginpackage"
 	"gorm.io/gorm"
 )
+
+type mcpCandidate struct {
+	database.MCPServer
+	BindingKey          string
+	BindingInstallation string
+	BindingDigest       string
+}
+
+// Limit the number of bind variables per query even for large external manifests.
+// A renamed packaged server is still identified by its reviewed component key.
+func mcpCandidates(ctx context.Context, db *gorm.DB, owner string, names []string, retiring map[string]bool, installation, digest string) (map[string]map[string]database.MCPServer, map[string]bool, error) {
+	matches := make(map[string]map[string]database.MCPServer, len(names))
+	installed := map[string]bool{}
+	for _, name := range names {
+		matches[name] = map[string]database.MCPServer{}
+	}
+	for len(names) > 0 {
+		n := min(200, len(names))
+		batch := names[:n]
+		names = names[n:]
+		keys := make([]string, 0, n)
+		for _, name := range batch {
+			keys = append(keys, "mcp/"+name)
+		}
+		var rows []mcpCandidate
+		err := db.WithContext(ctx).Table("mcp_servers AS s").Select("s.*, coalesce(b.component_key,'') AS binding_key, coalesce(b.installation_id,'') AS binding_installation, coalesce(b.digest,'') AS binding_digest").
+			Joins("LEFT JOIN plugin_mcp_bindings b ON b.server_id=s.id AND b.component_key IN ? AND EXISTS (SELECT 1 FROM plugin_installations p WHERE p.id=b.installation_id AND p.user_id=s.user_id)", keys).
+			Where("s.user_id=? AND (s.slug IN ? OR s.name IN ? OR b.component_key IS NOT NULL)", owner, batch, batch).Scan(&rows).Error
+		if err != nil {
+			return nil, nil, err
+		}
+		for _, row := range rows {
+			if retiring[row.ID] {
+				continue
+			}
+			for _, name := range []string{row.Slug, row.Name, strings.TrimPrefix(row.BindingKey, "mcp/")} {
+				if group, ok := matches[name]; ok && len(group) < 2 {
+					group[row.ID] = row.MCPServer
+				}
+			}
+			if installation != "" && row.BindingInstallation == installation && row.BindingDigest == digest {
+				installed[row.BindingKey] = true
+			}
+		}
+	}
+	return matches, installed, nil
+}
+
+// Compare the connection the package can actually declare. Runtime toggles,
+// the native slug and the account identity remain properties of the registration.
+func matchMCP(row database.MCPServer, wanted mcp.ServerConfig) (string, error) {
+	cfg, err := mcp.ConfigFromServerRecord(row)
+	if err != nil {
+		return "", err
+	}
+	token, err := mcpConfigDigest(&cfg)
+	if err != nil {
+		return "", err
+	}
+	wanted.ID, wanted.UserID, wanted.Name, wanted.Description, wanted.Slug = cfg.ID, cfg.UserID, cfg.Name, cfg.Description, cfg.Slug
+	wanted.Enabled, wanted.AutoConnect = cfg.Enabled, cfg.AutoConnect
+	expected, err := mcpConfigDigest(&wanted)
+	if err != nil || expected != token {
+		return "", err
+	}
+	return token, nil
+}
+
+func (i *Inventory) DescribeExistingMCP(ctx context.Context, components []Component, snap *pluginpackage.LocalSnapshot, installation string, retiring []string) error {
+	owner, err := database.RequireUserID(ctx)
+	if err != nil {
+		return err
+	}
+	_, servers, _ := mcpEntries(snap)
+	var names []string
+	for _, c := range components {
+		if c.Kind == "mcp" && c.Reason == "" && !c.Active {
+			names = append(names, c.Name)
+		}
+	}
+	excluded := make(map[string]bool, len(retiring))
+	for _, id := range retiring {
+		excluded[id] = true
+	}
+	matches, installed, err := mcpCandidates(ctx, i.db, owner, names, excluded, installation, snap.Digest)
+	if err != nil {
+		return err
+	}
+	for n := range components {
+		c := &components[n]
+		rows := matches[c.Name]
+		if c.Kind != "mcp" || c.Reason != "" || c.Active || len(rows) == 0 || installed[c.Key] {
+			continue
+		}
+		c.Reason = "mcpConflict"
+		if len(rows) != 1 {
+			continue
+		}
+		cfg, _ := portableMCP(servers[c.Name])
+		var candidate database.MCPServer
+		for _, row := range rows {
+			candidate = row
+		}
+		revision, err := matchMCP(candidate, cfg)
+		if err != nil {
+			return err
+		}
+		if revision != "" {
+			c.Reason = "mcpAlreadyAvailable"
+			c.MCPRevision = revision
+		}
+	}
+	return nil
+}
 
 var ErrComponentEdited = errors.New("PLUGIN_COMPONENT_EDITED")
 
@@ -64,6 +179,7 @@ func portableMCP(raw json.RawMessage) (mcp.ServerConfig, string) {
 // BoundMCPServer identifies the native registration affected by an update.
 type BoundMCPServer struct {
 	ID, Name, Slug, ComponentKey string
+	Preserved                    bool
 	Edited                       bool
 }
 
@@ -79,8 +195,9 @@ func boundMCPServers(ctx context.Context, db *gorm.DB, owner, id, digest string)
 	var rows []struct {
 		database.MCPServer         `gorm:"embedded"`
 		ConfigDigest, ComponentKey string
+		Preserved                  bool
 	}
-	err := db.WithContext(ctx).Table("plugin_mcp_bindings AS b").Select("s.*, b.config_digest, b.component_key").
+	err := db.WithContext(ctx).Table("plugin_mcp_bindings AS b").Select("s.*, b.config_digest, b.component_key, (b.consumer_only OR EXISTS (SELECT 1 FROM plugin_mcp_bindings other WHERE other.server_id=b.server_id AND (other.installation_id<>b.installation_id OR other.component_key<>b.component_key))) AS preserved").
 		Joins("JOIN plugin_installations p ON p.id = b.installation_id AND p.digest = b.digest").
 		Joins("JOIN mcp_servers s ON s.id = b.server_id AND s.user_id = p.user_id").
 		Where("p.id = ? AND p.user_id = ? AND p.digest = ?", id, owner, digest).Order("s.name, s.id").Scan(&rows).Error
@@ -97,7 +214,7 @@ func boundMCPServers(ctx context.Context, db *gorm.DB, owner, id, digest string)
 		if err != nil {
 			return nil, err
 		}
-		servers = append(servers, BoundMCPServer{ID: cfg.ID, Name: cfg.Name, Slug: cfg.Slug, ComponentKey: row.ComponentKey, Edited: digest != row.ConfigDigest})
+		servers = append(servers, BoundMCPServer{ID: cfg.ID, Name: cfg.Name, Slug: cfg.Slug, ComponentKey: row.ComponentKey, Preserved: row.Preserved, Edited: !row.Preserved && digest != row.ConfigDigest})
 	}
 	return servers, nil
 }
@@ -112,6 +229,17 @@ func mcpConfigDigest(cfg *mcp.ServerConfig) (string, error) {
 }
 
 func (i *Inventory) RegisterMCP(ctx context.Context, id, digest, key string, admit commandsecurity.Admission) error {
+	return i.registerMCP(ctx, id, digest, key, "", admit)
+}
+
+func (i *Inventory) ReuseMCP(ctx context.Context, id, digest, key, revision string, admit commandsecurity.Admission) error {
+	if revision == "" {
+		return ErrInstallationChanged
+	}
+	return i.registerMCP(ctx, id, digest, key, revision, admit)
+}
+
+func (i *Inventory) registerMCP(ctx context.Context, id, digest, key, revision string, admit commandsecurity.Admission) error {
 	owner, err := database.RequireUserID(ctx)
 	if err != nil {
 		return err
@@ -151,7 +279,16 @@ func (i *Inventory) RegisterMCP(ctx context.Context, id, digest, key string, adm
 			if binding.Digest != digest {
 				return ErrInstallationChanged
 			}
-			_, lookup := mcp.NewDBRepository(tx).GetServerByID(ctx, binding.ServerID)
+			existing, lookup := mcp.NewDBRepository(tx).GetServerByID(ctx, binding.ServerID)
+			if lookup == nil && revision != "" {
+				current, err := mcpConfigDigest(existing)
+				if err != nil {
+					return err
+				}
+				if !binding.ConsumerOnly || current != revision || binding.ConfigDigest != revision {
+					return ErrInstallationChanged
+				}
+			}
 			if !errors.Is(lookup, gorm.ErrRecordNotFound) {
 				return lookup
 			}
@@ -160,6 +297,32 @@ func (i *Inventory) RegisterMCP(ctx context.Context, id, digest, key string, adm
 			}
 		} else if !errors.Is(err, gorm.ErrRecordNotFound) {
 			return err
+		}
+		byName, _, err := mcpCandidates(ctx, tx, owner, []string{cfg.Name}, nil, "", "")
+		candidates := byName[cfg.Name]
+		if err != nil {
+			return err
+		}
+		if revision != "" {
+			if len(candidates) != 1 {
+				return ErrInstallationChanged
+			}
+			var candidate database.MCPServer
+			for _, row := range candidates {
+				candidate = row
+			}
+			current, err := matchMCP(candidate, cfg)
+			if err != nil {
+				return err
+			}
+			if current != revision {
+				return ErrInstallationChanged
+			}
+
+			return tx.Create(&database.PluginMCPBinding{InstallationID: id, ComponentKey: key, Digest: digest, ServerID: candidate.ID, Slug: candidate.Slug, ConfigDigest: current, ConsumerOnly: true}).Error
+		}
+		if len(candidates) > 0 {
+			return ErrInstallationChanged
 		}
 		serverID, err := mcp.CreatePackagedServer(ctx, tx, cfg)
 		if err != nil {
@@ -177,6 +340,9 @@ func (i *Inventory) RegisterMCP(ctx context.Context, id, digest, key string, adm
 	}, admit)
 	if err != nil {
 		return err
+	}
+	if revision != "" {
+		return nil
 	}
 	return i.SyncMCP(ctx, admit)
 }
@@ -198,7 +364,11 @@ func removeMCPBindings(ctx context.Context, tx *gorm.DB, id, key string, preserv
 		if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
 			return err
 		}
-		if err == nil && !preserve {
+		var others int64
+		if err := tx.Model(&database.PluginMCPBinding{}).Where("server_id=? AND (installation_id<>? OR component_key<>?)", row.ServerID, row.InstallationID, row.ComponentKey).Count(&others).Error; err != nil {
+			return err
+		}
+		if err == nil && !preserve && !row.ConsumerOnly && others == 0 {
 			current, err := mcpConfigDigest(cfg)
 			if err != nil {
 				return err
