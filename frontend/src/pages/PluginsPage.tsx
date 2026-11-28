@@ -5,7 +5,7 @@ import { useResourceEditRequest } from '../hooks/useResourceEditRequest';
 import { useNavigationStore } from '../store/navigationStore';
 import { create } from 'zustand';
 import { useTranslation } from 'react-i18next';
-import { AddReviewedRepository, ProviderRemovalPreview, UninstallReviewed, CreateListFromTemplate, ChangeInstallation, DiscardPreview, InstalledComponents, InstallReviewed, ListInstalled, PreviewLocal, PreviewLocalZIP, RegisterProvider, ReuseProvider, RegisterMCP, RemoveMCP, PrepareJob, SetAgentActive, SetProfileActive, SetSkillActive, SyncMCP, SyncPendingJobs } from '@wailsjs/go/wailsapi/Plugins';
+import { AddReviewedRepository, ProviderRemovalPreview, UninstallReviewed, CreateListFromTemplate, ChangeInstallation, DiscardPreview, InstalledComponents, InstallReviewed, ListInstalled, PreviewLocal, PreviewLocalZIP, RegisterProvider, ReuseProvider, RegisterMCP, ReuseMCP, RemoveMCP, PrepareJob, SetAgentActive, SetProfileActive, SetSkillActive, SyncMCP, SyncPendingJobs } from '@wailsjs/go/wailsapi/Plugins';
 import type { database, jobs, plugins, wailsapi } from '@wailsjs/go/models';
 import { Button } from '../components/ui/Button';
 import { DataGrid } from '../components/ui/DataGrid';
@@ -61,6 +61,8 @@ function componentRequirement(component: plugins.Component) {
   if (component.reason === 'hookExecutionPending') return 'plugins.hookExecutionPending';
   if (component.reason === 'hookInspectionLimit') return 'plugins.hookInspectionLimit';
   if (component.reason === 'hookConfiguration') return 'plugins.hookConfiguration';
+  if (component.reason === 'mcpAlreadyAvailable') return 'plugins.mcpAlreadyAvailable';
+  if (component.reason === 'mcpConflict') return 'plugins.mcpConflict';
   if (component.reason === 'providerInUse') return 'plugins.providerInUse';
   if (component.reason === 'providerAlreadyAvailable') return 'plugins.providerAlreadyAvailable';
   if (component.reason === 'providerSlugTaken') return 'plugins.providerSlugTaken';
@@ -408,8 +410,14 @@ function InstalledPlugins({ session }: { session: string }) {
         return;
       }
       if (component.kind === 'mcp') {
-        if (component.active) {
-          const accepted = await confirm({ title: t(preserve ? 'plugins.keepServer' : 'plugins.removeServer', { name: component.name }), message: t(preserve ? 'plugins.keepConfirm' : 'plugins.removeConfirm', { name: component.name }), confirmText: t(preserve ? 'plugins.keepServer' : 'plugins.removeServer', { name: component.name }), cancelText: t('common.cancel') });
+        if (component.reason === 'mcpAlreadyAvailable') {
+          const title = t('plugins.reuseMcp', {name:component.name});
+          const accepted = await confirm({title,message:connectionLabel(component),confirmText:title,cancelText:t('common.cancel')});
+          if (!accepted || !mounted.current) return;
+          await ReuseMCP(installation.id, installation.digest, component.key, component.mcpRevision ?? '');
+        } else if (component.active) {
+          preserve = preserve || !!component.preserveServer;
+          const accepted = await confirm({ title: t(component.preserveServer ? 'plugins.unlinkServer' : preserve ? 'plugins.keepServer' : 'plugins.removeServer', { name: component.name }), message: t(preserve ? 'plugins.keepConfirm' : 'plugins.removeConfirm', { name: component.name }), confirmText: t(component.preserveServer ? 'plugins.unlinkServer' : preserve ? 'plugins.keepServer' : 'plugins.removeServer', { name: component.name }), cancelText: t('common.cancel') });
           if (!accepted || !mounted.current) return;
           await reconcile(session, 'mcp', RemoveMCP(installation.id, installation.digest, component.key, preserve));
         } else {
@@ -619,9 +627,11 @@ function InstalledPlugins({ session }: { session: string }) {
           {component.active && component.kind === 'agent' && <code>{component.slug}</code>}
           {component.active && component.kind === 'skill' && <code> /{component.slug}</code>}
           <Button disabled={busy || details.installation.disabled || (!component.active && !!(component.pendingProvider || component.missingProvider || component.missingAllowlist)) || error === 'plugins.syncPendingStale'} onClick={() => void changeComponent(component)}>{t(component.active ? 'plugins.deactivate' : 'plugins.activate', { name: component.name })}</Button>
-        </> : component.kind === 'mcp' && !component.reason ? <>
-          <Button disabled={busy || details.installation.disabled || error === 'plugins.syncPendingStale'} onClick={() => void changeComponent(component)}>{t(component.active ? 'plugins.removeServer' : 'plugins.registerServer', { name: component.name })}</Button>
-          {component.active && <Button disabled={busy || error === 'plugins.syncPendingStale'} onClick={() => void changeComponent(component, true)}>{t('plugins.keepServer', { name: component.name })}</Button>}
+        </> : component.kind === 'mcp' && component.reason === 'mcpAlreadyAvailable' ?
+          <><p>{t('plugins.mcpAlreadyAvailable')}</p><Button disabled={busy || details.installation.disabled || !component.mcpRevision} onClick={() => void changeComponent(component)}>{t('plugins.reuseMcp',{name:component.name})}</Button></>
+          : component.kind === 'mcp' && !component.reason ? <>
+          <Button disabled={busy || details.installation.disabled || error === 'plugins.syncPendingStale'} onClick={() => void changeComponent(component)}>{t(component.active ? (component.preserveServer ? 'plugins.unlinkServer' : 'plugins.removeServer') : 'plugins.registerServer', { name: component.name })}</Button>
+          {component.active && !component.preserveServer && <Button disabled={busy || error === 'plugins.syncPendingStale'} onClick={() => void changeComponent(component, true)}>{t('plugins.keepServer', { name: component.name })}</Button>}
         </> : <p>{t(componentRequirement(component) ?? 'plugins.unavailable', { path: component.entry })}</p>}
       </li>)}</ul>}
     </Modal>}

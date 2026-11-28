@@ -102,6 +102,88 @@ func TestPackagedMCPLifecycle(t *testing.T) {
 		t.Fatal(servers)
 	}
 	slug := register()
+	t.Run("compartilhamento por revisão", func(t *testing.T) {
+		pkg2 := t.TempDir()
+		if err := os.WriteFile(filepath.Join(pkg2, "plugin.json"), []byte(`{"$schema":"`+pluginpackage.ManifestSchema+`","name":"segundo"}`), 0600); err != nil {
+			t.Fatal(err)
+		}
+		declaration, err := os.ReadFile(filepath.Join(pkg, "mcp.json"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(pkg2, "mcp.json"), declaration, 0600); err != nil {
+			t.Fatal(err)
+		}
+		second, err := pluginpackage.InspectLocal(pkg2)
+		if err != nil {
+			t.Fatal(err)
+		}
+		other, err := store.InstallLocal(alice, pkg2, second.Digest, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		items, err := store.InstalledComponents(alice, other.ID, other.Digest)
+		if err != nil || len(items) != 1 || items[0].Reason != "mcpAlreadyAvailable" || items[0].MCPRevision == "" {
+			t.Fatal(items, err)
+		}
+		if err := store.RegisterMCP(alice, other.ID, other.Digest, key, allow); !errors.Is(err, ErrInstallationChanged) {
+			t.Fatal(err)
+		}
+		if err := store.ReuseMCP(alice, other.ID, other.Digest, key, "obsoleta", allow); !errors.Is(err, ErrInstallationChanged) {
+			t.Fatal(err)
+		}
+		for range 2 {
+			if err := store.ReuseMCP(alice, other.ID, other.Digest, key, items[0].MCPRevision, allow); err != nil {
+				t.Fatal(err)
+			}
+		}
+		for _, id := range []string{row.ID, other.ID} {
+			digest := row.Digest
+			if id == other.ID {
+				digest = other.Digest
+			}
+			bindings, err := store.BoundMCPServers(alice, id, digest)
+			if err != nil || len(bindings) != 1 || !bindings[0].Preserved || bindings[0].Slug != slug {
+				t.Fatal(bindings, err)
+			}
+		}
+		// Retirar a fonte antes do consumidor mantém o cadastro no gerenciador.
+		bSource, err := store.InstallLocal(bob, pkg, snap.Digest, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := store.RegisterMCP(bob, bSource.ID, snap.Digest, key, allow); err != nil && !errors.Is(err, ErrMCPSyncPending) {
+			t.Fatal(err)
+		}
+		bConsumer, err := store.InstallLocal(bob, pkg2, second.Digest, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		bItems, err := store.InstalledComponents(bob, bConsumer.ID, second.Digest)
+		if err != nil || len(bItems) != 1 || bItems[0].MCPRevision == "" {
+			t.Fatal(bItems, err)
+		}
+		if err := store.ReuseMCP(bob, bConsumer.ID, second.Digest, key, items[0].MCPRevision, allow); !errors.Is(err, ErrInstallationChanged) {
+			t.Fatal("recibo de outra conta", err)
+		}
+		if err := store.ReuseMCP(bob, bConsumer.ID, second.Digest, key, bItems[0].MCPRevision, allow); err != nil {
+			t.Fatal(err)
+		}
+		for _, removed := range []database.PluginInstallation{bSource, bConsumer} {
+			if err := store.ChangeInstallation(bob, removed.ID, removed.Digest, "uninstall", allow); err != nil && !errors.Is(err, ErrMCPSyncPending) {
+				t.Fatal(err)
+			}
+			if servers, err := repo.ListServers(bob); err != nil || len(servers) != 1 {
+				t.Fatal(servers, err)
+			}
+		}
+		if err := store.ChangeInstallation(alice, other.ID, other.Digest, "uninstall", allow); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := repo.GetServer(alice, slug); err != nil {
+			t.Fatal(err)
+		}
+	})
 	if register() != slug {
 		t.Fatal("duplicate registration")
 	}
@@ -166,6 +248,10 @@ func TestPackagedMCPLifecycle(t *testing.T) {
 	bound, err = store.BoundMCPServers(alice, row.ID, snap.Digest)
 	if err != nil {
 		t.Fatal(err)
+	}
+	preview := DiscoverComponents(upgrade)
+	if err := store.DescribeExistingMCP(alice, preview, upgrade, row.ID, []string{bound[0].ID}); err != nil || len(preview) != 1 || preview[0].Reason != "" {
+		t.Fatal(preview, err)
 	}
 	if _, err := store.InstallReviewed(alice, pkg, upgrade.Digest, snap.Digest, bound, allow); err != nil {
 		t.Fatal(err)

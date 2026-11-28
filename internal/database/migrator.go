@@ -492,6 +492,12 @@ var schemaMigrations = []migration{
 		}
 		return db.Exec("DROP INDEX IF EXISTS idx_plugin_provider_bindings_provider_id").Error
 	}},
+	{Version: 51, Name: "shared_plugin_mcp_bindings", Phase: phasePostAutoMigrate, Run: func(db *gorm.DB) error {
+		if !db.Migrator().HasIndex(&PluginMCPBinding{}, "ux_plugin_mcp_source") {
+			return errMigrationDeferred
+		}
+		return db.Exec("DROP INDEX IF EXISTS idx_plugin_mcp_bindings_server_id").Error
+	}},
 }
 
 // runMigrations aplica, na ordem de Version, todas as migrações da fase
