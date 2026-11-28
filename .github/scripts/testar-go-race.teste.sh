@@ -110,26 +110,34 @@ for job in backend-race-build backend-race-tests backend-race-app; do
   diff -u "$test_dir/cache-expected" "$test_dir/cache-paths"
 done
 
-# Executa o gate real do workflow: só sucesso de todas as dependências aprova.
+# Executa o gate real do workflow nos modos completo e documental.
 awk '/^  backend-race:$/ { capture=1; next } capture && /^  [a-z]/ { exit } capture { print }' "$repo_dir/.github/workflows/ci.yml" > "$test_dir/gate"
-grep -Fq 'needs: [backend-race-build, backend-race-tests, backend-race-app]' "$test_dir/gate"
+grep -Fq 'needs: [scripts, backend-race-build, backend-race-tests, backend-race-app]' "$test_dir/gate"
 # Expressões literais do GitHub, não expansão pelo shell.
 # shellcheck disable=SC2016
-for binding in 'BUILD_RESULT: ${{ needs.backend-race-build.result }}' 'RACE_RESULT: ${{ needs.backend-race-tests.result }}' 'APP_RESULT: ${{ needs.backend-race-app.result }}'; do
+for binding in 'PREPARACAO: ${{ needs.scripts.result }}' 'MODO: ${{ needs.scripts.outputs.modo }}' 'BUILD_RESULT: ${{ needs.backend-race-build.result }}' 'RACE_RESULT: ${{ needs.backend-race-tests.result }}' 'APP_RESULT: ${{ needs.backend-race-app.result }}'; do
   grep -Fq "$binding" "$test_dir/gate" || fail 'dependência do gate desconectada'
 done
 # shellcheck disable=SC2016
 grep -Fq 'if: ${{ always() }}' "$test_dir/gate"
 awk '/^        run: \|$/ { capture=1; next } capture && /^          / { sub(/^          /, ""); print }' "$test_dir/gate" > "$test_dir/gate.sh"
 [[ -s "$test_dir/gate.sh" ]] || fail 'gate não encontrado'
-BUILD_RESULT=success RACE_RESULT=success APP_RESULT=success bash -e "$test_dir/gate.sh"
+PREPARACAO=success MODO=completo BUILD_RESULT=success RACE_RESULT=success APP_RESULT=success bash -e "$test_dir/gate.sh"
 for dependency in BUILD_RESULT RACE_RESULT APP_RESULT; do
   for result in failure cancelled skipped ''; do
-    if env BUILD_RESULT=success RACE_RESULT=success APP_RESULT=success "$dependency=$result" bash -e "$test_dir/gate.sh"; then
+    if env PREPARACAO=success MODO=completo BUILD_RESULT=success RACE_RESULT=success APP_RESULT=success "$dependency=$result" bash -e "$test_dir/gate.sh"; then
       fail "gate aprovou $dependency=$result"
     fi
   done
 done
+
+PREPARACAO=success MODO=documentacao BUILD_RESULT=skipped RACE_RESULT=skipped APP_RESULT=skipped bash -e "$test_dir/gate.sh"
+if env PREPARACAO=failure MODO=documentacao BUILD_RESULT=skipped RACE_RESULT=skipped APP_RESULT=skipped bash -e "$test_dir/gate.sh"; then
+  fail 'gate aprovou documentação sem validação bem-sucedida'
+fi
+if env PREPARACAO=success MODO= BUILD_RESULT=success RACE_RESULT=success APP_RESULT=success bash -e "$test_dir/gate.sh"; then
+  fail 'gate aprovou sem classificação válida'
+fi
 
 # Testa o contrato da compilação sem executar Go real.
 run --build-app

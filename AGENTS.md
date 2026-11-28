@@ -286,11 +286,19 @@ branch de outro PR):
 - Frontend apontando para tipo que o gerador de bindings não produz
 - Testes falhando (incluindo testes axe-core)
 
+### PRs exclusivamente documentais
+
+Se o PR muda apenas `AGENTS.md`, `CLAUDE.md`, `README.md`, `CONTRIBUTING.md`
+ou arquivos Markdown em `aep/` e `docs/content/`, o CI valida o diff com
+`git diff --check` e publica o resultado nos quatro checks obrigatórios. Mudanças fora dessa lista, mudanças em modos de
+arquivo ou uma comparação sem base confirmada usam o CI completo.
+
 ### A main descendo nos PRs abertos
 Check verde envelhece: ele conta o encontro entre a branch e a main de quando
 rodou. Por isso, todo push na `main` dispara o workflow `Atualizar PRs com a
 main`, que mescla a main em cada PR aberto (fora rascunhos, forks e PRs parados
-há mais de 30 dias) e pede o CI de novo. No PR empilhado a branch-base desce
+há mais de 30 dias) e reaproveita o CI do PR para o commit atualizado. Se esse CI não aparecer,
+pede a execução pelo dispatch. No PR empilhado a branch-base desce
 junto, e o pai é atualizado antes do filho. Quando o merge conflita, o PR é
 listado no resumo do run e a resolução é sua — o workflow não tenta adivinhar.
 ### Checklist para novo código
