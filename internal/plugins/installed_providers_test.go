@@ -8,6 +8,7 @@ import (
 	"assistente/internal/commandsecurity"
 	"assistente/internal/database"
 	"assistente/internal/pluginpackage"
+
 	"gorm.io/gorm"
 )
 
@@ -26,7 +27,7 @@ func TestRegisterProviderFromReviewedPackage(t *testing.T) {
 	var synced []string
 	unavailable := errors.New("registro indisponível")
 	refreshErr := unavailable
-	inventory := NewInventory(db).WithProviderRemoval(func(commit func() ([]string, error)) error { _, err := commit(); return err }).WithProviderRefresh(func(_ context.Context, id string, _ commandsecurity.Admission) error {
+	inventory := NewInventory(db).WithProviderConsumers(func(use func(map[string][]string, bool) error) error { return use(map[string][]string{}, true) }).WithProviderRemoval(func(commit func() ([]string, error)) error { _, err := commit(); return err }).WithProviderRefresh(func(_ context.Context, id string, _ commandsecurity.Admission) error {
 		synced = append(synced, id)
 		return refreshErr
 	})
@@ -44,6 +45,13 @@ func TestRegisterProviderFromReviewedPackage(t *testing.T) {
 		return item.ID
 	}
 	id := install(target)
+	withoutConsumers := inventory.WithProviderConsumers(func(func(map[string][]string, bool) error) error {
+		t.Fatal("leitura dos perfis sem provedor vinculado")
+		return nil
+	})
+	if preview, err := withoutConsumers.ProviderRemovalPreview(target, id, snapshot.Digest); err != nil || len(preview) != 0 {
+		t.Fatal(preview, err)
+	}
 	key := "providers/" + original.Slug
 	sourceInstallation := install(source)
 	checkReason := func(ctx context.Context, installation, want string) {
@@ -101,6 +109,50 @@ func TestRegisterProviderFromReviewedPackage(t *testing.T) {
 		t.Fatalf("cadastro herdou o estado da origem")
 	}
 	refreshErr = nil
+	t.Run("segundo plugin compartilha sem tomar posse", func(t *testing.T) {
+		_, second, err := inventory.BuildPackage(source, BuilderRequest{Name: "segundo", Providers: []string{original.Slug}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		install2, err := inventory.InstallSource(target, "segundo", second.Digest, "", nil, allow, func() (*pluginpackage.LocalSnapshot, error) { return second, nil })
+		if err != nil {
+			t.Fatal(err)
+		}
+		before, err := inventory.ProviderRemovalPreview(target, id, snapshot.Digest)
+		if err != nil {
+			t.Fatal(err)
+		}
+		items, err := inventory.InstalledComponents(target, install2.ID, second.Digest)
+		if err != nil || len(items) != 1 || items[0].ProviderRevision == "" {
+			t.Fatal(items, err)
+		}
+		if err = inventory.ReuseProvider(target, install2.ID, second.Digest, key, "obsoleta", allow); !errors.Is(err, ErrInstallationChanged) {
+			t.Fatal(err)
+		}
+		for range 2 {
+			if err = inventory.ReuseProvider(target, install2.ID, second.Digest, key, items[0].ProviderRevision, allow); err != nil {
+				t.Fatal(err)
+			}
+		}
+		after, err := inventory.ProviderRemovalPreview(target, id, snapshot.Digest)
+		if err != nil || !after[original.Slug].Preserve || len(after[original.Slug].Consumers) != 1 || after[original.Slug].Consumers[0] != "segundo (segundo)" {
+			t.Fatal(after, err)
+		}
+		if err = inventory.UninstallReviewed(target, id, snapshot.Digest, "remove", before, allow); !errors.Is(err, ErrInstallationChanged) {
+			t.Fatal(err)
+		}
+		review, err := inventory.ProviderRemovalPreview(target, install2.ID, second.Digest)
+		if err != nil || !review[original.Slug].Preserve {
+			t.Fatal(review, err)
+		}
+		if err = inventory.UninstallReviewed(target, install2.ID, second.Digest, "remove", review, allow); err != nil {
+			t.Fatal(err)
+		}
+		remaining, err := repo.GetBySlug(target, original.Slug)
+		if err != nil || remaining.ID != local.ID {
+			t.Fatal(remaining, err)
+		}
+	})
 	if err := inventory.RegisterProvider(target, id, snapshot.Digest, key, allow); err != nil {
 		t.Fatal(err)
 	}

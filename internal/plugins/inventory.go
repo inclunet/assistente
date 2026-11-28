@@ -26,6 +26,7 @@ type Inventory struct {
 	removeProviders    func(func() ([]string, error)) error
 	refreshProvider    func(context.Context, string, commandsecurity.Admission) error
 	refreshJob         func(context.Context, string, commandsecurity.Admission) error
+	providerConsumers  func(func(map[string][]string, bool) error) error
 	profileDefinitions func() (profiles.PortableDefinitions, error)
 	skillDefinitions   func() (skills.PortableDefinitions, error)
 	listCreated        func(context.Context, *database.TaskList, commandsecurity.Admission)
@@ -162,6 +163,9 @@ func (i *Inventory) InstallSource(ctx context.Context, reviewedOrigin, reviewedD
 			revokedJobs = revoked
 			mcpChanged = count > 0
 			if err := removeMCPBindings(publishCtx, tx, installed.ID, "", false); err != nil {
+				return err
+			}
+			if err := tx.Where("installation_id=? AND consumer_only=?", installed.ID, true).Delete(&database.PluginProviderBinding{}).Error; err != nil {
 				return err
 			}
 			if err := tx.Where("installation_id=?", installed.ID).Delete(&database.PluginProfileActivation{}).Error; err != nil {

@@ -18,6 +18,7 @@ import (
 // Component identifies a contribution within a revision; runtime keys are
 // allocated separately, so the same skill name can occur in several packages.
 type Component struct {
+	ProviderRevision  string    `json:"providerRevision,omitempty"`
 	HookGeneration    string    `json:"hookGeneration,omitempty"`
 	HookScript        string    `json:"hookScript,omitempty"`
 	AgentProblemField string    `json:"agentProblemField,omitempty"`
