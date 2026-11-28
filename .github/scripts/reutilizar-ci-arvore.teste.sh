@@ -75,4 +75,18 @@ if MOCK_ERROR=runs run 12 codex/filho "$arvore"; then exit 1; fi
 if run 0 codex/filho "$arvore"; then exit 1; fi
 if run 12 codex/filho 'inválida'; then exit 1; fi
 
+# A checagem precisa de função de status explícita para evitar que o skip
+# do guarda-dispatch se propague quando scripts teve sucesso.
+workflow="$repo_dir/.github/workflows/ci.yml"
+# shellcheck disable=SC2016
+preparacao='    if: ${{ !cancelled() && needs.scripts.result == '\''success'\'' && needs.scripts.outputs.modo == '\''completo'\'' }}'
+for job in backend-checks backend-tests backend-race-build backend-race-tests bindings frontend-tests e2e-tests windows-installer; do
+  bloco=$(awk -v job="  $job:" '$0 == job { capture=1; next } capture && /^  [a-z]/ { exit } capture { print }' "$workflow")
+  grep -Fxq '    needs: scripts' <<< "$bloco"
+  grep -Fxq "$preparacao" <<< "$bloco"
+done
+bloco=$(awk '/^  backend-race-app:$/ { capture=1; next } capture && /^  [a-z]/ { exit } capture { print }' "$workflow")
+grep -Fxq '    needs: backend-race-build' <<< "$bloco"
+grep -Fxq "    if: \${{ !cancelled() && needs.backend-race-build.result == 'success' }}" <<< "$bloco"
+
 echo 'PASS: PR, origem, árvore autenticada, tentativa, suítes completas e fallback'

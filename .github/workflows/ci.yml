@@ -50,11 +50,13 @@ jobs:
           CI_PR_NUMBER: ${{ inputs.pr_number }}
         run: bash .github/scripts/cancelar-dispatch-redundante.sh
 
+  # Jobs de suíte verificam suas dependências diretas. O guard é omitido em
+  # eventos de PR, e o success() implícito propagaria esse skip na cadeia.
   scripts:
     needs: guarda-dispatch
     if: ${{ !cancelled() && (needs.guarda-dispatch.result == 'success' || needs.guarda-dispatch.result == 'skipped') }}
     outputs:
-      modo: ${{ steps.reutilizar.outputs.execucao != '' && 'reutilizado' || steps.escopo.outputs.modo }}
+      modo: ${{ steps.reutilizar.outputs.execucao && 'reutilizado' || steps.escopo.outputs.modo }}
       execucao: ${{ steps.reutilizar.outputs.execucao }}
     permissions:
       contents: read
@@ -151,7 +153,7 @@ jobs:
 
   backend-checks:
     needs: scripts
-    if: needs.scripts.outputs.modo == 'completo'
+    if: ${{ !cancelled() && needs.scripts.result == 'success' && needs.scripts.outputs.modo == 'completo' }}
     # Validação e compilações rodam em paralelo com a suíte de cobertura.
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -203,7 +205,7 @@ jobs:
 
   backend-tests:
     needs: scripts
-    if: needs.scripts.outputs.modo == 'completo'
+    if: ${{ !cancelled() && needs.scripts.result == 'success' && needs.scripts.outputs.modo == 'completo' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -293,7 +295,7 @@ jobs:
 
   backend-race-build:
     needs: scripts
-    if: needs.scripts.outputs.modo == 'completo'
+    if: ${{ !cancelled() && needs.scripts.result == 'success' && needs.scripts.outputs.modo == 'completo' }}
     # Um único binário race do App, compartilhado somente neste run/revisão.
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -336,7 +338,7 @@ jobs:
 
   backend-race-tests:
     needs: scripts
-    if: needs.scripts.outputs.modo == 'completo'
+    if: ${{ !cancelled() && needs.scripts.result == 'success' && needs.scripts.outputs.modo == 'completo' }}
     runs-on: ubuntu-latest
     # Inclui preparação e upload; o teste Go continua limitado a 20 minutos.
     timeout-minutes: 45
@@ -393,6 +395,7 @@ jobs:
 
   backend-race-app:
     needs: backend-race-build
+    if: ${{ !cancelled() && needs.backend-race-build.result == 'success' }}
     runs-on: ubuntu-latest
     # Inclui preparação e upload; o teste Go continua limitado a 20 minutos.
     timeout-minutes: 45
@@ -487,7 +490,7 @@ jobs:
 
   bindings:
     needs: scripts
-    if: needs.scripts.outputs.modo == 'completo'
+    if: ${{ !cancelled() && needs.scripts.result == 'success' && needs.scripts.outputs.modo == 'completo' }}
     # Os tipos de `frontend/wailsjs/` são gerados a partir das assinaturas dos
     # métodos do App e ficam versionados no repositório. Isso abre uma fresta: o
     # `tsc` do job frontend lê o arquivo que está no git, nunca o que o gerador
@@ -584,7 +587,7 @@ jobs:
 
   frontend-tests:
     needs: scripts
-    if: needs.scripts.outputs.modo == 'completo'
+    if: ${{ !cancelled() && needs.scripts.result == 'success' && needs.scripts.outputs.modo == 'completo' }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     defaults:
@@ -646,7 +649,7 @@ jobs:
 
   e2e-tests:
     needs: scripts
-    if: needs.scripts.outputs.modo == 'completo'
+    if: ${{ !cancelled() && needs.scripts.result == 'success' && needs.scripts.outputs.modo == 'completo' }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     defaults:
@@ -704,7 +707,7 @@ jobs:
   windows-installer:
     name: Terminal, instalador Windows e PATH do usuário
     needs: scripts
-    if: needs.scripts.outputs.modo == 'completo'
+    if: ${{ !cancelled() && needs.scripts.result == 'success' && needs.scripts.outputs.modo == 'completo' }}
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
