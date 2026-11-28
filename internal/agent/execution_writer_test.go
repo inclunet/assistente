@@ -92,7 +92,7 @@ func TestExecutionWriterToolFirstTerminalUsesExplicitExecutionMode(t *testing.T)
 					}
 				},
 			}}
-			svc.RunAgenticLoop(ctx, nil, llm.ChatParams{MaxAgenticIterations: 3, ContinueViaUserMessage: tc.mode == database.TurnModeContinue}, conv, turn, nil, streamer, nil,
+			svc.RunAgenticLoop(ctx, nil, nil, llm.ChatParams{MaxAgenticIterations: 3, ContinueViaUserMessage: tc.mode == database.TurnModeContinue}, conv, turn, nil, streamer, nil,
 				func(c string, i int) IterationHandler { return NewAgenticStreamHandler(em, c, i, nil, turn) }, nil, false, 1)
 			svc.EndUnfinishedTurn(ctx, conv, turn, nil)
 			window, err := svc.projection.ReadCanonicalWindow(context.WithoutCancel(ctx), database.MessageWindowQuery{ConversationID: conv, Anchor: "end", Direction: "before", Limit: 20}, chat.NewDBTimelineReader(database.DB()))
@@ -215,7 +215,7 @@ func TestExecutionWriterChronologySurvivesTerminalAndPersistenceFailure(t *testi
 						}
 					},
 				}}
-				svc.RunAgenticLoop(ctx, nil, llm.ChatParams{MaxAgenticIterations: 4, ContinueViaUserMessage: mode == database.TurnModeContinue}, conv, turn, nil, streamer, nil,
+				svc.RunAgenticLoop(ctx, nil, nil, llm.ChatParams{MaxAgenticIterations: 4, ContinueViaUserMessage: mode == database.TurnModeContinue}, conv, turn, nil, streamer, nil,
 					func(c string, i int) IterationHandler { return NewAgenticStreamHandler(em, c, i, nil, turn) }, nil, false, 1)
 				svc.EndUnfinishedTurn(ctx, conv, turn, nil)
 				window, err := svc.projection.ReadCanonicalWindow(context.WithoutCancel(ctx), database.MessageWindowQuery{ConversationID: conv, Anchor: "end", Direction: "before", Limit: 20}, chat.NewDBTimelineReader(database.DB()))
@@ -297,7 +297,7 @@ func TestExecutionWriterSecondContinuationKeepsExecutionChain(t *testing.T) {
 			},
 			func(h llm.StreamHandler) { h.OnChunk(suffix); h.OnDone("", llm.Usage{}, "modelo") },
 		}}
-		svc.RunAgenticLoop(ctx, nil, llm.ChatParams{MaxAgenticIterations: 3, ContinueViaUserMessage: true}, conv, turn, nil, streamer, nil,
+		svc.RunAgenticLoop(ctx, nil, nil, llm.ChatParams{MaxAgenticIterations: 3, ContinueViaUserMessage: true}, conv, turn, nil, streamer, nil,
 			func(c string, i int) IterationHandler { return NewAgenticStreamHandler(em, c, i, nil, turn) }, nil, false, 1)
 		svc.EndUnfinishedTurn(ctx, conv, turn, nil)
 		wantText += suffix
@@ -358,7 +358,7 @@ func TestExecutionWriterCancellationPreservesRunningToolChronology(t *testing.T)
 			done := make(chan struct{})
 			go func() {
 				defer close(done)
-				svc.RunAgenticLoop(ctx, nil, llm.ChatParams{MaxAgenticIterations: 3}, conv, turn, nil, streamer, nil, func(c string, i int) IterationHandler { return NewAgenticStreamHandler(em, c, i, nil, turn) }, nil, false, 1)
+				svc.RunAgenticLoop(ctx, nil, nil, llm.ChatParams{MaxAgenticIterations: 3}, conv, turn, nil, streamer, nil, func(c string, i int) IterationHandler { return NewAgenticStreamHandler(em, c, i, nil, turn) }, nil, false, 1)
 				svc.EndUnfinishedTurn(ctx, conv, turn, nil)
 			}()
 			t.Cleanup(func() {
@@ -504,7 +504,7 @@ func TestExecutionWriterLedgerFailureCannotSilentlyLoseDiagnostic(t *testing.T) 
 
 				h.OnToolCalls([]llm.ToolCall{{ID: "unavailable", Type: "function", Function: llm.FunctionCall{Name: "ok_tool", Arguments: `{}`}}}, "", llm.Usage{}, "modelo")
 			}}}
-			svc.RunAgenticLoop(ctx, nil, llm.ChatParams{MaxAgenticIterations: 3}, conv, turn, nil, streamer, nil,
+			svc.RunAgenticLoop(ctx, nil, nil, llm.ChatParams{MaxAgenticIterations: 3}, conv, turn, nil, streamer, nil,
 				func(c string, i int) IterationHandler { return NewAgenticStreamHandler(em, c, i, nil, turn) }, nil, false, 1)
 			svc.EndUnfinishedTurn(ctx, conv, turn, nil)
 			done := assertRuntimeTerminal(t, ctx, conv, turn, database.TurnFailed, "persistence_error", em)
@@ -806,7 +806,7 @@ func TestExecutionWriterContinuationPrefixOccursOnceAcrossToolIterations(t *test
 					h.OnDone("", llm.Usage{}, "modelo")
 				},
 			}}
-			svc.RunAgenticLoop(ctx, nil, llm.ChatParams{MaxAgenticIterations: 3, ContinueViaUserMessage: true}, conv, turn, nil, streamer, nil, func(c string, i int) IterationHandler { return NewAgenticStreamHandler(em, c, i, nil, turn) }, nil, false, 1)
+			svc.RunAgenticLoop(ctx, nil, nil, llm.ChatParams{MaxAgenticIterations: 3, ContinueViaUserMessage: true}, conv, turn, nil, streamer, nil, func(c string, i int) IterationHandler { return NewAgenticStreamHandler(em, c, i, nil, turn) }, nil, false, 1)
 			svc.EndUnfinishedTurn(ctx, conv, turn, nil)
 			snapshot, err := chat.NewDBTimelineReader(database.DB()).ReadPublicationTurn(ctx, conv, turn)
 			if err != nil {

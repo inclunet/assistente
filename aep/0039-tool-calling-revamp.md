@@ -457,7 +457,7 @@ Evidências: `internal/tools/executor.go`, `executor_test.go` e
 
 ### Fase 4 — entregue
 
-- [x] Pre-check considera janela configurada e overhead das mensagens.
+- [x] Pre-check considera janela configurada e overhead das mensagens. Durante o turno, se os resultados excederem o orçamento, o backend pode resumir histórico antigo antes da próxima chamada, preservando o mínimo do perfil e a chamada de ferramenta pendente. O resumo é local à execução e não avança o marcador do resumo persistido. Se algum resultado ficar vazio por falta de espaço, encerra com aviso. Evidência: `TestToolContextCompactionContinuesWithoutReexecutingTool`.
 - [x] Resultados excedentes são truncados de forma UTF-8 safe antes da próxima
   chamada ao provider.
 

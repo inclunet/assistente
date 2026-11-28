@@ -157,7 +157,10 @@ func ContentForModelWithinLimit(ctx context.Context, result ToolResult, maxBytes
 		if len(failure) <= maxBytes {
 			return failure
 		}
-		return truncateUTF8("["+code+"]", maxBytes)
+		if marker := "[" + code + "]"; len(marker) <= maxBytes {
+			return marker
+		}
+		return ""
 	}
 	if maxBytes <= 0 {
 		return ""
