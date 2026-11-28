@@ -67,6 +67,9 @@ function componentRequirement(component: plugins.Component) {
   if (component.reason === 'hookExecutionPending') return 'plugins.hookExecutionPending';
   if (component.reason === 'hookInspectionLimit') return 'plugins.hookInspectionLimit';
   if (component.reason === 'hookConfiguration') return 'plugins.hookConfiguration';
+  if (component.reason === 'nativeSkillAvailable') return 'plugins.nativeSkillAvailable';
+  if (component.reason === 'localSkillDiscoveryUnavailable') return 'plugins.localSkillDiscoveryUnavailable';
+  if (component.reason === 'localSkillUnavailable') return 'plugins.localSkillUnavailable';
   if (component.reason === 'skillConflict') return 'plugins.skillConflict';
   if (component.reason === 'skillAlreadyAvailable') return 'plugins.skillAlreadyAvailable';
   if (component.reason === 'mcpAlreadyAvailable') return 'plugins.mcpAlreadyAvailable';
@@ -444,9 +447,9 @@ function InstalledPlugins({ session }: { session: string }) {
         await SetAgentActive(installation.id, installation.digest, component.key, !component.active);
       } else if (component.kind === 'profile') {
         await SetProfileActive(installation.id, installation.digest, component.key, !component.active);
-       } else if (component.kind === 'skill' && component.reason === 'skillAlreadyAvailable') {
+       } else if (component.kind === 'skill' && (component.reason === 'skillAlreadyAvailable' || component.reason === 'nativeSkillAvailable')) {
         const title = t('plugins.reuseSkill',{name:component.name});
-        const accepted = await confirm({title,message:t('plugins.confirmReuseSkill',{name:component.name,consumers:component.skillConsumers?.join(', ')}),confirmText:title,cancelText:t('common.cancel')});
+        const accepted = await confirm({title,message:component.reason === 'nativeSkillAvailable' ? t('plugins.confirmNativeSkill',{name:component.name}) : t('plugins.confirmReuseSkill',{name:component.name,consumers:component.skillConsumers?.join(', ')}),confirmText:title,cancelText:t('common.cancel')});
         if (!accepted || !mounted.current) return;
         await ReuseSkill(installation.id,installation.digest,component.key,component.skillReuseToken ?? '');
       } else {
@@ -634,8 +637,10 @@ function InstalledPlugins({ session }: { session: string }) {
             <Button disabled={busy || details.installation.disabled || error === 'plugins.syncPendingStale'} onClick={() => void changeComponent(component)}>{t('plugins.prepareJob', {name:component.name})}</Button>)
           : component.kind === 'tasklistTemplate' && !component.reason ?
           <Button disabled={busy || details.installation.disabled || error === 'plugins.syncPendingStale'} onClick={() => void changeComponent(component)}>{t('plugins.createList', { name: component.name })}</Button>
-          : component.kind === 'skill' && component.reason === 'skillAlreadyAvailable' ?
-          <><p>{t('plugins.skillAlreadyAvailable')}</p><Button disabled={busy || details.installation.disabled || !component.skillReuseToken} onClick={() => void changeComponent(component)}>{t('plugins.reuseSkill',{name:component.name})}</Button></>
+          : component.kind === 'skill' && component.active && component.reason === 'localSkillUnavailable' ?
+          <><p>{t('plugins.localSkillUnavailable')}</p><Button disabled={busy || details.installation.disabled} onClick={() => void changeComponent(component)}>{t('plugins.deactivate',{name:component.name})}</Button></>
+          : component.kind === 'skill' && (component.reason === 'skillAlreadyAvailable' || component.reason === 'nativeSkillAvailable') ?
+          <><p>{t(component.reason === 'nativeSkillAvailable' ? 'plugins.nativeSkillAvailable' : 'plugins.skillAlreadyAvailable')}</p><Button disabled={busy || details.installation.disabled || !component.skillReuseToken} onClick={() => void changeComponent(component)}>{t('plugins.reuseSkill',{name:component.name})}</Button></>
           : (component.kind === 'profile' || component.kind === 'skill'  || component.kind === 'agent') && !component.reason ? <>
           {component.kind === 'profile' && component.canCreateChatGPT && component.missingProvider && !details.components.some(c => c.kind === 'provider' && c.slug === component.missingProvider) &&
             <Button disabled={busy || details.installation.disabled || error === 'plugins.syncPendingStale'} onClick={() => setChatGPTSlug(component.missingProvider!)}>{t('plugins.createProfileChatGPT', { name: component.missingProvider })}</Button>}

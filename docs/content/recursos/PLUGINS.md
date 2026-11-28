@@ -113,6 +113,8 @@ Em **Plugins → Meus plugins → Novo plugin**, marque o slug do provedor na se
 
 Na conta de destino, abra os detalhes do plugin instalado e escolha **Cadastrar** ao lado do provedor. Confira o endereço ou o comando apresentado e confirme. O Assistente cria o provedor com o slug do pacote. Se a conta já tiver o mesmo slug e a mesma definição portável, a prévia e os detalhes mostram **Já disponível nesta conta**. Os perfis podem usar esse cadastro pelo slug. Se a definição for diferente, a tela informa a colisão. A inspeção preserva os dados locais. Para registrar que a instalação depende desse provedor, abra os detalhes e confirme **Usar o cadastro existente**. O provedor continua com as mesmas credenciais e a mesma origem. Configure a credencial da conta em **Provedores** antes de usar um serviço que exija autenticação.
 
+Quando uma skill local de instruções simples tem a mesma definição do pacote, a confirmação usa a skill local e conserva suas permissões. Se o arquivo mudar ou for removido, os detalhes mostram o vínculo pendente. Você pode desativá-lo. Desinstalar o plugin conserva o arquivo local.
+
 Se dois plugins oferecem a mesma skill e uma delas já está ativa, escolha **Usar a skill existente** nos detalhes da segunda instalação. Os dois usam o mesmo comando de barra. Cada instalação pode ser desativada separadamente. Uma diferença na definição mantém a nova ativação pendente.
 
 Se o plugin oferece um servidor MCP que já existe na conta, confira o transporte e o endereço nos detalhes. **Usar o servidor existente** associa o cadastro ao plugin. A confirmação mantém a conexão como está. Se as configurações divergirem ou houver vários candidatos, o componente fica pendente. Desvincular um servidor compartilhado o mantém no gerenciador de MCP.

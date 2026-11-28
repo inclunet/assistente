@@ -8,6 +8,7 @@ import (
 
 	"assistente/internal/database"
 	"assistente/internal/pluginpackage"
+	"assistente/internal/skills"
 	"gorm.io/gorm"
 )
 
@@ -65,8 +66,48 @@ type skillCandidate struct {
 	consumers   []string
 }
 
-func skillMatch(rows []skillPeer, revision string) skillCandidate {
-	var candidate skillCandidate
+// Only plain, byte-equivalent native instructions can supply a packaged skill.
+// Read failures and supplemental files leave the component pending.
+func (i *Inventory) WithLocalSkillReview(review func(func(skills.PortableDefinitions, error) error) error) *Inventory {
+	copy := *i
+	copy.skillLinkReview = review
+	return &copy
+}
+
+func (i *Inventory) reviewLocalSkills(use func(skills.PortableDefinitions, error) error) error {
+	if i.skillLinkReview != nil {
+		return i.skillLinkReview(use)
+	}
+	if i.skillDefinitions != nil {
+		definitions, err := i.skillDefinitions()
+		return use(definitions, err)
+	}
+	return use(nil, nil)
+}
+
+func localSkillMatch(files skills.PortableDefinitions, discoveryErr error, key, format, revision string) skillCandidate {
+	name := strings.TrimPrefix(key, "skills/")
+	if discoveryErr != nil {
+		return skillCandidate{conflict: true}
+	}
+	read := files[name]
+	if read == nil {
+		return skillCandidate{}
+	}
+	raw, err := read()
+	if err != nil {
+		return skillCandidate{slug: name, conflict: true}
+	}
+	_, body, err := skills.Parse(string(raw))
+	if err != nil || skills.ContainsShellCommands(body) || skills.ContainsClaudeCommand(body) {
+		return skillCandidate{slug: name, conflict: true}
+	}
+	local := format + ":" + pluginpackage.FilesDigest(map[string][]byte{"SKILL.md": raw})
+	return skillCandidate{slug: name, conflict: local != revision}
+}
+
+func skillMatch(rows []skillPeer, revision string, candidate skillCandidate) skillCandidate {
+	nativeSlug := candidate.slug
 	generations := map[string][]byte{"revision": []byte(revision)}
 	for _, row := range rows {
 		generations["peer:"+row.InstallationID+"\x00"+row.ComponentKey] = []byte(row.Generation + "\x00" + row.Digest)
@@ -79,6 +120,9 @@ func skillMatch(rows []skillPeer, revision string) skillCandidate {
 		if current == "" {
 			// All previously activatable skills contained a single SKILL.md.
 			current = row.PackageFormat + ":" + pluginpackage.FilesDigest(map[string][]byte{"SKILL.md": []byte(row.Definition)})
+		}
+		if !strings.HasPrefix(slug, skills.PluginPrefix) && nativeSlug != slug {
+			candidate.conflict = true
 		}
 		if current != revision || candidate.slug != "" && candidate.slug != slug {
 			candidate.conflict = true
@@ -101,28 +145,52 @@ func (i *Inventory) DescribeExistingSkills(ctx context.Context, components []Com
 	}
 	var keys []string
 	for _, c := range components {
-		if c.Kind == "skill" && c.Reason == "" && !c.Active {
+		if c.Kind == "skill" && c.Reason == "" && (!c.Active || c.Slug == c.Name) {
 			keys = append(keys, c.Key)
 		}
 	}
 	revisions := skillRevisions(snap, keys)
+	if len(keys) == 0 {
+		return nil
+	}
+
 	groups, err := activeSkillCandidates(i.db.WithContext(ctx), owner, id, keys)
 	if err != nil {
 		return err
 	}
-	for n := range components {
-		c := &components[n]
-		if c.Kind != "skill" || c.Active || c.Reason != "" || len(groups[c.Key]) == 0 {
-			continue
+	return i.reviewLocalSkills(func(local skills.PortableDefinitions, localErr error) error {
+		for n := range components {
+			c := &components[n]
+			if c.Kind != "skill" || c.Reason != "" || (c.Active && c.Slug != c.Name) {
+				continue
+			}
+			native := localSkillMatch(local, localErr, c.Key, snap.Manifest.Format, revisions[c.Key])
+			if c.Active {
+				if native.conflict || native.slug != c.Slug {
+					c.Reason = "localSkillUnavailable"
+				}
+				continue
+			}
+			if localErr != nil {
+				c.Reason = "localSkillDiscoveryUnavailable"
+				continue
+			}
+			candidate := skillMatch(groups[c.Key], revisions[c.Key], native)
+			if candidate.slug == "" && !candidate.conflict {
+				continue
+			}
+			c.SkillConsumers = candidate.consumers
+			if candidate.conflict {
+				c.Reason = "skillConflict"
+			} else {
+				if candidate.slug == c.Name {
+					c.Reason = "nativeSkillAvailable"
+				} else {
+					c.Reason = "skillAlreadyAvailable"
+				}
+				c.SkillReuseToken = candidate.token
+			}
 		}
-		candidate := skillMatch(groups[c.Key], revisions[c.Key])
-		c.SkillConsumers = candidate.consumers
-		if candidate.conflict {
-			c.Reason = "skillConflict"
-		} else {
-			c.Reason = "skillAlreadyAvailable"
-			c.SkillReuseToken = candidate.token
-		}
-	}
-	return nil
+		return nil
+	})
 }

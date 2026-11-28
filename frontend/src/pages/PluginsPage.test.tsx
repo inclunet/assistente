@@ -584,6 +584,17 @@ describe('PluginsPage', () => {
     expect(mocks.reuseSkill).toHaveBeenCalledWith('one','sha','skills/nota','geracao');
   });
 
+  it('permite desativar o vínculo quando a skill local deixa de estar disponível', async () => {
+    const user = userEvent.setup();
+    mocks.list.mockResolvedValue([{id:'one',name:'Demo',digest:'sha'}]);
+    mocks.components.mockResolvedValue([{kind:'skill',name:'nota',key:'skills/nota',active:true,slug:'nota',reason:'localSkillUnavailable'}]);
+    render(<PluginsPage />);
+    (await screen.findByRole('gridcell',{name:/Demo/})).focus();
+    await user.keyboard('{Enter}');
+    await user.click(await screen.findByRole('button',{name:'plugins.deactivate'}));
+    expect(mocks.toggle).toHaveBeenCalledWith('one','sha','skills/nota',false);
+  });
+
   it('confirma o uso de um servidor equivalente sem registrar outro servidor', async () => {
     const user = userEvent.setup();
     mocks.list.mockResolvedValue([{id:'one',name:'Demo',digest:'sha'}]);
