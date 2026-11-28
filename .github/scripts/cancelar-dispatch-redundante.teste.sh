@@ -17,8 +17,13 @@ set -euo pipefail
 [[ $1 == api ]] || exit 90
 case $2 in
   'repos/owner/repo/actions/workflows/ci.yml/runs?event=pull_request&head_sha=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa&per_page=100')
-    [[ ${MOCK_FAIL:-} != query ]] || exit 91
     printf 'consulta\n' >> "$DISPATCH_TEST_DIR/queries"
+    [[ ${MOCK_FAIL:-} != query ]] || exit 91
+    consultas=$(wc -l < "$DISPATCH_TEST_DIR/queries")
+    if [[ ( ${MOCK_FAIL:-} == first-query && $consultas -eq 1 ) ||
+          ( ${MOCK_FAIL:-} == last-query && $consultas -eq 4 ) ]]; then
+      exit 91
+    fi
     cat "$DISPATCH_TEST_DIR/runs" ;;
   'repos/owner/repo/actions/runs/10/jobs?per_page=1') printf '%s\n' "${MOCK_JOBS:-0}" ;;
   "repos/owner/repo/actions/runs/$EXPECTED_DISPATCH_RUN_ID/force-cancel")
@@ -81,7 +86,17 @@ GITHUB_EVENT_NAME=pull_request expect 0
 CI_PR_NUMBER=0 expect 0
 if CI_PR_NUMBER=invalid run; then fail 'aceitou PR inválido'; fi
 if GITHUB_RUN_ID=invalid run; then fail 'aceitou run inválido'; fi
-if MOCK_FAIL=query run; then fail 'ocultou erro de consulta'; fi
+MOCK_FAIL=first-query expect 1
+[[ $(wc -l < "$test_dir/queries") -eq 2 ]] || fail 'não recuperou consulta antes de cancelar'
+: > "$test_dir/runs"
+MOCK_FAIL=first-query expect 0
+[[ $(wc -l < "$test_dir/queries") -eq 4 ]] || fail 'não retomou a espera após erro transitório'
+if MOCK_FAIL=query run; then fail 'ocultou erro persistente de consulta'; fi
+grep -Fq 'Não foi possível confirmar a ausência do CI' "$test_dir/output" || fail 'erro persistente sem diagnóstico'
+if MOCK_FAIL=last-query run; then fail 'aceitou resposta vazia anterior após erro na última consulta'; fi
+[[ ! -s "$test_dir/calls" ]] || fail 'cancelou sem confirmação da API'
+grep -Fq 'Não foi possível confirmar a ausência do CI' "$test_dir/output" || fail 'erro na última consulta sem diagnóstico'
+row pull_request "$GITHUB_SHA" success 12
 if MOCK_FAIL=cancel run; then fail 'ocultou erro de cancelamento'; fi
 row pull_request "$GITHUB_SHA" action_required 12
 if MOCK_JOBS=invalid run; then fail 'aceitou inventário inválido'; fi

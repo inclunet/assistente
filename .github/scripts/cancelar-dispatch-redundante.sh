@@ -12,13 +12,23 @@ set -euo pipefail
 source "$(dirname -- "${BASH_SOURCE[0]}")/ci-efetivo-pr.sh"
 
 # O evento do PR pode chegar alguns segundos depois do dispatch do bot.
+consulta_ok=false
 for atraso in 0 5 10 15; do
   if (( atraso > 0 )); then sleep "$atraso"; fi
-  run_id=$(ci_efetivo_pr "$CI_PR_NUMBER" "$GITHUB_SHA")
+  if ! run_id=$(ci_efetivo_pr "$CI_PR_NUMBER" "$GITHUB_SHA"); then
+    consulta_ok=false
+    echo "::warning::Não foi possível consultar o CI do PR #$CI_PR_NUMBER."
+    continue
+  fi
+  consulta_ok=true
   [[ -n $run_id ]] || continue
   echo "CI do PR #$CI_PR_NUMBER já representado pelo run $run_id; solicitando cancelamento do dispatch $GITHUB_RUN_ID."
   # Os gates obrigatórios usam always(): cancel normal pode deixá-los vivos.
   gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/force-cancel" --method POST --silent
   exit 0
 done
+if [[ $consulta_ok == false ]]; then
+  echo "::error::Não foi possível confirmar a ausência do CI do PR #$CI_PR_NUMBER."
+  exit 1
+fi
 echo "Sem CI efetivo do PR #$CI_PR_NUMBER neste head; dispatch preservado."
