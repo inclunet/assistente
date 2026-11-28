@@ -240,6 +240,9 @@ func (api *Plugins) preparePreview(ctx context.Context, inventory *plugins.Inven
 	if err := inventory.DescribeExistingProviders(ctx, p.Components, snap, matchingInstallation); err != nil {
 		return nil, err
 	}
+	if err := inventory.DescribeProfileDependencies(ctx, p.Components, snap, matchingInstallation); err != nil {
+		return nil, err
+	}
 	for path := range snap.Files {
 		p.Files = append(p.Files, path)
 	}

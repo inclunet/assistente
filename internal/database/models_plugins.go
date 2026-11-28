@@ -16,8 +16,10 @@ type PluginInstallation struct {
 }
 
 type PluginRevision struct {
-	InstallationID string `gorm:"primaryKey" json:"-"`
-	Digest         string `gorm:"primaryKey" json:"digest"`
+	// Índice derivado do snapshot imutável. NULL identifica revisões anteriores à indexação.
+	ProviderRequirements []byte `json:"-"`
+	InstallationID       string `gorm:"primaryKey" json:"-"`
+	Digest               string `gorm:"primaryKey" json:"digest"`
 	// Captured package files, keyed by package-relative path. Encoding []byte
 	// as JSON preserves binary files without deserializing third-party objects.
 	Files []byte `gorm:"not null" json:"-"`
