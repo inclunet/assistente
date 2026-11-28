@@ -363,6 +363,18 @@ func TestPluginPreviewUsesSelectedDirectoryAndSession(t *testing.T) {
 	if err := api.RemoveMCP(installed.ID, installed.Digest, "mcp/sample", true); err != nil {
 		t.Fatal(err)
 	}
+	// Desvincular preserva o servidor local e impede que um segundo cadastro o duplique.
+	if err := api.RegisterMCP(installed.ID, installed.Digest, "mcp/sample"); !errors.Is(err, plugins.ErrInstallationChanged) {
+		t.Fatalf("cadastro local preservado: %v", err)
+	}
+	var preserved database.MCPServer
+	if err := db.Where("name=?", "sample").Take(&preserved).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Delete(&preserved).Error; err != nil {
+		t.Fatal(err)
+	}
+	// Recriar o servidor altera a identidade desde a prévia de atualização anterior.
 	if err := api.RegisterMCP(installed.ID, installed.Digest, "mcp/sample"); err != nil {
 		t.Fatal(err)
 	}
