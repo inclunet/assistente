@@ -138,7 +138,7 @@ func TestBuildDynamicContextPropagatesTypedToolSelectionStatus(t *testing.T) {
 		ContextProviders: contextprovider.NewRegistry(capture),
 	})
 
-	interactor.buildDynamicContext(
+	_, err := interactor.buildDynamicContext(
 		context.Background(),
 		TemplateData{ImplicitToolSelectionUnavailable: true},
 		"oi",
@@ -149,6 +149,9 @@ func TestBuildDynamicContextPropagatesTypedToolSelectionStatus(t *testing.T) {
 		&profiles.Profile{},
 	)
 
+	if err != nil {
+		t.Fatal(err)
+	}
 	if !capture.req.ImplicitToolSelectionUnavailable {
 		t.Fatal("BuildRequest não recebeu o estado tipado de fail-closed")
 	}
